@@ -49,6 +49,9 @@ mod winsound {
         }
 
         if flags & SND_MEMORY != 0 {
+            if flags & SND_ASYNC != 0 {
+                return Err(vm.new_runtime_error("Cannot play asynchronously from memory"));
+            }
             let buffer = PyBuffer::from_object(vm, &sound, BufferFlags::SIMPLE)?;
             let buf = buffer
                 .as_contiguous()
@@ -111,6 +114,9 @@ mod winsound {
         };
 
         // Check for embedded null characters
+        if path.contains(&0) {
+            return Err(vm.new_value_error("embedded null character"));
+        }
         let wide_cstr =
             widestring::WideCString::from_vec(path).map_err(|e| e.to_pyexception(vm))?;
         play_sound(PlaySoundSource::Name(&wide_cstr), flags).map_err(map_play_err(vm))
@@ -146,5 +152,45 @@ mod winsound {
     #[pyfunction]
     fn MessageBeep(args: MessageBeepArgs, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::winsound::message_beep(args.r#type).map_err(|e| e.into_pyexception(vm))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn async_memory_rejected_before_buffer_conversion() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for sound in [
+                    vm.ctx.new_str("none").into(),
+                    vm.ctx.new_bytes(vec![]).into(),
+                ] {
+                    let err = PlaySound(
+                        PlaySoundArgs {
+                            sound,
+                            flags: (SND_ASYNC | SND_MEMORY) as i32,
+                        },
+                        vm,
+                    )
+                    .unwrap_err();
+                    assert!(err.class().is(vm.ctx.exceptions.runtime_error));
+                }
+            });
+        }
+
+        #[test]
+        fn embedded_null_rejected_before_playback() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let err = PlaySound(
+                    PlaySoundArgs {
+                        sound: vm.ctx.new_str("bad\0").into(),
+                        flags: 0,
+                    },
+                    vm,
+                )
+                .unwrap_err();
+                assert!(err.class().is(vm.ctx.exceptions.value_error));
+            });
+        }
     }
 }

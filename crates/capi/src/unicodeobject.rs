@@ -8,6 +8,9 @@ use rustpython_vm::builtins::{PyBytesRef, PyStr, PyStrRef, PyUtf8StrRef};
 use rustpython_vm::common::wtf8::{CodePoint, Wtf8Buf};
 use rustpython_vm::convert::ToPyObject;
 use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine};
+pub use writer::*;
+
+mod writer;
 
 define_py_check!(fn PyUnicode_Check, types.str_type);
 define_py_check!(exact fn PyUnicode_CheckExact, types.str_type);

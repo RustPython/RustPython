@@ -437,9 +437,30 @@ pub fn as_handle(fd: Borrowed<'_>) -> io::Result<BorrowedHandle<'_>> {
 
 fn _write(fd: Raw, buf: &[u8]) -> io::Result<usize> {
     let count = cmp::min(buf.len(), MAX_RW);
+    write_errno(fd, &buf[..count]).map_err(|errno| {
+        cfg_select! {
+            windows => crate::os::io_error_from_errno(errno),
+            _ => io::Error::from_raw_os_error(errno),
+        }
+    })
+}
+
+/// `_Py_write_noraise`: retry on EINTR and return the errno on failure
+/// without allocating, so the OS signal handler can use it.
+pub fn write_noraise(fd: Raw, buf: &[u8]) -> Result<usize, i32> {
+    let count = cmp::min(buf.len(), MAX_RW);
+    loop {
+        match write_errno(fd, &buf[..count]) {
+            Err(libc::EINTR) => continue,
+            result => return result,
+        }
+    }
+}
+
+fn write_errno(fd: Raw, buf: &[u8]) -> Result<usize, i32> {
     #[cfg(windows)]
     {
-        let mut count = count;
+        let mut count = buf.len();
         loop {
             unsafe { c::_set_doserrno(0) };
             let n = unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, count as _)) };
@@ -450,18 +471,22 @@ fn _write(fd: Raw, buf: &[u8]) -> io::Result<usize> {
             // The CRT reports a successful zero-byte WriteFile as ENOSPC.
             // A nonblocking pipe may still accept a smaller prefix.
             if errno != libc::ENOSPC || dos_error() != 0 {
-                return Err(crate::os::io_error_from_errno(errno));
+                return Err(errno);
             }
             count /= 2;
             if count == 0 {
-                return Err(crate::os::io_error_from_errno(libc::EAGAIN));
+                return Err(libc::EAGAIN);
             }
         }
     }
     #[cfg(not(windows))]
     {
-        let n = cvt(unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, count as _)) })?;
-        Ok(n as usize)
+        let n = unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, buf.len() as _)) };
+        if n < 0 {
+            Err(crate::os::get_errno())
+        } else {
+            Ok(n as usize)
+        }
     }
 }
 

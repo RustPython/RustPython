@@ -30,6 +30,8 @@ pub struct TypeDataSlot {
     // PyObject_GetTypeData
     type_id: TypeId,
     data: Box<dyn Any + Send + Sync>,
+    traverse: Option<fn(&dyn Any, &mut crate::object::TraverseFn<'_>)>,
+    clear: Option<fn(&mut dyn Any, &mut Vec<PyObjectRef>)>,
 }
 
 impl TypeDataSlot {
@@ -38,7 +40,17 @@ impl TypeDataSlot {
         Self {
             type_id: TypeId::of::<T>(),
             data: Box::new(data),
+            traverse: None,
+            clear: None,
         }
+    }
+
+    /// Create extension storage whose Python references participate in GC.
+    pub fn new_traced<T: Any + Send + Sync + crate::object::Traverse>(data: T) -> Self {
+        let mut slot = Self::new(data);
+        slot.traverse = Some(|data, tracer| data.downcast_ref::<T>().unwrap().traverse(tracer));
+        slot.clear = Some(|data, out| data.downcast_mut::<T>().unwrap().clear(out));
+        slot
     }
 
     /// Get a reference to the data if the type matches.
@@ -57,6 +69,20 @@ impl TypeDataSlot {
             self.data.downcast_mut()
         } else {
             None
+        }
+    }
+}
+
+// SAFETY: callbacks are installed together with the matching concrete type.
+unsafe impl crate::object::Traverse for TypeDataSlot {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        if let Some(traverse) = self.traverse {
+            traverse(&*self.data, tracer);
+        }
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(clear) = self.clear {
+            clear(&mut *self.data, out);
         }
     }
 }
@@ -149,7 +175,12 @@ pub struct PyTypeSlots {
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
+    /// Retained instance-call implementation, independent of automatic eligibility.
     pub vectorcall: AtomicCell<Option<VectorCallFunc>>,
+    /// Nullable per-object lookup used by type's constructor dispatch.
+    pub(crate) vectorcall_resolver: AtomicCell<Option<VectorcallResolver>>,
+    /// Constructor implementation for this type object; never inherited.
+    pub constructor_vectorcall: AtomicCell<Option<VectorCallFunc>>,
     pub str: AtomicCell<Option<StringifyFunc>>,
     pub repr: AtomicCell<Option<StringifyFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
@@ -253,6 +284,7 @@ bitflagset::bitflagset! {
         const IMMUTABLETYPE = 8;
         const HEAPTYPE = 9;
         const BASETYPE = 10;
+        const HAVE_VECTORCALL = 11;
         const HAVE_GC = 14;
         const METHOD_DESCRIPTOR = 17;
         const IS_ABSTRACT = 20;
@@ -260,6 +292,14 @@ bitflagset::bitflagset! {
         // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset).
         // This is not a stable API.
         const _MATCH_SELF = 22;
+        const LONG_SUBCLASS = 24;
+        const LIST_SUBCLASS = 25;
+        const TUPLE_SUBCLASS = 26;
+        const BYTES_SUBCLASS = 27;
+        const UNICODE_SUBCLASS = 28;
+        const DICT_SUBCLASS = 29;
+        const BASE_EXC_SUBCLASS = 30;
+        const TYPE_SUBCLASS = 31;
         const HAS_DICT = 40;
         const HAS_WEAKREF = 41;
         #[cfg(debug_assertions)]
@@ -282,6 +322,17 @@ impl PyTypeFlags {
     );
 
     pub const COLLECTION: Self = Self::from_slice(&[Self::SEQUENCE, Self::MAPPING]);
+
+    pub const SUBCLASS_FLAGS: Self = Self::from_slice(&[
+        Self::LONG_SUBCLASS,
+        Self::LIST_SUBCLASS,
+        Self::TUPLE_SUBCLASS,
+        Self::BYTES_SUBCLASS,
+        Self::UNICODE_SUBCLASS,
+        Self::DICT_SUBCLASS,
+        Self::BASE_EXC_SUBCLASS,
+        Self::TYPE_SUBCLASS,
+    ]);
 }
 
 impl AtomicPyTypeFlags {
@@ -369,6 +420,7 @@ pub(crate) type VectorCallFunc = fn(
     Option<&[PyObjectRef]>, // kwnames (keyword argument names)
     &VirtualMachine,
 ) -> PyResult;
+type VectorcallResolver = fn(&PyObject) -> Option<VectorCallFunc>;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyRef<PyStr>>;
@@ -455,6 +507,18 @@ macro_rules! number_binary_op_wrapper {
 // binary_op1 needs one function address across slot updates and deletions.
 fn number_add_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(a, identifier!(vm, __add__), (b.to_owned(),))
+}
+fn number_multiply_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __mul__), (b.to_owned(),))
+}
+fn number_right_multiply_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(b, identifier!(vm, __rmul__), (a.to_owned(),))
+}
+fn number_inplace_add_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __iadd__), (b.to_owned(),))
+}
+fn number_inplace_multiply_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __imul__), (b.to_owned(),))
 }
 
 macro_rules! number_binary_right_op_wrapper {
@@ -556,12 +620,14 @@ fn sequence_contains_wrapper(
 
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
-    ret.downcast::<PyStr>().map_err(|obj| {
-        vm.new_type_error(format!(
-            "__repr__ returned non-string (type {})",
-            obj.class()
-        ))
-    })
+    match ret.downcast::<PyStr>() {
+        Ok(value) => Ok(value),
+        Err(obj) => Err(vm.new_type_error(format!(
+            "{}.__repr__() must return a str, not {}",
+            zelf.class().fully_qualified_name(vm)?,
+            obj.class().fully_qualified_name(vm)?
+        ))),
+    }
 }
 
 fn str_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
@@ -1000,6 +1066,19 @@ impl PyType {
             }};
         }
 
+        macro_rules! native_sequence_wrapper {
+            ($name:ident, $slot:pat) => {
+                self.get_attr(identifier!(ctx, $name)).is_some_and(|attr| {
+                    attr.class().is(ctx.types.wrapper_descriptor_type)
+                        && attr.downcast_ref::<PyWrapper>().is_some_and(|descr| {
+                            descr.name.as_str() == stringify!($name)
+                                && self.mro.read().iter().any(|cls| cls.is(descr.typ))
+                                && matches!(descr.wrapped, $slot)
+                        })
+                })
+            };
+        }
+
         match accessor {
             // === Main slots ===
             SlotAccessor::TpRepr => update_main_slot!(repr, repr_wrapper, Repr),
@@ -1041,20 +1120,17 @@ impl PyType {
             }
             SlotAccessor::TpCall => {
                 update_main_slot!(call, call_wrapper, Call);
-                // When __call__ is overridden in Python, clear vectorcall
-                // so the slow path through call_wrapper is used.
-                if ADD {
-                    self.slots.vectorcall.store(None);
+                // Generic __call__ disables automatic dispatch, not retained raw support.
+                // A missing call slot alone does not revoke the CPython eligibility flag.
+                if self.slots.call.load().map(fn_addr)
+                    == Some(fn_addr(call_wrapper as GenericMethod))
+                {
+                    self.slots.flags.remove(PyTypeFlags::HAVE_VECTORCALL);
                 }
             }
             SlotAccessor::TpIter => update_main_slot!(iter, iter_wrapper, Iter),
             SlotAccessor::TpIternext => update_main_slot!(iternext, iternext_wrapper, IterNext),
-            SlotAccessor::TpInit => {
-                update_main_slot!(init, init_wrapper, Init);
-                if ADD {
-                    self.slots.vectorcall.store(None);
-                }
-            }
+            SlotAccessor::TpInit => update_main_slot!(init, init_wrapper, Init),
             SlotAccessor::TpNew => {
                 // __new__ is a staticmethod, not a PyWrapper descriptor, so
                 // lookup_slot_in_mro cannot classify it. Resolve __new__
@@ -1077,7 +1153,6 @@ impl PyType {
                 };
                 if needs_wrapper {
                     self.slots.new.store(Some(new_wrapper));
-                    self.slots.vectorcall.store(None);
                 } else {
                     let inherited = self.base.deref().and_then(|base| base.slots.new.load());
                     self.slots.new.store(inherited);
@@ -1291,12 +1366,22 @@ impl PyType {
                 }
             }
             SlotAccessor::NbInplaceAdd => {
-                update_sub_slot!(
-                    as_number,
-                    inplace_add,
-                    number_binary_op_wrapper!(__iadd__),
-                    NumBinary
-                )
+                if native_sequence_wrapper!(__iadd__, SlotFunc::SeqConcat(_)) {
+                    // Unlike repeat wrappers, both inplace-add slots accept an
+                    // object argument. Keep the numeric dispatcher ahead of
+                    // reflected addition, including after deleting an override.
+                    self.slots
+                        .as_number
+                        .inplace_add
+                        .store(Some(number_inplace_add_wrapper));
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        inplace_add,
+                        number_inplace_add_wrapper,
+                        NumBinary
+                    )
+                }
             }
             SlotAccessor::NbSubtract => {
                 if name.as_str() == "__rsub__" {
@@ -1324,29 +1409,54 @@ impl PyType {
                 )
             }
             SlotAccessor::NbMultiply => {
-                if name.as_str() == "__rmul__" {
+                let native_left = native_sequence_wrapper!(__mul__, SlotFunc::SeqRepeat(_));
+                let native_right = native_sequence_wrapper!(__rmul__, SlotFunc::SeqRepeat(_));
+                // CPython has a single numeric multiply slot for both names.
+                // Keep native repeat in sq_repeat unless either name needs the
+                // numeric dispatcher, or that dispatcher was already installed.
+                let needs_numeric = self.slots.as_number.multiply.load().is_some()
+                    || self.slots.as_number.right_multiply.load().is_some()
+                    || self.slots.as_sequence.repeat.load().is_none()
+                    || (!native_left && self.get_attr(identifier!(ctx, __mul__)).is_some())
+                    || (!native_right && self.get_attr(identifier!(ctx, __rmul__)).is_some());
+                if native_right {
+                    self.slots
+                        .as_number
+                        .right_multiply
+                        .store(needs_numeric.then_some(number_right_multiply_wrapper));
+                } else if name.as_str() == "__rmul__" {
                     update_sub_slot!(
                         as_number,
                         right_multiply,
-                        number_binary_right_op_wrapper!(__rmul__),
-                        NumBinary
-                    )
-                } else {
-                    update_sub_slot!(
-                        as_number,
-                        multiply,
-                        number_binary_op_wrapper!(__mul__),
+                        number_right_multiply_wrapper,
                         NumBinary
                     )
                 }
+                if native_left {
+                    self.slots
+                        .as_number
+                        .multiply
+                        .store(needs_numeric.then_some(number_multiply_wrapper));
+                } else if name.as_str() == "__mul__" {
+                    update_sub_slot!(as_number, multiply, number_multiply_wrapper, NumBinary)
+                }
             }
             SlotAccessor::NbInplaceMultiply => {
-                update_sub_slot!(
-                    as_number,
-                    inplace_multiply,
-                    number_binary_op_wrapper!(__imul__),
-                    NumBinary
-                )
+                if native_sequence_wrapper!(__imul__, SlotFunc::SeqRepeat(_)) {
+                    let needs_numeric = self.slots.as_number.inplace_multiply.load().is_some()
+                        || self.slots.as_sequence.inplace_repeat.load().is_none();
+                    self.slots
+                        .as_number
+                        .inplace_multiply
+                        .store(needs_numeric.then_some(number_inplace_multiply_wrapper));
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        inplace_multiply,
+                        number_inplace_multiply_wrapper,
+                        NumBinary
+                    )
+                }
             }
             SlotAccessor::NbRemainder => {
                 if name.as_str() == "__rmod__" {

@@ -1,7 +1,6 @@
-#![allow(clippy::iter_over_hash_type)]
-
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use core::hint::black_box;
 use criterion::{
     Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
@@ -10,7 +9,7 @@ use criterion::{
 use pyo3::types::{PyCode, PyCodeMethods, PyDict, PyDictMethods, code::PyCodeInput};
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 /// `true` when the benchmarks are executed by the CodSpeed runner.
 ///
@@ -44,6 +43,9 @@ fn bench_rustpython_code(b: &mut Bencher<'_>, name: &str, source: &str) {
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
     settings.user_site_directory = false;
+    // Pin the str/bytes hash secret so dict/set probe sequences (and thus
+    // timings) are reproducible across benchmark runs.
+    settings.hash_seed = Some(0);
     let builder = Interpreter::builder(settings);
     let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
     builder.add_native_modules(&defs).build().enter(|vm| {
@@ -93,9 +95,14 @@ pub fn benchmark_file_parsing(
                 let builtins = pyo3::types::PyModule::import(py, "builtins")
                     .expect("Failed to import builtins");
                 let compile = builtins.getattr("compile").expect("no compile in builtins");
+                let ast = pyo3::types::PyModule::import(py, "ast").expect("Failed to import ast");
+                let only_ast: i32 = ast
+                    .getattr("PyCF_ONLY_AST")
+                    .and_then(|flag| flag.extract())
+                    .expect("no PyCF_ONLY_AST in ast");
                 b.iter(|| {
                     let x = compile
-                        .call1((contents, name, "exec"))
+                        .call1((contents, name, "exec", only_ast))
                         .expect("Failed to parse code");
                     black_box(x);
                 })
@@ -127,14 +134,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut benches = benchmark_dir
         .read_dir()
         .unwrap()
-        .map(|entry| {
-            let path = entry.unwrap().path();
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "py"))
+        .map(|path| {
             (
                 path.file_name().unwrap().to_str().unwrap().to_owned(),
                 std::fs::read_to_string(path).unwrap(),
             )
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
 
     // Benchmark parsing
     let mut parse_group = c.benchmark_group("parse_to_ast");

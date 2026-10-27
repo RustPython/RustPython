@@ -1,7 +1,6 @@
 """Tests for migrate.py - file migration operations."""
 
 import contextlib
-import hashlib
 import io
 import json
 import pathlib
@@ -11,19 +10,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from update_lib.cmd_migrate import (
-    CANONICAL_CALL,
-    EXCEPTION_LOOP,
-    JIT_ERROR,
-    LOCAL_CALL,
-    SYSCONFIG_LOCAL,
-    SYSCONFIG_UPSTREAM,
-    copy_support_assignments,
+    _preserve_block,
     main,
     migrate_package,
     patch_directory,
     patch_file,
     patch_single_content,
-    preserve_migration_customizations,
 )
 from update_lib.patch_spec import (
     CANONICAL_LOAD_TESTS,
@@ -37,237 +29,82 @@ from update_lib.patch_spec import (
 )
 
 
-class TestSupportAssignments(unittest.TestCase):
-    names = ["_available", "requires_available", "requires_unavailable"]
-    exports = names[1:]
-    imports = "import os\nimport unittest\n\n"
-    export_line = '    "requires_available", "requires_unavailable",\n'
-    block = (
-        "_available = hasattr(os, 'geteuid') and os.geteuid() == 0\n"
-        'requires_available = unittest.skipUnless(_available, "needs privilege")\n'
-        'requires_unavailable = unittest.skipIf(_available, "needs no privilege")\n\n\n'
-    )
-    source = (
-        imports
-        + '__all__ = [\n    "existing",\n'
-        + export_line
-        + "]\n\n\n"
-        + block
-        + "STATUS = 1\n"
-    )
-    destination = (
-        imports
-        + '__all__ = [\n    "existing",\n]\n\n\ndef legacy():\n    return "keep π"\n\n\nSTATUS = 1\n'
-    )
-
-    def test_canonical_bytes_and_unrelated_helpers_are_preserved(self):
-        result = copy_support_assignments(
-            self.source, self.destination, self.names, self.exports
-        )
-        self.assertEqual(
-            result,
-            self.destination.replace(
-                "__all__ = [\n", "__all__ = [\n" + self.export_line
-            ).replace("STATUS = 1\n", self.block + "STATUS = 1\n"),
-        )
-
-    def test_missing_ambiguous_and_noncontiguous_assignments_are_rejected(self):
-        for source in (
-            self.source.replace("_available =", "_other ="),
-            self.source + "_available = False\n",
-            self.source + "def requires_available(): pass\n",
-            self.source + "import other as requires_unavailable\n",
-            self.source.replace(
-                "requires_available =", "unselected = 0\nrequires_available ="
-            ),
-            self.source.replace("_available =", "unselected = 0; _available =", 1),
-            self.source.replace("STATUS = 1", ""),
-        ):
-            with self.subTest(source=source), self.assertRaises(ValueError):
-                copy_support_assignments(
-                    source, self.destination, self.names, self.exports
-                )
-
-    def test_existing_bindings_dependencies_and_anchor_fail_closed(self):
-        for destination in (
-            self.destination + "_available = False\n",
-            self.destination + "def requires_available(): pass\n",
-            self.destination + "import other as requires_unavailable\n",
-            self.destination.replace("import os\n", ""),
-            self.destination.replace("import os\n", "import os as other\n"),
-            self.destination.replace("import os\n", "") + "import os\n",
-            self.destination.replace("STATUS = 1", "STATUS = 2"),
-            self.destination + "STATUS = 1\n",
-        ):
-            with self.subTest(destination=destination), self.assertRaises(ValueError):
-                copy_support_assignments(
-                    self.source, destination, self.names, self.exports
-                )
-
-    def test_invalid_exports_are_rejected(self):
-        for source, destination, exports in (
-            (self.source, self.destination, self.exports + self.exports),
-            (self.source, self.destination, ["unselected"]),
-            (self.source, self.destination, list(reversed(self.exports))),
-            (self.source, self.destination, self.exports[:1]),
-            (
-                self.source,
-                self.destination.replace('"existing"', '"requires_available"'),
-                self.exports,
-            ),
-            (self.source.replace(self.export_line, ""), self.destination, self.exports),
-            (
-                self.source,
-                self.destination.replace('[\n    "existing",\n]', '("existing",)'),
-                self.exports,
-            ),
-            (self.source.replace('"existing"', "3"), self.destination, self.exports),
-            (self.source, self.destination.replace('"existing"', "3"), self.exports),
-        ):
-            with self.subTest(exports=exports), self.assertRaises(ValueError):
-                copy_support_assignments(source, destination, self.names, exports)
-
-    def test_dependency_rebinding_deletion_and_builtin_shadowing_are_rejected(self):
-        for binding in (
-            "os = replacement",
-            "del os",
-            "import other as os",
-            "hasattr = replacement",
-            "del hasattr",
-            "if condition:\n    unittest = replacement",
-        ):
-            for source_side in (False, True):
-                source, destination = self.source, self.destination
-                if source_side:
-                    source = source.replace("__all__ = [", binding + "\n__all__ = [")
-                else:
-                    destination = destination.replace(
-                        "__all__ = [", binding + "\n__all__ = ["
-                    )
-                with (
-                    self.subTest(binding=binding, source_side=source_side),
-                    self.assertRaisesRegex(ValueError, "Ambiguous dependency binding"),
-                ):
-                    copy_support_assignments(
-                        source, destination, self.names, self.exports
-                    )
-
-    def test_decorated_and_partial_line_anchors_are_rejected(self):
-        for replacement in (
-            "@decorator\ndef anchor(): pass",
-            "STATUS = 1; other = 2",
-            "other = 2; STATUS = 1",
-        ):
-            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
-                copy_support_assignments(
-                    self.source.replace("STATUS = 1", replacement),
-                    self.destination.replace("STATUS = 1", replacement),
-                    self.names,
-                    self.exports,
-                )
-
-    def test_wildcard_import_dependencies_are_rejected(self):
-        for source, destination in (
-            ("from other import *\n" + self.source, self.destination),
-            (self.source, "from other import *\n" + self.destination),
-        ):
-            with self.assertRaisesRegex(ValueError, "Wildcard import"):
-                copy_support_assignments(source, destination, self.names, self.exports)
-
-    def test_cli_hash_pins_scope_and_receipt(self):
-        with tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):
-            source = pathlib.Path("canonical/Lib/test/support/__init__.py")
-            target = pathlib.Path("Lib/test/support/__init__.py")
-            source.parent.mkdir(parents=True)
-            target.parent.mkdir(parents=True)
-            source.write_text(self.source)
-            target.write_text(self.destination)
-            args = [
-                str(source),
-                "--support-assignments",
-                *self.names,
-                "--support-exports",
-                *self.exports,
-                "--source-sha256",
-                hashlib.sha256(source.read_bytes()).hexdigest(),
-                "--destination-sha256",
-                "0" * 64,
-            ]
-            with contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(main(args), 1)
-                self.assertEqual(
-                    main([str(source), "--support-assignments", *self.names]), 1
-                )
-            self.assertEqual(target.read_text(), self.destination)
-            args[-1] = hashlib.sha256(target.read_bytes()).hexdigest()
-            with contextlib.redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(main(args), 0)
-            self.assertIn('"destination_after_sha256"', output.getvalue())
-            self.assertIn(self.block, target.read_text())
-            for path in (
-                "canonical/Lib/os.py",
-                "canonical/Lib/test/support/../../os.py",
-            ):
-                with contextlib.redirect_stderr(io.StringIO()):
-                    self.assertEqual(main([path, *args[1:]]), 1)
-
-    def test_selective_mode_rejects_existing_modes_before_reading_metadata(self):
-        for mode in ("--patches", "--legacy-map"):
-            with contextlib.redirect_stderr(io.StringIO()) as errors:
-                self.assertEqual(
-                    main(
-                        [
-                            "missing/Lib/test/support/example.py",
-                            "--support-assignments",
-                            *self.names,
-                            mode,
-                            "missing-metadata.json",
-                        ]
-                    ),
-                    1,
-                )
-            self.assertIn("cannot combine", errors.getvalue())
-            with contextlib.redirect_stderr(io.StringIO()) as errors:
-                self.assertEqual(
-                    main(
-                        [
-                            "missing/Lib/test/support/example.py",
-                            "--support-exports",
-                            *self.exports,
-                            mode,
-                            "missing-metadata.json",
-                        ]
-                    ),
-                    1,
-                )
-            self.assertIn("require --support-assignments", errors.getvalue())
-
-    def test_default_syntax_error_behavior_is_unchanged(self):
-        with patch(
-            "update_lib.cmd_migrate.patch_file", side_effect=SyntaxError("invalid")
-        ):
-            with self.assertRaises(SyntaxError):
-                main(["missing/Lib/test/support/example.py"])
-        with patch(
-            "update_lib.cmd_migrate.migrate_support_assignments",
-            side_effect=SyntaxError("invalid"),
-        ):
-            with contextlib.redirect_stderr(io.StringIO()) as errors:
-                self.assertEqual(
-                    main(
-                        [
-                            "missing/Lib/test/support/example.py",
-                            "--support-assignments",
-                            *self.names,
-                        ]
-                    ),
-                    1,
-                )
-            self.assertIn("invalid", errors.getvalue())
-
-
 class TestPatchSingleContent(unittest.TestCase):
     """Tests for patch_single_content function."""
+
+    def test_explicit_blocks_preserve_existing_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / "canonical.py", root / "Lib/test/test_example.py"
+            target.parent.mkdir(parents=True)
+            source.write_text("import unittest\nvalue = 2\n")
+            target.write_text("import sys\nimport unittest\nvalue = 1\n")
+            document = {
+                "target": "Lib/test/test_example.py",
+                "patches": {},
+                "blocks": [["import unittest\n", "import sys\nimport unittest\n"]],
+            }
+            with patch(
+                "update_lib.cmd_migrate.__file__",
+                str(root / "scripts/update_lib/cmd_migrate.py"),
+            ):
+                self.assertEqual(
+                    patch_single_content(source, target), source.read_text()
+                )
+                result = patch_single_content(source, target, document)
+                self.assertEqual(result, "import sys\nimport unittest\nvalue = 2\n")
+                for blocks in (
+                    None,
+                    [[]],
+                    [["import unittest\n", "import missing\n"]],
+                    [["value = 2\n", "import sys\n"], ["import sys\n", "value = 1\n"]],
+                ):
+                    with self.subTest(blocks=blocks), self.assertRaises(ValueError):
+                        patch_file(
+                            source,
+                            target,
+                            verbose=False,
+                            patches_document={**document, "blocks": blocks},
+                        )
+                    self.assertEqual(
+                        target.read_text(), "import sys\nimport unittest\nvalue = 1\n"
+                    )
+
+    def test_nested_fragments_and_ambiguous_inputs(self):
+        canonical, local = "    value = 1\n", "    value = 2\n"
+        self.assertEqual(
+            _preserve_block(
+                "class X:\n" + local, "class X:\n" + canonical, canonical, local
+            ),
+            "class X:\n" + local,
+        )
+        for old, new in (
+            (local * 2, canonical),
+            (local, canonical * 2),
+            ("", canonical),
+        ):
+            with self.subTest(old=old, new=new), self.assertRaises(ValueError):
+                _preserve_block(old, new, canonical, local)
+
+    def test_invalid_result_does_not_write_production_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / "canonical.py", root / "Lib/example.py"
+            target.parent.mkdir()
+            source.write_text("x = 1\n")
+            target.write_text("x = 'a'\n")
+            document = {
+                "target": "Lib/example.py",
+                "patches": {},
+                "blocks": [["1", "'a"]],
+            }
+            with patch(
+                "update_lib.cmd_migrate.__file__",
+                str(root / "scripts/update_lib/cmd_migrate.py"),
+            ):
+                with self.assertRaisesRegex(ValueError, "invalid Python"):
+                    patch_file(source, target, verbose=False, patches_document=document)
+                self.assertEqual(target.read_text(), "x = 'a'\n")
 
     def migrate_doctest(self, selection=None, explicit=False):
         old = '''"""
@@ -474,6 +311,17 @@ class TestFoo(unittest.TestCase):
 class TestPatchDirectory(unittest.TestCase):
     """Tests for patch_directory function."""
 
+    def test_empty_canonical_fixture_stays_byte_empty(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = Path(temporary) / "canonical", Path(temporary) / "local"
+            source.mkdir()
+            target.mkdir()
+            (source / "empty.py").write_bytes(b"")
+            (target / "empty.py").write_bytes(b"\n")
+            for _ in range(2):
+                patch_directory(source, target, verbose=False)
+                self.assertEqual((target / "empty.py").read_bytes(), b"")
+
     def test_excludes_cache_directories_but_preserves_canonical_assets(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -559,182 +407,6 @@ class TestA(unittest.TestCase):
 
             content = (lib_dir / "test_a.py").read_text()
             self.assertIn("@unittest.expectedFailure", content)
-
-
-class RuntimePatchTests(unittest.TestCase):
-    def test_sysconfig_identity_and_new_content(self):
-        path = Path("Lib/sysconfig/__init__.py")
-        source = SYSCONFIG_UPSTREAM + "new_final_behavior = True\n"
-        result = preserve_migration_customizations(path, SYSCONFIG_LOCAL, source)
-        self.assertEqual(result, SYSCONFIG_LOCAL + "new_final_behavior = True\n")
-        self.assertEqual(
-            preserve_migration_customizations(path, result, source), result
-        )
-
-    def test_pickle_jit_mapping_and_new_content(self):
-        path = Path("Lib/_compat_pickle.py")
-        source = "final_mapping = 'ImportCycleError'\n" + EXCEPTION_LOOP
-        result = preserve_migration_customizations(
-            path, JIT_ERROR + EXCEPTION_LOOP, source
-        )
-        self.assertEqual(
-            result, "final_mapping = 'ImportCycleError'\n" + JIT_ERROR + EXCEPTION_LOOP
-        )
-        self.assertEqual(
-            preserve_migration_customizations(path, result, source), result
-        )
-
-    def test_changed_or_ambiguous_anchors_fail(self):
-        cases = [
-            (Path("Lib/sysconfig/__init__.py"), SYSCONFIG_LOCAL, SYSCONFIG_UPSTREAM),
-            (Path("Lib/_compat_pickle.py"), JIT_ERROR + EXCEPTION_LOOP, EXCEPTION_LOOP),
-        ]
-        for path, old, source in cases:
-            for bad_old in (
-                "",
-                old + old,
-                old.replace("RustPython", "Other").replace("JitError", "Other"),
-            ):
-                with (
-                    self.subTest(path=path, bad_old=bad_old),
-                    self.assertRaises(ValueError),
-                ):
-                    preserve_migration_customizations(path, bad_old, source)
-            for bad_source in (
-                "",
-                source + source,
-                source.replace("Python", "Other").replace("excname", "other"),
-            ):
-                with (
-                    self.subTest(path=path, bad_source=bad_source),
-                    self.assertRaises(ValueError),
-                ):
-                    preserve_migration_customizations(path, old, bad_source)
-
-    def test_unrelated_file_unchanged(self):
-        self.assertEqual(
-            preserve_migration_customizations(Path("Lib/other.py"), JIT_ERROR, "new\n"),
-            "new\n",
-        )
-
-    def test_decoy_and_shadowed_sysconfig_anchors_fail(self):
-        path = Path("Lib/sysconfig/__init__.py")
-        for source in (
-            'doc = """' + SYSCONFIG_UPSTREAM + '"""\n',
-            SYSCONFIG_UPSTREAM + "def _get_implementation():\n    return 'Other'\n",
-            SYSCONFIG_UPSTREAM + "_get_implementation = lambda: 'Other'\n",
-            SYSCONFIG_UPSTREAM + "from other import _get_implementation\n",
-            SYSCONFIG_UPSTREAM + "import other as _get_implementation\n",
-            SYSCONFIG_UPSTREAM + "class _get_implementation: pass\n",
-            SYSCONFIG_UPSTREAM + "del _get_implementation\n",
-        ):
-            with self.subTest(source=source), self.assertRaises(ValueError):
-                preserve_migration_customizations(path, SYSCONFIG_LOCAL, source)
-
-    def test_decoy_and_reordered_pickle_anchors_fail(self):
-        path = Path("Lib/_compat_pickle.py")
-        old = JIT_ERROR + EXCEPTION_LOOP
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                path, old, 'doc = """' + EXCEPTION_LOOP + '"""\n'
-            )
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                path, EXCEPTION_LOOP + JIT_ERROR, EXCEPTION_LOOP
-            )
-
-    def test_similarly_named_nested_files_are_untouched(self):
-        for path in (
-            "Lib/other/sysconfig/__init__.py",
-            "Lib/other/_compat_pickle.py",
-            "other/sysconfig/__init__.py",
-        ):
-            self.assertEqual(
-                preserve_migration_customizations(Path(path), "old", "new"), "new"
-            )
-
-    def test_absolute_target_requires_explicit_repository_resolution(self):
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                Path("/parent/Lib/repository/Lib/sysconfig/__init__.py"),
-                SYSCONFIG_LOCAL,
-                SYSCONFIG_UPSTREAM,
-            )
-
-    def test_migrate_resolves_real_repository_under_lib_parent(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "Lib" / "repository"
-            output = root / "Lib" / "sysconfig" / "__init__.py"
-            output.parent.mkdir(parents=True)
-            output.write_text(SYSCONFIG_LOCAL, encoding="utf-8")
-            source = Path(temporary) / "canonical.py"
-            source.write_text(SYSCONFIG_UPSTREAM, encoding="utf-8")
-            module_file = root / "scripts" / "update_lib" / "cmd_migrate.py"
-            with patch("update_lib.cmd_migrate.__file__", str(module_file)):
-                self.assertEqual(patch_single_content(source, output), SYSCONFIG_LOCAL)
-                outside = (
-                    Path(temporary) / "outside" / "Lib" / "sysconfig" / "__init__.py"
-                )
-                outside.parent.mkdir(parents=True)
-                outside.write_text(SYSCONFIG_LOCAL, encoding="utf-8")
-                self.assertEqual(
-                    patch_single_content(source, outside), SYSCONFIG_UPSTREAM
-                )
-
-
-CALL_PATH = Path("Lib/test/test_cmd_line.py")
-CALL_TEMPLATE = """class CmdLineTest:
-    def test_empty_PYTHONPATH_issue16309(self):
-        result = CALL
-        self.assertEqual(result, 'new final assertion')
-"""
-CALL_OLD = CALL_TEMPLATE.replace("CALL", LOCAL_CALL).replace(
-    "new final assertion", "old assertion"
-)
-CALL_CANONICAL = CALL_TEMPLATE.replace("CALL", CANONICAL_CALL)
-
-
-class CallPatchTests(unittest.TestCase):
-    def test_final_body_and_roundtrip(self):
-        result = preserve_migration_customizations(CALL_PATH, CALL_OLD, CALL_CANONICAL)
-        self.assertEqual(result, CALL_TEMPLATE.replace("CALL", LOCAL_CALL))
-        self.assertIn("new final assertion", result)
-        self.assertEqual(
-            preserve_migration_customizations(CALL_PATH, result, CALL_CANONICAL), result
-        )
-
-    def test_missing_duplicate_owners_and_calls_fail(self):
-        for source in (
-            CALL_CANONICAL.replace("CmdLineTest", "Other"),
-            CALL_CANONICAL + CALL_CANONICAL,
-            CALL_CANONICAL.replace(
-                "        result = ", "        " + CANONICAL_CALL + "\n        result = "
-            ),
-            CALL_CANONICAL.replace("test_empty_PYTHONPATH_issue16309", "other"),
-        ):
-            with self.subTest(source=source), self.assertRaises(ValueError):
-                preserve_migration_customizations(CALL_PATH, CALL_OLD, source)
-
-    def test_changed_keywords_and_decoy_fail(self):
-        for old in (
-            CALL_OLD.replace('RUSTPYTHONPATH=""', 'RUSTPYTHONPATH="changed"'),
-            CALL_CANONICAL,
-            'doc = """' + CALL_OLD + '"""\n',
-        ):
-            with self.subTest(old=old), self.assertRaises(ValueError):
-                preserve_migration_customizations(CALL_PATH, old, CALL_CANONICAL)
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                CALL_PATH,
-                CALL_OLD,
-                CALL_CANONICAL.replace('PYTHONPATH=""', 'PYTHONPATH="changed"'),
-            )
-
-    def test_unrelated_file_unchanged(self):
-        self.assertEqual(
-            preserve_migration_customizations(Path("Lib/test/other.py"), "old", "new"),
-            "new",
-        )
 
 
 OVERRIDE_CLEAN = """import unittest
@@ -840,6 +512,114 @@ class MarkerOverrideTests(unittest.TestCase):
             }
             with self.subTest(markers=markers), self.assertRaises(ValueError):
                 select_remaining_patches(current, document, Path(document["target"]))
+
+
+class ConditionalMarkerOverrideTests(unittest.TestCase):
+    decorator = (
+        '    @unittest.expectedFailureIf(not support.is_android, "TODO: RUSTPYTHON")\n'
+    )
+
+    def fixture(self):
+        old = OVERRIDE_CLEAN.replace(
+            "    def test_known", self.decorator + "    def test_known"
+        )
+        current = extract_patches(old)
+        document = {
+            "target": "Lib/test/test_example.py",
+            "patches": {},
+            "retire_conditional": [
+                {
+                    "class": "Example",
+                    "method": "test_known",
+                    "decorator": self.decorator,
+                }
+            ],
+        }
+        return old, current, document
+
+    def select(self, old, current, document):
+        return select_remaining_patches(
+            current,
+            document,
+            Path(document["target"]),
+            old_content=old,
+        )
+
+    def test_explicit_conditional_retirement(self):
+        old, current, document = self.fixture()
+        self.assertEqual(self.select(old, current, document), {})
+
+    def test_omitted_conditional_without_authorization_fails(self):
+        old, current, document = self.fixture()
+        del document["retire_conditional"]
+        with self.assertRaises(ValueError):
+            self.select(old, current, document)
+
+    def test_absent_duplicate_modified_and_retained_fail_closed(self):
+        for change in (
+            "absent",
+            "duplicate",
+            "text",
+            "condition",
+            "retained",
+            "duplicate_source",
+        ):
+            old, current, document = self.fixture()
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                if change == "absent":
+                    document["retire_conditional"][0]["method"] = "missing"
+                elif change == "duplicate":
+                    document["retire_conditional"] *= 2
+                elif change == "text":
+                    document["retire_conditional"][0]["decorator"] = (
+                        self.decorator.replace('"', "'")
+                    )
+                elif change == "condition":
+                    old = old.replace("not support.is_android", "support.is_android")
+                    current = extract_patches(old)
+                elif change == "retained":
+                    document["patches"] = patches_to_json(current)
+                elif change == "duplicate_source":
+                    old = old.replace(self.decorator, self.decorator * 2)
+                    current = extract_patches(old)
+                self.select(old, current, document)
+
+    def test_other_guards_and_original_source_required(self):
+        for replacement in ("skipIf", "expectedFailureIfWindows"):
+            old, current, document = self.fixture()
+            old = old.replace("expectedFailureIf", replacement)
+            document["retire_conditional"][0]["decorator"] = self.decorator.replace(
+                "expectedFailureIf", replacement
+            )
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                self.select(old, extract_patches(old), document)
+        old, current, document = self.fixture()
+        with self.assertRaises(ValueError):
+            self.select(None, current, document)
+
+    def test_cli_conditional_retirement_preserves_remaining_markers(self):
+        old = OVERRIDE_OLD.replace(
+            "    @unittest.expectedFailure  # TODO: RUSTPYTHON; old failure\n",
+            self.decorator,
+        )
+
+        def authorize(document):
+            document["retire_conditional"] = [
+                {
+                    "class": "Example",
+                    "method": "test_known",
+                    "decorator": self.decorator,
+                }
+            ]
+
+        with patch(__name__ + ".OVERRIDE_OLD", old):
+            status, result = MarkerOverrideTests().invoke(authorize)
+            self.assertEqual(status, 0)
+            self.assertNotIn("expectedFailureIf", result)
+            self.assertIn('unittest.skip("TODO: RUSTPYTHON; retained guard")', result)
+            status, result = MarkerOverrideTests().invoke()
+            self.assertEqual(status, 1)
+            self.assertEqual(result, old)
 
 
 PACKAGE_MARKED = """import unittest

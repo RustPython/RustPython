@@ -68,11 +68,13 @@ mod exception_group;
 pub mod exceptions;
 pub mod format;
 pub mod frame;
+pub mod frozen_resources;
 pub mod function;
 pub mod getpath;
 pub mod import;
 mod intern;
 pub mod iter;
+pub(crate) mod lazy_import;
 pub mod object;
 
 #[cfg(feature = "host_env")]

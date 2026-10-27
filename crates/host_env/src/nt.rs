@@ -665,7 +665,20 @@ impl core::fmt::Debug for Scandir {
 /// `rposix_scandir.opendir`: join `*.*` onto the directory and open the walk.
 pub fn scandir(path: &widestring::WideCStr) -> io::Result<Scandir> {
     let dir = path.as_slice().to_vec();
-    let mut mask = join_path_filename(&dir, &[b'*' as u16, b'.' as u16, b'*' as u16]);
+    // Normalize before appending the wildcard, as CPython does. Otherwise a
+    // trailing space becomes an interior path component and is not stripped.
+    // Extended paths deliberately retain their literal spelling.
+    let normalized;
+    let search_dir = if !dir.is_empty()
+        && !dir.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
+    {
+        use std::os::windows::ffi::OsStrExt;
+        normalized = getfullpathname(path)?.encode_wide().collect::<Vec<_>>();
+        &normalized
+    } else {
+        &dir
+    };
+    let mut mask = join_path_filename(search_dir, &[b'*' as u16, b'.' as u16, b'*' as u16]);
     mask.push(0);
     let mut data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
     let handle = unsafe { FindFirstFileW(mask.as_ptr(), &mut data) };
@@ -2496,6 +2509,24 @@ pub fn execve(
         Err(crate::os::errno_io_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod scandir_tests {
+    use super::*;
+
+    #[test]
+    fn trailing_space_is_normalized_except_in_extended_paths() {
+        let mut path = getfullpathname(widestring::widecstr!(".")).unwrap();
+        path.push(" ");
+        let wide = WideCString::from_os_str(&path).unwrap();
+        assert!(scandir(&wide).is_ok());
+
+        let mut extended = OsString::from("\\\\?\\");
+        extended.push(path);
+        let wide = WideCString::from_os_str(&extended).unwrap();
+        assert!(scandir(&wide).is_err());
     }
 }
 

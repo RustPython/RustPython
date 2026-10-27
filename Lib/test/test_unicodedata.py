@@ -107,7 +107,7 @@ class UnicodeMethodsTest(unittest.TestCase):
 
 class BaseUnicodeFunctionsTest:
 
-    @unittest.skip  # TODO: RUSTPYTHON; AssertionError: '7bda75e48a961a01ab328358980cefc5c0a1666d' != '68cd01e2c680b851c1fcab012efb5635'
+    @unittest.skip("TODO: RUSTPYTHON; AssertionError: '7bda75e48a961a01ab328358980cefc5c0a1666d' != '68cd01e2c680b851c1fcab012efb5635'")
     def test_function_checksum(self):
         db = self.db
         data = []
@@ -199,7 +199,7 @@ class BaseUnicodeFunctionsTest:
             char = chr(i)
             self.assertRaises(ValueError, self.db.name, char)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
     def test_lookup_nonexistant(self):
         # just make sure that lookup can fail
         for nonexistent in [
@@ -360,7 +360,7 @@ class BaseUnicodeFunctionsTest:
         self.assertEqual(self.db.bidirectional('\U0001FFFE'), '' if self.old else 'BN')
         self.assertEqual(self.db.bidirectional('\U00010D01'), '' if self.old else 'AL')
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: '<compat> 03A3 != ''
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '<compat> 03A3 != ''
     def test_decomposition(self):
         self.assertEqual(self.db.decomposition('\uFFFE'),'')
         self.assertEqual(self.db.decomposition('\u00bc'), '<fraction> 0031 2044 0034')
@@ -700,7 +700,7 @@ class BaseUnicodeFunctionsTest:
         # New in 17.0.0
         self.assertEqual(eaw('\U00016FF2'), 'N' if self.old else 'W')
 
-    @unittest.skip  # TODO: RUSTPYTHON; AssertionError: 'N' != 'W' (passed on latest, fails on 3.2)
+    @unittest.skip("TODO: RUSTPYTHON; AssertionError: 'N' != 'W' (passed on latest, fails on 3.2)")
     def test_east_asian_width_unassigned(self):
         eaw = self.db.east_asian_width
         # unassigned
@@ -769,7 +769,7 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         for cp in range(0, sys.maxunicode + 1):
             self.assertEqual(self.db.name(chr(cp), None), names_ref.get(cp))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidstart'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidstart'
     def test_isxidstart(self):
         self.assertTrue(self.db.isxidstart('S'))
         self.assertTrue(self.db.isxidstart('\u0AD0'))  # GUJARATI OM
@@ -783,7 +783,7 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.isxidstart)
         self.assertRaises(TypeError, self.db.isxidstart, 'xx')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidcontinue'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidcontinue'
     def test_isxidcontinue(self):
         self.assertTrue(self.db.isxidcontinue('S'))
         self.assertTrue(self.db.isxidcontinue('_'))
@@ -798,7 +798,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.isxidcontinue)
         self.assertRaises(TypeError, self.db.isxidcontinue, 'xx')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'grapheme_cluster_break'
     def test_grapheme_cluster_break(self):
         gcb = self.db.grapheme_cluster_break
         self.assertEqual(gcb(' '), 'Other')
@@ -896,7 +895,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, gcb, '')
         self.assertRaises(TypeError, gcb, 'xx')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'indic_conjunct_break'
     def test_indic_conjunct_break(self):
         incb = self.db.indic_conjunct_break
         self.assertEqual(incb(' '), 'None')
@@ -925,7 +923,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, incb, '')
         self.assertRaises(TypeError, incb, 'xx')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'extended_pictographic'
     def test_extended_pictographic(self):
         ext_pict = self.db.extended_pictographic
         self.assertIs(ext_pict(' '), False)
@@ -946,7 +943,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, ext_pict, '')
         self.assertRaises(TypeError, ext_pict, 'xx')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
     def test_grapheme_break(self):
         def graphemes(*args):
             return list(map(str, self.db.iter_graphemes(*args)))
@@ -1017,7 +1013,7 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
             'a\U0001F1FA\U0001F1E6\U0001F1FA\U0001F1F3'),
             ['a', '\U0001F1FA\U0001F1E6', '\U0001F1FA\U0001F1F3'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
     def test_block(self):
         self.assertEqual(self.db.block('\u0000'), 'Basic Latin')
         self.assertEqual(self.db.block('\u0041'), 'Basic Latin')
@@ -1102,7 +1098,7 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertEqual(self.db.block('\U00100000'), 'Supplementary Private Use Area-B')
         self.assertEqual(self.db.block('\U0010FFFF'), 'Supplementary Private Use Area-B')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
     def test_block_invalid_input(self):
         self.assertRaises(TypeError, self.db.block)
         self.assertRaises(TypeError, self.db.block, b'x')
@@ -1169,7 +1165,7 @@ class UnicodeMiscTest(unittest.TestCase):
             "(can't load unicodedata module)"
         self.assertIn(error, result.err.decode("ascii"))
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError Process return code is 1
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError Process return code is 1
     def test_unicodedata_unload_reload(self):
         # gh-149449: dropping unicodedata and running gc must not leave the
         # cached _ucnhash_CAPI pointer dangling.
@@ -1262,7 +1258,6 @@ class UnicodeMiscTest(unittest.TestCase):
                 self.assertEqual(len(lines), 1,
                                  r"%a should not be a linebreak" % c)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
     def test_segment_object(self):
         segments = list(unicodedata.iter_graphemes('spa\u0300m'))
         self.assertEqual(len(segments), 4, segments)
@@ -1384,7 +1379,6 @@ class NormalizationTest(unittest.TestCase):
 
 class GraphemeBreakTest(unittest.TestCase):
     @requires_resource('network')
-    @unittest.expectedFailure   # TODO: RUSTPYTHON; AttributeError module 'unicodedata' has no attribute 'iter_graphemes'
     def test_grapheme_break(self):
         TESTDATAFILE = "GraphemeBreakTest.txt"
         testdata = download_test_data_file(TESTDATAFILE)
@@ -1423,7 +1417,6 @@ class GraphemeBreakTest(unittest.TestCase):
                     self.assertEqual([x.start for x in result], breaks[i:-1], comment)
                     self.assertEqual([x.end for x in result], breaks[i+1:], comment)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
     def test_reference_loops(self):
         # Test that reference loops involving GraphemeBreakIterator or
         # Segment can be broken by the garbage collector.

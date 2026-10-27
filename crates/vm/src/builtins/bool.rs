@@ -222,7 +222,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .bool_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_bool));
 }
 

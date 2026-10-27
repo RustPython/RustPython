@@ -8,6 +8,7 @@ Usage:
 
     # Directory
     python scripts/update_lib copy-lib cpython/Lib/json
+
 """
 
 import argparse
@@ -74,6 +75,14 @@ def copy_lib(
     path_str = str(src_path).replace("\\", "/")
     if "/Lib/" not in path_str:
         raise ValueError(f"Path must contain '/Lib/' (got: {src_path})")
+    if not src_path.exists():
+        raise FileNotFoundError(f"Source path does not exist: {src_path}")
+
+    # Data files name an exact asset, not the containing top-level module.
+    # Expanding Lib/test/data.txt as "test" would replace the entire test tree.
+    if src_path.is_file() and src_path.suffix != ".py":
+        _copy_single(src_path, parse_lib_path(src_path), verbose)
+        return
 
     cpython_prefix, after_lib = path_str.split("/Lib/", 1)
     # Get module name (first component, without .py)
@@ -101,7 +110,6 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="Source path containing /Lib/ (e.g., cpython/Lib/dataclasses.py)",
     )
-
     args = parser.parse_args(argv)
 
     try:

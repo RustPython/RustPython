@@ -559,6 +559,7 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
 /// Object-valued code fields as read from the stream (`r_object` TYPE_CODE).
 pub struct CodeFields<V> {
     pub consts: V,
+    pub qualname: V,
     pub names: V,
     pub localsplusnames: V,
     pub localspluskinds: V,
@@ -977,7 +978,10 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         };
     let source_path_raw = read_string(rdr, refs)?;
     let obj_name_raw = read_string(rdr, refs)?;
-    let qualname_raw = read_string(rdr, refs)?;
+    let qualname_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let qualname_raw = bag
+        .str_from_value(&qualname_value)
+        .ok_or(MarshalError::BadType)?;
 
     let first_line_raw = rdr.read_u32()? as i32;
     let first_line_number = if first_line_raw > 0 {
@@ -1049,6 +1053,7 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         code,
         CodeFields {
             consts: consts_value,
+            qualname: qualname_value,
             names: names_value,
             localsplusnames: localsplusnames_value,
             localspluskinds: kinds_value,

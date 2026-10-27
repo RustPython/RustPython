@@ -2,7 +2,7 @@
 //!
 //! This module provides a centralized array of all slot definitions,
 
-use super::{PyComparisonOp, PyTypeSlots, fn_addr};
+use super::{PyComparisonOp, PyTypeFlags, PyTypeSlots, fn_addr};
 use crate::builtins::descriptor::SlotFunc;
 use num_enum::TryFromPrimitive;
 
@@ -465,23 +465,7 @@ impl SlotAccessor {
             Self::TpHash => inherit_main!(hash),
             Self::TpRepr => inherit_main!(repr),
             Self::TpStr => inherit_main!(str),
-            Self::TpCall => {
-                inherit_main!(call);
-                // CPython does not inherit tp_vectorcall to heap types at all; it only
-                // inherits tp_vectorcall_offset (the per-instance callable fast path).
-                // RustPython approximates this by inheriting vectorcall only from types
-                // with a call slot (instance-call vectorcall), not from types that use
-                // vectorcall as a constructor fast path (call=None).
-                // See vectorcall_type() in type.rs for the dual-use design rationale.
-                let inherited_vc = mro.iter().find_map(|cls| {
-                    if cls.payload().slots.call.load().is_some() {
-                        cls.payload().slots.vectorcall.load()
-                    } else {
-                        None
-                    }
-                });
-                typ.slots.vectorcall.store(inherited_vc);
-            }
+            Self::TpCall => inherit_main!(call),
             Self::TpIter => inherit_main!(iter),
             Self::TpIternext => inherit_main!(iternext),
             Self::TpInit => inherit_main!(init),
@@ -617,14 +601,21 @@ impl SlotAccessor {
             Self::TpRepr => copy_main!(repr),
             Self::TpStr => copy_main!(str),
             Self::TpCall => {
-                copy_main!(call);
-                // See inherit_from_mro TpCall for rationale.
+                // Initial/idempotent role inheritance, not concurrent role replacement.
                 if typ.slots.vectorcall.load().is_none()
-                    && base.slots.call.load().is_some()
-                    && let Some(base_val) = base.slots.vectorcall.load()
+                    && typ.slots.vectorcall_resolver.load().is_none()
                 {
-                    typ.slots.vectorcall.store(Some(base_val));
+                    typ.slots.vectorcall.store(base.slots.vectorcall.load());
+                    typ.slots
+                        .vectorcall_resolver
+                        .store(base.slots.vectorcall_resolver.load());
                 }
+                if typ.slots.call.load().is_none()
+                    && base.slots.flags.has_feature(PyTypeFlags::HAVE_VECTORCALL)
+                {
+                    typ.slots.flags.insert(PyTypeFlags::HAVE_VECTORCALL);
+                }
+                copy_main!(call);
             }
             Self::TpIter => copy_main!(iter),
             Self::TpIternext => copy_main!(iternext),
@@ -646,14 +637,27 @@ impl SlotAccessor {
             Self::TpDel => copy_main!(del),
             Self::TpGetattro => copy_main!(getattro),
             Self::TpSetattro => copy_main!(setattro),
-            Self::TpDescrGet => copy_main!(descr_get),
+            Self::TpDescrGet => {
+                copy_main!(descr_get);
+                if typ.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE)
+                    && base.slots.flags.has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+                    && let Some(descr_get) = typ.slots.descr_get.load()
+                    && base.slots.descr_get.load().map(fn_addr) == Some(fn_addr(descr_get))
+                {
+                    typ.slots.flags.insert(PyTypeFlags::METHOD_DESCRIPTOR);
+                }
+            }
             Self::TpDescrSet => copy_main!(descr_set),
             Self::TpRichcompare => copy_main!(richcompare),
 
             // Number slots
             Self::NbAdd => copy_number!(add),
             Self::NbSubtract => copy_number!(subtract),
-            Self::NbMultiply => copy_number!(multiply),
+            Self::NbMultiply => {
+                // CPython inherits one nb_multiply slot for both directions.
+                copy_number!(multiply);
+                copy_number!(right_multiply);
+            }
             Self::NbRemainder => copy_number!(remainder),
             Self::NbDivmod => copy_number!(divmod),
             Self::NbPower => copy_number!(power),

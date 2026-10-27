@@ -661,17 +661,18 @@ impl Py<PyMemoryView> {
         // copy_buffer reads the source as it stood before the copy began, which an
         // overlapping assignment depends on and which also keeps the two borrows
         // below off the same storage.
-        let src = if root_exporter(&src).is(&root_exporter(&dest.buffer)) {
-            let owned = src.to_contiguous(vm);
-            drop(src);
-            owned
-        } else {
-            src
+        let may_overlap = match (root_exporter(&src), root_exporter(&dest.buffer)) {
+            (Some(src), Some(dest)) => src.is(&dest),
+            _ => true,
         };
+        // Keep the source acquisition alive until after the copy and its byte
+        // guards: releasing it can run Python that releases or resizes dest.
+        let snapshot = may_overlap.then(|| src.to_contiguous(vm));
+        let copy_src = snapshot.as_ref().unwrap_or(&src);
 
         let mut bytes_mut = dest.buffer.obj_bytes_mut();
-        let src_bytes = src.obj_bytes();
-        dest.desc.zip_eq(&src.desc, true, |a_range, b_range| {
+        let src_bytes = copy_src.obj_bytes();
+        dest.desc.zip_eq(&copy_src.desc, true, |a_range, b_range| {
             let a_range = a_range.start as usize..a_range.end as usize;
             let b_range = b_range.start as usize..b_range.end as usize;
             bytes_mut[a_range].copy_from_slice(&src_bytes[b_range]);
@@ -1547,20 +1548,27 @@ static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
 ///
 /// Two buffers that resolve to the same object address the same storage, so
 /// borrowing one for writing while the other is borrowed for reading would
-/// deadlock on it.
-fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
-    let mut obj = buffer.obj.clone();
+/// deadlock on a shared lock or create overlapping references with separate locks.
+/// Borrowed ctypes storage has no reliable exporter identity: a field, pointer,
+/// or from_address view can alias another object without sharing its owner.
+/// Return None for that storage so either operand forces a source snapshot.
+fn root_exporter(buffer: &PyBuffer) -> Option<PyObjectRef> {
+    let obj = buffer_owner(&buffer.obj);
+    (!crate::stdlib::is_borrowed_ctypes_buffer(obj)).then(|| obj.to_owned())
+}
+
+// Follow forwarding payloads without reacquiring a buffer or invoking Python.
+pub(crate) fn buffer_owner(mut obj: &PyObject) -> &PyObject {
     loop {
-        let next = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
-            view.buffer.obj.clone()
+        obj = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
+            &view.buffer.obj
         } else if let Some(wrapper) = obj.downcast_ref::<PyBufferWrapper>() {
-            wrapper.view.obj.clone()
+            &wrapper.view.obj
         } else if let Some(window) = obj.downcast_ref::<PyBufferWindow>() {
-            window.source.obj.clone()
+            &window.source.obj
         } else {
             return obj;
         };
-        obj = next;
     }
 }
 
@@ -1621,6 +1629,7 @@ pub(crate) fn release_buffer_from_python(
 // releasebuffer_call_python, for a buffer acquired from a native exporter
 pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
     crate::vm::thread::try_with_current_vm(|vm| {
+        let _raised = vm.preserve_raised_exception();
         let exporter = buffer.obj.clone();
         let window = PyBufferWindow {
             source: buffer.detached(),
@@ -1649,9 +1658,12 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
 
 fn call_python_release_buffer(exporter: &PyObject, mv: PyRef<PyMemoryView>) {
     crate::vm::thread::try_with_current_vm(|vm| {
+        let _raised = vm.preserve_raised_exception();
+        // Drop the captured view before restoring the pending error.
+        let owned_view = mv;
         let method = vm.get_special_method(exporter, identifier!(vm, __release_buffer__));
         if let Ok(Some(method)) = method
-            && let Err(exc) = method.invoke((mv,), vm)
+            && let Err(exc) = method.invoke((owned_view,), vm)
         {
             let msg = format!(
                 "Exception ignored in __release_buffer__ of {}",

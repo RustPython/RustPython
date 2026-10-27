@@ -72,17 +72,13 @@ macro_rules! impl_base_node {
                 super::python::_ast::ast_reduce(&zelf, vm)
             }
 
-            #[pymethod]
-            fn __replace__(
-                zelf: PyObjectRef,
-                fields: crate::function::KwArgs<PyObjectRef, crate::function::NameFields>,
-                vm: &VirtualMachine,
-            ) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, fields.into(), vm)
-            }
-
             #[extend_class]
             fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+                class.set_str_attr(
+                    "__replace__",
+                    super::python::_ast::AST_REPLACE.to_proper_method(class, ctx),
+                    ctx,
+                );
                 // AST types are mutable (heap types, not IMMUTABLETYPE).
                 class.slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
                 class.set_attr(
@@ -116,17 +112,13 @@ macro_rules! impl_base_node {
                 super::python::_ast::ast_reduce(&zelf, vm)
             }
 
-            #[pymethod]
-            fn __replace__(
-                zelf: PyObjectRef,
-                fields: crate::function::KwArgs<PyObjectRef, crate::function::NameFields>,
-                vm: &VirtualMachine,
-            ) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, fields.into(), vm)
-            }
-
             #[extend_class]
             fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+                class.set_str_attr(
+                    "__replace__",
+                    super::python::_ast::AST_REPLACE.to_proper_method(class, ctx),
+                    ctx,
+                );
                 // AST types are mutable (heap types, not IMMUTABLETYPE).
                 class.slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
                 class.set_attr(
@@ -351,14 +343,14 @@ impl_node!(
 impl_node!(
     #[pyclass(module = "ast", name = "Import", base = NodeStmt)]
     pub(crate) struct NodeStmtImport,
-    fields: ["names"],
+    fields: ["names", "is_lazy"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
     #[pyclass(module = "ast", name = "ImportFrom", base = NodeStmt)]
     pub(crate) struct NodeStmtImportFrom,
-    fields: ["module", "names", "level"],
+    fields: ["module", "names", "level", "is_lazy"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
@@ -1209,13 +1201,20 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
             ("msg", FieldType::Optional("expr")),
         ],
     ),
-    ("Import", &[("names", FieldType::ListOf("alias"))]),
+    (
+        "Import",
+        &[
+            ("names", FieldType::ListOf("alias")),
+            ("is_lazy", FieldType::OptionalBuiltin("int")),
+        ],
+    ),
     (
         "ImportFrom",
         &[
             ("module", FieldType::OptionalBuiltin("str")),
             ("names", FieldType::ListOf("alias")),
             ("level", FieldType::OptionalBuiltin("int")),
+            ("is_lazy", FieldType::OptionalBuiltin("int")),
         ],
     ),
     ("Global", &[("names", FieldType::ListOfBuiltin("str"))]),
@@ -1292,7 +1291,7 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
         "DictComp",
         &[
             ("key", FieldType::Node("expr")),
-            ("value", FieldType::Node("expr")),
+            ("value", FieldType::Optional("expr")),
             ("generators", FieldType::ListOf("comprehension")),
         ],
     ),

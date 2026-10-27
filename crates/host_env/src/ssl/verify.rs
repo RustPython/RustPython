@@ -747,6 +747,25 @@ impl ClientCertVerifier for DeferredClientCertVerifier {
 
 // Public Utility Functions
 
+/// Preserve which filesystem operation failed, independently of PEM errors.
+#[derive(Debug)]
+pub struct CertFileError {
+    pub error: std::io::Error,
+    pub key_file: bool,
+}
+
+impl core::fmt::Display for CertFileError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.error, f)
+    }
+}
+
+impl core::error::Error for CertFileError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 /// Load certificate chain and private key from files
 ///
 /// This function loads a certificate chain from `cert_path` and a private key
@@ -771,7 +790,10 @@ pub fn load_cert_chain_from_file(
     password: Option<&str>,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Box<dyn core::error::Error>> {
     // Load certificate file - preserve io::Error for errno
-    let cert_contents = crate::fs::read(cert_path)?;
+    let cert_contents = crate::fs::read(cert_path).map_err(|error| CertFileError {
+        error,
+        key_file: false,
+    })?;
 
     // Parse certificates (PEM format)
     let mut cert_cursor = std::io::Cursor::new(&cert_contents);
@@ -784,7 +806,10 @@ pub fn load_cert_chain_from_file(
     }
 
     // Load private key file - preserve io::Error for errno
-    let key_contents = crate::fs::read(key_path)?;
+    let key_contents = crate::fs::read(key_path).map_err(|error| CertFileError {
+        error,
+        key_file: true,
+    })?;
 
     // Parse private key (supports PKCS8, RSA, EC formats)
     let private_key = if let Some(pwd) = password {

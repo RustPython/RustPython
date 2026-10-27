@@ -12,8 +12,6 @@ maintaining the widget state and invoking callbacks, all aspects
 of the widgets appearance lies at Themes.
 """
 
-__version__ = "0.3.1"
-
 __author__ = "Guilherme Polo <ggpolo@gmail.com>"
 
 __all__ = ["Button", "Checkbutton", "Combobox", "Entry", "Frame", "Label",
@@ -581,8 +579,8 @@ class Button(Widget):
 
         STANDARD OPTIONS
 
-            class, compound, cursor, image, state, style, takefocus,
-            text, textvariable, underline, width
+            class, compound, cursor, image, justify (Tk 9.0+), padding,
+            state, style, takefocus, text, textvariable, underline, width
 
         WIDGET-SPECIFIC OPTIONS
 
@@ -604,8 +602,8 @@ class Checkbutton(Widget):
 
         STANDARD OPTIONS
 
-            class, compound, cursor, image, state, style, takefocus,
-            text, textvariable, underline, width
+            class, compound, cursor, image, justify (Tk 9.0+), padding,
+            state, style, takefocus, text, textvariable, underline, width
 
         WIDGET-SPECIFIC OPTIONS
 
@@ -638,8 +636,10 @@ class Entry(Widget, tkinter.Entry):
 
         WIDGET-SPECIFIC OPTIONS
 
-            exportselection, invalidcommand, justify, show, state,
-            textvariable, validate, validatecommand, width
+            background, exportselection, font, foreground, invalidcommand,
+            justify, locale (Tk 9.1+), placeholder (Tk 9.0+),
+            placeholderforeground (Tk 9.0+), show, state, textvariable,
+            validate, validatecommand, width
 
         VALIDATION MODES
 
@@ -648,7 +648,7 @@ class Entry(Widget, tkinter.Entry):
         Widget.__init__(self, master, widget or "ttk::entry", kw)
 
 
-    def bbox(self, index):
+    def bbox(self, index):  # overrides Misc.bbox
         """Return a tuple of (x, y, width, height) which describes the
         bounding box of the character given by index."""
         return self._getints(self.tk.call(self._w, "bbox", index))
@@ -676,12 +676,14 @@ class Combobox(Entry):
 
         STANDARD OPTIONS
 
-            class, cursor, style, takefocus
+            class, cursor, style, takefocus, xscrollcommand
 
         WIDGET-SPECIFIC OPTIONS
 
-            exportselection, justify, height, postcommand, state,
-            textvariable, values, width
+            background, exportselection, font, foreground, height,
+            invalidcommand, justify, locale (Tk 9.1+), placeholder (Tk 9.0+),
+            placeholderforeground (Tk 9.0+), postcommand, show, state,
+            textvariable, validate, validatecommand, values, width
         """
         Entry.__init__(self, master, "ttk::combobox", **kw)
 
@@ -730,13 +732,13 @@ class Label(Widget):
 
         STANDARD OPTIONS
 
-            class, compound, cursor, image, style, takefocus, text,
-            textvariable, underline, width
+            class, compound, cursor, image, state, style, takefocus,
+            text, textvariable, underline, width
 
         WIDGET-SPECIFIC OPTIONS
 
-            anchor, background, font, foreground, justify, padding,
-            relief, text, wraplength
+            anchor, background, borderwidth, font, foreground, justify,
+            padding, relief, text, textangle (Tk 9.1+), wraplength
         """
         Widget.__init__(self, master, "ttk::label", kw)
 
@@ -754,8 +756,9 @@ class Labelframe(Widget):
             class, cursor, style, takefocus
 
         WIDGET-SPECIFIC OPTIONS
-            labelanchor, text, underline, padding, labelwidget, width,
-            height
+
+            borderwidth, height, labelanchor, labelwidget, padding,
+            relief, text, underline, width
         """
         Widget.__init__(self, master, "ttk::labelframe", kw)
 
@@ -771,8 +774,8 @@ class Menubutton(Widget):
 
         STANDARD OPTIONS
 
-            class, compound, cursor, image, state, style, takefocus,
-            text, textvariable, underline, width
+            class, compound, cursor, image, justify (Tk 9.0+), padding,
+            state, style, takefocus, text, textvariable, underline, width
 
         WIDGET-SPECIFIC OPTIONS
 
@@ -826,7 +829,7 @@ class Notebook(Widget):
         self.tk.call(self._w, "add", child, *(_format_optdict(kw)))
 
 
-    def forget(self, tab_id):
+    def forget(self, tab_id):  # overrides Pack.forget
         """Removes the tab specified by tab_id, unmaps and unmanages the
         associated window."""
         self.tk.call(self._w, "forget", tab_id)
@@ -985,7 +988,9 @@ class Progressbar(Widget):
 
         STANDARD OPTIONS
 
-            class, cursor, style, takefocus
+            anchor (Tk 9.0+), class, cursor, font (Tk 9.0+),
+            foreground (Tk 9.0+), justify (Tk 9.0+), style, takefocus,
+            text (Tk 9.0+), wraplength (Tk 9.0+)
 
         WIDGET-SPECIFIC OPTIONS
 
@@ -1024,8 +1029,8 @@ class Radiobutton(Widget):
 
         STANDARD OPTIONS
 
-            class, compound, cursor, image, state, style, takefocus,
-            text, textvariable, underline, width
+            class, compound, cursor, image, justify (Tk 9.0+), padding,
+            state, style, takefocus, text, textvariable, underline, width
 
         WIDGET-SPECIFIC OPTIONS
 
@@ -1052,7 +1057,7 @@ class Scale(Widget, tkinter.Scale):
 
         STANDARD OPTIONS
 
-            class, cursor, style, takefocus
+            class, cursor, state, style, takefocus
 
         WIDGET-SPECIFIC OPTIONS
 
@@ -1149,7 +1154,10 @@ class Spinbox(Entry):
 
         WIDGET-SPECIFIC OPTIONS
 
-            to, from_, increment, values, wrap, format, command
+            background, command, exportselection, font, foreground,
+            format, from_, increment, justify, locale (Tk 9.1+),
+            placeholder (Tk 9.0+), placeholderforeground (Tk 9.0+), show,
+            state, textvariable, to, values, width, wrap
         """
         Entry.__init__(self, master, "ttk::spinbox", **kw)
 
@@ -1176,7 +1184,10 @@ class Treeview(Widget, tkinter.XView, tkinter.YView):
 
         WIDGET-SPECIFIC OPTIONS
 
-            columns, displaycolumns, height, padding, selectmode, show
+            columns, displaycolumns, headingheight (Tk 9.1+), height,
+            padding, rowheight (Tk 9.1+), selectmode, selecttype (Tk 9.0+),
+            show, striped (Tk 9.0+), titlecolumns (Tk 9.0+),
+            titleitems (Tk 9.0+)
 
         ITEM OPTIONS
 
@@ -1189,7 +1200,7 @@ class Treeview(Widget, tkinter.XView, tkinter.YView):
         Widget.__init__(self, master, "ttk::treeview", kw)
 
 
-    def bbox(self, item, column=None):
+    def bbox(self, item, column=None):  # overrides Misc.bbox
         """Returns the bounding box (relative to the treeview widget's
         window) of the specified item in the form x y width height.
 
@@ -1248,7 +1259,7 @@ class Treeview(Widget, tkinter.XView, tkinter.YView):
         return self.tk.getboolean(self.tk.call(self._w, "exists", item))
 
 
-    def focus(self, item=None):
+    def focus(self, item=None):  # overrides Misc.focus
         """If item is specified, sets the focus item to item. Otherwise,
         returns the current focus item, or '' if there is none."""
         return self.tk.call(self._w, "focus", item)
@@ -1472,8 +1483,8 @@ class Treeview(Widget, tkinter.XView, tkinter.YView):
 
 
     def tag_has(self, tagname, item=None):
-        """If item is specified, returns 1 or 0 depending on whether the
-        specified item has the given tagname. Otherwise, returns a list of
+        """If item is specified, returns True if the specified item has the
+        given tagname, False otherwise. Otherwise, returns a list of
         all items which have the specified tag.
 
         * Availability: Tk 8.6"""
@@ -1648,3 +1659,12 @@ class OptionMenu(Menubutton):
         except AttributeError:
             pass
         super().destroy()
+
+
+def __getattr__(name):
+    if name == "__version__":
+        from warnings import _deprecated
+
+        _deprecated("__version__", remove=(3, 20))
+        return "0.3.1"  # Do not change
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

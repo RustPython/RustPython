@@ -344,7 +344,9 @@ mod decl {
                 write_float_str(buf, cv.re);
                 write_float_str(buf, cv.im);
             }
-        } else if let Some(s) = obj.downcast_ref::<PyStr>() {
+        } else if let Some(s) = obj.downcast_ref::<PyStr>()
+            && obj.class().is(PyStr::static_type())
+        {
             let bytes = s.as_wtf8().as_bytes();
             // Only the formats that carry back-references tell an interned
             // string apart, and only those from 4 on have the ascii-only forms.
@@ -428,6 +430,7 @@ mod decl {
                 buf.write_u32(value);
             }
             let co_code = co.get_code(vm);
+            let co_qualname = co.co_qualname();
             let mut write_field = |buf: &mut Vec<u8>, field: &PyObject| {
                 write_object_depth(buf, field, refs, version, allow_code, vm, depth - 1)
             };
@@ -439,7 +442,7 @@ mod decl {
                 co.co_localspluskinds.as_object(),
                 co.source_path().as_object(),
                 co.co_name.as_object(),
-                code.qualname.as_object(),
+                co_qualname.as_object(),
             ] {
                 write_field(buf, field)?;
             }
@@ -652,7 +655,8 @@ mod decl {
                         .new_value_error("unmarshalling code objects is disallowed"),
                 ));
             }
-            let code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            let mut code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            code.apply_debug_ranges(self.vm);
             Ok(code.into_ref(&self.vm.ctx).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {

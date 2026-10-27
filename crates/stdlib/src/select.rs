@@ -3,7 +3,8 @@
 pub(crate) use decl::module_def;
 
 use crate::vm::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyListRef},
 };
 use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
@@ -17,14 +18,20 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fno = obj.try_to_value(vm).or_else(|_| {
-            let meth = vm.get_method_or_type_error(
-                obj.clone(),
-                vm.ctx.interned_str("fileno").unwrap(),
-                || "select arg must be an int or object with a fileno() method".to_owned(),
-            )?;
-            meth.call((), vm)?.try_into_value(vm)
-        })?;
+        let fileno;
+        let fd = if let Some(fd) = obj.downcast_ref::<PyInt>() {
+            fd
+        } else {
+            let meth = vm.get_attribute_opt(&obj, "fileno")?.ok_or_else(|| {
+                vm.new_type_error("select arg must be an int or object with a fileno() method")
+            })?;
+            fileno = meth
+                .call((), vm)?
+                .downcast::<PyInt>()
+                .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?;
+            &fileno
+        };
+        let fno = fd.try_to_primitive(vm)?;
         Ok(Self { obj, fno })
     }
 }
@@ -437,13 +444,14 @@ mod decl {
             types::Constructor,
         };
         use core::ops::Deref;
-        use std::os::fd::{AsRawFd, OwnedFd};
+        use host_select::epoll::EpollFd;
+        use std::os::fd::AsRawFd;
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
         pub(crate) struct PyEpoll {
-            epoll_fd: PyRwLock<Option<OwnedFd>>,
+            epoll_fd: PyRwLock<Option<EpollFd>>,
         }
 
         #[derive(FromArgs)]
@@ -501,19 +509,22 @@ mod decl {
             fn get_epoll(
                 &self,
                 vm: &VirtualMachine,
-            ) -> PyResult<impl Deref<Target = OwnedFd> + '_> {
+            ) -> PyResult<impl Deref<Target = EpollFd> + '_> {
                 PyRwLockReadGuard::try_map(self.epoll_fd.read(), |x| x.as_ref())
                     .map_err(|_| vm.new_value_error("I/O operation on closed epoll object"))
             }
 
             #[pymethod]
             fn fileno(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
-                zelf.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw_fd())
+                zelf.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw())
             }
 
             #[pyclassmethod]
-            fn fromfd(cls: PyTypeRef, fd: OwnedFd, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-                let epoll_fd = Some(fd).into();
+            fn fromfd(cls: PyTypeRef, fd: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+                if fd == -1 {
+                    return Err(std::io::Error::from_raw_os_error(libc::EBADF).into_pyexception(vm));
+                }
+                let epoll_fd = Some(EpollFd::from_raw(fd)).into();
                 Self { epoll_fd }.into_ref_with_type(vm, cls)
             }
 
@@ -532,7 +543,7 @@ mod decl {
                         .bits(),
                 };
                 let epoll_fd = &*zelf.get_epoll(vm)?;
-                host_select::epoll::add(epoll_fd, fd, fd.as_raw_fd() as u64, events)
+                host_select::epoll::add(epoll_fd, fd.as_raw_fd(), fd.as_raw_fd() as u64, events)
                     .map_err(|e| e.into_pyexception(vm))
             }
 
@@ -544,14 +555,20 @@ mod decl {
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
                 let epoll_fd = &*zelf.get_epoll(vm)?;
-                host_select::epoll::modify(epoll_fd, fd, fd.as_raw_fd() as u64, eventmask)
-                    .map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::modify(
+                    epoll_fd,
+                    fd.as_raw_fd(),
+                    fd.as_raw_fd() as u64,
+                    eventmask,
+                )
+                .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
             fn unregister(zelf: &Py<Self>, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
                 let epoll_fd = &*zelf.get_epoll(vm)?;
-                host_select::epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::delete(epoll_fd, fd.as_raw_fd())
+                    .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
@@ -563,10 +580,13 @@ mod decl {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
-                let mut poll_timeout = timeout
-                    .map(host_select::epoll::Timespec::try_from)
-                    .transpose()
-                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
+                // epoll_wait takes signed milliseconds; round upward and reject
+                // overflow, matching CPython's epoll.poll conversion.
+                let to_millis = |timeout| {
+                    host_select::duration_as_millis_ceiling(timeout)
+                        .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                };
+                let mut poll_timeout = timeout.map(to_millis).transpose()?.unwrap_or(-1);
 
                 let deadline = timeout
                     .map(|d| {
@@ -591,7 +611,7 @@ mod decl {
 
                 loop {
                     match vm.allow_threads(|| {
-                        host_select::epoll::wait(epoll, &mut events, poll_timeout.as_ref())
+                        host_select::epoll::wait(epoll, &mut events, poll_timeout)
                     }) {
                         Ok(_) => break,
                         Err(host_select::epoll::WaitError::Interrupted) => vm.check_signals()?,
@@ -601,11 +621,7 @@ mod decl {
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {
-                            poll_timeout = Some(
-                                new_timeout
-                                    .try_into()
-                                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?,
-                            );
+                            poll_timeout = to_millis(new_timeout)?;
                         } else {
                             break;
                         }
@@ -614,7 +630,7 @@ mod decl {
 
                 let ret = events
                     .iter()
-                    .map(|ev| (ev.data.u64() as i32, { ev.flags }.bits()).to_pyobject(vm))
+                    .map(|ev| (ev.data() as i32, ev.flags()).to_pyobject(vm))
                     .collect();
 
                 Ok(vm.ctx.new_list(ret))

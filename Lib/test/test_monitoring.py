@@ -2333,7 +2333,6 @@ class TestLoadSuperAttr(CheckEvents):
         self.check_events(nonopt_func, recorders=self.RECORDERS, expected=nonopt_expected)
         self.check_events(opt_func, recorders=self.RECORDERS, expected=opt_expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_vs_other_type_call(self):
         code_template = textwrap.dedent("""
             class C:
@@ -2576,7 +2575,6 @@ class TestTier2Optimizer(CheckEvents):
 
 class TestMonitoringAtShutdown(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - requires subprocess support
     def test_monitoring_live_at_shutdown(self):
         # gh-115832: An object destructor running during the final GC of
         # interpreter shutdown triggered an infinite loop in the

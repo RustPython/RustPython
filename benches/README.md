@@ -54,8 +54,14 @@ in two ways:
 1. The time to parse the file to AST
 2. The time it takes to execute the file
 
+Parsing stops at an AST in both implementations. The CPython reference uses
+`compile(..., flags=ast.PyCF_ONLY_AST)` without compiling bytecode.
+
 Execution includes compilation and runs each iteration with a fresh namespace whose `__name__`
 is `"__main__"`, so script entry points run in both RustPython and CPython.
+
+Both Rust harnesses load only `.py` files and run workloads in filename order.
+Other entries, such as `__pycache__` directories, are ignored.
 
 ### Adding a micro benchmark
 
@@ -84,6 +90,23 @@ obj = [i for i in range(ITERATIONS)]
 ```
 
 `ITERATIONS` can appear in both the setup code and the benchmark code.
+
+## Subprocess benchmarks with pytest
+
+The optional pytest driver measures whole interpreter processes, including startup.
+Install `pytest` and `pytest-benchmark`, build RustPython with `cargo build --release`,
+and run from the repository root:
+
+```shell
+python -m pytest benches/test_benchmarks.py
+```
+
+It uses the release executable in `target/release` by default. Set `RUSTPYTHON` to
+the executable path when using a different build directory. Relative `RUSTPYTHON`
+paths are resolved from the directory where pytest is launched; absolute paths
+can be used from any directory. Script paths are resolved relative to this
+checkout, so pytest can also be launched from another directory. A failed
+subprocess fails the benchmark instead of producing a timing.
 
 ## MacOS setup
 

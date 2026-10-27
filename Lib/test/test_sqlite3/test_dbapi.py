@@ -551,17 +551,9 @@ class ConnectionTests(unittest.TestCase):
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; deprecation warning not emitted for positional args
     def test_connect_positional_arguments(self):
-        regex = (
-            r"Passing more than 1 positional argument to sqlite3.connect\(\)"
-            " is deprecated. Parameters 'timeout', 'detect_types', "
-            "'isolation_level', 'check_same_thread', 'factory', "
-            "'cached_statements' and 'uri' will become keyword-only "
-            "parameters in Python 3.15."
-        )
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            cx = sqlite.connect(":memory:", 1.0)
-            cx.close()
-        self.assertEqual(cm.filename, __file__)
+        with self.assertRaisesRegex(TypeError,
+                r'connect\(\) takes at most 1 positional arguments'):
+            sqlite.connect(":memory:", 1.0)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; ResourceWarning not emitted
     def test_connection_resource_warning(self):
@@ -1406,6 +1398,18 @@ class BlobTests(unittest.TestCase):
     def test_blob_set_slice(self):
         self.blob[0:5] = b"12345"
         expected = b"12345" + self.data[5:]
+        actual = self.cx.execute("select b from test").fetchone()[0]
+        self.assertEqual(actual, expected)
+
+    def test_blob_set_slice_with_step_keeps_bytes_intact(self):
+        # The buffer used for the read-patch-write cycle must not be the
+        # bytes object read from the blob: for a single byte it is an
+        # immortal singleton.
+        old_byte = self.data[5]
+        self.blob[5:6:2] = b"\xab"
+        self.assertEqual(bytes([old_byte])[0], old_byte)
+        self.assertEqual(self.blob[5:6], b"\xab")
+        expected = self.data[:5] + b"\xab" + self.data[6:]
         actual = self.cx.execute("select b from test").fetchone()[0]
         self.assertEqual(actual, expected)
 

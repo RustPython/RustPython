@@ -7,7 +7,14 @@ use super::{
     thread,
 };
 use crate::{
-    PyResult, builtins, common::rc::PyRc, frozen::FrozenModule, getpath, py_freeze, stdlib::atexit,
+    PyResult, builtins,
+    common::rc::PyRc,
+    frozen::FrozenModule,
+    frozen_resources::{
+        FrozenModuleRegistry, FrozenRegistration, FrozenResourceBundle, ResourceError,
+    },
+    getpath, py_freeze,
+    stdlib::atexit,
     vm::PyBaseExceptionRef,
 };
 use alloc::collections::BTreeMap;
@@ -37,7 +44,7 @@ pub struct InterpreterBuilder {
     settings: Settings,
     pub ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
-    frozen_modules: Vec<(&'static str, FrozenModule)>,
+    frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
 }
 
@@ -46,7 +53,7 @@ struct InitializeVmOpts<'a> {
     settings: Settings,
     ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
-    frozen_modules: Vec<(&'static str, FrozenModule)>,
+    frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
     is_main: bool,
     whence: InterpreterWhence,
@@ -74,7 +81,7 @@ where
     use crate::codecs::CodecsRegistry;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -84,8 +91,10 @@ where
     let (config, all_module_defs, frozen, int_max_str_digits) = if let Some(parent) = parent_state {
         // Subinterpreter: clone config and module tables from parent, fresh runtime state.
         let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
+        let mut config = parent.config.clone();
+        config.settings.inspect = parent.inspect.load(Ordering::Relaxed);
         (
-            parent.config.clone(),
+            config,
             parent.module_defs.clone(),
             parent.frozen.clone(),
             int_max_str_digits,
@@ -120,12 +129,10 @@ where
             other => other,
         } as usize);
 
-        let mut frozen: std::collections::HashMap<
-            &'static str,
-            FrozenModule,
-            rapidhash::quality::RandomState,
-        > = core_frozen_inits().collect();
-        frozen.extend(frozen_modules);
+        let mut frozen: FrozenModuleRegistry = core_frozen_inits().collect();
+        for registration in frozen_modules {
+            frozen.apply_registration(registration);
+        }
 
         (config, all_module_defs, frozen, int_max_str_digits)
     };
@@ -133,6 +140,7 @@ where
     // Per-interpreter ephemeral state (must not be shared across interpreters).
     let codec_registry = CodecsRegistry::new(&ctx);
     let warnings = WarningsState::init_state(&ctx);
+    let lazy_imports = crate::lazy_import::LazyImportsState::new(&ctx);
 
     let interpreter_id = runtime::alloc_interpreter_id();
     let runtime_root_id = parent_state.map_or(interpreter_id, |parent| parent.runtime_root_id);
@@ -153,6 +161,8 @@ where
         runtime_root_id,
         whence,
         is_main,
+        inspect: AtomicBool::new(config.settings.inspect),
+        interactive_src_count: AtomicUsize::new(0),
         config,
         module_defs: all_module_defs,
         frozen,
@@ -161,7 +171,21 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        import_time_header: AtomicBool::new(false),
+        lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
+        #[cfg(all(
+            feature = "host_env",
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "windows",
+                target_os = "android"
+            ),
+            not(any(target_env = "musl", target_env = "sgx"))
+        ))]
+        ctypes_buffer_views: Default::default(),
+        functools_placeholder: Default::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]
         finalizing_thread_ident: AtomicCell::new(0),
@@ -175,6 +199,7 @@ where
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
         type_mutex: PyMutex::default(),
+        common_type_descriptors: crate::builtins::type_::CommonTypeDescriptors::new(&ctx),
         #[cfg(feature = "threading")]
         main_thread_ident,
         #[cfg(feature = "threading")]
@@ -190,7 +215,7 @@ where
         stop_the_world: StopTheWorldState::new(),
         feature_flags,
         own_gil,
-        running_main: AtomicBool::new(false),
+        running_main: AtomicCell::new(None),
         ready: AtomicBool::new(false),
         id_refcount: AtomicI64::new(0),
         require_idref: AtomicBool::new(false),
@@ -268,6 +293,7 @@ fn create_subinterpreter_from_parent(
     // Every interpreter has a `__main__` module once it is initialized.
     interp.enter(|vm| {
         let _ = vm.ensure_main_module();
+        vm.apply_startup_lazy_imports();
     });
     Ok(interp)
 }
@@ -358,6 +384,8 @@ impl InterpreterBuilder {
     ///
     /// Frozen modules are Python modules compiled into the binary.
     /// This method accepts any iterator of (name, FrozenModule) pairs.
+    /// It registers code only. To include embedded package data, use
+    /// [`Self::add_frozen_modules_with_resources`] with the matching resource bundle.
     ///
     /// # Example
     /// ```
@@ -372,8 +400,27 @@ impl InterpreterBuilder {
     where
         I: IntoIterator<Item = (&'static str, FrozenModule)>,
     {
-        self.frozen_modules.extend(frozen);
+        self.frozen_modules
+            .push(FrozenRegistration::code_only(frozen));
         self
+    }
+
+    /// Add frozen code and resources as one ownership-preserving registration.
+    ///
+    /// Every resource owner must be a package in this registration. Replacing a
+    /// package or module in a later registration never inherits its old resources,
+    /// even if the replacement contains identical bytecode.
+    pub fn add_frozen_modules_with_resources<I>(
+        mut self,
+        frozen: I,
+        resources: &'static [FrozenResourceBundle],
+    ) -> Result<Self, ResourceError>
+    where
+        I: IntoIterator<Item = (&'static str, FrozenModule)>,
+    {
+        self.frozen_modules
+            .push(FrozenRegistration::with_resources(frozen, resources)?);
+        Ok(self)
     }
 
     /// Build the interpreter.
@@ -583,6 +630,24 @@ impl Interpreter {
         self.vm.new_thread()
     }
 
+    /// Move the main execution context into a separate owner, leaving this
+    /// handle available to create worker VMs for the same interpreter.
+    ///
+    /// The returned interpreter must run and finalize on the original thread.
+    /// This handle should only create worker VMs and must not be finalized.
+    /// Unlike `new_thread()`, this preserves the main VM's signal handlers and
+    /// all of its other thread-local state.
+    #[cfg(feature = "threading")]
+    #[must_use]
+    pub fn take_main_thread(&mut self) -> Self {
+        let replacement = self.vm.new_thread().vm;
+        let vm = core::mem::replace(&mut self.vm, replacement);
+        Self {
+            global_state: self.global_state.clone(),
+            vm,
+        }
+    }
+
     /// Run a function with the main virtual machine and return a PyResult of the result.
     ///
     /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.
@@ -631,6 +696,25 @@ impl Interpreter {
         self.finalize(res.err())
     }
 
+    /// Py_RunMain
+    ///
+    /// Run a function that reports its own errors and returns the exit code,
+    /// then finalize with that exit code. An unhandled `KeyboardInterrupt`
+    /// exits through the default SIGINT handler instead.
+    pub fn run_main<F>(self, f: F) -> u32
+    where
+        F: FnOnce(&VirtualMachine) -> u32,
+    {
+        crate::signal::clear_unhandled_keyboard_interrupt();
+        let exit_code = self.enter(f);
+        let exit_code = self.finalize_with_exit_code(exit_code);
+        if crate::signal::unhandled_keyboard_interrupt() {
+            crate::signal::exit_sigint()
+        } else {
+            exit_code
+        }
+    }
+
     /// Finalize vm and turns an exception to exit code.
     ///
     /// Finalization steps (matching Py_FinalizeEx):
@@ -646,93 +730,122 @@ impl Interpreter {
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
+        self.finalize_inner(|vm| exc.map_or(0, |exc| vm.handle_exit_exception(exc)))
+    }
+
+    /// Finalize vm with an exit code the caller has already determined.
+    ///
+    /// See [`Interpreter::finalize`] for the finalization steps.
+    pub fn finalize_with_exit_code(self, exit_code: u32) -> u32 {
+        self.finalize_inner(|_| exit_code)
+    }
+
+    fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
         self.enter(|vm| {
-            let mut flush_status = vm.flush_std();
+            let flush_status = vm.flush_std();
 
             // See if any exception leaked out:
-            let exit_code = if let Some(exc) = exc {
-                vm.handle_exit_exception(exc)
-            } else {
-                0
-            };
-
-            // Wait for thread shutdown - call threading._shutdown() if available.
-            // This waits for all non-daemon threads to complete.
-            // threading module may not be imported, so ignore import errors.
-            #[cfg(feature = "threading")]
-            if let Ok(threading) = vm.import("threading", 0)
-                && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
-                && let Err(e) = shutdown.call((), vm)
-            {
-                vm.run_unraisable(
-                    e,
-                    Some("Exception ignored in threading shutdown".to_owned()),
-                    threading,
-                );
-            }
-
-            // Run atexit handlers before setting finalizing flag.
-            // This allows unraisable exceptions from atexit handlers to be reported.
-            atexit::_run_exitfuncs(vm);
-
-            // Clean up any lingering subinterpreters. This has to happen before
-            // the finalizing flag is set, or else threads might get prematurely
-            // blocked.
-            #[cfg(feature = "threading")]
-            finalize_subinterpreters(vm);
-
-            // Remaining daemon threads hang in `_PyThreadState_HangThread` when
-            // they next attach (or at the eval-breaker if they are already
-            // running). Their `_ThreadHandle` stays not-done so `is_alive()`
-            // is still true for `join()` during the GC that follows.
-            #[cfg(feature = "threading")]
-            {
-                vm.state.stop_the_world.stop_the_world(&vm.state);
-                vm.state
-                    .finalizing_thread_ident
-                    .store(crate::stdlib::_thread::get_ident());
-            }
-            vm.state.finalizing.store(true, Ordering::Release);
-            #[cfg(feature = "threading")]
-            {
-                thread::set_other_threads_shutting_down(&vm.state);
-                vm.state.stop_the_world.start_the_world(&vm.state);
-                crate::signal::set_finalizing_bit();
-            }
-
-            // GC pass - collect cycles before module cleanup
-            vm.state.gc.collect_force(2);
-
-            // Module finalization: remove modules from sys.modules, GC collect
-            // (while builtins is still available for __del__), then clear module dicts.
-            vm.finalize_modules();
-
-            // CPython clears low-level cross-interpreter container data from
-            // _PyAtExit_Fini(), after Python atexit callbacks and module
-            // finalization.  In particular, values sent by an atexit callback
-            // must also become unbound when this interpreter goes away.
-            let interpreter_id = vm.state.interpreter_id;
-            crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
-            crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
-
-            if vm.flush_std() < 0 && flush_status == 0 {
-                flush_status = -1;
-            }
+            let exit_code = exit_code(vm);
 
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
-            let exit_code = if exit_code == 0 && flush_status < 0 {
+            if vm.finalize_ex(flush_status) < 0 && exit_code == 0 {
                 EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
-            };
-
-            // Daemon threads may still exist, so use the safe `process()`,
-            // not `drain_all()`.
-            #[cfg(feature = "threading")]
-            crate::object::qsbr::QSBR.process();
-
-            exit_code
+            }
         })
+    }
+}
+
+impl VirtualMachine {
+    /// Py_Exit
+    ///
+    /// Finalize the interpreter and exit the process with `status`.
+    pub fn exit_process(&self, status: u32) -> ! {
+        if self.state.thread_is_running_main() {
+            self.state.set_not_running_main();
+        }
+        let status = if self.finalize_ex(self.flush_std()) < 0 {
+            EXITCODE_FLUSH_FAILURE
+        } else {
+            status
+        };
+        crate::host_env::os::exit(status as i32)
+    }
+
+    /// The steps of Py_FinalizeEx after the first flush of stdout and stderr.
+    /// Return a negative value if any flush failed.
+    fn finalize_ex(&self, mut flush_status: i32) -> i32 {
+        let vm = self;
+        // Wait for thread shutdown - call threading._shutdown() if available.
+        // This waits for all non-daemon threads to complete.
+        // threading module may not be imported, so ignore import errors.
+        #[cfg(feature = "threading")]
+        if let Ok(threading) = vm.import("threading", 0)
+            && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
+            && let Err(e) = shutdown.call((), vm)
+        {
+            vm.run_unraisable(
+                e,
+                Some("Exception ignored in threading shutdown".to_owned()),
+                threading,
+            );
+        }
+
+        // Run atexit handlers before setting finalizing flag.
+        // This allows unraisable exceptions from atexit handlers to be reported.
+        atexit::_run_exitfuncs(vm);
+
+        // Clean up any lingering subinterpreters. This has to happen before
+        // the finalizing flag is set, or else threads might get prematurely
+        // blocked.
+        #[cfg(feature = "threading")]
+        finalize_subinterpreters(vm);
+
+        // Remaining daemon threads hang in `_PyThreadState_HangThread` when
+        // they next attach (or at the eval-breaker if they are already
+        // running). Their `_ThreadHandle` stays not-done so `is_alive()`
+        // is still true for `join()` during the GC that follows.
+        #[cfg(feature = "threading")]
+        {
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            vm.state
+                .finalizing_thread_ident
+                .store(crate::stdlib::_thread::get_ident());
+        }
+        vm.state.finalizing.store(true, Ordering::Release);
+        #[cfg(feature = "threading")]
+        {
+            thread::set_other_threads_shutting_down(&vm.state);
+            vm.state.stop_the_world.start_the_world(&vm.state);
+            crate::signal::set_finalizing_bit();
+        }
+
+        // GC pass - collect cycles before module cleanup
+        vm.state.gc.collect_force(2);
+
+        // Module finalization: remove modules from sys.modules, GC collect
+        // (while builtins is still available for __del__), then clear module dicts.
+        vm.finalize_modules();
+
+        // CPython clears low-level cross-interpreter container data from
+        // _PyAtExit_Fini(), after Python atexit callbacks and module
+        // finalization.  In particular, values sent by an atexit callback
+        // must also become unbound when this interpreter goes away.
+        let interpreter_id = vm.state.interpreter_id;
+        crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
+        crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
+
+        if vm.flush_std() < 0 && flush_status == 0 {
+            flush_status = -1;
+        }
+
+        // Daemon threads may still exist, so use the safe `process()`,
+        // not `drain_all()`.
+        #[cfg(feature = "threading")]
+        crate::object::qsbr::QSBR.process();
+
+        flush_status
     }
 }
 
@@ -1287,7 +1400,6 @@ mod tests {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
                 thread_vm.run(|vm| {
-                    main_started_worker.store(true, Ordering::Release);
                     let deadline = Instant::now() + Duration::from_secs(30);
                     let mut operations = 0;
                     while !sub_finished_worker.load(Ordering::Acquire) && Instant::now() < deadline
@@ -1297,6 +1409,11 @@ mod tests {
                         let result = vm._add(&a, &b).unwrap();
                         assert_eq!(*int::get_value(&result), 42_i32.to_bigint().unwrap());
                         operations += 1;
+                        if operations == 1 {
+                            // Publish readiness only after actual progress. Otherwise
+                            // the sub can finish before this loop's first iteration.
+                            main_started_worker.store(true, Ordering::Release);
+                        }
                         // The protocol calls above never reach a safepoint on
                         // their own; a bytecode loop would. Without this, a
                         // concurrent stop-the-world could not finish while this
@@ -1314,7 +1431,12 @@ mod tests {
         let sub_worker = sub.enter(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(30);
                 while !main_started_worker.load(Ordering::Acquire) {
+                    assert!(
+                        Instant::now() < deadline,
+                        "main interpreter made no progress before the readiness deadline"
+                    );
                     std::thread::yield_now();
                 }
                 thread_vm.run(|vm| {
@@ -1464,6 +1586,7 @@ mod tests {
         let sub = main.create_subinterpreter();
 
         let sub_scope = sub.enter(|vm| {
+            vm.state.gc.disable();
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, CYCLE);
             assert_eq!(live_nodes(vm), 2);

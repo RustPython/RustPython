@@ -24,6 +24,9 @@ pub struct WeakNewArgs {
 }
 
 impl PyPayload for PyWeak {
+    // WeakRefList::add tracks only after linking and publishing the referent.
+    const NEW_REF_UNTRACKED: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.weakref_type

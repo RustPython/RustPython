@@ -520,7 +520,7 @@ mod _io {
 
     #[pyclass(
         with(IterNext, Iterable, Destructor),
-        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF, HEAPTYPE)
     )]
     impl _IOBase {
         #[pymethod]
@@ -4895,21 +4895,25 @@ mod _io {
             let raw_bytes = initial_value.as_ref().map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
-            *zelf.buffer.write() = StringIOBuffer::new(raw_bytes);
+            let mut buffer = zelf.buffer.write();
+            *buffer = StringIOBuffer::new(raw_bytes);
             zelf.newline.store(newline);
             zelf.seennl.store(SeenNewline::empty());
-            if let Some(initial_value) = initial_value {
+            if let Some(initial_value) = initial_value.as_ref() {
                 zelf.observe_newlines(initial_value.as_wtf8(), newline);
             }
+            zelf.closed.store(false);
             Ok(())
         }
     }
 
     impl StringIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, StringIOBuffer>> {
+            let buffer = self.buffer.write();
             if !self.closed.load() {
-                Ok(self.buffer.write())
+                Ok(buffer)
             } else {
+                drop(buffer);
                 Err(io_closed_error(vm))
             }
         }
@@ -4983,7 +4987,9 @@ mod _io {
 
         #[pymethod]
         fn close(&self) {
+            let mut buffer = self.buffer.write();
             self.closed.store(true);
+            *buffer = StringIOBuffer::new(Vec::new());
         }
 
         // Replace characters in the underlying vector, regardless of their byte widths.
@@ -5141,7 +5147,7 @@ mod _io {
 
             // Set content and position
             let raw_bytes = content.as_bytes().to_vec();
-            let mut buffer = zelf.buffer.write();
+            let mut buffer = zelf.buffer(vm)?;
             *buffer = StringIOBuffer::new(raw_bytes);
             buffer.seek(pos as usize);
             drop(buffer);
@@ -5209,17 +5215,22 @@ mod _io {
 
             let raw_bytes = args
                 .initial_bytes
+                .as_ref()
                 .map_or_else(Vec::new, |input| input.borrow_buf().to_vec());
-            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
+            let mut buffer = zelf.try_resizable(vm)?;
+            *buffer = BufferedIO::new(Cursor::new(raw_bytes));
+            zelf.closed.store(false);
             Ok(())
         }
     }
 
     impl BytesIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+            let buffer = self.buffer.write();
             if !self.closed.load() {
-                Ok(self.buffer.write())
+                Ok(buffer)
             } else {
+                drop(buffer);
                 Err(io_closed_error(vm))
             }
         }
@@ -5340,6 +5351,10 @@ mod _io {
                 return Err(io_closed_error(vm));
             }
             let mut buffer = self.try_resizable(vm)?;
+            if self.closed.load() {
+                drop(buffer);
+                return Err(io_closed_error(vm));
+            }
             let pos = pos.try_usize(vm)?;
             Ok(buffer.truncate(pos))
         }
@@ -5356,7 +5371,15 @@ mod _io {
                     vm.new_buffer_error("Existing exports of data: object cannot be closed")
                 );
             }
+            let mut buffer = self.buffer.write();
+            if self.exports.load() > 0 {
+                drop(buffer);
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be closed")
+                );
+            }
             self.closed.store(true);
+            *buffer = BufferedIO::new(Cursor::new(Vec::new()));
             Ok(())
         }
 
@@ -5403,6 +5426,10 @@ mod _io {
 
             // Check exports and set content (like CHECK_EXPORTS)
             let mut buffer = zelf.try_resizable(vm)?;
+            if zelf.closed.load() {
+                drop(buffer);
+                return Err(vm.new_value_error("__setstate__ on closed file"));
+            }
             *buffer = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
             buffer
                 .seek(SeekFrom::Start(pos))
@@ -5437,15 +5464,18 @@ mod _io {
     impl PyRef<BytesIO> {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
+            let storage = self.buffer.read();
             if self.closed.load() {
+                drop(storage);
                 return Err(vm.new_value_error("I/O operation on closed file."));
             }
-            let len = self.buffer.read().cursor.get_ref().len();
+            let len = storage.cursor.get_ref().len();
             let buffer = PyBuffer::new(
-                self.into(),
+                self.clone().into(),
                 BufferDescriptor::simple(len, false),
                 &BYTES_IO_BUFFER_METHODS,
             );
+            drop(storage);
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }
@@ -5918,6 +5948,32 @@ mod _io {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn closed_memory_streams_release_storage() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let text = StringIO {
+                    _base: Default::default(),
+                    buffer: PyRwLock::new(StringIOBuffer::new(vec![b'x'; 1024])),
+                    newline: AtomicCell::new(Newlines::Lf),
+                    seennl: AtomicCell::new(SeenNewline::empty()),
+                    closed: AtomicCell::new(false),
+                };
+                let text = text.into_ref(&vm.ctx);
+                text.close();
+                assert_eq!(text.buffer.read().bytes.cursor.get_ref().capacity(), 0);
+
+                let bytes = BytesIO {
+                    _base: Default::default(),
+                    buffer: PyRwLock::new(BufferedIO::new(Cursor::new(vec![0; 1024]))),
+                    closed: AtomicCell::new(false),
+                    exports: AtomicCell::new(0),
+                };
+                let bytes = bytes.into_ref(&vm.ctx);
+                bytes.close(vm).unwrap();
+                assert_eq!(bytes.buffer.read().cursor.get_ref().capacity(), 0);
+            });
+        }
 
         #[test]
         fn buffered_read() {

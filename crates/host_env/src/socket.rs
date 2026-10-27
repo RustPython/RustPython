@@ -18,6 +18,9 @@ pub use ::dns_lookup as dns;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ::socket2 as raw;
 
+#[cfg(target_os = "linux")]
+pub mod bluetooth;
+
 #[cfg(not(any(
     target_os = "ios",
     target_os = "android",
@@ -875,6 +878,15 @@ pub struct RecvMsgResult {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
+#[derive(Debug)]
+pub struct RecvMsgIntoResult {
+    pub bytes_read: usize,
+    pub ancdata: Vec<AncillaryMessage>,
+    pub msg_flags: i32,
+    pub address: Option<RawSocketAddress>,
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AncillaryPackError {
     ItemTooLarge,
@@ -998,33 +1010,79 @@ pub fn recvmsg(
         MaybeUninit::uninit()
     };
     let mut data_buf = vec![initial; bufsize];
-    let mut anc_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); ancbufsize];
+    let result = recvmsg_into(fd, &mut [&mut data_buf], ancbufsize, flags)?;
+    let data = unsafe {
+        // Datagram MSG_TRUNC may report more bytes than the supplied storage.
+        data_buf.set_len(result.bytes_read.min(bufsize));
+        core::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
+    };
+    Ok(RecvMsgResult {
+        data,
+        ancdata: result.ancdata,
+        msg_flags: result.msg_flags,
+        address: result.address,
+    })
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn recvmsg_into(
+    fd: BorrowedFd<'_>,
+    buffers: &mut [&mut [core::mem::MaybeUninit<u8>]],
+    ancbufsize: usize,
+    flags: i32,
+) -> io::Result<RecvMsgIntoResult> {
+    use core::mem::MaybeUninit;
+
+    let as_iovec = |buf: &mut [MaybeUninit<u8>]| libc::iovec {
+        iov_base: buf.as_mut_ptr().cast(),
+        iov_len: buf.len(),
+    };
+    let mut single;
+    let mut multiple;
+    let iov: &mut [libc::iovec] = if let [buf] = buffers {
+        single = [as_iovec(buf)];
+        &mut single
+    } else {
+        multiple = buffers
+            .iter_mut()
+            .map(|buf| as_iovec(buf))
+            .collect::<Vec<_>>();
+        &mut multiple
+    };
+    // CMSG_* requires aligned headers; initialize padding before exposing bytes.
+    let mut anc_buf = vec![
+        MaybeUninit::<libc::cmsghdr>::zeroed();
+        ancbufsize.div_ceil(core::mem::size_of::<libc::cmsghdr>())
+    ];
     let mut addr_storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-
-    let mut iov = [libc::iovec {
-        iov_base: data_buf.as_mut_ptr().cast(),
-        iov_len: bufsize,
-    }];
-
     let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
     msg.msg_name = (&mut addr_storage as *mut libc::sockaddr_storage).cast();
     msg.msg_namelen = core::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
     msg.msg_iov = iov.as_mut_ptr();
-    msg.msg_iovlen = 1;
+    // These msghdr fields are narrower on some Unix targets.
+    #[allow(clippy::useless_conversion)]
+    let iovlen = iov
+        .len()
+        .try_into()
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    msg.msg_iovlen = iovlen;
     if ancbufsize > 0 {
         msg.msg_control = anc_buf.as_mut_ptr().cast();
-        msg.msg_controllen = ancbufsize as _;
+        #[allow(clippy::useless_conversion)]
+        let controllen = ancbufsize
+            .try_into()
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+        msg.msg_controllen = controllen;
     }
 
+    // SAFETY: all iovecs refer to disjoint writable slices; the control and address
+    // buffers are aligned and live until the syscall returns.
     let ret = unsafe { libc::recvmsg(fd.as_raw_fd(), &mut msg, flags) }.check_libc_neg()?;
-
-    let data = unsafe {
-        // Datagram MSG_TRUNC may report more bytes than the supplied storage.
-        data_buf.set_len((ret as usize).min(bufsize));
-        core::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
-    };
     let control = unsafe {
-        core::slice::from_raw_parts(anc_buf.as_ptr().cast::<u8>(), msg.msg_controllen as usize)
+        core::slice::from_raw_parts(
+            anc_buf.as_ptr().cast::<u8>(),
+            (msg.msg_controllen as usize).min(ancbufsize),
+        )
     };
     let ancdata = parse_ancillary_messages(control);
     let address = if msg.msg_namelen > 0 {
@@ -1038,9 +1096,8 @@ pub fn recvmsg(
     } else {
         None
     };
-
-    Ok(RecvMsgResult {
-        data,
+    Ok(RecvMsgIntoResult {
+        bytes_read: ret as usize,
         ancdata,
         msg_flags: msg.msg_flags,
         address,

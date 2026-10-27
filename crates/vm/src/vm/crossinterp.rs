@@ -2,7 +2,7 @@
 //!
 //! Interpreters do not share `PyObject` graphs. Shareable values are converted
 //! to an interpreter-neutral payload and rebuilt in the destination.
-// cspell:ignore unpickler
+// cspell:ignore unpickler unmarshalled
 
 #[cfg(not(feature = "threading"))]
 use crate::protocol::BufferDescriptor;
@@ -14,12 +14,15 @@ use crate::{
         PyMemoryView, PyStr, PyStrInterned, PyTuple,
     },
     bytecode::{
-        BorrowedConstant, CodeFlags, Constant, Instruction,
+        CodeFlags, Instruction,
         oparg::{CommonConstant, OpArg, OpArgState},
     },
     protocol::PyBuffer,
 };
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    borrow::Borrow,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use num_traits::ToPrimitive;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -348,17 +351,23 @@ impl SharedValue {
 }
 
 fn marshal_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-    let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
-    let bytes = dumps.call((obj.to_owned(),), vm)?;
-    let bytes = bytes
-        .downcast::<PyBytes>()
-        .map_err(|_| vm.new_type_error("marshal.dumps() did not return bytes"))?;
-    Ok(bytes.as_bytes().to_vec())
+    let dump = || -> PyResult<Vec<u8>> {
+        let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
+        let bytes = dumps.call((obj.to_owned(),), vm)?;
+        let bytes = bytes
+            .downcast::<PyBytes>()
+            .map_err(|_| vm.new_type_error("marshal.dumps() did not return bytes"))?;
+        Ok(bytes.as_bytes().to_vec())
+    };
+    dump().map_err(|cause| not_shareable_error_from(vm, "object could not be marshalled", cause))
 }
 
 fn marshal_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
-    let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
-    loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+    let load = || -> PyResult {
+        let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
+        loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+    };
+    load().map_err(|cause| not_shareable_error_from(vm, "object could not be unmarshalled", cause))
 }
 
 /// `_memoryview_from_xid`.
@@ -828,31 +837,27 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }
-    let units = &code.instructions;
-    // Look up None in co_consts.
-    let none_index = code
-        .constants
-        .iter()
-        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None));
-    // We don't worry about EXTENDED_ARG for now.
-    for (at, op, _) in walk_instructions(code) {
-        if !matches!(op, Instruction::ReturnValue) {
+    let mut previous_loads_none = false;
+    for (_, instruction, arg) in walk_instructions(code) {
+        if matches!(instruction, Instruction::ExtendedArg) {
             continue;
         }
-        debug_assert_ne!(at, 0);
-        let prev_op = units.read_op(at - 1).deoptimize();
-        let prev_arg = u32::from(u8::from(units.read_arg(at - 1)));
-        if matches!(prev_op, Instruction::LoadCommonConstant { .. })
-            && prev_arg == u32::from(CommonConstant::None)
-        {
-            continue;
+        if matches!(instruction, Instruction::ReturnValue) && !previous_loads_none {
+            return false;
         }
-        if matches!(prev_op, Instruction::LoadConst { .. })
-            && none_index.is_some_and(|none_index| prev_arg as usize == none_index)
-        {
-            continue;
-        }
-        return false;
+        previous_loads_none = match instruction {
+            Instruction::LoadCommonConstant { idx } => {
+                matches!(idx.try_get(arg), Ok(CommonConstant::None))
+            }
+            Instruction::LoadConst { consti } => code
+                .constants
+                .get(consti.get(arg).as_usize())
+                .is_some_and(|constant| {
+                    let object: &PyObject = constant.borrow();
+                    object.is(&crate::Context::genesis().none)
+                }),
+            _ => false,
+        };
     }
     true
 }
@@ -932,16 +937,7 @@ where
         ));
     }
 
-    if state
-        .running_main
-        .compare_exchange(
-            false,
-            true,
-            core::sync::atomic::Ordering::AcqRel,
-            core::sync::atomic::Ordering::Acquire,
-        )
-        .is_err()
-    {
+    if !state.set_running_main() {
         return Err(crate::stdlib::_interpreters::interpreter_error(
             caller,
             "interpreter already running",
@@ -951,9 +947,7 @@ where
     struct RunningGuard<'a>(&'a crate::vm::PyGlobalState);
     impl Drop for RunningGuard<'_> {
         fn drop(&mut self) {
-            self.0
-                .running_main
-                .store(false, core::sync::atomic::Ordering::Release);
+            self.0.set_not_running_main();
         }
     }
     let _guard = RunningGuard(&state);
@@ -965,6 +959,5 @@ where
 
 #[must_use]
 pub fn is_running(id: i64) -> bool {
-    crate::vm::runtime::lookup_interpreter(id)
-        .is_some_and(|s| s.is_main || s.running_main.load(core::sync::atomic::Ordering::Acquire))
+    crate::vm::runtime::lookup_interpreter(id).is_some_and(|s| s.is_running_main())
 }

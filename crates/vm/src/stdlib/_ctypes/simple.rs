@@ -1,15 +1,17 @@
 use super::_ctypes::CArgObject;
 use super::array::PyCArray;
 use super::base::{
-    CArgValue, CDATA_BUFFER_METHODS, PyCData, StgInfo, StgInfoFlags, bytes_to_pyobject,
+    CArgValue, CDATA_BUFFER_METHODS, CDataBytes, ParamFunc, PyCData, StgInfo, StgInfoFlags,
+    bytes_to_pyobject,
 };
 use super::function::PyCFuncPtr;
 use super::pointer::PyCPointer;
 use crate::builtins::{PyByteArray, PyBytes, PyInt, PyNone, PyStr, PyType, PyTypeRef};
+use crate::class::StaticType;
 use crate::convert::ToPyObject;
 use crate::function::{Either, FuncArgs, OptionalArg};
-use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
-use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
+use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods};
+use crate::types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer, Representable};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassDef, set_attrs,
@@ -47,6 +49,15 @@ fn new_simple_type(
         Either::B(typ) => typ.as_object(),
     };
 
+    if let Some(typ) = cls.downcast_ref::<PyType>()
+        && let Some(info) = typ.stg_info_opt()
+    {
+        return Ok(PyCSimple(PyCData::from_bytes(
+            zeroed_bytes(info.size),
+            None,
+        )));
+    }
+
     let _type_ = cls
         .get_attr("_type_", vm)
         .map_err(|_| vm.new_attribute_error("class must define a '_type_' attribute"))?;
@@ -56,6 +67,12 @@ fn new_simple_type(
     }
 
     let tp_str = _type_.str(vm)?.to_string();
+
+    // Complex ctypes storage and FFI are not implemented. Preserve the
+    // optional-type AttributeError contract for the PEP 3118 codes.
+    if matches!(tp_str.as_str(), "Zd" | "Zf" | "Zg") {
+        return Err(vm.new_attribute_error("complex ctypes types are not supported"));
+    }
 
     if tp_str.len() != 1 {
         return Err(vm.new_value_error(format!(
@@ -74,6 +91,9 @@ fn new_simple_type(
 }
 
 pub(super) fn bigint_to_i128_wrapping(value: &malachite_bigint::BigInt) -> i128 {
+    if let Some(value) = value.to_i128() {
+        return value;
+    }
     let bytes = value.to_signed_bytes_le();
     let fill = bytes
         .last()
@@ -226,7 +246,7 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
 #[repr(transparent)]
 pub(crate) struct PyCSimpleType(PyType);
 
-#[pyclass(flags(BASETYPE), with(AsNumber, Initializer))]
+#[pyclass(flags(BASETYPE), with(AsSequence, Initializer))]
 impl PyCSimpleType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -494,31 +514,11 @@ impl PyCSimpleType {
             _ => Err(vm.new_type_error("wrong type")),
         }
     }
-
-    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        Py::<PyCSimple>::repeat(cls, n, vm)
-    }
 }
 
-impl AsNumber for PyCSimpleType {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            multiply: Some(|a, b, vm| {
-                // a is a PyCSimpleType instance (type object like c_char)
-                // b is int (array size)
-                let cls = a
-                    .downcast_ref::<PyType>()
-                    .ok_or_else(|| vm.new_type_error("expected type"))?;
-                let n = b
-                    .try_index(vm)?
-                    .as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                Py::<PyCSimple>::repeat(cls.to_owned(), n, vm)
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+impl AsSequence for PyCSimpleType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 
@@ -555,6 +555,12 @@ impl Initializer for PyCSimpleType {
         let type_str = type_attr.str(vm)?.to_string();
 
         // Validate _type_ is a single character
+        // Complex ctypes storage and FFI are not implemented. Preserve the
+        // optional-type AttributeError contract for the PEP 3118 codes.
+        if matches!(type_str.as_str(), "Zd" | "Zf" | "Zg") {
+            return Err(vm.new_attribute_error("complex ctypes types are not supported"));
+        }
+
         if type_str.len() != 1 {
             return Err(vm.new_value_error(
                 "class must define a '_type_' attribute which must be a string of length 1",
@@ -572,6 +578,7 @@ impl Initializer for PyCSimpleType {
         let size = simple_type_size(&type_str).expect("invalid ctypes simple type");
         let align = simple_type_align(&type_str).expect("invalid ctypes simple type");
         let mut stg_info = StgInfo::new(size, align);
+        stg_info.scalar_code = type_str.chars().next();
 
         // Set format for PEP 3118 buffer protocol
         stg_info.format = Some(alloc_format_string_for_type(
@@ -589,7 +596,9 @@ impl Initializer for PyCSimpleType {
         super::base::set_or_init_stginfo(&type_ref, stg_info);
 
         // Create __ctype_le__ and __ctype_be__ swapped types
-        create_swapped_types(&type_ref, &type_str, vm)?;
+        if type_ref.class().is(Self::static_type()) {
+            create_swapped_types(&type_ref, &type_str, args, vm)?;
+        }
 
         Ok(())
     }
@@ -605,15 +614,9 @@ impl Initializer for PyCSimpleType {
 fn create_swapped_types(
     type_ref: &Py<PyType>,
     type_str: &str,
+    mut args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    use crate::builtins::PyDict;
-
-    // Avoid infinite recursion - if __ctype_le__ already exists, skip
-    if type_ref.as_object().get_attr("__ctype_le__", vm).is_ok() {
-        return Ok(());
-    }
-
     // Types that don't support byte order swapping - no __ctype_le__/__ctype_be__
     // c_void_p (P), c_char_p (z), c_wchar_p (Z), c_wchar (u), py_object (O)
     let unsupported_types = ["P", "z", "Z", "u", "O"];
@@ -637,31 +640,15 @@ fn create_swapped_types(
     // Check system byte order at compile time
     let is_little_endian = cfg!(target_endian = "little");
 
-    // Create dict for the swapped (non-native) type
-    let swapped_dict: crate::PyRef<crate::builtins::PyDict> = PyDict::default().into_ref(&vm.ctx);
-    swapped_dict.set_item("_type_", vm.ctx.new_str(type_str).into(), vm)?;
-
-    // Create the swapped type using the same metaclass
-    let metaclass = type_ref.class();
-    let bases = vm.ctx.new_tuple(vec![type_ref.as_object().to_owned()]);
-
-    // Set placeholder first to prevent recursion
-    set_attrs!(
-        type_ref.as_object(), vm,
-        "__ctype_le__" => vm.ctx.none(),
-        "__ctype_be__" => vm.ctx.none(),
-    );
-
     // Create only the non-native endian type
     let suffix = if is_little_endian { "_be" } else { "_le" };
-    let swapped_type = metaclass.as_object().call(
-        (
-            vm.ctx.new_str(format!("{}{}", type_ref.name(), suffix)),
-            bases,
-            swapped_dict.as_object().to_owned(),
-        ),
-        vm,
-    )?;
+    args.args[0] = vm
+        .ctx
+        .new_str(format!("{}{}", type_ref.name(), suffix))
+        .into();
+    // Endian variants share bases and class attributes; neither subclasses
+    // the other. Bypass the initializer to avoid generating another pair.
+    let swapped_type = PyType::slot_new(type_ref.class().to_owned(), args, vm)?;
 
     // Set _swappedbytes_ on the swapped type to indicate byte swapping is needed
     set_attrs!(
@@ -670,14 +657,15 @@ fn create_swapped_types(
     );
 
     // Update swapped type's StgInfo format to use opposite endian prefix
-    if let Ok(swapped_type_ref) = swapped_type.clone().downcast::<PyType>()
-        && let Some(mut sw_stg) = swapped_type_ref.get_type_data_mut::<StgInfo>()
-    {
+    if let Ok(swapped_type_ref) = swapped_type.clone().downcast::<PyType>() {
+        let mut sw_stg = type_ref.stg_info(vm)?.clone();
         // Swapped: little-endian system uses big-endian prefix and vice versa
+        sw_stg.big_endian = is_little_endian;
         sw_stg.format = Some(alloc_format_string_for_type(
             type_str.chars().next().unwrap_or('?'),
             is_little_endian,
         ));
+        super::base::set_or_init_stginfo(&swapped_type_ref, sw_stg);
     }
 
     // Set attributes based on system byte order
@@ -711,10 +699,21 @@ fn create_swapped_types(
     module = "_ctypes",
     name = "_SimpleCData",
     base = PyCData,
-    metaclass = "PyCSimpleType"
+    metaclass = "PyCSimpleType",
+    traverse = "manual"
 )]
 #[repr(transparent)]
 pub(crate) struct PyCSimple(pub PyCData);
+
+// SAFETY: this transparent wrapper owns exactly the references in its base.
+unsafe impl crate::object::Traverse for PyCSimple {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.0.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear(out);
+    }
+}
 
 impl Debug for PyCSimple {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -722,6 +721,122 @@ impl Debug for PyCSimple {
             .field("size", &self.0.buffer.read().len())
             .finish()
     }
+}
+
+pub(super) fn is_swapped(cls: &Py<PyType>) -> bool {
+    cls.stg_info_opt().is_some_and(|info| {
+        info.paramfunc == ParamFunc::Simple && info.big_endian != cfg!(target_endian = "big")
+    })
+}
+
+pub(super) fn returns_scalar(cls: &Py<PyType>) -> bool {
+    cls.base
+        .deref()
+        .is_some_and(|base| base.is(PyCSimple::static_type()))
+}
+
+pub(super) fn assignment_value(
+    type_code: &str,
+    value: &PyObject,
+    swapped: bool,
+    vm: &VirtualMachine,
+) -> PyResult<(CDataBytes, Option<PyObjectRef>, Option<PyObjectRef>)> {
+    let mut keep = None;
+    let mut hidden = None;
+    // Convert once before writing: numeric conversion may reenter ctypes.
+    let storage = match type_code {
+        "c" => {
+            let byte = if let Some(bytes) = value.downcast_ref::<PyBytes>() {
+                match bytes.as_bytes() {
+                    [byte] => *byte,
+                    _ => return Err(vm.new_type_error("one character bytes expected")),
+                }
+            } else if let Some(bytes) = value.downcast_ref::<PyByteArray>() {
+                match &*bytes.borrow_buf() {
+                    [byte] => *byte,
+                    _ => return Err(vm.new_type_error("one character bytearray expected")),
+                }
+            } else {
+                value
+                    .downcast_ref::<PyInt>()
+                    .and_then(|integer| integer.as_bigint().to_u8())
+                    .ok_or_else(|| {
+                        vm.new_type_error("one character bytes, bytearray or integer expected")
+                    })?
+            };
+            SimpleStorageValue::Byte(byte)
+        }
+        "u" => {
+            let text = value
+                .downcast_ref::<PyStr>()
+                .ok_or_else(|| vm.new_type_error("unicode string expected"))?;
+            let mut chars = text.as_wtf8().code_points();
+            let character = chars
+                .next()
+                .filter(|_| chars.next().is_none())
+                .ok_or_else(|| vm.new_type_error("one character unicode string expected"))?;
+            if rustpython_host_env::ctypes::WCHAR_SIZE == 2 && character.to_u32() > 0xffff {
+                return Err(vm.new_type_error("a single UTF-16 code unit is required"));
+            }
+            SimpleStorageValue::Wchar(character.to_u32())
+        }
+        "f" | "d" | "g" => SimpleStorageValue::Float(value.try_float(vm)?.to_f64()),
+        "?" | "v" => SimpleStorageValue::Bool(value.to_owned().try_to_bool(vm)?),
+        "O" => {
+            keep = (!vm.is_none(value)).then(|| value.to_owned());
+            SimpleStorageValue::ObjectId(value.get_id())
+        }
+        "z" | "Z" | "P" | "X" => {
+            // X preserves opaque-address/null writes. BSTR string assignment
+            // needs COM allocation and ownership, not a Z-style wide buffer.
+            let address = if vm.is_none(value) {
+                0
+            } else if type_code == "z"
+                && let Some(bytes) = value.downcast_ref::<PyBytes>()
+            {
+                let (holder, address) = super::base::ensure_z_null_terminated(bytes, vm);
+                keep = Some(value.to_owned());
+                hidden = Some(holder);
+                address
+            } else if type_code == "Z"
+                && let Some(text) = value.downcast_ref::<PyStr>()
+            {
+                let (holder, address) = super::base::str_to_wchar_bytes(text.as_wtf8(), vm);
+                keep = Some(holder);
+                address
+            } else if let Some(integer) = value.downcast_ref::<PyInt>() {
+                bigint_to_i128_wrapping(integer.as_bigint()) as usize
+            } else {
+                return Err(vm.new_type_error("integer address expected"));
+            };
+            SimpleStorageValue::Pointer(address)
+        }
+        _ => {
+            let index;
+            let integer = if let Some(integer) = value.downcast_ref_if_exact::<PyInt>(vm) {
+                integer
+            } else {
+                index = value.try_index(vm)?;
+                &index
+            };
+            SimpleStorageValue::Signed(bigint_to_i128_wrapping(integer.as_bigint()))
+        }
+    };
+    let bytes = match (type_code, storage) {
+        (
+            "b" | "B" | "h" | "H" | "i" | "I" | "l" | "L" | "q" | "Q",
+            SimpleStorageValue::Signed(value),
+        ) => {
+            let size = simple_type_size(type_code).expect("integer ctypes size");
+            let mut bytes = (value as u64).to_le_bytes();
+            if super::base::is_big_endian(swapped) {
+                bytes[..size].reverse();
+            }
+            CDataBytes::Integer { bytes, size }
+        }
+        (_, storage) => simple_storage_value_to_bytes_endian(type_code, storage, swapped).into(),
+    };
+    Ok((bytes, keep, hidden))
 }
 
 fn value_to_bytes_endian(
@@ -999,7 +1114,7 @@ impl Constructor for PyCSimple {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     let buffer = rustpython_host_env::ctypes::pointer_bytes(ptr);
                     let cdata = PyCData::from_bytes(buffer, Some(v.clone()));
-                    *cdata.base.write() = Some(kept_alive);
+                    cdata.keep_alive(kept_alive);
                     return Self(cdata).into_ref_with_type(vm, cls).map(Into::into);
                 }
             } else if _type_ == "Z"
@@ -1026,10 +1141,15 @@ impl Constructor for PyCSimple {
             }
         };
 
-        // Check if this is a swapped endian type (presence of attribute indicates swapping)
-        let swapped = cls.as_object().get_attr("_swappedbytes_", vm).is_ok();
+        // Storage metadata belongs to this exact type, unlike inherited attributes.
+        let swapped = is_swapped(&cls);
 
-        let buffer = value_to_bytes_endian(&_type_, &value, swapped, vm);
+        let buffer = if _type_ == "O" && init_arg.is_none() {
+            // An omitted py_object value is NULL, not the None singleton.
+            rustpython_host_env::ctypes::pointer_bytes(0)
+        } else {
+            value_to_bytes_endian(&_type_, &value, swapped, vm)
+        };
 
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // store the initial value in _objects
@@ -1104,13 +1224,10 @@ impl Py<PyCSimple> {
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
 
-        // Get _type_ from class
         let cls = zelf.class();
-        let type_attr = cls
-            .as_object()
-            .get_attr("_type_", vm)
-            .map_err(|_| vm.new_type_error("no _type_ attribute"))?;
-        let type_code = type_attr.str(vm)?.to_string();
+        let type_code = cls
+            .type_code(vm)
+            .ok_or_else(|| vm.new_type_error("abstract class"))?;
 
         // Special handling for c_char_p (z) and c_wchar_p (Z)
         // z_get, Z_get - dereference pointer to get string
@@ -1139,18 +1256,13 @@ impl Py<PyCSimple> {
         if type_code == "O" {
             let buffer = zelf.0.buffer.read();
             let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
-            if ptr == 0 {
-                return Err(vm.new_value_error("PyObject is NULL"));
-            }
-            // Non-NULL: return stored object from _objects if available
-            if let Some(obj) = zelf.0.objects.read().as_ref() {
-                return Ok(obj.clone());
-            }
-            return Err(vm.new_value_error("PyObject is NULL"));
+            let slot = buffer.as_ptr() as usize;
+            drop(buffer);
+            return zelf.0.object_at(ptr, slot, None, vm);
         }
 
-        // Check if this is a swapped endian type (presence of attribute indicates swapping)
-        let swapped = cls.as_object().get_attr("_swappedbytes_", vm).is_ok();
+        // Storage metadata belongs to this exact type, unlike inherited attributes.
+        let swapped = is_swapped(cls);
 
         // Read value from buffer, swap bytes if needed
         let buffer = zelf.0.buffer.read();
@@ -1174,68 +1286,63 @@ impl Py<PyCSimple> {
             .downcast()
             .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
 
-        // Get _type_ from class
         let cls = zelf.class();
-        let type_attr = cls
-            .as_object()
-            .get_attr("_type_", vm)
-            .map_err(|_| vm.new_type_error("no _type_ attribute"))?;
-        let type_code = type_attr.str(vm)?.to_string();
+        let type_code = cls
+            .type_code(vm)
+            .ok_or_else(|| vm.new_type_error("abstract class"))?;
 
         // Handle z/Z types with PyBytes/PyStr separately to avoid memory leak
         if type_code == "z" {
             if let Some(bytes) = value.downcast_ref::<PyBytes>() {
                 let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                *zelf.0.buffer.write() =
-                    alloc::borrow::Cow::Owned(rustpython_host_env::ctypes::pointer_bytes(ptr));
-                *zelf.0.objects.write() = Some(value);
-                *zelf.0.base.write() = Some(kept_alive);
+                zelf.0
+                    .write_bytes_at_offset(0, &rustpython_host_env::ctypes::pointer_bytes(ptr));
+                zelf.0.keep_value(value, Some(kept_alive), vm)?;
                 return Ok(());
             }
         } else if type_code == "Z"
             && let Some(s) = value.downcast_ref::<PyStr>()
         {
             let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
-            *zelf.0.buffer.write() =
-                alloc::borrow::Cow::Owned(rustpython_host_env::ctypes::pointer_bytes(ptr));
-            *zelf.0.objects.write() = Some(holder);
+            zelf.0
+                .write_bytes_at_offset(0, &rustpython_host_env::ctypes::pointer_bytes(ptr));
+            zelf.0.keep_value(holder, None, vm)?;
             return Ok(());
         }
 
+        let write = if type_code == "O" {
+            let size = zelf.0.buffer.read().len();
+            zelf.0.register_pyobject_view(0, 0, size, vm)?
+        } else {
+            super::base::CDataWrite::default()
+        };
+
         let content = set_primitive(&type_code, &value, vm)?;
 
-        // Check if this is a swapped endian type (presence of attribute indicates swapping)
-        let swapped = instance
-            .class()
-            .as_object()
-            .get_attr("_swappedbytes_", vm)
-            .is_ok();
+        // Storage metadata belongs to this exact type, unlike inherited attributes.
+        let swapped = is_swapped(instance.class());
 
         // Update buffer when value changes
         let buffer_bytes = value_to_bytes_endian(&type_code, &content, swapped, vm);
+        write.publish(vm)?;
 
         // If the buffer is borrowed (from shared memory), write in-place
         // Otherwise replace with new owned buffer
         let mut buffer = zelf.0.buffer.write();
         write_simple_storage_buffer(&mut buffer, &buffer_bytes);
+        drop(buffer);
 
-        // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
-        // keep the reference in _objects
-        if type_code == "z" || type_code == "Z" || type_code == "O" {
-            *zelf.0.objects.write() = Some(value);
+        // Raw z/Z addresses and None do not replace the old owner: the
+        // address may still point into its buffer (CPython KeepRef(None)).
+        if type_code == "O" {
+            zelf.0.keep_value(value, None, vm)?;
         }
         Ok(())
     }
 
     #[pyclassmethod]
     fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::array_type_from_ctype;
-
-        if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
-        }
-        // Use cached array type creation
-        array_type_from_ctype(cls.into(), n as usize, vm)
+        super::array::repeat_type(cls.as_object(), n, vm)
     }
 
     // Simple_from_outparm - convert output parameter back to Python value

@@ -94,7 +94,6 @@ class AuditTest(unittest.TestCase):
         import_helper.import_module("_posixsubprocess")
         self.do_test("test_posixsubprocess")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_excepthook(self):
         returncode, events, stderr = self.run_python("test_excepthook")
         if not returncode:
@@ -344,6 +343,18 @@ class AuditTest(unittest.TestCase):
         self.assertTrue(any(["cpython.remote_debugger_script" in event for event in events]))
         if returncode:
             self.fail(stderr)
+
+    @unittest.expectedFailureIf(__import__("importlib.util", fromlist=["find_spec"]).find_spec("_testcapi") is None, "TODO: RUSTPYTHON; requires the absent _testcapi module for extension import audit events; recheck when discoverable")
+    def test_import_module(self):
+        self.do_test("test_import_module")
+
+    @unittest.expectedFailureIf(__import__("importlib.util", fromlist=["find_spec"]).find_spec("_testcapi") is None, "TODO: RUSTPYTHON; requires the absent _testcapi module for extension import audit events; recheck when discoverable")
+    def test_builtin__import__(self):
+        self.do_test("test_builtin__import__")
+
+    @unittest.expectedFailureIf(__import__("importlib.util", fromlist=["find_spec"]).find_spec("_testcapi") is None, "TODO: RUSTPYTHON; requires the absent _testcapi module for extension import audit events; recheck when discoverable")
+    def test_import_statement(self):
+        self.do_test("test_import_statement")
 
 if __name__ == "__main__":
     unittest.main()

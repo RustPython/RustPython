@@ -20,7 +20,11 @@ impl InterpreterBuilderExt for InterpreterBuilder {
 
         cfg_select! {
             feature = "freeze-stdlib" => builder
-                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                .add_frozen_modules_with_resources(
+                    rustpython_pylib::FROZEN_STDLIB,
+                    rustpython_pylib::FROZEN_STDLIB_RESOURCES,
+                )
+                .expect("validated embedded standard-library resources")
                 .init_hook(set_frozen_stdlib_dir),
             _ => builder.init_hook(setup_dynamic_stdlib),
         }
@@ -55,32 +59,30 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
 fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
-    let state = PyRc::get_mut(&mut vm.state).unwrap();
-    state.config.paths.stdlib_dir = Some(rustpython_pylib::LIB_PATH.to_owned());
+    if !vm.state.config.settings.use_frozen_modules {
+        setup_dynamic_stdlib(vm);
+        return;
+    }
+
+    if use_build_stdlib(vm) {
+        let state = PyRc::get_mut(&mut vm.state).unwrap();
+        state.config.paths.stdlib_dir =
+            Some(canonical_stdlib_path(rustpython_pylib::LIB_PATH.to_owned()));
+    }
 }
 
 /// Setup dynamic standard library loading from filesystem
-#[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
+#[cfg(feature = "stdlib")]
 fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
+    if !use_build_stdlib(vm) {
+        return;
+    }
     let state = PyRc::get_mut(&mut vm.state).unwrap();
     let paths: Vec<String> = collect_stdlib_paths()
         .into_iter()
-        .map(|p| {
-            std::fs::canonicalize(&p)
-                .map(|canonical| {
-                    let s = canonical.to_string_lossy();
-                    #[cfg(windows)]
-                    {
-                        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-                            return stripped.to_owned();
-                        }
-                    }
-                    s.into_owned()
-                })
-                .unwrap_or(p)
-        })
+        .map(canonical_stdlib_path)
         .collect();
 
     // Set stdlib_dir to the first stdlib path if available
@@ -88,14 +90,43 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
         state.config.paths.stdlib_dir = Some(first_path.clone());
     }
 
-    // Insert at the beginning so stdlib comes before user paths
-    for path in paths.into_iter().rev() {
-        state.config.paths.module_search_paths.insert(0, path);
-    }
+    rustpython_vm::getpath::add_build_time_paths(
+        &state.config.settings,
+        &mut state.config.paths,
+        paths,
+    );
+}
+
+// Preserve a discovered library. Only an explicit nonempty prefix half of
+// PYTHONHOME forbids falling back to the build-tree pure-Python library.
+#[cfg(feature = "stdlib")]
+fn use_build_stdlib(vm: &crate::VirtualMachine) -> bool {
+    vm.state.config.paths.stdlib_dir.is_none()
+        && vm.state.config.settings.home.as_deref().is_none_or(|home| {
+            let (prefix, _) = home
+                .split_once(if cfg!(windows) { ';' } else { ':' })
+                .unwrap_or((home, home));
+            prefix.is_empty()
+        })
+}
+
+/// Resolve the build-tree library link consistently for both backends.
+#[cfg(feature = "stdlib")]
+fn canonical_stdlib_path(path: String) -> String {
+    std::fs::canonicalize(&path)
+        .map(|canonical| {
+            let value = canonical.to_string_lossy();
+            #[cfg(windows)]
+            if let Some(stripped) = value.strip_prefix(r"\\?\") {
+                return stripped.to_owned();
+            }
+            value.into_owned()
+        })
+        .unwrap_or(path)
 }
 
 /// Collect standard library paths from build-time configuration
-#[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
+#[cfg(feature = "stdlib")]
 fn collect_stdlib_paths() -> Vec<String> {
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {

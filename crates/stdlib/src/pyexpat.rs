@@ -168,9 +168,9 @@ mod _pyexpat {
     use crate::vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
+        builtins::{PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption},
         types::Constructor,
     };
     use alloc::collections::VecDeque;
@@ -1403,14 +1403,11 @@ mod _pyexpat {
         #[pymethod(name = "Parse")]
         fn parse(
             zelf: &Py<Self>,
-            data: Either<PyStrRef, PyBytesRef>,
+            data: ArgStrOrBytesLike,
             isfinal: OptionalArg<bool>,
             vm: &VirtualMachine,
         ) -> PyResult<i32> {
-            let bytes = match data {
-                Either::A(s) => s.as_bytes().to_vec(),
-                Either::B(b) => b.as_bytes().to_vec(),
-            };
+            let bytes = data.borrow_bytes().to_vec();
             zelf.feed(vm, &bytes, isfinal.unwrap_or(false))?;
             Ok(1)
         }

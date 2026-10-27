@@ -424,7 +424,12 @@ impl PyDict {
             }
             Err(e) => return Err(e),
         };
-        let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
+        let keys = other.mapping_unchecked().collect_method_output(
+            vm.ctx.intern_str("keys"),
+            keys_method.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             if !override_existing {
                 let hash = key_hash(&*key, mapping_name, vm)?;
@@ -799,7 +804,7 @@ impl PyDict {
         AsMapping,
         Representable
     ),
-    flags(BASETYPE, MAPPING, _MATCH_SELF)
+    flags(BASETYPE, MAPPING, _MATCH_SELF, DICT_SUBCLASS)
 )]
 impl PyDict {}
 
@@ -1218,6 +1223,18 @@ impl Py<PyDict> {
         } else {
             Ok(self.get_item_opt(key, vm)?.map(|value| (value, None)))
         }
+    }
+
+    pub(crate) fn replace_if_identity(
+        &self,
+        name: &Py<PyStr>,
+        expected: &PyObject,
+        replacement: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let hash = PyDict::hash_or_unhashable(name, vm)?;
+        self.entries
+            .replace_if(vm, name, hash, replacement, |current| current.is(expected))
     }
 
     /// Store using a cached entry index hint for the value-replace fast path.
@@ -2582,7 +2599,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .dict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_dict));
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);
@@ -2598,7 +2615,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .frozendict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_frozendict));
 }
 

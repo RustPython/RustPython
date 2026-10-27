@@ -13,6 +13,7 @@ mod _tokenize {
             types::{Constructor, IterNext, Iterable, SelfIter},
         },
     };
+    use alloc::sync::Arc;
     use core::fmt;
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::token::{Token, TokenKind};
@@ -120,13 +121,15 @@ mod _tokenize {
                             let line_index = LineIndex::from_source_text(&accumulated);
                             let implicit_nl = !accumulated.ends_with('\n');
                             state.phase = TokenizerPhase::Yielding {
-                                source: accumulated,
-                                tokens,
-                                errors,
+                                data: Arc::new(TokenizedSource {
+                                    source: accumulated,
+                                    tokens,
+                                    errors,
+                                    line_index,
+                                }),
                                 index: 0,
-                                line_index,
                                 need_implicit_nl: implicit_nl,
-                                pending_fstring_parts: Vec::new(),
+                                pending_fstring_parts: None,
                                 pending_empty_fstring_middle: None,
                             };
                         } else {
@@ -153,11 +156,8 @@ mod _tokenize {
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
         let TokenizerPhase::Yielding {
-            source,
-            tokens,
-            errors,
+            data,
             index,
-            line_index,
             need_implicit_nl,
             pending_fstring_parts,
             pending_empty_fstring_middle,
@@ -165,6 +165,12 @@ mod _tokenize {
         else {
             unreachable!()
         };
+        let TokenizedSource {
+            source,
+            tokens,
+            errors,
+            line_index,
+        } = data.as_ref();
 
         // Emit pending empty FSTRING_MIDDLE (for format spec nesting)
         if let Some((mid_type, mid_line, mid_col, mid_line_str)) =
@@ -183,23 +189,24 @@ mod _tokenize {
         }
 
         // Emit any pending fstring sub-tokens first
-        if let Some((tok_type, tok_str, sl, sc, el, ec)) = pending_fstring_parts.pop() {
-            let offset: usize = source
-                .lines()
-                .take(sl.saturating_sub(1))
-                .map(|l| l.len() + 1)
-                .sum();
-            let full_line = source.full_line_str(TextSize::from(offset.min(source.len()) as u32));
-            return Ok(PyIterReturn::Return(make_token_tuple(
+        if let Some(pending) = pending_fstring_parts {
+            let (tok_type, tok_str, sl, sc, el, ec) = &pending.parts[pending.index];
+            let full_line = source.full_line_str(line_index.line_starts()[sl - 1]);
+            let token = make_token_tuple(
                 vm,
-                tok_type,
-                &tok_str,
-                sl,
-                sc as isize,
-                el,
-                ec as isize,
+                *tok_type,
+                tok_str,
+                *sl,
+                *sc as isize,
+                *el,
+                *ec as isize,
                 full_line,
-            )));
+            );
+            pending.index += 1;
+            if pending.index == pending.parts.len() {
+                *pending_fstring_parts = None;
+            }
+            return Ok(PyIterReturn::Return(token));
         }
 
         let source_len = TextSize::from(source.len() as u32);
@@ -298,9 +305,10 @@ mod _tokenize {
                     split_fstring_middle(token_str, token_type, start_line, start_col).into_iter();
                 let (tt, ts, sl, sc, el, ec) = parts.next().unwrap();
                 let rest: Vec<_> = parts.collect();
-                for p in rest.into_iter().rev() {
-                    pending_fstring_parts.push(p);
-                }
+                *pending_fstring_parts = (!rest.is_empty()).then(|| PendingFStringParts {
+                    parts: rest.into(),
+                    index: 0,
+                });
                 return Ok(PyIterReturn::Return(make_token_tuple(
                     vm,
                     tt,
@@ -517,7 +525,7 @@ mod _tokenize {
         token_type: u8,
         start_line: usize,
         start_col: usize,
-    ) -> Vec<(u8, String, usize, usize, usize, usize)> {
+    ) -> Vec<FStringPart> {
         let mut parts = Vec::new();
         let mut current = String::new();
         // Track source position (line, col) — these correspond to the
@@ -639,20 +647,33 @@ mod _tokenize {
         phase: TokenizerPhase,
     }
 
+    type FStringPart = (u8, String, usize, usize, usize, usize);
+
+    #[derive(Clone, Debug)]
+    struct PendingFStringParts {
+        parts: Arc<[FStringPart]>,
+        index: usize,
+    }
+
+    #[derive(Debug)]
+    struct TokenizedSource {
+        source: String,
+        tokens: Vec<Token>,
+        errors: Vec<ParseError>,
+        line_index: LineIndex,
+    }
+
     #[derive(Clone, Debug)]
     enum TokenizerPhase {
         Reading {
             source: String,
         },
         Yielding {
-            source: String,
-            tokens: Vec<Token>,
-            errors: Vec<ParseError>,
+            data: Arc<TokenizedSource>,
             index: usize,
-            line_index: LineIndex,
             need_implicit_nl: bool,
             /// Pending sub-tokens from FSTRING_MIDDLE splitting
-            pending_fstring_parts: Vec<(u8, String, usize, usize, usize, usize)>,
+            pending_fstring_parts: Option<PendingFStringParts>,
             /// Pending empty FSTRING_MIDDLE for format spec nesting:
             /// (type, line, col, line_str)
             pending_empty_fstring_middle: Option<(u8, usize, usize, String)>,
@@ -664,6 +685,7 @@ mod _tokenize {
         match kind {
             TokenKind::EndOfFile => 0,
             TokenKind::Identifier
+            | TokenKind::Lazy
             | TokenKind::For
             | TokenKind::In
             | TokenKind::Pass
@@ -764,7 +786,6 @@ mod _tokenize {
             TokenKind::TStringMiddle => 63,
             TokenKind::TStringEnd => 64,
             TokenKind::IpyEscapeCommand | TokenKind::Question | TokenKind::Unknown => 67, // ERRORTOKEN
-            TokenKind::Lazy => u8::MAX, // Placeholder: RustPython Doesn't support `lazy imports` yet
         }
     }
 }

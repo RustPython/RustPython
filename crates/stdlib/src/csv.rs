@@ -220,13 +220,8 @@ mod _csv {
         })?;
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
-        let g = GLOBAL_HASHMAP.lock();
-
-        if let Some(dialect) = g.get(name.as_str()) {
-            return Ok(dialect.clone());
-        }
-
-        Err(new_csv_error(vm, "unknown dialect"))
+        let dialect = GLOBAL_HASHMAP.lock().get(name.as_str()).cloned();
+        dialect.ok_or_else(|| new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
@@ -239,9 +234,9 @@ mod _csv {
         })?;
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
-        let mut g = GLOBAL_HASHMAP.lock();
+        let removed = GLOBAL_HASHMAP.lock().remove(name.as_str());
 
-        if let Some(_removed) = g.remove(name.as_str()) {
+        if removed.is_some() {
             return Ok(());
         }
 
@@ -250,10 +245,9 @@ mod _csv {
 
     #[pyfunction]
     fn list_dialects(vm: &VirtualMachine) -> rustpython_vm::builtins::PyListRef {
-        let g = GLOBAL_HASHMAP.lock();
-        let t = g
-            .keys()
-            .cloned()
+        let names = GLOBAL_HASHMAP.lock().keys().cloned().collect_vec();
+        let t = names
+            .into_iter()
             .map(|x| vm.ctx.new_str(x).into())
             .collect_vec();
         // .iter().map(|x| vm.ctx.new_str(x.clone()).into_pyobject(vm)).collect_vec();
@@ -268,14 +262,18 @@ mod _csv {
 
     #[pyfunction]
     fn field_size_limit(args: FieldSizeLimitArgs, vm: &VirtualMachine) -> PyResult<isize> {
-        let old_size = GLOBAL_FIELD_LIMIT.lock().to_owned();
         if let OptionalArg::Present(limit) = args.new_limit {
-            let Ok(new_size) = limit.try_int(vm) else {
-                return Err(vm.new_type_error("limit must be an integer"));
-            };
-            *GLOBAL_FIELD_LIMIT.lock() = new_size.try_to_primitive::<isize>(vm)?;
+            let new_size = limit
+                .downcast_ref_if_exact::<PyInt>(vm)
+                .ok_or_else(|| vm.new_type_error("limit must be an integer"))?
+                .try_to_primitive::<isize>(vm)?;
+            Ok(core::mem::replace(
+                &mut *GLOBAL_FIELD_LIMIT.lock(),
+                new_size,
+            ))
+        } else {
+            Ok(*GLOBAL_FIELD_LIMIT.lock())
         }
-        Ok(old_size)
     }
 
     #[pyfunction]
@@ -384,6 +382,10 @@ mod _csv {
             },
             Param::var_keyword("fmtparams"),
         ]);
+
+        fn arity() -> core::ops::RangeInclusive<usize> {
+            0..=1
+        }
 
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let res = Self {

@@ -373,7 +373,7 @@ class CodeopTests(unittest.TestCase):
                 def foo(x,x):
                    pass
             """)
-        message = "duplicate argument 'x' in function definition"
+        message = "duplicate parameter 'x' in function definition"
         with self.assertRaisesRegex(SyntaxError, message):
             compiler(code, "<input>", 'exec')
 

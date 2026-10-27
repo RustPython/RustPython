@@ -11,12 +11,13 @@ mod builtins {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{
-            PyAnyDict, PyByteArray, PyBytes, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
-            PyUtf8StrRef,
+            PyAnyDict, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyType, PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
+            try_bigint_to_f64,
         },
         bytecode,
         common::hash::PyHash,
@@ -32,6 +33,7 @@ mod builtins {
         vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
     use itertools::Itertools;
+    use num_complex::Complex64;
     use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::CodePoint;
 
@@ -680,8 +682,18 @@ mod builtins {
                 if let Some(code) = crate::frame::current_code() {
                     opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
-                vm.compile_with_opts(source, mode, "<string>", opts)
-                    .map_err(|err| err.into_pyexception(vm, Some(source)))?
+                let module = scope
+                    .globals
+                    .inner_getitem_opt(identifier!(vm, __name__), vm)?;
+                vm.compile_with_opts_and_module_object(
+                    source,
+                    mode,
+                    "<string>",
+                    opts,
+                    module.as_deref(),
+                    &[],
+                )
+                .map_err(|err| err.into_pyexception(vm, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
             Either::B(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
@@ -1281,10 +1293,119 @@ mod builtins {
             _ => (),
         });
 
-        for item in iterable.iter(vm)? {
+        let mut items = iterable.iter(vm)?;
+
+        // Fast paths after CPython's builtin_sum_impl: an exact int accumulator
+        // hands over to the float one, which hands over to the complex one.
+        if let Some(mut total) = sum
+            .downcast_ref_if_exact::<PyInt>(vm)
+            .and_then(|int| int.as_bigint().to_isize())
+        {
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                let class = item.class();
+                if (class.is(vm.ctx.types.int_type) || class.is(vm.ctx.types.bool_type))
+                    && let Some(next) = item
+                        .downcast_ref::<PyInt>()
+                        .and_then(|int| int.as_bigint().to_isize())
+                        .and_then(|x| total.checked_add(x))
+                {
+                    total = next;
+                    continue;
+                }
+                break Some(item);
+            };
+            let total = vm.ctx.new_int(total);
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        if let Some(float) = sum.downcast_ref_if_exact::<PyFloat>(vm) {
+            let mut re = CompensatedSum::new(float.to_f64());
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                if let Some(x) = item.downcast_ref_if_exact::<PyFloat>(vm) {
+                    re.add(x.to_f64());
+                } else if let Some(x) = item.downcast_ref::<PyInt>() {
+                    re.add(try_bigint_to_f64(x.as_bigint(), vm)?);
+                } else {
+                    break Some(item);
+                }
+            };
+            let total = vm.ctx.new_float(re.total());
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        if let Some(complex) = sum.downcast_ref_if_exact::<PyComplex>(vm) {
+            let z = complex.to_complex();
+            let (mut re, mut im) = (CompensatedSum::new(z.re), CompensatedSum::new(z.im));
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                if let Some(x) = item.downcast_ref_if_exact::<PyComplex>(vm) {
+                    let z = x.to_complex();
+                    re.add(z.re);
+                    im.add(z.im);
+                } else if let Some(x) = item.downcast_ref::<PyInt>() {
+                    re.add(try_bigint_to_f64(x.as_bigint(), vm)?);
+                } else if let Some(x) = item.downcast_ref::<PyFloat>() {
+                    re.add(x.to_f64());
+                } else {
+                    break Some(item);
+                }
+            };
+            let total = vm.ctx.new_complex(Complex64::new(re.total(), im.total()));
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        for item in items {
             sum = vm._add(&sum, &*item?)?;
         }
         Ok(sum)
+    }
+
+    /// Compensated summation, as in CPython's `CompensatedSum`.
+    struct CompensatedSum {
+        hi: f64,
+        lo: f64,
+    }
+
+    impl CompensatedSum {
+        fn new(x: f64) -> Self {
+            Self { hi: x, lo: 0.0 }
+        }
+
+        fn add(&mut self, x: f64) {
+            let t = self.hi + x;
+            self.lo += if self.hi.abs() >= x.abs() {
+                (self.hi - t) + x
+            } else {
+                (x - t) + self.hi
+            };
+            self.hi = t;
+        }
+
+        fn total(&self) -> f64 {
+            // Keep a negative zero's sign, and do not turn an infinite sum into nan.
+            if self.lo != 0.0 && self.lo.is_finite() {
+                self.hi + self.lo
+            } else {
+                self.hi
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -1318,6 +1439,53 @@ mod builtins {
             args.level,
             vm,
         )
+    }
+
+    #[derive(FromArgs)]
+    struct LazyImportArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, optional)]
+        globals: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        locals: Option<PyObjectRef>,
+        #[pyarg(any, default, py_default = "()")]
+        fromlist: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        level: i32,
+    }
+
+    #[pyfunction]
+    fn __lazy_import__(args: LazyImportArgs, vm: &VirtualMachine) -> PyResult {
+        let globals = args
+            .globals
+            .into_option()
+            .or_else(|| crate::frame::current_globals().map(Into::into))
+            .ok_or_else(|| {
+                vm.new_type_error("__lazy_import__() missing globals when called without a frame")
+            })?;
+        let globals_dict = globals
+            .downcast_ref::<crate::builtins::PyDict>()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "expect dict for globals, got {}",
+                    globals.class().name()
+                ))
+            })?;
+        let builtins = globals_dict
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .ok_or_else(|| vm.new_value_error("unable to get builtins for lazy import"))?;
+        let builtins = if let Some(module) = builtins.downcast_ref::<crate::builtins::PyModule>() {
+            module.dict().into()
+        } else {
+            builtins
+        };
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        let _ = args.locals;
+        crate::lazy_import::create(name, &globals, args.fromlist, args.level, builtins, vm)
     }
 
     #[pyfunction]
@@ -1570,6 +1738,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "BufferError" => ctx.exceptions.buffer_error.to_owned(),
         "EOFError" => ctx.exceptions.eof_error.to_owned(),
         "ImportError" => ctx.exceptions.import_error.to_owned(),
+        "ImportCycleError" => ctx.exceptions.import_cycle_error.to_owned(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.to_owned(),
         "LookupError" => ctx.exceptions.lookup_error.to_owned(),
         "IndexError" => ctx.exceptions.index_error.to_owned(),

@@ -3,7 +3,14 @@
 pub(crate) use _socket::module_def;
 
 #[cfg(feature = "ssl")]
-pub(super) use _socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg};
+pub(super) use _socket::{PySocket, timeout_error_msg};
+#[cfg(any(
+    feature = "__ssl-rustls",
+    all(feature = "ssl-openssl", not(all(unix, not(target_os = "aix"))))
+))]
+pub(super) use _socket::{SockWaitKind, sock_wait};
+#[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+pub(crate) use _socket::{SocketCloseObserver, SocketIdentity};
 
 #[pymodule]
 mod _socket {
@@ -44,6 +51,10 @@ mod _socket {
         Ok(())
     }
 
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    use alloc::sync::{Arc, Weak};
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    use core::sync::atomic::AtomicBool;
     use core::sync::atomic::{AtomicI32, Ordering};
     use core::{
         mem::ManuallyDrop,
@@ -53,6 +64,8 @@ mod _socket {
     use crossbeam_utils::atomic::AtomicCell;
     use host_socket::raw::Socket;
     use num_traits::ToPrimitive;
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    use std::sync::Mutex;
     use std::{
         ffi,
         io::{self, Read, Write},
@@ -1058,6 +1071,66 @@ mod _socket {
         flags: i32,
     }
 
+    /// A native-only wakeup. Implementations must not execute Python.
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    pub(crate) trait SocketCloseObserver: Send + Sync {
+        fn socket_closed(&self);
+    }
+
+    /// Identifies one initialization, even when a later socket reuses its fd.
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    #[derive(Debug, Default)]
+    pub(crate) struct SocketIdentity {
+        closed: AtomicBool,
+        observers: Mutex<Vec<Weak<dyn SocketCloseObserver>>>,
+    }
+
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    impl SocketIdentity {
+        pub(crate) fn is_closed(&self) -> bool {
+            self.closed.load(Ordering::Acquire)
+        }
+
+        /// Register atomically with the closed check, so close-before-wait
+        /// cannot lose a wakeup. The caller retains the strong observer.
+        pub(crate) fn subscribe(&self, observer: Arc<dyn SocketCloseObserver>) -> bool {
+            let mut observers = self.observers.lock().unwrap();
+            if self.is_closed() {
+                return false;
+            }
+            observers.retain(|observer| observer.strong_count() != 0);
+            let observer = Arc::downgrade(&observer);
+            if !observers.iter().any(|current| current.ptr_eq(&observer)) {
+                observers.push(observer);
+            }
+            true
+        }
+
+        pub(crate) fn unsubscribe(&self, observer: Arc<dyn SocketCloseObserver>) {
+            let observer = Arc::downgrade(&observer);
+            self.observers
+                .lock()
+                .unwrap()
+                .retain(|current| !current.ptr_eq(&observer));
+        }
+
+        // The socket write lock is held by the caller. Return weak observers
+        // rather than invoking them while either lock is held.
+        fn invalidate(&self) -> Vec<Weak<dyn SocketCloseObserver>> {
+            let mut observers = self.observers.lock().unwrap();
+            self.closed.store(true, Ordering::Release);
+            core::mem::take(&mut *observers)
+        }
+
+        fn notify_closed(observers: Vec<Weak<dyn SocketCloseObserver>>) {
+            for observer in observers {
+                if let Some(observer) = observer.upgrade() {
+                    observer.socket_closed();
+                }
+            }
+        }
+    }
+
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
     #[pyclass(name = "socket")]
@@ -1071,6 +1144,10 @@ mod _socket {
         proto: AtomicI32,
         pub(crate) timeout: AtomicCell<f64>,
         sock: PyRwLock<Option<Socket>>,
+        // Shared access takes `sock` first, in socket -> identity-slot order.
+        // Ordinary sockets never allocate an identity or observer list.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        ssl_identity: Mutex<Option<Arc<SocketIdentity>>>,
     }
 
     const _: () = assert!(core::mem::size_of::<Option<Socket>>() == core::mem::size_of::<Socket>());
@@ -1083,6 +1160,19 @@ mod _socket {
                 proto: AtomicI32::new(0),
                 timeout: AtomicCell::new(-1.0),
                 sock: PyRwLock::new(None),
+                #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+                ssl_identity: Mutex::new(None),
+            }
+        }
+    }
+
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    impl Drop for PySocket {
+        fn drop(&mut self) {
+            // Rust destruction must also notify when Python __del__ did not run.
+            // Keep ordinary socket destruction free of additional locking.
+            if self.ssl_identity.get_mut().unwrap().is_some() {
+                drop(self.take_sock());
             }
         }
     }
@@ -1117,6 +1207,64 @@ mod _socket {
         pub fn sock(&self) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
             self.sock_opt()
                 .ok_or_else(|| io::Error::from_raw_os_error(CLOSED_ERR))
+        }
+
+        /// Capture the current initialization under the socket read lock.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        pub(crate) fn ssl_identity(&self) -> io::Result<Arc<SocketIdentity>> {
+            let _sock = self.sock()?;
+            let mut identity = self.ssl_identity.lock().unwrap();
+            Ok(identity
+                .get_or_insert_with(|| Arc::new(SocketIdentity::default()))
+                .clone())
+        }
+
+        /// Hold this guard only around a truly nonblocking transport syscall,
+        /// never around SSL processing, Python callbacks, or readiness waits.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        pub(crate) fn sock_for_ssl_identity(
+            &self,
+            identity: &Arc<SocketIdentity>,
+        ) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
+            let sock = self.sock()?;
+            let current = self.ssl_identity.lock().unwrap();
+            if !current
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, identity) && !identity.is_closed())
+            {
+                return Err(io::Error::from_raw_os_error(CLOSED_ERR));
+            }
+            Ok(sock)
+        }
+
+        // Caller holds the socket write lock. Notifications must be delivered
+        // only after releasing that lock, including on initialization failure.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        fn invalidate_ssl_identity_locked(&self) -> Vec<Weak<dyn SocketCloseObserver>> {
+            self.ssl_identity
+                .lock()
+                .unwrap()
+                .take()
+                .map_or_else(Vec::new, |identity| identity.invalidate())
+        }
+
+        fn take_sock(&self) -> Option<Socket> {
+            let mut guard = self.sock.write();
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            let observers = self.invalidate_ssl_identity_locked();
+            let sock = guard.take();
+            drop(guard);
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            SocketIdentity::notify_closed(observers);
+            sock
+        }
+
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        fn invalidate_failed_ssl_init(&self) {
+            let guard = self.sock.write();
+            let observers = self.invalidate_ssl_identity_locked();
+            drop(guard);
+            SocketIdentity::notify_closed(observers);
         }
 
         /// Snapshot the inner socket without holding `self.sock` across a syscall.
@@ -1171,7 +1319,18 @@ mod _socket {
             self.kind.store(masked_kind, Ordering::Relaxed);
             self.proto.store(proto, Ordering::Relaxed);
             let mut s = self.sock.write();
-            let sock = s.insert(sock);
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            let observers = self.invalidate_ssl_identity_locked();
+            let old_socket = s.replace(sock);
+            // Closing a lingering socket may block. Unlock and wake old SSL
+            // operations first, including if initialization unwinds.
+            let mut s = scopeguard::guard(s, move |s| {
+                drop(s);
+                #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+                SocketIdentity::notify_closed(observers);
+                drop(old_socket);
+            });
+            let sock = s.as_mut().unwrap();
             // If SOCK_NONBLOCK is set, use timeout 0 (non-blocking)
             #[cfg(any(
                 target_os = "android",
@@ -1202,10 +1361,13 @@ mod _socket {
             )))]
             let timeout = DEFAULT_TIMEOUT.load();
             self.timeout.store(timeout);
-            if timeout >= 0.0 {
-                sock.set_nonblocking(true)?;
-            }
-            Ok(())
+            let result = if timeout >= 0.0 {
+                sock.set_nonblocking(true)
+            } else {
+                Ok(())
+            };
+            drop(s);
+            result
         }
 
         /// returns Err(blocking)
@@ -1444,6 +1606,14 @@ mod _socket {
                     })
                 }
                 #[cfg(target_os = "linux")]
+                c::AF_BLUETOOTH => Ok(extract_bluetooth_address(
+                    addr,
+                    self.proto.load(Ordering::Relaxed),
+                    caller,
+                    vm,
+                )?
+                .to_sockaddr()),
+                #[cfg(target_os = "linux")]
                 c::AF_CAN => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
                         vm.new_type_error(format!(
@@ -1551,6 +1721,36 @@ mod _socket {
                         host_socket::raw::SockAddr::new(
                             storage,
                             core::mem::size_of::<c::sockaddr_can>() as c::socklen_t,
+                        )
+                    })
+                }
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                c::AF_NETLINK => {
+                    let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{caller}(): AF_NETLINK address must be tuple, not {}",
+                            obj.class().name()
+                        ))
+                    })?;
+                    let [pid, groups] = tuple.as_slice() else {
+                        return Err(vm
+                            .new_type_error("AF_NETLINK address must be a pair (pid, groups)")
+                            .into());
+                    };
+                    let pid = pid.clone().try_index(vm)?.as_u32_mask();
+                    let groups = groups.clone().try_index(vm)?.as_u32_mask();
+                    let mut storage = host_socket::raw::SockAddrStorage::zeroed();
+                    // SAFETY: SockAddrStorage has sufficient size and alignment for
+                    // sockaddr_nl; all its fields and padding start initialized to zero.
+                    let netlink_addr = unsafe { storage.view_as::<c::sockaddr_nl>() };
+                    netlink_addr.nl_family = c::AF_NETLINK as c::sa_family_t;
+                    netlink_addr.nl_pid = pid;
+                    netlink_addr.nl_groups = groups;
+                    // SAFETY: The family, address fields, and length describe sockaddr_nl.
+                    Ok(unsafe {
+                        host_socket::raw::SockAddr::new(
+                            storage,
+                            core::mem::size_of::<c::sockaddr_nl>() as c::socklen_t,
                         )
                     })
                 }
@@ -1691,7 +1891,14 @@ mod _socket {
         type Args = SocketInitArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
+            let result = Self::_init(zelf, args, vm);
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            if result.is_err() {
+                // _init can fail before reaching init_inner, leaving an older
+                // raw socket in place but invalidating its SSL initialization.
+                zelf.invalidate_failed_ssl_init();
+            }
+            result.map_err(|e| e.into_pyexception(vm))
         }
     }
 
@@ -2261,7 +2468,7 @@ mod _socket {
             msg.data.shrink_to_fit();
 
             // Build ancdata list
-            let ancdata = Self::parse_ancillary_data(&msg.ancdata, vm);
+            let ancdata = Self::parse_ancillary_data(msg.ancdata, vm);
 
             // Build address tuple
             let address = if let Some(address) = msg.address {
@@ -2281,10 +2488,85 @@ mod _socket {
             ]))
         }
 
+        #[cfg(all(unix, not(target_os = "redox")))]
+        #[pymethod]
+        fn recvmsg_into(
+            zelf: &Py<Self>,
+            buffers: PyObjectRef,
+            ancbufsize: OptionalArg<isize>,
+            flags: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let buffer_items = vm
+                .extract_elements_with(&buffers, Ok)
+                .map_err(|_| vm.new_type_error("recvmsg_into() argument 1 must be an iterable"))?;
+            let buffers = buffer_items
+                .iter()
+                .map(|obj| ArgMemoryBuffer::try_from_object(vm, obj.clone()))
+                .collect::<PyResult<Vec<_>>>()?;
+            let ancbufsize = ancbufsize.unwrap_or(0);
+            if !(0..=i32::MAX as isize).contains(&ancbufsize) {
+                return Err(vm.new_value_error("invalid ancillary data buffer length"));
+            }
+            let flags = flags.unwrap_or(0);
+            let total = buffers
+                .iter()
+                .try_fold(0usize, |sum, buf| sum.checked_add(buf.len()))
+                .filter(|&total| isize::try_from(total).is_ok())
+                .ok_or_else(|| vm.new_overflow_error("recvmsg_into buffers are too large"))?;
+            let mut scratch = alloc_recv_scratch(total, flags, vm)?;
+            let msg = zelf
+                .sock_op(vm, SockWaitKind::Read, || {
+                    let mut remaining = &mut scratch.spare_capacity_mut()[..total];
+                    let mut slices: Vec<_> = buffers
+                        .iter()
+                        .map(|buf| {
+                            let (part, rest) =
+                                core::mem::take(&mut remaining).split_at_mut(buf.len());
+                            remaining = rest;
+                            part
+                        })
+                        .collect();
+                    let sock = zelf.sock_snapshot()?;
+                    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
+                    host_socket::recvmsg_into(fd, &mut slices, ancbufsize as usize, flags)
+                })
+                .map_err(|e| e.into_pyexception(vm))?;
+            // MSG_TRUNC can report a larger datagram or consume TCP data without
+            // writing. alloc_recv_scratch initializes that case before the syscall.
+            unsafe { scratch.set_len(msg.bytes_read.min(total)) };
+            if !zelf.recv_discards_data(flags) {
+                let mut remaining = scratch.as_slice();
+                for buffer in &buffers {
+                    let written = remaining.len().min(buffer.len());
+                    if written == 0 {
+                        continue;
+                    }
+                    buffer.borrow_buf_mut()[..written].copy_from_slice(&remaining[..written]);
+                    remaining = &remaining[written..];
+                }
+            }
+            let ancdata = Self::parse_ancillary_data(msg.ancdata, vm);
+            let address = if let Some(address) = msg.address {
+                let storage: host_socket::raw::SockAddrStorage =
+                    unsafe { core::mem::transmute(address.storage) };
+                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm)
+            } else {
+                vm.ctx.none()
+            };
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(msg.bytes_read).into(),
+                ancdata,
+                vm.ctx.new_int(msg.msg_flags).into(),
+                address,
+            ]))
+        }
+
         /// Parse ancillary data from a received message header
         #[cfg(all(unix, not(target_os = "redox")))]
         fn parse_ancillary_data(
-            control: &[host_socket::AncillaryMessage],
+            control: Vec<host_socket::AncillaryMessage>,
             vm: &VirtualMachine,
         ) -> PyObjectRef {
             let mut result = Vec::new();
@@ -2292,7 +2574,7 @@ mod _socket {
                 let tuple = vm.ctx.new_tuple(vec![
                     vm.ctx.new_int(cmsg.level).into(),
                     vm.ctx.new_int(cmsg.kind).into(),
-                    vm.ctx.new_bytes(cmsg.data.clone()).into(),
+                    vm.ctx.new_bytes(cmsg.data).into(),
                 ]);
                 result.push(tuple.into());
             }
@@ -2326,7 +2608,7 @@ mod _socket {
 
         #[pymethod]
         fn close(zelf: &Py<Self>) -> io::Result<()> {
-            let sock = zelf.sock.write().take();
+            let sock = zelf.take_sock();
             if let Some(sock) = sock {
                 close_inner(into_sock_fileno(sock))?;
             }
@@ -2336,7 +2618,7 @@ mod _socket {
         #[pymethod]
         #[inline]
         fn detach(zelf: &Py<Self>) -> i64 {
-            let sock = zelf.sock.write().take();
+            let sock = zelf.take_sock();
             sock.map_or(INVALID_SOCKET as i64, |s| into_sock_fileno(s) as i64)
         }
 
@@ -2726,6 +3008,96 @@ mod _socket {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    fn extract_bluetooth_address(
+        addr: PyObjectRef,
+        protocol: i32,
+        caller: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<host_socket::bluetooth::Address> {
+        use crate::vm::builtins::PyBytes;
+        use host_socket::bluetooth::{self, Address};
+
+        let wrong_format = || vm.new_os_error(format!("{caller}(): wrong format"));
+        let parse_name = |name: &[u8]| {
+            bluetooth::parse_bdaddr(name).ok_or_else(|| vm.new_os_error("bad bluetooth address"))
+        };
+        if protocol == bluetooth::SCO {
+            let (name, nul_error) = if let Some(bytes) = addr.downcast_ref::<PyBytes>() {
+                (bytes.as_bytes().to_vec(), "embedded null byte")
+            } else {
+                let name: PyStrRef = addr.downcast().map_err(|_| wrong_format())?;
+                (
+                    name.try_into_utf8(vm)?.as_str().as_bytes().to_vec(),
+                    "embedded null character",
+                )
+            };
+            if name.contains(&0) {
+                return Err(vm.new_value_error(nul_error));
+            }
+            return Ok(Address::Sco {
+                bdaddr: parse_name(&name)?,
+            });
+        }
+        if protocol == bluetooth::HCI
+            && let Some(index) = addr.try_index_opt(vm)
+        {
+            return Ok(Address::Hci {
+                dev: index?.as_u32_mask() as u16,
+                channel: 0,
+            });
+        }
+        let (min, max) = match protocol {
+            bluetooth::L2CAP => (2, 4),
+            bluetooth::RFCOMM => (2, 2),
+            bluetooth::HCI => (1, 2),
+            _ => return Err(vm.new_os_error(format!("{caller}(): unknown Bluetooth protocol"))),
+        };
+        let tuple: PyTupleRef = addr.downcast().map_err(|_| wrong_format())?;
+        let fields = tuple.as_slice();
+        if !(min..=max).contains(&fields.len()) {
+            return Err(wrong_format());
+        }
+        // PyArg_ParseTuple's H/B formats mask unsigned values rather than
+        // rejecting overflow, including values returned by __index__.
+        let number = |i: usize| -> PyResult<u32> {
+            fields.get(i).map_or(Ok(0), |value| {
+                value
+                    .try_index(vm)
+                    .map(|n| n.as_u32_mask())
+                    .map_err(|_| wrong_format())
+            })
+        };
+        if protocol == bluetooth::HCI {
+            return Ok(Address::Hci {
+                dev: number(0)? as u16,
+                channel: number(1)? as u16,
+            });
+        }
+        let name: PyStrRef = fields[0].clone().downcast().map_err(|_| wrong_format())?;
+        let name = name.try_into_utf8(vm).map_err(|_| wrong_format())?;
+        if name.as_str().contains('\0') {
+            return Err(wrong_format());
+        }
+        let port = number(1)?;
+        let cid = number(2)? as u16;
+        let addr_type = number(3)? as u8;
+        let bdaddr = parse_name(name.as_str().as_bytes())?;
+        Ok(if protocol == bluetooth::L2CAP {
+            Address::L2cap {
+                bdaddr,
+                psm: port as u16,
+                cid,
+                addr_type,
+            }
+        } else {
+            Address::Rfcomm {
+                bdaddr,
+                channel: port as u8,
+            }
+        })
+    }
+
     fn get_addr_tuple(
         addr: &host_socket::raw::SockAddr,
         #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] proto: i32,
@@ -2747,9 +3119,47 @@ mod _socket {
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.fsdecode(path).into();
         }
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if addr.family() == c::AF_NETLINK as c::sa_family_t {
+            // SAFETY: Socket addresses supplied by the OS use sockaddr_nl for AF_NETLINK;
+            // SockAddr owns storage with the required size and alignment.
+            let netlink_addr = unsafe { &*addr.as_ptr().cast::<c::sockaddr_nl>() };
+            return (netlink_addr.nl_pid, netlink_addr.nl_groups).to_pyobject(vm);
+        }
         #[cfg(target_os = "linux")]
         {
             let family = addr.family();
+            if let Some(addr) = host_socket::bluetooth::Address::from_sockaddr(addr, proto) {
+                use host_socket::bluetooth::{Address, format_bdaddr};
+                return match addr {
+                    Address::L2cap {
+                        bdaddr,
+                        psm,
+                        cid,
+                        addr_type,
+                    } => {
+                        let name = format_bdaddr(bdaddr);
+                        if addr_type != 0 {
+                            (name, psm, cid, addr_type).to_pyobject(vm)
+                        } else if cid != 0 {
+                            (name, psm, cid).to_pyobject(vm)
+                        } else {
+                            (name, psm).to_pyobject(vm)
+                        }
+                    }
+                    Address::Rfcomm { bdaddr, channel } => {
+                        (format_bdaddr(bdaddr), channel).to_pyobject(vm)
+                    }
+                    Address::Hci { dev, channel } => {
+                        if channel == 0 {
+                            dev.to_pyobject(vm)
+                        } else {
+                            (dev, channel).to_pyobject(vm)
+                        }
+                    }
+                    Address::Sco { bdaddr } => format_bdaddr(bdaddr).to_pyobject(vm),
+                };
+            }
             if family == c::AF_CAN as c::sa_family_t {
                 let can_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_can) };
                 let ifindex = can_addr.can_ifindex;
@@ -3005,7 +3415,10 @@ mod _socket {
     }
 
     /// returns Ok(true) on timeout
-    #[cfg(feature = "ssl")]
+    #[cfg(any(
+        feature = "__ssl-rustls",
+        all(feature = "ssl-openssl", not(all(unix, not(target_os = "aix"))))
+    ))]
     pub(crate) fn sock_wait(
         sock: &Socket,
         wait_kind: SockWaitKind,
@@ -3072,17 +3485,9 @@ mod _socket {
             flags: opts.flags,
         };
 
-        // Encode host: str uses IDNA encoding, bytes must be valid UTF-8
+        // Encode non-ASCII hosts with IDNA; bytes must be valid UTF-8.
         let host_encoded: Option<String> = match opts.host.as_ref() {
-            Some(ArgStrOrBytesLike::Str(s)) => {
-                let encoded =
-                    vm.state
-                        .codec_registry
-                        .encode_text(s.to_owned(), "idna", None, vm)?;
-                let host_str = core::str::from_utf8(encoded.as_bytes())
-                    .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-                Some(host_str.to_owned())
-            }
+            Some(ArgStrOrBytesLike::Str(s)) => Some(encode_hostname(s.as_wtf8(), vm)?),
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
                 let host_str = core::str::from_utf8(&bytes).map_err(|e| {
@@ -3451,7 +3856,7 @@ mod _socket {
         {
             return Ok(SocketAddr::V4(net::SocketAddrV4::new(addr, 0)));
         }
-        if matches!(af, c::AF_INET | c::AF_UNSPEC)
+        if matches!(af, c::AF_INET6 | c::AF_UNSPEC)
             && !name.contains('%')
             && let Ok(addr) = name.parse::<Ipv6Addr>()
         {
@@ -3461,15 +3866,28 @@ mod _socket {
             address: af,
             ..Default::default()
         };
-        let name = vm
-            .state
-            .codec_registry
-            .encode_text(pyname.into_wtf8(), "idna", None, vm)?;
-        let name = core::str::from_utf8(name.as_bytes())
-            .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-        let mut res = host_socket::dns::getaddrinfo(Some(name), None, Some(hints))
+        let name = encode_hostname(pyname.as_wtf8(), vm)?;
+        let mut res = host_socket::dns::getaddrinfo(Some(&name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
+    }
+
+    fn encode_hostname(name: &crate::common::wtf8::Wtf8, vm: &VirtualMachine) -> PyResult<String> {
+        // Like CPython's idna_converter, ASCII hostnames need no codec lookup.
+        if let Ok(name) = name.as_str()
+            && name.is_ascii()
+        {
+            return Ok(name.to_owned());
+        }
+        let encoded = vm.state.codec_registry.encode_text(
+            vm.ctx.new_str(name.to_owned()),
+            "idna",
+            None,
+            vm,
+        )?;
+        core::str::from_utf8(encoded.as_bytes())
+            .map(str::to_owned)
+            .map_err(|_| vm.new_runtime_error("idna output is not utf8"))
     }
 
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
@@ -3649,5 +4067,131 @@ mod _socket {
         let length = length.try_index(vm)?.try_to_primitive_in_range(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
+    }
+
+    #[cfg(test)]
+    mod address_tests {
+        use super::*;
+
+        #[test]
+        fn ascii_hosts_do_not_require_idna() {
+            crate::vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for host in ["localhost", "127.0.0.1", "::1", "fe80::1%1"] {
+                    assert_eq!(encode_hostname(host.into(), vm).unwrap(), host);
+                }
+                let addr = get_addr(vm, vm.ctx.new_utf8_str("::1"), c::AF_INET6)
+                    .map_err(|err| err.into_pyexception(vm))
+                    .unwrap();
+                assert_eq!(addr.ip(), net::IpAddr::V6(Ipv6Addr::LOCALHOST));
+            });
+        }
+    }
+
+    #[cfg(test)]
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    mod ssl_identity_tests {
+        use super::{PySocket, SocketCloseObserver, SocketIdentity};
+        use alloc::sync::{Arc, Weak};
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Observer {
+            identity: Weak<SocketIdentity>,
+            notifications: AtomicUsize,
+        }
+
+        impl Observer {
+            fn new(identity: &Arc<SocketIdentity>) -> Arc<Self> {
+                Arc::new(Self {
+                    identity: Arc::downgrade(identity),
+                    notifications: AtomicUsize::new(0),
+                })
+            }
+        }
+
+        impl SocketCloseObserver for Observer {
+            fn socket_closed(&self) {
+                if let Some(identity) = self.identity.upgrade() {
+                    assert!(identity.is_closed());
+                    assert!(identity.observers.try_lock().is_ok());
+                }
+                self.notifications.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        #[test]
+        fn subscribe_before_close_notifies_after_invalidation() {
+            let identity = Arc::new(SocketIdentity::default());
+            let observer = Observer::new(&identity);
+            assert!(identity.subscribe(observer.clone()));
+            assert!(identity.subscribe(observer.clone()));
+            let notifications = identity.invalidate();
+            assert!(identity.is_closed());
+            assert_eq!(observer.notifications.load(Ordering::Relaxed), 0);
+            assert_eq!(notifications.len(), 1);
+            SocketIdentity::notify_closed(notifications);
+            assert_eq!(observer.notifications.load(Ordering::Relaxed), 1);
+            assert!(identity.invalidate().is_empty());
+        }
+
+        #[test]
+        fn close_before_subscribe_rejects_registration() {
+            let identity = Arc::new(SocketIdentity::default());
+            SocketIdentity::notify_closed(identity.invalidate());
+            let observer = Observer::new(&identity);
+            assert!(!identity.subscribe(observer.clone()));
+            assert_eq!(observer.notifications.load(Ordering::Relaxed), 0);
+        }
+
+        #[test]
+        fn registrations_do_not_keep_observers_alive() {
+            let identity = Arc::new(SocketIdentity::default());
+            let observer = Observer::new(&identity);
+            let weak = Arc::downgrade(&observer);
+            assert!(identity.subscribe(observer.clone()));
+            drop(observer);
+            assert!(weak.upgrade().is_none());
+            let next = Observer::new(&identity);
+            assert!(identity.subscribe(next.clone()));
+            let notifications = identity.invalidate();
+            assert_eq!(notifications.len(), 1);
+            SocketIdentity::notify_closed(notifications);
+            assert_eq!(next.notifications.load(Ordering::Relaxed), 1);
+        }
+
+        #[test]
+        fn uninitialized_socket_keeps_identity_unallocated() {
+            let socket = PySocket::default();
+            assert!(socket.ssl_identity.lock().unwrap().is_none());
+            assert!(socket.ssl_identity().is_err());
+            assert!(socket.ssl_identity.lock().unwrap().is_none());
+        }
+
+        #[test]
+        fn failed_initialization_and_rust_drop_invalidate_identity() {
+            // Exercise lifecycle bookkeeping without creating an OS socket.
+            let socket = PySocket::default();
+            let old = Arc::new(SocketIdentity::default());
+            let old_observer = Observer::new(&old);
+            assert!(old.subscribe(old_observer.clone()));
+            {
+                let _socket = socket.sock.write();
+                *socket.ssl_identity.lock().unwrap() = Some(old.clone());
+            }
+            socket.invalidate_failed_ssl_init();
+            assert!(old.is_closed());
+            assert_eq!(old_observer.notifications.load(Ordering::Relaxed), 1);
+
+            let new = Arc::new(SocketIdentity::default());
+            let new_observer = Observer::new(&new);
+            assert!(new.subscribe(new_observer.clone()));
+            {
+                let _socket = socket.sock.write();
+                *socket.ssl_identity.lock().unwrap() = Some(new.clone());
+            }
+            assert!(!new.is_closed());
+            drop(socket);
+            assert!(new.is_closed());
+            assert_eq!(new_observer.notifications.load(Ordering::Relaxed), 1);
+        }
     }
 }

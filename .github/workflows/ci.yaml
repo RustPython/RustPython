@@ -328,7 +328,12 @@ jobs:
 
       - name: Test openssl build
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
-        run: cargo build --locked --no-default-features --features ssl-openssl
+        run: |
+          cargo build --locked --no-default-features --features ssl-openssl
+          cargo build --locked --release --features threading,jit,ssl-openssl ${{ env.CARGO_ARGS_NO_SSL }}
+          target/release/rustpython -B extra_tests/snippets/stdlib_ssl.py
+          target/release/rustpython -B -m test -v --single-process --timeout=300 test_ssl
+        timeout-minutes: 30
 
       - name: Test vendored OpenSSL build
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
@@ -347,12 +352,14 @@ jobs:
         run: |
           cargo build --manifest-path example_projects/barebone/Cargo.toml
           cargo build --manifest-path example_projects/frozen_stdlib/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: example_projects/target
 
       - name: Run example projects
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
-          example_projects/barebone/target/debug/example-barebone
-          example_projects/frozen_stdlib/target/debug/example_frozen_stdlib
+          example_projects/target/debug/example-barebone
+          example_projects/target/debug/example_frozen_stdlib
 
       - name: Build rustpython for update_lib tests
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
@@ -416,9 +423,7 @@ jobs:
           dependencies:
             gcc-mingw-w64-x86-64: true
         - os: macos-latest
-          target: aarch64-apple-ios
-        - os: macos-latest
-          target: x86_64-apple-darwin
+          target: aarch64-apple-ios x86_64-apple-darwin
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -487,11 +492,19 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation with threading
-        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        run: |
+          read -ra targets <<< "$TARGETS"
+          cargo check --locked "${targets[@]/#/--target=}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        env:
+          TARGETS: ${{ matrix.target }}
 
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
-        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
+        run: |
+          read -ra targets <<< "$TARGETS"
+          cargo check --locked "${targets[@]/#/--target=}" ${{ env.CARGO_ARGS }}
+        env:
+          TARGETS: ${{ matrix.target }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -757,7 +770,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-shear
           fallback: none
@@ -786,10 +799,10 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@1758727be30241166609dad4c97588b6ad411f32 # v1.79.1
+        uses: reviewdog/action-actionlint@419a49378266e892f40c773b4f2fc6de9aa87499 # v1.80.4
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
 
       - name: restore prek cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -799,7 +812,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
+        uses: j178/prek-action@af4d4fcb6922b8e6f65c0426947125fcc38794ce # v3.0.2
         with:
           cache: false
           show-verbose-logs: false
@@ -834,7 +847,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@c387862ad6765a9729f2b40ee4d8b5769f2145c7 # v1.26.1
+        uses: reviewdog/action-suggester@ac5ce6d94e35c00530447dc63c271e38e4fd36c6 # v1.26.3
         with:
           level: warning
           fail_level: error
@@ -932,7 +945,7 @@ jobs:
         run: cargo --locked clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        run: curl https://wasm-bindgen.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
         run: |
           wget https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz
@@ -944,7 +957,7 @@ jobs:
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
 
@@ -1211,4 +1224,4 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: cargo doc
-        run: cargo doc --locked
+        run: cargo doc --locked --no-deps

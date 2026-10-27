@@ -2,13 +2,12 @@ use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{ArgStrictInt, FuncArgs, OptionalArg, PySetterValue};
-use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
+use crate::protocol::{BufferDescriptor, PyBuffer, PySequenceMethods};
 use crate::stdlib::_warnings;
-use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
+use crate::types::{AsBuffer, AsSequence, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use core::fmt::Debug;
-use num_traits::ToPrimitive;
 
 /// Calculate Structure type size from _fields_ (sum of field sizes)
 pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<usize> {
@@ -52,7 +51,7 @@ impl Constructor for PyCStructType {
 
         // 4. Initialize StgInfo for the new type (initialized=false, to be set in init)
         let stg_info = StgInfo::default();
-        let _ = new_type.init_type_data(stg_info);
+        let _ = new_type.init_traced_type_data(stg_info);
 
         // Note: _fields_ processing moved to Initializer::init()
         Ok(new_class)
@@ -85,7 +84,10 @@ impl Initializer for PyCStructType {
 
         // Process _fields_ if defined directly on this class (not inherited)
         if let Some(fields_attr) = new_type.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&new_type, &fields_attr, vm)?;
+            // Let the metaclass transform field types, as for later assignment.
+            new_type
+                .as_object()
+                .set_attr(vm.ctx.intern_str("_fields_"), fields_attr, vm)?;
         } else {
             // No _fields_ defined - try to copy from base class (PyCStgInfo_clone)
             let (has_base_info, base_clone) = {
@@ -129,7 +131,7 @@ impl Initializer for PyCStructType {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(AsNumber, Constructor, Initializer, SetAttr))]
+#[pyclass(flags(BASETYPE), with(AsSequence, Constructor, Initializer, SetAttr))]
 impl PyCStructType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -372,7 +374,7 @@ impl PyCStructType {
                     has_bitfield = true;
                 }
                 // Collect the call layout for this field
-                field_layouts.push(super::base::type_layout(type_obj, &field_stg, vm));
+                field_layouts.push(super::base::type_layout(&field_stg));
             }
 
             // Mark field type as finalized (using type as field finalizes it)
@@ -383,7 +385,7 @@ impl PyCStructType {
                     // Create StgInfo with FINAL flag if it doesn't exist
                     let mut stg_info = StgInfo::new(size, field_align);
                     stg_info.flags |= StgInfoFlags::DICTFLAG_FINAL;
-                    let _ = type_obj.init_type_data(stg_info);
+                    let _ = type_obj.init_traced_type_data(stg_info);
                 }
             }
 
@@ -428,11 +430,8 @@ impl PyCStructType {
             // Check for bitfield size (optional 3rd element in tuple)
             let (c_field, field_advances_offset) = if field_tuple.as_slice().len() > 2 {
                 let bit_size_obj = field_tuple.as_slice().get(2).expect("len checked");
-                let bit_size = bit_size_obj
-                    .try_int(vm)?
-                    .as_bigint()
-                    .to_u16()
-                    .ok_or_else(|| vm.new_value_error("number of bits invalid for bit field"))?;
+                let bit_size =
+                    PyCField::checked_bitfield_size(&name, &field_type_ref, bit_size_obj, vm)?;
                 has_bitfield = true;
 
                 let type_bits = (size * 8) as u16;
@@ -466,6 +465,12 @@ impl PyCStructType {
                     bit_offset = bitfield_bit_offset;
                     bitfield_bit_offset += bit_size;
                 }
+
+                let bit_offset = if big_endian {
+                    type_bits - bit_offset - bit_size
+                } else {
+                    bit_offset
+                };
 
                 // For packed bitfields that share offset, use the same offset as previous
                 let field_offset = if !advances {
@@ -565,35 +570,11 @@ impl PyCStructType {
 
         Ok(())
     }
-
-    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::array_type_from_ctype;
-
-        if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
-        }
-        // Use cached array type creation
-        array_type_from_ctype(cls.into(), n as usize, vm)
-    }
 }
 
-impl AsNumber for PyCStructType {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            multiply: Some(|a, b, vm| {
-                let cls = a
-                    .downcast_ref::<PyType>()
-                    .ok_or_else(|| vm.new_type_error("expected type"))?;
-                let n = b
-                    .try_index(vm)?
-                    .as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                PyCStructType::__mul__(cls.to_owned(), n, vm)
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+impl AsSequence for PyCStructType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 
@@ -666,10 +647,21 @@ impl SetAttr for PyCStructType {
     module = "_ctypes",
     name = "Structure",
     base = PyCData,
-    metaclass = "PyCStructType"
+    metaclass = "PyCStructType",
+    traverse = "manual"
 )]
 #[repr(transparent)]
 pub(crate) struct PyCStructure(pub PyCData);
+
+// SAFETY: this transparent wrapper owns exactly the references in its base.
+unsafe impl crate::object::Traverse for PyCStructure {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.0.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear(out);
+    }
+}
 
 impl Debug for PyCStructure {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

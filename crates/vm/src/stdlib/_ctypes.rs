@@ -16,11 +16,18 @@ use crate::{
 };
 
 pub(super) use array::PyCArray;
+pub(crate) use base::BufferViewRegistry;
 pub(super) use base::{CArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
 pub(super) use pointer::PyCPointer;
 pub(super) use simple::{PyCSimple, PyCSimpleType};
 pub(super) use structure::PyCStructure;
 pub(super) use union::PyCUnion;
+
+pub(super) fn is_borrowed_buffer(obj: &crate::PyObject) -> bool {
+    obj.downcast_ref::<PyCData>()
+        .is_some_and(|cdata| cdata.is_borrowed())
+        || obj.downcast_ref::<function::RawMemoryBuffer>().is_some()
+}
 
 /// Extension for PyType to get StgInfo
 /// PyStgInfo_FromType
@@ -40,8 +47,11 @@ impl Py<PyType> {
             .filter(|info| info.initialized)
     }
 
-    /// Get _type_ attribute as String (type code like "i", "d", etc.)
+    /// Get the scalar converter selected when the storage type was initialized.
     fn type_code(&self, vm: &VirtualMachine) -> Option<String> {
+        if let Some(info) = self.stg_info_opt() {
+            return info.scalar_code.map(|code| code.to_string());
+        }
         self.as_object()
             .get_attr("_type_", vm)
             .ok()
@@ -56,7 +66,7 @@ impl Py<PyType> {
             } else {
                 let mut stg = StgInfo::default();
                 stg.flags |= StgInfoFlags::DICTFLAG_FINAL;
-                let _ = base.init_type_data(stg);
+                let _ = base.init_traced_type_data(stg);
             }
         }
     }
@@ -92,7 +102,7 @@ pub(crate) use _ctypes::module_def;
 #[pymodule]
 pub(crate) mod _ctypes {
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
-    use crate::builtins::{PyType, PyTypeRef};
+    use crate::builtins::{PyStr, PyType, PyTypeRef};
     use crate::class::StaticType;
     #[cfg(windows)]
     use crate::convert::ToPyException;
@@ -104,12 +114,14 @@ pub(crate) mod _ctypes {
 
     // CArgObject - returned by byref() and paramfunc
     // tagPyCArgObject
-    #[pyclass(name = "CArgObject", module = "_ctypes", no_attr)]
+    #[pyclass(name = "CArgObject", module = "_ctypes", no_attr, traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct CArgObject {
         /// Type tag ('P', 'V', 'i', 'd', etc.)
+        #[pytraverse(skip)]
         pub tag: u8,
         /// The actual foreign-call value (mirrors union value)
+        #[pytraverse(skip)]
         pub value: super::CArgValue,
         /// Reference to original object (for memory safety)
         pub obj: PyObjectRef,
@@ -118,8 +130,11 @@ pub(crate) mod _ctypes {
         pub keep: Option<PyObjectRef>,
         /// Size for struct/union ('V' tag)
         #[allow(dead_code)]
+        #[pytraverse(skip)]
         pub size: usize,
-        /// Offset for byref()
+        /// Offset for byref(), read by Windows CopyComPointer.
+        #[cfg_attr(not(windows), allow(dead_code))]
+        #[pytraverse(skip)]
         pub offset: isize,
     }
 
@@ -177,14 +192,16 @@ pub(crate) mod _ctypes {
                         FfiValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
+                    let v = crate::literal::float::to_string(v);
                     Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
-                b'd' | b'g' => {
+                b'd' => {
                     let v = match ffi_val {
                         FfiValue::F64(v) => v,
                         FfiValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
+                    let v = crate::literal::float::to_string(v);
                     Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
                 b'c' => {
@@ -233,8 +250,22 @@ pub(crate) mod _ctypes {
         }
     }
 
-    #[pyattr(name = "__version__")]
-    const __VERSION__: &str = "1.1.0";
+    #[pyfunction]
+    fn __getattr__(name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if name.downcast_ref::<PyStr>().and_then(|name| name.to_str()) == Some("__version__") {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "'__version__' is deprecated and slated for removal in Python 3.20".to_owned(),
+                1,
+                vm,
+            )?;
+            return Ok(vm.ctx.new_str("1.1.0").into());
+        }
+        Err(vm.new_attribute_error(format!(
+            "module '_ctypes' has no attribute {}",
+            name.repr(vm)?
+        )))
+    }
 
     // TODO: get properly
     #[pyattr]
@@ -398,6 +429,15 @@ pub(crate) mod _ctypes {
         }
 
         Err(vm.new_type_error("this type has no size"))
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[pyfunction]
+    fn dllist(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        rustpython_host_env::ctypes::dllist()
+            .into_iter()
+            .map(|name| vm.fsdecode(name).into())
+            .collect()
     }
 
     #[cfg(windows)]
@@ -769,6 +809,9 @@ pub(crate) mod _ctypes {
         // 5. Resize the buffer
         let new_size = size as usize;
         let mut buffer = cdata.buffer.write();
+        if new_size == buffer.len() {
+            return Ok(());
+        }
         let old_data = buffer.to_vec();
         *buffer = Cow::Owned(rustpython_host_env::ctypes::resize_owned_bytes(
             &old_data, new_size,

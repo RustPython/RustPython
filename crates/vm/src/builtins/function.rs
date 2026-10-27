@@ -182,7 +182,7 @@ impl PyFunction {
         globals: PyRef<PyAnyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let name = PyMutex::new(code.obj_name.to_owned());
+        let name = PyMutex::new(code.co_name.clone());
         let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
         let builtins = globals
             .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
@@ -207,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,
@@ -1095,24 +1095,28 @@ impl Py<PyFunction> {
         // Release locks before calling __annotate__ to avoid deadlock
         if let Some(annotate_fn) = annotate_fn {
             let one = vm.ctx.new_int(1);
-            let ann_dict = annotate_fn.call((one,), vm)?;
-            let ann_dict = ann_dict
-                .downcast::<crate::builtins::PyDict>()
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "__annotate__ returned non-dict of type '{}'",
-                        obj.class().name()
-                    ))
-                })?;
+            let result = annotate_fn.call((one,), vm);
+            drop(annotate_fn);
+            let ann_dict = match result?.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__() must return a dict, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+            };
 
             // Cache the result
-            *self.annotations.lock() = Some(ann_dict.clone());
+            let old_annotations = self.annotations.lock().replace(ann_dict.clone());
+            drop(old_annotations);
             return Ok(ann_dict);
         }
 
         // No __annotate__ or not callable, create empty dict
         let new_dict = vm.ctx.new_dict();
-        *self.annotations.lock() = Some(new_dict.clone());
+        let old_annotations = self.annotations.lock().replace(new_dict.clone());
+        drop(old_annotations);
         Ok(new_dict)
     }
 
@@ -1122,23 +1126,19 @@ impl Py<PyFunction> {
         value: PySetterValue<Option<PyObjectRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match value {
+        let annotations = match value {
             PySetterValue::Assign(Some(value)) => {
                 let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
                     vm.new_type_error("__annotations__ must be set to a dict object")
                 })?;
-                *self.annotations.lock() = Some(annotations);
-                *self.annotate.lock() = None;
+                Some(annotations)
             }
-            PySetterValue::Assign(None) => {
-                *self.annotations.lock() = None;
-                *self.annotate.lock() = None;
-            }
-            PySetterValue::Delete => {
-                // del only clears cached annotations; __annotate__ is preserved
-                *self.annotations.lock() = None;
-            }
-        }
+            PySetterValue::Assign(None) | PySetterValue::Delete => None,
+        };
+        let old_annotations = core::mem::replace(&mut *self.annotations.lock(), annotations);
+        drop(old_annotations);
+        let old_annotate = self.annotate.lock().take();
+        drop(old_annotate);
         Ok(())
     }
 
@@ -1171,8 +1171,6 @@ impl Py<PyFunction> {
                 if !value.is_callable() {
                     return Err(vm.new_type_error("__annotate__ must be callable or None"));
                 }
-                // Clear cached __annotations__ when __annotate__ is set
-                *self.annotations.lock() = None;
                 Some(value)
             }
             PySetterValue::Assign(None) => None,
@@ -1180,7 +1178,13 @@ impl Py<PyFunction> {
                 return Err(vm.new_type_error("__annotate__ cannot be deleted"));
             }
         };
-        *self.annotate.lock() = annotate;
+        let clear_annotations = annotate.is_some();
+        let old_annotate = core::mem::replace(&mut *self.annotate.lock(), annotate);
+        drop(old_annotate);
+        if clear_annotations {
+            let old_annotations = self.annotations.lock().take();
+            drop(old_annotations);
+        }
         Ok(())
     }
 
@@ -1288,7 +1292,7 @@ pub struct PyFunctionNewArgs {
     #[pyarg(positional)]
     globals: PyDictRef,
     #[pyarg(any, optional, error_msg = "arg 3 (name) must be None or string")]
-    name: OptionalArg<PyStrRef>,
+    name: Option<PyStrRef>,
     #[pyarg(any, optional, error_msg = "arg 4 (defaults) must be None or tuple")]
     argdefs: Option<PyTupleRef>,
     #[pyarg(any, optional, error_msg = "arg 5 (closure) must be None or tuple")]
@@ -1324,7 +1328,7 @@ impl Constructor for PyFunction {
 
         let mut func = Self::new(args.code.clone(), args.globals.clone().into(), vm)?;
         // Set function name if provided
-        if let Some(name) = args.name.into_option() {
+        if let Some(name) = args.name {
             *func.name.lock() = name;
         }
         // Now set additional attributes directly
@@ -1474,9 +1478,28 @@ impl Py<PyBoundMethod> {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
-        let func_name = self.function.get_attr("__name__", vm)?;
-        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         let func_self = self.object.clone();
+        let mut func_name = self.function.get_attr("__name__", vm)?;
+        if let Some(name) = func_name.downcast_ref::<PyStr>()
+            && name.as_bytes().starts_with(b"__")
+            && !name.as_bytes().ends_with(b"__")
+            && !name.as_bytes().contains(&b'.')
+        {
+            let class = func_self
+                .downcast_ref::<PyType>()
+                .unwrap_or_else(|| func_self.class());
+            let class_name = class.__name__(vm);
+            let class_name = class_name
+                .as_wtf8()
+                .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+            if !class_name.is_empty() {
+                func_name = vm
+                    .ctx
+                    .new_str(wtf8_concat!("_", class_name, name.as_wtf8()))
+                    .into();
+            }
+        }
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         Ok((builtins_getattr, (func_self, func_name)))
     }
 
@@ -1853,6 +1876,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_function));
+    context
+        .types
+        .function_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
     context
@@ -1861,6 +1890,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_bound_method));
+    context
+        .types
+        .bound_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyCell::extend_class(context, context.types.cell_type);
 }
