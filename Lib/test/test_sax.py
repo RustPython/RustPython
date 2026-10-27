@@ -998,7 +998,6 @@ class ExpatReaderTest(XmlTestBase):
             [("GIF", "-//CompuServe//NOTATION Graphics Interchange Format 89a//EN", None)])
         self.assertEqual(handler._entities, [("img", None, "expat.gif", "GIF")])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_external_dtd_enabled(self):
         # clear _opener global variable
         self.addCleanup(urllib.request.urlcleanup)
