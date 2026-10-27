@@ -101,7 +101,10 @@ pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) ->
     let ty = unsafe { &*ty };
     match CSlotId::from_raw(slot) {
         Some(CSlotId::TpNew) => ty.c_tp_new().map_or(ptr::null_mut(), |f| f as *mut c_void),
-        None => todo!("PyType_GetSlot for slot {slot} is not yet implemented"),
+        None => {
+            eprintln!("PyType_GetSlot: unknown slot {slot}");
+            ptr::null_mut()
+        },
     }
 }
 
