@@ -548,19 +548,41 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
-                let dir_iter = match crate::host_env::fs::read_dir(&path) {
-                    Ok(iter) => iter,
-                    Err(err) => {
-                        return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                #[cfg(windows)]
+                {
+                    let wide = path
+                        .path
+                        .to_wide_cstring()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut dir = host_nt::scandir(&wide)
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut names = Vec::new();
+                    while let Some(entry) = dir
+                        .next_entry()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?
+                    {
+                        if !entry.is_dot_or_dotdot() {
+                            names.push(path.mode().process_path(entry.name, vm));
+                        }
                     }
-                };
-                let mode = path.mode();
-                dir_iter
-                    .map(|entry| match entry {
-                        Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
-                        Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
-                    })
-                    .collect::<PyResult<_>>()?
+                    names
+                }
+                #[cfg(not(windows))]
+                {
+                    let dir_iter = match crate::host_env::fs::read_dir(&path) {
+                        Ok(iter) => iter,
+                        Err(err) => {
+                            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                        }
+                    };
+                    let mode = path.mode();
+                    dir_iter
+                        .map(|entry| match entry {
+                            Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
+                            Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
+                        })
+                        .collect::<PyResult<_>>()?
+                }
             }
             OsPathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
