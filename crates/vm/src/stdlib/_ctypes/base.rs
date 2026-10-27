@@ -7,6 +7,7 @@ use crate::class::StaticType;
 use crate::convert::ToPyObject;
 use crate::dict_inner::DictKey;
 use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
+use crate::object::{Traverse, TraverseFn};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
 use crate::{
@@ -159,6 +160,21 @@ impl Default for StgInfo {
     }
 }
 
+// SAFETY: these are the only Python references in the type's storage metadata.
+unsafe impl Traverse for StgInfo {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.proto.traverse(tracer);
+        self.element_type.traverse(tracer);
+        self.pointer_type.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        out.extend(self.proto.take().map(Into::into));
+        out.extend(self.element_type.take().map(Into::into));
+        out.extend(self.pointer_type.take());
+    }
+}
+
 impl StgInfo {
     pub(crate) fn new(size: usize, align: usize) -> Self {
         Self {
@@ -219,7 +235,7 @@ impl StgInfo {
             size,
             align,
             length,
-            proto: None,
+            proto: Some(element_type.clone()),
             flags,
             scalar_code: None,
             element_type: Some(element_type),
@@ -247,10 +263,10 @@ impl StgInfo {
 /// Build the host_env call layout for a ctypes type from its already-borrowed
 /// `StgInfo`. Aggregate layouts come straight from the type's `field_layouts`
 /// (built incrementally from the base class, so struct inheritance is
-/// reflected); array elements recurse into the element type; simple types read
-/// their `_type_` code. The caller passes the borrowed `stg` so this never
+/// reflected); array elements recurse into the element type; simple types use
+/// their initialized scalar code. The caller passes the borrowed `stg` so this never
 /// re-locks `ty`'s own type data.
-pub(super) fn type_layout(ty: &Py<PyType>, stg: &StgInfo, vm: &VirtualMachine) -> CTypeLayout {
+pub(super) fn type_layout(stg: &StgInfo) -> CTypeLayout {
     match stg.paramfunc {
         ParamFunc::Structure => CTypeLayout::Struct {
             fields: stg.field_layouts.clone(),
@@ -264,7 +280,7 @@ pub(super) fn type_layout(ty: &Py<PyType>, stg: &StgInfo, vm: &VirtualMachine) -
             let element = stg
                 .element_type
                 .as_ref()
-                .and_then(|et| et.stg_info_opt().map(|et_stg| type_layout(et, &et_stg, vm)))
+                .and_then(|et| et.stg_info_opt().map(|et_stg| type_layout(&et_stg)))
                 .unwrap_or(CTypeLayout::Opaque {
                     size: stg.element_size,
                 });
@@ -275,9 +291,8 @@ pub(super) fn type_layout(ty: &Py<PyType>, stg: &StgInfo, vm: &VirtualMachine) -
             }
         }
         ParamFunc::Pointer => CTypeLayout::Pointer,
-        ParamFunc::Simple | ParamFunc::None => ty
-            .type_code(vm)
-            .and_then(|code| code.chars().next())
+        ParamFunc::Simple | ParamFunc::None => stg
+            .scalar_code
             .map_or(CTypeLayout::Opaque { size: stg.size }, CTypeLayout::Simple),
     }
 }
@@ -303,7 +318,9 @@ pub(super) fn pointer_type_set(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if let Some(mut info) = zelf.get_type_data_mut::<StgInfo>() {
-        info.pointer_type = Some(value);
+        let old = info.pointer_type.replace(value);
+        drop(info);
+        drop(old);
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!("cannot set __pointer_type__ on {}", zelf.name())))
@@ -418,7 +435,7 @@ pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef,
 }
 
 // PyCData - base type for all ctypes data types
-#[pyclass(name = "_CData", module = "_ctypes")]
+#[pyclass(name = "_CData", module = "_ctypes", traverse = "manual")]
 #[derive(Debug, PyPayload)]
 pub struct PyCData {
     /// Memory buffer - Owned (self-owned) or Borrowed (external reference)
@@ -446,39 +463,164 @@ pub struct PyCData {
     kept_refs: PyRwLock<Option<Box<PrivateRefs>>>,
 }
 
+// SAFETY: visit each owned reference once; slot IDs are not additional owners.
+unsafe impl Traverse for PyCData {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.base.traverse(tracer);
+        self.objects.traverse(tracer);
+        if let Some(refs) = self.kept_refs.try_read_recursive()
+            && let Some(refs) = refs.as_ref()
+        {
+            refs.traverse(tracer);
+        }
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        // Disconnect a view before its backing owners can be released. Owned
+        // storage keeps its allocation until deallocation.
+        if let Some(mut buffer) = self.buffer.try_write() {
+            match &mut *buffer {
+                Cow::Owned(_) => {}
+                Cow::Borrowed(_) => *buffer = Cow::Owned(Vec::new()),
+            }
+        } else {
+            return;
+        }
+        if let Some(mut base) = self.base.try_write() {
+            out.extend(base.take());
+        }
+        if let Some(mut objects) = self.objects.try_write() {
+            out.extend(objects.take());
+        }
+        if let Some(mut refs) = self.kept_refs.try_write()
+            && let Some(mut refs) = refs.take()
+        {
+            refs.clear(out);
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum HiddenRefs {
+    Single(PyObjectRef),
+    Snapshot(crate::builtins::PyTupleRef),
+}
+
+impl HiddenRefs {
+    fn id(&self) -> usize {
+        match self {
+            Self::Single(obj) => obj.get_id(),
+            Self::Snapshot(tuple) => tuple.get_id(),
+        }
+    }
+
+    fn owners(&self) -> &[PyObjectRef] {
+        match self {
+            Self::Single(obj) => core::slice::from_ref(obj),
+            Self::Snapshot(tuple) => tuple.as_slice(),
+        }
+    }
+
+    fn into_object(self) -> PyObjectRef {
+        match self {
+            Self::Single(obj) => obj,
+            Self::Snapshot(tuple) => tuple.into(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct PrivateRefs {
-    slots: std::collections::HashMap<String, Vec<usize>, rapidhash::quality::RandomState>,
+    slots: std::collections::HashMap<String, usize, rapidhash::quality::RandomState>,
+    groups: std::collections::HashMap<usize, (HiddenRefs, usize), rapidhash::quality::RandomState>,
     owners: std::collections::HashMap<usize, (PyObjectRef, usize), rapidhash::quality::RandomState>,
+    snapshot: Option<crate::builtins::PyTupleRef>,
 }
 
 impl PrivateRefs {
-    fn replace(&mut self, key: String, owners: Vec<PyObjectRef>) -> Vec<PyObjectRef> {
-        let old = if owners.is_empty() {
-            self.slots.remove(&key)
+    fn replace(&mut self, key: String, incoming: Option<HiddenRefs>) -> Vec<PyObjectRef> {
+        let old = if let Some(group) = &incoming {
+            self.slots.insert(key, group.id())
         } else {
-            self.slots
-                .insert(key, owners.iter().map(|obj| obj.get_id()).collect())
+            self.slots.remove(&key)
         };
-        // Count each slot's references, but retain each Python owner only once.
-        // Add first so replacing an owner with itself cannot release it.
-        for obj in owners {
-            self.owners.entry(obj.get_id()).or_insert((obj, 0)).1 += 1;
-        }
         let mut displaced = Vec::new();
-        for id in old.into_iter().flatten() {
-            let owner = self.owners.get_mut(&id).expect("registered private owner");
-            owner.1 -= 1;
-            if owner.1 == 0 {
-                displaced.push(self.owners.remove(&id).unwrap().0);
+        let mut changed = false;
+        if let Some(group) = incoming {
+            let id = group.id();
+            if let Some((_, count)) = self.groups.get_mut(&id) {
+                *count += 1;
+                displaced.push(group.into_object());
+            } else {
+                for obj in group.owners() {
+                    match self.owners.entry(obj.get_id()) {
+                        std::collections::hash_map::Entry::Occupied(mut entry) => {
+                            entry.get_mut().1 += 1
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            entry.insert((obj.clone(), 1));
+                            changed = true;
+                        }
+                    }
+                }
+                self.groups.insert(id, (group, 1));
             }
         }
-        // The caller releases these after unlocking and publishing _objects.
+        // Membership is counted per distinct group, not per destination slot.
+        // Publish incoming owners before removing old ones, including self-copy.
+        if let Some(id) = old {
+            let (_, count) = self.groups.get_mut(&id).expect("registered private group");
+            *count -= 1;
+            if *count == 0 {
+                let (group, _) = self.groups.remove(&id).unwrap();
+                for obj in group.owners() {
+                    let id = obj.get_id();
+                    let (_, count) = self.owners.get_mut(&id).expect("registered private owner");
+                    *count -= 1;
+                    if *count == 0 {
+                        displaced.push(self.owners.remove(&id).unwrap().0);
+                        changed = true;
+                    }
+                }
+                displaced.push(group.into_object());
+            }
+        }
+        if changed {
+            displaced.extend(self.snapshot.take().map(Into::into));
+        }
         displaced
     }
 
     fn snapshot(&self) -> Vec<PyObjectRef> {
         self.owners.values().map(|(obj, _)| obj.clone()).collect()
+    }
+}
+
+// SAFETY: visit each stored strong reference once. Shared snapshot elements
+// belong to the Python tuple and are traced by that tuple, not by each slot.
+unsafe impl Traverse for PrivateRefs {
+    #[expect(clippy::iter_over_hash_type, reason = "GC edge order is irrelevant")]
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        for (obj, _) in self.owners.values() {
+            obj.traverse(tracer);
+        }
+        for (group, _) in self.groups.values() {
+            match group {
+                HiddenRefs::Single(obj) => obj.traverse(tracer),
+                HiddenRefs::Snapshot(tuple) => tuple.traverse(tracer),
+            }
+        }
+        self.snapshot.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.slots.clear();
+        out.extend(self.owners.drain().map(|(_, (obj, _))| obj));
+        out.extend(
+            self.groups
+                .drain()
+                .map(|(_, (group, _))| group.into_object()),
+        );
+        out.extend(self.snapshot.take().map(Into::into));
     }
 }
 
@@ -539,7 +681,7 @@ impl core::ops::Deref for CDataBytes {
 pub(super) struct CDataValue {
     pub bytes: CDataBytes,
     keep: Option<PyObjectRef>,
-    hidden: Vec<PyObjectRef>,
+    hidden: Option<HiddenRefs>,
     temporary: Option<PyObjectRef>,
 }
 
@@ -556,7 +698,7 @@ impl CDataValue {
                 // Snapshot before writing: source and destination may overlap.
                 let bytes =
                     rustpython_host_env::ctypes::copy_to_sized_bytes(&source.buffer.read(), size);
-                let hidden = PyCData::hidden_refs(value);
+                let hidden = PyCData::hidden_refs(value, vm);
                 let keep = PyCData::get_kept_objects(value, vm);
                 return Ok(Self {
                     bytes: bytes.into(),
@@ -588,7 +730,7 @@ impl CDataValue {
                             .new_tuple(vec![PyCData::get_kept_objects(value, vm), value.to_owned()])
                             .into(),
                     ),
-                    hidden: Vec::new(),
+                    hidden: None,
                     temporary: None,
                 });
             }
@@ -614,7 +756,7 @@ impl CDataValue {
             return Ok(Self {
                 bytes,
                 keep,
-                hidden: hidden.into_iter().collect(),
+                hidden: hidden.map(HiddenRefs::Single),
                 temporary: None,
             });
         }
@@ -648,7 +790,7 @@ impl CDataValue {
             return Ok(Self {
                 bytes: vec![0; size].into(),
                 keep: None,
-                hidden: Vec::new(),
+                hidden: None,
                 temporary: None,
             });
         }
@@ -671,7 +813,7 @@ impl CDataValue {
         let _temporary = self.temporary;
         // Like KeepRef(None), preserve previous owners when assigning a raw
         // address: it can still point into their private backing allocation.
-        if self.keep.is_none() && self.hidden.is_empty() {
+        if self.keep.is_none() && self.hidden.is_none() {
             return Ok(());
         }
         // Publish every owner before dropping the displaced value, whose
@@ -1029,10 +1171,10 @@ impl PyCData {
     /// Keep a reference alive without exposing it in _objects.
     /// Retains a backing allocation used by a scalar's pointer.
     pub fn keep_alive(&self, obj: PyObjectRef) {
-        drop(self.replace_hidden(0, vec![obj]));
+        drop(self.replace_hidden(0, Some(HiddenRefs::Single(obj))));
     }
 
-    fn replace_hidden(&self, index: usize, owners: Vec<PyObjectRef>) -> Vec<PyObjectRef> {
+    fn replace_hidden(&self, index: usize, owners: Option<HiddenRefs>) -> Vec<PyObjectRef> {
         let key = self.unique_key(index);
         let base = self.base.read().clone();
         let root = base.as_ref().map(|base| Self::find_root_object(base));
@@ -1041,7 +1183,7 @@ impl PyCData {
             .and_then(|root| root.downcast_ref::<Self>())
             .map_or(self, |cdata| cdata);
         let mut refs = cdata.kept_refs.write();
-        if refs.is_none() && owners.is_empty() {
+        if refs.is_none() && owners.is_none() {
             return Vec::new();
         }
         refs.get_or_insert_with(Default::default)
@@ -1126,13 +1268,35 @@ impl PyCData {
 
     // Copying a view must retain its root's references, including private
     // backing allocations and aliases through other fields or pointers.
-    // Keep the snapshot flat and deduplicate owners: self-copy must not nest
-    // a new holder around all previous snapshots.
-    fn hidden_refs(value: &PyObject) -> Vec<PyObjectRef> {
+    // Share a flat snapshot while the root's owner set is unchanged, including
+    // when copying between views of that root. Slots only retain group IDs.
+    fn hidden_refs(value: &PyObject, vm: &VirtualMachine) -> Option<HiddenRefs> {
         let root = Self::find_root_object(value);
-        root.downcast_ref::<Self>()
-            .and_then(|cdata| cdata.kept_refs.read().as_ref().map(|refs| refs.snapshot()))
-            .unwrap_or_default()
+        let cdata = root.downcast_ref::<Self>()?;
+        let mut refs = cdata.kept_refs.write();
+        let refs = refs.as_mut()?;
+        match refs.owners.len() {
+            0 => None,
+            1 => Some(HiddenRefs::Single(
+                refs.owners.values().next().unwrap().0.clone(),
+            )),
+            _ => {
+                if refs.snapshot.is_none() {
+                    // Snapshot publication must not call finalizers: raw bytes
+                    // have already been copied, and owners must match those bytes.
+                    // The tuple participates in GC immediately; only collection
+                    // is left to the next ordinary allocation.
+                    refs.snapshot = Some(PyRef::new_ref_without_collection(
+                        PyTuple::new_unchecked(refs.snapshot().into_boxed_slice()),
+                        vm.ctx.types.tuple_type.to_owned(),
+                        None,
+                    ));
+                }
+                Some(HiddenRefs::Snapshot(
+                    refs.snapshot.as_ref().unwrap().clone(),
+                ))
+            }
+        }
     }
 
     // A scalar owns one reference; a scalar view stores it in its root instead.
@@ -1142,7 +1306,7 @@ impl PyCData {
         hidden: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let _old_hidden = self.replace_hidden(0, hidden.into_iter().collect());
+        let _old_hidden = self.replace_hidden(0, hidden.map(HiddenRefs::Single));
         if self.base.read().is_some() {
             self.keep_ref(0, value, vm)
         } else {
@@ -1243,11 +1407,10 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if this is a c_char or c_wchar array field
-        let is_char_array = PyCField::is_char_array(proto, vm);
-        let is_wchar_array = PyCField::is_wchar_array(proto, vm);
+        let array_code = PyCField::array_type_code(proto);
 
         // For c_char arrays with bytes input, copy only up to first null
-        if is_char_array {
+        if array_code == Some('c') {
             if let Some(bytes_val) = value.downcast_ref::<PyBytes>() {
                 let src = bytes_val.as_bytes();
                 let to_copy = char_array_assignment_bytes(src);
@@ -1260,7 +1423,7 @@ impl PyCData {
         }
 
         // For c_wchar arrays with str input, convert to wchar_t
-        if is_wchar_array {
+        if array_code == Some('u') {
             if let Some(str_val) = value.downcast_ref::<PyStr>() {
                 let wchar_bytes = rustpython_host_env::ctypes::encode_wtf8_to_wchar_padded(
                     str_val.as_wtf8(),
@@ -1315,7 +1478,7 @@ impl PyCData {
             && stg.element_type.is_some()
         {
             // c_char array → return bytes
-            if PyCField::is_char_array(proto, vm) {
+            if PyCField::array_type_code(proto) == Some('c') {
                 let data = &buffer[offset..offset + size];
                 return Ok(vm
                     .ctx
@@ -1324,7 +1487,7 @@ impl PyCData {
             }
 
             // c_wchar array → return str
-            if PyCField::is_wchar_array(proto, vm) {
+            if PyCField::array_type_code(proto) == Some('u') {
                 let data = &buffer[offset..offset + size];
                 return Ok(vm.ctx.new_str(wchar_array_field_value(data)).into());
             }
@@ -1534,7 +1697,7 @@ impl Py<PyCData> {
 
 // PyCField - Field descriptor for Structure/Union types
 
-#[pyclass(name = "CField", module = "ctypes")]
+#[pyclass(name = "CField", module = "ctypes", traverse = "manual")]
 #[derive(Debug, PyPayload)]
 pub struct PyCField {
     /// Field name
@@ -1553,6 +1716,13 @@ pub struct PyCField {
     pub(crate) bitfield_size: u16,
     /// Bit offset within the storage unit (only meaningful for bitfields)
     pub(crate) bit_offset_val: u16,
+}
+
+// SAFETY: proto is the descriptor's only owned Python reference.
+unsafe impl Traverse for PyCField {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.proto.traverse(tracer);
+    }
 }
 
 impl PyCField {
@@ -1596,6 +1766,30 @@ impl PyCField {
             bitfield_size,
             bit_offset_val: bit_offset,
         }
+    }
+
+    pub(super) fn checked_bitfield_size(
+        name: &str,
+        proto: &Py<PyType>,
+        value: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<u16> {
+        let bits = value.try_int(vm)?.as_bigint().to_u16();
+        let info = proto.stg_info(vm)?;
+        let bits = bits
+            .filter(|&bits| bits > 0 && usize::from(bits) <= info.size * 8)
+            .ok_or_else(|| {
+                vm.new_value_error(format!("number of bits invalid for bit field '{name}'"))
+            })?;
+        if !matches!(
+            info.scalar_code,
+            Some('b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | '?')
+        ) {
+            return Err(
+                vm.new_type_error(format!("bit fields not allowed for type {}", proto.name()))
+            );
+        }
+        Ok(bits)
     }
 
     /// Get the byte size of the field's underlying type
@@ -1694,7 +1888,16 @@ impl Constructor for PyCField {
             .transpose()?;
 
         if let Some(bs) = bit_size_val {
-            if bs < 0 {
+            if !matches!(
+                field_type.stg_info(vm)?.scalar_code,
+                Some('b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | '?')
+            ) {
+                return Err(vm.new_type_error(format!(
+                    "bit fields not allowed for type {}",
+                    field_type.name()
+                )));
+            }
+            if bs <= 0 {
                 return Err(vm.new_value_error("number of bits invalid for bit field"));
             }
             let bo = bit_offset_val.unwrap_or(0);
@@ -1702,7 +1905,7 @@ impl Constructor for PyCField {
                 return Err(vm.new_value_error("bit_offset must be >= 0"));
             }
             let type_bits = byte_size * 8;
-            if bo + bs > type_bits {
+            if bs > type_bits || bo > type_bits - bs {
                 return Err(vm.new_value_error(format!(
                     "bit field '{name}' overflows its type ({bo} + {bs} > {type_bits})"
                 )));
@@ -1768,6 +1971,33 @@ impl GetDescriptor for PyCField {
         // Get PyCData from obj (works for both Structure and Union)
         let cdata = Self::get_cdata_from_obj(&obj, vm)?;
 
+        // CPython's c_bool bitfields read the whole byte. User scalar subclasses
+        // return storage-backed instances rather than decoded primitive values.
+        if zelf.bitfield_size > 0
+            && super::simple::returns_scalar(&zelf.proto)
+            && zelf.proto.stg_info(vm)?.scalar_code != Some('?')
+        {
+            let buffer = cdata.buffer.read();
+            let data = buffer
+                .get(offset..offset.saturating_add(size))
+                .ok_or_else(|| vm.new_value_error("field outside the buffer"))?;
+            let value = zelf.bitfield_word(data);
+            let bits = zelf.bitfield_size as u32;
+            let value = (value >> zelf.bit_offset_val) & (u64::MAX >> (64 - bits));
+            let signed = matches!(
+                zelf.proto.stg_info(vm)?.scalar_code,
+                Some('b' | 'h' | 'i' | 'l' | 'q')
+            );
+            drop(buffer);
+            return Ok(if signed {
+                vm.ctx
+                    .new_int(((value << (64 - bits)) as i64) >> (64 - bits))
+                    .into()
+            } else {
+                vm.ctx.new_int(value).into()
+            });
+        }
+
         // PyCData_get
         cdata.get_field(
             zelf.proto.as_object(),
@@ -1781,38 +2011,25 @@ impl GetDescriptor for PyCField {
 }
 
 impl PyCField {
-    /// Check if the field type is a c_char array (element type has _type_ == 'c')
-    fn is_char_array(proto: &PyObject, vm: &VirtualMachine) -> bool {
-        // Get element_type from StgInfo (for array types)
-        if let Some(proto_type) = proto.downcast_ref::<PyType>()
-            && let Some(stg) = proto_type.stg_info_opt()
-            && let Some(element_type) = &stg.element_type
+    fn bitfield_word(&self, data: &[u8]) -> u64 {
+        let mut bytes = [0; 8];
+        if self
+            .proto
+            .stg_info_opt()
+            .is_some_and(|info| info.big_endian)
         {
-            // Check if element type has _type_ == "c"
-            if let Ok(type_code) = element_type.as_object().get_attr("_type_", vm)
-                && let Some(s) = type_code.downcast_ref::<PyStr>()
-            {
-                return s.as_bytes() == b"c";
-            }
+            bytes[8 - data.len()..].copy_from_slice(data);
+            u64::from_be_bytes(bytes)
+        } else {
+            bytes[..data.len()].copy_from_slice(data);
+            u64::from_le_bytes(bytes)
         }
-        false
     }
 
-    /// Check if the field type is a c_wchar array (element type has _type_ == 'u')
-    fn is_wchar_array(proto: &PyObject, vm: &VirtualMachine) -> bool {
-        // Get element_type from StgInfo (for array types)
-        if let Some(proto_type) = proto.downcast_ref::<PyType>()
-            && let Some(stg) = proto_type.stg_info_opt()
-            && let Some(element_type) = &stg.element_type
-        {
-            // Check if element type has _type_ == "u"
-            if let Ok(type_code) = element_type.as_object().get_attr("_type_", vm)
-                && let Some(s) = type_code.downcast_ref::<PyStr>()
-            {
-                return s.as_bytes() == b"u";
-            }
-        }
-        false
+    // Character-array fields use the element's initialized scalar converter.
+    fn array_type_code(proto: &PyObject) -> Option<char> {
+        let info = proto.downcast_ref::<PyType>()?.stg_info_opt()?;
+        info.element_type.as_ref()?.stg_info_opt()?.scalar_code
     }
 }
 
@@ -1856,6 +2073,43 @@ impl Py<PyCField> {
             PySetterValue::Assign(value) => {
                 // Check if needs byte swapping
                 let needs_swap = super::simple::is_swapped(&zelf.proto) && size > 1;
+
+                let code = zelf.proto.stg_info(vm)?.scalar_code;
+                // Match CPython: c_bool writes the whole byte, even for bitfields.
+                if zelf.bitfield_size > 0 && code != Some('?') {
+                    let code = code.ok_or_else(|| vm.new_type_error("invalid bitfield type"))?;
+                    let mut encoded = [0; 4];
+                    // __index__ may reenter and change adjacent fields. Convert
+                    // before locking, then merge into the current storage.
+                    let (bytes, _, _) = super::simple::assignment_value(
+                        code.encode_utf8(&mut encoded),
+                        &value,
+                        needs_swap,
+                        vm,
+                    )?;
+                    let value = zelf.bitfield_word(&bytes);
+                    let bits = zelf.bitfield_size as u32;
+                    let mask = (u64::MAX >> (64 - bits)) << zelf.bit_offset_val;
+                    let mut buffer = cdata.buffer.write();
+                    let data = buffer
+                        .get(offset..offset.saturating_add(size))
+                        .ok_or_else(|| vm.new_value_error("field outside the buffer"))?;
+                    let word = (zelf.bitfield_word(data) & !mask)
+                        | ((value << zelf.bit_offset_val) & mask);
+                    let big_endian = zelf.proto.stg_info(vm)?.big_endian;
+                    let bytes = if big_endian {
+                        word.to_be_bytes()
+                    } else {
+                        word.to_le_bytes()
+                    };
+                    let data = if big_endian {
+                        &bytes[8 - size..]
+                    } else {
+                        &bytes[..size]
+                    };
+                    write_cow_bytes_at_offset(&mut buffer, offset, data);
+                    return Ok(());
+                }
 
                 // PyCData_set
                 cdata.set_field(
@@ -2007,14 +2261,17 @@ fn array_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> 
 
 /// PyCPointerType_paramfunc
 fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> {
+    use super::function::PyCFuncPtr;
     use super::pointer::PyCPointer;
 
-    let ptr = obj
-        .downcast_ref::<PyCPointer>()
-        .ok_or_else(|| vm.new_type_error("expected pointer"))?;
-
     // parg->value.p = *(void **)self->b_ptr
-    let ptr_val = ptr.get_ptr_value();
+    let ptr_val = if let Some(ptr) = obj.downcast_ref::<PyCPointer>() {
+        ptr.get_ptr_value()
+    } else if let Some(funcptr) = obj.downcast_ref::<PyCFuncPtr>() {
+        funcptr.get_func_ptr()
+    } else {
+        return Err(vm.new_type_error("expected pointer"));
+    };
 
     Ok(CArgObject {
         tag: b'P',
@@ -2122,11 +2379,7 @@ pub(super) fn bytes_to_pyobject(
     bytes: &[u8],
     vm: &VirtualMachine,
 ) -> PyObjectRef {
-    // Try to get _type_ attribute
-    if let Ok(type_attr) = cls.as_object().get_attr("_type_", vm)
-        && let Ok(s) = type_attr.str(vm)
-    {
-        let ty = s.to_string();
+    if let Some(ty) = cls.type_code(vm) {
         return match rustpython_host_env::ctypes::decode_type_code(ty.as_str(), bytes) {
             rustpython_host_env::ctypes::DecodedValue::Bytes(value) => {
                 vm.ctx.new_bytes(value).into()
@@ -2192,15 +2445,16 @@ pub(super) fn is_simple_instance(typ: &Py<PyType>) -> bool {
 
 /// Set or initialize StgInfo on a type
 pub(super) fn set_or_init_stginfo(type_ref: &PyType, stg_info: StgInfo) {
-    if type_ref.init_type_data(stg_info.clone()).is_err()
+    if type_ref.init_traced_type_data(stg_info.clone()).is_err()
         && let Some(mut existing) = type_ref.get_type_data_mut::<StgInfo>()
     {
         // Preserve pointer_type cache across StgInfo replacement
-        let old_pointer_type = existing.pointer_type.take();
-        *existing = stg_info;
+        let mut old = core::mem::replace(&mut *existing, stg_info);
         if existing.pointer_type.is_none() {
-            existing.pointer_type = old_pointer_type;
+            existing.pointer_type = old.pointer_type.take();
         }
+        drop(existing);
+        drop(old);
     }
 }
 

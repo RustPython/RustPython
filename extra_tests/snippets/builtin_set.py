@@ -722,3 +722,9 @@ for method, operation, expected in (
     assert method(source, keys) is NotImplemented
     assert operation(source, keys) == expected
     assert source == {1, 2}
+
+
+# Predicates on an iterable hash its elements; only membership coerces a set.
+for predicate in (set().issuperset, frozenset().isdisjoint):
+    with assert_raises(TypeError):
+        predicate([{1}])

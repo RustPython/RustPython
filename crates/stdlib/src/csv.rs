@@ -383,6 +383,10 @@ mod _csv {
             Param::var_keyword("fmtparams"),
         ]);
 
+        fn arity() -> core::ops::RangeInclusive<usize> {
+            0..=1
+        }
+
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let res = Self {
                 dialect: args.take_positional_keyword("dialect"),

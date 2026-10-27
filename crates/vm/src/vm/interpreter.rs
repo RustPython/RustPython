@@ -7,7 +7,14 @@ use super::{
     thread,
 };
 use crate::{
-    PyResult, builtins, common::rc::PyRc, frozen::FrozenModule, getpath, py_freeze, stdlib::atexit,
+    PyResult, builtins,
+    common::rc::PyRc,
+    frozen::FrozenModule,
+    frozen_resources::{
+        FrozenModuleRegistry, FrozenRegistration, FrozenResourceBundle, ResourceError,
+    },
+    getpath, py_freeze,
+    stdlib::atexit,
     vm::PyBaseExceptionRef,
 };
 use alloc::collections::BTreeMap;
@@ -37,7 +44,7 @@ pub struct InterpreterBuilder {
     settings: Settings,
     pub ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
-    frozen_modules: Vec<(&'static str, FrozenModule)>,
+    frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
 }
 
@@ -46,7 +53,7 @@ struct InitializeVmOpts<'a> {
     settings: Settings,
     ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
-    frozen_modules: Vec<(&'static str, FrozenModule)>,
+    frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
     is_main: bool,
     whence: InterpreterWhence,
@@ -122,12 +129,10 @@ where
             other => other,
         } as usize);
 
-        let mut frozen: std::collections::HashMap<
-            &'static str,
-            FrozenModule,
-            rapidhash::quality::RandomState,
-        > = core_frozen_inits().collect();
-        frozen.extend(frozen_modules);
+        let mut frozen: FrozenModuleRegistry = core_frozen_inits().collect();
+        for registration in frozen_modules {
+            frozen.apply_registration(registration);
+        }
 
         (config, all_module_defs, frozen, int_max_str_digits)
     };
@@ -368,6 +373,8 @@ impl InterpreterBuilder {
     ///
     /// Frozen modules are Python modules compiled into the binary.
     /// This method accepts any iterator of (name, FrozenModule) pairs.
+    /// It registers code only. To include embedded package data, use
+    /// [`Self::add_frozen_modules_with_resources`] with the matching resource bundle.
     ///
     /// # Example
     /// ```
@@ -382,8 +389,27 @@ impl InterpreterBuilder {
     where
         I: IntoIterator<Item = (&'static str, FrozenModule)>,
     {
-        self.frozen_modules.extend(frozen);
+        self.frozen_modules
+            .push(FrozenRegistration::code_only(frozen));
         self
+    }
+
+    /// Add frozen code and resources as one ownership-preserving registration.
+    ///
+    /// Every resource owner must be a package in this registration. Replacing a
+    /// package or module in a later registration never inherits its old resources,
+    /// even if the replacement contains identical bytecode.
+    pub fn add_frozen_modules_with_resources<I>(
+        mut self,
+        frozen: I,
+        resources: &'static [FrozenResourceBundle],
+    ) -> Result<Self, ResourceError>
+    where
+        I: IntoIterator<Item = (&'static str, FrozenModule)>,
+    {
+        self.frozen_modules
+            .push(FrozenRegistration::with_resources(frozen, resources)?);
+        Ok(self)
     }
 
     /// Build the interpreter.
@@ -1363,7 +1389,6 @@ mod tests {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
                 thread_vm.run(|vm| {
-                    main_started_worker.store(true, Ordering::Release);
                     let deadline = Instant::now() + Duration::from_secs(30);
                     let mut operations = 0;
                     while !sub_finished_worker.load(Ordering::Acquire) && Instant::now() < deadline
@@ -1373,6 +1398,11 @@ mod tests {
                         let result = vm._add(&a, &b).unwrap();
                         assert_eq!(*int::get_value(&result), 42_i32.to_bigint().unwrap());
                         operations += 1;
+                        if operations == 1 {
+                            // Publish readiness only after actual progress. Otherwise
+                            // the sub can finish before this loop's first iteration.
+                            main_started_worker.store(true, Ordering::Release);
+                        }
                         // The protocol calls above never reach a safepoint on
                         // their own; a bytecode loop would. Without this, a
                         // concurrent stop-the-world could not finish while this
@@ -1390,7 +1420,12 @@ mod tests {
         let sub_worker = sub.enter(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(30);
                 while !main_started_worker.load(Ordering::Acquire) {
+                    assert!(
+                        Instant::now() < deadline,
+                        "main interpreter made no progress before the readiness deadline"
+                    );
                     std::thread::yield_now();
                 }
                 thread_vm.run(|vm| {

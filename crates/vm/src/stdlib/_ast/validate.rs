@@ -191,6 +191,13 @@ fn validate_interpolated_elements<'a>(
 }
 
 fn ensure_literal_number(expr: &ast::Expr, allow_real: bool, allow_imaginary: bool) -> bool {
+    if let Some(constant) = ast_constant_value(expr) {
+        return match constant {
+            ConstantData::Integer { .. } | ConstantData::Float { .. } => allow_real,
+            ConstantData::Complex { .. } => allow_imaginary,
+            _ => false,
+        };
+    }
     let ast::Expr::NumberLiteral(number) = expr else {
         return false;
     };
@@ -200,11 +207,11 @@ fn ensure_literal_number(expr: &ast::Expr, allow_real: bool, allow_imaginary: bo
     }
 }
 
-fn ensure_literal_negative(expr: &ast::Expr, allow_real: bool, allow_imaginary: bool) -> bool {
+fn ensure_literal_signed(expr: &ast::Expr, allow_real: bool, allow_imaginary: bool) -> bool {
     let ast::Expr::UnaryOp(unary) = expr else {
         return false;
     };
-    if unary.op != ast::UnaryOp::USub {
+    if !matches!(unary.op, ast::UnaryOp::UAdd | ast::UnaryOp::USub) {
         return false;
     }
     ensure_literal_number(&unary.operand, allow_real, allow_imaginary)
@@ -218,7 +225,7 @@ fn ensure_literal_complex(expr: &ast::Expr) -> bool {
         return false;
     }
     let real_left = ensure_literal_number(&bin.left, true, false)
-        || ensure_literal_negative(&bin.left, true, false);
+        || ensure_literal_signed(&bin.left, true, false);
     real_left && ensure_literal_number(&bin.right, false, true)
 }
 
@@ -244,7 +251,7 @@ fn validate_pattern_match_value(vm: &VirtualMachine, expr: &ast::Expr) -> PyResu
             Ok(())
         }
         ast::Expr::Attribute(_) => Ok(()),
-        ast::Expr::UnaryOp(_) if ensure_literal_negative(expr, true, true) => Ok(()),
+        ast::Expr::UnaryOp(_) if ensure_literal_signed(expr, true, true) => Ok(()),
         ast::Expr::BinOp(_) if ensure_literal_complex(expr) => Ok(()),
         ast::Expr::FString(_) | ast::Expr::TString(_) => Ok(()),
         ast::Expr::BooleanLiteral(_)
@@ -608,10 +615,9 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
         }
         ast::Expr::DictComp(dict) => {
             validate_comprehension(vm, &dict.generators)?;
-            let key = dict.key.as_deref().ok_or_else(|| {
-                vm.new_value_error("field 'key' is required for DictComp".to_owned())
-            })?;
-            validate_expr(vm, key, ast::ExprContext::Load)?;
+            if let Some(key) = &dict.key {
+                validate_expr(vm, key, ast::ExprContext::Load)?;
+            }
             validate_expr(vm, &dict.value, ast::ExprContext::Load)
         }
         ast::Expr::Generator(generator) => {

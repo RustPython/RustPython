@@ -54,6 +54,9 @@ in two ways:
 1. The time to parse the file to AST
 2. The time it takes to execute the file
 
+Parsing stops at an AST in both implementations. The CPython reference uses
+`compile(..., flags=ast.PyCF_ONLY_AST)` without compiling bytecode.
+
 Execution includes compilation and runs each iteration with a fresh namespace whose `__name__`
 is `"__main__"`, so script entry points run in both RustPython and CPython.
 

@@ -965,7 +965,17 @@ pub(crate) mod _asyncio {
         future: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    impl Constructor for PyFutureIter {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                future: PyRwLock::new(None),
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor, IterNext, Iterable))]
     impl PyFutureIter {
         #[pymethod]
         fn send(zelf: &Py<Self>, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -2926,7 +2936,17 @@ pub(crate) mod _asyncio {
         task: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(Callable, Representable))]
+    impl Constructor for TaskStepMethWrapper {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                task: PyRwLock::new(None),
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor, Callable, Representable))]
     impl TaskStepMethWrapper {
         fn new(task: PyObjectRef) -> Self {
             Self {

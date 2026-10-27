@@ -154,13 +154,6 @@ class PatchSpec(typing.NamedTuple):
             # If we see our comment at the decorator line, take it
             if found := pattern.search(curr_line):
                 reason = found.group()
-                # Preserve explanation lines directly below an inline marker.
-                # They are comments, not part of the canonical test body.
-                indent = len(curr_line) - len(curr_line.lstrip())
-                for following_line in lines[node.end_lineno :]:
-                    if not following_line.startswith(" " * indent + "#"):
-                        break
-                    reason += "\n" + following_line[indent:].rstrip("\r\n")
             elif prev_line.strip().startswith("#") and (
                 found := pattern.search(prev_line)
             ):

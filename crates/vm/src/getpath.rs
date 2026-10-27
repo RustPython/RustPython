@@ -510,7 +510,13 @@ fn program_name() -> String {
 
 /// Get the current executable path
 fn get_executable_path() -> Option<PathBuf> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(windows)]
+    {
+        // CreateProcess permits argv[0] to differ from the executable filename.
+        // Like CPython's GetModuleFileNameW, use the loaded image's path.
+        env::current_exe().ok()
+    }
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
     {
         let exec_arg = env::args_os().next()?;
         crate::host_env::fs::which(exec_arg)
@@ -544,6 +550,12 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn executable_is_the_loaded_image() {
+        assert_eq!(get_executable_path(), env::current_exe().ok());
+    }
 
     #[test]
     fn build_time_paths_follow_configured_paths_and_zip() {

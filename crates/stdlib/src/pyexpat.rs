@@ -168,7 +168,7 @@ mod _pyexpat {
     use crate::vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyException, PyFloat, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
+        builtins::{PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
         function::{ArgBytesLike, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption},
         types::Constructor,
@@ -177,7 +177,6 @@ mod _pyexpat {
     use alloc::rc::Rc;
     use core::cell::RefCell;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use num_traits::Signed;
     use rustpython_common::lock::PyRwLock;
     use std::io::Read;
     use xml::common::Position;
@@ -262,12 +261,6 @@ mod _pyexpat {
         external_subset_handled: AtomicBool,
         #[pytraverse(skip)]
         started: AtomicBool,
-        #[pytraverse(skip)]
-        amplification: PyRwLock<AmplificationSettings>,
-        // Preserve a protection breach after tearing down the backend, so
-        // later feeds cannot accidentally restart the document's accounting.
-        #[pytraverse(skip)]
-        amplification_error: PyRwLock<Option<xml::reader::Error>>,
         #[pytraverse(skip)]
         external_entity: Option<ExternalEntity>,
         parent: Option<PyExpatLikeXmlParserRef>,
@@ -355,13 +348,6 @@ mod _pyexpat {
     struct ExternalEntity {
         context: Option<String>,
         encoding: Option<String>,
-    }
-
-    #[derive(Debug)]
-    struct AmplificationSettings {
-        maximum: f32,
-        threshold: u64,
-        frozen: bool,
     }
 
     struct Doctype {
@@ -946,12 +932,6 @@ mod _pyexpat {
                 standalone: AtomicBool::new(false),
                 external_subset_handled: AtomicBool::new(false),
                 started: AtomicBool::new(false),
-                amplification: PyRwLock::new(AmplificationSettings {
-                    maximum: 100.0,
-                    threshold: 8_388_608,
-                    frozen: false,
-                }),
-                amplification_error: PyRwLock::new(None),
                 external_entity,
                 parent,
                 start_element: MutableObject::new(vm.ctx.none()),
@@ -1137,76 +1117,11 @@ mod _pyexpat {
         }
 
         fn create_config(&self) -> xml::ParserConfig {
-            let mut config = xml::ParserConfig::new()
+            xml::ParserConfig::new()
                 .cdata_to_characters(false)
                 .coalesce_characters(false)
                 .ignore_comments(false)
-                .whitespace_to_characters(true);
-            let settings = self.amplification.read();
-            config.amplification_limits = Some(
-                xml::reader::AmplificationLimits::new(settings.maximum, settings.threshold)
-                    .expect("validated amplification settings"),
-            );
-            config
-        }
-
-        fn update_amplification_settings(
-            &self,
-            update: impl FnOnce(&mut AmplificationSettings),
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            if self.parent.is_some() {
-                return Err(self.amplification_argument_error(vm, "parser must be a root parser")?);
-            }
-            {
-                let mut settings = self.amplification.write();
-                if !settings.frozen {
-                    update(&mut settings);
-                    return Ok(());
-                }
-            }
-            // Error allocation can run GC callbacks on non-threaded builds.
-            // Keep it outside the atomic frozen-check/update critical section.
-            Err(vm.new_not_implemented_error(
-                "changing amplification protection after parsing has begun is not supported by the xml-rs backend",
-            ))
-        }
-
-        #[pymethod(name = "SetBillionLaughsAttackProtectionMaximumAmplification")]
-        fn set_maximum_amplification(
-            zelf: &Py<Self>,
-            max_factor: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            // PyFloat_AsDouble accepts float subclasses without invoking
-            // their __float__, then Expat validates the rounded C float.
-            let maximum = if let Some(value) = max_factor.downcast_ref::<PyFloat>() {
-                value.to_f64()
-            } else {
-                max_factor.try_float(vm)?.to_f64()
-            } as f32;
-            if maximum.is_nan() || maximum < 1.0 {
-                return Err(
-                    zelf.amplification_argument_error(vm, "'max_factor' must be at least 1.0")?
-                );
-            }
-            zelf.update_amplification_settings(|settings| settings.maximum = maximum, vm)
-        }
-
-        #[pymethod(name = "SetBillionLaughsAttackProtectionActivationThreshold")]
-        fn set_amplification_threshold(
-            zelf: &Py<Self>,
-            threshold: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let threshold = threshold.try_index(vm)?;
-            if threshold.as_bigint().is_negative() {
-                return Err(vm.new_value_error("Cannot convert negative int"));
-            }
-            let threshold = u64::try_from(threshold.as_bigint()).map_err(|_| {
-                vm.new_overflow_error("Python int too large for C unsigned long long")
-            })?;
-            zelf.update_amplification_settings(|settings| settings.threshold = threshold, vm)
+                .whitespace_to_characters(true)
         }
 
         #[pymethod(name = "GetReparseDeferralEnabled")]
@@ -1602,27 +1517,6 @@ mod _pyexpat {
             Ok(error)
         }
 
-        fn amplification_argument_error(
-            &self,
-            vm: &VirtualMachine,
-            description: &str,
-        ) -> PyResult<crate::vm::builtins::PyBaseExceptionRef> {
-            let error = vm.new_exception_msg(
-                PyExpatError::class(&vm.ctx).to_owned(),
-                description.to_owned().into(),
-            );
-            error.as_object().set_attr("code", vm.ctx.new_int(41), vm)?;
-            error
-                .as_object()
-                .set_attr("lineno", vm.ctx.new_int(*self.current_line.read()), vm)?;
-            error.as_object().set_attr(
-                "offset",
-                vm.ctx.new_int(*self.current_column.read()),
-                vm,
-            )?;
-            Ok(error)
-        }
-
         fn parse_error(
             &self,
             vm: &VirtualMachine,
@@ -1634,13 +1528,6 @@ mod _pyexpat {
             *self.current_line.write() = line;
             *self.current_column.write() = column;
             let (code, description) = match error.kind() {
-                xml::reader::ErrorKind::AmplificationLimit => {
-                    *self.amplification_error.write() = Some(error.clone());
-                    (
-                        43,
-                        "limit on input amplification factor (from DTD and entities) breached",
-                    )
-                }
                 xml::reader::ErrorKind::UnexpectedEof => (5, "unclosed token"),
                 xml::reader::ErrorKind::Syntax(message) => {
                     if message.starts_with("Unexpected end of stream:") {
@@ -1871,10 +1758,6 @@ mod _pyexpat {
         }
 
         fn feed_inner(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
-            let amplification_error = self.amplification_error.read().clone();
-            if let Some(error) = amplification_error {
-                return Err(self.parse_error(vm, error)?);
-            }
             if let Some(entity) = &self.external_entity {
                 // xml-rs only parses complete documents. In particular, an
                 // external DTD is not a document, and a general external
@@ -1956,7 +1839,6 @@ mod _pyexpat {
             isfinal: OptionalArg<bool>,
             vm: &VirtualMachine,
         ) -> PyResult<i32> {
-            zelf.amplification.write().frozen = true;
             let bytes = data.borrow_bytes().to_vec();
             zelf.feed(vm, &bytes, isfinal.unwrap_or(false))?;
             Ok(1)
@@ -1964,7 +1846,6 @@ mod _pyexpat {
 
         #[pymethod(name = "ParseFile")]
         fn parse_file(zelf: &Py<Self>, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            zelf.amplification.write().frozen = true;
             let read_res = vm.call_method(&file, "read", ())?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();

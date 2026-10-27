@@ -2,7 +2,7 @@
 name = "rustpython-pylib"
 description = "A subset of the Python standard library for use with RustPython"
 license-file = "Lib/PSF-LICENSE"
-include = ["Cargo.toml", "build.rs", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
+include = ["Cargo.toml", "build.rs", "src/**/*.rs", "LICENSE-profiling", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 authors = ["CPython Developers"]
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ rust-version.workspace = true
 repository.workspace = true
 
 [features]
-freeze-stdlib = ["dep:rustpython-compiler-core", "dep:rustpython-derive"]
+freeze-stdlib = ["dep:rustpython-compiler-core", "dep:rustpython-derive", "dep:sha2"]
 
 [dependencies]
 rustpython-compiler-core = { workspace = true, optional = true }
@@ -18,6 +18,7 @@ rustpython-derive = { workspace = true, optional = true }
 
 [build-dependencies]
 glob = { workspace = true }
+sha2 = { workspace = true, optional = true }
 
 [lints]
 workspace = true

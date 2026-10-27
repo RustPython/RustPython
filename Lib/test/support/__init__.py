@@ -22,6 +22,7 @@ import warnings
 
 
 __all__ = [
+    "has_remote_subprocess_debugging", "requires_remote_subprocess_debugging",
     "requires_root_user", "requires_non_root_user",
     # globals
     "PIPE_MAX_SIZE", "verbose", "max_memuse", "use_resources", "failfast",
@@ -657,6 +658,93 @@ def requires_working_socket(*, module=False):
     else:
         return unittest.skipUnless(has_socket_support, msg)
 
+
+@functools.cache
+def has_remote_subprocess_debugging():
+    """Check if we have permissions to debug subprocesses remotely.
+
+    Returns True if we have permissions, False if we don't.
+    Checks for:
+    - Platform support (Linux, macOS, Windows only)
+    - On Linux: process_vm_readv support
+    - _remote_debugging module availability
+    - Actual subprocess debugging permissions (e.g., macOS entitlements)
+    Result is cached.
+    """
+    # Check platform support
+    if sys.platform not in ("linux", "darwin", "win32"):
+        return False
+
+    try:
+        import _remote_debugging
+    except ImportError:
+        return False
+
+    # On Linux, check for process_vm_readv support
+    if sys.platform == "linux":
+        if not getattr(_remote_debugging, "PROCESS_VM_READV_SUPPORTED", False):
+            return False
+
+    # First check if we can read our own process
+    if not _remote_debugging.is_python_process(os.getpid()):
+        return False
+
+    # Check subprocess access - debugging child processes may require
+    # additional permissions depending on platform security settings
+    import socket
+    import subprocess
+
+    # Create a socket for child to signal readiness
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    # Child connects to signal it's ready, then waits for parent to close
+    child_code = f"""
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(("127.0.0.1", {port}))
+s.recv(1)  # Wait for parent to signal done
+"""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", child_code],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        server.settimeout(5.0)
+        conn, _ = server.accept()
+        # Child is ready, test if we can probe it
+        result = _remote_debugging.is_python_process(proc.pid)
+        # Check if subprocess is still alive after probing
+        if proc.poll() is not None:
+            return False
+        conn.close()  # Signal child to exit
+        return result
+    except (socket.timeout, OSError):
+        return False
+    finally:
+        server.close()
+        proc.kill()
+        proc.wait()
+
+
+def requires_remote_subprocess_debugging():
+    """Skip tests that require remote subprocess debugging permissions.
+
+    This also implies subprocess support, so no need to use both
+    @requires_subprocess() and @requires_remote_subprocess_debugging().
+    """
+    if not has_subprocess_support:
+        return unittest.skip("requires subprocess support")
+    return unittest.skipUnless(
+        has_remote_subprocess_debugging(),
+        "requires remote subprocess debugging permissions"
+    )
+
+
 # Does strftime() support glibc extension like '%4Y'?
 has_strftime_extensions = False
 if sys.platform != "win32":
@@ -1158,7 +1246,6 @@ class _MemoryWatchdog:
         self.started = False
 
     def start(self):
-        import warnings
         try:
             f = open(self.procfile, 'r')
         except OSError as e:
@@ -1194,6 +1281,7 @@ def bigmemtest(size, memuse, dry_run=True):
     test doesn't support dummy runs when -M is not specified.
     """
     def decorator(f):
+        @functools.wraps(f)
         def wrapper(self):
             size = wrapper.size
             memuse = wrapper.memuse
@@ -1246,6 +1334,7 @@ def nomemtest(f):
 
 def bigaddrspacetest(f):
     """Decorator for tests that fill the address space."""
+    @functools.wraps(f)
     def wrapper(self):
         if max_memuse < MAX_Py_ssize_t:
             if MAX_Py_ssize_t >= 2**63 - 1 and max_memuse >= 2**31:
@@ -1327,7 +1416,7 @@ def no_tracing(func):
                 sys.settrace(original_trace)
 
     coverage_wrapper = trace_wrapper
-    if 'test.cov' in sys.modules:  # -Xpresite=test.cov used
+    if 'test.cov' in sys.modules:  # -Xpresite=test.cov:enable used
         cov = sys.monitoring.COVERAGE_ID
         @functools.wraps(func)
         def coverage_wrapper(*args, **kwargs):
@@ -1351,6 +1440,7 @@ def no_rerun(reason):
     def deco(func):
         assert not isinstance(func, type), func
         _has_run = False
+        @functools.wraps(func)
         def wrapper(self):
             nonlocal _has_run
             if _has_run:
@@ -2916,7 +3006,7 @@ def iter_builtin_types():
     # Fall back to making a best-effort guess.
     if hasattr(object, '__flags__'):
         # Look for any type object with the Py_TPFLAGS_STATIC_BUILTIN flag set.
-        import datetime
+        import datetime  # noqa: F401
         seen = set()
         for cls, subs in walk_class_hierarchy(object):
             if cls in seen:
@@ -3051,6 +3141,13 @@ def iter_slot_wrappers(cls):
 def force_color(color: bool):
     import _colorize
     from .os_helper import EnvironmentVarGuard
+
+    if color:
+        try:
+            import _pyrepl  # noqa: F401
+        except ModuleNotFoundError:
+            # Can't force enable color without _pyrepl, so just skip.
+            raise unittest.SkipTest("_pyrepl is missing")
 
     with (
         swap_attr(_colorize, "can_colorize", lambda *, file=None: color),

@@ -116,6 +116,14 @@ class StringTestCase(unittest.TestCase, HelperMixin):
         for s in [b"", b"Andr\xe8 Previn", b"abc", b" "*10000]:
             self.helper(s)
 
+    @support.cpython_only
+    def test_bytes_singleton(self):
+        for version in range(marshal.version + 1):
+            for sample in [b"", b"x"]:
+                new = marshal.loads(marshal.dumps(sample, version))
+                self.assertIs(new, sample)
+
+
 class ExceptionTestCase(unittest.TestCase):
     def test_exceptions(self):
         new = marshal.loads(marshal.dumps(StopIteration))
@@ -382,6 +390,12 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, a, v)
 
+    def test_reference_loop_frozendict(self):
+        a = frozendict({None: []})
+        a[None].append(a)
+        for v in range(marshal.version + 1):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+
     def test_loads_reference_loop_list(self):
         data = b'\xdb\x01\x00\x00\x00r\x00\x00\x00\x00' # [<R>]
         a = marshal.loads(data)
@@ -431,9 +445,13 @@ class BugsTestCase(unittest.TestCase):
             b'\xba{Nr\x00\x00\x00\x000NN', # slice({None: <R>}, None)
             b'\xbaN{Nr\x00\x00\x00\x000N', # slice(None, {None: <R>})
             b'\xbaNN{Nr\x00\x00\x00\x000', # slice(None, None, {None: <R>})
+            b'\xfdN[\x01\x00\x00\x00r\x00\x00\x00\x000', # frozendict({None: [<R>]})
+            b'\xfdN{Nr\x00\x00\x00\x0000', # frozendict({None: {None: <R>})
 
             # Direct self-references which cannot be created in Python.
             b'\xbe\x01\x00\x00\x00r\x00\x00\x00\x00', # frozenset({<R>})
+            b'\xfdNr\x00\x00\x00\x000', # frozendict({None: <R>})
+            b'\xfdr\x00\x00\x00\x00N0', # frozendict({<R>: None})
             b'\xbar\x00\x00\x00\x00NN', # slice(<R>, None)
             b'\xbaNr\x00\x00\x00\x00N', # slice(None, <R>)
             b'\xbaNNr\x00\x00\x00\x00', # slice(None, None, <R>)
@@ -695,6 +713,15 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
             self.helper(dictobj)
             self.helper3(dictobj)
 
+    def testFrozenDict(self):
+        for obj in self.keys:
+            dictobj = frozendict({"hello": obj, "goodbye": obj, obj: "hello"})
+            self.helper(dictobj)
+
+            for version in range(6):
+                with self.assertRaises(ValueError):
+                    marshal.dumps(dictobj, version)
+
     def testModule(self):
         with open(__file__, "rb") as f:
             code = f.read()
@@ -760,7 +787,7 @@ class SliceTestCase(unittest.TestCase, HelperMixin):
             with self.subTest(obj=str(obj)):
                 self.helper(obj)
 
-                for version in range(4):
+                for version in range(5):
                     with self.assertRaises(ValueError):
                         marshal.dumps(obj, version)
 

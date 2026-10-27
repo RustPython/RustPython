@@ -3485,17 +3485,9 @@ mod _socket {
             flags: opts.flags,
         };
 
-        // Encode host: str uses IDNA encoding, bytes must be valid UTF-8
+        // Encode non-ASCII hosts with IDNA; bytes must be valid UTF-8.
         let host_encoded: Option<String> = match opts.host.as_ref() {
-            Some(ArgStrOrBytesLike::Str(s)) => {
-                let encoded =
-                    vm.state
-                        .codec_registry
-                        .encode_text(s.to_owned(), "idna", None, vm)?;
-                let host_str = core::str::from_utf8(encoded.as_bytes())
-                    .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-                Some(host_str.to_owned())
-            }
+            Some(ArgStrOrBytesLike::Str(s)) => Some(encode_hostname(s.as_wtf8(), vm)?),
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
                 let host_str = core::str::from_utf8(&bytes).map_err(|e| {
@@ -3864,7 +3856,7 @@ mod _socket {
         {
             return Ok(SocketAddr::V4(net::SocketAddrV4::new(addr, 0)));
         }
-        if matches!(af, c::AF_INET | c::AF_UNSPEC)
+        if matches!(af, c::AF_INET6 | c::AF_UNSPEC)
             && !name.contains('%')
             && let Ok(addr) = name.parse::<Ipv6Addr>()
         {
@@ -3874,15 +3866,28 @@ mod _socket {
             address: af,
             ..Default::default()
         };
-        let name = vm
-            .state
-            .codec_registry
-            .encode_text(pyname.into_wtf8(), "idna", None, vm)?;
-        let name = core::str::from_utf8(name.as_bytes())
-            .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-        let mut res = host_socket::dns::getaddrinfo(Some(name), None, Some(hints))
+        let name = encode_hostname(pyname.as_wtf8(), vm)?;
+        let mut res = host_socket::dns::getaddrinfo(Some(&name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
+    }
+
+    fn encode_hostname(name: &crate::common::wtf8::Wtf8, vm: &VirtualMachine) -> PyResult<String> {
+        // Like CPython's idna_converter, ASCII hostnames need no codec lookup.
+        if let Ok(name) = name.as_str()
+            && name.is_ascii()
+        {
+            return Ok(name.to_owned());
+        }
+        let encoded = vm.state.codec_registry.encode_text(
+            vm.ctx.new_str(name.to_owned()),
+            "idna",
+            None,
+            vm,
+        )?;
+        core::str::from_utf8(encoded.as_bytes())
+            .map(str::to_owned)
+            .map_err(|_| vm.new_runtime_error("idna output is not utf8"))
     }
 
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
@@ -4062,6 +4067,24 @@ mod _socket {
         let length = length.try_index(vm)?.try_to_primitive_in_range(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
+    }
+
+    #[cfg(test)]
+    mod address_tests {
+        use super::*;
+
+        #[test]
+        fn ascii_hosts_do_not_require_idna() {
+            crate::vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for host in ["localhost", "127.0.0.1", "::1", "fe80::1%1"] {
+                    assert_eq!(encode_hostname(host.into(), vm).unwrap(), host);
+                }
+                let addr = get_addr(vm, vm.ctx.new_utf8_str("::1"), c::AF_INET6)
+                    .map_err(|err| err.into_pyexception(vm))
+                    .unwrap();
+                assert_eq!(addr.ip(), net::IpAddr::V6(Ipv6Addr::LOCALHOST));
+            });
+        }
     }
 
     #[cfg(test)]

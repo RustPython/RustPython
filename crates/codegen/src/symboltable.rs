@@ -1455,7 +1455,7 @@ impl SymbolTableBuilder {
         if table.symbols.contains_key(parameter.name.as_str()) {
             return Err(self.error_ranged(
                 format!(
-                    "duplicate argument '{}' in function definition",
+                    "duplicate parameter '{}' in function definition",
                     parameter.name
                 ),
                 parameter.name.range,
@@ -2419,16 +2419,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Dict comprehension - is_generator = false (can be inlined)
-                    let Some(key) = key.as_deref() else {
-                        return Err(self.error_ranged(
-                            "dict unpacking cannot be used in dict comprehension".to_owned(),
-                            *range,
-                        ));
+                    let (element, value) = match key.as_deref() {
+                        Some(key) => (key, Some(value.as_ref())),
+                        None => (value.as_ref(), None),
                     };
                     self.scan_comprehension(
                         &"<dictcomp>".into(),
-                        key,
-                        Some(value),
+                        element,
+                        value,
                         generators,
                         *range,
                         false,
@@ -3204,7 +3202,7 @@ impl SymbolTableBuilder {
 
             if matches!(role, SymbolUsage::Parameter) && flags.contains(SymbolFlags::DEF_PARAM) {
                 return Err(SymbolTableError {
-                    error: format!("duplicate argument '{original_name}' in function definition"),
+                    error: format!("duplicate parameter '{original_name}' in function definition"),
                     location,
                     end_location,
                 });
@@ -3485,11 +3483,11 @@ mod tests {
     #[test]
     fn duplicate_parameter_check_uses_mangled_name_like_cpython() {
         let err = scan_source_result("class C:\n    def f(__x, _C__x):\n        pass\n")
-            .expect_err("expected duplicate argument after class-private mangling");
+            .expect_err("expected duplicate parameter after class-private mangling");
 
         assert_eq!(
             err.error,
-            "duplicate argument '_C__x' in function definition"
+            "duplicate parameter '_C__x' in function definition"
         );
     }
 

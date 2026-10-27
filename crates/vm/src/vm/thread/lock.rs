@@ -23,10 +23,6 @@ pub(crate) struct PyMutex {
 }
 
 impl PyMutex {
-    #[cfg_attr(
-        not(all(test, feature = "threading")),
-        expect(dead_code, reason = "Removed when the profiler consumer is wired")
-    )]
     pub(crate) const fn new() -> Self {
         Self {
             bits: AtomicU8::new(0),
@@ -271,11 +267,14 @@ mod tests {
     #[test]
     fn unlock_hands_off_to_starved_waiter() {
         let m = Arc::new(PyMutex::new());
+        let (release_waiter, wait_for_release) = std::sync::mpsc::channel::<()>();
         m.lock();
         let waiter = {
             let m = m.clone();
             std::thread::spawn(move || {
                 m.lock();
+                // Keep ownership until the parent has checked the handoff.
+                let _ = wait_for_release.recv();
                 m.unlock();
             })
         };
@@ -285,9 +284,14 @@ mod tests {
         // Long past the waiter's fairness deadline.
         std::thread::sleep(Duration::from_millis(20));
         m.unlock();
-        // The waiter owns the lock before it has even run again.
-        assert!(!m.lock_fast());
+        // Check immediately, without waiting for the waiter to run again.
+        let acquired = m.lock_fast();
+        if acquired {
+            m.unlock();
+        }
+        drop(release_waiter);
         waiter.join().unwrap();
+        assert!(!acquired);
         assert!(!m.is_locked());
     }
 }

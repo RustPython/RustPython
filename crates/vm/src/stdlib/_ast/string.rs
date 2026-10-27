@@ -260,6 +260,9 @@ fn warn_invalid_escape_sequences_in_format_spec<E>(
                 }
                 true
             }
+            // CPython's string-parser prepass protects a backslash before a
+            // non-ASCII codepoint before invoking the escape decoder.
+            ch if !ch.is_ascii() => true,
             _ => false,
         };
         if !valid {

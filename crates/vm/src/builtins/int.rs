@@ -531,7 +531,7 @@ struct RoundArgs {
 
 #[pyclass(
     itemsize = 4,
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, LONG_SUBCLASS),
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl Py<PyInt> {
@@ -946,6 +946,6 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .int_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_int));
 }

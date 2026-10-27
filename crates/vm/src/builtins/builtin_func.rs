@@ -195,13 +195,9 @@ impl PyNativeFunction {
     // meth_get__self__ in CPython
     #[pygetset]
     fn __self__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyObjectRef {
-        if let Some(bound) = &zelf.0.zelf {
-            return bound.clone();
-        }
-        if let Some(module) = &zelf.0.module_object {
-            return module.clone();
-        }
-        vm.ctx.none()
+        zelf.0
+            .get_self()
+            .map_or_else(|| vm.ctx.none(), ToOwned::to_owned)
     }
 
     // meth_reduce: the name when unbound or bound to a module, otherwise
@@ -335,6 +331,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_native_function));
+    context
+        .types
+        .builtin_function_or_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyNativeMethod::extend_class(context, context.types.builtin_method_type);
 }
 

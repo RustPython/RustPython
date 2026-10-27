@@ -198,7 +198,9 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
     // instead of extracting them, so user code (`__del__`) may run here.
     let mut edges = Vec::new();
-    if let Some(clear_fn) = vtable.clear {
+    if (T::CLEAR_ON_DEALLOC || T::HAS_FREELIST)
+        && let Some(clear_fn) = vtable.clear
+    {
         unsafe { clear_fn(obj, &mut edges) };
     }
     // Drop extracted child references - may trigger recursive destruction.
@@ -924,6 +926,7 @@ impl WeakRefList {
         for (wr, callback) in callbacks {
             if let Some(cb) = callback {
                 crate::vm::thread::with_vm(&cb, |vm| {
+                    let _raised = vm.preserve_raised_exception();
                     let _ = cb.call((wr.clone(),), vm);
                 });
             }
@@ -2154,13 +2157,16 @@ impl PyObject {
                 // during __del__, preventing safe_inc from seeing 0.
                 zelf.0.ref_count.inc_by(2);
 
-                let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
-                if let Err(e) = slot_del(zelf, vm) {
-                    let msg = del_method
-                        .repr(vm)
-                        .ok()
-                        .map(|r| format!("Exception ignored while calling deallocator {r}"));
-                    vm.run_unraisable(e, msg, del_method);
+                {
+                    let _raised = vm.preserve_raised_exception();
+                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
+                    if let Err(e) = slot_del(zelf, vm) {
+                        let msg = del_method
+                            .repr(vm)
+                            .ok()
+                            .map(|r| format!("Exception ignored while calling deallocator {r}"));
+                        vm.run_unraisable(e, msg, del_method);
+                    }
                 }
 
                 // Undo the temporary resurrection. Always remove both
@@ -2286,6 +2292,15 @@ impl PyObject {
         GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::TRACKED)
     }
 
+    /// Whether this object's payload or instance storage can own GC edges.
+    /// Unlike is_gc_tracked, this also covers temporarily untracked objects.
+    #[inline]
+    pub(crate) fn gc_may_have_edges(&self) -> bool {
+        self.0.vtable.trace.is_some()
+            || self.class().heaptype_ext.is_some()
+            || self.0.ext_ref().is_some()
+    }
+
     /// Get the referents (objects directly referenced) of this object.
     /// Uses the full traverse including dict and slots.
     pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
@@ -2315,6 +2330,7 @@ impl PyObject {
             // This ensures drop_slow_inner() won't call __del__ again
             self.set_gc_finalized();
             let result = crate::vm::thread::with_vm(self, |vm| {
+                let _raised = vm.preserve_raised_exception();
                 if let Err(e) = slot_del(self, vm)
                     && let Some(del_method) = self.get_class_attr(identifier!(vm, __del__))
                 {
@@ -2930,8 +2946,40 @@ impl<T: PyPayload> PyRef<T> {
 impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
+        Self::new_ref_impl(payload, typ, dict, true)
+    }
+
+    /// Allocate and track internal storage without running collection during
+    /// publication. The next ordinary tracked allocation still checks thresholds.
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    pub(crate) fn new_ref_without_collection(
+        payload: T,
+        typ: crate::builtins::PyTypeRef,
+        dict: Option<PyDictRef>,
+    ) -> Self {
+        Self::new_ref_impl(payload, typ, dict, false)
+    }
+
+    #[inline(always)]
+    fn new_ref_impl(
+        payload: T,
+        typ: crate::builtins::PyTypeRef,
+        dict: Option<PyDictRef>,
+        allow_collection: bool,
+    ) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
+        let track = !T::NEW_REF_UNTRACKED
+            && (has_dict || is_heaptype || (T::HAS_TRAVERSE && payload.needs_gc(&typ)));
 
         // Try to reuse from freelist (no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
@@ -2964,18 +3012,16 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         };
 
         // Track object if:
-        // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
+        // - HAS_TRAVERSE is true and the payload needs cyclic GC, OR
         // - has instance dict (user-defined class instances), OR
         // - heap type (all heap type instances are GC-tracked, like Py_TPFLAGS_HAVE_GC)
         // unless the payload opts out via NEW_REF_UNTRACKED (e.g. call frames,
         // which are tracked lazily only on escape).
-        if (<T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype)
-            && !T::NEW_REF_UNTRACKED
-        {
-            // Tracks under the interpreter running now and collects if this
-            // allocation pushed gen0 past its threshold.
+        if track {
+            // Tracks under the interpreter running now and, when allowed,
+            // collects if this allocation pushed gen0 past its threshold.
             unsafe {
-                crate::gc_state::track_new_object(ptr.cast());
+                crate::gc_state::track_new_object_impl(ptr.cast(), allow_collection);
             }
         }
 

@@ -95,9 +95,14 @@ pub fn benchmark_file_parsing(
                 let builtins = pyo3::types::PyModule::import(py, "builtins")
                     .expect("Failed to import builtins");
                 let compile = builtins.getattr("compile").expect("no compile in builtins");
+                let ast = pyo3::types::PyModule::import(py, "ast").expect("Failed to import ast");
+                let only_ast: i32 = ast
+                    .getattr("PyCF_ONLY_AST")
+                    .and_then(|flag| flag.extract())
+                    .expect("no PyCF_ONLY_AST in ast");
                 b.iter(|| {
                     let x = compile
-                        .call1((contents, name, "exec"))
+                        .call1((contents, name, "exec", only_ast))
                         .expect("Failed to parse code");
                     black_box(x);
                 })

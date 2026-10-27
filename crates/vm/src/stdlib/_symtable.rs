@@ -3,11 +3,12 @@ pub(crate) use _symtable::module_def;
 #[pymodule]
 mod _symtable {
     use crate::{
-        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyUtf8StrRef},
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyStrRef, PyUtf8StrRef},
         compiler,
         function::{ArgStrOrBytesLike, FsPath},
         types::Representable,
+        vm::VmCompileError,
     };
     use alloc::fmt;
     use rustpython_codegen::symboltable::{CompilerScope, SymbolFlags, SymbolScope, SymbolTable};
@@ -96,13 +97,26 @@ mod _symtable {
     #[pyattr]
     pub(super) const TYPE_TYPE_VARIABLE: i32 = 6;
 
-    #[pyfunction]
-    fn symtable(
+    #[derive(FromArgs)]
+    struct SymtableArgs {
+        #[pyarg(positional)]
         source: ArgStrOrBytesLike,
+        #[pyarg(positional)]
         filename: FsPath,
+        #[pyarg(positional)]
         startstr: PyUtf8StrRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PySymbolTable>> {
+        #[pyarg(named, optional)]
+        module: Option<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn symtable(args: SymtableArgs, vm: &VirtualMachine) -> PyResult<PyRef<PySymbolTable>> {
+        let SymtableArgs {
+            source,
+            filename,
+            startstr,
+            module,
+        } = args;
         let mode = startstr
             .as_str()
             .parse::<compiler::Mode>()
@@ -128,10 +142,34 @@ mod _symtable {
                 "source code string cannot contain null bytes".into(),
             ));
         }
-        let symtable = compiler::compile_symtable(&source, mode, &filename).map_err(|err| {
-            let err = vm.new_syntax_error(&err, Some(&source));
-            set_syntax_error_filename(err, &filename_obj, vm)
-        })?;
+        let module = module.filter(|module| !vm.is_none(module));
+        let module = module
+            .map(|module| {
+                PyStrRef::try_from_object(vm, module.clone()).map_err(|_| {
+                    vm.new_type_error(format!(
+                        "symtable() argument 'module' must be str or None, not {}",
+                        module.class().name()
+                    ))
+                })
+            })
+            .transpose()?;
+        let symtable = vm
+            .compile_symtable_with_module(
+                &source,
+                mode,
+                &filename,
+                &filename_obj,
+                module.as_deref(),
+            )
+            .map_err(|err| match err {
+                VmCompileError::Compile(err) => {
+                    let err = vm.new_syntax_error(&err, Some(&source));
+                    set_syntax_error_filename(err, &filename_obj, vm)
+                }
+                // Warning hooks may raise their own exception, including a
+                // SyntaxError subclass. Propagate it without changing attributes.
+                warning @ VmCompileError::Warning(_) => warning.into_pyexception(vm, Some(&source)),
+            })?;
 
         Ok(to_py_symbol_table(symtable, vm))
     }
@@ -221,7 +259,13 @@ mod _symtable {
     impl Py<PySymbolTable> {
         #[pygetset]
         fn name(&self) -> String {
-            self.symtable.name.to_string()
+            match self.symtable.typ {
+                CompilerScope::Lambda => "<lambda>".to_owned(),
+                CompilerScope::Comprehension if self.symtable.name.as_str() == "genexpr" => {
+                    "<genexpr>".to_owned()
+                }
+                _ => self.symtable.name.to_string(),
+            }
         }
 
         #[pygetset(name = "type")]

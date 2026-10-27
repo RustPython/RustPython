@@ -1876,6 +1876,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_function));
+    context
+        .types
+        .function_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
     context
@@ -1884,6 +1890,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_bound_method));
+    context
+        .types
+        .bound_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyCell::extend_class(context, context.types.cell_type);
 }

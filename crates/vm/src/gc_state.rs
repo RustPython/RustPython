@@ -827,11 +827,12 @@ impl GcState {
             all_callbacks.extend(callbacks);
         }
         for (wr, cb) in all_callbacks {
-            if let Some(Err(e)) = crate::vm::thread::with_vm(&cb, |vm| cb.call((wr.clone(),), vm)) {
-                crate::vm::thread::with_vm(&cb, |vm| {
-                    vm.run_unraisable(e.clone(), Some("weakref callback".to_owned()), cb.clone());
-                });
-            }
+            crate::vm::thread::with_vm(&cb, |vm| {
+                let _raised = vm.preserve_raised_exception();
+                if let Err(e) = cb.call((wr.clone(),), vm) {
+                    vm.run_unraisable(e, Some("weakref callback".to_owned()), cb.clone());
+                }
+            });
         }
 
         // 6d: Call __del__ on unreachable objects (skip already-finalized).
@@ -1372,8 +1373,19 @@ pub fn current_owner() -> GcOwner {
 /// it collect if the allocation pushed gen0 past its threshold.
 ///
 /// # Safety
-/// obj must be a valid pointer to a PyObject that is not already tracked.
+/// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
+#[inline]
 pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
+    unsafe { track_new_object_impl(obj, true) };
+}
+
+/// Track fresh internal storage, optionally allowing collection before its
+/// caller publishes it.
+///
+/// # Safety
+/// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
+#[inline]
+pub(crate) unsafe fn track_new_object_impl(obj: NonNull<PyObject>, allow_collection: bool) {
     let state = gc_state();
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
@@ -1384,7 +1396,9 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
     unsafe { state.track_object_fresh(obj, gc.owner) };
-    state.maybe_collect(gc);
+    if allow_collection {
+        state.maybe_collect(gc);
+    }
 }
 
 /// Track a generator (or coroutine, or async generator) together with the

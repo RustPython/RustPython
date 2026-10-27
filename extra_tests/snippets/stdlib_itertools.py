@@ -368,6 +368,11 @@ assert list(t[0]) == [1, 2, 3]
 assert list(t[0]) == []
 
 # itertools.product
+
+product_source = iter([1])
+assert list(itertools.product(product_source, repeat=0)) == [()]
+assert next(product_source) == 1
+
 it = itertools.product([1, 2], [3, 4])
 assert (1, 3) == next(it)
 assert (1, 4) == next(it)
@@ -679,3 +684,22 @@ class PairwiseWithLabel(itertools.pairwise):
 pairs = PairwiseWithLabel([1, 2], label="pairs")
 assert pairs.label == "pairs"
 assert next(pairs) == (1, 2)
+
+
+# Consumed tee values must not remain alive for the lifetime of the iterators.
+import weakref
+
+
+class TeeItem:
+    pass
+
+
+tee_left, tee_right = itertools.tee(TeeItem() for _ in range(200))
+tee_first = next(tee_left)
+tee_ref = weakref.ref(tee_first)
+del tee_first
+next(tee_right)
+for _ in range(199):
+    next(tee_left)
+    next(tee_right)
+assert tee_ref() is None

@@ -235,7 +235,7 @@ impl PyBytes {
 
 #[pyclass(
     itemsize = 1,
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, BYTES_SUBCLASS),
     with(
         Py,
         PyRef,
@@ -560,12 +560,6 @@ impl Py<PyBytes> {
     fn title(&self) -> PyBytes {
         self.inner.title().into()
     }
-
-    #[pymethod]
-    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
-        PyTuple::new_ref(param, &vm.ctx)
-    }
 }
 
 #[pyclass]
@@ -577,6 +571,11 @@ impl PyRef<PyBytes> {
         } else {
             vm.ctx.new_bytes(result.to_vec())
         }
+    }
+
+    #[pymethod]
+    fn __getnewargs__(self, vm: &VirtualMachine) -> PyTupleRef {
+        vm.new_tuple((self.result_from_slice(self.as_bytes(), vm),))
     }
 
     #[pymethod]

@@ -97,6 +97,10 @@ impl<'fd, KW: DirFdKeyword> DirFd<'fd, 1, KW> {
 impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE, KW> {
     const PARAMS: Option<&'static [Param]> = Some(KW::PARAMS);
 
+    fn arity() -> core::ops::RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword(KW::NAME) {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
@@ -289,6 +293,10 @@ pub(super) mod _os {
     #[cfg(any(unix, windows, target_os = "wasi"))]
     impl FromArgs for OpenDirFd {
         const PARAMS: Option<&'static [Param]> = Some(DefaultDirFd::PARAMS);
+
+        fn arity() -> core::ops::RangeInclusive<usize> {
+            0..=0
+        }
 
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let fd = match args.take_keyword("dir_fd") {
@@ -540,19 +548,41 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
-                let dir_iter = match crate::host_env::fs::read_dir(&path) {
-                    Ok(iter) => iter,
-                    Err(err) => {
-                        return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                #[cfg(windows)]
+                {
+                    let wide = path
+                        .path
+                        .to_wide_cstring()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut dir = host_nt::scandir(&wide)
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut names = Vec::new();
+                    while let Some(entry) = dir
+                        .next_entry()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?
+                    {
+                        if !entry.is_dot_or_dotdot() {
+                            names.push(path.mode().process_path(entry.name, vm));
+                        }
                     }
-                };
-                let mode = path.mode();
-                dir_iter
-                    .map(|entry| match entry {
-                        Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
-                        Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
-                    })
-                    .collect::<PyResult<_>>()?
+                    names
+                }
+                #[cfg(not(windows))]
+                {
+                    let dir_iter = match crate::host_env::fs::read_dir(&path) {
+                        Ok(iter) => iter,
+                        Err(err) => {
+                            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                        }
+                    };
+                    let mode = path.mode();
+                    dir_iter
+                        .map(|entry| match entry {
+                            Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
+                            Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
+                        })
+                        .collect::<PyResult<_>>()?
+                }
             }
             OsPathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]

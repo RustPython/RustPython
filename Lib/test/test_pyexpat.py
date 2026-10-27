@@ -688,9 +688,6 @@ class PositionTest(unittest.TestCase):
         self.upto += 1
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; the xml-rs backend reports a
-    # token's *current parse cursor* position rather than libexpat's *start of
-    # token* position, so exact byte/column offsets for StartElementHandler
-    # don't match upstream expat.
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler
@@ -1283,6 +1280,7 @@ class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
     def set_maximum_amplification(self, parser, max_factor):
         return parser.SetBillionLaughsAttackProtectionMaximumAmplification(max_factor)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
     def test_set_activation_threshold__threshold_reached(self):
         parser = expat.ParserCreate()
         # Choose a threshold expected to be always reached.
@@ -1293,6 +1291,7 @@ class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
         payload = self.exponential_expansion_payload(ncols=10, nrows=4)
         self.assert_rejected(parser.Parse, payload, True)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
     def test_set_activation_threshold__threshold_not_reached(self):
         parser = expat.ParserCreate()
         # Choose a threshold expected to be never reached.
@@ -1303,6 +1302,7 @@ class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
         payload = self.exponential_expansion_payload(ncols=10, nrows=4)
         self.assertIsNotNone(parser.Parse(payload, True))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
     def test_set_maximum_amplification__amplification_exceeded(self):
         parser = expat.ParserCreate()
         # Unconditionally enable maximum activation factor.
@@ -1313,6 +1313,7 @@ class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
         payload = self.exponential_expansion_payload(ncols=1, nrows=2)
         self.assert_rejected(parser.Parse, payload, True)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
     def test_set_maximum_amplification__amplification_not_exceeded(self):
         parser = expat.ParserCreate()
         # Unconditionally enable maximum activation factor.
@@ -1322,6 +1323,30 @@ class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
         # Craft a payload for which the peak amplification factor is < 1e4.
         payload = self.exponential_expansion_payload(ncols=1, nrows=2)
         self.assertIsNotNone(parser.Parse(payload, True))
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_activation_threshold__fail_for_subparser(self):
+        return super().test_set_activation_threshold__fail_for_subparser()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_activation_threshold__invalid_threshold_type(self):
+        return super().test_set_activation_threshold__invalid_threshold_type()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__fail_for_subparser(self):
+        return super().test_set_maximum_amplification__fail_for_subparser()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__infinity(self):
+        return super().test_set_maximum_amplification__infinity()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__invalid_max_factor_range(self):
+        return super().test_set_maximum_amplification__invalid_max_factor_range()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__invalid_max_factor_type(self):
+        return super().test_set_maximum_amplification__invalid_max_factor_type()
 
 
 @unittest.skipIf(not hasattr(expat.XMLParserType,

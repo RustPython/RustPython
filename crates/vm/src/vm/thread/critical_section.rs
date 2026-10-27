@@ -12,10 +12,6 @@ use super::lock::PyMutex;
 use crate::VirtualMachine;
 
 /// `Py_BEGIN_CRITICAL_SECTION_MUTEX(m)` ... `Py_END_CRITICAL_SECTION()`
-#[cfg_attr(
-    not(all(test, feature = "threading")),
-    expect(dead_code, reason = "Removed when the profiler consumer is wired")
-)]
 pub(crate) fn with<R>(vm: &VirtualMachine, m: &PyMutex, f: impl FnOnce() -> R) -> R {
     #[cfg(feature = "threading")]
     {
