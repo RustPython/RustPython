@@ -27,8 +27,8 @@ use crate::{
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
         AsNumber, CSlots, Callable, Constructor, GetAttr, Initializer, OwnedCSlots, PyTypeFlags,
-        PyTypeSlots, Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut,
-        TypeDataSlot, VectorCallFunc,
+        PyTypeSlots, Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        VectorCallFunc,
     },
 };
 use core::{
