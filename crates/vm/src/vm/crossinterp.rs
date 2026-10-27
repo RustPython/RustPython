@@ -864,6 +864,14 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
 
 /// Extract a script code object from source text / function / code object.
 pub fn script_code(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+    script_code_with_purity(obj, false, vm)
+}
+
+fn script_code_with_purity(
+    obj: &PyObject,
+    pure: bool,
+    vm: &VirtualMachine,
+) -> PyResult<PyRef<PyCode>> {
     let code = if let Ok(code) = obj.to_owned().downcast::<PyCode>() {
         code
     } else if let Some(func) = obj.downcast_ref::<PyFunction>() {
@@ -882,6 +890,22 @@ pub fn script_code(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyCode
             "can't compile a script to bytecode when the `codegen` feature of rustpython is disabled",
         ));
     };
+    if pure {
+        if let Some(func) = obj.downcast_ref::<PyFunction>() {
+            verify_stateless_function(func, vm)?;
+        } else {
+            let builtins =
+                crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into());
+            let builtins = builtins.downcast_ref::<PyDict>().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "unsupported builtins {}",
+                    render_repr(&builtins, vm)
+                ))
+            })?;
+            let globals = vm.ctx.new_dict();
+            verify_stateless(&code, Some((&globals, builtins)), vm)?;
+        }
+    }
     verify_script(&code, vm)?;
     Ok(code)
 }
@@ -961,3 +985,6 @@ where
 pub fn is_running(id: i64) -> bool {
     crate::vm::runtime::lookup_interpreter(id).is_some_and(|s| s.is_running_main())
 }
+
+// Bridges for canonical _testinternalcapi cross-interpreter tests.
+pub(crate) mod test_support;

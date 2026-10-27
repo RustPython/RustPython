@@ -27,12 +27,13 @@ pub(crate) fn note_func_modification() {
 #[pymodule]
 mod _testinternalcapi {
     use super::*;
+    use crate::vm::crossinterp::{Fallback, test_support::CrossinterpData};
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{
-            PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
-            descriptor::PyWrapper,
+            PyBytesRef, PyCapsule, PyCode, PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef,
+            PyUtf8Str, descriptor::PyWrapper,
         },
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
@@ -152,6 +153,107 @@ mod _testinternalcapi {
     #[pyfunction]
     fn code_returns_only_none(code: PyRef<PyCode>, _vm: &VirtualMachine) -> bool {
         crate::vm::crossinterp::code_returns_only_none(&code)
+    }
+
+    static CROSSINTERP_DATA_TAG: u8 = 0;
+
+    fn crossinterp_data_tag() -> *mut core::ffi::c_void {
+        core::ptr::from_ref(&CROSSINTERP_DATA_TAG).cast_mut().cast()
+    }
+
+    unsafe extern "C" fn release_crossinterp_data(obj: *mut PyObject) {
+        // SAFETY: this is installed only as a PyCapsule destructor; the object
+        // remains alive for the duration of the call.
+        let Some(capsule) = (unsafe { &*obj }).downcast_ref::<PyCapsule>() else {
+            return;
+        };
+        if capsule.context() != crossinterp_data_tag() {
+            return;
+        }
+        let data = capsule.pointer().cast::<CrossinterpData>();
+        capsule.set_pointer(core::ptr::null_mut());
+        if !data.is_null() {
+            // SAFETY: get_crossinterp_data transferred this Box to the capsule.
+            // Clearing the pointer above prevents a second release.
+            drop(unsafe { Box::from_raw(data) });
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct GetCrossinterpDataArgs {
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        mode: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn get_crossinterp_data(args: GetCrossinterpDataArgs, vm: &VirtualMachine) -> PyResult {
+        let mode_obj = args.mode.into_option().filter(|mode| !vm.is_none(mode));
+        let mode = match &mode_obj {
+            None => "xidata",
+            Some(mode) => {
+                if !mode.downcastable::<PyStr>() {
+                    return Err(
+                        vm.new_type_error(format!("expected mode str, got {}", mode.repr(vm)?))
+                    );
+                }
+                let mode = mode.try_downcast_ref::<PyUtf8Str>(vm)?.as_str();
+                // The reference hook compares a NUL-terminated UTF-8 string.
+                mode.split('\0').next().unwrap_or_default()
+            }
+        };
+        let data = match mode {
+            "" | "xidata" => CrossinterpData::from_object(&args.obj, Fallback::XidataOnly, vm),
+            "fallback" => CrossinterpData::from_object(&args.obj, Fallback::Full, vm),
+            "pickle" => CrossinterpData::from_pickle(&args.obj, vm),
+            "marshal" => CrossinterpData::from_marshal(&args.obj, vm),
+            "code" => {
+                let code = args.obj.downcast_ref::<PyCode>().ok_or_else(|| {
+                    crate::stdlib::_interpreters::not_shareable_error(
+                        vm,
+                        format!(
+                            "expected code, got {}",
+                            args.obj.repr(vm).unwrap_or_else(|_| {
+                                vm.ctx.new_str(args.obj.class().name().to_string())
+                            })
+                        ),
+                    )
+                })?;
+                CrossinterpData::from_code(code, vm)
+            }
+            "func" => CrossinterpData::from_function(&args.obj, vm),
+            "script" => CrossinterpData::from_script(&args.obj, false, vm),
+            "script-pure" => CrossinterpData::from_script(&args.obj, true, vm),
+            _ => {
+                return Err(vm.new_value_error(format!(
+                    "unsupported mode {}",
+                    mode_obj.as_ref().unwrap().repr(vm)?
+                )));
+            }
+        }?;
+        let data = Box::into_raw(Box::new(data)).cast();
+        let capsule = vm
+            .ctx
+            .new_capsule(data, None, Some(release_crossinterp_data));
+        capsule.set_context(crossinterp_data_tag());
+        Ok(capsule.into())
+    }
+
+    #[pyfunction]
+    fn restore_crossinterp_data(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let invalid =
+            || vm.new_value_error("PyCapsule_GetPointer called with invalid PyCapsule object");
+        let capsule = obj.downcast_ref::<PyCapsule>().ok_or_else(invalid)?;
+        if capsule.name().is_some()
+            || capsule.context() != crossinterp_data_tag()
+            || capsule.pointer().is_null()
+        {
+            return Err(invalid());
+        }
+        // SAFETY: only get_crossinterp_data creates capsules with this context.
+        // `obj` owns the capsule during the clone, so the payload cannot be freed.
+        let data = unsafe { &*capsule.pointer().cast::<CrossinterpData>() }.clone();
+        data.into_object(vm)
     }
 
     #[pyfunction]
