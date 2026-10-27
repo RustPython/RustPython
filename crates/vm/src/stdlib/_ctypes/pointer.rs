@@ -581,14 +581,20 @@ impl PyCPointer {
         let proto_type = zelf.class().stg_info(vm)?.proto().to_owned();
         let element_size = proto_type.stg_info(vm)?.size;
         let addr = pointer_item_address(ptr_value, index, element_size);
-        let _storage = if proto_type
+        let write = if proto_type
             .stg_info(vm)?
             .flags
             .intersects(StgInfoFlags::TYPEFLAG_ISPOINTER | StgInfoFlags::TYPEFLAG_HASPOINTER)
         {
-            PyCData::register_pyobject_writer(zelf.as_object(), addr, element_size, vm)?
+            PyCData::register_pyobject_writer(
+                zelf.as_object(),
+                addr,
+                element_size,
+                index as usize,
+                vm,
+            )?
         } else {
-            None
+            super::base::CDataWrite::default()
         };
         let prepared = super::base::CDataValue::new(
             &proto_type,
@@ -597,6 +603,7 @@ impl PyCPointer {
             super::simple::is_swapped(&proto_type),
             vm,
         )?;
+        write.publish(vm)?;
         // SAFETY: pointer indexing has the same caller-provided valid-storage
         // requirement as reading the element. The source snapshot cannot overlap it.
         unsafe {

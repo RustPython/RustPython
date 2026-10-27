@@ -623,15 +623,15 @@ impl PyCArray {
         let index = index as usize;
         // A view's buffer already points to its element. Its base can be a
         // pointer object, whose own buffer stores an address rather than data.
-        let _storage = if element_type
+        let write = if element_type
             .stg_info(vm)?
             .flags
             .intersects(StgInfoFlags::TYPEFLAG_ISPOINTER | StgInfoFlags::TYPEFLAG_HASPOINTER)
         {
             zelf.0
-                .register_pyobject_view(index * element_size, element_size, vm)?
+                .register_pyobject_view(index, index * element_size, element_size, vm)?
         } else {
-            None
+            super::base::CDataWrite::default()
         };
         let prepared = super::base::CDataValue::new(
             &element_type,
@@ -640,6 +640,7 @@ impl PyCArray {
             super::simple::is_swapped(&element_type),
             vm,
         )?;
+        write.publish(vm)?;
         zelf.0
             .write_bytes_at_offset(index * element_size, &prepared.bytes);
         prepared.keep(&zelf.0, index, vm)

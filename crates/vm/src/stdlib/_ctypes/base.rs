@@ -511,7 +511,12 @@ struct PrivateRefs {
     writer_paths: Option<WriterPaths>,
     // Views are temporary; retain their caches on the same root as KeepRef.
     view_writer_paths: std::collections::HashMap<String, WriterPaths>,
-    slots: std::collections::HashMap<String, Vec<usize>, rapidhash::quality::RandomState>,
+    writes: std::collections::HashMap<WriteSlot, WriteRegistration>,
+    slots: std::collections::HashMap<
+        String,
+        std::collections::HashSet<usize, rapidhash::quality::RandomState>,
+        rapidhash::quality::RandomState,
+    >,
     owners: std::collections::HashMap<usize, (PyObjectRef, usize), rapidhash::quality::RandomState>,
 }
 
@@ -525,6 +530,9 @@ unsafe impl Traverse for PrivateRefs {
         }
         for (owner, _) in self.owners.values() {
             owner.traverse(tracer);
+        }
+        for registration in self.writes.values() {
+            registration.record.writer.traverse(tracer);
         }
         for paths in self
             .writer_paths
@@ -543,6 +551,11 @@ unsafe impl Traverse for PrivateRefs {
             out.push(alias.source.clone());
         }
         self.object_index = None;
+        out.extend(
+            self.writes
+                .drain()
+                .map(|(_, registration)| registration.record.writer.clone().into()),
+        );
         self.slots.clear();
         out.extend(self.owners.drain().map(|(_, (owner, _))| owner));
         for paths in self
@@ -562,23 +575,25 @@ impl PrivateRefs {
     fn first(&self, key: &str) -> Option<PyObjectRef> {
         self.slots
             .get(key)
-            .and_then(|ids| ids.first())
+            .and_then(|ids| ids.iter().next())
             .and_then(|id| self.owners.get(id))
             .map(|(obj, _)| obj.clone())
     }
 
     fn replace(&mut self, key: String, owners: Vec<PyObjectRef>) -> Vec<PyObjectRef> {
-        let old = if owners.is_empty() {
-            self.slots.remove(&key)
-        } else {
-            self.slots
-                .insert(key, owners.iter().map(|obj| obj.get_id()).collect())
-        };
-        // Count each slot's references, but retain each Python owner only once.
+        let mut ids = std::collections::HashSet::default();
+        // Count each slot once, even if a copied value repeats an owner.
         // Add first so replacing an owner with itself cannot release it.
         for obj in owners {
-            self.owners.entry(obj.get_id()).or_insert((obj, 0)).1 += 1;
+            if ids.insert(obj.get_id()) {
+                self.owners.entry(obj.get_id()).or_insert((obj, 0)).1 += 1;
+            }
         }
+        let old = if ids.is_empty() {
+            self.slots.remove(&key)
+        } else {
+            self.slots.insert(key, ids)
+        };
         let mut displaced = Vec::new();
         for id in old.into_iter().flatten() {
             let owner = self.owners.get_mut(&id).expect("registered private owner");
@@ -600,32 +615,165 @@ impl PrivateRefs {
 // Callback-free weakrefs do not retain writers or their py_object values.
 #[derive(Debug, Default)]
 pub(crate) struct BufferViewRegistry {
-    views: PyRwLock<std::collections::HashMap<usize, BufferViews>>,
+    views: PyRwLock<std::collections::HashMap<usize, RangeIndex<PyRef<crate::object::PyWeak>>>>,
+    writes: PyRwLock<RangeIndex<alloc::sync::Weak<BufferWrite>>>,
 }
 
 #[derive(Debug)]
-struct BufferView {
+struct RangeEntry<T> {
     end: usize,
-    weak: PyRef<crate::object::PyWeak>,
+    value: T,
 }
 
-#[derive(Debug, Default)]
-struct BufferViews {
+#[derive(Debug)]
+struct RangeIndex<T> {
     // One entry per view. Size classes keep a large overlapping view from
     // widening the search window for every small view of the same exporter.
     ranges: alloc::collections::BTreeMap<
         usize,
-        alloc::collections::BTreeMap<(usize, usize), BufferView>,
+        alloc::collections::BTreeMap<(usize, usize), RangeEntry<T>>,
     >,
+}
+
+impl<T> Default for RangeIndex<T> {
+    fn default() -> Self {
+        Self {
+            ranges: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RangeKey {
+    start: usize,
+    span: usize,
+    id: usize,
+}
+
+impl RangeKey {
+    fn new(start: usize, size: usize, id: usize) -> Self {
+        Self {
+            start,
+            span: size.checked_next_power_of_two().unwrap_or(usize::MAX),
+            id,
+        }
+    }
+}
+
+impl<T: Clone> RangeIndex<T> {
+    fn insert(&mut self, key: RangeKey, size: usize, value: T) -> Option<T> {
+        self.ranges
+            .entry(key.span)
+            .or_default()
+            .insert(
+                (key.start, key.id),
+                RangeEntry {
+                    end: key.start.saturating_add(size),
+                    value,
+                },
+            )
+            .map(|entry| entry.value)
+    }
+
+    fn remove(&mut self, key: RangeKey) -> Option<T> {
+        let ranges = self.ranges.get_mut(&key.span)?;
+        let removed = ranges.remove(&(key.start, key.id));
+        if ranges.is_empty() {
+            self.ranges.remove(&key.span);
+        }
+        removed.map(|entry| entry.value)
+    }
+
+    fn matching(&self, slot: Option<usize>) -> Vec<T> {
+        let mut found = Vec::new();
+        for (&span, ranges) in &self.ranges {
+            if let Some(slot) = slot {
+                let first = slot.saturating_sub(span - 1);
+                let end = slot.saturating_add(rustpython_host_env::ctypes::pointer_size());
+                for (&(start, _), entry) in ranges.range((first, 0)..(end, 0)) {
+                    if entry.end > slot && entry.end > start {
+                        found.push(entry.value.clone());
+                    }
+                }
+            } else {
+                found.extend(ranges.values().map(|entry| entry.value.clone()));
+            }
+        }
+        found
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum WriteSlot {
+    Root(usize),
+    View(String),
+}
+
+struct WriteRange {
+    root: PyObjectRef,
+    slot: WriteSlot,
+    address: usize,
+    size: usize,
+}
+
+// Pin the destination across user conversions, but publish the actual range
+// afterwards: a nested conversion may write through the same retention slot.
+#[derive(Default)]
+pub(super) struct CDataWrite {
+    _storage: Option<PyObjectRef>,
+    range: Option<WriteRange>,
+}
+
+impl CDataWrite {
+    fn new(storage: Option<PyObjectRef>, range: impl FnOnce() -> WriteRange) -> Self {
+        // Owned CData storage is directly reachable through its buffer views.
+        // Borrowed/foreign writes can extend beyond every retained source view.
+        let range = storage
+            .as_ref()
+            .is_none_or(|storage| storage.downcast_ref::<PyCData>().unwrap().is_borrowed())
+            .then(range);
+        Self {
+            _storage: storage,
+            range,
+        }
+    }
+
+    pub(super) fn publish(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(range) = &self.range {
+            PyCData::index_write(&range.root, &range.slot, range.address, range.size, vm)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct BufferWrite {
+    writer: PyRef<crate::object::PyWeak>,
+    address: usize,
+    size: usize,
+}
+
+// The retention root owns this token. The registry holds only a Rust Weak,
+// so the Python weakref wrapper has exactly the GC edge traversed above.
+#[derive(Debug)]
+struct WriteRegistration {
+    registry: alloc::sync::Arc<BufferViewRegistry>,
+    key: RangeKey,
+    record: alloc::sync::Arc<BufferWrite>,
+}
+
+impl Drop for WriteRegistration {
+    fn drop(&mut self) {
+        let removed = self.registry.writes.write().remove(self.key);
+        drop(removed);
+    }
 }
 
 #[derive(Debug)]
 struct BufferAlias {
     registry: alloc::sync::Arc<BufferViewRegistry>,
     exporter: usize,
-    view: usize,
-    start: usize,
-    span: usize,
+    key: RangeKey,
     source: PyObjectRef,
 }
 
@@ -634,15 +782,7 @@ impl Drop for BufferAlias {
         let removed = {
             let mut views = self.registry.views.write();
             if let Some(aliases) = views.get_mut(&self.exporter) {
-                let removed = if let Some(ranges) = aliases.ranges.get_mut(&self.span) {
-                    let removed = ranges.remove(&(self.start, self.view));
-                    if ranges.is_empty() {
-                        aliases.ranges.remove(&self.span);
-                    }
-                    removed
-                } else {
-                    None
-                };
+                let removed = aliases.remove(self.key);
                 if aliases.ranges.is_empty() {
                     views.remove(&self.exporter);
                 }
@@ -663,21 +803,7 @@ impl BufferViewRegistry {
             let Some(aliases) = views.get(&exporter.get_id()) else {
                 return Vec::new();
             };
-            let mut found = Vec::new();
-            for (&span, ranges) in &aliases.ranges {
-                if let Some(slot) = slot {
-                    let first = slot.saturating_sub(span - 1);
-                    let end = slot.saturating_add(rustpython_host_env::ctypes::pointer_size());
-                    for (&(start, _), view) in ranges.range((first, 0)..(end, 0)) {
-                        if view.end > slot && view.end > start {
-                            found.push(view.weak.clone());
-                        }
-                    }
-                } else {
-                    found.extend(ranges.values().map(|view| view.weak.clone()));
-                }
-            }
-            found
+            aliases.matching(slot)
         };
         let mut owners = Vec::new();
         for weak in aliases {
@@ -700,6 +826,15 @@ impl BufferViewRegistry {
         }
         owners
     }
+
+    fn writers(&self, slot: usize) -> Vec<PyObjectRef> {
+        let records = self.writes.read().matching(Some(slot));
+        // Upgrade and release Python references outside the range-index lock.
+        records
+            .into_iter()
+            .filter_map(|record| record.upgrade()?.writer.upgrade())
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -710,13 +845,19 @@ enum WriterKey {
 }
 
 type WriterPaths = alloc::sync::Arc<[Vec<WriterLink>]>;
-type WriterSource = (PyObjectRef, Vec<WriterKey>);
+type WriterSource = (PyObjectRef, WriterOrigin);
+
+#[derive(Clone, Debug)]
+enum WriterOrigin {
+    Native,
+    Public(Vec<WriterKey>),
+    Private { slot: String, owner: usize },
+}
 
 #[derive(Debug)]
 struct WriterLink {
     source: PyRef<crate::object::PyWeak>,
-    // Empty for a native base/cast link; otherwise a path in parent's _objects.
-    keys: Vec<WriterKey>,
+    origin: WriterOrigin,
 }
 
 // Index direct retention entries, including duplicate values, without retaining
@@ -1607,13 +1748,39 @@ impl PyCData {
         let Some(source) = link.source.upgrade() else {
             return Ok(None);
         };
-        if link.keys.is_empty() {
-            return Ok(Self::retains_writer_source(parent, &source, vm)?.then_some(source));
-        }
+        let keys = match &link.origin {
+            WriterOrigin::Native => {
+                return Ok(Self::retains_writer_source(parent, &source, vm)?.then_some(source));
+            }
+            WriterOrigin::Private { slot, owner } => {
+                let retained = parent.downcast_ref::<Self>().and_then(|cdata| {
+                    let refs = cdata.kept_refs.read();
+                    let refs = refs.as_ref()?;
+                    refs.slots.get(slot)?.contains(owner).then(|| {
+                        refs.owners
+                            .get(owner)
+                            .expect("registered private owner")
+                            .0
+                            .clone()
+                    })
+                });
+                let valid = retained.is_some_and(|retained| {
+                    retained.is(&source)
+                        || retained
+                            .downcast_ref::<super::_ctypes::CArgObject>()
+                            .is_some_and(|arg| {
+                                arg.obj.is(&source)
+                                    || arg.keep.as_ref().is_some_and(|keep| keep.is(&source))
+                            })
+                });
+                return Ok(valid.then_some(source));
+            }
+            WriterOrigin::Public(keys) => keys,
+        };
         let mut value = parent
             .downcast_ref::<Self>()
             .and_then(|cdata| cdata.objects.read().clone());
-        for key in &link.keys {
+        for key in keys {
             let Some(current) = value.as_ref() else {
                 return Ok(None);
             };
@@ -1641,7 +1808,7 @@ impl PyCData {
         cdata: &Self,
         key: &str,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<WriterSource>> {
+    ) -> PyResult<Vec<(PyObjectRef, Vec<WriterKey>)>> {
         let mut pending: Vec<_> = cdata
             .objects
             .read()
@@ -1682,6 +1849,55 @@ impl PyCData {
             }
         }
         Ok(entries)
+    }
+
+    // Copying an aggregate flattens its private owners into the aggregate's
+    // slot. Follow suffixes as for public metadata, but cache the exact member
+    // of that slot: the same owner can also survive in an unrelated field.
+    fn private_writer_sources(cdata: &Self, key: &str) -> Vec<WriterSource> {
+        let retained = {
+            let refs = cdata.kept_refs.read();
+            let Some(refs) = refs.as_ref() else {
+                return Vec::new();
+            };
+            core::iter::once(0)
+                .chain(key.match_indices(':').map(|(index, _)| index + 1))
+                .flat_map(|split| {
+                    let slot = &key[split..];
+                    refs.slots.get(slot).into_iter().flatten().map(move |id| {
+                        (
+                            slot.to_owned(),
+                            refs.owners
+                                .get(id)
+                                .expect("registered private owner")
+                                .0
+                                .clone(),
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut sources = Vec::new();
+        for (slot, owner) in retained {
+            let origin = WriterOrigin::Private {
+                slot,
+                owner: owner.get_id(),
+            };
+            if let Some(arg) = owner.downcast_ref::<super::_ctypes::CArgObject>() {
+                for source in core::iter::once(&arg.obj).chain(arg.keep.iter()) {
+                    if source.downcast_ref::<Self>().is_some()
+                        || source.downcast_ref::<PyMemoryView>().is_some()
+                    {
+                        sources.push((source.clone(), origin.clone()));
+                    }
+                }
+            } else if owner.downcast_ref::<Self>().is_some()
+                || owner.downcast_ref::<PyMemoryView>().is_some()
+            {
+                sources.push((owner, origin));
+            }
+        }
+        sources
     }
 
     // A byref cast has separate metadata, unlike cast(array), which shares
@@ -1790,7 +2006,7 @@ impl PyCData {
                     if value.downcast_ref::<Self>().is_some()
                         || value.downcast_ref::<PyMemoryView>().is_some()
                     {
-                        children.push((value, keys));
+                        children.push((value, WriterOrigin::Public(keys)));
                     } else {
                         containers.push((value, keys));
                     }
@@ -1846,7 +2062,7 @@ impl PyCData {
                             || value.downcast_ref::<PyMemoryView>().is_some()
                         {
                             if native_source {
-                                children.push((value, keys));
+                                children.push((value, WriterOrigin::Public(keys)));
                             }
                         } else if value.downcast_ref::<PyDict>().is_some()
                             || value.downcast_ref::<PyTuple>().is_some()
@@ -1867,18 +2083,21 @@ impl PyCData {
                         .read()
                         .as_ref()
                         .and_then(|refs| refs.buffer_alias.as_ref())
-                        .map(|alias| (alias.source.clone(), Vec::new())),
+                        .map(|alias| (alias.source.clone(), WriterOrigin::Native)),
                 );
-                children.extend(base.map(|base| (base, Vec::new())));
+                if let Some(key) = source_key {
+                    children.extend(Self::private_writer_sources(cdata, key));
+                }
+                children.extend(base.map(|base| (base, WriterOrigin::Native)));
                 if let Some(arg) = cast {
-                    children.push((arg.obj.clone(), Vec::new()));
+                    children.push((arg.obj.clone(), WriterOrigin::Native));
                 }
             } else if obj.downcast_ref::<PyMemoryView>().is_some() {
-                children.push((buffer_owner(&obj).to_owned(), Vec::new()));
+                children.push((buffer_owner(&obj).to_owned(), WriterOrigin::Native));
             }
-            for (child, keys) in children {
+            for (child, origin) in children {
                 let mut path = path.clone();
-                path.push((child.clone(), keys));
+                path.push((child.clone(), origin));
                 pending.push((child, path));
             }
         }
@@ -1889,6 +2108,84 @@ impl PyCData {
     // Weak links preserve the pointer's ownership lifetime; a normal write to
     // the storage cannot leave a hidden strong reference to an obsolete value.
     pub(super) fn register_pyobject_writer(
+        pointer: &PyObject,
+        address: usize,
+        size: usize,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<CDataWrite> {
+        let storage = Self::find_writer_storage(pointer, address, size, vm)?;
+        Ok(CDataWrite::new(storage, || {
+            let root = Self::find_root_object(pointer);
+            let slot = if root.is(pointer) {
+                WriteSlot::Root(index)
+            } else {
+                WriteSlot::View(pointer.downcast_ref::<Self>().unwrap().unique_key(index))
+            };
+            WriteRange {
+                root,
+                slot,
+                address,
+                size,
+            }
+        }))
+    }
+
+    fn index_write(
+        root: &PyObject,
+        slot: &WriteSlot,
+        address: usize,
+        size: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if size == 0 {
+            return Ok(());
+        }
+        let cdata = root.downcast_ref::<Self>().expect("ctypes retention root");
+        let current = cdata.kept_refs.read().as_ref().is_some_and(|refs| {
+            refs.writes.get(slot).is_some_and(|registration| {
+                registration.record.address == address
+                    && registration.record.size == size
+                    && !registration.record.writer.is_dead()
+            })
+        });
+        if current {
+            return Ok(());
+        }
+        // Allocate before locking. An entry is a hint, never permission to
+        // dereference native memory: readers still find a current owned object.
+        let record = alloc::sync::Arc::new(BufferWrite {
+            writer: root.downgrade(None, vm)?,
+            address,
+            size,
+        });
+        let registry = vm.state.ctypes_buffer_views.clone();
+        // The Arc allocation stays unique while either the token or its Weak
+        // is alive, so dropping an old token cannot remove a replacement.
+        let key = RangeKey::new(address, size, alloc::sync::Arc::as_ptr(&record) as usize);
+        let old = registry
+            .writes
+            .write()
+            .insert(key, size, alloc::sync::Arc::downgrade(&record));
+        debug_assert!(old.is_none());
+        let registration = WriteRegistration {
+            registry,
+            key,
+            record,
+        };
+        let old = cdata
+            .kept_refs
+            .write()
+            .get_or_insert_with(Default::default)
+            .writes
+            .insert(slot.clone(), registration);
+        // A slot owns at most its latest range; retargeting cannot accumulate
+        // unbounded history. The full provenance fallback preserves older aliases.
+        drop(old);
+        Ok(())
+    }
+
+    fn find_writer_storage(
         pointer: &PyObject,
         address: usize,
         size: usize,
@@ -1956,16 +2253,14 @@ impl PyCData {
                     valid = false;
                     break;
                 };
-                let Some(root) = Self::overlapping_storage_root(&source, address, size) else {
-                    Self::register_buffer_writer(&source, pointer, vm)?;
+                let Some(root) = Self::register_writer_source(&source, pointer, address, size, vm)?
+                else {
                     continue;
                 };
                 // Resurrection may have cleared the registry's weakref even
                 // though the cached source path still exists.
                 if direct.as_ref().is_some_and(|direct| direct.is(&root)) {
                     direct_covered = true;
-                } else {
-                    Self::register_writer(&root, pointer, vm)?;
                 }
                 target = Some(root);
             }
@@ -1978,12 +2273,8 @@ impl PyCData {
             let mut cache = Vec::new();
             let mut target = None;
             for (root, path) in targets {
-                let overlaps = root
-                    .downcast_ref::<Self>()
-                    .is_some_and(|root| root.overlaps_storage(address, size));
-                if !overlaps {
-                    Self::register_buffer_writer(&root, pointer, vm)?;
-                }
+                let destination = Self::register_writer_source(&root, pointer, address, size, vm)?;
+                let overlaps = destination.is_some();
                 // A field needs only paths to its own destination. Retargeting
                 // invalidates these by identity/range and rediscovers the path;
                 // retaining every sibling here would create N caches of N paths.
@@ -1991,15 +2282,14 @@ impl PyCData {
                     continue;
                 }
                 if overlaps {
-                    Self::register_writer(&root, pointer, vm)?;
-                    target = Some(root);
+                    target = destination;
                 }
                 cache.push(
                     path.iter()
-                        .map(|(obj, keys)| {
+                        .map(|(obj, origin)| {
                             Ok(WriterLink {
                                 source: obj.downgrade(None, vm)?,
-                                keys: keys.clone(),
+                                origin: origin.clone(),
                             })
                         })
                         .collect::<PyResult<Vec<_>>>()?,
@@ -2028,16 +2318,13 @@ impl PyCData {
             if !visited.insert(obj.get_id()) {
                 continue;
             }
-            if let Some(root) = Self::overlapping_storage_root(&obj, address, size) {
-                Self::register_writer(&root, pointer, vm)?;
+            if let Some(root) = Self::register_writer_source(&obj, pointer, address, size, vm)? {
                 let storage = root.downcast_ref::<Self>().unwrap();
                 let owned = !storage.is_borrowed() && storage.contains_storage(address, size);
                 target = Some(root);
                 if owned {
                     continue;
                 }
-            } else {
-                Self::register_buffer_writer(&obj, pointer, vm)?;
             }
             Self::provenance_children(&obj, &mut pending);
         }
@@ -2047,24 +2334,28 @@ impl PyCData {
     // A byref cast has separate ownership metadata and can write outside its
     // source view while remaining inside the shared exporter. Let other aliases
     // reach that writer through the source, including readers created later.
-    // This provenance link does not select or pin the write's destination.
-    fn register_buffer_writer(
+    // Only an overlapping source can also pin the write's destination.
+    fn register_writer_source(
         source: &PyObject,
         pointer: &PyObject,
+        address: usize,
+        size: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    ) -> PyResult<Option<PyObjectRef>> {
         let root = Self::find_root_object(source);
-        let registered = root.downcast_ref::<Self>().is_some_and(|storage| {
-            storage
-                .kept_refs
-                .read()
-                .as_ref()
-                .is_some_and(|refs| refs.buffer_alias.is_some())
-        });
-        if registered {
+        let Some(storage) = root.downcast_ref::<Self>() else {
+            return Ok(None);
+        };
+        let overlaps = storage.overlaps_storage(address, size);
+        let borrowed = storage
+            .kept_refs
+            .read()
+            .as_ref()
+            .is_some_and(|refs| refs.buffer_alias.is_some());
+        if overlaps || borrowed {
             Self::register_writer(&root, pointer, vm)?;
         }
-        Ok(())
+        Ok(overlaps.then_some(root))
     }
 
     fn register_contents_writer(
@@ -2280,20 +2571,27 @@ impl PyCData {
 
     pub(super) fn register_pyobject_view(
         &self,
+        index: usize,
         offset: usize,
         size: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
+    ) -> PyResult<CDataWrite> {
         let base = self.base.read().clone();
         if let Some(base) = base {
             let root = Self::find_root_object(&base);
             let address = self.buffer.read().as_ptr().wrapping_add(offset) as usize;
-            if let Some(storage) = Self::register_storage_writer(&root, address, size, vm)? {
-                return Ok(Some(storage));
-            }
-            return Self::register_pyobject_writer(&root, address, size, vm);
+            let storage = match Self::register_storage_writer(&root, address, size, vm)? {
+                Some(storage) => Some(storage),
+                None => Self::find_writer_storage(&root, address, size, vm)?,
+            };
+            return Ok(CDataWrite::new(storage, || WriteRange {
+                root,
+                slot: WriteSlot::View(self.unique_key(index)),
+                address,
+                size,
+            }));
         }
-        Ok(None)
+        Ok(CDataWrite::default())
     }
 
     fn update_object_index(
@@ -2484,6 +2782,10 @@ impl PyCData {
             pending.extend(refs.snapshot());
             pending.extend(refs.buffer_alias.as_ref().map(|alias| alias.source.clone()));
         }
+        // Written ranges are hints to live retention roots, including writes
+        // outside a source view and copies whose original exporter view died.
+        // Only current Python owners with the matching identity can be returned.
+        pending.extend(vm.state.ctypes_buffer_views.writers(slot));
         let mut visited = std::collections::HashSet::new();
         let mut exporters = std::collections::HashSet::new();
         let mut deferred_exporters: Vec<PyObjectRef> = Vec::new();
@@ -2568,16 +2870,17 @@ impl PyCData {
         let proto_type = proto
             .downcast_ref::<PyType>()
             .ok_or_else(|| vm.new_type_error("field proto is not a type"))?;
-        let _storage = if proto_type
+        let write = if proto_type
             .stg_info(vm)?
             .flags
             .intersects(StgInfoFlags::TYPEFLAG_ISPOINTER | StgInfoFlags::TYPEFLAG_HASPOINTER)
         {
-            self.register_pyobject_view(offset, size, vm)?
+            self.register_pyobject_view(index, offset, size, vm)?
         } else {
-            None
+            CDataWrite::default()
         };
         let prepared = CDataValue::new(proto_type, &value, size, needs_swap, vm)?;
+        write.publish(vm)?;
         self.write_bytes_at_offset(offset, &prepared.bytes);
         prepared.keep(self, index, vm)
     }
@@ -2755,7 +3058,7 @@ impl Py<PyCData> {
             let buffer = cdata.buffer.read();
             (buffer.as_ptr() as usize, buffer.len())
         };
-        let span = size.checked_next_power_of_two().unwrap_or(usize::MAX);
+        let key = RangeKey::new(address, size, cdata.get_id());
         {
             let mut refs = cdata.kept_refs.write();
             let refs = refs.get_or_insert_with(Default::default);
@@ -2764,9 +3067,7 @@ impl Py<PyCData> {
             refs.buffer_alias = Some(BufferAlias {
                 registry: vm.state.ctypes_buffer_views.clone(),
                 exporter: exporter_id,
-                view: cdata.get_id(),
-                start: address,
-                span,
+                key,
                 source,
             });
         }
@@ -2777,21 +3078,12 @@ impl Py<PyCData> {
             .write()
             .entry(exporter_id)
             .or_default()
-            .ranges
-            .entry(span)
-            .or_default()
-            .insert(
-                (address, cdata.get_id()),
-                BufferView {
-                    end: address.saturating_add(size),
-                    weak,
-                },
-            );
+            .insert(key, size, weak);
         drop(old);
         // A native CData exporter must also see direct scalar assignments;
         // those replace the view's _objects without going through a pointer.
         if PyCData::register_storage_writer(cdata.as_object(), address, size, vm)?.is_none() {
-            PyCData::register_pyobject_writer(cdata.as_object(), address, size, vm)?;
+            PyCData::find_writer_storage(cdata.as_object(), address, size, vm)?;
         }
         Ok(cdata.into())
     }

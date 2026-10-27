@@ -1186,3 +1186,39 @@ _pointer[1] = object()
 del _reader
 _reader = ctypes.py_object.from_buffer(_storage, ctypes.sizeof(ctypes.py_object))
 assert _reader.value is _pointer[1]
+
+
+# A copied pointer outlives its original buffer view. Reentrant conversion
+# must publish the outer write's range even when it redirects the pointer.
+class ReentrantObjectCell(ctypes.Structure):
+    _fields_ = [("number", ctypes.c_int), ("value", ctypes.py_object)]
+
+
+class ReentrantObjectHolder(ctypes.Structure):
+    _fields_ = [("pointer", ctypes.POINTER(ReentrantObjectCell))]
+
+
+_pointer_size = ctypes.sizeof(ctypes.c_void_p)
+_cell_size = ctypes.sizeof(ReentrantObjectCell)
+_storage = bytearray(_pointer_size + 2 * _cell_size)
+_source = ctypes.POINTER(ReentrantObjectCell).from_buffer(_storage)
+_address = ctypes.addressof(_source) + _pointer_size
+ctypes.memmove(
+    ctypes.addressof(_source), ctypes.byref(ctypes.c_void_p(_address)), _pointer_size
+)
+_holder = ReentrantObjectHolder(_source)
+del _source
+_redirected = ReentrantObjectCell.from_address(_address + _cell_size)
+_outer_value, _inner_value = object(), object()
+
+
+class RedirectObjectWrite:
+    def __index__(self):
+        _holder.pointer.contents = _redirected
+        _holder.pointer[0] = ReentrantObjectCell(3, _inner_value)
+        return 7
+
+
+_holder.pointer[0] = (RedirectObjectWrite(), _outer_value)
+assert ReentrantObjectCell.from_buffer(_storage, _pointer_size).value is _outer_value
+assert ReentrantObjectCell.from_buffer(_storage, _pointer_size).number == 7

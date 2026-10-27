@@ -1310,11 +1310,11 @@ impl Py<PyCSimple> {
             return Ok(());
         }
 
-        let _storage = if type_code == "O" {
+        let write = if type_code == "O" {
             let size = zelf.0.buffer.read().len();
-            zelf.0.register_pyobject_view(0, size, vm)?
+            zelf.0.register_pyobject_view(0, 0, size, vm)?
         } else {
-            None
+            super::base::CDataWrite::default()
         };
 
         let content = set_primitive(&type_code, &value, vm)?;
@@ -1324,6 +1324,7 @@ impl Py<PyCSimple> {
 
         // Update buffer when value changes
         let buffer_bytes = value_to_bytes_endian(&type_code, &content, swapped, vm);
+        write.publish(vm)?;
 
         // If the buffer is borrowed (from shared memory), write in-place
         // Otherwise replace with new owned buffer
