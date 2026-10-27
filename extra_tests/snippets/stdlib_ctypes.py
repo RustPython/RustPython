@@ -1222,3 +1222,22 @@ class RedirectObjectWrite:
 _holder.pointer[0] = (RedirectObjectWrite(), _outer_value)
 assert ReentrantObjectCell.from_buffer(_storage, _pointer_size).value is _outer_value
 assert ReentrantObjectCell.from_buffer(_storage, _pointer_size).number == 7
+
+
+# Retargeting must not hide old addresses while the writer still owns the value.
+_object = object()
+_original = ctypes.py_object()
+_redirected = ctypes.py_object()
+_pointer = ctypes.cast(
+    ctypes.c_void_p(ctypes.addressof(_original)), ctypes.POINTER(ctypes.py_object)
+)
+_pointer[0] = _object
+_pointer.contents = ctypes.py_object.from_address(ctypes.addressof(_redirected))
+for _value in (
+    None,
+    _object,
+    ctypes.py_object.from_address(ctypes.addressof(_original)),
+):
+    _pointer[0] = _value
+    assert _original.value is _object
+    assert _redirected.value is (None if _value is None else _object)

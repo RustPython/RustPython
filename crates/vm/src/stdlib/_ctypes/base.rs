@@ -827,8 +827,8 @@ impl BufferViewRegistry {
         owners
     }
 
-    fn writers(&self, slot: usize) -> Vec<PyObjectRef> {
-        let records = self.writes.read().matching(Some(slot));
+    fn writers(&self, slot: Option<usize>) -> Vec<PyObjectRef> {
+        let records = self.writes.read().matching(slot);
         // Upgrade and release Python references outside the range-index lock.
         records
             .into_iter()
@@ -2785,19 +2785,28 @@ impl PyCData {
         // Written ranges are hints to live retention roots, including writes
         // outside a source view and copies whose original exporter view died.
         // Only current Python owners with the matching identity can be returned.
-        pending.extend(vm.state.ctypes_buffer_views.writers(slot));
+        pending.extend(vm.state.ctypes_buffer_views.writers(Some(slot)));
         let mut visited = std::collections::HashSet::new();
         let mut exporters = std::collections::HashSet::new();
         let mut deferred_exporters: Vec<PyObjectRef> = Vec::new();
+        let mut searched_writers = false;
         loop {
             let Some(obj) = pending.pop() else {
-                let Some(exporter) = deferred_exporters.pop() else {
+                if let Some(exporter) = deferred_exporters.pop() {
+                    // A cast can write beyond its source view's declared extent.
+                    // Preserve the full provenance search only after indexed paths
+                    // miss; ordinary disjoint views never scan all sibling aliases.
+                    pending.extend(vm.state.ctypes_buffer_views.owners(&exporter, None));
+                } else if !searched_writers {
+                    // Retargeting replaces a slot's range hint, but KeepRef(None)
+                    // or another retention entry can keep its old value alive.
+                    // Search current owners on a miss instead of storing every
+                    // historical address. No native address becomes a reference.
+                    searched_writers = true;
+                    pending.extend(vm.state.ctypes_buffer_views.writers(None));
+                } else {
                     break;
-                };
-                // A cast can write beyond its source view's declared extent.
-                // Preserve the full provenance search only after indexed paths
-                // miss; ordinary disjoint views never scan all sibling aliases.
-                pending.extend(vm.state.ctypes_buffer_views.owners(&exporter, None));
+                }
                 continue;
             };
             if obj.get_id() == address {
