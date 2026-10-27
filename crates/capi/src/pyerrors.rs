@@ -2,7 +2,7 @@ use crate::object::define_py_check;
 use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
-use core::ffi::{c_char, c_int};
+use core::ffi::{VaList, c_char, c_int};
 use core::slice;
 use rustpython_vm::builtins::{PyBaseException, PyTraceback, PyTuple, PyType};
 use rustpython_vm::exceptions::ExceptionZoo;
@@ -379,6 +379,45 @@ pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut P
         exc.set_traceback(traceback);
         Ok(())
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyOS_snprintf(
+    str: *mut c_char,
+    size: usize,
+    format: *const c_char,
+    args: ...
+) -> c_int {
+    unsafe { PyOS_vsnprintf(str, size, format, args) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyOS_vsnprintf(
+    str: *mut c_char,
+    size: usize,
+    format: *const c_char,
+    args: VaList<'_>,
+) -> c_int {
+    unsafe extern "C" {
+        fn vsnprintf(
+            str: *mut c_char,
+            size: usize,
+            format: *const c_char,
+            args: VaList<'_>,
+        ) -> c_int;
+    }
+
+    let len = if size > (c_int::MAX as usize - 1) {
+        -666
+    } else {
+        unsafe { vsnprintf(str, size, format, args) }
+    };
+
+    if size > 0 && !str.is_null() {
+        unsafe { *str.add(size - 1) = 0 };
+    }
+
+    len
 }
 
 #[cfg(test)]
