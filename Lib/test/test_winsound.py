@@ -100,7 +100,6 @@ class MessageBeepTest(unittest.TestCase):
 
 class PlaySoundTest(unittest.TestCase):
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'str'")
     def test_errors(self):
         self.assertRaises(TypeError, winsound.PlaySound)
         self.assertRaises(TypeError, winsound.PlaySound, "bad", "bad")

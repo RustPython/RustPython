@@ -230,12 +230,14 @@ fn lookup_property_diff<T: Copy>(
 /// library (`unicodedata.unidata_version`).
 #[must_use]
 pub fn unicode_version() -> String {
-    format!(
-        "{}.{}.{}",
-        char::UNICODE_VERSION.0,
-        char::UNICODE_VERSION.1,
-        char::UNICODE_VERSION.2
-    )
+    // Report the vendored database version, not the compiler's Unicode version.
+    include_str!("../unicode/latest/NameAliases.txt")
+        .lines()
+        .next()
+        .and_then(|header| header.strip_prefix("# NameAliases-"))
+        .and_then(|header| header.strip_suffix(".txt"))
+        .expect("vendored NameAliases.txt must start with its Unicode version")
+        .into()
 }
 
 /// Look up a name in the latest UCD (`unicodedata.lookup`).
@@ -533,6 +535,12 @@ mod tests {
 
     fn cp(ch: char) -> CodePoint {
         CodePoint::from(ch)
+    }
+
+    #[test]
+    fn version_matches_vendored_database() {
+        assert_eq!(super::unicode_version(), "17.0.0");
+        assert_eq!(Ucd::new(true).unidata_version(), "17.0.0");
     }
 
     #[test]
