@@ -954,18 +954,6 @@ pub struct Permissions {
     pub is_executable: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AccessError {
-    InvalidMode,
-    Os(i32),
-}
-
-impl From<std::io::Error> for AccessError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Os(value.raw_os_error().unwrap_or(0))
-    }
-}
-
 pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 fn get_permissions(mode: u32) -> Permissions {
@@ -1031,7 +1019,14 @@ pub fn getgroups() -> std::io::Result<Vec<u32>> {
     Err(std::io::Error::from_raw_os_error(libc::EOPNOTSUPP))
 }
 
-pub fn check_access(path: &Path, mode: u8) -> Result<bool, AccessError> {
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
+pub fn check_access(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: &Path,
+    mode: u8,
+    effective_ids: bool,
+    follow_symlinks: bool,
+) -> Result<bool, AccessError> {
     use std::os::unix::fs::MetadataExt;
 
     let Some(mode) = AccessMode::from_bits(mode) else {

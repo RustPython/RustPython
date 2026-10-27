@@ -1460,7 +1460,6 @@ class PyZipFileTests(unittest.TestCase):
             self.skipTest('requires write access to the installed location')
         unlink(filename)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_pyfile(self):
         self.requiresWriteAccess(os.path.dirname(__file__))
         with TemporaryFile() as t, zipfile.PyZipFile(t, "w") as zipfp:
@@ -1491,7 +1490,6 @@ class PyZipFileTests(unittest.TestCase):
             self.assertNotIn(bn, zipfp.namelist())
             self.assertCompiledIn(bn, zipfp.namelist())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_python_package(self):
         import email
         packagedir = os.path.dirname(email.__file__)
@@ -1506,7 +1504,6 @@ class PyZipFileTests(unittest.TestCase):
             self.assertCompiledIn('email/__init__.py', names)
             self.assertCompiledIn('email/mime/text.py', names)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AttributeError: module 'os' has no attribute 'supports_effective_ids'
     def test_write_filtered_python_package(self):
         import test
         packagedir = os.path.dirname(test.__file__)
@@ -1537,7 +1534,6 @@ class PyZipFileTests(unittest.TestCase):
                 print(reportStr)
             self.assertTrue('SyntaxError' not in reportStr)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_with_optimization(self):
         import email
         packagedir = os.path.dirname(email.__file__)
