@@ -500,53 +500,127 @@ unsafe impl Traverse for PyCData {
     }
 }
 
-#[derive(Debug, Default)]
-struct PrivateRefs {
-    slots: std::collections::HashMap<String, Vec<usize>, rapidhash::quality::RandomState>,
-    owners: std::collections::HashMap<usize, (PyObjectRef, usize), rapidhash::quality::RandomState>,
+#[derive(Debug, Clone)]
+enum HiddenRefs {
+    Single(PyObjectRef),
+    Snapshot(crate::builtins::PyTupleRef),
 }
 
-// SAFETY: the owner map stores one strong reference per identity; slots hold IDs.
-unsafe impl Traverse for PrivateRefs {
-    #[expect(clippy::iter_over_hash_type, reason = "GC edge order is irrelevant")]
-    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
-        for (owner, _) in self.owners.values() {
-            owner.traverse(tracer);
+impl HiddenRefs {
+    fn id(&self) -> usize {
+        match self {
+            Self::Single(obj) => obj.get_id(),
+            Self::Snapshot(tuple) => tuple.get_id(),
         }
     }
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        self.slots.clear();
-        out.extend(self.owners.drain().map(|(_, (owner, _))| owner));
+
+    fn owners(&self) -> &[PyObjectRef] {
+        match self {
+            Self::Single(obj) => core::slice::from_ref(obj),
+            Self::Snapshot(tuple) => tuple.as_slice(),
+        }
     }
+
+    fn into_object(self) -> PyObjectRef {
+        match self {
+            Self::Single(obj) => obj,
+            Self::Snapshot(tuple) => tuple.into(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct PrivateRefs {
+    slots: std::collections::HashMap<String, usize, rapidhash::quality::RandomState>,
+    groups: std::collections::HashMap<usize, (HiddenRefs, usize), rapidhash::quality::RandomState>,
+    owners: std::collections::HashMap<usize, (PyObjectRef, usize), rapidhash::quality::RandomState>,
+    snapshot: Option<crate::builtins::PyTupleRef>,
 }
 
 impl PrivateRefs {
-    fn replace(&mut self, key: String, owners: Vec<PyObjectRef>) -> Vec<PyObjectRef> {
-        let old = if owners.is_empty() {
-            self.slots.remove(&key)
+    fn replace(&mut self, key: String, incoming: Option<HiddenRefs>) -> Vec<PyObjectRef> {
+        let old = if let Some(group) = &incoming {
+            self.slots.insert(key, group.id())
         } else {
-            self.slots
-                .insert(key, owners.iter().map(|obj| obj.get_id()).collect())
+            self.slots.remove(&key)
         };
-        // Count each slot's references, but retain each Python owner only once.
-        // Add first so replacing an owner with itself cannot release it.
-        for obj in owners {
-            self.owners.entry(obj.get_id()).or_insert((obj, 0)).1 += 1;
-        }
         let mut displaced = Vec::new();
-        for id in old.into_iter().flatten() {
-            let owner = self.owners.get_mut(&id).expect("registered private owner");
-            owner.1 -= 1;
-            if owner.1 == 0 {
-                displaced.push(self.owners.remove(&id).unwrap().0);
+        let mut changed = false;
+        if let Some(group) = incoming {
+            let id = group.id();
+            if let Some((_, count)) = self.groups.get_mut(&id) {
+                *count += 1;
+                displaced.push(group.into_object());
+            } else {
+                for obj in group.owners() {
+                    match self.owners.entry(obj.get_id()) {
+                        std::collections::hash_map::Entry::Occupied(mut entry) => {
+                            entry.get_mut().1 += 1
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            entry.insert((obj.clone(), 1));
+                            changed = true;
+                        }
+                    }
+                }
+                self.groups.insert(id, (group, 1));
             }
         }
-        // The caller releases these after unlocking and publishing _objects.
+        // Membership is counted per distinct group, not per destination slot.
+        // Publish incoming owners before removing old ones, including self-copy.
+        if let Some(id) = old {
+            let (_, count) = self.groups.get_mut(&id).expect("registered private group");
+            *count -= 1;
+            if *count == 0 {
+                let (group, _) = self.groups.remove(&id).unwrap();
+                for obj in group.owners() {
+                    let id = obj.get_id();
+                    let (_, count) = self.owners.get_mut(&id).expect("registered private owner");
+                    *count -= 1;
+                    if *count == 0 {
+                        displaced.push(self.owners.remove(&id).unwrap().0);
+                        changed = true;
+                    }
+                }
+                displaced.push(group.into_object());
+            }
+        }
+        if changed {
+            displaced.extend(self.snapshot.take().map(Into::into));
+        }
         displaced
     }
 
     fn snapshot(&self) -> Vec<PyObjectRef> {
         self.owners.values().map(|(obj, _)| obj.clone()).collect()
+    }
+}
+
+// SAFETY: visit each stored strong reference once. Shared snapshot elements
+// belong to the Python tuple and are traced by that tuple, not by each slot.
+unsafe impl Traverse for PrivateRefs {
+    #[expect(clippy::iter_over_hash_type, reason = "GC edge order is irrelevant")]
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        for (obj, _) in self.owners.values() {
+            obj.traverse(tracer);
+        }
+        for (group, _) in self.groups.values() {
+            match group {
+                HiddenRefs::Single(obj) => obj.traverse(tracer),
+                HiddenRefs::Snapshot(tuple) => tuple.traverse(tracer),
+            }
+        }
+        self.snapshot.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.slots.clear();
+        out.extend(self.owners.drain().map(|(_, (obj, _))| obj));
+        out.extend(
+            self.groups
+                .drain()
+                .map(|(_, (group, _))| group.into_object()),
+        );
+        out.extend(self.snapshot.take().map(Into::into));
     }
 }
 
@@ -607,7 +681,7 @@ impl core::ops::Deref for CDataBytes {
 pub(super) struct CDataValue {
     pub bytes: CDataBytes,
     keep: Option<PyObjectRef>,
-    hidden: Vec<PyObjectRef>,
+    hidden: Option<HiddenRefs>,
     temporary: Option<PyObjectRef>,
 }
 
@@ -624,7 +698,7 @@ impl CDataValue {
                 // Snapshot before writing: source and destination may overlap.
                 let bytes =
                     rustpython_host_env::ctypes::copy_to_sized_bytes(&source.buffer.read(), size);
-                let hidden = PyCData::hidden_refs(value);
+                let hidden = PyCData::hidden_refs(value, vm);
                 let keep = PyCData::get_kept_objects(value, vm);
                 return Ok(Self {
                     bytes: bytes.into(),
@@ -656,7 +730,7 @@ impl CDataValue {
                             .new_tuple(vec![PyCData::get_kept_objects(value, vm), value.to_owned()])
                             .into(),
                     ),
-                    hidden: Vec::new(),
+                    hidden: None,
                     temporary: None,
                 });
             }
@@ -682,7 +756,7 @@ impl CDataValue {
             return Ok(Self {
                 bytes,
                 keep,
-                hidden: hidden.into_iter().collect(),
+                hidden: hidden.map(HiddenRefs::Single),
                 temporary: None,
             });
         }
@@ -716,7 +790,7 @@ impl CDataValue {
             return Ok(Self {
                 bytes: vec![0; size].into(),
                 keep: None,
-                hidden: Vec::new(),
+                hidden: None,
                 temporary: None,
             });
         }
@@ -739,7 +813,7 @@ impl CDataValue {
         let _temporary = self.temporary;
         // Like KeepRef(None), preserve previous owners when assigning a raw
         // address: it can still point into their private backing allocation.
-        if self.keep.is_none() && self.hidden.is_empty() {
+        if self.keep.is_none() && self.hidden.is_none() {
             return Ok(());
         }
         // Publish every owner before dropping the displaced value, whose
@@ -1097,10 +1171,10 @@ impl PyCData {
     /// Keep a reference alive without exposing it in _objects.
     /// Retains a backing allocation used by a scalar's pointer.
     pub fn keep_alive(&self, obj: PyObjectRef) {
-        drop(self.replace_hidden(0, vec![obj]));
+        drop(self.replace_hidden(0, Some(HiddenRefs::Single(obj))));
     }
 
-    fn replace_hidden(&self, index: usize, owners: Vec<PyObjectRef>) -> Vec<PyObjectRef> {
+    fn replace_hidden(&self, index: usize, owners: Option<HiddenRefs>) -> Vec<PyObjectRef> {
         let key = self.unique_key(index);
         let base = self.base.read().clone();
         let root = base.as_ref().map(|base| Self::find_root_object(base));
@@ -1109,7 +1183,7 @@ impl PyCData {
             .and_then(|root| root.downcast_ref::<Self>())
             .map_or(self, |cdata| cdata);
         let mut refs = cdata.kept_refs.write();
-        if refs.is_none() && owners.is_empty() {
+        if refs.is_none() && owners.is_none() {
             return Vec::new();
         }
         refs.get_or_insert_with(Default::default)
@@ -1194,13 +1268,35 @@ impl PyCData {
 
     // Copying a view must retain its root's references, including private
     // backing allocations and aliases through other fields or pointers.
-    // Keep the snapshot flat and deduplicate owners: self-copy must not nest
-    // a new holder around all previous snapshots.
-    fn hidden_refs(value: &PyObject) -> Vec<PyObjectRef> {
+    // Share a flat snapshot while the root's owner set is unchanged, including
+    // when copying between views of that root. Slots only retain group IDs.
+    fn hidden_refs(value: &PyObject, vm: &VirtualMachine) -> Option<HiddenRefs> {
         let root = Self::find_root_object(value);
-        root.downcast_ref::<Self>()
-            .and_then(|cdata| cdata.kept_refs.read().as_ref().map(|refs| refs.snapshot()))
-            .unwrap_or_default()
+        let cdata = root.downcast_ref::<Self>()?;
+        let mut refs = cdata.kept_refs.write();
+        let refs = refs.as_mut()?;
+        match refs.owners.len() {
+            0 => None,
+            1 => Some(HiddenRefs::Single(
+                refs.owners.values().next().unwrap().0.clone(),
+            )),
+            _ => {
+                if refs.snapshot.is_none() {
+                    // Snapshot publication must not call finalizers: raw bytes
+                    // have already been copied, and owners must match those bytes.
+                    // The tuple participates in GC immediately; only collection
+                    // is left to the next ordinary allocation.
+                    refs.snapshot = Some(PyRef::new_ref_without_collection(
+                        PyTuple::new_unchecked(refs.snapshot().into_boxed_slice()),
+                        vm.ctx.types.tuple_type.to_owned(),
+                        None,
+                    ));
+                }
+                Some(HiddenRefs::Snapshot(
+                    refs.snapshot.as_ref().unwrap().clone(),
+                ))
+            }
+        }
     }
 
     // A scalar owns one reference; a scalar view stores it in its root instead.
@@ -1210,7 +1306,7 @@ impl PyCData {
         hidden: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let _old_hidden = self.replace_hidden(0, hidden.into_iter().collect());
+        let _old_hidden = self.replace_hidden(0, hidden.map(HiddenRefs::Single));
         if self.base.read().is_some() {
             self.keep_ref(0, value, vm)
         } else {
