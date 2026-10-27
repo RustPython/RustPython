@@ -442,7 +442,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn zero_sized_class() {
         #[pyclass(frozen)]
         struct MyEmptyClass {}
@@ -501,7 +500,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn subclass_with_property() {
         #[pyclass(frozen, extends=PyList)]
         struct MyList {}
