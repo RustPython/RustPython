@@ -743,6 +743,13 @@ pub(super) fn cast_impl(
         }
     }
 
+    if obj.downcast_ref::<CArgObject>().is_some()
+        && let Some(cdata) = result.downcast_ref::<PyCData>()
+    {
+        // Preserve provenance privately: byref casts have no public _objects.
+        cdata.keep_cast_owner(obj.to_owned());
+    }
+
     // 5. Store pointer value
     if let Some(ptr) = result.downcast_ref::<PyCPointer>() {
         ptr.set_ptr_value(ptr_value);

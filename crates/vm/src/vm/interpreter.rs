@@ -174,6 +174,17 @@ where
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
+        #[cfg(all(
+            feature = "host_env",
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "windows",
+                target_os = "android"
+            ),
+            not(any(target_env = "musl", target_env = "sgx"))
+        ))]
+        ctypes_buffer_views: Default::default(),
         functools_placeholder: Default::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]

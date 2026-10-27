@@ -1254,8 +1254,11 @@ impl Py<PyCSimple> {
 
         // O_get: py_object - read PyObject pointer from buffer
         if type_code == "O" {
-            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&zelf.0.buffer.read());
-            return zelf.0.object_at(ptr, None, vm);
+            let buffer = zelf.0.buffer.read();
+            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
+            let slot = buffer.as_ptr() as usize;
+            drop(buffer);
+            return zelf.0.object_at(ptr, slot, None, vm);
         }
 
         // Storage metadata belongs to this exact type, unlike inherited attributes.
@@ -1307,6 +1310,13 @@ impl Py<PyCSimple> {
             return Ok(());
         }
 
+        let write = if type_code == "O" {
+            let size = zelf.0.buffer.read().len();
+            zelf.0.register_pyobject_view(0, 0, size, vm)?
+        } else {
+            super::base::CDataWrite::default()
+        };
+
         let content = set_primitive(&type_code, &value, vm)?;
 
         // Storage metadata belongs to this exact type, unlike inherited attributes.
@@ -1314,6 +1324,7 @@ impl Py<PyCSimple> {
 
         // Update buffer when value changes
         let buffer_bytes = value_to_bytes_endian(&type_code, &content, swapped, vm);
+        write.publish(vm)?;
 
         // If the buffer is borrowed (from shared memory), write in-place
         // Otherwise replace with new owned buffer

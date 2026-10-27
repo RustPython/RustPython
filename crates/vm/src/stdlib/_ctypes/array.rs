@@ -1,5 +1,5 @@
-use super::StgInfo;
 use super::base::{CDATA_BUFFER_METHODS, PyCData};
+use super::{StgInfo, StgInfoFlags};
 use crate::common::lock::LazyLock;
 use crate::sliceable::SaturatedSliceIter;
 use crate::{
@@ -560,8 +560,9 @@ impl PyCArray {
             let address = rustpython_host_env::ctypes::read_pointer_from_buffer(
                 &buffer[offset..offset + element_size],
             );
+            let slot = buffer.as_ptr().wrapping_add(offset) as usize;
             drop(buffer);
-            return zelf.0.object_at(address, Some(index), vm);
+            return zelf.0.object_at(address, slot, Some(index), vm);
         }
         if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
             && super::simple::is_swapped(element_type)
@@ -620,6 +621,18 @@ impl PyCArray {
             return Err(vm.new_index_error("invalid index"));
         }
         let index = index as usize;
+        // A view's buffer already points to its element. Its base can be a
+        // pointer object, whose own buffer stores an address rather than data.
+        let write = if element_type
+            .stg_info(vm)?
+            .flags
+            .intersects(StgInfoFlags::TYPEFLAG_ISPOINTER | StgInfoFlags::TYPEFLAG_HASPOINTER)
+        {
+            zelf.0
+                .register_pyobject_view(index, index * element_size, element_size, vm)?
+        } else {
+            super::base::CDataWrite::default()
+        };
         let prepared = super::base::CDataValue::new(
             &element_type,
             value,
@@ -627,8 +640,7 @@ impl PyCArray {
             super::simple::is_swapped(&element_type),
             vm,
         )?;
-        // A view's buffer already points to its element. Its base can be a
-        // pointer object, whose own buffer stores an address rather than data.
+        write.publish(vm)?;
         zelf.0
             .write_bytes_at_offset(index * element_size, &prepared.bytes);
         prepared.keep(&zelf.0, index, vm)
