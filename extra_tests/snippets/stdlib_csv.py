@@ -639,3 +639,27 @@ def test_field_size_limit_types():
 
 
 test_field_size_limit_types()
+
+
+def test_non_ascii_dialect_chars():
+    for kwargs in (
+        {"delimiter": "€"},
+        {"quotechar": "€"},
+        {"escapechar": "€", "quoting": csv.QUOTE_NONE},
+    ):
+        out = io.StringIO()
+        csv.writer(out, **kwargs).writerow(["a€b", 'é"x', "plain"])
+        out.seek(0)
+        assert list(csv.reader(out, **kwargs)) == [["a€b", 'é"x', "plain"]]
+
+    assert csv.writer(io.StringIO(), delimiter="€").dialect.delimiter == "€"
+    assert list(csv.reader(['a€b€"c€d"'], delimiter="€")) == [["a", "b", "c€d"]]
+
+    for bad in ("", "€€"):
+        with assert_raises(TypeError):
+            csv.writer(io.StringIO(), delimiter=bad)
+    with assert_raises(ValueError):
+        csv.writer(io.StringIO(), delimiter="€", quotechar="€")
+
+
+test_non_ascii_dialect_chars()

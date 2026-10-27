@@ -73,13 +73,17 @@ mod _csv {
         )
     }
 
+    fn utf8_data<'a>(s: &'a PyStr, vm: &VirtualMachine) -> PyResult<&'a str> {
+        core::str::from_utf8(s.as_bytes()).map_err(|e| new_not_utf8_error(vm, s.as_bytes(), e))
+    }
+
     #[pyattr]
     #[pyclass(module = "_csv", name = "Dialect")]
     #[derive(Debug, PyPayload, Clone)]
     struct PyDialect {
-        delimiter: u8,
-        quotechar: Option<u8>,
-        escapechar: Option<u8>,
+        delimiter: char,
+        quotechar: Option<char>,
+        escapechar: Option<char>,
         doublequote: bool,
         skipinitialspace: bool,
         lineterminator: String,
@@ -99,12 +103,12 @@ mod _csv {
     impl PyDialect {
         #[pygetset]
         fn delimiter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
-            vm.ctx.new_str(format!("{}", zelf.delimiter as char))
+            vm.ctx.new_str(zelf.delimiter)
         }
 
         #[pygetset]
         fn quotechar(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
-            Some(vm.ctx.new_str(format!("{}", zelf.quotechar? as char)))
+            Some(vm.ctx.new_str(zelf.quotechar?))
         }
 
         #[pygetset]
@@ -129,7 +133,7 @@ mod _csv {
 
         #[pygetset]
         fn escapechar(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
-            Some(vm.ctx.new_str(format!("{}", zelf.escapechar? as char)))
+            Some(vm.ctx.new_str(zelf.escapechar?))
         }
 
         #[pygetset(name = "strict")]
@@ -143,7 +147,7 @@ mod _csv {
         obj: &PyObject,
         name: &str,
         allow_none: bool,
-    ) -> PyResult<Option<u8>> {
+    ) -> PyResult<Option<char>> {
         if allow_none && vm.is_none(obj) {
             return Ok(None);
         }
@@ -174,13 +178,13 @@ mod _csv {
     fn parse_single_char(
         s: &Py<PyStr>,
         error: impl Fn(usize) -> PyBaseExceptionRef,
-    ) -> PyResult<u8> {
+    ) -> PyResult<char> {
         let ch = s
             .as_wtf8()
             .code_points()
             .exactly_one()
             .map_err(|_| error(s.char_len()))?;
-        u8::try_from(ch.to_u32()).map_err(|_| error(s.char_len()))
+        ch.to_char().ok_or_else(|| error(s.char_len()))
     }
 
     #[derive(FromArgs)]
@@ -412,8 +416,8 @@ mod _csv {
     }
 
     fn validate_dialect(vm: &VirtualMachine, dialect: &PyDialect) -> PyResult<()> {
-        let special = |name: &str, value: u8| {
-            if matches!(value, b'\r' | b'\n') {
+        let special = |name: &str, value: char| {
+            if matches!(value, '\r' | '\n') {
                 Err(vm.new_value_error(format!(
                     "{name} must be a single character, not a line break"
                 )))
@@ -431,14 +435,14 @@ mod _csv {
         }
 
         if dialect.skipinitialspace
-            && (matches!(dialect.escapechar, Some(b' ')) || matches!(dialect.quotechar, Some(b' ')))
+            && (matches!(dialect.escapechar, Some(' ')) || matches!(dialect.quotechar, Some(' ')))
         {
             return Err(vm.new_value_error(
                 "escapechar or quotechar cannot be a space when skipinitialspace is enabled",
             ));
         }
 
-        let values: [(&str, Option<u8>); 3] = [
+        let values: [(&str, Option<char>); 3] = [
             ("delimiter", Some(dialect.delimiter)),
             ("quotechar", dialect.quotechar),
             ("escapechar", dialect.escapechar),
@@ -451,12 +455,7 @@ mod _csv {
                     )));
                 }
             }
-            if left.is_some_and(|value| {
-                dialect
-                    .lineterminator
-                    .chars()
-                    .any(|character| character == value as char)
-            }) {
+            if left.is_some_and(|value| dialect.lineterminator.contains(value)) {
                 return Err(vm.new_value_error(format!(
                     "{left_name} and lineterminator cannot be the same"
                 )));
@@ -498,7 +497,7 @@ mod _csv {
 
             let delimiter = match &self.delimiter {
                 Some(obj) => parse_char(vm, obj, "delimiter", false)?.unwrap(),
-                None => b',',
+                None => ',',
             };
             let doublequote = match &self.doublequote {
                 Some(obj) => obj.try_to_bool(vm)?,
@@ -526,7 +525,7 @@ mod _csv {
             };
             let quotechar = match &self.quotechar {
                 Some(obj) => parse_char(vm, obj, "quotechar", true)?,
-                None => Some(b'"'),
+                None => Some('"'),
             };
             let quoting = match &self.quoting {
                 Some(obj) => {
@@ -628,7 +627,7 @@ mod _csv {
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum ParserInput {
-        Byte(u8),
+        Char(char),
         Eol,
     }
 
@@ -637,7 +636,8 @@ mod _csv {
     struct CsvParser {
         state: ParserState,
         fields: Vec<PyObjectRef>,
-        field: Vec<u8>,
+        field: String,
+        field_len: usize,
         unquoted_field: bool,
         field_limit: isize,
     }
@@ -647,7 +647,8 @@ mod _csv {
             Self {
                 state: ParserState::StartRecord,
                 fields: Vec::new(),
-                field: Vec::new(),
+                field: String::new(),
+                field_len: 0,
                 unquoted_field: false,
                 field_limit,
             }
@@ -657,14 +658,15 @@ mod _csv {
             PyIterReturn::Return(vm.ctx.new_list(self.fields).into())
         }
 
-        fn add_byte(&mut self, byte: u8, vm: &VirtualMachine) -> PyResult<()> {
-            if self.field_limit < 0 || self.field.len() >= self.field_limit as usize {
+        fn add_char(&mut self, ch: char, vm: &VirtualMachine) -> PyResult<()> {
+            if self.field_limit < 0 || self.field_len >= self.field_limit as usize {
                 return Err(new_csv_error(
                     vm,
                     format!("field larger than field limit ({})", self.field_limit),
                 ));
             }
-            self.field.push(byte);
+            self.field.push(ch);
+            self.field_len += 1;
             Ok(())
         }
 
@@ -675,9 +677,7 @@ mod _csv {
             {
                 vm.ctx.none()
             } else {
-                let value = core::str::from_utf8(&self.field)
-                    .map_err(|e| new_not_utf8_error(vm, &self.field, e))?;
-                let field: PyObjectRef = vm.ctx.new_str(value).into();
+                let field: PyObjectRef = vm.ctx.new_str(self.field.as_str()).into();
                 if self.unquoted_field
                     && !self.field.is_empty()
                     && matches!(quoting, QuoteStyle::Nonnumeric | QuoteStyle::Strings)
@@ -689,6 +689,7 @@ mod _csv {
             };
             self.fields.push(field);
             self.field.clear();
+            self.field_len = 0;
             Ok(())
         }
 
@@ -701,7 +702,7 @@ mod _csv {
             match self.state {
                 ParserState::StartRecord => match input {
                     ParserInput::Eol => {}
-                    ParserInput::Byte(b'\r' | b'\n') => self.state = ParserState::EatCrnl,
+                    ParserInput::Char('\r' | '\n') => self.state = ParserState::EatCrnl,
                     _ => {
                         self.state = ParserState::StartField;
                         return self.process_parser_input(input, dialect, vm);
@@ -710,41 +711,41 @@ mod _csv {
                 ParserState::StartField => {
                     self.unquoted_field = true;
                     match input {
-                        ParserInput::Eol | ParserInput::Byte(b'\r' | b'\n') => {
+                        ParserInput::Eol | ParserInput::Char('\r' | '\n') => {
                             self.save_field(dialect.quoting, vm)?;
                             self.state = state_after_record_end(input);
                         }
-                        ParserInput::Byte(byte)
+                        ParserInput::Char(ch)
                             if dialect.quoting != QuoteStyle::None
-                                && dialect.quotechar == Some(byte) =>
+                                && dialect.quotechar == Some(ch) =>
                         {
                             self.unquoted_field = false;
                             self.state = ParserState::InQuotedField;
                         }
-                        ParserInput::Byte(byte) if dialect.escapechar == Some(byte) => {
+                        ParserInput::Char(ch) if dialect.escapechar == Some(ch) => {
                             self.state = ParserState::EscapedChar;
                         }
-                        ParserInput::Byte(b' ') if dialect.skipinitialspace => {}
-                        ParserInput::Byte(byte) if byte == dialect.delimiter => {
+                        ParserInput::Char(' ') if dialect.skipinitialspace => {}
+                        ParserInput::Char(ch) if ch == dialect.delimiter => {
                             self.save_field(dialect.quoting, vm)?;
                         }
-                        ParserInput::Byte(byte) => {
-                            self.add_byte(byte, vm)?;
+                        ParserInput::Char(ch) => {
+                            self.add_char(ch, vm)?;
                             self.state = ParserState::InField;
                         }
                     }
                 }
                 ParserState::EscapedChar => match input {
-                    ParserInput::Byte(byte @ (b'\r' | b'\n')) => {
-                        self.add_byte(byte, vm)?;
+                    ParserInput::Char(ch @ ('\r' | '\n')) => {
+                        self.add_char(ch, vm)?;
                         self.state = ParserState::AfterEscapedCrnl;
                     }
                     ParserInput::Eol => {
-                        self.add_byte(b'\n', vm)?;
+                        self.add_char('\n', vm)?;
                         self.state = ParserState::InField;
                     }
-                    ParserInput::Byte(byte) => {
-                        self.add_byte(byte, vm)?;
+                    ParserInput::Char(ch) => {
+                        self.add_char(ch, vm)?;
                         self.state = ParserState::InField;
                     }
                 },
@@ -755,27 +756,26 @@ mod _csv {
                     }
                 }
                 ParserState::InField => match input {
-                    ParserInput::Eol | ParserInput::Byte(b'\r' | b'\n') => {
+                    ParserInput::Eol | ParserInput::Char('\r' | '\n') => {
                         self.save_field(dialect.quoting, vm)?;
                         self.state = state_after_record_end(input);
                     }
-                    ParserInput::Byte(byte) if dialect.escapechar == Some(byte) => {
+                    ParserInput::Char(ch) if dialect.escapechar == Some(ch) => {
                         self.state = ParserState::EscapedChar;
                     }
-                    ParserInput::Byte(byte) if byte == dialect.delimiter => {
+                    ParserInput::Char(ch) if ch == dialect.delimiter => {
                         self.save_field(dialect.quoting, vm)?;
                         self.state = ParserState::StartField;
                     }
-                    ParserInput::Byte(byte) => self.add_byte(byte, vm)?,
+                    ParserInput::Char(ch) => self.add_char(ch, vm)?,
                 },
                 ParserState::InQuotedField => match input {
                     ParserInput::Eol => {}
-                    ParserInput::Byte(byte) if dialect.escapechar == Some(byte) => {
+                    ParserInput::Char(ch) if dialect.escapechar == Some(ch) => {
                         self.state = ParserState::EscapeInQuotedField;
                     }
-                    ParserInput::Byte(byte)
-                        if dialect.quoting != QuoteStyle::None
-                            && dialect.quotechar == Some(byte) =>
+                    ParserInput::Char(ch)
+                        if dialect.quoting != QuoteStyle::None && dialect.quotechar == Some(ch) =>
                     {
                         self.state = if dialect.doublequote {
                             ParserState::QuoteInQuotedField
@@ -783,51 +783,50 @@ mod _csv {
                             ParserState::InField
                         };
                     }
-                    ParserInput::Byte(byte) => self.add_byte(byte, vm)?,
+                    ParserInput::Char(ch) => self.add_char(ch, vm)?,
                 },
                 ParserState::EscapeInQuotedField => {
-                    let byte = match input {
-                        ParserInput::Eol => b'\n',
-                        ParserInput::Byte(byte) => byte,
+                    let ch = match input {
+                        ParserInput::Eol => '\n',
+                        ParserInput::Char(ch) => ch,
                     };
-                    self.add_byte(byte, vm)?;
+                    self.add_char(ch, vm)?;
                     self.state = ParserState::InQuotedField;
                 }
                 ParserState::QuoteInQuotedField => match input {
-                    ParserInput::Byte(byte)
-                        if dialect.quoting != QuoteStyle::None
-                            && dialect.quotechar == Some(byte) =>
+                    ParserInput::Char(ch)
+                        if dialect.quoting != QuoteStyle::None && dialect.quotechar == Some(ch) =>
                     {
-                        self.add_byte(byte, vm)?;
+                        self.add_char(ch, vm)?;
                         self.state = ParserState::InQuotedField;
                     }
-                    ParserInput::Byte(byte) if byte == dialect.delimiter => {
+                    ParserInput::Char(ch) if ch == dialect.delimiter => {
                         self.save_field(dialect.quoting, vm)?;
                         self.state = ParserState::StartField;
                     }
-                    ParserInput::Eol | ParserInput::Byte(b'\r' | b'\n') => {
+                    ParserInput::Eol | ParserInput::Char('\r' | '\n') => {
                         self.save_field(dialect.quoting, vm)?;
                         self.state = state_after_record_end(input);
                     }
-                    ParserInput::Byte(byte) if !dialect.strict => {
-                        self.add_byte(byte, vm)?;
+                    ParserInput::Char(ch) if !dialect.strict => {
+                        self.add_char(ch, vm)?;
                         self.state = ParserState::InField;
                     }
-                    ParserInput::Byte(_) => {
+                    ParserInput::Char(_) => {
                         return Err(new_csv_error(
                             vm,
                             format!(
                                 "'{}' expected after '{}'",
-                                dialect.delimiter as char,
-                                dialect.quotechar.unwrap_or_default() as char,
+                                dialect.delimiter,
+                                dialect.quotechar.unwrap_or_default(),
                             ),
                         ));
                     }
                 },
                 ParserState::EatCrnl => match input {
-                    ParserInput::Byte(b'\r' | b'\n') => {}
+                    ParserInput::Char('\r' | '\n') => {}
                     ParserInput::Eol => self.state = ParserState::StartRecord,
-                    ParserInput::Byte(_) => {
+                    ParserInput::Char(_) => {
                         return Err(new_csv_error(
                             vm,
                             concat!(
@@ -906,9 +905,9 @@ mod _csv {
 
                         zelf.state.lock().line_num += 1;
                         parser.field_limit = *GLOBAL_FIELD_LIMIT.lock();
-                        for &byte in string.as_bytes() {
+                        for ch in utf8_data(&string, vm)?.chars() {
                             parser.process_parser_input(
-                                ParserInput::Byte(byte),
+                                ParserInput::Char(ch),
                                 &zelf.dialect,
                                 vm,
                             )?;
@@ -945,8 +944,8 @@ mod _csv {
     }
 
     fn write_quoted_field(
-        output: &mut Vec<u8>,
-        data: &[u8],
+        output: &mut String,
+        data: &str,
         dialect: &PyDialect,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -954,22 +953,22 @@ mod _csv {
             .quotechar
             .ok_or_else(|| vm.new_type_error("quotechar must be set if quoting enabled"))?;
         output.push(quotechar);
-        for &byte in data {
-            if byte == quotechar {
+        for ch in data.chars() {
+            if ch == quotechar {
                 if dialect.doublequote {
                     output.push(quotechar);
                     output.push(quotechar);
                 } else if let Some(escapechar) = dialect.escapechar {
                     output.push(escapechar);
-                    output.push(byte);
+                    output.push(ch);
                 } else {
                     return Err(new_csv_error(vm, "need to escape, but no escapechar set"));
                 }
             } else {
-                if dialect.escapechar == Some(byte) {
-                    output.push(byte);
+                if dialect.escapechar == Some(ch) {
+                    output.push(ch);
                 }
-                output.push(byte);
+                output.push(ch);
             }
         }
         output.push(quotechar);
@@ -977,61 +976,38 @@ mod _csv {
     }
 
     fn write_unquoted_field(
-        output: &mut Vec<u8>,
-        data: &[u8],
+        output: &mut String,
+        data: &str,
         dialect: &PyDialect,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mut data = data;
-        while let Some((&byte, rest)) = data.split_first() {
-            if field_needs_escape(data, dialect) {
+        for ch in data.chars() {
+            if char_needs_escape(ch, dialect) {
                 let escapechar = dialect
                     .escapechar
                     .ok_or_else(|| new_csv_error(vm, "need to escape, but no escapechar set"))?;
                 output.push(escapechar);
             }
-            output.push(byte);
-            data = rest;
+            output.push(ch);
         }
         Ok(())
     }
 
-    fn data_contains_lineterminator_char(data: &[u8], dialect: &PyDialect) -> bool {
-        dialect.lineterminator.chars().any(|character| {
-            let mut encoded = [0; 4];
-            let character = character.encode_utf8(&mut encoded).as_bytes();
-            data.windows(character.len())
-                .any(|window| window == character)
+    fn field_needs_quotes(data: &str, dialect: &PyDialect) -> bool {
+        data.chars().any(|ch| {
+            ch == dialect.delimiter
+                || (dialect.doublequote && dialect.quotechar == Some(ch))
+                || matches!(ch, '\r' | '\n')
+                || dialect.lineterminator.contains(ch)
         })
     }
 
-    fn data_starts_with_lineterminator_char(data: &[u8], dialect: &PyDialect) -> bool {
-        dialect.lineterminator.chars().any(|character| {
-            let mut encoded = [0; 4];
-            let character = character.encode_utf8(&mut encoded).as_bytes();
-            data.starts_with(character)
-        })
-    }
-
-    fn field_needs_quotes(data: &[u8], dialect: &PyDialect) -> bool {
-        data.iter().any(|&byte| {
-            byte == dialect.delimiter
-                || (dialect.doublequote && dialect.quotechar == Some(byte))
-                || matches!(byte, b'\r' | b'\n')
-        }) || data_contains_lineterminator_char(data, dialect)
-    }
-
-    fn field_needs_escape(data: &[u8], dialect: &PyDialect) -> bool {
-        let byte = data[0];
-        byte == dialect.delimiter
-            || dialect.quotechar == Some(byte)
-            || dialect.escapechar == Some(byte)
-            || matches!(byte, b'\r' | b'\n')
-            || data_starts_with_lineterminator_char(data, dialect)
-    }
-
-    fn write_lineterminator(output: &mut Vec<u8>, terminator: &str) {
-        output.extend_from_slice(terminator.as_bytes());
+    fn char_needs_escape(ch: char, dialect: &PyDialect) -> bool {
+        ch == dialect.delimiter
+            || dialect.quotechar == Some(ch)
+            || dialect.escapechar == Some(ch)
+            || matches!(ch, '\r' | '\n')
+            || dialect.lineterminator.contains(ch)
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
@@ -1053,7 +1029,7 @@ mod _csv {
                 })?;
             let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
-            let mut output = Vec::new();
+            let mut output = String::new();
 
             for (index, field) in fields.into_iter().enumerate() {
                 if index > 0 {
@@ -1061,12 +1037,12 @@ mod _csv {
                 }
 
                 let stringified;
-                let (data, is_str, is_none): (&[u8], bool, bool) = match_class!(match field {
-                    ref s @ PyStr => (s.as_bytes(), true, false),
-                    crate::builtins::PyNone => (b"", false, true),
+                let (data, is_str, is_none): (&str, bool, bool) = match_class!(match field {
+                    ref s @ PyStr => (utf8_data(s, vm)?, true, false),
+                    crate::builtins::PyNone => ("", false, true),
                     ref obj => {
                         stringified = obj.str(vm)?;
-                        (stringified.as_bytes(), false, false)
+                        (utf8_data(&stringified, vm)?, false, false)
                     }
                 });
 
@@ -1086,7 +1062,7 @@ mod _csv {
                 }
 
                 if data.is_empty()
-                    && zelf.dialect.delimiter == b' '
+                    && zelf.dialect.delimiter == ' '
                     && zelf.dialect.skipinitialspace
                     && (zelf.dialect.quoting == QuoteStyle::None
                         || (is_none
@@ -1111,7 +1087,7 @@ mod _csv {
 
                 if zelf.dialect.quoting != QuoteStyle::None
                     && ((data.is_empty()
-                        && zelf.dialect.delimiter == b' '
+                        && zelf.dialect.delimiter == ' '
                         && zelf.dialect.skipinitialspace)
                         || (single_field && data.is_empty())
                         || (!should_quote && field_needs_quotes(data, &zelf.dialect)))
@@ -1126,10 +1102,8 @@ mod _csv {
                 }
             }
 
-            write_lineterminator(&mut output, &zelf.dialect.lineterminator);
-            let s =
-                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
-            zelf.write.call((s,), vm)
+            output.push_str(&zelf.dialect.lineterminator);
+            zelf.write.call((output,), vm)
         }
 
         #[pymethod]
