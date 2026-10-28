@@ -42,6 +42,7 @@ ruff_text_size = { workspace = true }
 ruff_source_file = { workspace = true }
 
 ascii = { workspace = true }
+half = { workspace = true }
 crossbeam-utils = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }

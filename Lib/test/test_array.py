@@ -31,7 +31,10 @@ class ArraySubclassWithKwargs(array.array):
     def __init__(self, typecode, newarg=None):
         array.array.__init__(self)
 
-typecodes = 'uwbBhHiIlLfdqQ'
+typecodes = (
+    'u', 'w', 'b', 'B', 'h', 'H', 'i', 'I', 'l', 'L',
+    'f', 'd', 'q', 'Q', 'e', 'Zf', 'Zd')
+
 
 class MiscTest(unittest.TestCase):
 
@@ -47,8 +50,9 @@ class MiscTest(unittest.TestCase):
     def test_bad_constructor(self):
         self.assertRaises(TypeError, array.array)
         self.assertRaises(TypeError, array.array, spam=42)
-        self.assertRaises(TypeError, array.array, 'xx')
+        self.assertRaises(ValueError, array.array, 'xx')
         self.assertRaises(ValueError, array.array, 'x')
+        self.assertRaises(ValueError, array.array, 'Z')
 
     @support.cpython_only
     def test_does_not_crash_on_broken_imports(self):
@@ -90,6 +94,29 @@ class MiscTest(unittest.TestCase):
         a += a
         self.assertEqual(len(a), 0)
 
+    def test_fromlist_reentrant_index_mutation(self):
+
+        class Evil:
+            def __init__(self, lst):
+                self.lst = lst
+            def __index__(self):
+                self.lst.clear()
+                return "not an int"
+
+        for typecode in ('I', 'L', 'Q'):
+            with self.subTest(typecode=typecode):
+                lst = []
+                lst.append(Evil(lst))
+                a = array.array(typecode)
+                with self.assertRaises(TypeError):
+                    a.fromlist(lst)
+
+    def test_typecodes(self):
+        self.assertIsInstance(array.typecodes, tuple)
+        for typecode in array.typecodes:
+            self.assertIsInstance(typecode, str)
+            self.assertGreaterEqual(len(typecode), 1)
+
 
 # Machine format codes.
 #
@@ -118,6 +145,14 @@ UTF16_LE = 18
 UTF16_BE = 19
 UTF32_LE = 20
 UTF32_BE = 21
+IEEE_754_FLOAT_COMPLEX_LE = 22
+IEEE_754_FLOAT_COMPLEX_BE = 23
+IEEE_754_DOUBLE_COMPLEX_LE = 24
+IEEE_754_DOUBLE_COMPLEX_BE = 25
+IEEE_754_FLOAT16_LE = 26
+IEEE_754_FLOAT16_BE = 27
+
+MACHINE_FORMAT_CODE_MAX = 27
 
 
 class ArrayReconstructorTest(unittest.TestCase):
@@ -144,7 +179,7 @@ class ArrayReconstructorTest(unittest.TestCase):
         self.assertRaises(ValueError, array_reconstructor,
                           array.array, "b", UNKNOWN_FORMAT, b"")
         self.assertRaises(ValueError, array_reconstructor,
-                          array.array, "b", 22, b"")
+                          array.array, "b", MACHINE_FORMAT_CODE_MAX + 1, b"")
         self.assertRaises(ValueError, array_reconstructor,
                           array.array, "d", 16, b"a")
 
@@ -189,6 +224,10 @@ class ArrayReconstructorTest(unittest.TestCase):
              [-1<<63, (1<<63)-1, 0]),
             (['l'], SIGNED_INT64_BE, '>qqq',
              [-1<<63, (1<<63)-1, 0]),
+            (['e'], IEEE_754_FLOAT16_LE, '<eeee',
+             [1.0, float('inf'), float('-inf'), -0.0]),
+            (['e'], IEEE_754_FLOAT16_BE, '>eeee',
+             [1.0, float('inf'), float('-inf'), -0.0]),
             (['f'], IEEE_754_FLOAT_LE, '<ffff',
              [16711938.0, float('inf'), float('-inf'), -0.0]),
             (['f'], IEEE_754_FLOAT_BE, '>ffff',
@@ -196,7 +235,15 @@ class ArrayReconstructorTest(unittest.TestCase):
             (['d'], IEEE_754_DOUBLE_LE, '<dddd',
              [9006104071832581.0, float('inf'), float('-inf'), -0.0]),
             (['d'], IEEE_754_DOUBLE_BE, '>dddd',
-             [9006104071832581.0, float('inf'), float('-inf'), -0.0])
+             [9006104071832581.0, float('inf'), float('-inf'), -0.0]),
+            (['Zf'], IEEE_754_FLOAT_COMPLEX_LE, '<ZfZfZfZf',
+             [16711938.0j, float('inf'), complex('1-infj'), -0.0]),
+            (['Zf'], IEEE_754_FLOAT_COMPLEX_BE, '>ZfZfZfZf',
+             [16711938.0j, float('inf'), complex('1-infj'), -0.0]),
+            (['Zd'], IEEE_754_DOUBLE_COMPLEX_LE, '<ZdZdZdZd',
+             [9006104071832581.0j, float('inf'), complex('1-infj'), -0.0]),
+            (['Zd'], IEEE_754_DOUBLE_COMPLEX_BE, '>ZdZdZdZd',
+             [9006104071832581.0j, float('inf'), complex('1-infj'), -0.0]),
         )
         for testcase in testcases:
             valid_typecodes, mformat_code, struct_fmt, values = testcase
@@ -210,6 +257,16 @@ class ArrayReconstructorTest(unittest.TestCase):
                     array.array, typecode, mformat_code, arraystr)
                 self.assertEqual(a, b,
                     msg="{0!r} != {1!r}; testcase={2!r}".format(a, b, testcase))
+
+    def test_float16_endianness(self):
+        # gh-154568: array_reconstructor() slow-path decoder for
+        # IEEE_754_FLOAT16_LE ignored the encoding.
+        le_bytes = struct.pack('<e', 1.5)
+        be_bytes = struct.pack('>e', 1.5)
+        b_le = array_reconstructor(array.array, 'd', IEEE_754_FLOAT16_LE, le_bytes)
+        b_be = array_reconstructor(array.array, 'd', IEEE_754_FLOAT16_BE, be_bytes)
+        self.assertEqual(b_le.tolist(), [1.5])
+        self.assertEqual(b_be.tolist(), [1.5])
 
     def test_unicode(self):
         teststr = "Bonne Journ\xe9e \U0002030a\U00020347"
@@ -284,7 +341,7 @@ class BaseTest:
             example = self.example
         a = array.array(self.typecode, example)
         self.assertRaises(TypeError, a.byteswap, 42)
-        if a.itemsize in (1, 2, 4, 8):
+        if a.itemsize in (1, 2, 4, 8, 16):
             b = array.array(self.typecode, example)
             b.byteswap()
             if a.itemsize==1:
@@ -1226,6 +1283,9 @@ class BaseTest:
         support.check_free_after_iterating(self, reversed, array.array,
                                            (self.typecode,))
 
+    def test_known_typecode(self):
+        self.assertIn(self.typecode, array.typecodes)
+
 class StringTest(BaseTest):
 
     def test_setitem(self):
@@ -1530,6 +1590,78 @@ class FPTest(NumberTest):
             b.byteswap()
             self.assertEqual(a, b)
 
+class CFPTest(NumberTest):
+    example = [-42j, 0, 42+1j, 1e5j, -1e10]
+    outside = 23
+
+    def assertEntryEqual(self, entry1, entry2):
+        self.assertAlmostEqual(entry1, entry2)
+
+    def test_cmp(self):
+        a = array.array(self.typecode, self.example)
+        self.assertIs(a == 42, False)
+        self.assertIs(a != 42, True)
+
+        self.assertIs(a == a, True)
+        self.assertIs(a != a, False)
+        self.assertIs(a < a, False)
+        self.assertIs(a <= a, True)
+        self.assertIs(a > a, False)
+        self.assertIs(a >= a, True)
+
+        self.assertIs(a == 2*a, False)
+        self.assertIs(a != 2*a, True)
+        self.assertIs(a < 2*a, True)
+        self.assertIs(a <= 2*a, True)
+        self.assertIs(a > 2*a, False)
+        self.assertIs(a >= 2*a, False)
+
+    def test_nan(self):
+        a = array.array(self.typecode, [float('nan')])
+        b = array.array(self.typecode, [float('nan')])
+        self.assertIs(a != b, True)
+        self.assertIs(a == b, False)
+
+    def test_byteswap(self):
+        a = array.array(self.typecode, self.example)
+        self.assertRaises(TypeError, a.byteswap, 42)
+        if a.itemsize in (1, 2, 4, 8, 16):
+            b = array.array(self.typecode, self.example)
+            b.byteswap()
+            if a.itemsize == 1:
+                self.assertEqual(a, b)
+            else:
+                # On alphas treating the byte swapped bit patterns as
+                # floats/doubles results in floating-point exceptions
+                # => compare the 8bit string values instead
+                self.assertNotEqual(a.tobytes(), b.tobytes())
+            b.byteswap()
+            self.assertEqual(a, b)
+
+    def test_byteswap_single_call_result(self):
+        # A single byteswap() must swap each item's two halves (real,
+        # imag) independently. test_byteswap above only checks that
+        # byteswap() twice round-trips to the original, which passes
+        # even if a single call scrambles multi-item arrays.
+        a = array.array(self.typecode, self.example)
+        original = a.tobytes()
+        a.byteswap()
+        itemsize = a.itemsize
+        half = itemsize // 2
+        expected = bytearray()
+        for i in range(0, len(original), itemsize):
+            item = original[i:i + itemsize]
+            expected += item[half - 1::-1] + item[itemsize - 1:half - 1:-1]
+        self.assertEqual(a.tobytes(), bytes(expected))
+
+
+class HalfFloatTest(FPTest, unittest.TestCase):
+    example = [-42.0, 0, 42, 1e2, -1e4]
+    smallerexample = [-42.0, 0, 42, 1e2, -2e4]
+    biggerexample = [-42.0, 0, 42, 1e2, 1e4]
+    typecode = 'e'
+    minitemsize = 2
+
 class FloatTest(FPTest, unittest.TestCase):
     typecode = 'f'
     minitemsize = 4
@@ -1554,6 +1686,15 @@ class DoubleTest(FPTest, unittest.TestCase):
             pass
         else:
             self.fail("Array of size > maxsize created - MemoryError expected")
+
+
+class ComplexFloatTest(CFPTest, unittest.TestCase):
+    typecode = 'Zf'
+    minitemsize = 8
+
+class ComplexDoubleTest(CFPTest, unittest.TestCase):
+    typecode = 'Zd'
+    minitemsize = 16
 
 
 class LargeArrayTest(unittest.TestCase):
