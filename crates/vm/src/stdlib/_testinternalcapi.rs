@@ -886,6 +886,10 @@ mod _testinternalcapi {
     impl Constructor for Hamt {
         type Args = ();
 
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
+        }
+
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self::default())
         }
@@ -1239,6 +1243,22 @@ mod _testinternalcapi {
     #[cfg(feature = "codegen")]
     impl Constructor for PyInstructionSequence {
         type Args = ();
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if cls.is(Self::class(&vm.ctx)) {
+                if !args.args.is_empty() {
+                    return Err(vm.new_type_error(
+                        "InstructionSequenceType() takes no positional arguments",
+                    ));
+                }
+                if !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("InstructionSequenceType() takes no keyword arguments")
+                    );
+                }
+            }
+            Self::empty().into_ref_with_type(vm, cls).map(Into::into)
+        }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self::empty())
