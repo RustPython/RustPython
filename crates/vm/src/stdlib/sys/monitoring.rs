@@ -1,9 +1,19 @@
+mod metadata;
+#[cfg(test)]
+mod tests;
+use metadata::{MonitoringInstruction, MonitoringMetadata};
+
+use crate::common::rc::PyRc;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
+    builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::MonitoringCodeIdentity},
     function::FuncArgs,
 };
-use core::sync::atomic::Ordering;
+
+#[cfg(not(feature = "threading"))]
+use alloc::rc::Weak;
+#[cfg(feature = "threading")]
+use alloc::sync::Weak;
 use crossbeam_utils::atomic::AtomicCell;
 use std::collections::{HashMap, HashSet};
 
@@ -92,17 +102,283 @@ const EVENT_NAMES: [&str; EVENTS_COUNT] = [
     "BRANCH",
 ];
 
+// Scalar counterparts of the canonical direct/LINE/INSTRUCTION operations.
+// No executable code or cache storage is modified by these transitions.
+#[derive(Clone, Copy)]
+pub(crate) struct MonitoringLayerSite {
+    base: rustpython_compiler_core::bytecode::Instruction,
+    direct: Option<rustpython_compiler_core::bytecode::Instruction>,
+    direct_event: Option<MonitoringEvent>,
+    line_eligible: bool,
+    instruction_eligible: bool,
+    pub(crate) top: rustpython_compiler_core::bytecode::Instruction,
+    pub(crate) line_next: rustpython_compiler_core::bytecode::Instruction,
+    pub(crate) instruction_next: rustpython_compiler_core::bytecode::Instruction,
+    pub(crate) direct_tools: u8,
+    pub(crate) line_tools: u8,
+    pub(crate) instruction_tools: u8,
+}
+
+impl MonitoringLayerSite {
+    // The metadata builder must supply a proven logical instruction start and
+    // line eligibility. This does not validate branch targets or execution.
+    pub(crate) fn new(
+        base: rustpython_compiler_core::bytecode::Instruction,
+        arg: u8,
+        line_eligible: bool,
+        instruction_eligible: bool,
+    ) -> Self {
+        Self {
+            base,
+            direct: base.to_instrumented(),
+            direct_event: event_for_opcode(base, arg),
+            line_eligible,
+            instruction_eligible,
+            top: base,
+            line_next: base,
+            instruction_next: base,
+            direct_tools: 0,
+            line_tools: 0,
+            instruction_tools: 0,
+        }
+    }
+
+    fn direct_slot(&mut self) -> &mut rustpython_compiler_core::bytecode::Instruction {
+        use rustpython_compiler_core::bytecode::Instruction;
+        let outer = if matches!(self.top, Instruction::InstrumentedLine) {
+            &mut self.line_next
+        } else {
+            &mut self.top
+        };
+        if matches!(*outer, Instruction::InstrumentedInstruction) {
+            &mut self.instruction_next
+        } else {
+            outer
+        }
+    }
+
+    fn remove_direct(&mut self, tools: u8) {
+        self.direct_tools &= !tools;
+        if self.direct_tools == 0 {
+            let base = self.base;
+            *self.direct_slot() = base;
+        }
+    }
+
+    fn add_direct(&mut self, tools: u8) {
+        if let Some(direct) = self.direct {
+            self.direct_tools |= tools;
+            *self.direct_slot() = direct;
+        }
+    }
+
+    fn remove_line(&mut self, tools: u8) {
+        use rustpython_compiler_core::bytecode::Instruction;
+        self.line_tools &= !tools;
+        if self.line_tools == 0 && matches!(self.top, Instruction::InstrumentedLine) {
+            let original = self.line_next;
+            if matches!(original, Instruction::InstrumentedInstruction) {
+                self.line_next = self.instruction_next;
+            }
+            // The old original becomes top, while an in-flight LINE reads the
+            // updated saved continuation after callbacks.
+            self.top = original;
+        }
+    }
+
+    fn add_line(&mut self, tools: u8) {
+        use rustpython_compiler_core::bytecode::Instruction;
+        if self.line_eligible {
+            self.line_tools |= tools;
+            if !matches!(self.top, Instruction::InstrumentedLine) {
+                self.line_next = self.top;
+                self.top = Instruction::InstrumentedLine;
+            }
+        }
+    }
+
+    fn remove_instruction(&mut self, tools: u8) {
+        use rustpython_compiler_core::bytecode::Instruction;
+        self.instruction_tools &= !tools;
+        if self.instruction_tools == 0 {
+            let outer = if matches!(self.top, Instruction::InstrumentedLine) {
+                &mut self.line_next
+            } else {
+                &mut self.top
+            };
+            if matches!(*outer, Instruction::InstrumentedInstruction) {
+                *outer = self.instruction_next;
+            }
+        }
+    }
+
+    fn add_instruction(&mut self, tools: u8) {
+        use rustpython_compiler_core::bytecode::Instruction;
+        if self.instruction_eligible {
+            self.instruction_tools |= tools;
+            let outer = if matches!(self.top, Instruction::InstrumentedLine) {
+                &mut self.line_next
+            } else {
+                &mut self.top
+            };
+            if !matches!(*outer, Instruction::InstrumentedInstruction) {
+                self.instruction_next = *outer;
+                *outer = Instruction::InstrumentedInstruction;
+            }
+        }
+    }
+
+    fn transition(
+        &mut self,
+        removed: &[u8; UNGROUPED_EVENTS_COUNT],
+        added: &[u8; UNGROUPED_EVENTS_COUNT],
+    ) {
+        if let Some(event) = self.direct_event {
+            if removed[event as usize] != 0 {
+                self.remove_direct(removed[event as usize]);
+            }
+            if added[event as usize] != 0 {
+                self.add_direct(added[event as usize]);
+            }
+        }
+        let line = MonitoringEvent::Line as usize;
+        let instruction = MonitoringEvent::Instruction as usize;
+        if removed[line] != 0 {
+            self.remove_line(removed[line]);
+        }
+        if removed[instruction] != 0 {
+            self.remove_instruction(removed[instruction]);
+        }
+        if added[line] != 0 {
+            self.add_line(added[line]);
+        }
+        if added[instruction] != 0 {
+            self.add_instruction(added[instruction]);
+        }
+    }
+
+    fn disable(&mut self, event: usize, tool: usize) {
+        let tools = 1 << tool;
+        if event == MonitoringEvent::Line as usize {
+            self.remove_line(tools);
+        } else if event == MonitoringEvent::Instruction as usize {
+            self.remove_instruction(tools);
+        } else if self
+            .direct_event
+            .is_some_and(|direct| direct as usize == event)
+        {
+            self.remove_direct(tools);
+        }
+    }
+}
+
+fn event_tools(events: &[u32; TOOL_LIMIT]) -> [u8; UNGROUPED_EVENTS_COUNT] {
+    core::array::from_fn(|event| {
+        events.iter().enumerate().fold(0, |tools, (tool, mask)| {
+            tools
+                | if mask & (1 << event) != 0 {
+                    1 << tool
+                } else {
+                    0
+                }
+        })
+    })
+}
+
+// All per-code state shares this native lifetime witness. It owns no Python
+// references and does not keep the code object alive.
+struct CodeMonitoringEntry {
+    identity: Weak<MonitoringCodeIdentity>,
+    local_events: [u32; TOOL_LIMIT],
+    disabled: HashSet<(usize, usize, usize)>,
+    active_events: [u32; TOOL_LIMIT],
+    layers: Option<HashMap<usize, MonitoringLayerSite>>,
+    metadata: Option<MonitoringMetadata>,
+}
+
+impl CodeMonitoringEntry {
+    fn new(identity: &PyRc<MonitoringCodeIdentity>) -> Self {
+        Self {
+            identity: PyRc::downgrade(identity),
+            local_events: [0; TOOL_LIMIT],
+            disabled: HashSet::new(),
+            active_events: [0; TOOL_LIMIT],
+            layers: None,
+            metadata: None,
+        }
+    }
+
+    fn disabled_tools(&self, offset: usize) -> [u8; UNGROUPED_EVENTS_COUNT] {
+        core::array::from_fn(|event| {
+            (0..TOOL_LIMIT).fold(0, |tools, tool| {
+                tools
+                    | if self.disabled.contains(&(offset, event, tool)) {
+                        1 << tool
+                    } else {
+                        0
+                    }
+            })
+        })
+    }
+
+    fn synchronize(&mut self, global: &[u32; TOOL_LIMIT], restart: bool) {
+        let next = core::array::from_fn(|tool| global[tool] | self.local_events[tool]);
+        let old_tools = event_tools(&self.active_events);
+        let new_tools = event_tools(&next);
+        let removed = core::array::from_fn(|event| {
+            if restart {
+                old_tools[event]
+            } else {
+                old_tools[event] & !new_tools[event]
+            }
+        });
+        let added = core::array::from_fn(|event| {
+            if restart {
+                new_tools[event]
+            } else {
+                new_tools[event] & !old_tools[event]
+            }
+        });
+        self.active_events = next;
+        if restart {
+            self.disabled.clear();
+        } else {
+            self.disabled.retain(|&(_, event, tool)| {
+                event >= UNGROUPED_EVENTS_COUNT || added[event] & (1 << tool) == 0
+            });
+        }
+        if let Some(layers) = &mut self.layers {
+            // Each site updates only its own scalar layers; no callbacks or owners are dropped.
+            #[allow(clippy::iter_over_hash_type)]
+            for site in layers.values_mut() {
+                site.transition(&removed, &added);
+            }
+        }
+    }
+
+    fn disable_site(&mut self, offset: usize, event: usize, tool: usize) {
+        self.disabled.insert((offset, event, tool));
+        if let Some(layers) = &mut self.layers
+            && let Some(site) = layers.get_mut(&(offset / 2))
+        {
+            site.disable(event, tool);
+        }
+    }
+}
+
+fn identity_key(identity: &PyRc<MonitoringCodeIdentity>) -> usize {
+    PyRc::as_ptr(identity) as usize
+}
+
 /// Interpreter-level monitoring state, shared by all threads.
 pub struct MonitoringState {
     pub tool_names: [Option<String>; TOOL_LIMIT],
     pub global_events: [u32; TOOL_LIMIT],
-    pub local_events: HashMap<(usize, usize), u32>,
+    codes: HashMap<usize, CodeMonitoringEntry>,
     pub callbacks: HashMap<(usize, usize), PyObjectRef>,
     // Legacy BRANCH callbacks also check whether the source instruction was
     // disabled. Direct BRANCH_LEFT/RIGHT registrations bypass that check.
     legacy_branch_callbacks: HashSet<(usize, usize)>,
-    /// Per-instruction disabled tools: (code_id, offset, event, tool)
-    pub disabled: HashSet<(usize, usize, usize, usize)>,
     /// Cached MISSING sentinel singleton
     pub missing: Option<PyObjectRef>,
     /// Cached DISABLE sentinel singleton
@@ -114,10 +390,9 @@ impl Default for MonitoringState {
         Self {
             tool_names: Default::default(),
             global_events: [0; TOOL_LIMIT],
-            local_events: HashMap::new(),
+            codes: HashMap::new(),
             callbacks: HashMap::new(),
             legacy_branch_callbacks: HashSet::new(),
-            disabled: HashSet::new(),
             missing: None,
             disable: None,
         }
@@ -130,22 +405,140 @@ impl MonitoringState {
     /// when no events are registered at all.
     pub fn combined_events(&self) -> u32 {
         let global = self.global_events.iter().fold(0, |acc, &e| acc | e);
-        let local = self.local_events.values().fold(0, |acc, &e| acc | e);
+        let local = self.codes.values().fold(0, |acc, entry| {
+            acc | entry.local_events.iter().fold(0, |mask, &e| mask | e)
+        });
         global | local
     }
 
-    /// Compute the events that apply to a specific code object:
-    /// global events OR'd with local events registered for that code.
-    /// This prevents events like INSTRUCTION that are local to one code
-    /// from being applied to unrelated code objects.
-    pub fn events_for_code(&self, code_id: usize) -> u32 {
+    /// Reading event masks must not lazily allocate an identity under the lock.
+    pub fn events_for_code(&self, code: &PyCode) -> u32 {
         let global = self.global_events.iter().fold(0, |acc, &e| acc | e);
-        let local = self
-            .local_events
-            .iter()
-            .filter(|((_, cid), _)| *cid == code_id)
-            .fold(0, |acc, (_, &e)| acc | e);
+        let local = code
+            .existing_monitoring_identity()
+            .and_then(|identity| self.codes.get(&identity_key(identity)))
+            .map_or(0, |entry| {
+                entry.local_events.iter().fold(0, |acc, &e| acc | e)
+            });
         global | local
+    }
+
+    fn local_events(&self, key: usize, tool: usize) -> u32 {
+        self.codes
+            .get(&key)
+            .map_or(0, |entry| entry.local_events[tool])
+    }
+
+    fn disabled(&self, key: usize, offset: usize, event: usize, tool: usize) -> bool {
+        self.codes
+            .get(&key)
+            .is_some_and(|entry| entry.disabled.contains(&(offset, event, tool)))
+    }
+
+    // The caller retains the code while using its key. A stored Weak keeps its
+    // allocation from being reused even after code destruction. Live entries
+    // survive clear/re-enable, including during callbacks.
+    fn ensure_code(&mut self, identity: &PyRc<MonitoringCodeIdentity>) {
+        self.codes.entry(identity_key(identity)).or_insert_with(|| {
+            let mut entry = CodeMonitoringEntry::new(identity);
+            entry.synchronize(&self.global_events, false);
+            entry
+        });
+    }
+
+    // Installation is staged for the immutable metadata builder. False means
+    // unavailable metadata, not a new public constructor or monitoring error.
+    pub(crate) fn install_layers(
+        &mut self,
+        code: &PyCode,
+        mut layers: HashMap<usize, MonitoringLayerSite>,
+    ) -> bool {
+        // Only immutable, width-classified starts may own a virtual layer.
+        // An opaque suffix remains outside this map and uses no invented base.
+        use rustpython_compiler_core::bytecode::{Instruction, oparg};
+        let source = code.instructions.proven_source_prefix();
+        let mut index = 0;
+        let mut checked = 0;
+        let mut first_traceable = None;
+        while index < source.len() {
+            let base = source[index].op.deoptimize();
+            let Some(end) = index.checked_add(1 + base.cache_entries()) else {
+                return false;
+            };
+            if end > source.len() {
+                return false;
+            }
+            let arg = u8::from(source[index].arg);
+            if first_traceable.is_none()
+                && matches!(base, Instruction::Resume { .. })
+                && u32::from(arg) & oparg::ResumeContext::LOCATION_MASK
+                    != oparg::ResumeLocation::AtGenExprStart.as_u32()
+            {
+                first_traceable = Some(index);
+            }
+            if let Some(site) = layers.get(&index) {
+                if first_traceable.is_none()
+                    || u8::from(site.base) != u8::from(base)
+                    || site.direct_event.map(|event| event as usize)
+                        != event_for_opcode(base, arg).map(|event| event as usize)
+                {
+                    return false;
+                }
+                checked += 1;
+            }
+            index = end;
+        }
+        if checked != layers.len() {
+            return false;
+        }
+        let Some(identity) = code.existing_monitoring_identity() else {
+            return false;
+        };
+        let Some(entry) = self.codes.get_mut(&identity_key(identity)) else {
+            return false;
+        };
+        if entry.layers.is_some() {
+            return true;
+        }
+        let added = event_tools(&entry.active_events);
+        // Initial installation only: different sites are independent, while
+        // each site's disabled events use the fixed direct/LINE/INSTRUCTION order.
+        #[allow(clippy::iter_over_hash_type)]
+        for (&index, site) in &mut layers {
+            site.transition(&[0; UNGROUPED_EVENTS_COUNT], &added);
+            site.transition(
+                &entry.disabled_tools(index * 2),
+                &[0; UNGROUPED_EVENTS_COUNT],
+            );
+        }
+        entry.layers = Some(layers);
+        true
+    }
+
+    pub(crate) fn layer_site(&self, code: &PyCode, index: usize) -> Option<MonitoringLayerSite> {
+        let identity = code.existing_monitoring_identity()?;
+        self.codes
+            .get(&identity_key(identity))?
+            .layers
+            .as_ref()?
+            .get(&index)
+            .copied()
+    }
+
+    fn synchronize_layers(&mut self, restart: bool) {
+        // Entries contain independent native state; iteration invokes no Python callbacks.
+        #[allow(clippy::iter_over_hash_type)]
+        for entry in self.codes.values_mut() {
+            entry.synchronize(&self.global_events, restart);
+        }
+    }
+
+    // Return retired allocations so callers destroy them after unlocking.
+    fn sweep_dead_codes(&mut self) -> Vec<CodeMonitoringEntry> {
+        self.codes
+            .extract_if(|_, entry| entry.identity.strong_count() == 0)
+            .map(|(_, entry)| entry)
+            .collect()
     }
 }
 
@@ -281,349 +674,125 @@ fn event_for_opcode(
     }
 }
 
-fn opcode_event_is_active(
-    op: rustpython_compiler_core::bytecode::Instruction,
-    oparg: u8,
-    events: u32,
-) -> bool {
-    event_for_opcode(op, oparg).is_some_and(|ev| events & ev.mask() != 0)
+/// Update only this interpreter's scalar subscriptions. Executable bytecode
+/// and adaptive caches are never rewritten by monitoring state changes.
+fn update_events_mask(vm: &VirtualMachine, state: &mut MonitoringState) {
+    state.synchronize_layers(false);
+    vm.state.monitoring_events.store(state.combined_events());
 }
 
-/// Rewrite a code object's bytecode in-place with layered instrumentation.
-///
-/// Three layers (outermost first):
-/// 1. INSTRUMENTED_LINE — wraps line-start instructions (stores original in side-table)
-/// 2. INSTRUMENTED_INSTRUCTION — wraps all traceable instructions (stores original in side-table)
-/// 3. Regular INSTRUMENTED_* — direct 1:1 opcode swap (no side-table needed)
-///
-/// De-instrumentation peels layers in reverse order.
-/// Specialized opcodes are restored to base only when their EVENT_FOR_OPCODE is active.
-pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
-    use rustpython_compiler_core::bytecode::{self, Instruction};
-
-    let len = code.code.instructions.len();
-    let mut monitoring_data = code.monitoring_data.lock();
-
-    // === Phase 1-3: De-instrument all layers (outermost first) ===
-
-    // Phase 1: Remove INSTRUMENTED_LINE → restore from side-table
-    if let Some(data) = monitoring_data.as_mut() {
-        for (i, opcode) in data.line_opcodes.iter_mut().enumerate().take(len) {
-            if *opcode != 0 {
-                let original =
-                    Instruction::try_from(*opcode).expect("invalid opcode in line side-table");
-                unsafe {
-                    code.code.instructions.replace_op(i, original);
-                }
-                *opcode = 0;
-            }
+pub(crate) fn prepare_code(vm: &VirtualMachine, code: &PyCode) {
+    let identity = code.monitoring_identity();
+    let key = identity_key(identity);
+    let (needed, retired) = {
+        let mut state = vm.state.monitoring.lock();
+        let retired = if state.codes.contains_key(&key) {
+            Vec::new()
+        } else {
+            state.sweep_dead_codes()
+        };
+        state.ensure_code(identity);
+        if !retired.is_empty() {
+            vm.state.monitoring_events.store(state.combined_events());
         }
-    }
-
-    // Phase 2: Remove INSTRUMENTED_INSTRUCTION → restore from side-table
-    if let Some(data) = monitoring_data.as_mut() {
-        for (i, opcode) in data
-            .per_instruction_opcodes
-            .iter_mut()
-            .enumerate()
-            .take(len)
-        {
-            if *opcode != 0 {
-                let original = Instruction::try_from(*opcode)
-                    .expect("invalid opcode in instruction side-table");
-                unsafe {
-                    code.code.instructions.replace_op(i, original);
-                }
-                *opcode = 0;
-            }
-        }
-    }
-
-    // Phase 3: Restore INSTRUMENTED_* whose event is no longer active.
-    // Restore specialized opcodes to base only when that family will be instrumented.
-    {
-        let mut i = 0;
-        while i < len {
-            let op = code.code.instructions.read_op(i);
-            let oparg = code.code.instructions.read_arg(i).as_u8();
-            let base_op = op.deoptimize();
-            let caches = base_op.cache_entries();
-            // LINE/INSTRUCTION wrap every instruction, so specialized
-            // CACHE payloads must be cleared first.
-            let want_instrumented =
-                events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask()) != 0
-                    || opcode_event_is_active(base_op, oparg, events);
-            let restore_base = if want_instrumented {
-                !op.is_instrumented() && u8::from(base_op) != u8::from(op)
-            } else {
-                op.is_instrumented()
-            };
-            if restore_base {
-                unsafe {
-                    code.code.instructions.replace_op(i, base_op);
-                }
-                for c in 1..=caches {
-                    if i + c < len {
-                        unsafe {
-                            code.code.instructions.write_cache_u16(i + c, 0);
-                        }
-                    }
-                }
-            }
-            i += 1 + caches;
-        }
-    }
-
-    if events == 0 {
-        *monitoring_data = None;
+        (state.codes[&key].metadata.is_none(), retired)
+    };
+    drop(retired);
+    if !needed {
         return;
     }
-
-    // === Phase 4-6: Re-instrument (innermost first) ===
-
-    // Ensure monitoring data exists
-    if monitoring_data.is_none() {
-        *monitoring_data = Some(CoMonitoringData {
-            line_opcodes: vec![0u8; len],
-            per_instruction_opcodes: vec![0u8; len],
-        });
-    }
-    let data = monitoring_data.as_mut().unwrap();
-    // Resize if code length changed (shouldn't happen, but be safe)
-    data.line_opcodes.resize(len, 0);
-    data.per_instruction_opcodes.resize(len, 0);
-
-    let first_traceable = code.first_traceable;
-
-    // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
-    // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
+    // Native metadata construction and losing candidate destruction occur
+    // outside the interpreter state guard.
+    let metadata = MonitoringMetadata::build(code);
+    let layers = metadata.layer_sites();
+    let mut candidate = Some(metadata);
     {
-        let mut i = first_traceable;
-        while i < len {
-            let op = code.code.instructions.read_op(i);
-            let oparg = code.code.instructions.read_arg(i).as_u8();
-            let caches = op.deoptimize().cache_entries();
-            if (events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask()) != 0
-                || opcode_event_is_active(op, oparg, events))
-                && let Some(instrumented) = op.to_instrumented()
-            {
-                unsafe {
-                    code.code.instructions.replace_op(i, instrumented);
-                }
-            }
-            i += 1 + caches;
+        let mut state = vm.state.monitoring.lock();
+        if state.codes[&key].metadata.is_none() && state.install_layers(code, layers) {
+            state.codes.get_mut(&key).unwrap().metadata = candidate.take();
         }
     }
-
-    // Phase 5: Place INSTRUMENTED_INSTRUCTION when Instruction is active
-    // LINE/INSTRUCTION restore specialized opcodes first, so CACHE slots are valid.
-    if events & MonitoringEvent::Instruction.mask() != 0 {
-        for i in first_traceable..len {
-            let op = code.code.instructions[i].op;
-            // Skip ExtendedArg
-            if matches!(op, Instruction::ExtendedArg) {
-                continue;
-            }
-            // Excluded: RESUME, END_FOR, CACHE (and their instrumented variants)
-            let base = op.to_base().unwrap_or(op);
-            if matches!(
-                base,
-                Instruction::Resume { .. } | Instruction::EndFor | Instruction::Cache
-            ) {
-                continue;
-            }
-            // Store current opcode (may already be INSTRUMENTED_*) and replace
-            data.per_instruction_opcodes[i] = u8::from(op);
-            unsafe {
-                code.code
-                    .instructions
-                    .replace_op(i, Instruction::InstrumentedInstruction);
-            }
-        }
-    }
-
-    // Phase 6: Place INSTRUMENTED_LINE when Line is active
-    // Mirrors CPython's initialize_lines: first determine which positions
-    // are line starts, then mark branch/jump targets, then place opcodes.
-    if events & MonitoringEvent::Line.mask() != 0 {
-        let base_opcode = |i| {
-            let mut op = code.code.instructions.read_op(i);
-            if matches!(op, Instruction::InstrumentedInstruction) {
-                op = Instruction::try_from(data.per_instruction_opcodes[i])
-                    .expect("INSTRUMENTED_INSTRUCTION without original opcode");
-            }
-            op.to_base().unwrap_or(op)
-        };
-        // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
-        let mut is_line_start = vec![false; len];
-        let line_locations = rustpython_compiler_core::marshal::linetable_to_locations(
-            &code.code.linetable,
-            code.code.first_line_number.map_or(-1, |x| x.get() as i32),
-            len,
-        );
-
-        // Build NO_LOCATION mask from linetable
-        let no_loc_mask = bytecode::build_no_location_mask(&code.code.linetable, len);
-
-        // First pass: mark positions where the source line changes
-        let mut prev_line: Option<u32> = None;
-        for (i, is_start) in is_line_start.iter_mut().enumerate().skip(first_traceable) {
-            let base = base_opcode(i);
-            if matches!(base, Instruction::ExtendedArg) {
-                continue;
-            }
-            // Excluded opcodes
-            if matches!(
-                base,
-                Instruction::Resume { .. }
-                    | Instruction::EndFor
-                    | Instruction::EndSend
-                    | Instruction::PopIter
-                    | Instruction::EndAsyncFor
-                    | Instruction::Cache
-            ) {
-                continue;
-            }
-            // Skip NO_LOCATION instructions
-            if no_loc_mask.get(i).copied().unwrap_or(false) {
-                continue;
-            }
-            if let Some((loc, _)) = line_locations.get(i) {
-                let line = loc.line.get() as u32;
-                let is_new = prev_line != Some(line);
-                prev_line = Some(line);
-                if is_new && line > 0 {
-                    *is_start = true;
-                }
-            }
-        }
-
-        // Second pass: mark branch/jump targets as line starts.
-        // Every jump/branch target must be a line start, even if on the
-        // same source line as the preceding instruction. Critical for loops
-        // (JUMP_BACKWARD → FOR_ITER).
-        let mut arg_state = bytecode::OpArgState::default();
-        let mut instr_idx = first_traceable;
-        for unit in code.code.instructions[first_traceable..len].iter().copied() {
-            let (_, arg) = arg_state.get(unit);
-            let base = base_opcode(instr_idx);
-
-            if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
-                instr_idx += 1;
-                continue;
-            }
-
-            let caches = base.cache_entries();
-            let after_caches = instr_idx + 1 + caches;
-            let delta = u32::from(arg) as usize;
-
-            let target: Option<usize> = match base {
-                // Forward relative jumps
-                Instruction::PopJumpIfFalse { .. }
-                | Instruction::PopJumpIfTrue { .. }
-                | Instruction::PopJumpIfNone { .. }
-                | Instruction::PopJumpIfNotNone { .. }
-                | Instruction::JumpForward { .. } => Some(after_caches + delta),
-                // Backward relative jumps
-                Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. } => {
-                    Some(after_caches.wrapping_sub(delta))
-                }
-                Instruction::ForIter { .. } | Instruction::Send { .. } => {
-                    // Skip over END_FOR/END_SEND
-                    Some(after_caches + delta + 1)
-                }
-                _ => None,
-            };
-
-            if let Some(target_idx) = target
-                && target_idx < len
-                && !is_line_start[target_idx]
-                && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
-            {
-                let target_base = base_opcode(target_idx);
-                // Skip synthetic cleanup targets.
-                if matches!(target_base, Instruction::PopIter) {
-                    instr_idx += 1;
-                    continue;
-                }
-                if let Some((loc, _)) = line_locations.get(target_idx)
-                    && loc.line.get() > 0
-                {
-                    is_line_start[target_idx] = true;
-                }
-            }
-            instr_idx += 1;
-        }
-
-        // Third pass: mark exception handler targets as line starts.
-        for entry in bytecode::decode_exception_table(&code.code.exceptiontable) {
-            let target_idx = entry.target as usize;
-            if target_idx < len
-                && !is_line_start[target_idx]
-                && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
-            {
-                let target_base = base_opcode(target_idx);
-                if !matches!(target_base, Instruction::PopIter)
-                    && let Some((loc, _)) = line_locations.get(target_idx)
-                    && loc.line.get() > 0
-                {
-                    is_line_start[target_idx] = true;
-                }
-            }
-        }
-
-        // Fourth pass: actually place INSTRUMENTED_LINE at all marked positions
-        for (i, marked) in is_line_start
-            .iter()
-            .copied()
-            .enumerate()
-            .take(len)
-            .skip(first_traceable)
-        {
-            if marked {
-                let op = code.code.instructions.read_op(i);
-                data.line_opcodes[i] = u8::from(op);
-                unsafe {
-                    code.code
-                        .instructions
-                        .replace_op(i, Instruction::InstrumentedLine);
-                }
-            }
-        }
-    }
+    drop(candidate);
 }
 
-/// Update the global monitoring_events atomic mask from current state.
-fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
-    let events = state.combined_events();
-    vm.state.monitoring_events.store(events);
-    let new_ver = vm
-        .state
-        .instrumentation_version
-        .fetch_add(1, Ordering::Release)
-        + 1;
-    // Eagerly re-instrument all frames on the current thread's stack so that
-    // code objects already past their RESUME pick up the new event set.
-    // Each code object gets only the events that apply to it (global + its
-    // own local events), preventing e.g. INSTRUCTION from being applied to
-    // unrelated code objects.
-    // Re-instrument all frames on the current thread's stack, including
-    // data stack frames that have no FrameObject.
-    {
-        let mut cur = crate::vm::thread::get_current_frame();
-        while !cur.is_null() {
-            let iframe_ref = unsafe { &*cur };
-            let code = iframe_ref.code();
-            let code_ver = code.instrumentation_version.load(Ordering::Acquire);
-            if code_ver != new_ver {
-                let code_events = state.events_for_code(code.get_id());
-                instrument_code(code, code_events);
-                code.instrumentation_version
-                    .store(new_ver, Ordering::Release);
-            }
-            cur = iframe_ref.previous();
-        }
+pub(crate) fn dispatch_operation(
+    vm: &VirtualMachine,
+    code: &PyCode,
+    index: usize,
+) -> Option<(
+    MonitoringInstruction,
+    rustpython_compiler_core::bytecode::Instruction,
+)> {
+    if vm.state.monitoring_events.load() == 0 {
+        return None;
     }
+    prepare_code(vm, code);
+    let state = vm.state.monitoring.lock();
+    if state.events_for_code(code) == 0 {
+        return None;
+    }
+    let key = identity_key(code.existing_monitoring_identity()?);
+    let entry = state.codes.get(&key)?;
+    let metadata = entry.metadata.as_ref()?;
+    if index >= metadata.prefix_len
+        || (state.events_for_code(code) & MonitoringEvent::Line.mask() != 0
+            && !metadata.line_info_valid)
+    {
+        return None;
+    }
+    let operation = *metadata.get(index)?;
+    let top = entry
+        .layers
+        .as_ref()?
+        .get(&index)
+        .map_or(operation.base, |site| site.top);
+    Some((operation, top))
+}
+
+pub(crate) fn layer_site(
+    vm: &VirtualMachine,
+    code: &PyCode,
+    index: usize,
+) -> Option<MonitoringLayerSite> {
+    vm.state.monitoring.lock().layer_site(code, index)
+}
+
+pub(crate) fn source_operation(
+    code: &PyCode,
+    index: usize,
+) -> Option<rustpython_compiler_core::bytecode::CodeUnit> {
+    let source = code.instructions.proven_source_prefix();
+    let mut at = 0usize;
+    while at < source.len() {
+        let unit = source[at];
+        if at == index {
+            return Some(rustpython_compiler_core::bytecode::CodeUnit::new(
+                unit.op.deoptimize(),
+                unit.arg,
+            ));
+        }
+        if at > index {
+            return None;
+        }
+        at = at.checked_add(1 + unit.op.cache_entries())?;
+    }
+    None
+}
+
+pub(crate) fn known_operation(
+    vm: &VirtualMachine,
+    code: &PyCode,
+    index: usize,
+) -> Option<MonitoringInstruction> {
+    let identity = code.existing_monitoring_identity()?;
+    let state = vm.state.monitoring.lock();
+    state
+        .codes
+        .get(&identity_key(identity))?
+        .metadata
+        .as_ref()?
+        .get(index)
+        .copied()
 }
 
 fn use_tool_id(tool_id: i32, name: &str, vm: &VirtualMachine) -> PyResult<()> {
@@ -646,19 +815,22 @@ fn free_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
 
 fn release_tool_callbacks(tool_id: i32, free: bool, vm: &VirtualMachine) -> PyResult<()> {
     let tool = check_valid_tool(tool_id, vm)?;
-    let callbacks = {
+    let (callbacks, retired) = {
         let mut state = vm.state.monitoring.lock();
+        let retired = state.sweep_dead_codes();
         let callbacks = if state.tool_names[tool].is_some() {
             state.global_events[tool] = 0;
-            state
-                .local_events
-                .retain(|(local_tool, _), _| *local_tool != tool);
+            // Only independent scalar masks and scalar disabled keys are cleared here.
+            #[allow(clippy::iter_over_hash_type)]
+            for entry in state.codes.values_mut() {
+                entry.local_events[tool] = 0;
+                entry.disabled.retain(|&(_, _, t)| t != tool);
+            }
             let callbacks: Vec<_> = state
                 .callbacks
                 .extract_if(|(cb_tool, _), _| *cb_tool == tool)
                 .map(|(_, callback)| callback)
                 .collect();
-            state.disabled.retain(|&(_, _, _, t)| t != tool);
             state
                 .legacy_branch_callbacks
                 .retain(|(cb_tool, _)| *cb_tool != tool);
@@ -666,11 +838,12 @@ fn release_tool_callbacks(tool_id: i32, free: bool, vm: &VirtualMachine) -> PyRe
         } else {
             Vec::new()
         };
-        update_events_mask(vm, &state);
-        callbacks
+        update_events_mask(vm, &mut state);
+        (callbacks, retired)
     };
     // Callback finalizers may reenter monitoring; release owners after unlocking.
     drop(callbacks);
+    drop(retired);
     // Keep the name visible during callback finalization, as CPython does.
     if free {
         vm.state.monitoring.lock().tool_names[tool] = None;
@@ -737,24 +910,30 @@ fn set_events(tool_id: i32, event_set: i32, vm: &VirtualMachine) -> PyResult<()>
     let tool = check_valid_tool(tool_id, vm)?;
     check_tool_in_use(tool, vm)?;
     let normalized = normalize_event_set(event_set, false, vm)?;
-    let mut state = vm.state.monitoring.lock();
-    state.global_events[tool] = normalized;
-    update_events_mask(vm, &state);
+    let retired = {
+        let mut state = vm.state.monitoring.lock();
+        let retired = state.sweep_dead_codes();
+        state.global_events[tool] = normalized;
+        update_events_mask(vm, &mut state);
+        retired
+    };
+    drop(retired);
     Ok(())
 }
 
 fn get_local_events(tool_id: i32, code: &PyObject, vm: &VirtualMachine) -> PyResult<u32> {
-    if code.downcast_ref::<PyCode>().is_none() {
-        return Err(vm.new_type_error("code must be a code object"));
-    }
+    let code = code
+        .downcast_ref::<PyCode>()
+        .ok_or_else(|| vm.new_type_error("code must be a code object"))?;
     let tool = check_valid_tool(tool_id, vm)?;
-    let code_id = code.get_id();
-    let state = vm.state.monitoring.lock();
-    Ok(state
-        .local_events
-        .get(&(tool, code_id))
-        .copied()
-        .unwrap_or(0))
+    let Some(identity) = code.existing_monitoring_identity() else {
+        return Ok(0);
+    };
+    Ok(vm
+        .state
+        .monitoring
+        .lock()
+        .local_events(identity_key(identity), tool))
 }
 
 fn set_local_events(
@@ -763,26 +942,38 @@ fn set_local_events(
     event_set: i32,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    if code.downcast_ref::<PyCode>().is_none() {
-        return Err(vm.new_type_error("code must be a code object"));
-    }
+    let code = code
+        .downcast_ref::<PyCode>()
+        .ok_or_else(|| vm.new_type_error("code must be a code object"))?;
     let tool = check_valid_tool(tool_id, vm)?;
     check_tool_in_use(tool, vm)?;
     let normalized = normalize_event_set(event_set, true, vm)?;
-    let code_id = code.get_id();
-    let mut state = vm.state.monitoring.lock();
-    if normalized == 0 {
-        state.local_events.remove(&(tool, code_id));
-    } else {
-        state.local_events.insert((tool, code_id), normalized);
-    }
-    update_events_mask(vm, &state);
+    let identity = code.monitoring_identity();
+    let retired = {
+        let mut state = vm.state.monitoring.lock();
+        let retired = state.sweep_dead_codes();
+        state.ensure_code(identity);
+        state
+            .codes
+            .get_mut(&identity_key(identity))
+            .unwrap()
+            .local_events[tool] = normalized;
+        update_events_mask(vm, &mut state);
+        retired
+    };
+    drop(retired);
     Ok(())
 }
 
 fn restart_events(vm: &VirtualMachine) {
-    let mut state = vm.state.monitoring.lock();
-    state.disabled.clear();
+    let retired = {
+        let mut state = vm.state.monitoring.lock();
+        let retired = state.sweep_dead_codes();
+        state.synchronize_layers(true);
+        vm.state.monitoring_events.store(state.combined_events());
+        retired
+    };
+    drop(retired);
 }
 
 fn all_events(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -853,105 +1044,103 @@ fn fire_at(
     source_offset: u32,
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
-    // Prevent recursive event firing
-    if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
-        return Ok(());
-    }
+    let tools = snapshot_tools(vm, event, code, offset);
+    fire_snapshot(vm, event, code, offset, source_offset, cb_extra, tools)
+}
 
-    let event_id = event as usize;
-    let event_mask = event.mask();
-    let code_id = code.get_id();
-    let disabled_event = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
+// Snapshot eligibility independently of callback presence. An earlier selected
+// tool may replace/install a later selected tool's callback before its turn.
+pub(crate) fn snapshot_tools(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    code: &Py<PyCode>,
+    offset: u32,
+) -> u8 {
+    if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
+        return 0;
+    }
+    prepare_code(vm, code);
+    let key = identity_key(code.monitoring_identity());
+    let event_id = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
         MonitoringEvent::Call as usize
     } else {
-        event_id
+        event as usize
     };
-
-    // C_RETURN and C_RAISE are implicitly enabled when CALL is set.
     let check_bit = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
-        event_mask | MonitoringEvent::Call.mask()
+        event.mask() | MonitoringEvent::Call.mask()
     } else {
-        event_mask
+        event.mask()
     };
-
-    let branch_source = if matches!(
-        event,
-        MonitoringEvent::BranchLeft | MonitoringEvent::BranchRight
-    ) {
-        Some(branch_source_events(code, source_offset))
-    } else {
-        None
-    };
-
-    // Collect callbacks without holding the monitoring lock across Python code.
-    let callbacks = {
-        let mut state = vm.state.monitoring.lock();
-        let mut cbs = Vec::new();
-        for tool in 0..TOOL_LIMIT {
-            let global = state.global_events[tool];
-            let local = state
-                .local_events
-                .get(&(tool, code_id))
-                .copied()
-                .unwrap_or(0);
-            if ((global | local) & check_bit) == 0 {
-                continue;
+    let state = vm.state.monitoring.lock();
+    (0..TOOL_LIMIT).fold(0, |tools, tool| {
+        let active = state.global_events[tool] | state.local_events(key, tool);
+        tools
+            | if active & check_bit != 0 && !state.disabled(key, offset as usize, event_id, tool) {
+                1 << tool
+            } else {
+                0
             }
-            if state
-                .disabled
-                .contains(&(code_id, offset as usize, disabled_event, tool))
-            {
-                continue;
-            }
-            if state.callbacks.contains_key(&(tool, event_id)) {
-                let legacy_branch = state.legacy_branch_callbacks.contains(&(tool, event_id));
-                if legacy_branch
-                    && branch_source.as_ref().is_some_and(|events| {
-                        !events.iter().any(|source_event| {
-                            event_active_at(&state, code_id, source_offset, *source_event)
-                        })
-                    })
-                {
-                    // The legacy wrapper returns DISABLE without calling the
-                    // user when the source instruction is no longer instrumented.
-                    state
-                        .disabled
-                        .insert((code_id, offset as usize, event_id, tool));
-                    continue;
-                }
-                cbs.push((tool, state.callbacks[&(tool, event_id)].clone()));
-            }
-        }
-        cbs
-    };
+    })
+}
 
-    if callbacks.is_empty() {
+pub(crate) fn fire_snapshot(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    code: &Py<PyCode>,
+    offset: u32,
+    source_offset: u32,
+    cb_extra: &[PyObjectRef],
+    tools: u8,
+) -> PyResult<()> {
+    if tools == 0 {
         return Ok(());
     }
-
+    let code_id = identity_key(code.monitoring_identity());
+    let event_id = event as usize;
+    let event_mask = event.mask();
     let mut args_vec = Vec::with_capacity(1 + cb_extra.len());
     args_vec.push(code.to_owned().into());
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
-
-    for (tool, cb) in callbacks {
-        if call_instrument(vm, event, &cb, args.clone())? {
+    for tool in (0..TOOL_LIMIT)
+        .rev()
+        .filter(|tool| tools & (1 << tool) != 0)
+    {
+        let callback = {
+            let mut state = vm.state.monitoring.lock();
+            let legacy = state.legacy_branch_callbacks.contains(&(tool, event_id));
+            let source_instrumented = state
+                .layer_site(code, source_offset as usize / 2)
+                .is_some_and(|site| site.top.is_instrumented());
+            if legacy && !source_instrumented {
+                state.codes.get_mut(&code_id).unwrap().disable_site(
+                    offset as usize,
+                    event_id,
+                    tool,
+                );
+                None
+            } else {
+                state.callbacks.get(&(tool, event_id)).cloned()
+            }
+        };
+        let Some(callback) = callback else {
+            continue;
+        };
+        if call_instrument(vm, event, &callback, args.clone())? {
             if is_instrumented_event(event_id) {
-                let mut state = vm.state.monitoring.lock();
-                state
-                    .disabled
-                    .insert((code_id, offset as usize, event_id, tool));
+                vm.state
+                    .monitoring
+                    .lock()
+                    .codes
+                    .get_mut(&code_id)
+                    .unwrap()
+                    .disable_site(offset as usize, event_id, tool);
             } else if event_id < UNGROUPED_EVENTS_COUNT {
-                // Non-instrumented events are disabled for this whole code
-                // object by removing only the local subscription. Global
-                // subscriptions continue to fire, including for this code.
                 let mut state = vm.state.monitoring.lock();
-                if let Some(local) = state.local_events.get_mut(&(tool, code_id)) {
+                let local = &mut state.codes.get_mut(&code_id).unwrap().local_events[tool];
+                if *local != 0 {
                     *local &= !event_mask;
-                    if *local == 0 {
-                        state.local_events.remove(&(tool, code_id));
-                    }
-                    update_events_mask(vm, &state);
+                    update_events_mask(vm, &mut state);
                 }
             } else {
                 return Err(cannot_disable(vm, event, tool));
@@ -961,63 +1150,6 @@ fn fire_at(
     Ok(())
 }
 
-fn event_active_at(
-    state: &MonitoringState,
-    code_id: usize,
-    offset: u32,
-    event: MonitoringEvent,
-) -> bool {
-    (0..TOOL_LIMIT).any(|tool| {
-        let active = state.global_events[tool]
-            | state
-                .local_events
-                .get(&(tool, code_id))
-                .copied()
-                .unwrap_or(0);
-        state.tool_names[tool].is_some()
-            && active & event.mask() != 0
-            && !state
-                .disabled
-                .contains(&(code_id, offset as usize, event as usize, tool))
-    })
-}
-
-pub(crate) fn is_event_active_at(
-    vm: &VirtualMachine,
-    code: &Py<PyCode>,
-    offset: u32,
-    event: MonitoringEvent,
-) -> bool {
-    event_active_at(&vm.state.monitoring.lock(), code.get_id(), offset, event)
-}
-
-// Model the source's instrumentation layers without changing its bytecode.
-// A layer stays instrumented until its last subscribed tool disables it.
-fn branch_source_events(code: &Py<PyCode>, offset: u32) -> Vec<MonitoringEvent> {
-    use rustpython_compiler_core::bytecode::Instruction;
-    let index = offset as usize / 2;
-    let data = code.monitoring_data.lock();
-    let mut events = Vec::with_capacity(3);
-    let mut op = code.code.instructions.read_op(index);
-    if let Some(data) = data.as_ref() {
-        if matches!(op, Instruction::InstrumentedLine) {
-            events.push(MonitoringEvent::Line);
-            op = Instruction::try_from(data.line_opcodes[index])
-                .expect("INSTRUMENTED_LINE without original opcode");
-        }
-        if matches!(op, Instruction::InstrumentedInstruction) {
-            events.push(MonitoringEvent::Instruction);
-            op = Instruction::try_from(data.per_instruction_opcodes[index])
-                .expect("INSTRUMENTED_INSTRUCTION without original opcode");
-        }
-    }
-    if let Some(event) = event_for_opcode(op, code.code.instructions.read_arg(index).as_u8()) {
-        events.push(event);
-    }
-    events
-}
-
-// Restore tracing state before processing a callback result or exception.
 fn call_instrument(
     vm: &VirtualMachine,
     event: MonitoringEvent,
@@ -1057,41 +1189,6 @@ fn cannot_disable(
 }
 
 // Public dispatch functions (called from frame.rs)
-
-pub(crate) fn fire_py_start(vm: &VirtualMachine, code: &Py<PyCode>, offset: u32) -> PyResult<()> {
-    fire(
-        vm,
-        MonitoringEvent::PyStart,
-        code,
-        offset,
-        &[vm.ctx.new_int(offset).into()],
-    )
-}
-
-pub(crate) fn fire_py_resume(vm: &VirtualMachine, code: &Py<PyCode>, offset: u32) -> PyResult<()> {
-    fire(
-        vm,
-        MonitoringEvent::PyResume,
-        code,
-        offset,
-        &[vm.ctx.new_int(offset).into()],
-    )
-}
-
-pub(crate) fn fire_py_return(
-    vm: &VirtualMachine,
-    code: &Py<PyCode>,
-    offset: u32,
-    retval: &PyObject,
-) -> PyResult<()> {
-    fire(
-        vm,
-        MonitoringEvent::PyReturn,
-        code,
-        offset,
-        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
-    )
-}
 
 pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
@@ -1153,35 +1250,6 @@ pub(crate) fn fire_c_raise(
         code,
         offset,
         &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
-    )
-}
-
-pub(crate) fn fire_line(
-    vm: &VirtualMachine,
-    code: &Py<PyCode>,
-    offset: u32,
-    line: u32,
-) -> PyResult<()> {
-    fire(
-        vm,
-        MonitoringEvent::Line,
-        code,
-        offset,
-        &[vm.ctx.new_int(line).into()],
-    )
-}
-
-pub(crate) fn fire_instruction(
-    vm: &VirtualMachine,
-    code: &Py<PyCode>,
-    offset: u32,
-) -> PyResult<()> {
-    fire(
-        vm,
-        MonitoringEvent::Instruction,
-        code,
-        offset,
-        &[vm.ctx.new_int(offset).into()],
     )
 }
 
@@ -1297,24 +1365,6 @@ pub(crate) fn fire_stop_iteration(
         code,
         offset,
         &[vm.ctx.new_int(offset).into(), exc],
-    )
-}
-
-pub(crate) fn fire_jump(
-    vm: &VirtualMachine,
-    code: &Py<PyCode>,
-    offset: u32,
-    destination: u32,
-) -> PyResult<()> {
-    fire(
-        vm,
-        MonitoringEvent::Jump,
-        code,
-        offset,
-        &[
-            vm.ctx.new_int(offset).into(),
-            vm.ctx.new_int(destination).into(),
-        ],
     )
 }
 

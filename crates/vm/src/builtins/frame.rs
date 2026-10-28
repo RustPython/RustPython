@@ -156,25 +156,14 @@ pub(crate) mod stack_analysis {
 
     /// Analyze bytecode and compute the stack state at each instruction index.
     pub(crate) fn mark_stacks(code: &PyCode) -> Vec<i64> {
-        let instructions = &*code.instructions;
+        let instructions = code.instructions.proven_source_prefix();
         let len = instructions.len();
-        let monitoring_data = code.monitoring_data.lock();
-        let base_opcode = |i| {
-            let mut op = code.instructions.read_op(i);
-            if let Some(data) = monitoring_data.as_ref() {
-                if matches!(op, Instruction::InstrumentedLine) {
-                    op = Instruction::try_from(data.line_opcodes[i])
-                        .expect("INSTRUMENTED_LINE without original opcode");
-                }
-                if matches!(op, Instruction::InstrumentedInstruction) {
-                    op = Instruction::try_from(data.per_instruction_opcodes[i])
-                        .expect("INSTRUMENTED_INSTRUCTION without original opcode");
-                }
-            }
-            op.to_base().unwrap_or(op).deoptimize()
-        };
+        let full_len = code.instructions.len();
+        let base_opcode = |i: usize| instructions[i].op.deoptimize();
 
-        let mut stacks = vec![UNINITIALIZED; len + 1];
+        // Keep full indexing for f_lineno consumers, but do not infer stack
+        // states from an opaque or truncated instruction suffix.
+        let mut stacks = vec![UNINITIALIZED; full_len + 1];
         stacks[0] = EMPTY_STACK;
 
         let mut todo = true;
@@ -390,9 +379,9 @@ pub(crate) mod stack_analysis {
                 let level = entry.depth as u32;
                 let has_lasti = entry.push_lasti;
 
-                if start_offset < stacks.len()
+                if start_offset < len
                     && stacks[start_offset] != UNINITIALIZED
-                    && handler < stacks.len()
+                    && handler < len
                     && stacks[handler] == UNINITIALIZED
                 {
                     todo = true;
@@ -406,6 +395,9 @@ pub(crate) mod stack_analysis {
             }
         }
 
+        if len < full_len {
+            stacks[len..].fill(UNINITIALIZED);
+        }
         stacks
     }
 
@@ -810,12 +802,46 @@ impl Py<FrameObject> {
         } else {
             self.lasti() as usize
         };
-        let start_idx = current_lasti.saturating_sub(1);
+        // Branch callbacks can assign f_lineno more than once before the
+        // executing handler applies the deferred unwind. Their actual stack
+        // still belongs to the original operation, not the previous target.
+        let branch_origin = if !live.is_null()
+            && matches!(
+                what_event,
+                crate::stdlib::sys::monitoring::MonitoringEvent::BranchLeft
+                    | crate::stdlib::sys::monitoring::MonitoringEvent::BranchRight
+                    | crate::stdlib::sys::monitoring::MonitoringEvent::Jump
+            ) {
+            // SAFETY: find_live_source_iframe resolved this frame on this
+            // thread's active chain; no foreign frame's Cell is read.
+            unsafe { (*live).monitoring_current_instruction() }.map(|index| index as usize)
+        } else {
+            None
+        };
+        let start_idx = branch_origin.unwrap_or_else(|| current_lasti.saturating_sub(1));
         let mut start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
         } else {
             OVERFLOWED
         };
+        if start_stack >= 0 {
+            use crate::stdlib::sys::monitoring::{MonitoringEvent, source_operation};
+            match (
+                what_event,
+                source_operation(py_code, start_idx).map(|unit| unit.op),
+            ) {
+                // Taken NOT_NONE has already closed its condition. Validate
+                // against the actual callback stack; never restore that value.
+                (MonitoringEvent::BranchRight, Some(Instruction::PopJumpIfNotNone { .. })) => {
+                    start_stack = pop_value(start_stack);
+                }
+                // FOR_ITER's continuing edge has already pushed its item.
+                (MonitoringEvent::BranchLeft, Some(Instruction::ForIter { .. })) => {
+                    start_stack = push_value(start_stack, Kind::Object as i64);
+                }
+                _ => {}
+            }
+        }
         let mut best_stack = OVERFLOWED;
         let mut best_addr: i32 = -1;
         let mut err: i32 = -1;
@@ -877,14 +903,6 @@ impl Py<FrameObject> {
         } else {
             self.iframe()
         };
-        target
-            .cold()
-            .pending_stack_pops
-            .store(pop_count as u32, Relaxed);
-        target
-            .cold()
-            .pending_unwind_from_stack
-            .store(start_stack, Relaxed);
         // Bind None into any NULL localsplus slots the jump target may
         // assume exist, rather than leaving LOAD_FAST to raise later.
         let unbound = {
@@ -916,7 +934,16 @@ impl Py<FrameObject> {
             }
         }
 
+        // Publish the deferred jump only after the fallible warning above.
+        // A failed later assignment must not replace an earlier pending jump.
+        let cold = target.cold();
+        cold.pending_stack_pops.store(pop_count as u32, Relaxed);
+        cold.pending_unwind_from_stack.store(start_stack, Relaxed);
         target.lasti.store(best_addr as u32, Relaxed);
+        // This discriminator belongs to an operation whose callback is still
+        // in flight. Suspended targets retain their existing deferred fields,
+        // without making an unrelated resumed instruction consume them.
+        cold.pending_lineno_jump.store(!live.is_null(), Relaxed);
         Ok(())
     }
 

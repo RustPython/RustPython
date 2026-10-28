@@ -10,7 +10,7 @@ pub use buffer::{
     BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, VecBuffer,
 };
 pub use callable::PyCallable;
-pub(crate) use callable::TraceEvent;
+pub(crate) use callable::{TraceEvent, TraceParticipant};
 pub use iter::{PyIter, PyIterIter, PyIterReturn};
 pub use mapping::{PyMapping, PyMappingMethods, PyMappingSlots};
 pub use number::{

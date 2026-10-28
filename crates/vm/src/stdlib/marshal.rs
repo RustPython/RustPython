@@ -590,6 +590,13 @@ mod decl {
     }
 
     impl<'a> marshal::MarshalBag for PyMarshalBag<'a> {
+        fn code_units_from_bytes(
+            &self,
+            bytes: &[u8],
+        ) -> Result<rustpython_compiler_core::bytecode::CodeUnits, marshal::MarshalError> {
+            rustpython_compiler_core::bytecode::CodeUnits::from_external_bytes(bytes)
+        }
+
         type Value = PyObjectRef;
         type ConstantBag = PyVmBag<'a>;
 
