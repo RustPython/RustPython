@@ -569,7 +569,7 @@ mod winreg {
         #[pyarg(any)]
         key: PyRef<PyHkey>,
         #[pyarg(any)]
-        sub_key: String,
+        sub_key: Option<PyRef<PyStr>>,
         #[pyarg(any, default)]
         reserved: u32,
         #[pyarg(any, default = host_winreg::KEY_READ, py_default = "winreg.KEY_READ")]
@@ -579,17 +579,30 @@ mod winreg {
     #[pyfunction]
     #[pyfunction(name = "OpenKeyEx")]
     fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let sub_key = WideCString::from_str(args.sub_key).map_err(|e| e.to_pyexception(vm))?;
+        let sub_key = args
+            .sub_key
+            .as_ref()
+            .map(|s| WideCString::from_vec(s.as_wtf8().encode_wide().collect::<Vec<_>>()))
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        let key = args.key.hkey.load();
+        vm.audit("winreg.OpenKey", || {
+            (key as isize, args.sub_key, args.access as isize)
+        })?;
         let mut res: host_winreg::HKEY = core::ptr::null_mut();
-        let err = unsafe {
-            let key = args.key.hkey.load();
-            host_winreg::open_key_ex(key, &sub_key, args.reserved, args.access, &mut res)
-        };
+        let err = vm.allow_threads(|| unsafe {
+            host_winreg::open_key_ex(
+                key,
+                sub_key.as_deref(),
+                args.reserved,
+                args.access,
+                &mut res,
+            )
+        });
         if err == 0 {
-            Ok(PyHkey {
-                #[allow(clippy::arc_with_non_send_sync)]
-                hkey: AtomicHKEY::new(res),
-            })
+            let result = PyHkey::new(res);
+            vm.audit("winreg.OpenKey/result", || (res as isize,))?;
+            Ok(result)
         } else {
             Err(os_error_from_windows_code(vm, err as i32))
         }
