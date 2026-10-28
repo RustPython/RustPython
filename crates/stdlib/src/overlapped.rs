@@ -1048,6 +1048,10 @@ mod _overlapped {
                 return Err(vm.new_value_error("buffer too large"));
             }
 
+            if size as usize > buf_len {
+                return Err(vm.new_value_error("nbytes is greater than the length of the buffer"));
+            }
+
             let address: host_overlapped::SocketAddrV6 = unsafe { core::mem::zeroed() };
             let address_length = core::mem::size_of::<host_overlapped::SocketAddrV6>() as i32;
 
@@ -1292,5 +1296,41 @@ mod _overlapped {
     fn ResetEvent(handle: isize, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::reset_event(handle as host_winapi::Handle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::vm::{TryFromObject, builtins::PyByteArray};
+
+        #[test]
+        fn recvfrom_into_rejects_oversized_request_before_starting_io() {
+            let builder = crate::vm::Interpreter::builder(Default::default());
+            let defs = crate::stdlib_module_defs(&builder.ctx);
+            let interp = builder.add_native_modules(&defs).build();
+            interp.enter(|vm| {
+                let module = vm.import("_overlapped", 0).unwrap();
+                let overlapped = module
+                    .get_attr("Overlapped", vm)
+                    .unwrap()
+                    .call((0,), vm)
+                    .unwrap()
+                    .downcast::<Overlapped>()
+                    .unwrap();
+                let buffer = PyByteArray::from(vec![0; 8]).into_ref(&vm.ctx);
+                let buffer = ArgMemoryBuffer::try_from_object(vm, buffer.into()).unwrap();
+                let err = Overlapped::WSARecvFromInto(
+                    &overlapped,
+                    0,
+                    buffer,
+                    9,
+                    OptionalArg::Missing,
+                    vm,
+                )
+                .unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.value_error));
+                assert!(matches!(overlapped.inner.lock().data, OverlappedData::None));
+            });
+        }
     }
 }
