@@ -804,7 +804,6 @@ class _pthFileTests(unittest.TestCase):
             )], env=env)
         self.assertTrue(rc, "sys.path is incorrect")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_subprocess()
     def test_underpth_dll_file(self):
         libpath = test.support.STDLIB_DIR
