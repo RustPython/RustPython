@@ -161,6 +161,11 @@ pub unsafe fn delete_value(key: Registry::HKEY, value_name: Option<&widestring::
     unsafe { Registry::RegDeleteValueW(key, name_ptr) }
 }
 
+pub unsafe fn delete_tree(key: Registry::HKEY, sub_key: Option<&widestring::WideCStr>) -> u32 {
+    let name_ptr = sub_key.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegDeleteTreeW(key, name_ptr) }
+}
+
 pub unsafe fn enum_key_ex(
     key: Registry::HKEY,
     index: u32,
