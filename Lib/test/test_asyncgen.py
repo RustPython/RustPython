@@ -1835,20 +1835,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         res = self.loop.run_until_complete(run())
         self.assertEqual(res, [i * 2 for i in range(1, 10)])
 
-    def test_async_gen_expression_incorrect(self):
-        async def ag():
-            yield 42
-
-        async def run(arg):
-            (x async for x in arg)
-
-        err_msg_async = "'async for' requires an object with " \
-            "__aiter__ method, got .*"
-
-        self.loop.run_until_complete(run(ag()))
-        with self.assertRaisesRegex(TypeError, err_msg_async):
-            self.loop.run_until_complete(run(None))
-
     def test_asyncgen_nonstarted_hooks_are_cancellable(self):
         # See https://bugs.python.org/issue38013
         messages = []
@@ -2034,6 +2020,15 @@ class TestUnawaitedWarnings(unittest.TestCase):
             g = gen()
             g.athrow(RuntimeError)
             gc_collect()
+
+    def test_athrow_throws_immediately(self):
+        async def gen():
+            yield 1
+
+        g = gen()
+        msg = "athrow expected at least 1 argument, got 0"
+        with self.assertRaisesRegex(TypeError, msg):
+            g.athrow()
 
     def test_aclose(self):
         async def gen():

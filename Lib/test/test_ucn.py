@@ -114,10 +114,10 @@ class UnicodeNamesTest(unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: got unexpected unicode
     def test_tangut_ideographs(self):
         self.checkletter("TANGUT IDEOGRAPH-17000", "\U00017000")
-        self.checkletter("TANGUT IDEOGRAPH-187F7", "\U000187f7")
+        self.checkletter("TANGUT IDEOGRAPH-187FF", "\U000187ff")
         self.checkletter("TANGUT IDEOGRAPH-18D00", "\U00018D00")
-        self.checkletter("TANGUT IDEOGRAPH-18D08", "\U00018d08")
-        self.checkletter("tangut ideograph-18d08", "\U00018d08")
+        self.checkletter("TANGUT IDEOGRAPH-18D1E", "\U00018d1e")
+        self.checkletter("tangut ideograph-18d1e", "\U00018d1e")
 
     def test_egyptian_hieroglyphs(self):
         self.checkletter("EGYPTIAN HIEROGLYPH-13460", "\U00013460")
