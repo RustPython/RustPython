@@ -1102,7 +1102,7 @@ mod _json {
         /// collection on every step (rather than working off a
         /// pre-collected snapshot) so that a `default()`/nested-encoder
         /// callback that shrinks the list mid-encode is observed the same
-        /// way CPython's `PySequence_Fast`-free direct indexing observes it
+        /// way CPython's live sequence iteration observes it
         /// (see `test_encode_mutated`: deleting the last element on every
         /// callback call causes encoding to stop early once the shrinking
         /// list's length catches up with the read cursor).
@@ -1113,7 +1113,7 @@ mod _json {
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
             len: impl Fn() -> usize,
-            get: impl Fn(usize) -> PyObjectRef,
+            get: impl Fn(usize) -> Option<PyObjectRef>,
         ) -> PyResult<()> {
             if len() == 0 {
                 out.push_str("[]");
@@ -1128,7 +1128,9 @@ mod _json {
             };
             let mut i = 0;
             while i < len() {
-                let value = get(i);
+                let Some(value) = get(i) else {
+                    break;
+                };
                 if i == 0 {
                     self.push_newline_indent(out, new_level);
                 } else {
@@ -1311,11 +1313,18 @@ mod _json {
                         out,
                         vm,
                         || list.borrow_vec().len(),
-                        |i| list.borrow_vec()[i].clone(),
+                        |i| list.borrow_vec().get(i).cloned(),
                     )
                 } else if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
                     let slice = tuple.as_slice();
-                    self.encode_list(obj, level, out, vm, || slice.len(), |i| slice[i].clone())
+                    self.encode_list(
+                        obj,
+                        level,
+                        out,
+                        vm,
+                        || slice.len(),
+                        |i| slice.get(i).cloned(),
+                    )
                 } else if let Some(dict) = PyAnyDict::from_object(obj) {
                     self.encode_dict(obj, dict, level, out, vm)
                 } else {
