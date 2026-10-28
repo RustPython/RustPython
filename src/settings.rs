@@ -295,24 +295,6 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
 
-    if let Some(val) = get_env("PYTHONUTF8")
-        && let Some(val_str) = val.to_str()
-        && !val_str.is_empty()
-    {
-        settings.utf8_mode = match val_str {
-            "1" => 1,
-            "0" => 0,
-            _ => {
-                error!(
-                    "Fatal Python error: config_init_utf8_mode: \
-                     PYTHONUTF8=N: N is missing or invalid\n\
-                     Python runtime state: preinitialized"
-                );
-                std::process::exit(1);
-            }
-        };
-    }
-
     if let Some(val) = get_env("PYTHON_LAZY_IMPORTS").filter(|val| !val.is_empty()) {
         settings.lazy_imports = parse_lazy_imports(val.to_str(), "PYTHON_LAZY_IMPORTS");
     }
@@ -330,6 +312,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     let mut lazy_imports_option_seen = false;
     let mut import_time_option_seen = false;
     let mut frozen_modules_option_seen = false;
+    let mut utf8_option_seen = false;
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
@@ -348,20 +331,21 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             }
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
-            "utf8" => {
+            "utf8" if !utf8_option_seen => {
                 settings.utf8_mode = match value {
                     None => 1,
                     Some("1") => 1,
                     Some("0") => 0,
                     _ => {
                         error!(
-                            "Fatal Python error: config_init_utf8_mode: \
-                             -X utf8=n: n is missing or invalid\n\
+                            "Fatal Python error: preconfig_init_utf8_mode: \
+                             invalid -X utf8 option value\n\
                              Python runtime state: preinitialized"
                         );
                         std::process::exit(1);
                     }
                 };
+                utf8_option_seen = true;
             }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
@@ -416,6 +400,22 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         (name, value.map(str::to_owned))
     });
     settings.xoptions.extend(xopts);
+
+    if !utf8_option_seen && let Some(val) = get_env("PYTHONUTF8").filter(|value| !value.is_empty())
+    {
+        settings.utf8_mode = match val.to_str() {
+            Some("1") => 1,
+            Some("0") => 0,
+            _ => {
+                error!(
+                    "Fatal Python error: preconfig_init_utf8_mode: \
+                     invalid PYTHONUTF8 environment variable value\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
 
     // CPython validates the first frozen_modules option before initialization,
     // then getpath's config dictionary round-trip keeps the last occurrence.

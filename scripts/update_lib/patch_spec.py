@@ -635,11 +635,21 @@ def select_remaining_patches(
             pending = list(existing)
             omitted = []
             for marker in remaining.get(cls, {}).get(method, []):
-                if marker not in pending:
+                original = marker
+                if (
+                    original not in pending
+                    and marker.ut_method == UtMethod.ExpectedFailureIf
+                    and marker.cond
+                ):
+                    # A condition only retires part of an unconditional failure.
+                    original = marker._replace(
+                        ut_method=UtMethod.ExpectedFailure, cond=None
+                    )
+                if original not in pending:
                     raise ValueError(
                         "Marker override cannot add, change, or reorder markers"
                     )
-                index = pending.index(marker)
+                index = pending.index(original)
                 omitted.extend(pending[:index])
                 pending = pending[index + 1 :]
             omitted.extend(pending)

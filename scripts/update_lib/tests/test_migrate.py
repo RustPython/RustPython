@@ -601,6 +601,66 @@ class MarkerOverrideTests(unittest.TestCase):
             with self.subTest(markers=markers), self.assertRaises(ValueError):
                 select_remaining_patches(current, document, Path(document["target"]))
 
+    def test_cli_narrows_unconditional_failure(self):
+        def narrow(document):
+            document["patches"]["Example"]["test_known"] = [
+                {
+                    "ut_method": "expectedFailureIf",
+                    "cond": "MS_WINDOWS",
+                    "reason": "old failure",
+                }
+            ]
+
+        status, result = self.invoke(narrow)
+        self.assertEqual(status, 0)
+        self.assertIn(
+            'unittest.expectedFailureIf(MS_WINDOWS, "TODO: RUSTPYTHON; old failure")',
+            result,
+        )
+        self.assertIn('unittest.skip("TODO: RUSTPYTHON; retained guard")', result)
+        self.assertIn("self.assertEqual(1, 1)", result)
+
+    def test_narrowing_preserves_reason_order_and_existing_targets(self):
+        failure = PatchSpec(UtMethod.ExpectedFailure, reason="known failure")
+        narrowed = failure._replace(
+            ut_method=UtMethod.ExpectedFailureIf, cond="MS_WINDOWS"
+        )
+        success = PatchSpec(UtMethod.ExpectedSuccess, reason="known success")
+        current = {"Example": {"test_known": [failure, success]}}
+        for markers in (
+            [narrowed, success, narrowed],
+            [narrowed._replace(reason="changed"), success],
+            [success, narrowed],
+            [narrowed._replace(ut_method=UtMethod.SkipIf), success],
+            [narrowed._replace(ut_method=UtMethod.ExpectedSuccess), success],
+            [narrowed._replace(cond=None), success],
+        ):
+            document = {
+                "target": "Lib/test/test_example.py",
+                "patches": patches_to_json({"Example": {"test_known": markers}}),
+            }
+            with self.subTest(markers=markers), self.assertRaises(ValueError):
+                select_remaining_patches(current, document, Path(document["target"]))
+
+        document["patches"] = patches_to_json({"Example": {"test_new": [narrowed]}})
+        with self.assertRaises(ValueError):
+            select_remaining_patches(current, document, Path(document["target"]))
+
+    def test_conditional_failure_cannot_be_broadened_or_changed(self):
+        conditional = PatchSpec(UtMethod.ExpectedFailureIf, cond="MS_WINDOWS")
+        current = {"Example": {"test_known": [conditional]}}
+        for marker in (
+            conditional._replace(ut_method=UtMethod.ExpectedFailure, cond=None),
+            conditional._replace(cond="True"),
+            conditional._replace(cond="not MS_WINDOWS"),
+        ):
+            document = {
+                "target": "Lib/test/test_example.py",
+                "patches": patches_to_json({"Example": {"test_known": [marker]}}),
+            }
+            with self.subTest(marker=marker), self.assertRaises(ValueError):
+                select_remaining_patches(current, document, Path(document["target"]))
+
 
 class ConditionalMarkerOverrideTests(unittest.TestCase):
     decorator = (
