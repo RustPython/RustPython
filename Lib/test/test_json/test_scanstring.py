@@ -1,8 +1,6 @@
 import sys
 from test.test_json import PyTest, CTest
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 
 class TestScanstring:
     def test_scanstring(self):

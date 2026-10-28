@@ -1,7 +1,5 @@
 from test.test_json import PyTest, CTest
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 # 2007-10-05
 JSONDOCS = [
     # https://json.org/JSON_checker/test/fail1.json
