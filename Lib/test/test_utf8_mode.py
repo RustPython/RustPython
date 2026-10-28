@@ -123,7 +123,6 @@ class UTF8ModeTests(unittest.TestCase):
                                   PYTHONLEGACYWINDOWSFSENCODING='1')
             self.assertEqual(out, 'mbcs/replace')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stdio(self):
         code = textwrap.dedent('''
             import sys
