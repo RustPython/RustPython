@@ -214,29 +214,12 @@ pub fn keyed_hash(key: u64, buf: &[u8]) -> u64 {
 pub fn hash_tuple<E>(
     element_hashes: impl IntoIterator<Item = Result<PyHash, E>>,
 ) -> Result<PyHash, E> {
-    const PRIME1: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 11400714785074694791,
-        target_pointer_width = "32" => 2654435761,
-        _ => unreachable!(),
-    };
-
-    const PRIME2: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 14029467366897019727,
-        target_pointer_width = "32" => 2246822519,
-        _ => unreachable!(),
-    };
-
-    const PRIME5: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 2870177450012600261,
-        target_pointer_width = "32" => 374761393,
-        _ => unreachable!(),
-    };
-
-    const ROTATE: u32 = cfg_select! {
-        target_pointer_width = "64" => 31,
-        target_pointer_width = "32" => 13,
-        _ => unreachable!(),
-    };
+    // PyHash is 64-bit even on 32-bit targets, so the xxHash parameters
+    // must follow the hash width rather than the pointer width.
+    const PRIME1: PyUHash = 11400714785074694791;
+    const PRIME2: PyUHash = 14029467366897019727;
+    const PRIME5: PyUHash = 2870177450012600261;
+    const ROTATE: u32 = 31;
 
     let mut acc = PRIME5;
     let mut len: PyUHash = 0;
@@ -308,6 +291,18 @@ impl FrozenSetHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tuple_hash_uses_the_declared_hash_width() {
+        for (elements, expected) in [
+            (&[][..], 5740354900026072187),
+            (&[0][..], -8753497827991233192),
+            (&[0, 0][..], -8458139203682520985),
+        ] {
+            let actual = hash_tuple(elements.iter().copied().map(Ok::<_, ()>)).unwrap();
+            assert_eq!(actual, expected);
+        }
+    }
 
     #[test]
     fn from_keys_is_stable_and_seed_independent() {

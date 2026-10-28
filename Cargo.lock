@@ -3172,7 +3172,7 @@ dependencies = [
 [[package]]
 name = "pymath"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/pymath.git?rev=dd1e9a4cf26d68caf3b549c09476f52e356e16a3#dd1e9a4cf26d68caf3b549c09476f52e356e16a3"
+source = "git+https://github.com/RustPython/pymath.git?rev=6992bbfc853707545d0fb4b91931a2f36df89abe#6992bbfc853707545d0fb4b91931a2f36df89abe"
 dependencies = [
  "libc",
  "libm",
