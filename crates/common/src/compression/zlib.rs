@@ -37,20 +37,22 @@ pub type ChecksumLength = i64;
 #[cfg(target_os = "hurd")]
 pub type ChecksumLength = libc::off_t;
 
+#[must_use]
 pub fn adler32_combine(adler1: u32, adler2: u32, len2: ChecksumLength) -> u32 {
     z_checksum_to_u32(libz_rs_sys::adler32_combine64(
-        adler1.into(),
-        adler2.into(),
-        len2.into(),
+        z_checksum_from_u32(adler1),
+        z_checksum_from_u32(adler2),
+        z_checksum_length(len2),
     ))
 }
 
 // As in zlib, CRC combination requires a nonnegative length.
+#[must_use]
 pub fn crc32_combine(crc1: u32, crc2: u32, len2: ChecksumLength) -> u32 {
     z_checksum_to_u32(libz_rs_sys::crc32_combine64(
-        crc1.into(),
-        crc2.into(),
-        len2.into(),
+        z_checksum_from_u32(crc1),
+        z_checksum_from_u32(crc2),
+        z_checksum_length(len2),
     ))
 }
 
@@ -81,6 +83,34 @@ const fn z_size_to_u64(value: core::ffi::c_ulong) -> u64 {
     #[cfg(any(target_pointer_width = "32", windows))]
     {
         value as u64
+    }
+}
+
+const fn z_checksum_length(value: ChecksumLength) -> libz_rs_sys::z_off64_t {
+    #[cfg(any(
+        all(windows, not(target_env = "gnu")),
+        all(target_os = "hurd", target_pointer_width = "32")
+    ))]
+    {
+        value as i64
+    }
+    #[cfg(not(any(
+        all(windows, not(target_env = "gnu")),
+        all(target_os = "hurd", target_pointer_width = "32")
+    )))]
+    {
+        value
+    }
+}
+
+const fn z_checksum_from_u32(value: u32) -> core::ffi::c_ulong {
+    #[cfg(all(target_pointer_width = "64", not(windows)))]
+    {
+        value as u64
+    }
+    #[cfg(any(target_pointer_width = "32", windows))]
+    {
+        value
     }
 }
 
