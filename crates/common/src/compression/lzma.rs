@@ -350,14 +350,17 @@ impl LzmaStream {
         }
     }
 
-    fn process(&mut self, input: &[u8], output: &mut Vec<u8>) -> Result<Status, XzError> {
+    fn process(&mut self, input: &[u8], output: &mut [u8]) -> Result<Status, XzError> {
+        let previous_in = self.stream.total_in();
+        let result = self.stream.process(input, output, Action::Run);
+        let consumed = (self.stream.total_in() - previous_in) as usize;
         if self.track_header && self.header_collected < 8 {
-            let count = (8 - usize::from(self.header_collected)).min(input.len());
+            let count = (8 - usize::from(self.header_collected)).min(consumed);
             let start = usize::from(self.header_collected);
             self.header_buf[start..start + count].copy_from_slice(&input[..count]);
             self.header_collected += count as u8;
         }
-        match self.stream.process_vec(input, output, Action::Run) {
+        match result {
             Ok(Status::GetCheck) => {
                 if self.header_collected >= 8 {
                     self.check = i32::from(self.header_buf[7] & 0x0f);
@@ -377,35 +380,39 @@ fn decompress_chunks(
     chunks: &mut Chunker<'_>,
     stream: &mut LzmaStream,
     max_length: Option<usize>,
-) -> Result<(Vec<u8>, bool), XzError> {
-    // No input to feed the decoder: not a stream end, so `eof` stays false and
-    // the caller can still supply compressed data later.
-    if chunks.is_empty() {
-        return Ok((Vec::new(), false));
-    }
+) -> Result<(Vec<u8>, bool, bool), Error> {
     let max_length = max_length.unwrap_or(usize::MAX);
     let mut output = Vec::new();
-    'outer: loop {
+    let mut block = vec![0; BUFSIZ.min(max_length)];
+    loop {
         let chunk = chunks.chunk();
-        loop {
-            let additional = BUFSIZ.min(max_length - output.capacity());
-            if additional == 0 {
-                return Ok((output, false));
+        let available = block.len().min(max_length - output.len());
+        let previous_in = stream.stream.total_in();
+        let previous_out = stream.stream.total_out();
+        let result = stream.process(chunk, &mut block[..available]);
+        let consumed = (stream.stream.total_in() - previous_in) as usize;
+        let produced = (stream.stream.total_out() - previous_out) as usize;
+        chunks.advance(consumed);
+        let status = result?;
+        output.extend_from_slice(&block[..produced]);
+        let filled = produced == available;
+
+        // liblzma reports BUF_ERROR after consecutive calls without progress.
+        // Exhausted input with output space is just a request for more input.
+        if status == Status::MemNeeded && !(consumed == chunk.len() && !filled) {
+            return Err(Error::Lzma("Insufficient buffer space".to_owned()));
+        }
+        if status == Status::StreamEnd {
+            return Ok((output, true, false));
+        }
+        // Check output before input: liblzma may have buffered output even
+        // after consuming the last supplied input byte.
+        if filled {
+            if output.len() == max_length {
+                return Ok((output, false, true));
             }
-            output.reserve_exact(additional);
-            let previous_in = stream.stream.total_in();
-            let result = stream.process(chunk, &mut output);
-            let consumed = (stream.stream.total_in() - previous_in) as usize;
-            chunks.advance(consumed);
-            let status = result?;
-            if status == Status::StreamEnd || chunks.is_empty() {
-                output.shrink_to_fit();
-                return Ok((output, status == Status::StreamEnd));
-            }
-            if !chunk.is_empty() && consumed == 0 {
-                continue;
-            }
-            continue 'outer;
+        } else if chunks.is_empty() {
+            return Ok((output, false, false));
         }
     }
 }
@@ -477,9 +484,9 @@ impl Decompressor {
         let mut chunks = Chunker::chain(input_buffer, data);
         let previous_len = chunks.len();
         let result = decompress_chunks(&mut chunks, stream, max_length);
-        let stream_end = match &result {
-            Ok((_, stream_end)) => *stream_end,
-            Err(_) => false,
+        let (stream_end, capped) = match &result {
+            Ok((_, stream_end, capped)) => (*stream_end, *capped),
+            Err(_) => (false, false),
         };
         let consumed = previous_len - chunks.len();
         self.eof |= stream_end;
@@ -490,7 +497,7 @@ impl Decompressor {
             }
         } else if chunks.is_empty() {
             input_buffer.clear();
-            self.needs_input = true;
+            self.needs_input = !capped;
         } else {
             self.needs_input = false;
             if let Some(consumed_from_data) = consumed.checked_sub(input_buffer.len()) {
@@ -501,7 +508,7 @@ impl Decompressor {
                 input_buffer.extend_from_slice(data);
             }
         }
-        result.map(|(output, _)| output).map_err(Error::from)
+        result.map(|(output, _, _)| output)
     }
 
     #[must_use]
