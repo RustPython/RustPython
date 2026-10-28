@@ -741,7 +741,6 @@ class _pthFileTests(unittest.TestCase):
             pth_lines.append('import site')
         return pth_lines
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_subprocess()
     def test_underpth_basic(self):
         pth_lines = ['#.', '# ..', *sys.path, '.', '..']
@@ -761,7 +760,6 @@ class _pthFileTests(unittest.TestCase):
             "sys.path is incorrect"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_subprocess()
     def test_underpth_nosite_file(self):
         libpath = test.support.STDLIB_DIR
@@ -786,7 +784,6 @@ class _pthFileTests(unittest.TestCase):
             "sys.path is incorrect"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_subprocess()
     def test_underpth_file(self):
         libpath = test.support.STDLIB_DIR

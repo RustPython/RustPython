@@ -7,6 +7,7 @@
 
 use crate::vm::{Paths, Settings};
 use std::env;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 // Platform-specific landmarks (ref: getpath.py PLATFORM CONSTANTS)
@@ -103,6 +104,127 @@ fn search_up_dir<P: AsRef<Path>>(start: P, landmarks: &[&str]) -> Option<PathBuf
 
 // Path computation functions
 
+/// A detected ._pth file's effect on standalone CLI path configuration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnderPth {
+    /// A zero-byte file changes home and ignores environment paths only.
+    Empty,
+    /// At least one input line replaces paths and enables isolated mode.
+    Isolated,
+}
+
+/// Discover standalone CLI ._pth configuration before reading environment options.
+/// Embedded applications retain explicit Settings and do not perform this discovery.
+pub fn configure_under_pth(settings: &mut Settings) -> io::Result<()> {
+    let Some(executable) = get_executable_path() else {
+        return Ok(());
+    };
+    #[cfg(unix)]
+    let resolved = resolve_executable_symlinks(&executable).filter(|path| *path != executable);
+    #[cfg(not(unix))]
+    let resolved: Option<PathBuf> = None;
+    for mut candidate in core::iter::once(executable).chain(resolved) {
+        if cfg!(windows)
+            && candidate.extension().is_some_and(|ext| {
+                ext.as_encoded_bytes().eq_ignore_ascii_case(b"exe")
+                    || ext.as_encoded_bytes().eq_ignore_ascii_case(b"dll")
+            })
+        {
+            candidate.set_extension("");
+        }
+        candidate.as_mut_os_string().push("._pth");
+        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        let file = crate::host_env::fs::open(&candidate);
+        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+        let file = std::fs::File::open(&candidate);
+        let Ok(file) = file else { continue };
+        let mut content = Vec::new();
+        file.take(32 * 1024).read_to_end(&mut content)?;
+        if content.len() >= 32 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cannot read ._pth file of 32KB or larger during initialization",
+            ));
+        }
+        // Settings currently stores paths as String, not surrogate-capable text.
+        // Reject unsupported encoding rather than changing paths or ignoring isolation.
+        let content = core::str::from_utf8(&content).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "non-UTF-8 ._pth paths are unsupported",
+            )
+        })?;
+        let parent = std::path::absolute(candidate.parent().unwrap_or_else(|| Path::new(".")))?;
+        let mut search_paths = Vec::new();
+        let mut import_site = false;
+        for line in content.lines() {
+            let line = line.split('#').next().unwrap_or_default().trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line == "import site" {
+                import_site = true;
+            } else if line.starts_with("import ") {
+                eprintln!("unsupported 'import' line in ._pth file");
+            } else {
+                let joined = parent.join(line);
+                let double_root = cfg!(unix)
+                    && joined
+                        .to_str()
+                        .is_some_and(|path| path.starts_with("//") && !path.starts_with("///"));
+                let mut normalized = PathBuf::new();
+                for part in joined.components() {
+                    match part {
+                        std::path::Component::ParentDir => {
+                            normalized.pop();
+                        }
+                        std::path::Component::CurDir => {}
+                        _ => normalized.push(part.as_os_str()),
+                    }
+                }
+                if double_root && let Ok(relative) = normalized.strip_prefix("/") {
+                    normalized = Path::new("//").join(relative);
+                }
+                search_paths.push(
+                    normalized
+                        .to_str()
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "non-UTF-8 ._pth paths are unsupported",
+                            )
+                        })?
+                        .to_owned(),
+                );
+            }
+        }
+        let home = parent
+            .to_str()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "non-UTF-8 ._pth directory is unsupported",
+                )
+            })?
+            .to_owned();
+        settings.home = Some(home);
+        if content.is_empty() {
+            // getpath.py detects this file but skips its final `if pth:` block.
+            settings.under_pth = Some(UnderPth::Empty);
+            return Ok(());
+        }
+        settings.under_pth = Some(UnderPth::Isolated);
+        settings.path_list = search_paths;
+        settings.isolated = true;
+        settings.ignore_environment = true;
+        settings.user_site_directory = false;
+        settings.safe_path = true;
+        settings.import_site = import_site;
+        return Ok(());
+    }
+    Ok(())
+}
+
 /// Compute path configuration from Settings
 ///
 /// This function should be called before interpreter initialization.
@@ -194,8 +316,11 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     if paths.base_executable.is_empty() {
         paths.base_executable = calculate_base_executable(executable.as_ref(), home_dir.as_ref());
     }
-    paths.module_search_paths =
-        build_module_search_paths(settings, &paths.base_prefix, &paths.base_exec_prefix);
+    paths.module_search_paths = if settings.under_pth == Some(UnderPth::Isolated) {
+        settings.path_list.clone()
+    } else {
+        build_module_search_paths(settings, &paths.base_prefix, &paths.base_exec_prefix)
+    };
     paths.stdlib_dir = calculate_stdlib_dir(&paths.base_prefix);
 
     paths
@@ -434,6 +559,9 @@ fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
 /// Preserve an embedding hook's custom search order by appending instead when
 /// the calculated paths have already been replaced or modified.
 pub fn add_build_time_paths(settings: &Settings, paths: &mut Paths, extra: Vec<String>) {
+    if settings.under_pth.is_some() {
+        return;
+    }
     let calculated =
         build_module_search_paths(settings, &paths.base_prefix, &paths.base_exec_prefix);
     let index = if paths.module_search_paths == calculated {
