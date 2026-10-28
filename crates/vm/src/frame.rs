@@ -3008,7 +3008,6 @@ pub(crate) fn is_delegating(coro: &Coro) -> bool {
 /// leave `lasti` where the skipped `YIELD_VALUE` would have left it.
 #[inline]
 pub(crate) fn park_after_yield_from(iframe: &mut InterpreterFrame, resumed_at: u32) {
-    iframe.monitoring_current.set(None);
     // The `YIELD_VALUE` this stands in for never ran, so nothing has promoted
     // the parked stack yet. Do it here for the same reason that handler does.
     iframe.localsplus.promote_stack();
@@ -3021,6 +3020,8 @@ pub(crate) fn park_after_yield_from(iframe: &mut InterpreterFrame, resumed_at: u
             .all(|sr| !sr.is_borrowed()),
         "borrowed refs on stack at yield point"
     );
+    // Match the RESUME predecessor retained by an actual YIELD_VALUE.
+    iframe.monitoring_current.set(Some(resumed_at));
     iframe.lasti.store(resumed_at, Relaxed);
 }
 
@@ -4591,9 +4592,8 @@ impl ExecutingFrame<'_> {
             },
         ) {
             Ok(None) => {
-                // Reset prev_line so that the first instruction in the handler
-                // fires a LINE event. In CPython, gen_send_ex re-enters the
-                // eval loop which reinitializes its local prev_instr tracker.
+                // Reset the legacy trace line cache for the exception handler.
+                // Monitoring retains the RESUME position recorded on suspension.
                 self.prev_line.set(0);
                 self.run(vm)
             }
@@ -6272,6 +6272,9 @@ impl ExecutingFrame<'_> {
                 if self.yield_value_event(vm, mode)? {
                     return Ok(None);
                 }
+                // CPython advances frame->instr_ptr to RESUME before suspension.
+                // A later throw/close enters its handler without executing RESUME.
+                self.monitoring_current.set(Some(self.lasti()));
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
@@ -8558,6 +8561,9 @@ impl ExecutingFrame<'_> {
                 if self.yield_value_event(vm, mode)? {
                     return Ok(None);
                 }
+                // CPython advances frame->instr_ptr to RESUME before suspension.
+                // A later throw/close enters its handler without executing RESUME.
+                self.monitoring_current.set(Some(self.lasti()));
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::InstrumentedCall => {
