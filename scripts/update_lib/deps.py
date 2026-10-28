@@ -329,7 +329,6 @@ DEPENDENCIES = {
         ],
     },
     "re": {
-        "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
         "test": [
             "test_re.py",
             "re_tests.py",
@@ -673,7 +672,7 @@ DEPENDENCIES = {
     "profile": {
         "test": [
             "test_profile.py",
-            "test_cprofile.py",
+            "test_profiling/test_tracing_profiler.py",
         ],
     },
     "string": {

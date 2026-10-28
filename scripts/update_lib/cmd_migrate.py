@@ -199,6 +199,51 @@ def patch_directory(
             shutil.copy2(src_file, lib_file)
 
 
+def retire_legacy_paths(src_dir: pathlib.Path, mapping: dict) -> None:
+    """Retire explicit upstream-absent files after checking their replacements.
+
+    Flat legacy maps use repository-relative Lib paths and name an already
+    canonical replacement, or null for an upstream removal. They never rewrite
+    replacements or recursively prune directories.
+    """
+    from update_lib.file_utils import get_cpython_dir
+
+    canonical = get_cpython_dir(src_dir).resolve()
+    local = pathlib.Path.cwd().resolve()
+    if not (canonical / "Lib").is_dir() or not src_dir.is_dir():
+        raise ValueError("Canonical Lib or migration source directory does not exist")
+
+    def lib_file(root, name):
+        path = pathlib.Path(name)
+        if path.is_absolute() or ".." in path.parts or path.parts[:1] != ("Lib",):
+            raise ValueError(f"Expected a repository-relative Lib file: {name}")
+        result = root / path
+        if result.is_symlink() or not result.resolve().is_relative_to(root / "Lib"):
+            raise ValueError(f"Lib file escapes its source tree: {name}")
+        return result
+
+    legacy_files = []
+    for old, new in mapping.items():
+        legacy = lib_file(local, old)
+        upstream_old = lib_file(canonical, old)
+        if upstream_old.exists() or not legacy.is_file():
+            raise ValueError(f"Not an existing upstream-absent file: {old}")
+        if new is not None:
+            replacement = lib_file(local, new)
+            upstream_new = lib_file(canonical, new)
+            if (
+                not upstream_new.is_file()
+                or not replacement.is_file()
+                or replacement.read_bytes() != upstream_new.read_bytes()
+            ):
+                raise ValueError(f"Replacement is not canonical: {new}")
+        legacy_files.append(legacy)
+
+    # Check the whole map before retiring any file.
+    for legacy in legacy_files:
+        legacy.unlink()
+
+
 def migrate_package(
     src_dir: pathlib.Path, lib_dir: pathlib.Path, mapping_path: pathlib.Path
 ) -> None:
@@ -220,6 +265,9 @@ def migrate_package(
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     if not isinstance(mapping, dict) or not mapping:
         raise ValueError("Legacy mapping must be a nonempty object")
+    if all(value is None or isinstance(value, str) for value in mapping.values()):
+        retire_legacy_paths(src_dir, mapping)
+        return
     if lib_dir.exists():
         raise ValueError(f"Destination already exists: {lib_dir}")
     if (
@@ -360,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--legacy-map",
         type=pathlib.Path,
-        help="Explicit legacy-file/class to package-file JSON mapping",
+        help="Legacy class mapping, or exact Lib path to canonical replacement/null map",
     )
     parser.add_argument(
         "--patches",

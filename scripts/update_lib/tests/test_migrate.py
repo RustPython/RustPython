@@ -16,6 +16,7 @@ from update_lib.cmd_migrate import (
     patch_directory,
     patch_file,
     patch_single_content,
+    retire_legacy_paths,
 )
 from update_lib.patch_spec import (
     CANONICAL_LOAD_TESTS,
@@ -27,6 +28,93 @@ from update_lib.patch_spec import (
     patches_to_json,
     select_remaining_patches,
 )
+
+
+class TestRetireLegacyPaths(unittest.TestCase):
+    @contextlib.contextmanager
+    def trees(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "cpython" / "Lib" / "test"
+            source.mkdir(parents=True)
+            local = root / "rustpython"
+            (local / "Lib" / "test").mkdir(parents=True)
+            with contextlib.chdir(local):
+                yield source
+
+    def test_flat_map_retires_only_explicit_paths_without_parsing(self):
+        with self.trees() as source:
+            mapping = {}
+            for name, content in (
+                ("bad.py", b"invalid syntax !"),
+                ("data.bin", b"\xff\x00"),
+            ):
+                (source / "new").mkdir(exist_ok=True)
+                (source / "new" / name).write_bytes(content)
+                Path("Lib/test/new").mkdir(exist_ok=True)
+                Path("Lib/test/new", name).write_bytes(content)
+                Path("Lib/test", name).write_bytes(content)
+                mapping[f"Lib/test/{name}"] = f"Lib/test/new/{name}"
+            Path("Lib/test/removed.py").write_text("old = True\n")
+            mapping["Lib/test/removed.py"] = None
+            Path("Lib/test/original.py").write_text("preserve = True\n")
+            Path("map.json").write_text(json.dumps(mapping))
+
+            self.assertEqual(main([str(source), "--legacy-map", "map.json"]), 0)
+
+            for old in mapping:
+                self.assertFalse(Path(old).exists())
+            self.assertEqual(
+                Path("Lib/test/original.py").read_text(), "preserve = True\n"
+            )
+            self.assertEqual(Path("Lib/test/new/data.bin").read_bytes(), b"\xff\x00")
+            self.assertEqual(
+                Path("Lib/test/new/bad.py").read_bytes(), b"invalid syntax !"
+            )
+
+    def test_late_missing_or_adapted_replacement_preserves_all_legacy_files(self):
+        for replacement in (None, b"local adaptation"):
+            with self.subTest(replacement=replacement), self.trees() as source:
+                Path("Lib/test/first.py").write_text("first")
+                Path("Lib/test/second.py").write_text("second")
+                (source / "new.py").write_bytes(b"canonical")
+                if replacement is not None:
+                    Path("Lib/test/new.py").write_bytes(replacement)
+                with self.assertRaisesRegex(ValueError, "Replacement is not canonical"):
+                    retire_legacy_paths(
+                        source,
+                        {
+                            "Lib/test/first.py": None,
+                            "Lib/test/second.py": "Lib/test/new.py",
+                        },
+                    )
+                self.assertTrue(Path("Lib/test/first.py").exists())
+                self.assertTrue(Path("Lib/test/second.py").exists())
+
+    def test_file_still_upstream_is_not_retired(self):
+        with self.trees() as source:
+            (source / "active.py").write_text("active")
+            Path("Lib/test/active.py").write_text("active")
+            with self.assertRaisesRegex(ValueError, "upstream-absent"):
+                retire_legacy_paths(source, {"Lib/test/active.py": None})
+            self.assertTrue(Path("Lib/test/active.py").exists())
+
+    def test_outside_paths_and_missing_source_are_rejected(self):
+        with self.trees() as source:
+            Path("Lib/test/removed.py").write_text("preserve")
+            for name in ("outside.py", "Lib/../outside.py", "/tmp/outside.py"):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    retire_legacy_paths(source, {name: None})
+            for missing in (
+                source / "missing",
+                source.parent.parent / "missing/Lib/test",
+            ):
+                with (
+                    self.subTest(missing=missing),
+                    self.assertRaisesRegex(ValueError, "Canonical Lib"),
+                ):
+                    retire_legacy_paths(missing, {"Lib/test/removed.py": None})
+                self.assertEqual(Path("Lib/test/removed.py").read_text(), "preserve")
 
 
 class TestPatchSingleContent(unittest.TestCase):
