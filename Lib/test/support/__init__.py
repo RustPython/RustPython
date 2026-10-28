@@ -22,8 +22,6 @@ import warnings
 
 
 __all__ = [
-    "has_remote_subprocess_debugging", "requires_remote_subprocess_debugging",
-    "requires_root_user", "requires_non_root_user",
     # globals
     "PIPE_MAX_SIZE", "verbose", "max_memuse", "use_resources", "failfast",
     # exceptions
@@ -42,6 +40,7 @@ __all__ = [
     "has_fork_support", "requires_fork",
     "has_subprocess_support", "requires_subprocess",
     "has_socket_support", "requires_working_socket",
+    "has_remote_subprocess_debugging", "requires_remote_subprocess_debugging",
     "anticipate_failure", "load_package_tests", "detect_api_mismatch",
     "check__all__", "skip_if_buggy_ucrt_strfptime",
     "check_disallow_instantiation", "check_sanitizer", "skip_if_sanitizer",
@@ -73,7 +72,8 @@ __all__ = [
     "BrokenIter",
     "in_systemd_nspawn_sync_suppressed",
     "run_no_yield_async_fn", "run_yielding_async_fn", "async_yield",
-    "reset_code", "on_github_actions"
+    "reset_code", "on_github_actions",
+    "requires_root_user", "requires_non_root_user",
     ]
 
 
@@ -1478,11 +1478,6 @@ TEST_MODULES_ENABLED = (sysconfig.get_config_var('TEST_MODULES') or 'yes') == 'y
 def requires_specialization(test):
     return unittest.skipUnless(
         _opcode.ENABLE_SPECIALIZATION, "requires specialization")(test)
-
-
-def requires_specialization_ft(test):
-    return unittest.skipUnless(
-        _opcode.ENABLE_SPECIALIZATION_FT, "requires specialization")(test)
 
 
 def reset_code(f: types.FunctionType) -> types.FunctionType:
