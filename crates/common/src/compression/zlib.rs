@@ -28,6 +28,32 @@ pub const MAX_WBITS: i32 = 15;
 pub const DEF_BUF_SIZE: usize = 16 * 1024;
 pub const DEF_MEM_LEVEL: u8 = 8;
 
+// CPython uses a large-file off_t except on Windows (always 32-bit) and
+// GNU/Hurd, where its configure script disables large-file support.
+#[cfg(windows)]
+pub type ChecksumLength = i32;
+#[cfg(not(any(windows, target_os = "hurd")))]
+pub type ChecksumLength = i64;
+#[cfg(target_os = "hurd")]
+pub type ChecksumLength = libc::off_t;
+
+pub fn adler32_combine(adler1: u32, adler2: u32, len2: ChecksumLength) -> u32 {
+    z_checksum_to_u32(libz_rs_sys::adler32_combine64(
+        adler1.into(),
+        adler2.into(),
+        len2.into(),
+    ))
+}
+
+// As in zlib, CRC combination requires a nonnegative length.
+pub fn crc32_combine(crc1: u32, crc2: u32, len2: ChecksumLength) -> u32 {
+    z_checksum_to_u32(libz_rs_sys::crc32_combine64(
+        crc1.into(),
+        crc2.into(),
+        len2.into(),
+    ))
+}
+
 const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 
 fn valid_level(level: i32) -> bool {

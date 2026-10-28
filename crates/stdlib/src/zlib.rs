@@ -7,9 +7,9 @@ mod zlib {
     use crate::compression::{DecompressArgs, DecompressorArgs};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyStr, PyType, PyTypeRef},
         common::lock::PyMutex,
-        convert::TryFromBorrowedObject,
+        convert::{TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgIndex, OptionalArg, PySize, PySsize},
         object::PyAtomicRef,
         types::Constructor,
@@ -17,6 +17,7 @@ mod zlib {
     use adler32::RollingAdler32 as Adler32;
     use alloc::fmt;
     use core::sync::atomic::{AtomicBool, Ordering};
+    use num_traits::ToPrimitive;
     use rustpython_common::compression::zlib as backend;
 
     #[pyattr]
@@ -26,8 +27,19 @@ mod zlib {
         Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_RLE, Z_SYNC_FLUSH, Z_TREES,
     };
 
-    #[pyattr(name = "__version__")]
-    const __VERSION__: &str = "1.0";
+    #[pyfunction]
+    fn __getattr__(name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if name.downcast_ref::<PyStr>().and_then(|name| name.to_str()) == Some("__version__") {
+            crate::vm::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "'__version__' is deprecated and slated for removal in Python 3.20".to_owned(),
+                1,
+                vm,
+            )?;
+            return Ok(vm.ctx.new_str("1.0").into());
+        }
+        Err(vm.new_attribute_error(format!("module 'zlib' has no attribute {}", name.repr(vm)?)))
+    }
 
     // We statically link libz-rs, so the compile-time and runtime versions
     // always match.
@@ -82,6 +94,49 @@ mod zlib {
     fn crc32(args: Crc32Args) -> u32 {
         let Crc32Args { data, value } = args;
         crate::binascii::crc32(data, value)
+    }
+
+    struct ChecksumValue(u32);
+
+    impl TryFromObject for ChecksumValue {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let value = obj.try_index(vm)?;
+            if !value
+                .as_bigint()
+                .to_i64()
+                .is_some_and(|value| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value))
+            {
+                crate::vm::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "integer value out of range".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
+            Ok(Self(value.as_u32_mask()))
+        }
+    }
+
+    #[pyfunction]
+    fn adler32_combine(
+        adler1: ChecksumValue,
+        adler2: ChecksumValue,
+        len2: PyIntRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<u32> {
+        let len2 = len2.try_to_primitive::<backend::ChecksumLength>(vm)?;
+        Ok(backend::adler32_combine(adler1.0, adler2.0, len2))
+    }
+
+    #[pyfunction]
+    fn crc32_combine(
+        crc1: ChecksumValue,
+        crc2: ChecksumValue,
+        len2: PyIntRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<u32> {
+        let len2 = len2.try_to_primitive::<backend::ChecksumLength>(vm)?;
+        Ok(backend::crc32_combine(crc1.0, crc2.0, len2))
     }
 
     #[derive(FromArgs)]
