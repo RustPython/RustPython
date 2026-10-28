@@ -64,7 +64,9 @@ impl Constructor for PyBaseObject {
                 {
                     // Both __new__ and __init__ are object's versions,
                     // so the type accepts no arguments
-                    return Err(vm.new_type_error(format!("{}() takes no arguments", cls.name())));
+                    return Err(
+                        vm.new_type_error(format!("{}() takes no arguments", cls.slot_name()))
+                    );
                 }
                 // If tp_init != object_init, then the type has custom __init__
                 // which might accept arguments, so we allow it
@@ -151,7 +153,7 @@ impl Initializer for PyBaseObject {
         {
             return Err(vm.new_type_error(format!(
                 "{}.__init__() takes exactly one argument (the instance to initialize)",
-                typ.name()
+                typ.slot_name()
             )));
         }
 
