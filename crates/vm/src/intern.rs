@@ -56,7 +56,6 @@ impl StringPool {
             let cache = CachedPyStrRef { inner: s };
             let mut inner = zelf.inner.write();
             if inner.insert(cache.clone()) {
-                drop(inner);
                 let interned = unsafe { cache.as_interned_str() };
                 // `mark_intern` also makes the object immortal: the pool
                 // never gives an entry up and its refcount could already never
@@ -65,6 +64,8 @@ impl StringPool {
                 // read-modify-write off every incref and decref of an
                 // attribute name, a dict key or a docstring.
                 unsafe { interned.as_object().mark_intern() };
+                // Publish the interned flag before another lookup can return this entry.
+                drop(inner);
                 interned
             } else {
                 unsafe {

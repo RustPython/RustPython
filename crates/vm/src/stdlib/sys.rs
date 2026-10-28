@@ -1356,6 +1356,11 @@ pub mod sys {
         vm.ctx.intern_str(string).to_owned()
     }
 
+    #[pyfunction]
+    fn _is_interned(string: PyRef<PyStr>) -> bool {
+        string.as_object().is_interned()
+    }
+
     #[pyattr]
     fn int_info(vm: &VirtualMachine) -> PyTupleRef {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
