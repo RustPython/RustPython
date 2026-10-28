@@ -1568,6 +1568,25 @@ impl VirtualMachine {
             {
                 let io = import::import_builtin(self, "_io")?;
 
+                // CPython normalizes configured stdio encodings to CodecInfo.name.
+                #[cfg(all(feature = "host_env", feature = "stdio"))]
+                let stdio_encoding: Option<PyRef<PyUtf8Str>> = self
+                    .state
+                    .config
+                    .settings
+                    .stdio_encoding
+                    .as_deref()
+                    .map(|encoding| {
+                        self.state
+                            .codec_registry
+                            .lookup(encoding, self)?
+                            .as_tuple()
+                            .as_object()
+                            .get_attr("name", self)?
+                            .try_into_value(self)
+                    })
+                    .transpose()?;
+
                 // Full stdio: FileIO → BufferedWriter → TextIOWrapper
                 #[cfg(all(feature = "host_env", feature = "stdio"))]
                 let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
@@ -1594,7 +1613,7 @@ impl VirtualMachine {
                     let line_buffering = buffered_stdio && (isatty || fd == 2);
 
                     let newline = if cfg!(windows) { None } else { Some("\n") };
-                    let encoding = self.state.config.settings.stdio_encoding.as_deref();
+                    let encoding = stdio_encoding.clone();
                     // stderr always uses backslashreplace (ignores stdio_errors)
                     let errors = if fd == 2 {
                         Some("backslashreplace")
