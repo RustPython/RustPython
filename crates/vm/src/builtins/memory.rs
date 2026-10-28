@@ -88,12 +88,14 @@ impl PyMemoryView {
         FormatSpec::parse(format.as_bytes(), vm)
     }
 
-    /// The single native format character a cast is allowed to name, with an
+    /// The native format character a cast is allowed to name, with an
     /// optional `@` in front of it. get_native_fmtchar
     fn native_fmtchar(format: &str) -> Option<u8> {
         let format = format.strip_prefix('@').unwrap_or(format);
-        let [c] = *format.as_bytes() else {
-            return None;
+        let c = match format.as_bytes() {
+            [b'Z', b'f' | b'd'] => return Some(b'Z'),
+            [c] => *c,
+            _ => return None,
         };
         matches!(
             c,
@@ -493,11 +495,16 @@ impl PyMemoryView {
     }
 
     fn eq(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if zelf.is(other) {
-            return Ok(true);
-        }
         if zelf.released.load() {
-            return Ok(false);
+            return Ok(zelf.is(other));
+        }
+        // Float and complex values can contain NaNs, so compare their elements
+        // even when both operands are the same view. memory_richcompare
+        if zelf.is(other)
+            && Self::native_fmtchar(&zelf.desc.format)
+                .is_some_and(|c| b"bBchHiIlLnNqQ?".contains(&c))
+        {
+            return Ok(true);
         }
 
         let other = if let Some(mv) = other.downcast_ref::<Self>() {
