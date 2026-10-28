@@ -24,8 +24,8 @@ pub mod array {
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
             function::{
-                ArgBytesLike, ArgIndex, ArgIntoFloat, ArgIterable, KwArgs, OptionalArg,
-                PyComparisonValue,
+                ArgBytesLike, ArgIndex, ArgIntoComplex, ArgIntoFloat, ArgIterable, KwArgs,
+                OptionalArg, PyComparisonValue,
             },
             protocol::{
                 BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer,
@@ -45,12 +45,14 @@ pub mod array {
     };
     use alloc::fmt;
     use core::cmp::Ordering;
+    use half::f16;
     use itertools::Itertools;
+    use num_complex::{Complex32, Complex64};
     use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
     use std::os::raw;
     macro_rules! def_array_enum {
-        ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
+        ($(($n:ident, $t:ty, $c:literal)),*$(,)?) => {
             #[derive(Debug, Clone)]
             pub enum ArrayContentType {
                 $($n(Vec<$t>),)*
@@ -62,28 +64,26 @@ pub mod array {
             }
 
             impl ArrayContentType {
-                fn from_char(c: char) -> Result<Self, String> {
+                fn typecodes(vm: &VirtualMachine) -> PyTupleRef {
+                    vm.ctx.new_tuple(vec![$(vm.ctx.new_str($c).into(),)*])
+                }
+
+                fn from_typecode(c: &str) -> Result<Self, String> {
                     match c {
                         $($c => Ok(ArrayContentType::$n(Vec::new())),)*
                         _ => Err(
-                            "bad typecode (must be b, B, u, w, h, H, i, I, l, L, q, Q, f or d)".into()
+                            "bad typecode (must be b, B, u, w, h, H, i, I, l, L, q, Q, e, f, d, Zf or Zd)".into()
                         ),
                     }
                 }
 
-                const fn typecode(&self) -> char {
+                const fn typecode(&self) -> &'static str {
                     match self {
                         $(ArrayContentType::$n(_) => $c,)*
                     }
                 }
 
-                const fn typecode_str(&self) -> &'static str {
-                    match self {
-                        $(ArrayContentType::$n(_) => $scode,)*
-                    }
-                }
-
-                const fn itemsize_of_typecode(c: char) -> Option<usize> {
+                fn itemsize_of_typecode(c: &str) -> Option<usize> {
                     match c {
                         $($c => Some(core::mem::size_of::<$t>()),)*
                         _ => None,
@@ -152,7 +152,7 @@ pub mod array {
                 }
 
                 fn search_item(
-                    typecode: char,
+                    typecode: &str,
                     needle: &PyObject,
                     vm: &VirtualMachine,
                 ) -> Option<Option<ArrayItem>> {
@@ -203,33 +203,16 @@ pub mod array {
                 }
 
                 fn frombytes_move(&mut self, b: Vec<u8>) {
-                    match self {
-                        $(ArrayContentType::$n(v) => {
-                            if v.is_empty() {
-                                // safe because every configuration of bytes for the types we
-                                // support are valid
-                                let b = core::mem::ManuallyDrop::new(b);
-                                let ptr = b.as_ptr() as *mut $t;
-                                let len = b.len() / core::mem::size_of::<$t>();
-                                let capacity = b.capacity() / core::mem::size_of::<$t>();
-                                *v = unsafe { Vec::from_raw_parts(ptr, len, capacity) };
-                            } else {
-                                self.frombytes(&b);
-                            }
-                        })*
-                    }
+                    self.frombytes(&b);
                 }
 
                 fn frombytes(&mut self, b: &[u8]) {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            // safe because every configuration of bytes for the types we
-                            // support are valid
-                            if b.len() > 0 {
-                                let ptr = b.as_ptr() as *const $t;
-                                let ptr_len = b.len() / core::mem::size_of::<$t>();
-                                let slice = unsafe { core::slice::from_raw_parts(ptr, ptr_len) };
-                                v.extend_from_slice(slice);
+                            for chunk in b.chunks_exact(core::mem::size_of::<$t>()) {
+                                // All bit patterns are valid elements. Byte buffers need
+                                // not have the alignment of the array's element type.
+                                v.push(unsafe { chunk.as_ptr().cast::<$t>().read_unaligned() });
                             }
                         })*
                     }
@@ -323,7 +306,7 @@ pub mod array {
                 /// which can reach the array, so it takes the typecode by
                 /// value and holds no lock on it.
                 fn item_from_object(
-                    typecode: char,
+                    typecode: &str,
                     value: PyObjectRef,
                     vm: &VirtualMachine
                 ) -> PyResult<ArrayItem> {
@@ -479,7 +462,7 @@ pub mod array {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             if let ArrayContentType::$n(other) = other {
-                                Ok(PartialOrd::partial_cmp(v, other))
+                                <$t>::compare_slice(v, other)
                             } else {
                                 Err(())
                             }
@@ -498,21 +481,29 @@ pub mod array {
         };
     }
 
+    #[pyattr]
+    fn typecodes(vm: &VirtualMachine) -> PyTupleRef {
+        ArrayContentType::typecodes(vm)
+    }
+
     def_array_enum!(
-        (SignedByte, i8, 'b', "b"),
-        (UnsignedByte, u8, 'B', "B"),
-        (PyUnicode, WideChar, 'u', "u"),
-        (PyUcs4, Ucs4Char, 'w', "w"),
-        (SignedShort, raw::c_short, 'h', "h"),
-        (UnsignedShort, raw::c_ushort, 'H', "H"),
-        (SignedInt, raw::c_int, 'i', "i"),
-        (UnsignedInt, raw::c_uint, 'I', "I"),
-        (SignedLong, raw::c_long, 'l', "l"),
-        (UnsignedLong, raw::c_ulong, 'L', "L"),
-        (SignedLongLong, raw::c_longlong, 'q', "q"),
-        (UnsignedLongLong, raw::c_ulonglong, 'Q', "Q"),
-        (Float, f32, 'f', "f"),
-        (Double, f64, 'd', "d"),
+        (SignedByte, i8, "b"),
+        (UnsignedByte, u8, "B"),
+        (PyUnicode, WideChar, "u"),
+        (PyUcs4, Ucs4Char, "w"),
+        (SignedShort, raw::c_short, "h"),
+        (UnsignedShort, raw::c_ushort, "H"),
+        (SignedInt, raw::c_int, "i"),
+        (UnsignedInt, raw::c_uint, "I"),
+        (SignedLong, raw::c_long, "l"),
+        (UnsignedLong, raw::c_ulong, "L"),
+        (SignedLongLong, raw::c_longlong, "q"),
+        (UnsignedLongLong, raw::c_ulonglong, "Q"),
+        (Half, HalfFloat, "e"),
+        (Float, f32, "f"),
+        (Double, f64, "d"),
+        (FloatComplex, ComplexFloat, "Zf"),
+        (DoubleComplex, ComplexDouble, "Zd"),
     );
 
     #[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Debug)]
@@ -523,7 +514,11 @@ pub mod array {
     #[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Debug)]
     pub struct Ucs4Char(u32);
 
-    trait ArrayElement: Sized {
+    trait ArrayElement: Sized + PartialOrd {
+        fn compare_slice(a: &[Self], b: &[Self]) -> Result<Option<Ordering>, ()> {
+            Ok(a.partial_cmp(b))
+        }
+
         fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
         fn byteswap(self) -> Self;
         fn to_object(self, vm: &VirtualMachine) -> PyObjectRef;
@@ -538,6 +533,99 @@ pub mod array {
             None
         }
     }
+
+    #[repr(transparent)]
+    #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
+    pub struct HalfFloat(f16);
+
+    impl ArrayElement for HalfFloat {
+        fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            // array's setter parses a C float before packing it as binary16,
+            // unlike struct's direct binary64-to-binary16 conversion.
+            let value = f32_try_into_from_object(vm, obj)?;
+            let half = f16::from_f64_const(value as f64);
+            if half.is_infinite() && value.is_finite() {
+                return Err(vm.new_overflow_error("float too large to pack with e format"));
+            }
+            Ok(Self(half))
+        }
+
+        fn byteswap(self) -> Self {
+            Self(f16::from_bits(self.0.to_bits().swap_bytes()))
+        }
+
+        fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+            self.0.to_f64().to_pyobject(vm)
+        }
+    }
+
+    impl ToPyResult for HalfFloat {
+        fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+            Ok(self.to_object(vm))
+        }
+    }
+
+    impl fmt::Display for HalfFloat {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            self.0.to_f64().fmt(f)
+        }
+    }
+
+    macro_rules! impl_complex_element {
+        ($name:ident, $complex:ty, $float:ty, $swap:ident) => {
+            #[repr(transparent)]
+            #[derive(Debug, Copy, Clone, Default, PartialEq)]
+            pub struct $name($complex);
+
+            impl PartialOrd for $name {
+                fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                    (self == other).then_some(Ordering::Equal)
+                }
+            }
+
+            impl ArrayElement for $name {
+                fn compare_slice(_a: &[Self], _b: &[Self]) -> Result<Option<Ordering>, ()> {
+                    // Python sequence comparison checks equality before ordering
+                    // unequal complex elements (which must raise TypeError).
+                    Err(())
+                }
+
+                fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                    let value = ArgIntoComplex::try_from_object(vm, obj)?.into_complex();
+                    Ok(Self(<$complex>::new(
+                        value.re as $float,
+                        value.im as $float,
+                    )))
+                }
+
+                fn byteswap(self) -> Self {
+                    Self(<$complex>::new($swap(self.0.re), $swap(self.0.im)))
+                }
+
+                fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+                    Complex64::new(self.0.re as f64, self.0.im as f64).to_pyobject(vm)
+                }
+            }
+
+            impl ToPyResult for $name {
+                fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+                    Ok(self.to_object(vm))
+                }
+            }
+
+            impl fmt::Display for $name {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.write_str(&crate::vm::literal::complex::to_string(
+                        self.0.re as f64,
+                        self.0.im as f64,
+                    ))
+                }
+            }
+        };
+    }
+
+    impl_complex_element!(ComplexFloat, Complex32, f32, f32_swap_bytes);
+    impl_complex_element!(ComplexDouble, Complex64, f64, f64_swap_bytes);
 
     macro_rules! impl_int_element {
         ($($t:ty,)*) => {$(
@@ -785,15 +873,13 @@ pub mod array {
             (ArrayNewArgs { spec, init }, kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let spec = spec.as_str().chars().exactly_one().map_err(|_| {
-                vm.new_type_error("array() argument 1 must be a unicode character, not str")
-            })?;
+            let spec = spec.as_str();
 
             if cls.is(Self::class(&vm.ctx)) && !kwargs.is_empty() {
                 return Err(vm.new_type_error("array.array() takes no keyword arguments"));
             }
 
-            if spec == 'u' {
+            if spec == "u" {
                 _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     "The 'u' type code is deprecated and will be removed in Python 3.16".to_owned(),
@@ -803,14 +889,14 @@ pub mod array {
             }
 
             let mut array =
-                ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err))?;
+                ArrayContentType::from_typecode(spec).map_err(|err| vm.new_value_error(err))?;
 
             if let OptionalArg::Present(init) = init {
                 if let Some(init) = init.downcast_ref::<Self>() {
                     let value = init.read().typecode();
                     match (spec, value) {
                         (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
-                        (spec, 'u' | 'w') if !matches!(spec, 'u' | 'w') => {
+                        (spec, "u" | "w") if !matches!(spec, "u" | "w") => {
                             return Err(vm.new_type_error(format!(
                             "cannot use a unicode array to initialize an array with typecode '{spec}'"
                         )))
@@ -822,7 +908,7 @@ pub mod array {
                         }
                     }
                 } else if let Some(wtf8) = init.downcast_ref::<PyStr>() {
-                    if matches!(spec, 'u' | 'w') {
+                    if matches!(spec, "u" | "w") {
                         let bytes = Self::_unicode_to_wchar_bytes(wtf8.as_wtf8(), array.itemsize());
                         array.frombytes_move(bytes);
                     } else {
@@ -1032,7 +1118,7 @@ pub mod array {
                     ustr.class().name()
                 ))
             })?;
-            if !matches!(zelf.read().typecode(), 'u' | 'w') {
+            if !matches!(zelf.read().typecode(), "u" | "w") {
                 return Err(vm.new_value_error(
                     "fromunicode() may only be called on unicode type arrays ('u' or 'w')",
                 ));
@@ -1046,7 +1132,7 @@ pub mod array {
         #[pymethod]
         fn tounicode(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let array = zelf.array.read();
-            if !matches!(array.typecode(), 'u' | 'w') {
+            if !matches!(array.typecode(), "u" | "w") {
                 return Err(vm.new_value_error(
                     "tounicode() may only be called on unicode type arrays ('u' or 'w')",
                 ));
@@ -1414,7 +1500,7 @@ pub mod array {
             }
             let array = zelf.read();
             let cls = zelf.class().to_owned();
-            let typecode = vm.ctx.new_str(array.typecode_str());
+            let typecode = vm.ctx.new_str(array.typecode());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
             let code = PyInt::from(u8::from(code)).into_pyobject(vm);
@@ -1434,8 +1520,8 @@ pub mod array {
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
             let cls = zelf.class().to_owned();
-            let typecode = vm.ctx.new_str(array.typecode_str());
-            let values = if matches!(array.typecode(), 'u' | 'w') {
+            let typecode = vm.ctx.new_str(array.typecode());
+            let values = if matches!(array.typecode(), "u" | "w") {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
                 s.code_points().map(|x| x.to_pyobject(vm)).collect()
             } else {
@@ -1493,18 +1579,11 @@ pub mod array {
                     let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
 
                     for (a, b) in iter {
-                        let ret = match op {
-                            PyComparisonOp::Lt | PyComparisonOp::Le => {
-                                vm.bool_seq_lt(&*a?, &*b?)?
-                            }
-                            PyComparisonOp::Gt | PyComparisonOp::Ge => {
-                                vm.bool_seq_gt(&*a?, &*b?)?
-                            }
-                            _ => unreachable!(),
-                        };
-                        if let Some(v) = ret {
-                            return Ok(PyComparisonValue::Implemented(v));
+                        let (a, b) = (a?, b?);
+                        if vm.bool_eq(&a, &b)? {
+                            continue;
                         }
+                        return a.rich_compare_bool(&b, op, vm).map(Into::into);
                     }
 
                     // fallback:
@@ -1523,7 +1602,7 @@ pub mod array {
                 array.len() * array.itemsize(),
                 false,
                 array.itemsize(),
-                array.typecode_str().into(),
+                array.typecode().into(),
             )
         }
     }
@@ -1561,7 +1640,7 @@ pub mod array {
             let class = zelf.class();
             let class_name = class.name();
             let typecode = zelf.read().typecode();
-            if matches!(typecode, 'u' | 'w') {
+            if matches!(typecode, "u" | "w") {
                 if zelf.__len__() == 0 {
                     return Ok(format!("{class_name}('{typecode}')"));
                 }
@@ -1740,14 +1819,17 @@ pub mod array {
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     #[repr(u8)]
     enum MachineFormatCode {
-        Int8 { signed: bool },                    // 0, 1
-        Int16 { signed: bool, big_endian: bool }, // 2, 3, 4, 5
-        Int32 { signed: bool, big_endian: bool }, // 6, 7, 8, 9
-        Int64 { signed: bool, big_endian: bool }, // 10, 11, 12, 13
-        Ieee754Float { big_endian: bool },        // 14, 15
-        Ieee754Double { big_endian: bool },       // 16, 17
-        Utf16 { big_endian: bool },               // 18, 19
-        Utf32 { big_endian: bool },               // 20, 21
+        Int8 { signed: bool },                     // 0, 1
+        Int16 { signed: bool, big_endian: bool },  // 2, 3, 4, 5
+        Int32 { signed: bool, big_endian: bool },  // 6, 7, 8, 9
+        Int64 { signed: bool, big_endian: bool },  // 10, 11, 12, 13
+        Ieee754Float { big_endian: bool },         // 14, 15
+        Ieee754Double { big_endian: bool },        // 16, 17
+        Utf16 { big_endian: bool },                // 18, 19
+        Utf32 { big_endian: bool },                // 20, 21
+        Ieee754FloatComplex { big_endian: bool },  // 22, 23
+        Ieee754DoubleComplex { big_endian: bool }, // 24, 25
+        Ieee754Half { big_endian: bool },          // 26, 27
     }
 
     impl From<MachineFormatCode> for u8 {
@@ -1767,6 +1849,9 @@ pub mod array {
                 MachineFormatCode::Ieee754Double { big_endian } => 16 + big_endian as Self,
                 MachineFormatCode::Utf16 { big_endian } => 18 + big_endian as Self,
                 MachineFormatCode::Utf32 { big_endian } => 20 + big_endian as Self,
+                MachineFormatCode::Ieee754FloatComplex { big_endian } => 22 + big_endian as Self,
+                MachineFormatCode::Ieee754DoubleComplex { big_endian } => 24 + big_endian as Self,
+                MachineFormatCode::Ieee754Half { big_endian } => 26 + big_endian as Self,
             }
         }
     }
@@ -1790,6 +1875,9 @@ pub mod array {
                 16..=17 => Ok(Self::Ieee754Double { big_endian }),
                 18..=19 => Ok(Self::Utf16 { big_endian }),
                 20..=21 => Ok(Self::Utf32 { big_endian }),
+                22..=23 => Ok(Self::Ieee754FloatComplex { big_endian }),
+                24..=25 => Ok(Self::Ieee754DoubleComplex { big_endian }),
+                26..=27 => Ok(Self::Ieee754Half { big_endian }),
                 _ => Err(code),
             }
         }
@@ -1815,21 +1903,24 @@ pub mod array {
     }
 
     impl MachineFormatCode {
-        fn from_typecode(code: char) -> Option<Self> {
+        fn from_typecode(code: &str) -> Option<Self> {
             use core::mem::size_of;
-            let signed = code.is_ascii_uppercase();
+            let signed = matches!(code, "b" | "h" | "i" | "l" | "q");
             let big_endian = cfg!(target_endian = "big");
             let int_size = match code {
-                'b' | 'B' => return Some(Self::Int8 { signed }),
-                'u' => {
+                "b" | "B" => return Some(Self::Int8 { signed }),
+                "u" => {
                     return match size_of::<wchar_t>() {
                         2 => Some(Self::Utf16 { big_endian }),
                         4 => Some(Self::Utf32 { big_endian }),
                         _ => None,
                     };
                 }
-                'w' => return Some(Self::Utf32 { big_endian }),
-                'f' => {
+                "w" => return Some(Self::Utf32 { big_endian }),
+                "e" => return Some(Self::Ieee754Half { big_endian }),
+                "Zf" => return Some(Self::Ieee754FloatComplex { big_endian }),
+                "Zd" => return Some(Self::Ieee754DoubleComplex { big_endian }),
+                "f" => {
                     // Copied from CPython
                     const Y: f32 = 16711938.0;
                     return match &Y.to_ne_bytes() {
@@ -1838,7 +1929,7 @@ pub mod array {
                         _ => None,
                     };
                 }
-                'd' => {
+                "d" => {
                     // Copied from CPython
                     const Y: f64 = 9006104071832581.0;
                     return match &Y.to_ne_bytes() {
@@ -1863,9 +1954,12 @@ pub mod array {
         const fn item_size(self) -> usize {
             match self {
                 Self::Int8 { .. } => 1,
-                Self::Int16 { .. } | Self::Utf16 { .. } => 2,
+                Self::Int16 { .. } | Self::Utf16 { .. } | Self::Ieee754Half { .. } => 2,
                 Self::Int32 { .. } | Self::Utf32 { .. } | Self::Ieee754Float { .. } => 4,
-                Self::Int64 { .. } | Self::Ieee754Double { .. } => 8,
+                Self::Int64 { .. }
+                | Self::Ieee754Double { .. }
+                | Self::Ieee754FloatComplex { .. } => 8,
+                Self::Ieee754DoubleComplex { .. } => 16,
             }
         }
     }
@@ -1880,12 +1974,8 @@ pub mod array {
     }
 
     fn check_type_code(spec: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
-        let spec = spec.as_str().chars().exactly_one().map_err(|_| {
-            vm.new_type_error(
-                "_array_reconstructor() argument 2 must be a unicode character, not str",
-            )
-        })?;
-        ArrayContentType::from_char(spec)
+        let spec = spec.as_str();
+        ArrayContentType::from_typecode(spec)
             .map_err(|_| vm.new_value_error("second argument must be a valid type code"))
     }
 
@@ -1933,6 +2023,26 @@ pub mod array {
         }
         let mut chunks = bytes.chunks(format.item_size());
         match format {
+            MachineFormatCode::Ieee754Half { big_endian } => chunks.try_for_each(|b| {
+                let value = f16::from_bits(chunk_to_obj!(b, u16, big_endian)).to_f64();
+                array.push(value.to_pyobject(vm), vm)
+            })?,
+            MachineFormatCode::Ieee754FloatComplex { big_endian } => chunks.try_for_each(|b| {
+                let (re, im) = b.split_at(4);
+                let value = Complex64::new(
+                    chunk_to_obj!(re, f32, big_endian) as f64,
+                    chunk_to_obj!(im, f32, big_endian) as f64,
+                );
+                array.push(value.to_pyobject(vm), vm)
+            })?,
+            MachineFormatCode::Ieee754DoubleComplex { big_endian } => chunks.try_for_each(|b| {
+                let (re, im) = b.split_at(8);
+                let value = Complex64::new(
+                    chunk_to_obj!(re, f64, big_endian),
+                    chunk_to_obj!(im, f64, big_endian),
+                );
+                array.push(value.to_pyobject(vm), vm)
+            })?,
             MachineFormatCode::Ieee754Float { big_endian } => {
                 chunks.try_for_each(|b| array.push(chunk_to_obj!(vm, b, f32, big_endian), vm))?
             }

@@ -4049,6 +4049,7 @@ dependencies = [
  "flame",
  "foreign-types-shared",
  "getrandom 0.4.3",
+ "half",
  "hex",
  "indexmap",
  "insta",
