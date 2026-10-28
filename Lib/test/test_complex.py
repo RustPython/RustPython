@@ -458,7 +458,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
     def test_conjugate(self):
         self.assertEqual(complex(5.3, 9.8).conjugate(), 5.3-9.8j)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     def test_constructor(self):
         def check(z, x, y):
             self.assertIs(type(z), complex)
