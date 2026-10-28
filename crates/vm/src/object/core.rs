@@ -144,12 +144,44 @@ mod trashcan {
                     item
                 };
                 if let Some((obj, dealloc)) = next {
+                    // A queued deallocator may defer more objects, but its
+                    // end() must not start another drain.
+                    t.depth.set(1);
+                    let _draining = scopeguard::guard((), |()| t.depth.set(0));
                     unsafe { dealloc(obj) };
                 } else {
                     break;
                 }
             }
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        unsafe fn assert_guarded_dealloc(_: *mut super::super::PyObject) {
+            assert!(TRASHCAN.with(|t| t.depth.get() > 0));
+        }
+
+        #[test]
+        fn deferred_deallocations_remain_guarded() {
+            // This callback never dereferences its opaque object pointer.
+            let obj = core::ptr::null_mut();
+            unsafe {
+                for _ in 0..TRASHCAN_LIMIT {
+                    assert!(begin(obj, assert_guarded_dealloc));
+                }
+                assert!(!begin(obj, assert_guarded_dealloc));
+                for _ in 0..TRASHCAN_LIMIT {
+                    end();
+                }
+            }
+            TRASHCAN.with(|t| {
+                assert_eq!(t.depth.get(), 0);
+                assert!(t.queue.take().is_empty());
+            });
+        }
     }
 }
 
