@@ -8,18 +8,20 @@
 compile_error!("venvlauncher is only supported on Windows");
 
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(code) => ExitCode::from(code as u8),
+fn main() {
+    let code = match run() {
+        Ok(code) => code,
         Err(e) => {
-            eprintln!("venvlauncher error: {}", e);
-            ExitCode::from(1)
+            eprintln!("venvlauncher error: {e}");
+            1
         }
-    }
+    };
+    // ExitCode::from(u8) would truncate the Windows process status.
+    std::process::exit(code as i32);
 }
 
 fn run() -> Result<u32, Box<dyn core::error::Error>> {
@@ -67,7 +69,7 @@ fn run() -> Result<u32, Box<dyn core::error::Error>> {
     }
 
     // 7. Launch Python with same arguments
-    let args: Vec<String> = env::args().skip(1).collect();
+    let args: Vec<OsString> = env::args_os().skip(1).collect();
     launch_process(&python_path, &args)
 }
 
@@ -95,7 +97,7 @@ fn read_home(cfg_path: &Path) -> Result<String, Box<dyn core::error::Error>> {
 }
 
 /// Launch the Python process and wait for it to complete
-fn launch_process(exe: &Path, args: &[String]) -> Result<u32, Box<dyn core::error::Error>> {
+fn launch_process(exe: &Path, args: &[OsString]) -> Result<u32, Box<dyn core::error::Error>> {
     use std::process::Command;
 
     let status = Command::new(exe).args(args).status()?;
