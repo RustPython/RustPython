@@ -392,6 +392,8 @@ PyObject_Str
 PyObject_Type
 PyObject_Vectorcall
 PyObject_VectorcallMethod
+PyOS_snprintf
+PyOS_vsnprintf
 PySeqIter_New
 PySequence_Check
 PySequence_Concat
