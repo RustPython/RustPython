@@ -825,9 +825,18 @@ impl PyStr {
             })
         }
         let sep = zelf.as_wtf8();
-        let mut len = sep.len().saturating_mul(items.len().saturating_sub(1));
+        let mut len = 0usize;
+        let overflow = || vm.new_overflow_error("join() result is too long for a Python string");
         for (i, obj) in items.iter().enumerate() {
-            len = len.saturating_add(item_str(i, obj, vm)?.as_wtf8().len());
+            len = len
+                .checked_add(item_str(i, obj, vm)?.as_wtf8().len())
+                .ok_or_else(overflow)?;
+            if i > 0 {
+                len = len.checked_add(sep.len()).ok_or_else(overflow)?;
+            }
+            if isize::try_from(len).is_err() {
+                return Err(overflow());
+            }
         }
         if let [only] = items {
             let only = item_str(0, only, vm)?;
@@ -835,7 +844,10 @@ impl PyStr {
                 return Ok(only.to_owned());
             }
         }
-        let mut joined = Wtf8Buf::with_capacity(len);
+        let mut joined = Wtf8Buf::new();
+        joined
+            .try_reserve_exact(len)
+            .map_err(|_| vm.new_memory_error(""))?;
         for (i, obj) in items.iter().enumerate() {
             if i > 0 {
                 joined.push_wtf8(sep);
@@ -1250,10 +1262,14 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn replace(zelf: PyRef<PyStr>, args: ReplaceArgs, vm: &VirtualMachine) -> PyRef<PyStr> {
+    fn replace(
+        zelf: PyRef<PyStr>,
+        args: ReplaceArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
         let ReplaceArgs { old, new, count } = args;
         if count == 0 || old.byte_len() > zelf.byte_len() || old.as_wtf8() == new.as_wtf8() {
-            return PyStr::result_unchanged(zelf, vm);
+            return Ok(PyStr::result_unchanged(zelf, vm));
         }
 
         let s = zelf.as_wtf8();
@@ -1262,15 +1278,26 @@ impl Py<PyStr> {
         } else {
             count as usize
         };
+        let capacity = if new.byte_len() > old.byte_len() {
+            let matches = if old.is_empty() {
+                (zelf.char_len() + 1).min(limit)
+            } else {
+                s.find_iter(old.as_wtf8()).take(limit).count()
+            };
+            anystr::checked_replace_len(s.len(), old.byte_len(), new.byte_len(), matches)
+                .ok_or_else(|| vm.new_overflow_error("replace string is too long"))?
+        } else {
+            s.len()
+        };
         let replaced = if old.is_empty() {
             s.replacen(old.as_wtf8(), new.as_wtf8(), limit)
         } else {
             let mut matches = s.find_iter(old.as_wtf8()).take(limit);
             let Some(first) = matches.next() else {
                 drop(matches);
-                return PyStr::result_unchanged(zelf, vm);
+                return Ok(PyStr::result_unchanged(zelf, vm));
             };
-            let mut result = Vec::with_capacity(s.len());
+            let mut result = Vec::with_capacity(capacity);
             let mut last = 0;
             for start in core::iter::once(first).chain(matches) {
                 result.extend_from_slice(&s.as_bytes()[last..start]);
@@ -1281,7 +1308,7 @@ impl Py<PyStr> {
             // SAFETY: A nonempty WTF-8 needle matches only at code point boundaries.
             unsafe { Wtf8Buf::from_bytes_unchecked(result) }
         };
-        vm.ctx.new_str(replaced)
+        Ok(vm.ctx.new_str(replaced))
     }
 
     #[pymethod]
@@ -1500,8 +1527,19 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: anystr::ExpandTabsArgs) -> Wtf8Buf {
-        rustpython_common::str::expandtabs(self.as_wtf8(), args.tabsize())
+    fn expandtabs(&self, args: anystr::ExpandTabsArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let capacity = anystr::checked_expandtabs_len(
+            self.byte_len(),
+            self.as_wtf8().code_points().map(|ch| ch.to_u32()),
+            args.tabsize(),
+        )
+        .ok_or_else(|| vm.new_overflow_error("new string is too long"))?;
+        let mut result = Wtf8Buf::new();
+        result
+            .try_reserve_exact(capacity)
+            .map_err(|_| vm.new_memory_error(""))?;
+        rustpython_common::str::expandtabs_into(self.as_wtf8(), args.tabsize(), &mut result);
+        Ok(result)
     }
 
     #[pymethod]

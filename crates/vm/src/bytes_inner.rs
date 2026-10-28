@@ -943,24 +943,31 @@ impl PyBytesInner {
         )
     }
 
-    pub fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Vec<u8> {
+    pub fn expandtabs(
+        &self,
+        options: anystr::ExpandTabsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let tabsize = options.tabsize();
         let mut counter: usize = 0;
-        let mut res = vec![];
-
-        if tabsize == 0 {
-            return self
-                .elements
-                .iter()
-                .copied()
-                .filter(|x| *x != b'\t')
-                .collect();
-        }
+        let capacity = anystr::checked_expandtabs_len(
+            self.len(),
+            self.elements.iter().copied().map(u32::from),
+            tabsize,
+        )
+        .ok_or_else(|| vm.new_overflow_error("result too long"))?;
+        let mut res = Vec::new();
+        res.try_reserve_exact(capacity)
+            .map_err(|_| vm.new_memory_error(""))?;
 
         for i in &self.elements {
             if *i == b'\t' {
-                let len = tabsize - counter % tabsize;
-                res.extend_from_slice(&vec![b' '; len]);
+                let len = if tabsize == 0 {
+                    0
+                } else {
+                    tabsize - counter % tabsize
+                };
+                res.resize(res.len() + len, b' ');
                 counter += len;
             } else {
                 res.push(*i);
@@ -972,7 +979,7 @@ impl PyBytesInner {
             }
         }
 
-        res
+        Ok(res)
     }
 
     pub fn splitlines<FW, W>(&self, options: anystr::SplitLinesArgs, into_wrapper: FW) -> Vec<W>
@@ -989,10 +996,17 @@ impl PyBytesInner {
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1
-    fn replace_interleave(&self, to: Self, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_interleave(
+        &self,
+        to: Self,
+        max_count: Option<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let place_count = self.elements.len() + 1;
-        let count = max_count.map_or(place_count, |v| core::cmp::min(v, place_count)) - 1;
-        let capacity = self.elements.len() + count * to.len();
+        let insertions = max_count.map_or(place_count, |v| core::cmp::min(v, place_count));
+        let capacity = anystr::checked_replace_len(self.len(), 0, to.len(), insertions)
+            .ok_or_else(|| vm.new_overflow_error("replace bytes is too long"))?;
+        let count = insertions - 1;
         let mut result = Vec::with_capacity(capacity);
         let to_slice = to.elements.as_slice();
         result.extend_from_slice(to_slice);
@@ -1001,7 +1015,7 @@ impl PyBytesInner {
             result.extend_from_slice(to_slice);
         }
         result.extend_from_slice(&self.elements[count..]);
-        result
+        Ok(result)
     }
 
     fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Cow<'_, [u8]> {
@@ -1084,14 +1098,8 @@ impl PyBytesInner {
         // Check for overflow
         //    result_len = self_len + count * (to_len-from_len)
         debug_assert!(count > 0);
-        if to.len() as isize - from.len() as isize
-            > (isize::MAX - self.elements.len() as isize) / count as isize
-        {
-            return Err(vm.new_overflow_error("replace bytes is too long"));
-        }
-        let result_len = (self.elements.len() as isize
-            + count as isize * (to.len() as isize - from.len() as isize))
-            as usize;
+        let result_len = anystr::checked_replace_len(self.len(), from.len(), to.len(), count)
+            .ok_or_else(|| vm.new_overflow_error("replace bytes is too long"))?;
 
         let mut result = Vec::with_capacity(result_len);
         let mut last_end = 0;
@@ -1141,7 +1149,7 @@ impl PyBytesInner {
             // insert the 'to' bytes everywhere.
             //     >>> b"Python".replace(b"", b".")
             //     b'.P.y.t.h.o.n.'
-            return Ok(Cow::Owned(self.replace_interleave(to, max_count)));
+            return self.replace_interleave(to, max_count, vm).map(Cow::Owned);
         }
 
         // Except for b"".replace(b"", b"A") == b"A" there is no way beyond this
