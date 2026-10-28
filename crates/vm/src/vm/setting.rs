@@ -156,6 +156,9 @@ pub struct Settings {
     /// Environment PYTHONPATH (and RUSTPYTHONPATH)
     pub path_list: Vec<String>,
 
+    /// Standalone CLI ._pth path override; embedded applications do not discover these files.
+    pub under_pth: Option<crate::getpath::UnderPth>,
+
     /// PYTHONHOME: explicit prefix, optionally followed by the exec prefix.
     pub home: Option<String>,
     // wchar_t *platlibdir;
@@ -221,6 +224,7 @@ impl Default for Settings {
             lazy_imports: -1,
             warnoptions: vec![],
             path_list: vec![],
+            under_pth: None,
             home: None,
             argv: vec![],
             hash_seed: None,

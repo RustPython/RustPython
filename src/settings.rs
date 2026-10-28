@@ -217,14 +217,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     let (args, mode, argv) = parse_args()?;
 
     let mut settings = Settings::default();
-    settings.isolated = args.isolate;
+    if let Err(err) = rustpython_vm::getpath::configure_under_pth(&mut settings) {
+        eprintln!("Fatal Python error: cannot configure ._pth paths: {err}");
+        std::process::exit(1);
+    }
+    settings.isolated |= args.isolate;
     settings.ignore_environment = settings.isolated || args.ignore_environment;
     settings.bytes_warning = args.bytes_warning.into();
-    settings.import_site = !args.no_site;
+    if settings.under_pth != Some(rustpython_vm::getpath::UnderPth::Isolated) {
+        settings.import_site = !args.no_site;
+    }
 
     let ignore_environment = settings.ignore_environment;
 
-    if !ignore_environment {
+    if !ignore_environment && settings.under_pth.is_none() {
         settings.path_list.extend(get_paths("RUSTPYTHONPATH"));
         settings.path_list.extend(get_paths("PYTHONPATH"));
     }
@@ -233,9 +239,11 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     let get_env = |env| (!ignore_environment).then(|| env::var_os(env)).flatten();
 
-    settings.home = get_env("PYTHONHOME")
-        .filter(|home| !home.is_empty())
-        .map(|home| home.to_string_lossy().into_owned());
+    if settings.under_pth.is_none() {
+        settings.home = get_env("PYTHONHOME")
+            .filter(|home| !home.is_empty())
+            .map(|home| home.to_string_lossy().into_owned());
+    }
 
     let env_count = |env| {
         get_env(env).filter(|v| !v.is_empty()).map_or(0, |val| {
