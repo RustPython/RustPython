@@ -68,12 +68,12 @@ pub unsafe extern "C" fn PyTuple_SetItem(
     pos: isize,
     value: *mut PyObject,
 ) -> c_int {
-    with_vm::<PyResult<()>, _>(|vm| {
+    with_vm(|vm| {
         let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm)? };
         let value = unsafe { value.assume_owned() };
         let index: usize = pos
             .try_into()
-            .map_err(|_| vm.new_system_error("negative position"))?;
+            .map_err(|_| vm.new_index_error("negative position"))?;
 
         if tuple.len() <= index {
             Err(vm.new_index_error("tuple index out of range"))
