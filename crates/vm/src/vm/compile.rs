@@ -144,9 +144,16 @@ impl CompileWarningError {
     }
 }
 
+#[cfg(feature = "parser")]
+struct SourceEncoding {
+    name: String,
+    lineno: usize,
+    line: core::ops::Range<usize>,
+}
+
 impl VirtualMachine {
     #[cfg(feature = "parser")]
-    fn detect_source_encoding(source: &[u8]) -> Option<String> {
+    fn detect_source_encoding(source: &[u8]) -> Option<SourceEncoding> {
         fn find_encoding_in_line(line: &[u8]) -> Option<String> {
             let hash_pos = line.iter().position(|&b| b == b'#')?;
             if !line[..hash_pos]
@@ -156,40 +163,60 @@ impl VirtualMachine {
                 return None;
             }
             let after_hash = &line[hash_pos..];
-            let coding_pos = after_hash.windows(6).position(|w| w == b"coding")?;
-            let after_coding = &after_hash[coding_pos + 6..];
-            let rest = if after_coding.first() == Some(&b':') || after_coding.first() == Some(&b'=')
-            {
-                &after_coding[1..]
-            } else {
-                return None;
-            };
-            let name: String = rest
-                .iter()
-                .copied()
-                .skip_while(|&b| b == b' ' || b == b'\t')
-                .take_while(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
-                .map(|b| b as char)
-                .collect();
-            (!name.is_empty()).then(|| VirtualMachine::normalize_source_encoding(&name))
+            for (coding_pos, candidate) in after_hash.windows(6).enumerate() {
+                if candidate != b"coding" {
+                    continue;
+                }
+                let after_coding = &after_hash[coding_pos + 6..];
+                if !matches!(after_coding.first(), Some(b':' | b'=')) {
+                    continue;
+                }
+                let name: String = after_coding[1..]
+                    .iter()
+                    .copied()
+                    .skip_while(|&b| b == b' ' || b == b'\t')
+                    .take_while(|&b| {
+                        b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'
+                    })
+                    .map(|b| b as char)
+                    .collect();
+                if !name.is_empty() {
+                    return Some(VirtualMachine::normalize_source_encoding(&name));
+                }
+            }
+            None
         }
 
-        let mut lines = source.splitn(3, |&b| b == b'\n');
-        if let Some(first) = lines.next() {
-            let first = first.strip_prefix(b"\xef\xbb\xbf").unwrap_or(first);
-            if let Some(enc) = find_encoding_in_line(first) {
-                return Some(enc);
-            }
-            let trimmed = first
+        let mut start = if source.starts_with(b"\xef\xbb\xbf") {
+            3
+        } else {
+            0
+        };
+        for lineno in 1..=2 {
+            let end = source[start..]
                 .iter()
-                .skip_while(|&&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
-                .copied()
-                .collect::<Vec<_>>();
-            if !trimmed.is_empty() && trimmed[0] != b'#' {
+                .position(|&b| b == b'\r' || b == b'\n')
+                .map_or(source.len(), |offset| start + offset);
+            let line = &source[start..end];
+            if let Some(name) = find_encoding_in_line(line) {
+                return Some(SourceEncoding {
+                    name,
+                    lineno,
+                    line: start..end,
+                });
+            }
+            let first_nonspace = line
+                .iter()
+                .find(|&&b| b != b' ' && b != b'\t' && b != b'\x0c');
+            if first_nonspace.is_some_and(|&b| b != b'#') || end == source.len() {
                 return None;
             }
+            start = end + 1;
+            if source[end] == b'\r' && source.get(start) == Some(&b'\n') {
+                start += 1;
+            }
         }
-        lines.next().and_then(find_encoding_in_line)
+        None
     }
 
     #[cfg(feature = "parser")]
@@ -237,7 +264,7 @@ impl VirtualMachine {
             let decoded = {
                 #[cfg(feature = "parser")]
                 {
-                    let encoding = Self::detect_source_encoding(&buf);
+                    let encoding = Self::detect_source_encoding(&buf).map(|cookie| cookie.name);
                     if encoding.as_deref().is_none_or(Self::is_utf8_encoding) {
                         String::from_utf8_lossy(&buf).into_owned()
                     } else if encoding.as_deref() == Some("iso-8859-1") {
@@ -337,23 +364,28 @@ impl VirtualMachine {
         } else {
             Self::detect_source_encoding(source)
         };
-        let is_utf8 = encoding.as_deref().is_none_or(Self::is_utf8_encoding);
+        let encoding_name = encoding.as_ref().map(|cookie| cookie.name.as_str());
+        let is_utf8 = encoding_name.is_none_or(Self::is_utf8_encoding);
         if has_bom && !is_utf8 {
-            let enc = encoding.as_deref().unwrap_or("utf-8");
-            let after_bom = &source[3..];
-            let line_end = after_bom
+            let cookie = encoding.as_ref().unwrap();
+            let enc = cookie.name.as_str();
+            let line = &source[cookie.line.clone()];
+            let text = String::from_utf8_lossy(line).into_owned();
+            // CPython's string tokenizer includes the line terminator for
+            // the second coding line. Its range-error helper converts this
+            // byte column by counting non-continuation bytes in the prefix.
+            let end_byte_offset = line.len() + usize::from(cookie.lineno == 2);
+            let end_offset = 1 + line[..end_byte_offset - 1]
                 .iter()
-                .position(|&b| b == b'\n')
-                .unwrap_or(after_bom.len());
-            let text = String::from_utf8_lossy(&after_bom[..line_end]).into_owned();
-            let end_offset = text.chars().count() as i32;
+                .filter(|&&byte| byte & 0xc0 != 0x80)
+                .count();
             let msg = format!("encoding problem: {enc} with BOM");
             let location = self.ctx.new_tuple(vec![
                 self.ctx.new_str(filename).into(),
-                self.ctx.new_int(1).into(),
+                self.ctx.new_int(cookie.lineno).into(),
                 self.ctx.new_int(0).into(),
                 self.ctx.new_str(text).into(),
-                self.ctx.new_int(1).into(),
+                self.ctx.new_int(cookie.lineno).into(),
                 self.ctx.new_int(end_offset).into(),
             ]);
             return Err(self
@@ -366,31 +398,61 @@ impl VirtualMachine {
                 }));
         }
 
-        if is_utf8 {
+        let decoded = if is_utf8 {
             let src = if has_bom { &source[3..] } else { source };
             match core::str::from_utf8(src) {
-                Ok(s) => Ok(s.to_owned()),
-                Err(e) => Err(self.new_non_utf8_syntax_error(filename, src, e.valid_up_to())),
+                Ok(s) => s.to_owned(),
+                Err(e) => {
+                    return Err(self.new_non_utf8_syntax_error(filename, src, e.valid_up_to()));
+                }
             }
         } else {
-            let encoding = encoding.as_deref().unwrap();
+            let encoding = encoding_name.unwrap();
             let bytes = self.ctx.new_bytes(source.to_vec());
             let decoded = self
                 .state
                 .codec_registry
                 .decode_text(bytes.into(), encoding, None, self)
                 .map_err(|exc| {
-                    if exc.fast_isinstance(self.ctx.exceptions.lookup_error) {
-                        self.new_exception_msg(
-                            self.ctx.exceptions.syntax_error.to_owned(),
-                            format!("unknown encoding for '{filename}': {encoding}").into(),
+                    if exc.fast_isinstance(self.ctx.exceptions.syntax_error) {
+                        match exc
+                            .as_object()
+                            .set_attr("filename", self.ctx.new_str(filename), self)
+                        {
+                            Ok(()) => exc,
+                            Err(error) => error,
+                        }
+                    } else if exc.fast_isinstance(self.ctx.exceptions.lookup_error)
+                        || exc.fast_isinstance(self.ctx.exceptions.value_error)
+                    {
+                        let message = match exc.as_object().str(self) {
+                            Ok(message) => message,
+                            Err(error) => return error,
+                        };
+                        let location = self.ctx.new_tuple(vec![
+                            self.ctx.new_str(filename).into(),
+                            self.ctx.new_int(0).into(),
+                            self.ctx.new_int(-1).into(),
+                            self.ctx.none(),
+                        ]);
+                        self.invoke_exception(
+                            self.ctx.exceptions.syntax_error,
+                            vec![message.into(), location.into()],
                         )
+                        .unwrap_or_else(|error| error)
                     } else {
                         exc
                     }
                 })?;
-            Ok(decoded.to_string_lossy().into_owned())
-        }
+            decoded.to_string_lossy().into_owned()
+        };
+        // Normalize the source before parsing so literal values, warning ranges,
+        // and diagnostic text all refer to the same universal-newline input.
+        Ok(if decoded.contains('\r') {
+            decoded.replace("\r\n", "\n").replace('\r', "\n")
+        } else {
+            decoded
+        })
     }
 
     #[cfg(feature = "parser")]
