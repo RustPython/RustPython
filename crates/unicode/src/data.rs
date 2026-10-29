@@ -20,6 +20,7 @@ use icu_properties::props::{
 use rustpython_wtf8::CodePoint;
 
 // Latest Unicode
+include!(concat!(env!("OUT_DIR"), "/generated/blocks.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/name_lookups.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
@@ -266,6 +267,23 @@ pub fn character_name(ch: char) -> Option<String> {
     unicode_names2::name(ch)
         .map(|name| name.to_string())
         .or_else(|| lookup_table(ALGO_NAMES, ch).map(|v| v.to_name(ch)))
+}
+
+/// Unicode block name, including ranges containing surrogates or unassigned points.
+#[must_use]
+pub fn block(c: CodePoint) -> &'static str {
+    let c = c.to_u32();
+    BLOCKS
+        .binary_search_by(|&(start, end, _)| {
+            if c > end {
+                Ordering::Less
+            } else if c < start {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        })
+        .map_or("No_Block", |i| BLOCKS[i].2)
 }
 
 /// A view over the Unicode character database at a fixed version.
