@@ -4679,7 +4679,6 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f = logging.Formatter('${asctime}--', style='$')
         self.assertTrue(f.usesTime())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Unexpected error parsing format string
     def test_format_validate(self):
         # Check correct formatting
         # Percentage style
