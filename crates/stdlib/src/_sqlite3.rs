@@ -2529,22 +2529,31 @@ mod _sqlite3 {
                 if detect_types & PARSE_COLNAMES != 0 {
                     let col_name = st.column_name(i);
                     let col_name = ptr_to_str(col_name, vm)?;
-                    let col_name = col_name
-                        .chars()
-                        .skip_while(|&x| x != '[')
-                        .skip(1)
-                        .take_while(|&x| x != ']')
-                        .flat_map(|x| x.to_uppercase())
-                        .collect::<Box<str>>();
-                    if let Some(converter) = converters().get_item_opt(&*col_name, vm)? {
+                    let mut start = None;
+                    let type_name = col_name.char_indices().find_map(|(index, ch)| match ch {
+                        '[' => {
+                            start = Some(index + 1);
+                            None
+                        }
+                        ']' => start.map(|start| &col_name[start..index]),
+                        _ => None,
+                    });
+                    if let Some(type_name) = type_name
+                        && let Some(converter) =
+                            converters().get_item_opt(&type_name.to_uppercase(), vm)?
+                    {
                         cast_map.push(Some(converter));
                         continue;
                     }
                 }
                 if detect_types & PARSE_DECLTYPES != 0 {
                     let decltype = st.column_decltype(i);
-                    let decltype = ptr_to_str(decltype, vm)?;
-                    if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
+                    // Expressions and columns without a declared type return NULL.
+                    if !decltype.is_null()
+                        && let Some(decltype) = ptr_to_str(decltype, vm)?
+                            .split_terminator(&[' ', '('])
+                            .next()
+                    {
                         let decltype = decltype.to_uppercase();
                         if let Some(converter) = converters().get_item_opt(&decltype, vm)? {
                             cast_map.push(Some(converter));
