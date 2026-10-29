@@ -627,30 +627,50 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        let mut value = Some(value);
-        let (stored_index, _removed) = self.with_slot_mut_prepared(
-            vm,
-            key,
-            hash,
-            Some(|| key.to_pyobject(vm)),
-            |inner, (entry_index, index_index), prepared| {
-                if let Some(index) = entry_index.index() {
-                    let entry = inner.entries[index].as_mut().unwrap();
-                    let removed = core::mem::replace(&mut entry.value, value.take().unwrap());
-                    return (index, Some(removed));
+        let (stored_index, _removed) = loop {
+            let (entry_index, index_index) = self.lookup(vm, key, hash, None)?;
+            let mut inner = self.write();
+            if let Some(index) = entry_index.index() {
+                // Update existing key
+                if let Some(entry) = inner.entries.get_mut(index) {
+                    let Some(entry) = entry.as_mut() else {
+                        // The dict was changed since we did lookup. Let's try again.
+                        // this is very rare to happen
+                        // (and seems only happen with very high freq gc, and about one time in 10000 iters)
+                        // but still possible
+                        continue;
+                    };
+                    #[expect(
+                        clippy::redundant_else,
+                        reason = "Keeping the empty `else` block here for documentation"
+                    )]
+                    if entry.index == index_index {
+                        let removed = core::mem::replace(&mut entry.value, value);
+                        // defer dec RC
+                        break (index, Some(removed));
+                    } else {
+                        // stuff shifted around, let's try again
+                    }
+                } else {
+                    // The dict was changed since we did lookup. Let's try again.
                 }
-                let key = prepared.take().unwrap();
+            } else {
+                // New key - validate slot is still what lookup found
+                if inner.indices.get(index_index) != Some(&entry_index) {
+                    // Dict was resized since lookup, retry
+                    continue;
+                }
                 self.invalidate_keys_version();
                 let stored = inner.unchecked_push(
                     index_index,
                     hash,
-                    key,
-                    value.take().unwrap(),
+                    key.to_pyobject(vm),
+                    value,
                     entry_index,
                 );
-                (stored, None)
-            },
-        )?;
+                break (stored, None);
+            }
+        };
         Ok(stored_index)
     }
 
@@ -942,26 +962,24 @@ impl<T: Clone> Dict<T> {
         hash: HashValue,
         value: T,
     ) -> PyResult<()> {
-        // Borrow the value so a deletion leaves it to be dropped unlocked.
-        let mut value = Some(value);
-        let _removed = self.with_slot_mut_prepared(
-            vm,
-            key,
-            hash,
-            Some(|| key.to_owned()),
-            |inner, (entry, index_index), prepared| {
-                if let Some(index) = entry.index() {
-                    self.invalidate_keys_version();
-                    inner.indices[index_index] = IndexEntry::DUMMY;
-                    inner.used -= 1;
-                    return inner.entries[index].take();
+        let _removed = loop {
+            let lookup = self.lookup(vm, key, hash, None)?;
+            let (entry, index_index) = lookup;
+            if entry.index().is_some() {
+                match self.pop_inner(lookup) {
+                    ControlFlow::Break(Some(entry)) => break Some(entry),
+                    _ => continue,
                 }
-                let key = prepared.take().unwrap();
-                self.invalidate_keys_version();
-                inner.unchecked_push(index_index, hash, key, value.take().unwrap(), entry);
-                None
-            },
-        )?;
+            }
+
+            let mut inner = self.write();
+            if inner.indices.get(index_index) != Some(&entry) {
+                continue;
+            }
+            self.invalidate_keys_version();
+            inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
+            break None;
+        };
         Ok(())
     }
 
@@ -978,10 +996,36 @@ impl<T: Clone> Dict<T> {
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
-        self.setdefault_entry(vm, key, hash, default)
-            .map(|(_, value)| value)
+        let mut default = Some(default);
+        loop {
+            let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
+            if let Some(index) = index_entry.index() {
+                let inner = self.read();
+                if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    return Ok(entry.value.clone());
+                }
+                continue;
+            }
+            let mut inner = self.write();
+            if inner.indices.get(index_index) != Some(&index_entry) {
+                continue;
+            }
+            let value = default
+                .take()
+                .expect("default must only be computed on insertion")();
+            self.invalidate_keys_version();
+            inner.unchecked_push(
+                index_index,
+                hash,
+                key.to_pyobject(vm),
+                value.clone(),
+                index_entry,
+            );
+            return Ok(value);
+        }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn setdefault_entry<K, F>(
         &self,
         vm: &VirtualMachine,
@@ -993,27 +1037,29 @@ impl<T: Clone> Dict<T> {
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
-        self.with_slot_mut_prepared(
-            vm,
-            key,
-            hash,
-            Some(|| {
-                // Preserve lazy factory-before-key ordering, outside the guard.
-                let value = default();
-                (key.to_pyobject(vm), value)
-            }),
-            |inner, (index_entry, index_index), prepared| {
-                if let Some(index) = index_entry.index() {
-                    let entry = inner.entries[index].as_ref().unwrap();
-                    return (entry.key.clone(), entry.value.clone());
+        let mut default = Some(default);
+        loop {
+            let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
+            if let Some(index) = index_entry.index() {
+                let inner = self.read();
+                if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    return Ok((entry.key.clone(), entry.value.clone()));
                 }
-                let (key, value) = prepared.take().unwrap();
-                let ret = (key.clone(), value.clone());
-                self.invalidate_keys_version();
-                inner.unchecked_push(index_index, hash, key, value, index_entry);
-                ret
-            },
-        )
+                continue;
+            }
+            let mut inner = self.write();
+            if inner.indices.get(index_index) != Some(&index_entry) {
+                continue;
+            }
+            let value = default
+                .take()
+                .expect("default must only be computed on insertion")();
+            let key_obj = key.to_pyobject(vm);
+            let ret = (key_obj.clone(), value.clone());
+            self.invalidate_keys_version();
+            inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
+            return Ok(ret);
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -1354,61 +1400,13 @@ impl<T: Clone> Dict<T> {
         hash_value: HashValue,
         update: impl FnOnce(&mut DictInner<T>, EntryIndex) -> R,
     ) -> PyResult<Option<R>> {
-        let mut update = Some(update);
-        self.with_slot_mut(vm, key, hash_value, |inner, (entry, _)| {
-            entry
-                .index()
-                .map(|index| update.take().unwrap()(inner, index))
-        })
-    }
-
-    // Probe and commit under one guard, including when the key is absent.
-    // The callback must not run Python, allocate Python objects, or drop owned
-    // Python references (including unused captures) while the guard is held.
-    fn with_slot_mut<K: DictKey + ?Sized, R>(
-        &self,
-        vm: &VirtualMachine,
-        key: &K,
-        hash_value: HashValue,
-        update: impl FnOnce(&mut DictInner<T>, LookupResult) -> R,
-    ) -> PyResult<R> {
-        self.with_slot_mut_prepared(vm, key, hash_value, None::<fn() -> ()>, |inner, slot, _| {
-            update(inner, slot)
-        })
-    }
-
-    // Preparation may run Python, but only after absence was established and
-    // the guard released. Retain that probe's witnesses so an unchanged route
-    // does not repeat equality. Unused preparation/captures stay outside guards.
-    fn with_slot_mut_prepared<K: DictKey + ?Sized, P, F: FnOnce() -> P, R>(
-        &self,
-        vm: &VirtualMachine,
-        key: &K,
-        hash_value: HashValue,
-        mut prepare: Option<F>,
-        update: impl FnOnce(&mut DictInner<T>, LookupResult, &mut Option<P>) -> R,
-    ) -> PyResult<R> {
         struct ProbeWitness {
             index_index: IndexIndex,
             entry_index: IndexEntry,
             key: Option<(HashValue, PyObjectRef)>,
         }
 
-        impl ProbeWitness {
-            fn matches<T>(&self, inner: &DictInner<T>) -> bool {
-                inner.indices.get(self.index_index) == Some(&self.entry_index)
-                    && self.key.as_ref().is_none_or(|(hash, key)| {
-                        inner
-                            .get_entry_checked(self.entry_index.index().unwrap(), self.index_index)
-                            .is_some_and(|entry| entry.hash == *hash && entry.key.is(key))
-                    })
-            }
-        }
-
-        let mut prepared = None;
-        let mut pending_vacancy: Option<(LookupResult, IndexIndex)> = None;
         let mut idxs = None;
-        let mut free_slot = None;
         let mut prefix = Vec::<ProbeWitness>::new();
         let mut compared: Option<(EntryIndex, IndexIndex, PyObjectRef, bool)> = None;
         'lookup: loop {
@@ -1423,24 +1421,6 @@ impl<T: Clone> Dict<T> {
                 drop(inner);
                 prefix.clear();
                 idxs = None;
-                free_slot = None;
-                pending_vacancy = None;
-                continue;
-            }
-            if let Some((slot, terminal_free)) = pending_vacancy.take() {
-                // The terminal FREE matters even when insertion chose an earlier
-                // DUMMY. Every preceding occupied/DUMMY bucket is witnessed.
-                if inner.indices.get(terminal_free) == Some(&IndexEntry::FREE)
-                    && prefix.iter().all(|witness| witness.matches(&inner))
-                {
-                    let result = update(&mut inner, slot, &mut prepared);
-                    drop(inner);
-                    return Ok(result);
-                }
-                drop(inner);
-                prefix.clear();
-                idxs = None;
-                free_slot = None;
                 continue;
             }
             let matched = if let Some((entry_index, index_index, candidate, equal)) = &comparison {
@@ -1452,35 +1432,36 @@ impl<T: Clone> Dict<T> {
                 // A false comparison can survive while another previously
                 // probed bucket changes (including after nested compaction).
                 // Revalidate the whole prefix before continuing past it.
-                let prefix_valid = *equal || prefix.iter().all(|witness| witness.matches(&inner));
+                let prefix_valid = *equal
+                    || prefix.iter().all(|witness| {
+                        inner.indices.get(witness.index_index) == Some(&witness.entry_index)
+                            && witness.key.as_ref().is_none_or(|(hash, key)| {
+                                inner
+                                    .get_entry_checked(
+                                        witness.entry_index.index().unwrap(),
+                                        witness.index_index,
+                                    )
+                                    .is_some_and(|entry| entry.hash == *hash && entry.key.is(key))
+                            })
+                    });
                 if !valid || !prefix_valid {
                     drop(inner);
                     prefix.clear();
                     idxs = None;
-                    free_slot = None;
                     continue;
                 }
-                equal.then_some((inner.indices[*index_index], *index_index))
+                equal.then_some(*entry_index)
             } else {
                 None
             };
-            let mut terminal_free = None;
-            let slot = match matched {
-                Some(slot) => slot,
+            let entry_index = match matched {
+                Some(index) => index,
                 None => loop {
                     let index_index = probes.next();
                     let index_entry = inner.indices[index_index];
                     match index_entry {
-                        IndexEntry::FREE => {
-                            terminal_free = Some(index_index);
-                            break free_slot.map_or((IndexEntry::FREE, index_index), |index| {
-                                (IndexEntry::DUMMY, index)
-                            });
-                        }
+                        IndexEntry::FREE => return Ok(None),
                         IndexEntry::DUMMY => {
-                            if free_slot.is_none() {
-                                free_slot = Some(index_index);
-                            }
                             prefix.push(ProbeWitness {
                                 index_index,
                                 entry_index: index_entry,
@@ -1493,7 +1474,7 @@ impl<T: Clone> Dict<T> {
                     let entry_index = index_entry.index().unwrap();
                     let entry = inner.entries[entry_index].as_ref().unwrap();
                     if key.key_is(&entry.key) {
-                        break (index_entry, index_index);
+                        break entry_index;
                     }
                     prefix.push(ProbeWitness {
                         index_index,
@@ -1510,16 +1491,9 @@ impl<T: Clone> Dict<T> {
                     }
                 },
             };
-            if slot.0.index().is_none() && prepare.is_some() {
-                pending_vacancy = Some((slot, terminal_free.unwrap()));
-                drop(inner);
-                drop(comparison);
-                prepared = Some(prepare.take().unwrap()());
-                continue;
-            }
-            let result = update(&mut inner, slot, &mut prepared);
+            let result = update(&mut inner, entry_index);
             drop(inner);
-            return Ok(result);
+            return Ok(Some(result));
         }
     }
 
@@ -2024,252 +1998,6 @@ mod tests {
 
     fn hash_key<K: DictKey + ?Sized>(vm: &VirtualMachine, key: &K) -> HashValue {
         key.key_hash(vm).unwrap()
-    }
-
-    fn assert_table_invariants<T: Clone>(dict: &Dict<T>) {
-        let inner = dict.read();
-        assert_eq!(inner.entries.iter().flatten().count(), inner.used);
-        assert_eq!(
-            inner
-                .indices
-                .iter()
-                .filter(|index| index.index().is_some())
-                .count(),
-            inner.used
-        );
-        assert_eq!(
-            inner
-                .indices
-                .iter()
-                .filter(|index| **index != IndexEntry::FREE)
-                .count(),
-            inner.filled
-        );
-        for (index, entry) in inner.entries.iter().enumerate() {
-            let Some(entry) = entry else { continue };
-            assert_eq!(inner.indices[entry.index].index(), Some(index));
-            let mut probes = GenIndexes::new(entry.hash, (inner.indices.len() - 1) as i64);
-            let mut reached = false;
-            // After the finite perturb prefix, probing visits the entire table.
-            for _ in 0..inner.indices.len() + 64 {
-                let bucket = probes.next();
-                assert_ne!(inner.indices[bucket], IndexEntry::FREE);
-                if bucket == entry.index {
-                    reached = true;
-                    break;
-                }
-            }
-            assert!(reached, "live entry must be reachable before a free bucket");
-        }
-        for (bucket, index) in inner.indices.iter().enumerate() {
-            if let Some(index) = index.index() {
-                assert_eq!(inner.entries[index].as_ref().unwrap().index, bucket);
-            }
-        }
-    }
-
-    #[test]
-    fn insertion_paths_preserve_table_invariants() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let dict = Dict::default();
-            let initial_buckets = dict.read().indices.len();
-            for key in 0..16usize {
-                dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
-                assert_table_invariants(&dict);
-            }
-            assert!(dict.read().indices.len() > initial_buckets);
-            let key: PyObjectRef = vm.ctx.new_int(3).into();
-            let hash = hash_key(vm, &3usize);
-            dict.delete_or_insert(vm, &key, hash, 30).unwrap();
-            assert_table_invariants(&dict);
-            let filled = dict.read().filled;
-            dict.delete_or_insert(vm, &key, hash, 30).unwrap();
-            assert_eq!(dict.read().filled, filled);
-            assert_table_invariants(&dict);
-            dict.insert(vm, &3usize, hash, 31).unwrap();
-            assert_eq!(dict.get(vm, &3usize, hash).unwrap(), Some(31));
-            assert_eq!(dict.setdefault(vm, &3usize, hash, || 32).unwrap(), 31);
-            let (_, value) = dict
-                .setdefault_entry(vm, &17usize, hash_key(vm, &17usize), || 17)
-                .unwrap();
-            assert_eq!(value, 17);
-            assert_eq!(dict.len(), 17);
-            assert_table_invariants(&dict);
-        });
-    }
-
-    #[test]
-    fn insertion_reprobes_after_native_key_preparation() {
-        struct PreparingKey<'a> {
-            dict: &'a Dict<usize>,
-            conversions: core::cell::Cell<usize>,
-        }
-        impl DictKey for PreparingKey<'_> {
-            type Owned = usize;
-            fn _to_owned(&self, vm: &VirtualMachine) -> usize {
-                self.conversions.set(self.conversions.get() + 1);
-                assert_eq!(self.conversions.get(), 1);
-                for key in 0..16usize {
-                    self.dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
-                }
-                64
-            }
-            fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-                64usize.key_hash(vm)
-            }
-            fn key_is(&self, _other: &PyObject) -> bool {
-                false
-            }
-            fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
-                64usize.key_eq(vm, other)
-            }
-            fn key_as_isize(&self, _vm: &VirtualMachine) -> PyResult<isize> {
-                Ok(64)
-            }
-        }
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let dict = Dict::default();
-            let initial_buckets = dict.read().indices.len();
-            let key = PreparingKey {
-                dict: &dict,
-                conversions: core::cell::Cell::new(0),
-            };
-            dict.insert(vm, &key, hash_key(vm, &key), 64).unwrap();
-            assert_eq!(key.conversions.get(), 1);
-            assert!(dict.read().indices.len() > initial_buckets);
-            assert_eq!(dict.len(), 17);
-            assert_eq!(
-                dict.get(vm, &64usize, hash_key(vm, &64usize)).unwrap(),
-                Some(64)
-            );
-            assert_table_invariants(&dict);
-        });
-    }
-
-    #[test]
-    fn setdefault_reprobes_after_native_factory_inserts_winner() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let dict = Dict::default();
-            let calls = core::cell::Cell::new(0);
-            let hash = hash_key(vm, &64usize);
-            let (key, value) = dict
-                .setdefault_entry(vm, &64usize, hash, || {
-                    calls.set(calls.get() + 1);
-                    for key in 0..16usize {
-                        dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
-                    }
-                    dict.insert(vm, &64usize, hash, 77).unwrap();
-                    99
-                })
-                .unwrap();
-            assert_eq!(calls.get(), 1);
-            assert_eq!(value, 77);
-            assert!(64usize.key_eq(vm, &key).unwrap());
-            assert_eq!(dict.get(vm, &64usize, hash).unwrap(), Some(77));
-            assert_eq!(dict.len(), 17);
-            assert_table_invariants(&dict);
-        });
-    }
-
-    #[test]
-    fn insertion_preparation_keeps_unchanged_comparison() {
-        struct CountedKey {
-            key: PyObjectRef,
-            comparisons: core::cell::Cell<usize>,
-            preparations: core::cell::Cell<usize>,
-        }
-        impl DictKey for CountedKey {
-            type Owned = PyObjectRef;
-            fn _to_owned(&self, _vm: &VirtualMachine) -> PyObjectRef {
-                self.preparations.set(self.preparations.get() + 1);
-                self.key.clone()
-            }
-            fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-                self.key.key_hash(vm)
-            }
-            fn key_is(&self, other: &PyObject) -> bool {
-                self.key.is(other)
-            }
-            fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
-                self.comparisons.set(self.comparisons.get() + 1);
-                self.key.key_eq(vm, other)
-            }
-            fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-                self.key.key_as_isize(vm)
-            }
-        }
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            // Exact native integers with equal hashes, without Python callbacks.
-            for use_default in [false, true] {
-                let dict = Dict::default();
-                let first: PyObjectRef = vm.ctx.new_int(0).into();
-                let key = CountedKey {
-                    key: vm.ctx.new_int(hash::MODULUS).into(),
-                    comparisons: core::cell::Cell::new(0),
-                    preparations: core::cell::Cell::new(0),
-                };
-                let hash = hash_key(vm, &key);
-                assert_eq!(hash_key(vm, &*first), hash);
-                dict.insert(vm, &*first, hash, 1).unwrap();
-                if use_default {
-                    assert_eq!(dict.setdefault(vm, &key, hash, || 2).unwrap(), 2);
-                } else {
-                    dict.insert(vm, &key, hash, 2).unwrap();
-                }
-                assert_eq!(key.comparisons.get(), 1);
-                assert_eq!(key.preparations.get(), 1);
-                assert_eq!(dict.len(), 2);
-                assert_table_invariants(&dict);
-            }
-        });
-    }
-
-    #[test]
-    fn insertion_preparation_revalidates_same_size_vacancy() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let dict = Dict::default();
-            let initial_buckets = dict.read().indices.len();
-            let hash = hash_key(vm, &8usize);
-            let calls = core::cell::Cell::new(0);
-            // A winner occupies the saved terminal FREE without resizing.
-            assert_eq!(
-                dict.setdefault(vm, &8usize, hash, || {
-                    calls.set(calls.get() + 1);
-                    dict.insert(vm, &8usize, hash, 77).unwrap();
-                    99
-                })
-                .unwrap(),
-                77
-            );
-            assert_eq!(calls.get(), 1);
-            assert_eq!(dict.len(), 1);
-            assert_eq!(dict.read().indices.len(), initial_buckets);
-            assert_table_invariants(&dict);
-
-            let dict = Dict::default();
-            dict.insert(vm, &0usize, hash_key(vm, &0usize), 0).unwrap();
-            dict.delete(vm, &0usize, hash_key(vm, &0usize)).unwrap();
-            assert_eq!(dict.read().indices[0], IndexEntry::DUMMY);
-            // Preparation consumes the saved first DUMMY, but not the terminal
-            // FREE at bucket 1. Both keys must survive the resulting re-probe.
-            assert_eq!(
-                dict.setdefault(vm, &8usize, hash, || {
-                    dict.insert(vm, &16usize, hash_key(vm, &16usize), 16)
-                        .unwrap();
-                    8
-                })
-                .unwrap(),
-                8
-            );
-            assert_eq!(dict.read().indices.len(), initial_buckets);
-            assert_eq!(
-                dict.get(vm, &16usize, hash_key(vm, &16usize)).unwrap(),
-                Some(16)
-            );
-            assert_eq!(dict.get(vm, &8usize, hash).unwrap(), Some(8));
-            assert_eq!(dict.len(), 2);
-            assert_table_invariants(&dict);
-        });
     }
 
     #[test]

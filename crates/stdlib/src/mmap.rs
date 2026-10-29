@@ -723,13 +723,7 @@ mod mmap {
                 length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).__len__())),
                 item: atomic_func!(|seq, i, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
-                    let mmap = zelf.check_valid(vm)?;
-                    let byte = usize::try_from(i)
-                        .ok()
-                        .and_then(|i| mmap.as_ref().unwrap().as_slice().get(i))
-                        .copied()
-                        .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
-                    Ok(PyBytes::from(vec![byte]).into_ref(&vm.ctx).into())
+                    zelf.getitem_by_index(i, vm)
                 }),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
@@ -1111,8 +1105,8 @@ mod mmap {
 
         #[pymethod]
         fn readline(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mmap = zelf.check_valid(vm)?;
             let pos = zelf.pos();
+            let mmap = zelf.check_valid(vm)?;
 
             let remaining = zelf.__len__().saturating_sub(pos);
             if remaining == 0 {
@@ -1273,7 +1267,6 @@ mod mmap {
         fn seek(zelf: &Py<Self>, args: SeekArgs, vm: &VirtualMachine) -> PyResult<usize> {
             let dist = args.pos;
             let how = args.whence;
-            let _mmap = zelf.check_valid(vm)?;
             let size = zelf.__len__();
 
             let new_pos = match how {
@@ -1353,6 +1346,7 @@ mod mmap {
         #[pymethod]
         fn write(zelf: &Py<Self>, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let self_ = &**zelf;
+            let pos = self_.pos();
 
             // Writing locks the map, and reading a source that views this same
             // map locks it too, so such a source is copied out first.
@@ -1367,16 +1361,16 @@ mod mmap {
             };
 
             let len = self_.try_writable(vm, |mmap| {
-                let pos = self_.pos();
                 if pos > mmap.len() || mmap.len() - pos < data.len() {
                     return Err(vm.new_value_error("data out of range"));
                 }
                 (&mut mmap[pos..(pos + data.len())])
                     .write(data)
                     .map_err(|err| err.to_pyexception(vm))?;
-                self_.advance_pos(data.len());
                 Ok(data.len())
             })??;
+
+            self_.advance_pos(len);
 
             Ok(PyInt::from(len).into_ref(&vm.ctx))
         }
@@ -1385,15 +1379,16 @@ mod mmap {
         fn write_byte(zelf: &Py<Self>, byte: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let b = value_from_object(vm, &byte)?;
 
+            let pos = zelf.pos();
             zelf.try_writable(vm, |mmap| {
-                let pos = zelf.pos();
                 if pos >= mmap.len() {
                     return Err(vm.new_value_error("write byte out of range"));
                 }
                 mmap[pos] = b;
-                zelf.advance_pos(1);
                 Ok(())
             })??;
+
+            zelf.advance_pos(1);
 
             Ok(())
         }
