@@ -10,18 +10,17 @@ import sys
 
 from testutils import assert_raises
 
-if sys.platform == "win32":
-    # An unclosed proactor loop must not deadlock during interpreter shutdown.
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import asyncio; loop = asyncio.new_event_loop(); "
-            "asyncio.set_event_loop(loop); loop.run_until_complete(asyncio.sleep(0))",
-        ],
-        check=True,
-        timeout=10,
-    )
+# An unclosed event loop must not deadlock during interpreter shutdown.
+subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import asyncio; loop = asyncio.new_event_loop(); "
+        "asyncio.set_event_loop(loop); loop.run_until_complete(asyncio.sleep(0))",
+    ],
+    check=True,
+    timeout=10,
+)
 
 if sys.implementation.name != "rustpython":
     sys.exit(0)
