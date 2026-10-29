@@ -4,12 +4,54 @@ use std::{io, path::Path};
 
 use rustix::{
     fd::AsFd,
-    fs::{self, AtFlags},
+    fs::{self, Access, AtFlags},
 };
 
 pub use rustix::fs::RawMode;
 
 use crate::{crt_fd, fileutils::StatStruct};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccessError {
+    InvalidMode,
+    Os(i32),
+}
+
+impl From<io::Error> for AccessError {
+    fn from(value: io::Error) -> Self {
+        Self::Os(value.raw_os_error().unwrap_or(0))
+    }
+}
+
+/// https://www.man7.org/linux/man-pages/man2/faccessat.2.html
+#[cfg(not(any(target_os = "espidf", target_os = "horizon", target_os = "vita")))]
+pub fn check_access(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: impl AsRef<Path>,
+    access: u8,
+    #[cfg_attr(target_os = "android", expect(unused))] effective_ids: bool,
+    follow_symlinks: bool,
+) -> Result<bool, AccessError> {
+    let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
+    let access = Access::from_bits(access as _).ok_or(AccessError::InvalidMode)?;
+
+    #[cfg(not(target_os = "android"))]
+    let flags = if effective_ids {
+        AtFlags::EACCESS
+    } else {
+        AtFlags::empty()
+    };
+    #[cfg(target_os = "android")]
+    let flags = AtFlags::empty();
+    let flags = flags.union(if !follow_symlinks {
+        AtFlags::SYMLINK_NOFOLLOW
+    } else {
+        AtFlags::empty()
+    });
+
+    // CPython returns false for all error codes.
+    Ok(fs::accessat(dir_fd, path.as_ref(), access, flags).is_ok())
+}
 
 /// https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html
 pub fn make_dir(

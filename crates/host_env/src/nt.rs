@@ -23,7 +23,7 @@ use crate::{
 };
 use libc::intptr_t;
 
-use widestring::WideCString;
+use widestring::{WideCStr, WideCString};
 use windows_sys::{
     Win32::{
         Foundation::{
@@ -265,11 +265,8 @@ pub enum ReadConsoleError {
     BufferTooSmall { available: usize, required: usize },
 }
 
-pub fn access(path: &Path, mode: u8) -> bool {
-    let Ok(wide) = WideCString::from_os_str(path.as_os_str()) else {
-        return false;
-    };
-    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
+pub fn access(path: &WideCStr, mode: u8) -> bool {
+    let attr = unsafe { GetFileAttributesW(path.as_ptr()) };
     attr != INVALID_FILE_ATTRIBUTES
         && (mode & 2 == 0
             || attr & FILE_ATTRIBUTE_READONLY == 0

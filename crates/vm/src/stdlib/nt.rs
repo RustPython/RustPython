@@ -13,7 +13,7 @@ pub(crate) mod module {
         function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
+        stdlib::os::{_os, AccessArgs, DirFd, SupportFunc, SymlinkArgs},
     };
     use core::hint::cold_path;
     use libc::intptr_t;
@@ -76,9 +76,21 @@ pub(crate) mod module {
     };
 
     #[pyfunction]
-    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        let _ = path.to_wide_cstring(vm)?;
-        Ok(host_nt::access(path.as_ref(), mode))
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        if !args.follow_symlinks.0 {
+            return Err(vm.new_not_implemented_error(
+                "access: follow_symlinks unavailable on this platform",
+            ));
+        }
+        if args.effective_ids {
+            return Err(
+                vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
+            );
+        }
+        let wide = args.path.to_wide_cstring(vm)?;
+
+        Ok(host_nt::access(&wide, args.mode))
     }
 
     #[pyfunction]
