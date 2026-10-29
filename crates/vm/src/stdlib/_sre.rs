@@ -394,11 +394,16 @@ mod _sre {
     }
 
     macro_rules! with_sre_str {
-        ($pattern:expr, $string:expr, $vm:expr, $f:expr) => {{
+        ($pattern:expr, $string:expr, $vm:expr, $f:expr) => {
+            with_sre_str!($pattern, $string, $vm, $f, None::<&PyBuffer>)
+        };
+        ($pattern:expr, $string:expr, $vm:expr, $f:expr, $buffer:expr) => {{
             // Bind once: the branches only borrow the subject, and callers pass
             // a temporary (`&x.clone()`) that would otherwise be rebuilt per arm.
             let subject = $string;
-            if $pattern.isbytes {
+            if let Some(buffer) = $buffer {
+                buffer.contiguous_or_collect($f)
+            } else if $pattern.isbytes {
                 Pattern::with_bytes(subject, $vm, $f)
             } else if Pattern::is_ascii_str(subject) {
                 Pattern::with_ascii_str(subject, $vm, $f)
@@ -647,14 +652,7 @@ mod _sre {
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyCallableIterator> {
-            let scanner = SreScanner {
-                pattern: zelf,
-                string: string_args.string,
-                start: AtomicCell::new(string_args.pos.0),
-                end: string_args.endpos.0,
-                must_advance: AtomicCell::new(false),
-            }
-            .into_ref(&vm.ctx);
+            let scanner = Self::scanner(zelf, string_args, vm)?;
             let search = vm.get_str_method(scanner.into(), "search").unwrap()?;
             let search = ArgCallable::try_from_object(vm, search)?;
             let iterator = PyCallableIterator::new(search, vm.ctx.none());
@@ -666,15 +664,26 @@ mod _sre {
             zelf: PyRef<Pattern>,
             string_args: StringArgs,
             vm: &VirtualMachine,
-        ) -> PyRef<SreScanner> {
-            SreScanner {
+        ) -> PyResult<PyRef<SreScanner>> {
+            let buffer = if zelf.isbytes {
+                Some(PyBuffer::from_object(
+                    vm,
+                    &string_args.string,
+                    BufferFlags::SIMPLE,
+                )?)
+            } else {
+                Pattern::downcast_str(&string_args.string, vm)?;
+                None
+            };
+            Ok(SreScanner {
                 pattern: zelf,
                 string: string_args.string,
+                buffer,
                 start: AtomicCell::new(string_args.pos.0),
                 end: string_args.endpos.0,
                 must_advance: AtomicCell::new(false),
             }
-            .into_ref(&vm.ctx)
+            .into_ref(&vm.ctx))
         }
 
         #[pymethod]
@@ -1142,13 +1151,17 @@ mod _sre {
     }
 
     #[pyattr]
-    #[pyclass(name = "SRE_Scanner")]
+    #[pyclass(name = "SRE_Scanner", traverse)]
     #[derive(Debug, PyPayload)]
     struct SreScanner {
         pattern: PyRef<Pattern>,
         string: PyObjectRef,
+        buffer: Option<PyBuffer>,
+        #[pytraverse(skip)]
         start: AtomicCell<usize>,
+        #[pytraverse(skip)]
         end: usize,
+        #[pytraverse(skip)]
         must_advance: AtomicCell<bool>,
     }
 
@@ -1165,21 +1178,27 @@ mod _sre {
         #[pymethod(name = "prefixmatch")]
         #[pymethod(name = "match")]
         fn py_match(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
-            with_sre_str!(self.pattern, &self.string.clone(), vm, |s| {
-                let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
-                let mut state = State::default();
-                req.must_advance = self.must_advance.load();
-                let has_matched = state.py_match(&req);
+            with_sre_str!(
+                self.pattern,
+                &self.string.clone(),
+                vm,
+                |s| {
+                    let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
+                    let mut state = State::default();
+                    req.must_advance = self.must_advance.load();
+                    let has_matched = state.py_match(&req);
 
-                self.must_advance
-                    .store(state.cursor.position == state.start);
-                self.start.store(state.cursor.position);
+                    self.must_advance
+                        .store(state.cursor.position == state.start);
+                    self.start.store(state.cursor.position);
 
-                Ok(has_matched.then(|| {
-                    Match::new(&mut state, self.pattern.clone(), self.string.clone())
-                        .into_ref(&vm.ctx)
-                }))
-            })
+                    Ok(has_matched.then(|| {
+                        Match::new(&mut state, self.pattern.clone(), self.string.clone())
+                            .into_ref(&vm.ctx)
+                    }))
+                },
+                self.buffer.as_ref()
+            )
         }
 
         #[pymethod]
@@ -1187,22 +1206,28 @@ mod _sre {
             if self.start.load() > self.end {
                 return Ok(None);
             }
-            with_sre_str!(self.pattern, &self.string.clone(), vm, |s| {
-                let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
-                let mut state = State::default();
-                req.must_advance = self.must_advance.load();
+            with_sre_str!(
+                self.pattern,
+                &self.string.clone(),
+                vm,
+                |s| {
+                    let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
+                    let mut state = State::default();
+                    req.must_advance = self.must_advance.load();
 
-                let has_matched = state.search(req);
+                    let has_matched = state.search(req);
 
-                self.must_advance
-                    .store(state.cursor.position == state.start);
-                self.start.store(state.cursor.position);
+                    self.must_advance
+                        .store(state.cursor.position == state.start);
+                    self.start.store(state.cursor.position);
 
-                Ok(has_matched.then(|| {
-                    Match::new(&mut state, self.pattern.clone(), self.string.clone())
-                        .into_ref(&vm.ctx)
-                }))
-            })
+                    Ok(has_matched.then(|| {
+                        Match::new(&mut state, self.pattern.clone(), self.string.clone())
+                            .into_ref(&vm.ctx)
+                    }))
+                },
+                self.buffer.as_ref()
+            )
         }
     }
 }
