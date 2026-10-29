@@ -1652,18 +1652,6 @@ impl ToPyException for rustpython_host_env::fcntl::LockfError {
     }
 }
 
-#[cfg(unix)]
-impl ToPyException for rustpython_host_env::posix::AccessError {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        match self {
-            Self::InvalidMode => vm.new_value_error(
-                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
-            ),
-            Self::Os(errno) => std::io::Error::from_raw_os_error(*errno).to_pyexception(vm),
-        }
-    }
-}
-
 #[cfg(all(unix, not(target_os = "redox")))]
 impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {

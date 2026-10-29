@@ -2,6 +2,7 @@ import itertools
 import os
 import stat
 import sys
+import tempfile
 import time
 
 from testutils import assert_raises
@@ -639,6 +640,11 @@ assert os.access("nonexistent_file_12345", os.F_OK) is False
 assert os.access("nonexistent_file_12345", os.W_OK) is False
 assert os.access("README.md", os.F_OK) is True
 assert os.access("README.md", os.R_OK) is True
+
+# os.access - CPython returns False for invalid modes for Unix
+if os.name != "nt":
+    with tempfile.NamedTemporaryFile() as tmp:
+        assert not os.access(tmp.name, 255)
 
 # argv and the group list are sequences; an arbitrary iterable must be rejected
 # rather than drained.
