@@ -220,8 +220,7 @@ mod _tokenize {
                 .iter()
                 .all(|t| matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
         {
-            let final_line =
-                source.full_line_str(TextSize::from(source.len().saturating_sub(1) as u32));
+            let final_line = last_physical_line(source);
             if !final_line.is_empty()
                 && final_line
                     .bytes()
@@ -295,7 +294,21 @@ mod _tokenize {
             }
 
             let raw_type = token_kind_value(kind);
-            let token_type = if extra_tokens
+            let leading_zero_number = extra_tokens
+                && kind == TokenKind::Unknown
+                && errors.iter().any(|err| {
+                    matches!(
+                        err.error,
+                        ParseErrorType::Lexical(LexicalErrorType::LeadingZerosInDecimalInteger)
+                    ) && err.location.start() == range.start()
+                        && err.location.end() > range.start()
+                        && err.location.end() < range.end()
+                });
+            // Ruff diagnoses the zero prefix but retains the complete numeric token.
+            // CPython accepts that token as NUMBER only in extra-token mode.
+            let token_type = if leading_zero_number {
+                token_kind_value(TokenKind::Int)
+            } else if extra_tokens
                 && (kind == TokenKind::Unknown || (raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP))
             {
                 TOKEN_OP
@@ -304,7 +317,12 @@ mod _tokenize {
             };
 
             let (token_str, start_line, start_col, end_line, end_col, line_str) =
-                if kind == TokenKind::Dedent {
+                if !extra_tokens && kind == TokenKind::Indent {
+                    // Explicit continuations can span the indentation range.
+                    // CPython reports the line reached after consuming it.
+                    let line = line_index.line_column(range.end(), source).line.get();
+                    ("", line, 0, line, 0, source.full_line_str(range.end()))
+                } else if kind == TokenKind::Dedent {
                     let last_line = source.lines().count();
                     let default_pos = if extra_tokens {
                         (last_line + 1, 0)
@@ -506,6 +524,12 @@ mod _tokenize {
         60 // default to FSTRING_MIDDLE
     }
 
+    fn last_physical_line(source: &str) -> &str {
+        source.char_indices().next_back().map_or("", |(offset, _)| {
+            source.full_line_str(TextSize::from(offset as u32))
+        })
+    }
+
     fn last_non_dedent_token(tokens: &[Token]) -> Option<&Token> {
         tokens
             .iter()
@@ -533,7 +557,7 @@ mod _tokenize {
             // Ignored trailing lines never populated the non-extra line cache.
             ""
         } else {
-            source.full_line_str(TextSize::from(source.len().saturating_sub(1) as u32))
+            last_physical_line(source)
         }
     }
 

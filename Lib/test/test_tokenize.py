@@ -2239,7 +2239,6 @@ class InvalidPythonTests(TestCase):
         tokens = list(tokenize.generate_tokens(StringIO(source).readline))
         self.assertEqual(tokens, expected_tokens)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 855 characters long. Set self.maxDiff to None to see it.
     def test_number_starting_with_zero(self):
         source = "01234"
         expected_tokens = [
@@ -3228,7 +3227,6 @@ async def f():
             IndentationError, compile, invalid, "<string>", "exec"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; (0, '')]
     def test_continuation_lines_indentation(self):
         def get_tokens(string):
             the_string = StringIO(string)
