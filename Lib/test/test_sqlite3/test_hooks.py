@@ -165,7 +165,6 @@ class AuthorizerTests(MemoryDatabaseMixin, unittest.TestCase):
     # Tests for checking that callback context mutations do not crash.
     # Regression tests for https://github.com/python/cpython/issues/142830.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
     @with_tracebacks(ZeroDivisionError, regex="hello world")
     def test_authorizer_concurrent_mutation_in_call(self):
         self.cx.execute("create table if not exists test(a number)")
@@ -263,7 +262,6 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
         con.execute("select 1 union select 2 union select 3").fetchall()
         self.assertEqual(action, 0, "progress handler was not cleared")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @with_tracebacks(ZeroDivisionError, msg_regex="bad_progress")
     def test_error_in_progress_handler(self):
         def bad_progress():
@@ -274,7 +272,6 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
                 create table foo(a, b)
                 """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="bad_progress")
     def test_error_in_progress_handler_result(self):
         class BadBool:
@@ -423,7 +420,6 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
                 cx.execute("create table t(t)")
                 cx.executemany("insert into t values(?)", ((v,) for v in range(3)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(
         sqlite.DataError,
         regex="Expanded SQL string exceeds the maximum string length"
@@ -448,7 +444,6 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
             with self.check_stmt_trace(cx, [expanded_query]):
                 cx.execute(unexpanded_query, (ok_param,))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, regex="division by zero")
     def test_trace_bad_handler(self):
         with memory_database() as cx:
@@ -466,7 +461,6 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
     # but for the trace handler, exceptions are never re-raised (only
     # printed when needed).
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
     @with_tracebacks(
         TypeError,
         regex=r".*<lambda>\(\) missing 6 required positional arguments",

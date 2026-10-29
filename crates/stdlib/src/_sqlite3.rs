@@ -478,6 +478,26 @@ mod _sqlite3 {
             rustpython_vm::vm::thread::with_vm(obj, |vm| f(obj, vm))
         }
 
+        fn report_exception(callable: &PyObject, exc: PyBaseExceptionRef) {
+            if !enable_traceback().load(Ordering::Relaxed) {
+                return;
+            }
+            let callable = callable.to_owned();
+            // Both repr() and sys.unraisablehook can re-enter SQLite. The
+            // surrounding operation releases its cursor/statement locks first.
+            try_defer_drop(move || {
+                rustpython_vm::vm::thread::with_vm(&callable, |vm| {
+                    let message = callable.repr(vm).ok().map(|repr| {
+                        format!(
+                            "Exception ignored on sqlite3 callback {}",
+                            repr.to_string_lossy()
+                        )
+                    });
+                    vm.run_unraisable(exc.clone(), message, vm.ctx.none());
+                });
+            });
+        }
+
         // The SQLite mutex keeps the registration alive until this reference is acquired.
         unsafe fn registered(data: *mut c_void) -> PyRc<Self> {
             let data = data.cast::<Self>();
@@ -677,7 +697,10 @@ mod _sqlite3 {
                     val.try_to_primitive::<c_int>(vm)
                 };
 
-                f().unwrap_or(SQLITE_DENY)
+                f().unwrap_or_else(|exc| {
+                    Self::report_exception(callable, exc);
+                    SQLITE_DENY
+                })
             })
             .unwrap_or(SQLITE_DENY)
         }
@@ -696,14 +719,30 @@ mod _sqlite3 {
                             unsafe { sqlite3_expanded_sql(stmt.cast()) },
                             |sql| unsafe { sqlite3_free(sql.cast()) },
                         );
-                        let text =
-                            ptr_to_str(*expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                        let text = if expanded.is_null() {
+                            let db = unsafe { sqlite3_db_handle(stmt.cast()) };
+                            if unsafe { sqlite3_errcode(db) } == SQLITE_NOMEM {
+                                return Err(vm.new_memory_error(""));
+                            }
+                            Self::report_exception(
+                                callable,
+                                vm.new_exception_msg(
+                                    data_error_type().to_owned(),
+                                    "Expanded SQL string exceeds the maximum string length".into(),
+                                ),
+                            );
+                            ptr_to_str(sql.cast(), vm)?
+                        } else {
+                            ptr_to_str(*expanded, vm)?
+                        };
                         vm.ctx.new_str(text)
                     };
                     callable.call((stmt,), vm)?;
                     Ok(())
                 };
-                let _ = f();
+                if let Err(exc) = f() {
+                    Self::report_exception(callable, exc);
+                }
                 0
             })
             .unwrap_or(0)
@@ -712,12 +751,13 @@ mod _sqlite3 {
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
             let data = unsafe { Self::registered(data) };
             data.with_vm(|callable, vm| {
-                if let Ok(val) = callable.call((), vm)
-                    && let Ok(val) = val.is_true(vm)
-                {
-                    return val as c_int;
+                match callable.call((), vm).and_then(|val| val.is_true(vm)) {
+                    Ok(val) => val as c_int,
+                    Err(exc) => {
+                        Self::report_exception(callable, exc);
+                        -1
+                    }
                 }
-                -1
             })
             .unwrap_or(-1)
         }
@@ -4441,9 +4481,8 @@ mod _sqlite3 {
             } else {
                 unsafe { sqlite3_result_error(self.ctx, msg.as_ptr(), -1) }
             }
-            if enable_traceback().load(Ordering::Relaxed) {
-                vm.print_exception(&exc);
-            }
+            let callable = unsafe { (*self.user_data::<CallbackData>()).obj.as_ref() };
+            CallbackData::report_exception(callable, exc);
         }
 
         fn db_handle(self) -> *mut sqlite3 {
