@@ -24,7 +24,8 @@ pub mod module {
         function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
+            _os, AccessArgs, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata,
+            warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -397,35 +398,55 @@ pub mod module {
             .collect())
     }
 
-    #[derive(FromArgs)]
-    pub(super) struct AccessArgs<'a> {
-        #[pyarg(any)]
-        path: OsPath,
-        #[pyarg(any)]
-        mode: u8,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'a, 0>,
-        #[pyarg(named, default)]
-        effective_ids: bool,
-        #[pyarg(flatten)]
-        follow_symlinks: FollowSymlinks,
-    }
-
     #[pyfunction]
     pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
-        let [] = args.dir_fd.0;
+        #[cfg(any(
+            target_os = "android",
+            target_os = "espidf",
+            target_os = "horizon",
+            target_os = "vita",
+        ))]
         if args.effective_ids {
             return Err(
                 vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
             );
         }
+        #[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
         if !args.follow_symlinks.0 {
             return Err(vm.new_not_implemented_error(
                 "access: follow_symlinks unavailable on this platform",
             ));
         }
-        rustpython_host_env::posix::check_access(args.path.as_ref(), args.mode)
-            .map_err(|err| err.to_pyexception(vm))
+
+        #[cfg(all(
+            unix,
+            not(any(
+                target_os = "android",
+                target_os = "espidf",
+                target_os = "horizon",
+                target_os = "vita",
+            )),
+        ))]
+        let dir_fd = args.dir_fd.get_opt();
+        #[cfg(not(all(
+            unix,
+            not(any(
+                target_os = "android",
+                target_os = "espidf",
+                target_os = "horizon",
+                target_os = "vita",
+            )),
+        )))]
+        let dir_fd = None;
+
+        rustpython_host_env::posix::check_access(
+            dir_fd,
+            args.path.as_ref(),
+            args.mode,
+            args.effective_ids,
+            args.follow_symlinks.0,
+        )
+        .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]

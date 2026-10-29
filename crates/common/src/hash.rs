@@ -80,7 +80,12 @@ impl HashSecret {
         if value.is_empty() {
             0
         } else {
-            self.hash_value(value)
+            let mut hasher = self.build_hasher();
+            // Keep the slice length prefix consistent with the 64-bit hash
+            // representation, including on 32-bit targets.
+            hasher.write_u64(value.len() as u64);
+            hasher.write(value);
+            fix_sentinel(mod_int(hasher.finish() as PyHash))
         }
     }
 
@@ -249,7 +254,9 @@ pub fn hash_tuple<E>(
 /// each element hash fallibly). The fold is commutative, so element order does
 /// not affect the result.
 pub struct FrozenSetHash {
-    hash: u64,
+    // collections.abc.Set._hash uses sys.maxsize to mask this algorithm,
+    // even when PyHash is wider than the native pointer size.
+    hash: usize,
 }
 
 impl FrozenSetHash {
@@ -257,7 +264,7 @@ impl FrozenSetHash {
     pub fn new(len: usize) -> Self {
         // Factor in the number of active entries
         Self {
-            hash: (len as u64 + 1).wrapping_mul(1927868237),
+            hash: len.wrapping_add(1).wrapping_mul(1927868237),
         }
     }
 
@@ -266,12 +273,12 @@ impl FrozenSetHash {
         // This is important because some use cases have many combinations of a
         // small number of elements with nearby hashes so that many distinct
         // combinations collapse to only a handful of distinct hash values.
-        const fn shuffle_bits(h: u64) -> u64 {
+        const fn shuffle_bits(h: usize) -> usize {
             ((h ^ 89869747) ^ (h.wrapping_shl(16))).wrapping_mul(3644798167)
         }
         // Xor-in shuffled bits from every entry's hash field because xor is
         // commutative and a frozenset hash should be independent of order.
-        self.hash ^= shuffle_bits(element_hash as u64);
+        self.hash ^= shuffle_bits(element_hash as usize);
     }
 
     #[must_use]
@@ -281,16 +288,42 @@ impl FrozenSetHash {
         hash ^= (hash >> 11) ^ (hash >> 25);
         hash = hash.wrapping_mul(69069).wrapping_add(907133923);
         // -1 is reserved as an error code
-        if hash == u64::MAX {
+        if hash == usize::MAX {
             hash = 590923713;
         }
-        hash as PyHash
+        hash as isize as PyHash
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frozenset_hash_matches_set_mixin_width() {
+        for elements in [
+            &[][..],
+            &[0][..],
+            &[-1, 1][..],
+            &[1, 2, 3][..],
+            &[i64::MIN, i64::MAX][..],
+        ] {
+            let mut hasher = FrozenSetHash::new(elements.len());
+            let mask = usize::MAX as u128;
+            let mut expected = (1927868237 * (elements.len() as u128 + 1)) & mask;
+            for &element in elements {
+                hasher.add(element);
+                let h = element as u64 as u128;
+                expected ^= (h ^ (h << 16) ^ 89869747) * 3644798167;
+                expected &= mask;
+            }
+            expected ^= (expected >> 11) ^ (expected >> 25);
+            expected = (expected * 69069 + 907133923) & mask;
+            let expected = expected as usize as isize as PyHash;
+            let expected = if expected == -1 { 590923713 } else { expected };
+            assert_eq!(hasher.finish(), expected);
+        }
+    }
 
     #[test]
     fn tuple_hash_uses_the_declared_hash_width() {

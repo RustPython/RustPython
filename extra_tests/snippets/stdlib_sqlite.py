@@ -1042,3 +1042,22 @@ def reinit_restores_factories_after_callback_cleanup():
 
 
 reinit_restores_factories_after_callback_cleanup()
+
+
+# Expressions have no declared type; column-name converters still take priority.
+sqlite.register_converter("METADATA", lambda value: value.decode().upper())
+try:
+    con = sqlite.connect(
+        ":memory:", detect_types=sqlite.PARSE_DECLTYPES | sqlite.PARSE_COLNAMES
+    )
+    try:
+        assert con.execute(
+            "SELECT 1, NULL, 'value' AS \"name [METADATA]\""
+        ).fetchone() == (1, None, "VALUE")
+        assert con.execute(
+            "SELECT 'value' AS \"name [METADATA\", 'value' AS \"name [[METADATA]\""
+        ).fetchone() == ("value", "VALUE")
+    finally:
+        con.close()
+finally:
+    del sqlite.converters["METADATA"]

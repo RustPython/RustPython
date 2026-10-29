@@ -72,7 +72,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
         test.__code__ = self.b.__code__
         self.assertEqual(test(), 3) # self.b always returns 3, arbitrarily
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     def test_invalid___code___assignment(self):
         def A(): pass
         def B(): yield
