@@ -3938,16 +3938,8 @@ mod _socket {
         }
     }
 
-    pub(super) const INVALID_SOCKET: RawSocket = {
-        #[cfg(unix)]
-        {
-            -1
-        }
-        #[cfg(windows)]
-        {
-            host_socket::INVALID_RAW_SOCKET as RawSocket
-        }
-    };
+    #[cfg(windows)]
+    pub(super) const INVALID_SOCKET: RawSocket = host_socket::INVALID_RAW_SOCKET as RawSocket;
 
     fn convert_socket_error(
         vm: &VirtualMachine,
