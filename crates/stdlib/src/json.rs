@@ -809,34 +809,44 @@ mod _json {
         markers: crate::vm::common::lock::PyMutex<HashSet<usize>>,
     }
 
+    #[derive(FromArgs)]
+    struct EncoderArgs {
+        #[pyarg(any)]
+        markers: PyObjectRef,
+        #[pyarg(any)]
+        default: PyObjectRef,
+        #[pyarg(any)]
+        encoder: PyObjectRef,
+        #[pyarg(any)]
+        indent: PyObjectRef,
+        #[pyarg(any)]
+        key_separator: PyStrRef,
+        #[pyarg(any)]
+        item_separator: PyStrRef,
+        #[pyarg(any)]
+        sort_keys: PyObjectRef,
+        #[pyarg(any)]
+        skipkeys: PyObjectRef,
+        #[pyarg(any)]
+        allow_nan: PyObjectRef,
+    }
+
     impl Constructor for JsonEncoder {
-        // markers, default, encoder, indent, key_separator, item_separator,
-        // sort_keys, skipkeys, allow_nan -- exactly as `encoder.py` calls
-        // `c_make_encoder`.
-        // Nested tuple: `FromArgs` is only implemented up to 8-tuples, and
-        // nested tuples count as a single top-level slot while still
-        // consuming their own positional arguments in order.
-        type Args = (
-            PyObjectRef,
-            PyObjectRef,
-            PyObjectRef,
-            PyObjectRef,
-            PyStrRef,
-            PyStrRef,
-            (PyObjectRef, PyObjectRef, PyObjectRef),
-        );
+        type Args = EncoderArgs;
 
         fn py_new(
             _cls: &Py<PyType>,
-            (
+            EncoderArgs {
                 markers,
                 default,
                 encoder,
                 indent,
                 key_separator,
                 item_separator,
-                (sort_keys, skipkeys, allow_nan),
-            ): Self::Args,
+                sort_keys,
+                skipkeys,
+                allow_nan,
+            }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let check_circular = if vm.is_none(&markers) {
@@ -1334,11 +1344,29 @@ mod _json {
         }
     }
 
-    impl Callable for JsonEncoder {
-        type Args = (PyObjectRef, PyObjectRef);
+    #[derive(FromArgs)]
+    struct EncoderCallArgs {
+        #[pyarg(any)]
+        obj: PyObjectRef,
+        #[pyarg(any)]
+        _current_indent_level: PyObjectRef,
+    }
 
-        fn call(zelf: &Py<Self>, (obj, indent_level): Self::Args, vm: &VirtualMachine) -> PyResult {
-            let level: isize = indent_level.try_index(vm)?.try_to_primitive(vm)?;
+    impl Callable for JsonEncoder {
+        type Args = EncoderCallArgs;
+
+        fn call(
+            zelf: &Py<Self>,
+            EncoderCallArgs {
+                obj,
+                _current_indent_level,
+            }: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let level: isize = _current_indent_level.try_index(vm)?.try_to_primitive(vm)?;
+            // CPython starts its indent cache with indent * initial_level;
+            // negative string repetition produces the same prefix as zero.
+            let level = level.max(0);
             let mut out = Wtf8Buf::new();
             zelf.encode_value(&obj, level, &mut out, vm)?;
             Ok(vm.new_tuple((out,)).into())
