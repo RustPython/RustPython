@@ -66,7 +66,6 @@ class ReTests(unittest.TestCase):
     def test_error_is_PatternError_alias(self):
         assert re.error is re.PatternError
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')

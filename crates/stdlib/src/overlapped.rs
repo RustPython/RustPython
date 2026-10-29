@@ -1134,31 +1134,38 @@ mod _overlapped {
             let olderr = host_winapi::get_last_error();
 
             // Cancel pending I/O and wait for completion
-            if !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
+            let pending_error = if !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
                 && !matches!(inner.data, OverlappedData::NotStarted)
             {
-                match host_overlapped::cancel_overlapped_for_drop(inner.handle, &inner.overlapped)
-                    .error
-                {
-                    ERROR_SUCCESS | ERROR_NOT_FOUND | ERROR_OPERATION_ABORTED => {}
-                    _ => {
-                        let msg = format!(
-                            "{zelf:?} still has pending operation at deallocation, the process may crash"
-                        );
-                        let exc = vm.new_runtime_error(msg);
-                        let err_msg = Some(format!(
-                            "Exception ignored while deallocating overlapped operation {zelf:?}"
-                        ));
-                        let obj: PyObjectRef = zelf.to_owned().into();
-                        vm.run_unraisable(exc, err_msg, obj);
-                    }
-                }
-            }
+                !matches!(
+                    vm.allow_threads(|| host_overlapped::cancel_overlapped_for_drop(
+                        inner.handle,
+                        &inner.overlapped
+                    ))
+                    .error,
+                    ERROR_SUCCESS | ERROR_NOT_FOUND | ERROR_OPERATION_ABORTED
+                )
+            } else {
+                false
+            };
 
             // Close the event handle
             if !inner.overlapped.hEvent.is_null() {
                 let _ = host_winapi::close_handle(inner.overlapped.hEvent);
                 inner.overlapped.hEvent = core::ptr::null_mut();
+            }
+            // Debug formatting takes inner again; the unraisable hook can also
+            // re-enter this object. Complete native cleanup before either runs.
+            drop(inner);
+            if pending_error {
+                let msg = format!(
+                    "{zelf:?} still has pending operation at deallocation, the process may crash"
+                );
+                let exc = vm.new_runtime_error(msg);
+                let err_msg = Some(format!(
+                    "Exception ignored while deallocating overlapped operation {zelf:?}"
+                ));
+                vm.run_unraisable(exc, err_msg, vm.ctx.none());
             }
 
             // Restore last error
