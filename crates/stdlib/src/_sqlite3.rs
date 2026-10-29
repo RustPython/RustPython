@@ -65,8 +65,8 @@ mod _sqlite3 {
             PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
         function::{
-            ArgCallable, ArgIterable, FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue,
-            PySetterValue, TimeoutSeconds,
+            ArgCallable, ArgIterable, ArgStrOrBytesLike, FsPath, FuncArgs, KwArgs, OptionalArg,
+            PyComparisonValue, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -416,6 +416,20 @@ mod _sqlite3 {
     struct IterDumpArgs {
         #[pyarg(named, optional)]
         filter: Option<PyStrRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct DatabaseNameArgs {
+        #[pyarg(named, default = "main")]
+        name: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct DeserializeArgs {
+        #[pyarg(positional)]
+        data: ArgStrOrBytesLike,
+        #[pyarg(named, default = "main")]
+        name: PyStrRef,
     }
 
     #[derive(FromArgs)]
@@ -1822,6 +1836,108 @@ mod _sqlite3 {
                 .map_or_else(|| vm.ctx.none(), |filter| filter.into());
             let kwargs = core::iter::once(("filter", filter)).collect::<KwArgs>();
             func.call(FuncArgs::new(vec![zelf.into()], kwargs), vm)
+        }
+
+        #[pymethod]
+        fn serialize(
+            zelf: &Py<Self>,
+            args: DatabaseNameArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<PyBytes>> {
+            use libsqlite3_sys::{SQLITE_SERIALIZE_NOCOPY, sqlite3_serialize};
+
+            with_deferred_drops(|| {
+                let name = args.name.to_cstring(vm)?;
+                let db = zelf.db_lock(vm)?;
+                let bytes = {
+                    // A no-copy SQLite view is only valid while no other operation
+                    // can modify the database. Copy it before releasing the mutex.
+                    let _guard = db.raw.lock();
+                    let mut size = 0;
+                    let mut flags = SQLITE_SERIALIZE_NOCOPY;
+                    let mut ptr =
+                        unsafe { sqlite3_serialize(db.db, name.as_ptr(), &mut size, flags) };
+                    if ptr.is_null() {
+                        flags = 0;
+                        ptr = unsafe { sqlite3_serialize(db.db, name.as_ptr(), &mut size, flags) };
+                    }
+                    let allocation = scopeguard::guard(ptr, |ptr| {
+                        if flags == 0 {
+                            unsafe { sqlite3_free(ptr.cast()) };
+                        }
+                    });
+                    if allocation.is_null() {
+                        return Err(new_operational_error(
+                            vm,
+                            format!("unable to serialize '{}'", args.name),
+                        ));
+                    }
+                    let size = usize::try_from(size)
+                        .ok()
+                        .filter(|&n| isize::try_from(n).is_ok())
+                        .ok_or_else(|| vm.new_overflow_error("serialized database is too large"))?;
+                    let mut bytes = Vec::new();
+                    bytes
+                        .try_reserve_exact(size)
+                        .map_err(|_| vm.no_memory_error())?;
+                    bytes.extend_from_slice(unsafe {
+                        core::slice::from_raw_parts(*allocation, size)
+                    });
+                    bytes
+                };
+                Ok(vm.ctx.new_bytes(bytes))
+            })
+        }
+
+        #[pymethod]
+        fn deserialize(
+            zelf: &Py<Self>,
+            args: DeserializeArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            use libsqlite3_sys::{
+                SQLITE_DESERIALIZE_FREEONCLOSE, SQLITE_DESERIALIZE_RESIZEABLE, sqlite3_deserialize,
+                sqlite3_malloc64,
+            };
+
+            if let ArgStrOrBytesLike::Str(text) = &args.data {
+                text.try_as_utf8(vm)?;
+            }
+            with_deferred_drops(|| {
+                let name = args.name.to_cstring(vm)?;
+                let db = zelf.db_lock(vm)?;
+                let (allocation, size) = {
+                    let bytes = args.data.borrow_bytes();
+                    let size = i64::try_from(bytes.len())
+                        .map_err(|_| vm.new_overflow_error("'data' is too large"))?;
+                    let ptr = unsafe { sqlite3_malloc64(size as u64) }.cast::<u8>();
+                    if ptr.is_null() {
+                        return Err(vm.no_memory_error());
+                    }
+                    let allocation =
+                        scopeguard::guard(ptr, |ptr| unsafe { sqlite3_free(ptr.cast()) });
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(bytes.as_ptr(), *allocation, bytes.len())
+                    };
+                    (allocation, size)
+                };
+                // SQLite owns this allocation on both success and failure when
+                // FREEONCLOSE is set. No source-buffer borrow spans the call.
+                let ptr = scopeguard::ScopeGuard::into_inner(allocation);
+                db.checked(
+                    || unsafe {
+                        sqlite3_deserialize(
+                            db.db,
+                            name.as_ptr(),
+                            ptr,
+                            size,
+                            size,
+                            SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE,
+                        )
+                    },
+                    vm,
+                )
+            })
         }
 
         #[pymethod]
