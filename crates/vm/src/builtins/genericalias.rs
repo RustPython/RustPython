@@ -212,7 +212,7 @@ impl PyGenericAlias {
         let parameters = zelf.parameters(vm)?;
         let new_args = subs_parameters(zelf.as_object(), &zelf.args, &parameters, needle, vm)?;
 
-        Ok(Self::new(zelf.origin.clone(), new_args, false, vm)?.into_pyobject(vm))
+        Ok(Self::new(zelf.origin.clone(), new_args, zelf.starred, vm)?.into_pyobject(vm))
     }
 
     fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {

@@ -60,8 +60,6 @@ from test.typinganndata import (
     ann_module, ann_module2, ann_module3, ann_module5, ann_module6, ann_module8
 )
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 
 CANNOT_SUBCLASS_TYPE = 'Cannot subclass special typing classes'
 NOT_A_BASE_TYPE = "type 'typing.%s' is not an acceptable base type"
@@ -1085,7 +1083,6 @@ class GenericAliasSubstitutionTests(BaseTestCase):
                             eval(expected_str)
                         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_variadic_parameters(self):
         T1 = TypeVar('T1')
         T2 = TypeVar('T2')
