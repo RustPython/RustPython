@@ -76,27 +76,28 @@ mod _random {
             if k_bigint.is_negative() {
                 return Err(vm.new_value_error("number of bits must be non-negative"));
             }
-            let k: isize = k_int
+            let k: u64 = k_int
                 .try_to_primitive(vm)
                 .map_err(|_| vm.new_overflow_error("getrandbits: number of bits too large"))?;
             match k {
                 0 => Ok(BigInt::zero()),
                 1..=32 => Ok(BigInt::from(zelf.rng.lock().next_u32() >> (32 - k))),
                 mut k => {
+                    let words = word_count(k).ok_or_else(|| vm.no_memory_error())?;
+                    let mut word_array = Vec::new();
+                    word_array
+                        .try_reserve_exact(words)
+                        .map_err(|_| vm.no_memory_error())?;
                     let mut rng = zelf.rng.lock();
                     let mut gen_u32 = |k| {
                         let r = rng.next_u32();
                         if k < 32 { r >> (32 - k) } else { r }
                     };
 
-                    let words = (k - 1) / 32 + 1;
-                    let word_array = (0..words)
-                        .map(|_| {
-                            let word = gen_u32(k);
-                            k = k.wrapping_sub(32);
-                            word
-                        })
-                        .collect::<Vec<_>>();
+                    for _ in 0..words {
+                        word_array.push(gen_u32(k));
+                        k = k.wrapping_sub(32);
+                    }
 
                     let uint = BigUint::new(word_array);
                     // very unlikely but might as well check
@@ -143,6 +144,38 @@ mod _random {
             rng.set_state(&state);
             rng.set_index(index);
             Ok(())
+        }
+    }
+
+    fn word_count(bits: u64) -> Option<usize> {
+        let words = usize::try_from(bits.div_ceil(32)).ok()?;
+        (words <= isize::MAX as usize / size_of::<u32>()).then_some(words)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::word_count;
+
+        #[test]
+        fn getrandbits_word_counts() {
+            for (bits, words) in [
+                (0, 0),
+                (1, 1),
+                (32, 1),
+                (33, 2),
+                (1 << 31, 1 << 26),
+                (1 << 32, 1 << 27),
+            ] {
+                assert_eq!(word_count(bits), Some(words));
+            }
+            if usize::BITS == 32 {
+                let max_words = isize::MAX as usize / size_of::<u32>();
+                assert_eq!(word_count(max_words as u64 * 32), Some(max_words));
+                assert_eq!(word_count(max_words as u64 * 32 + 1), None);
+                assert_eq!(word_count(u64::MAX), None);
+            } else {
+                assert_eq!(word_count(u64::MAX), usize::try_from(1_u64 << 59).ok());
+            }
         }
     }
 }
