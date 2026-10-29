@@ -97,6 +97,26 @@ impl PyObjectRef {
         if let Some(complex) = self.downcast_ref_if_exact::<PyComplex>(vm) {
             return Ok(Some((complex.as_complex(), true)));
         }
+        if let Some(value) = self.try_complex_special_method(vm)? {
+            return Ok(Some((value.as_complex(), true)));
+        }
+        // `complex` does not have a `__complex__` by default, so subclasses might not either,
+        // use the actual stored value in this case
+        if let Some(complex) = self.downcast_ref::<PyComplex>() {
+            return Ok(Some((complex.as_complex(), true)));
+        }
+
+        if let Some(float) = self.try_float_opt(vm) {
+            return Ok(Some((Complex64::new(float?.to_f64(), 0.0), false)));
+        }
+
+        Ok(None)
+    }
+
+    fn try_complex_special_method(
+        &self,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyRef<PyComplex>>> {
         if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
             let result = method?.call((), vm)?;
 
@@ -115,27 +135,17 @@ impl PyObjectRef {
                     vm,
                 )?;
 
-                return Ok(Some((ret.as_complex(), true)));
+                return Ok(Some(ret.to_owned()));
             }
 
             return match result.downcast_ref::<PyComplex>() {
-                Some(complex_obj) => Ok(Some((complex_obj.as_complex(), true))),
+                Some(complex_obj) => Ok(Some(complex_obj.to_owned())),
                 None => Err(vm.new_type_error(format!(
                     "__complex__ returned non-complex (type '{}')",
                     result.class().name()
                 ))),
             };
         }
-        // `complex` does not have a `__complex__` by default, so subclasses might not either,
-        // use the actual stored value in this case
-        if let Some(complex) = self.downcast_ref::<PyComplex>() {
-            return Ok(Some((complex.as_complex(), true)));
-        }
-
-        if let Some(float) = self.try_float_opt(vm) {
-            return Ok(Some((Complex64::new(float?.to_f64(), 0.0), false)));
-        }
-
         Ok(None)
     }
 }
@@ -395,13 +405,17 @@ impl Constructor for PyComplex {
     type Args = ComplexArgs;
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // Optimization: return exact complex as-is (only when imag is not provided)
-        if cls.is(vm.ctx.types.complex_type)
-            && func_args.args.len() == 1
-            && func_args.kwargs.is_empty()
-            && func_args.args[0].class().is(vm.ctx.types.complex_type)
-        {
-            return Ok(func_args.args[0].clone());
+        if func_args.kwargs.is_empty() && func_args.args.len() <= 1 {
+            let payload = if let Some(value) = func_args.args.first() {
+                if cls.is(vm.ctx.types.complex_type) && value.class().is(vm.ctx.types.complex_type)
+                {
+                    return Ok(value.clone());
+                }
+                Self::from_single_argument(value, vm)?
+            } else {
+                Self::from(Complex64::new(0.0, 0.0))
+            };
+            return payload.into_ref_with_type(vm, cls).map(Into::into);
         }
 
         let args: Self::Args = func_args.bind_for(vm, Self::NAME)?;
@@ -411,35 +425,55 @@ impl Constructor for PyComplex {
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let imag_missing = args.imag.is_missing();
-        let (real, real_was_complex) = match args.real {
-            OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
-            OptionalArg::Present(val) => {
-                if let Some(c) = val.try_complex(vm)? {
-                    c
-                } else if let Some(s) = val.downcast_ref::<PyStr>() {
-                    if args.imag.is_present() {
-                        return Err(vm.new_type_error(
-                            "complex() can't take second arg if first is a string",
-                        ));
-                    }
-                    if has_misplaced_underscore(s.as_wtf8().as_bytes()) {
-                        let repr = val.repr(vm)?;
-                        return Err(vm.new_value_error(format!(
-                            "could not convert string to complex: {repr}"
-                        )));
-                    }
-                    let (re, im) = rustpython_literal::complex::parse_str(
-                        &crate::protocol::numeric_literal_from_str(s),
-                    )
-                    .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
-                    return Ok(Self::from(Complex64 { re, im }));
-                } else {
-                    return Err(vm.new_type_error(format!(
-                        "complex() argument must be a string or a number, not {}",
-                        val.class().slot_name()
-                    )));
-                }
+        let original_real = match args.real {
+            OptionalArg::Missing => vm.ctx.new_int(0).into(),
+            OptionalArg::Present(value) => value,
+        };
+        let converted_real = original_real.try_complex_special_method(vm)?;
+        if converted_real.is_none()
+            && original_real.downcast_ref::<Self>().is_none()
+            && !has_real_number_conversion(&original_real)
+        {
+            return Err(vm.new_type_error(format!(
+                "complex() argument 'real' must be a real number, not {}",
+                original_real.class().fully_qualified_name(vm)?
+            )));
+        }
+        if let OptionalArg::Present(imag) = &args.imag
+            && imag.downcast_ref::<Self>().is_none()
+            && !has_real_number_conversion(imag)
+        {
+            return Err(vm.new_type_error(format!(
+                "complex() argument 'imag' must be a real number, not {}",
+                imag.class().fully_qualified_name(vm)?
+            )));
+        }
+
+        let complex_real = converted_real
+            .as_ref()
+            .map(|value| value.as_complex())
+            .or_else(|| {
+                original_real
+                    .downcast_ref::<Self>()
+                    .map(|value| value.as_complex())
+            });
+        let real_was_complex = complex_real.is_some();
+        let real = if let Some(value) = complex_real {
+            drop(converted_real);
+            if !has_real_number_conversion(&original_real) {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "complex() argument 'real' must be a real number, not {}",
+                        original_real.class().fully_qualified_name(vm)?
+                    ),
+                    1,
+                    vm,
+                )?;
             }
+            value
+        } else {
+            Complex64::new(original_real.try_float(vm)?.to_f64(), 0.0)
         };
 
         let (imag, imag_was_complex) = match args.imag {
@@ -447,15 +481,19 @@ impl Constructor for PyComplex {
             // if an  imaginary argument is not passed in
             OptionalArg::Missing => (Complex64::new(real.im, 0.0), false),
             OptionalArg::Present(obj) => {
-                if let Some(c) = obj.try_complex(vm)? {
-                    c
-                } else if obj.class().fast_issubclass(vm.ctx.types.str_type) {
-                    return Err(vm.new_type_error("complex() second arg can't be a string"));
+                if let Some(value) = obj.downcast_ref::<Self>() {
+                    _warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        format!(
+                            "complex() argument 'imag' must be a real number, not {}",
+                            obj.class().fully_qualified_name(vm)?
+                        ),
+                        1,
+                        vm,
+                    )?;
+                    (value.as_complex(), true)
                 } else {
-                    return Err(vm.new_type_error(format!(
-                        "complex() second argument must be a number, not '{}'",
-                        obj.class().name()
-                    )));
+                    (Complex64::new(obj.try_float(vm)?.to_f64(), 0.0), false)
                 }
             }
         };
@@ -476,7 +514,37 @@ impl Constructor for PyComplex {
     }
 }
 
+fn has_real_number_conversion(value: &PyObject) -> bool {
+    let number = &value.class().slots().as_number;
+    number.float.load().is_some() || number.index.load().is_some()
+}
+
 impl PyComplex {
+    fn from_single_argument(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        if let Some(string) = value.downcast_ref::<PyStr>() {
+            if has_misplaced_underscore(string.as_wtf8().as_bytes()) {
+                let repr = value.repr(vm)?;
+                return Err(
+                    vm.new_value_error(format!("could not convert string to complex: {repr}"))
+                );
+            }
+            let (re, im) = rustpython_literal::complex::parse_str(
+                &crate::protocol::numeric_literal_from_str(string),
+            )
+            .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
+            return Ok(Self::from(Complex64 { re, im }));
+        }
+        value
+            .try_complex(vm)?
+            .map(|(value, _)| Self::from(value))
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "complex() argument must be a string or a number, not {}",
+                    value.class().slot_name()
+                ))
+            })
+    }
+
     #[deprecated(note = "use PyComplex::from(...).into_ref() instead")]
     pub fn new_ref(value: Complex64, ctx: &Context) -> PyRef<Self> {
         Self::from(value).into_ref(ctx)
@@ -763,10 +831,10 @@ impl Representable for PyComplex {
 
 #[derive(FromArgs)]
 pub struct ComplexArgs {
-    // Missing real is 0. A string real uses the imag-missing path.
+    // Component construction defaults the missing real part to 0.
     #[pyarg(any, default, py_default = "0")]
     real: OptionalArg<PyObjectRef>,
-    // Missing imag is 0 and is distinct from imag=0 when real is a string.
+    // Missing imag retains the imaginary part of a converted real argument.
     #[pyarg(any, default, py_default = "0")]
     imag: OptionalArg<PyObjectRef>,
 }
