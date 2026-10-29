@@ -67,6 +67,9 @@ pub fn closelog() {
 
 #[must_use]
 pub fn setlogmask(maskpri: i32) -> i32 {
+    // libc setlogmask() is not thread-safe.
+    static SETLOGMASK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+    let _guard = SETLOGMASK.lock();
     unsafe { libc::setlogmask(maskpri) }
 }
 
