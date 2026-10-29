@@ -7,3 +7,5 @@ The files in `latest` need to be periodically bumped to match `icu4x` and Rust. 
 `NameAliases.txt` and `NamedSequences.txt` feed `unicodedata.lookup` (formal aliases and named sequences). They are not used by `unicodedata.name`, which still reports the official character name.
 
 RustPython vendors [Unicode 3.2.0](https://www.unicode.org/reports/tr28/tr28-3.html) to match CPython. CPython uses 3.2.0 to ensure backwards compatibility with a few older modules. Unicode 3.2.0 was released in 2002 and does not need periodic refreshes.
+
+`Blocks.txt` supplies the ranges and original block names for `unicodedata.block`. The current copy is from [Unicode 17.0.0](https://www.unicode.org/Public/17.0.0/ucd/Blocks.txt).
