@@ -184,7 +184,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
             vm.ctx.new_utf8_str(name),
         )
     })?;
-    Ok(PyCode::new_ref_from_frozen(vm, frozen.code))
+    PyCode::try_new_ref_from_frozen(vm, frozen.code)
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
@@ -197,7 +197,7 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     let module = import_code_obj(
         vm,
         module_name,
-        PyCode::new_ref_from_frozen(vm, frozen.code),
+        PyCode::try_new_ref_from_frozen(vm, frozen.code)?,
         false,
     )?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
