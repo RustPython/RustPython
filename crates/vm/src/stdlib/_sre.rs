@@ -226,7 +226,7 @@ mod _sre {
         #[pyarg(any)]
         pattern: PyObjectRef,
         #[pyarg(any)]
-        flags: u16,
+        flags: i32,
         #[pyarg(any)]
         code: PyObjectRef,
         #[pyarg(any)]
@@ -256,7 +256,7 @@ mod _sre {
         let code = code.try_to_value(vm)?;
         Ok(Pattern {
             pattern,
-            flags: SreFlag::from_bits_truncate(flags),
+            flags,
             code,
             groups,
             groupindex,
@@ -385,7 +385,7 @@ mod _sre {
     #[derive(Debug, PyPayload)]
     pub(crate) struct Pattern {
         pub pattern: PyObjectRef,
-        pub flags: SreFlag,
+        pub flags: i32,
         pub code: Vec<u32>,
         pub groups: usize,
         pub groupindex: PyDictRef,
@@ -548,6 +548,16 @@ mod _sre {
         flags(HAS_WEAKREF)
     )]
     impl Py<Pattern> {
+        #[pymethod]
+        fn __copy__(zelf: PyRef<Pattern>) -> PyRef<Pattern> {
+            zelf
+        }
+
+        #[pymethod]
+        fn __deepcopy__(zelf: PyRef<Pattern>, _memo: PyObjectRef) -> PyRef<Pattern> {
+            zelf
+        }
+
         #[pymethod(name = "prefixmatch")]
         #[pymethod(name = "match")]
         fn py_match(
@@ -734,8 +744,8 @@ mod _sre {
         }
 
         #[pygetset]
-        fn flags(&self) -> u16 {
-            self.flags.bits()
+        fn flags(&self) -> i32 {
+            self.flags
         }
 
         #[pygetset]
@@ -774,7 +784,7 @@ mod _sre {
             let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ crate::vm::hash_secret().hash_bytes(code);
-            let hash = hash ^ (zelf.flags.bits() as PyHash);
+            let hash = hash ^ (zelf.flags as PyHash);
             let hash = hash ^ (zelf.isbytes as i64);
             Ok(hash)
         }
@@ -822,17 +832,24 @@ mod _sre {
             /* Omit re.UNICODE for valid string patterns. */
             let mut flags = zelf.flags;
             if !zelf.isbytes
-                && (flags & (SreFlag::LOCALE | SreFlag::UNICODE | SreFlag::ASCII))
-                    == SreFlag::UNICODE
+                && (flags & i32::from((SreFlag::LOCALE | SreFlag::UNICODE | SreFlag::ASCII).bits()))
+                    == i32::from(SreFlag::UNICODE.bits())
             {
-                flags &= !SreFlag::UNICODE;
+                flags &= !i32::from(SreFlag::UNICODE.bits());
             }
 
-            let flags = flag_names
-                .iter()
-                .filter(|(_, flag)| flags.contains(*flag))
-                .map(|(name, _)| name)
-                .join("|");
+            let mut flag_items = Vec::new();
+            for (name, flag) in flag_names {
+                let flag = i32::from(flag.bits());
+                if flags & flag != 0 {
+                    flag_items.push(name.to_owned());
+                    flags &= !flag;
+                }
+            }
+            if flags != 0 {
+                flag_items.push(format!("0x{:x}", flags as u32));
+            }
+            let flags = flag_items.join("|");
 
             let pattern = zelf.pattern.repr(vm)?;
             let mut result = Wtf8Buf::from("re.compile(");
@@ -976,6 +993,16 @@ mod _sre {
         flags(DISALLOW_INSTANTIATION)
     )]
     impl Py<Match> {
+        #[pymethod]
+        fn __copy__(zelf: PyRef<Match>) -> PyRef<Match> {
+            zelf
+        }
+
+        #[pymethod]
+        fn __deepcopy__(zelf: PyRef<Match>, _memo: PyObjectRef) -> PyRef<Match> {
+            zelf
+        }
+
         #[pygetset]
         fn pos(&self) -> usize {
             self.pos
