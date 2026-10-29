@@ -817,3 +817,10 @@ class Diamond(FirstChild, SecondChild):
 value = Diamond()
 value.left = 43
 assert value.left == 43
+
+# Native static methods retain their descriptor in the class dictionary.
+native_static = str.__dict__["maketrans"]
+assert isinstance(native_static, staticmethod)
+assert native_static.__func__ is str.maketrans
+for name in ("__module__", "__name__", "__qualname__", "__doc__"):
+    assert getattr(native_static, name) == getattr(str.maketrans, name)

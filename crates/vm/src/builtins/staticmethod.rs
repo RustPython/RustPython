@@ -1,16 +1,31 @@
 use super::{
-    PyGenericAlias, PyStr, PyType, PyTypeRef,
+    PyDictRef, PyGenericAlias, PyStr, PyType, PyTypeRef,
+    builtin_func::PyNativeFunction,
     classmethod::{
         descriptor_get_wrapped_attribute, descriptor_set_wrapped_attribute, functools_wraps,
     },
+    type_::{PyAttributes, rendered_item_doc},
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
+    common::{hash::HashSecret, lock::PyMutex, wtf8::Wtf8Buf},
     function::{FuncArgs, PySetterValue},
     object::PyAtomicRef,
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
 };
+
+// Context::genesis builds native descriptors before the first interpreter
+// chooses its hash seed. Delay hashing their metadata until that seed exists.
+rustpython_common::static_cell! {
+    static NATIVE_METADATA: PyMutex<NativeMetadata>;
+}
+
+#[derive(Default)]
+struct NativeMetadata {
+    hash_secret: Option<&'static HashSecret>,
+    pending: Vec<(PyDictRef, PyAttributes)>,
+}
 
 #[pyclass(module = false, name = "staticmethod", traverse)]
 #[derive(Debug)]
@@ -75,6 +90,58 @@ impl Constructor for PyStaticMethod {
 }
 
 impl PyStaticMethod {
+    pub(crate) fn new_native(
+        callable: PyRef<PyNativeFunction>,
+        class: &Py<PyType>,
+        ctx: &Context,
+    ) -> PyRef<Self> {
+        let mut qualname = class.heaptype_ext.as_ref().map_or_else(
+            || Wtf8Buf::from_string(class.name().to_string()),
+            |ext| ext.qualname.read().as_wtf8().to_owned(),
+        );
+        qualname.push_str(".");
+        qualname.push_str(callable.value.name);
+        let attrs = [
+            (
+                identifier!(ctx, __module__),
+                callable.module.load_owned().unwrap_or_else(|| ctx.none()),
+            ),
+            (
+                identifier!(ctx, __name__),
+                ctx.new_str(callable.value.name).into(),
+            ),
+            (identifier!(ctx, __qualname__), ctx.new_str(qualname).into()),
+            (
+                identifier!(ctx, __doc__),
+                rendered_item_doc(callable.value.name, callable.value.item_doc())
+                    .map_or_else(|| ctx.none(), |doc| ctx.new_str(doc).into()),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let dict = ctx.new_dict();
+        let wrapper = PyRef::new_ref(
+            Self::new(callable.into()),
+            ctx.types.staticmethod_type.to_owned(),
+            Some(dict.clone()),
+        );
+        let mut metadata = NATIVE_METADATA.get_or_init(PyMutex::default).lock();
+        if let Some(secret) = metadata.hash_secret {
+            dict.entries.initialize_attributes(attrs, secret);
+        } else {
+            metadata.pending.push((dict, attrs));
+        }
+        wrapper
+    }
+
+    pub(crate) fn init_native_metadata(secret: &'static HashSecret) {
+        let mut metadata = NATIVE_METADATA.get_or_init(PyMutex::default).lock();
+        metadata.hash_secret = Some(secret);
+        for (dict, attrs) in metadata.pending.drain(..) {
+            dict.entries.initialize_attributes(attrs, secret);
+        }
+    }
+
     #[must_use]
     pub fn new(callable: PyObjectRef) -> Self {
         Self {
