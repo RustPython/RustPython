@@ -889,10 +889,6 @@ class TestSetSubclassWithSlots(unittest.TestCase):
     setUp = TestJointOps.setUp
     test_pickling = TestJointOps.test_pickling
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickling(self):
-        return super().test_pickling()
-
 class FrozenSetSubclassWithSlots(frozenset):
     __slots__ = ('x', 'y', '__dict__')
 
