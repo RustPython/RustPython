@@ -739,16 +739,17 @@ mod _collections {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyDeque>, vm: &VirtualMachine) -> PyResult {
+            // Use __getstate__ to capture both __dict__ and __slots__ values so
+            // subclass attributes survive a pickle round-trip (matches CPython's
+            // deque___reduce___impl, which calls _PyObject_GetState).
+            let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
+            let iterator = zelf.as_object().get_iter(vm)?;
             let cls = zelf.class().to_owned();
             let value = match zelf.maxlen_value() {
                 Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
                 None => vm.ctx.empty_tuple.clone().into(),
             };
-            // Use __getstate__ to capture both __dict__ and __slots__ values so
-            // subclass attributes survive a pickle round-trip (matches CPython's
-            // deque___reduce___impl, which calls _PyObject_GetState).
-            let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
-            Ok(vm.new_pyobj((cls, value, state, PyDequeIterator::new(zelf))))
+            Ok(vm.new_pyobj((cls, value, state, iterator)))
         }
 
         #[pyclassmethod]
