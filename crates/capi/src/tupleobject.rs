@@ -3,11 +3,11 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::util::FfiPtrExt;
 use core::ffi::c_int;
-use core::ptr::{self, NonNull};
+use core::ptr;
 use core::slice;
+use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyTuple;
 use rustpython_vm::sliceable::SliceableSequenceOp;
-use rustpython_vm::{AsObject, PyObjectRef, PyResult};
 
 define_py_check!(fn PyTuple_Check, types.tuple_type);
 define_py_check!(exact fn PyTuple_CheckExact, types.tuple_type);
