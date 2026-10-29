@@ -229,46 +229,6 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     deserialize_code_inner(rdr, bag, MAX_MARSHAL_STACK_DEPTH, &mut refs)
 }
 
-/// Decode external code bytes, including nested code constants, without
-/// accepting monitoring placeholders that need unavailable original opcodes.
-pub fn deserialize_code_external<R: Read, Bag: ConstantBag>(
-    rdr: &mut R,
-    bag: Bag,
-) -> Result<CodeObject<Bag::Constant>> {
-    deserialize_code(rdr, ExternalCodeBag(bag))
-}
-
-#[derive(Clone, Copy)]
-struct ExternalCodeBag<Bag>(Bag);
-
-impl<Bag: ConstantBag> ConstantBag for ExternalCodeBag<Bag> {
-    type Constant = Bag::Constant;
-
-    fn code_units_from_bytes(&self, bytes: &[u8]) -> Result<CodeUnits> {
-        CodeUnits::from_external_bytes(bytes)
-    }
-
-    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
-        self.0.make_constant(constant)
-    }
-
-    fn make_int(&self, value: BigInt) -> Self::Constant {
-        self.0.make_int(value)
-    }
-
-    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
-        self.0.make_tuple(elements)
-    }
-
-    fn make_code(&self, code: CodeObject<Self::Constant>) -> Self::Constant {
-        self.0.make_code(code)
-    }
-
-    fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name {
-        self.0.make_name(name)
-    }
-}
-
 /// Inner code-object deserializer that shares a ref table with caller.
 /// Used when decoding a code object embedded in another marshal stream so
 /// that TYPE_REF entries inside the code can resolve across nested values.
@@ -333,7 +293,7 @@ fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
     )?;
 
     // Bytecode already uses flat localsplus indices (no translation needed)
-    let instructions = ConstantBag::code_units_from_bytes(&bag, code_bytes.as_slice())?;
+    let instructions = CodeUnits::try_from(code_bytes.as_slice())?;
     let locations = linetable_to_locations(&linetable, first_line_raw, instructions.len());
 
     // Use original localspluskinds from marshal data (preserves CO_FAST_HIDDEN etc.)
@@ -764,10 +724,6 @@ pub trait MarshalBag: Copy {
 impl<Bag: ConstantBag> MarshalBag for Bag {
     type Value = Bag::Constant;
     type ConstantBag = Self;
-
-    fn code_units_from_bytes(&self, bytes: &[u8]) -> Result<CodeUnits> {
-        ConstantBag::code_units_from_bytes(self, bytes)
-    }
 
     fn make_bool(&self, value: bool) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Boolean { value })
@@ -1950,56 +1906,6 @@ fn lt_read_signed_varint(data: &[u8], pos: &mut usize) -> i32 {
 mod tests {
     use super::*;
     use crate::bytecode::{BasicBag, ConstantData};
-    use alloc::{string::String, vec};
-
-    #[test]
-    fn external_code_policy_reaches_nested_constants() {
-        // Scalar serialization fixtures only: neither code object is executed.
-        fn fixture(op: Instruction, constants: Vec<ConstantData>) -> CodeObject<ConstantData> {
-            CodeObject {
-                instructions: CodeUnits::from([CodeUnit::new(op, 0.into())]),
-                locations: Box::new([]),
-                flags: CodeFlags::empty(),
-                posonlyarg_count: 0,
-                arg_count: 0,
-                kwonlyarg_count: 0,
-                first_line_number: None,
-                max_stackdepth: 1,
-                constants: constants.into_iter().collect(),
-                names: Box::new([]),
-                varnames: Box::new([]),
-                cellvars: Box::new([]),
-                freevars: Box::new([]),
-                source_path: String::new(),
-                obj_name: String::new(),
-                qualname: String::new(),
-                localspluskinds: Box::new([]),
-                linetable: Box::new([]),
-                exceptiontable: Box::new([]),
-            }
-        }
-        let inner = fixture(Instruction::InstrumentedLine, Vec::new());
-        let outer = fixture(
-            Instruction::Cache,
-            vec![ConstantData::Code {
-                code: Box::new(inner),
-            }],
-        );
-        let mut bytes = Vec::new();
-        serialize_code(&mut bytes, &outer);
-        assert!(deserialize_code(&mut &bytes[..], BasicBag).is_ok());
-        assert!(matches!(
-            deserialize_code_external(&mut &bytes[..], BasicBag),
-            Err(MarshalError::InvalidBytecode)
-        ));
-        let frozen = crate::frozen::FrozenCodeObject::encode(&outer);
-        let trusted = frozen.decode(BasicBag);
-        assert_eq!(trusted.constants.len(), 1);
-        assert!(matches!(
-            frozen.try_decode(BasicBag),
-            Err(MarshalError::InvalidBytecode)
-        ));
-    }
 
     fn hex_to_bytes(hex: &str) -> Vec<u8> {
         (0..hex.len())

@@ -29,7 +29,7 @@ pub(crate) struct MonitoringMetadata {
 
 impl MonitoringMetadata {
     pub(crate) fn build(code: &PyCode) -> Self {
-        let source = code.instructions.proven_source_prefix();
+        let source = code.instructions.base_instruction_prefix();
         let mut instructions = HashMap::new();
         let mut starts = Vec::new();
         let mut index = 0usize;

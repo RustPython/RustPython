@@ -15,17 +15,7 @@ pub struct FrozenCodeObject<B> {
 }
 
 impl<B: AsRef<[u8]>> FrozenCodeObject<B> {
-    /// Decode externally supplied frozen bytes through a recoverable error path.
-    pub fn try_decode<Bag: AsBag>(
-        &self,
-        bag: Bag,
-    ) -> Result<CodeObject<<Bag::Bag as ConstantBag>::Constant>, marshal::MarshalError> {
-        let decompressed = lz4_flex::decompress_size_prepended(self.bytes.as_ref())
-            .map_err(|_| marshal::MarshalError::InvalidBytecode)?;
-        marshal::deserialize_code_external(&mut &decompressed[..], bag.as_bag())
-    }
-
-    /// Decode trusted generated frozen code. External data must use `try_decode`.
+    /// Decode a frozen code object
     #[inline]
     pub fn decode<Bag: AsBag>(&self, bag: Bag) -> CodeObject<<Bag::Bag as ConstantBag>::Constant> {
         Self::_decode(self.bytes.as_ref(), bag.as_bag())

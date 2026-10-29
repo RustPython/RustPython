@@ -156,7 +156,7 @@ pub(crate) mod stack_analysis {
 
     /// Analyze bytecode and compute the stack state at each instruction index.
     pub(crate) fn mark_stacks(code: &PyCode) -> Vec<i64> {
-        let instructions = code.instructions.proven_source_prefix();
+        let instructions = code.instructions.base_instruction_prefix();
         let len = instructions.len();
         let full_len = code.instructions.len();
         let base_opcode = |i: usize| instructions[i].op.deoptimize();

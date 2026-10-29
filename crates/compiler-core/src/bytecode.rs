@@ -319,10 +319,6 @@ impl Constant for ConstantData {
 pub trait ConstantBag: Sized + Copy {
     type Constant: Constant;
 
-    fn code_units_from_bytes(&self, bytes: &[u8]) -> Result<CodeUnits, MarshalError> {
-        CodeUnits::try_from(bytes)
-    }
-
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant;
 
     fn make_int(&self, value: BigInt) -> Self::Constant;
@@ -631,23 +627,12 @@ impl TryFrom<[u8; 2]> for CodeUnit {
 }
 
 pub struct CodeUnits {
-    // Construction provenance, never updated by runtime specialization. Keep
-    // original opcode identity: GET_ITER fixup does not apply to its specialized forms.
-    source: Box<[CodeUnit]>,
-    source_layout: CodeSourceLayout,
     units: UnsafeCell<Box<[CodeUnit]>>,
     adaptive_counters: Box<[AtomicU16]>,
     /// Pointer-sized cache entries for descriptor pointers.
     /// Single atomic load/store prevents torn reads when multiple threads
     /// specialize the same instruction concurrently.
     pointer_cache: Box<[AtomicUsize]>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CodeSourceLayout {
-    Complete,
-    Opaque { index: usize },
-    Truncated { index: usize },
 }
 
 // SAFETY: All cache operations use atomic read/write instructions.
@@ -661,20 +646,24 @@ unsafe impl Sync for CodeUnits {}
 
 impl Clone for CodeUnits {
     fn clone(&self) -> Self {
-        let mut cloned = Self::from(self.source.to_vec());
-        if self.source_layout == CodeSourceLayout::Complete {
-            let units = cloned.units.get_mut();
-            let mut i = 0;
-            while i < units.len() {
-                units[i].op = units[i].op.deoptimize();
-                let end = i + 1 + units[i].op.cache_entries();
-                for cache in &mut units[i + 1..end] {
-                    *cache = CodeUnit::new(Instruction::Cache, 0.into());
-                }
-                i = end;
-            }
+        // SAFETY: No concurrent mutation during clone — cloning is only done
+        // during code object construction or marshaling, not while instrumented.
+        let units = unsafe { &*self.units.get() }.clone();
+        let adaptive_counters = self
+            .adaptive_counters
+            .iter()
+            .map(|c| AtomicU16::new(c.load(Ordering::Relaxed)))
+            .collect();
+        let pointer_cache = self
+            .pointer_cache
+            .iter()
+            .map(|c| AtomicUsize::new(c.load(Ordering::Relaxed)))
+            .collect();
+        Self {
+            units: UnsafeCell::new(units),
+            adaptive_counters,
+            pointer_cache,
         }
-        cloned
     }
 }
 
@@ -712,8 +701,6 @@ impl<const N: usize> From<[CodeUnit; N]> for CodeUnits {
 impl From<Vec<CodeUnit>> for CodeUnits {
     fn from(value: Vec<CodeUnit>) -> Self {
         let units = value.into_boxed_slice();
-        let source = units.clone();
-        let source_layout = Self::classify_source(&source);
         let len = units.len();
         let adaptive_counters = (0..len)
             .map(|_| AtomicU16::new(0))
@@ -724,8 +711,6 @@ impl From<Vec<CodeUnit>> for CodeUnits {
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Self {
-            source,
-            source_layout,
             units: UnsafeCell::new(units),
             adaptive_counters,
             pointer_cache,
@@ -751,61 +736,6 @@ impl Deref for CodeUnits {
 }
 
 impl CodeUnits {
-    fn classify_source(units: &[CodeUnit]) -> CodeSourceLayout {
-        let mut i = 0;
-        while i < units.len() {
-            if matches!(
-                units[i].op,
-                Instruction::InstrumentedLine
-                    | Instruction::InstrumentedInstruction
-                    | Instruction::EnterExecutor
-                    | Instruction::TraceRecord
-                    | Instruction::Reserved
-                    | Instruction::InterpreterExit
-            ) {
-                return CodeSourceLayout::Opaque { index: i };
-            }
-            let Some(end) = i.checked_add(1 + units[i].op.cache_entries()) else {
-                return CodeSourceLayout::Truncated { index: i };
-            };
-            if end > units.len() {
-                return CodeSourceLayout::Truncated { index: i };
-            }
-            i = end;
-        }
-        CodeSourceLayout::Complete
-    }
-
-    pub const fn source_layout(&self) -> CodeSourceLayout {
-        self.source_layout
-    }
-
-    /// Immutable source before the first opaque or truncated instruction start.
-    /// This includes cache units: consumers must walk by proven opcode widths,
-    /// not decode every unit as an instruction. It proves no branch validity.
-    pub fn proven_source_prefix(&self) -> &[CodeUnit] {
-        let end = match self.source_layout {
-            CodeSourceLayout::Complete => self.source.len(),
-            CodeSourceLayout::Opaque { index } | CodeSourceLayout::Truncated { index } => index,
-        };
-        &self.source[..end]
-    }
-
-    /// Parse external bytecode without accepting wrappers whose original
-    /// operation requires monitoring metadata absent from the input.
-    pub fn from_external_bytes(bytes: &[u8]) -> Result<Self, MarshalError> {
-        let units = Self::try_from(bytes)?;
-        if let CodeSourceLayout::Opaque { index } = units.source_layout
-            && matches!(
-                units.source[index].op,
-                Instruction::InstrumentedLine | Instruction::InstrumentedInstruction
-            )
-        {
-            return Err(MarshalError::InvalidBytecode);
-        }
-        Ok(units)
-    }
-
     /// `fixup_getiter` applied to every `GET_ITER` by `_PyCode_Quicken`.
     ///
     /// The compiler can't know if `types.coroutine()` will be called, so a
@@ -818,18 +748,10 @@ impl CodeUnits {
         };
         let mut i = 0;
         let units = self.units.get_mut();
-        let stop = match self.source_layout {
-            CodeSourceLayout::Complete => self.source.len(),
-            CodeSourceLayout::Opaque { index } => index,
-            // Preserve the existing literal GET_ITER fixup even if the input
-            // ends before that instruction's cache extent.
-            CodeSourceLayout::Truncated { index } => index + 1,
-        };
-        while i < stop {
-            let unit = &mut self.source[i];
+        while i < units.len() {
+            let unit = &mut units[i];
             if matches!(unit.op, Instruction::GetIter { .. }) && u8::from(unit.arg) != 0 {
                 unit.arg = (mode as u8).into();
-                units[i].arg = unit.arg;
             }
             i += 1 + unit.op.cache_entries();
         }
@@ -901,41 +823,94 @@ impl CodeUnits {
         unsafe { &*self.units.get() }.as_ptr()
     }
 
-    /// `read_unit` from a base pointer previously obtained with `units_ptr`.
+    /// Read an instruction from a base pointer previously obtained with `units_ptr`.
     ///
     /// # Safety
-    /// `base` must come from `units_ptr` on a live `CodeUnits`, and `index`
-    /// must be within that array (the dispatch loop only ever reads indices
-    /// the code object itself produced).
+    /// `base` must belong to a live `CodeUnits`, and `index` must identify an
+    /// in-bounds instruction start, never an inline cache. Construction fixup
+    /// must be complete. Runtime opcode replacements preserve the operand and
+    /// base family, so the two bytes need not be read as one atomic value.
+    /// This accessor does not validate malformed jump targets.
     #[inline(always)]
     #[must_use]
     pub unsafe fn read_unit_from(base: *const CodeUnit, index: usize) -> CodeUnit {
-        let ptr = base.wrapping_add(index) as *const AtomicU16;
-        let [op, arg] = unsafe { &*ptr }.load(Ordering::Acquire).to_ne_bytes();
-        // SAFETY: only valid Instruction values are ever stored into the
-        // instruction array (see `read_op`).
+        let ptr = base.wrapping_add(index).cast::<AtomicU8>();
+        let op = unsafe { &*ptr }.load(Ordering::Acquire);
+        let arg = unsafe { &*ptr.add(1) }.load(Ordering::Relaxed);
+        // SAFETY: instruction starts contain valid opcodes; cache words are
+        // excluded by the caller. Match replace_op's byte-sized atomic access.
         CodeUnit {
             op: unsafe { mem::transmute::<u8, Instruction>(op) },
             arg: OpArgByte::from(arg),
         }
     }
 
-    /// Atomically read the opcode and its arg byte at `index` as a single
-    /// Acquire-ordered 16-bit load.
-    ///
-    /// Equivalent to `read_op` followed by `read_arg`, but the one access
-    /// keeps the eval loop from re-loading the instruction array pointer
-    /// across the acquire barrier, and it is what the dispatch loop uses.
-    /// Acquire pairs with `replace_op` (Release) exactly as `read_op` does.
-    ///
-    /// `to_ne_bytes` yields the bytes in memory order, so `[0]` is the `op`
-    /// field and `[1]` the `arg` field of the `repr(C)` unit on either
-    /// endianness.
+    /// Read an instruction start using separate opcode and operand byte loads.
+    /// Runtime specialization preserves its operand and base family.
     #[inline(always)]
     #[must_use]
     pub fn read_unit(&self, index: usize) -> CodeUnit {
-        // SAFETY: `index` is in bounds for every caller of this method.
+        // SAFETY: callers supply an in-bounds instruction start.
         unsafe { Self::read_unit_from(self.units_ptr(), index) }
+    }
+
+    /// Walk bounded base instructions for structural analysis.
+    ///
+    /// Like CPython's `_Py_GetBaseCodeUnit`, derive base opcodes from execution
+    /// units. Virtual monitoring never writes wrappers into these units, and
+    /// specialization preserves each base family, operand and cache width.
+    /// Read only instruction starts with byte-sized atomic accesses, skipping
+    /// all caches. Stop before a wrapper without owning metadata or an
+    /// incomplete extent. This is optional analysis, not constructor or jump
+    /// validation, and is not a decoder for physically instrumented code.
+    pub fn base_instructions(&self) -> impl Iterator<Item = (usize, CodeUnit)> + '_ {
+        let mut index = 0usize;
+        let mut stopped = false;
+        core::iter::from_fn(move || {
+            if stopped || index >= self.len() {
+                return None;
+            }
+            let op = self.read_op(index);
+            if matches!(
+                op,
+                Instruction::InstrumentedLine
+                    | Instruction::InstrumentedInstruction
+                    | Instruction::EnterExecutor
+                    | Instruction::TraceRecord
+                    | Instruction::Reserved
+                    | Instruction::InterpreterExit
+            ) {
+                stopped = true;
+                return None;
+            }
+            let base = op.deoptimize();
+            let Some(end) = index.checked_add(1 + base.cache_entries()) else {
+                stopped = true;
+                return None;
+            };
+            if end > self.len() {
+                stopped = true;
+                return None;
+            }
+            let unit = CodeUnit::new(base, self.read_arg(index));
+            let at = index;
+            index = end;
+            Some((at, unit))
+        })
+    }
+
+    /// Owned scalar snapshot for analyses indexed by code-unit offset.
+    /// Cache positions are newly generated zeroes, never live cache reads.
+    pub fn base_instruction_prefix(&self) -> Vec<CodeUnit> {
+        let mut result = Vec::new();
+        for (index, unit) in self.base_instructions() {
+            result.push(unit);
+            result.resize(
+                index + 1 + unit.op.cache_entries(),
+                CodeUnit::new(Instruction::Cache, 0.into()),
+            );
+        }
+        result
     }
 
     /// Atomically read the arg byte at `index` with Relaxed ordering.
@@ -1047,13 +1022,12 @@ impl CodeUnits {
         &self,
         resolve: impl Fn(usize, Instruction) -> Instruction,
     ) -> Vec<u8> {
-        let len = self.source.len();
+        let len = self.len();
         let mut out = Vec::with_capacity(len * 2);
         let mut i = 0;
         while i < len {
-            let unit = self.source[i];
-            let op = resolve(i, unit.op).deoptimize();
-            let arg = unit.arg;
+            let op = resolve(i, self.read_op(i)).deoptimize();
+            let arg = self.read_arg(i);
             let caches = op.cache_entries();
             out.push(u8::from(op));
             out.push(u8::from(arg));
@@ -1550,152 +1524,78 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use alloc::{vec, vec::Vec};
+
     #[test]
-    fn code_source_clone_ignores_runtime_storage() {
-        use super::*;
+    fn base_instruction_walk_skips_cache_payloads() {
+        // Scalar storage only: this fixture is never executed.
         let code = CodeUnits::from([
             CodeUnit::new(Opcode::LoadGlobal.as_instruction(), 7.into()),
             CodeUnit::new(Instruction::Cache, 0.into()),
+            CodeUnit::new(Instruction::InstrumentedLine, 9.into()),
+            CodeUnit::new(Instruction::InstrumentedInstruction, 11.into()),
             CodeUnit::new(Instruction::Cache, 0.into()),
-            CodeUnit::new(Instruction::Cache, 0.into()),
-            CodeUnit::new(Instruction::Cache, 0.into()),
+            CodeUnit::new(Instruction::ReturnValue, 0.into()),
         ]);
-        let original = code.original_bytes();
-        // These are bounded scalar storage writes, not bytecode execution.
-        unsafe {
-            code.replace_op(0, Instruction::LoadGlobalModule);
-            code.write_cache_u16(1, 123);
-            code.write_adaptive_counter(1, 456);
-            code.write_cache_ptr(1, 789);
+        // SAFETY: a sequential same-family replacement at a known start.
+        unsafe { code.replace_op(0, Instruction::LoadGlobalModule) };
+        let starts = code.base_instructions().collect::<Vec<_>>();
+        assert_eq!(starts.len(), 2);
+        assert_eq!(starts[0].0, 0);
+        assert_eq!(starts[0].1.op.as_opcode(), Opcode::LoadGlobal);
+        assert_eq!(u8::from(starts[0].1.arg), 7);
+        assert_eq!(starts[1].0, 5);
+        assert_eq!(starts[1].1.op.as_opcode(), Opcode::ReturnValue);
+        let snapshot = code.base_instruction_prefix();
+        assert_eq!(snapshot.len(), 6);
+        for unit in &snapshot[1..5] {
+            assert_eq!(unit.op.as_opcode(), Opcode::Cache);
+            assert_eq!(u8::from(unit.arg), 0);
         }
-        let cloned = code.clone();
-        assert_eq!(code.original_bytes(), original);
-        assert_eq!(cloned.original_bytes(), original);
-        assert!(matches!(cloned.read_op(0), Instruction::LoadGlobal { .. }));
-        assert_eq!(cloned.read_cache_u16(1), 0);
-        assert_eq!(cloned.read_adaptive_counter(1), 0);
-        assert_eq!(cloned.read_cache_ptr(1), 0);
-    }
 
-    #[test]
-    fn code_source_normalization_preserves_family_layout() {
-        use super::*;
-        let mut count = 0;
-        for byte in 0..=u8::MAX {
-            let Ok(op) = Opcode::try_from(byte) else {
-                continue;
-            };
-            let Some(base) = op.deopt().or_else(|| op.to_base()) else {
-                continue;
-            };
-            assert_eq!(op.cache_entries(), base.cache_entries());
-            let mut units =
-                vec![CodeUnit::new(Instruction::Cache, 0.into()); 1 + op.cache_entries()];
-            units[0] = CodeUnit::new(op.as_instruction(), 7.into());
-            let code = CodeUnits::from(units);
-            assert_eq!(code.read_op(0).as_opcode(), op);
-            let cloned = code.clone();
-            assert_eq!(cloned.read_op(0).as_opcode(), base);
-            assert_eq!(u8::from(cloned.read_arg(0)), 7);
-            assert_eq!(code.original_bytes(), cloned.original_bytes());
-            count += 1;
-        }
-        assert_eq!(count, 110); // 91 specialized and 19 direct instrumented forms.
-    }
-
-    #[test]
-    fn code_source_get_iter_fixup_retains_origin() {
-        use super::*;
-        let mut specialized = CodeUnits::from([
-            CodeUnit::new(Instruction::GetIterSelf, 1.into()),
-            CodeUnit::new(Instruction::Cache, 0.into()),
-        ]);
-        specialized.fixup_get_iter(CodeFlags::COROUTINE);
-        let original = specialized.original_bytes();
-        let mut cloned = specialized.clone();
-        cloned.fixup_get_iter(CodeFlags::empty());
-        assert_eq!(cloned.original_bytes(), original);
-        assert_eq!(u8::from(cloned.read_arg(0)), 1);
-        let mut literal = CodeUnits::from([
-            CodeUnit::new(Opcode::GetIter.as_instruction(), 1.into()),
-            CodeUnit::new(Instruction::Cache, 0.into()),
-        ]);
-        literal.fixup_get_iter(CodeFlags::empty());
-        assert_eq!(
-            u8::from(literal.read_arg(0)),
-            oparg::GET_ITER_YIELD_FROM_CORO_CHECK as u8
-        );
-        let mut cloned = literal.clone();
-        cloned.fixup_get_iter(CodeFlags::COROUTINE);
-        assert_eq!(
-            u8::from(cloned.read_arg(0)),
-            oparg::GET_ITER_YIELD_FROM_NO_CHECK as u8
-        );
-        assert_eq!(
-            cloned.original_bytes()[1],
-            oparg::GET_ITER_YIELD_FROM_NO_CHECK as u8
-        );
-    }
-
-    #[test]
-    fn code_source_external_wrappers_are_not_cache_bytes() {
-        use super::*;
-        for wrapper in [
+        // Optional analysis stops before unavailable structure. Neither scalar
+        // fixture is executed or used to change constructor admission policy.
+        for tail in [
             Instruction::InstrumentedLine,
-            Instruction::InstrumentedInstruction,
+            Opcode::LoadGlobal.as_instruction(),
         ] {
-            let bytes = [u8::from(wrapper), 0];
-            assert!(CodeUnits::from_external_bytes(&bytes).is_err());
-            let trusted = CodeUnits::try_from(bytes.as_slice()).unwrap();
-            assert_eq!(
-                trusted.source_layout(),
-                CodeSourceLayout::Opaque { index: 0 }
-            );
-            assert_eq!(trusted.clone().read_op(0).as_opcode(), wrapper.as_opcode());
-            let cached = [u8::from(Opcode::GetIter), 0, u8::from(wrapper), 0];
-            assert_eq!(
-                CodeUnits::from_external_bytes(&cached)
-                    .unwrap()
-                    .source_layout(),
-                CodeSourceLayout::Complete
-            );
+            let unavailable = CodeUnits::from([
+                CodeUnit::new(Instruction::Nop, 0.into()),
+                CodeUnit::new(tail, 0.into()),
+            ]);
+            let starts = unavailable.base_instructions().collect::<Vec<_>>();
+            assert_eq!(starts.len(), 1);
+            assert_eq!(starts[0].0, 0);
+            assert_eq!(starts[0].1.op.as_opcode(), Opcode::Nop);
+            assert_eq!(unavailable.base_instruction_prefix().len(), 1);
         }
     }
 
     #[test]
-    fn code_source_unsupported_barriers_do_not_scan_suffix() {
-        for barrier in [Opcode::Reserved, Opcode::InterpreterExit] {
-            for wrapper in [Opcode::InstrumentedLine, Opcode::InstrumentedInstruction] {
-                let bytes = [u8::from(barrier), 7, u8::from(wrapper), 0];
-                let code = CodeUnits::from_external_bytes(&bytes).unwrap();
-                assert_eq!(code.source_layout(), CodeSourceLayout::Opaque { index: 0 });
-                assert_eq!(code.clone().source_layout(), code.source_layout());
+    fn base_instruction_families_preserve_cache_width() {
+        for value in 0..=u8::MAX {
+            if let Ok(op) = Opcode::try_from(value) {
+                assert_eq!(op.cache_entries(), op.deoptimize().cache_entries());
             }
         }
     }
 
     #[test]
-    fn code_source_unavailable_layout_stops_without_rejection() {
-        use super::*;
-        let opaque = [
-            u8::from(Opcode::EnterExecutor),
-            0,
-            u8::from(Opcode::InstrumentedLine),
-            0,
-        ];
-        let code = CodeUnits::from_external_bytes(&opaque).unwrap();
-        assert_eq!(code.source_layout(), CodeSourceLayout::Opaque { index: 0 });
-        let truncated = [u8::from(Opcode::LoadGlobal), 0];
-        let code = CodeUnits::from_external_bytes(&truncated).unwrap();
-        assert_eq!(
-            code.source_layout(),
-            CodeSourceLayout::Truncated { index: 0 }
-        );
-        assert_eq!(code.clone().source_layout(), code.source_layout());
+    fn instruction_byte_reader_preserves_operand() {
+        let code = CodeUnits::from([
+            CodeUnit::new(Opcode::JumpBackward.as_instruction(), 13.into()),
+            CodeUnit::new(Instruction::Cache, 0.into()),
+        ]);
+        // No bytecode execution or concurrent access: test scalar read results.
+        unsafe { code.replace_op(0, Instruction::JumpBackwardNoJit) };
+        let unit = code.read_unit(0);
+        assert_eq!(unit.op.as_opcode(), Opcode::JumpBackwardNoJit);
+        assert_eq!(u8::from(unit.arg), 13);
+        let base = code.base_instructions().next().unwrap();
+        assert_eq!(base.1.op.as_opcode(), Opcode::JumpBackward);
+        assert_eq!(u8::from(base.1.arg), 13);
     }
-
-    use super::*;
-    use alloc::{vec, vec::Vec};
 
     #[test]
     fn exception_table_encode_decode() {

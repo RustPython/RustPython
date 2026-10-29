@@ -785,18 +785,6 @@ impl PyCode {
         py_code
     }
 
-    pub fn try_new_ref_from_frozen<B: AsRef<[u8]>>(
-        vm: &VirtualMachine,
-        code: frozen::FrozenCodeObject<B>,
-    ) -> PyResult<PyRef<Self>> {
-        let code = code
-            .try_decode(PyVmBag(vm))
-            .map_err(|e| vm.new_value_error(format!("invalid frozen bytecode: {e}")))?;
-        let py_code = Self::new_ref_with_bag(vm, code);
-        apply_frozen_co_filename(&py_code, vm);
-        Ok(py_code)
-    }
-
     #[cfg(feature = "host_env")]
     pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let name = match path.file_stem() {
@@ -1142,7 +1130,7 @@ impl Constructor for PyCode {
 
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
-        let instructions = CodeUnits::from_external_bytes(bytecode_bytes)
+        let instructions = CodeUnits::try_from(bytecode_bytes)
             .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
         let constants = bytecode::Constants::new(LiteralTuple(args.consts));
@@ -1689,10 +1677,10 @@ impl Py<PyCode> {
         let instructions = match co_code {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
-                CodeUnits::from_external_bytes(code_bytes.as_bytes())
+                CodeUnits::try_from(code_bytes.as_bytes())
                     .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
-            OptionalArg::Missing => CodeUnits::from_external_bytes(self.get_code(vm).as_bytes())
+            OptionalArg::Missing => CodeUnits::try_from(self.get_code(vm).as_bytes())
                 .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?,
         };
 

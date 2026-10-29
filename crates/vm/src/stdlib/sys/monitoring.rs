@@ -453,10 +453,10 @@ impl MonitoringState {
         code: &PyCode,
         mut layers: HashMap<usize, MonitoringLayerSite>,
     ) -> bool {
-        // Only immutable, width-classified starts may own a virtual layer.
+        // Only bounded base-instruction starts may own a virtual layer.
         // An opaque suffix remains outside this map and uses no invented base.
         use rustpython_compiler_core::bytecode::{Instruction, oparg};
-        let source = code.instructions.proven_source_prefix();
+        let source = code.instructions.base_instruction_prefix();
         let mut index = 0;
         let mut checked = 0;
         let mut first_traceable = None;
@@ -757,26 +757,16 @@ pub(crate) fn layer_site(
     vm.state.monitoring.lock().layer_site(code, index)
 }
 
+// This arbitrary-offset lookup scans the bounded prefix in O(index) time.
+// Dispatch-proven instruction starts can instead read and deoptimize directly.
 pub(crate) fn source_operation(
     code: &PyCode,
     index: usize,
 ) -> Option<rustpython_compiler_core::bytecode::CodeUnit> {
-    let source = code.instructions.proven_source_prefix();
-    let mut at = 0usize;
-    while at < source.len() {
-        let unit = source[at];
-        if at == index {
-            return Some(rustpython_compiler_core::bytecode::CodeUnit::new(
-                unit.op.deoptimize(),
-                unit.arg,
-            ));
-        }
-        if at > index {
-            return None;
-        }
-        at = at.checked_add(1 + unit.op.cache_entries())?;
-    }
-    None
+    code.instructions
+        .base_instructions()
+        .take_while(|(at, _)| *at <= index)
+        .find_map(|(at, unit)| (at == index).then_some(unit))
 }
 
 pub(crate) fn known_operation(

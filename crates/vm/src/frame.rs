@@ -3925,11 +3925,8 @@ impl ExecutingFrame<'_> {
                 && self.trace_is_set(vm)
                 && self.trace_lines_is_set()
                 && !matches!(
-                    monitoring::source_operation(self.code, idx)
-                        .map_or_else(|| self.code.instructions.read_op(idx), |unit| unit.op),
+                    self.code.instructions.read_op(idx).deoptimize(),
                     Instruction::Resume { .. }
-                        | Instruction::ResumeCheck
-                        | Instruction::InstrumentedResume
                 )
             {
                 let line = self.code.addr2line(idx as i32 * 2);
@@ -4024,9 +4021,8 @@ impl ExecutingFrame<'_> {
                         (operation, continuation)
                     });
             }
-            // One aligned acquire load fetches opcode and arg together; two
-            // separate atomic reads would force the instruction array pointer
-            // to be re-loaded across the acquire barrier.
+            // Opcode and operand use byte-sized loads: specialization changes
+            // only the opcode, preserving the operand and base cache width.
             // SAFETY: `idx` is a position this code object's own control flow
             // produced, so it is in bounds of the instruction array, and
             // `units_ptr` stays valid for as long as `self.code` is borrowed.
@@ -12022,7 +12018,7 @@ impl ExecutingFrame<'_> {
             return None;
         }
 
-        // One Acquire load for opcode and delta together. A jump needing
+        // Read opcode and immutable delta with byte-sized loads. A jump needing
         // EXTENDED_ARG has that prefix at `jump_idx` instead, so the match
         // rejects it and this single byte is the whole delta.
         let jump = self.code.instructions.read_unit(jump_idx);
