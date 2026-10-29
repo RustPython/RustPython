@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::thread_local;
 
 pub(crate) mod critical_section;
+pub use critical_section::PyOperation;
 pub(crate) mod lock;
 
 /// Thread states for stop-the-world support (`_Py_THREAD_*`).
