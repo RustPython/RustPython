@@ -6,8 +6,9 @@ mod grp {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyListRef, PyUtf8StrRef},
-        convert::ToPyObject,
+        convert::{ToPyObject, TryFromObject},
         exceptions,
+        function::ArgIndex,
         types::PyStructSequence,
     };
     use core::hint::cold_path;
@@ -49,11 +50,12 @@ mod grp {
 
     #[pyfunction]
     fn getgrgid(id: GetGrGidArgs, vm: &VirtualMachine) -> PyResult<GroupData> {
-        let index = id.id.try_index(vm).map_err(|_| {
+        let index = ArgIndex::try_from_object(vm, id.id.clone()).map_err(|_| {
             let name = id.id.class().slot_name().to_string();
             let name = &name[..name.floor_char_boundary(200.min(name.len()))];
             vm.new_type_error(format!("gid should be integer, not {name}"))
         })?;
+        let index = index.into_int_ref();
         let value = index.as_bigint();
         // Match CPython's _Py_Gid_Converter, including the -1 sentinel and
         // the different overflow paths before and after signed-long conversion.
