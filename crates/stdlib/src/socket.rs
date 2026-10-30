@@ -2658,6 +2658,11 @@ mod _socket {
             if timeout >= 0.0 { Some(timeout) } else { None }
         }
 
+        #[pygetset]
+        fn timeout(zelf: &Py<Self>) -> Option<f64> {
+            Self::gettimeout(zelf)
+        }
+
         #[pymethod]
         fn setblocking(zelf: &Py<Self>, object: bool) -> io::Result<()> {
             zelf.timeout.store(if object { -1.0 } else { 0.0 });
