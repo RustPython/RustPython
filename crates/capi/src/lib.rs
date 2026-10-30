@@ -19,6 +19,7 @@ pub mod complexobject;
 pub mod critical_section;
 pub mod descrobject;
 pub mod dictobject;
+pub mod fileobject;
 pub mod floatobject;
 pub mod genericaliasobject;
 pub mod import;
