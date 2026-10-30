@@ -1561,10 +1561,6 @@ class CTextIOWrapperTest(TextIOWrapperTest, CTestCase):
         wrapper = self.TextIOWrapper(raw)
         wrapper.close()  # should not crash
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'NoneType'
-    def test_read_non_blocking(self):
-        return super().test_read_non_blocking()
-
 
 class PyTextIOWrapperTest(TextIOWrapperTest, PyTestCase):
     shutdown_error = "LookupError: unknown encoding: ascii"

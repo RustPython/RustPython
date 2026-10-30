@@ -3906,6 +3906,15 @@ mod _io {
                 }
             } else {
                 let bytes = vm.call_method(&buffer, "read", ())?;
+                if vm.is_none(&bytes) {
+                    return Err(vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            None,
+                            "Read returned None.",
+                        )
+                        .upcast());
+                }
                 let decoded = vm.call_method(&decoder, "decode", (bytes, true))?;
                 let decoded = check_decoded(decoded, vm)?;
                 let ret = textio.take_decoded_chars(Some(decoded), vm);
