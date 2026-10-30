@@ -2647,14 +2647,6 @@ class ByteArraySubclassWithSlotsTest(SubclassTest, unittest.TestCase):
     basetype = bytearray
     type2test = ByteArraySubclassWithSlots
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_copy(self):
-        return super().test_copy()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickle(self):
-        return super().test_pickle()
-
 class BytesSubclassTest(SubclassTest, unittest.TestCase):
     basetype = bytes
     type2test = BytesSubclass
