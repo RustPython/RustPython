@@ -2071,22 +2071,23 @@ macro_rules! dict_view {
                         // raising.
                         return (Err(mutated()), None);
                     }
+                    let remaining = zelf.remaining.load(Ordering::Relaxed);
                     let entry = dict.as_dict().entries.prev_entry_checked(
                         internal.position,
                         &zelf.size,
-                        $project_fn,
+                        |key, value| (remaining != 0).then(|| ($project_fn)(key, value)),
                     );
                     match entry {
                         Err(dict_inner::DictChanged) => {
                             zelf.changed.store(true, Ordering::Relaxed);
                             (Err(mutated()), None)
                         }
-                        Ok(Some((found_index, item))) => {
-                            // CPython 3.14 exposes the remaining count as size_t,
-                            // even after same-size key replacement yields extra entries.
-                            let remaining = zelf.remaining.load(Ordering::Relaxed);
-                            zelf.remaining
-                                .store(remaining.wrapping_sub(1), Ordering::Relaxed);
+                        Ok(Some((_, None))) => (
+                            Err(vm.new_runtime_error("dictionary keys changed during iteration")),
+                            internal.exhaust(),
+                        ),
+                        Ok(Some((found_index, Some(item)))) => {
+                            zelf.remaining.store(remaining - 1, Ordering::Relaxed);
                             internal.position = found_index.wrapping_sub(1);
                             (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
