@@ -1436,7 +1436,10 @@ mod _pyexpat {
                 }
                 XmlEvent::ProcessingInstruction { name, data } => {
                     let name = PyStr::from(name).into_ref(&vm.ctx);
-                    let data = PyStr::from(data.unwrap_or_default()).into_ref(&vm.ctx);
+                    let data = data.unwrap_or_default();
+                    // Expat skips XML S between the target and data, not trailing whitespace.
+                    let data = PyStr::from(data.trim_start_matches([' ', '\t', '\r', '\n']))
+                        .into_ref(&vm.ctx);
                     invoke_handler(vm, &self.processing_instruction, (name, data))
                 }
                 XmlEvent::Comment(comment) => {
