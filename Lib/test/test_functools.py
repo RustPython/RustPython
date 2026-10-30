@@ -2286,10 +2286,6 @@ class TestLRUPy(TestLRU, unittest.TestCase):
     def cached_staticmeth(x, y):
         return 3 * x + y
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Python lru_cache impl doesn't cache hash like C impl
-    def test_lru_hash_only_once(self):
-        return super().test_lru_hash_only_once()
-
 
 @unittest.skipUnless(c_functools, 'requires the C _functools module')
 class TestLRUC(TestLRU, unittest.TestCase):
