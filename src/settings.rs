@@ -256,6 +256,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     settings.debug = cmp::max(args.debug, env_count("PYTHONDEBUG"));
 
     let env_bool = |env| get_env(env).is_some_and(|v| !v.is_empty());
+    settings.dev_mode = env_bool("PYTHONDEVMODE");
 
     settings.user_site_directory =
         !(settings.isolated || args.no_user_site || env_bool("PYTHONNOUSERSITE"));
@@ -474,9 +475,25 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         }
     }
 
+    // Lowest to highest priority; exact duplicate options keep their first position.
+    let mut add_warning = |warning: String| {
+        if !settings.warnoptions.contains(&warning) {
+            settings.warnoptions.push(warning);
+        }
+    };
     if settings.dev_mode {
-        settings.warnoptions.push("default".to_owned());
+        add_warning("default".to_owned());
         settings.faulthandler = true;
+    }
+    if let Some(val) = get_env("PYTHONWARNINGS")
+        && let Some(val_str) = val.to_str()
+    {
+        for warning in val_str.split(',').filter(|warning| !warning.is_empty()) {
+            add_warning(warning.to_owned());
+        }
+    }
+    for warning in args.warning_control {
+        add_warning(warning);
     }
     if settings.bytes_warning > 0 {
         let warn = if settings.bytes_warning > 1 {
@@ -484,20 +501,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         } else {
             "default::BytesWarning"
         };
-        settings.warnoptions.push(warn.to_owned());
+        add_warning(warn.to_owned());
     }
-    if let Some(val) = get_env("PYTHONWARNINGS")
-        && let Some(val_str) = val.to_str()
-        && !val_str.is_empty()
-    {
-        for warning in val_str.split(',') {
-            let warning = warning.trim();
-            if !warning.is_empty() {
-                settings.warnoptions.push(warning.to_owned());
-            }
-        }
-    }
-    settings.warnoptions.extend(args.warning_control);
 
     settings.hash_seed = match (!args.random_hash_seed)
         .then(|| get_env("PYTHONHASHSEED"))
