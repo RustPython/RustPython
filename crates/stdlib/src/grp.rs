@@ -4,9 +4,9 @@ pub(crate) use grp::module_def;
 #[pymodule]
 mod grp {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyListRef, PyUtf8StrRef},
-        convert::ToPyObject,
+        convert::{ToPyObject, TryFromObject},
         exceptions,
         function::ArgIndex,
         types::PyStructSequence,
@@ -45,23 +45,46 @@ mod grp {
     #[derive(FromArgs)]
     struct GetGrGidArgs {
         #[pyarg(any)]
-        id: ArgIndex,
+        id: PyObjectRef,
     }
 
     #[pyfunction]
     fn getgrgid(id: GetGrGidArgs, vm: &VirtualMachine) -> PyResult<GroupData> {
-        let gid = id.id.into_int_ref();
-        let gr_gid = gid.as_bigint();
-        let gid = host_grp::gid_t::try_from(gr_gid).ok();
-        let group = gid
-            .and_then(|gid| host_grp::getgrgid(gid).ok().flatten())
-            .ok_or_else(|| {
-                vm.new_key_error(
-                    vm.ctx
-                        .new_str(format!("getgrgid: group id {gr_gid} not found"))
-                        .into(),
-                )
-            })?;
+        let index = ArgIndex::try_from_object(vm, id.id.clone()).map_err(|_| {
+            let name = id.id.class().slot_name().to_string();
+            let name = &name[..name.floor_char_boundary(200.min(name.len()))];
+            vm.new_type_error(format!("gid should be integer, not {name}"))
+        })?;
+        let index = index.into_int_ref();
+        let value = index.as_bigint();
+        // Match CPython's _Py_Gid_Converter, including the -1 sentinel and
+        // the different overflow paths before and after signed-long conversion.
+        let gid = if let Ok(value) = libc::c_long::try_from(value) {
+            if value == -1 {
+                -1_i32 as host_grp::gid_t
+            } else {
+                if value < 0 {
+                    return Err(vm.new_overflow_error("gid is less than minimum"));
+                }
+                host_grp::gid_t::try_from(value)
+                    .map_err(|_| vm.new_overflow_error("gid is less than minimum"))?
+            }
+        } else if value < &0.into() {
+            return Err(vm.new_overflow_error("gid is less than minimum"));
+        } else {
+            libc::c_ulong::try_from(value)
+                .ok()
+                .and_then(|value| host_grp::gid_t::try_from(value).ok())
+                .filter(|&gid| gid != -1_i32 as host_grp::gid_t)
+                .ok_or_else(|| vm.new_overflow_error("gid is greater than maximum"))?
+        };
+        let group = host_grp::getgrgid(gid).ok().flatten().ok_or_else(|| {
+            vm.new_key_error(
+                vm.ctx
+                    .new_str(format!("getgrgid(): gid not found: {gid}"))
+                    .into(),
+            )
+        })?;
         Ok(GroupData::from_group(group, vm))
     }
 
