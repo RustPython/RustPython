@@ -549,7 +549,6 @@ class ConnectionTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.IntegrityError, "constraint"):
                 cx.execute("insert into u values(0)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; deprecation warning not emitted for positional args
     def test_connect_positional_arguments(self):
         with self.assertRaisesRegex(TypeError,
                 r'connect\(\) takes at most 1 positional arguments'):
@@ -715,7 +714,6 @@ class OpenTests(unittest.TestCase):
             self.assertTrue(os.path.exists(path))
             cx.execute(self._sql)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_factory_database_arg(self):
         def factory(database, *args, **kwargs):
             nonlocal database_arg

@@ -366,21 +366,21 @@ mod _sqlite3 {
     struct ConnectArgs {
         #[pyarg(any)]
         database: FsPath,
-        #[pyarg(any, default = TimeoutSeconds::new(5.0))]
+        #[pyarg(named, default = TimeoutSeconds::new(5.0))]
         timeout: TimeoutSeconds,
-        #[pyarg(any, default = 0)]
+        #[pyarg(named, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = "")]
+        #[pyarg(named, default = "")]
         isolation_level: IsolationLevelArg,
-        #[pyarg(any, default = true)]
+        #[pyarg(named, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
-        factory: PyTypeRef,
-        #[pyarg(any, default = 128)]
+        #[pyarg(named, default = Connection::class(&vm.ctx).to_owned().into_object(), py_default = "ConnectionType")]
+        factory: PyObjectRef,
+        #[pyarg(named, default = 128)]
         cached_statements: c_int,
-        #[pyarg(any, default = false)]
+        #[pyarg(named, default = false)]
         uri: bool,
-        #[pyarg(any, default)]
+        #[pyarg(named, default)]
         autocommit: AutocommitMode,
     }
 
@@ -865,10 +865,19 @@ mod _sqlite3 {
     }
 
     #[pyfunction]
-    fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
-        let factory = args.factory.clone();
-        let conn = Connection::py_new(&factory, args, vm)?;
-        conn.into_ref_with_type(vm, factory).map(Into::into)
+    fn connect(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if args.args.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "connect() takes at most 1 positional arguments ({} given)",
+                args.args.len()
+            )));
+        }
+        let factory = args
+            .kwargs
+            .get("factory")
+            .cloned()
+            .unwrap_or_else(|| Connection::class(&vm.ctx).to_owned().into());
+        factory.call(args, vm)
     }
 
     #[pyfunction]
@@ -1069,36 +1078,21 @@ mod _sqlite3 {
     }
 
     impl Constructor for Connection {
-        type Args = ConnectArgs;
+        type Args = FuncArgs;
 
-        fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
-
-            // For non-subclassed Connection, initialize in __new__
-            // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Self::class(&vm.ctx));
-
-            let db = if is_base_class {
-                // Initialize immediately for base class
-                Some(Self::initialize_db(&args, vm)?)
-            } else {
-                // For subclasses, require __init__ to be called
-                None
-            };
-
-            let initialized = db.is_some();
-
             Ok(Self {
-                db: PyMutex::new(db),
-                statement_cache: PyMutex::new(StatementCache::new(args.cached_statements)),
-                initialized: Radium::new(initialized),
-                detect_types: Radium::new(args.detect_types),
-                isolation_level: PyAtomicRef::from(args.isolation_level.0),
-                check_same_thread: Radium::new(args.check_same_thread),
+                db: PyMutex::new(None),
+                statement_cache: PyMutex::new(StatementCache::new(0)),
+                initialized: Radium::new(false),
+                detect_types: Radium::new(0),
+                isolation_level: PyAtomicRef::from(None),
+                check_same_thread: Radium::new(false),
                 thread_ident: PyMutex::new(std::thread::current().id()),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
-                autocommit: PyMutex::new(args.autocommit),
+                autocommit: PyMutex::new(AutocommitMode::default()),
             })
         }
     }
@@ -1408,6 +1402,12 @@ mod _sqlite3 {
         #[pymethod]
         fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             zelf.check_thread(vm)?;
+            if !zelf.initialized.load(Ordering::Acquire) {
+                return Err(new_programming_error(
+                    vm,
+                    "Base Connection.__init__ not called.".to_owned(),
+                ));
+            }
             zelf.drop_db(vm)
         }
 
