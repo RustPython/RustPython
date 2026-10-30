@@ -356,7 +356,10 @@ mod _sqlite3 {
                     if s.contains_nuls() {
                         Err(vm.new_value_error("isolation_level contains interior NULs".to_owned()))
                     } else {
-                        Ok(Self(Some(s)))
+                        begin_statement_ptr_from_isolation_level(&s, vm)?;
+                        Ok(Self(Some(
+                            vm.ctx.new_str(s.expect_str().to_ascii_uppercase()),
+                        )))
                     }
                 })
         }
