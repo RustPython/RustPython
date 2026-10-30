@@ -4957,18 +4957,22 @@ mod _io {
     #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF), with(Constructor, Initializer))]
     impl Py<StringIO> {
         #[pymethod]
-        const fn readable(&self) -> bool {
-            true
+        fn readable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.closed.load() {
+                Err(io_closed_error(vm))
+            } else {
+                Ok(true)
+            }
         }
 
         #[pymethod]
-        const fn writable(&self) -> bool {
-            true
+        fn writable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pymethod]
-        const fn seekable(&self) -> bool {
-            true
+        fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pygetset]
@@ -5225,6 +5229,14 @@ mod _io {
     }
 
     impl BytesIO {
+        fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.closed.load() {
+                Err(vm.new_value_error("I/O operation on closed file."))
+            } else {
+                Ok(())
+            }
+        }
+
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             let buffer = self.buffer.write();
             if !self.closed.load() {
@@ -5242,18 +5254,19 @@ mod _io {
     )]
     impl Py<BytesIO> {
         #[pymethod]
-        const fn readable(&self) -> bool {
-            true
+        fn readable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.check_closed(vm)?;
+            Ok(true)
         }
 
         #[pymethod]
-        const fn writable(&self) -> bool {
-            true
+        fn writable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pymethod]
-        const fn seekable(&self) -> bool {
-            true
+        fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pymethod]
@@ -5270,7 +5283,8 @@ mod _io {
             let mut buffer = self.try_resizable(vm)?;
             // Acquiring the buffer can run `__buffer__`, which may have closed us.
             if self.closed.load() {
-                return Err(io_closed_error(vm));
+                drop(buffer);
+                return Err(vm.new_value_error("I/O operation on closed file."));
             }
             b.with_ref(|bytes| buffer.write(bytes))
                 .ok_or_else(|| vm.new_type_error("Error Writing Bytes"))
@@ -5407,46 +5421,63 @@ mod _io {
         #[pymethod]
         fn __setstate__(
             zelf: PyRef<BytesIO>,
-            object: PyTupleRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if zelf.closed.load() {
-                return Err(vm.new_value_error("__setstate__ on closed file"));
-            }
-            if object.as_slice().len() != 3 {
-                return Err(vm.new_type_error(format!(
-                    "__setstate__ argument should be 3-tuple, got {}",
-                    object.as_slice().len()
-                )));
-            }
+            let type_name = |object: &PyObject| {
+                let name = object.class().slot_name().to_string();
+                name[..name.floor_char_boundary(200.min(name.len()))].to_owned()
+            };
+            let state = object
+                .downcast_ref::<PyTuple>()
+                .filter(|state| state.len() >= 3)
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "{}.__setstate__ argument should be 3-tuple, got {}",
+                        type_name(zelf.as_object()),
+                        type_name(&object),
+                    ))
+                })?;
 
-            let content: PyBytesRef = object.as_slice()[0].clone().try_into_value(vm)?;
-            let pos: u64 = object.as_slice()[1].clone().try_into_value(vm)?;
-            let dict = &object.as_slice()[2];
+            // CPython resets the stream before writing the new buffer, even if
+            // validating the content or position subsequently fails.
+            *zelf.try_resizable(vm)? = BufferedIO::new(Cursor::new(Vec::new()));
+            let content = ArgContiguousBytesLike::try_from_object(vm, state.as_slice()[0].clone())?;
+            zelf.write(content, vm)?;
 
-            // Check exports and set content (like CHECK_EXPORTS)
-            let mut buffer = zelf.try_resizable(vm)?;
-            if zelf.closed.load() {
-                drop(buffer);
-                return Err(vm.new_value_error("__setstate__ on closed file"));
+            let position = &state.as_slice()[1];
+            let position = position
+                .downcast_ref::<crate::builtins::PyInt>()
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "second item of state must be an integer, not {}",
+                        type_name(position),
+                    ))
+                })?;
+            let position = position.as_bigint().to_isize().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+            if position < 0 {
+                return Err(vm.new_value_error("position value cannot be negative"));
             }
-            *buffer = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
-            buffer
-                .seek(SeekFrom::Start(pos))
-                .map_err(|err| os_err(vm, err))?;
-            drop(buffer);
+            zelf.buffer.write().cursor.set_position(position as u64);
 
-            // Set __dict__ if provided
+            let dict = &state.as_slice()[2];
             if !vm.is_none(dict) {
-                let dict_ref: PyRef<PyDict> = dict.clone().try_into_value(vm)?;
+                let dict = dict.downcast_ref::<PyDict>().ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "third item of state should be a dict, got a {}",
+                        type_name(dict),
+                    ))
+                })?;
                 if let Some(obj_dict) = zelf.as_object().dict() {
-                    obj_dict.clear();
-                    for (key, value) in dict_ref {
-                        obj_dict.set_item(&*key, value, vm)?;
-                    }
+                    obj_dict.merge_object(dict.to_owned().into(), vm)?;
+                } else {
+                    zelf.as_object()
+                        .set_dict(Some(dict.to_owned()))
+                        .map_err(|_| vm.new_attribute_error("This object has no __dict__"))?;
                 }
             }
-
             Ok(())
         }
 

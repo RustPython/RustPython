@@ -848,7 +848,6 @@ class CBytesIOTest(PyBytesIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'bytes' but 'bytearray' found.
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -924,10 +923,6 @@ class CBytesIOTest(PyBytesIOTest):
         memio = self.ioclass(ba)
         self.assertEqual(sys.getrefcount(ba), old_rc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
-    def test_flags(self):
-        return super().test_flags()
-
 class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
     UnsupportedOperation = io.UnsupportedOperation
@@ -993,10 +988,6 @@ class CStringIOTest(PyStringIOTest):
         memio2.write(MyStr("hello "))
         memio2.write(MyStr("world"))
         self.assertEqual(memio2.getvalue(), "hello world")
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
-    def test_flags(self):
-        return super().test_flags()
 
 
 class CStringIOPickleTest(PyStringIOPickleTest):
