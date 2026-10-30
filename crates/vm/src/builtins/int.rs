@@ -636,21 +636,44 @@ impl Py<PyInt> {
     }
 
     #[pyclassmethod]
-    fn from_bytes(
-        cls: PyTypeRef,
-        args: IntFromByteArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyInt>> {
+    fn from_bytes(cls: PyTypeRef, args: IntFromByteArgs, vm: &VirtualMachine) -> PyResult {
         let signed = args.signed.into();
-        // PyObject_Bytes, so an iterable of ints is as good as a buffer
-        let bytes = bytes_from_object(vm, &args.bytes)?;
+        // Match PyObject_Bytes only after the buffer fast path.
+        let bytes = if !args.bytes.check_buffer()
+            && let Some(method) = crate::vm::PyMethod::get_special_ex::<false>(
+                &args.bytes,
+                identifier!(vm, __bytes__),
+                vm,
+                true,
+            )? {
+            let result = method.invoke((), vm)?;
+            let bytes = result.downcast_ref::<PyBytes>().ok_or_else(|| {
+                match (
+                    args.bytes.class().fully_qualified_name(vm),
+                    result.class().fully_qualified_name(vm),
+                ) {
+                    (Ok(source), Ok(result)) => vm.new_type_error(format!(
+                        "{source}.__bytes__() must return a bytes, not {result}"
+                    )),
+                    (Err(error), _) | (_, Err(error)) => error,
+                }
+            })?;
+            bytes.as_bytes().to_vec()
+        } else {
+            bytes_from_object(vm, &args.bytes)?
+        };
         let value = match (args.byteorder, signed) {
             (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(&bytes),
             (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, &bytes),
             (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(&bytes),
             (ArgByteOrder::Little, false) => BigInt::from_bytes_le(Sign::Plus, &bytes),
         };
-        PyInt::with_value(cls, value, vm)
+        let value = vm.ctx.new_int(value);
+        if cls.is(vm.ctx.types.int_type) {
+            Ok(value.into())
+        } else {
+            cls.as_object().call((value,), vm)
+        }
     }
 
     #[pymethod]
