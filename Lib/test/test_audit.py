@@ -58,7 +58,6 @@ class AuditTest(unittest.TestCase):
     def test_block_add_hook_baseexception(self):
         self.do_test("test_block_add_hook_baseexception")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_marshal(self):
         import_helper.import_module("marshal")
 
