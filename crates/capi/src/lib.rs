@@ -44,6 +44,7 @@ pub mod refcount;
 pub mod setobject;
 pub mod sliceobject;
 pub mod slots;
+pub mod sysmodule;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
