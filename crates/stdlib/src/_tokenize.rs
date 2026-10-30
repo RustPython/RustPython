@@ -411,7 +411,13 @@ mod _tokenize {
                         }
                     } else if kind == TokenKind::NonLogicalNewline {
                         let s = if in_source { &source[range] } else { "" };
-                        (s, start_line, start_col + s.len())
+                        if range.end() == source_len && s == "\r" && *need_implicit_nl {
+                            // CPython appends LF to a readline chunk ending in bare CR.
+                            *need_implicit_nl = false;
+                            ("", start_line, start_col + 2)
+                        } else {
+                            (s, start_line, start_col + s.len())
+                        }
                     } else {
                         let end_lc = line_index.line_column(range.end(), source);
                         let s = if in_source { &source[range] } else { "" };
