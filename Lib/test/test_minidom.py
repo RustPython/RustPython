@@ -648,7 +648,6 @@ class MinidomTest(unittest.TestCase):
                 dom.getElementsByTagName('B')[0].childNodes[0].toxml(),
                 dom2.getElementsByTagName('B')[0].childNodes[0].toxml())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testProcessingInstruction(self):
         dom = parseString('<e><?mypi \t\n data \t\n ?></e>')
         pi = dom.documentElement.firstChild
