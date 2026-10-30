@@ -37,7 +37,7 @@ use core::{
     cell::Cell,
     ops::Deref,
     pin::Pin,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU16, AtomicU32, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -89,6 +89,9 @@ pub struct PyType {
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
     pub tp_version_tag: AtomicU32,
+    /// CPython-compatible permanent cache exclusion state. Currently only zero
+    /// and ATTR_CACHE_UNUSED are used; per-type version budgeting is not implemented.
+    pub(crate) tp_versions_used: AtomicU16,
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
@@ -96,6 +99,9 @@ pub struct PyType {
 /// entries but not invalidating correctness (cache misses fall back to the
 /// generic path).
 static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
+
+// CPython _Py_ATTR_CACHE_UNUSED (Include/cpython/object.h).
+const ATTR_CACHE_UNUSED: u16 = 30_000;
 
 const MANAGED_DICT_FLAGS: PyTypeFlags =
     PyTypeFlags::from_slice(&[PyTypeFlags::HAS_DICT, PyTypeFlags::MANAGED_DICT]);
@@ -721,6 +727,9 @@ impl PyType {
     /// Assign a fresh version tag. Returns 0 if the version counter has been
     /// exhausted, in which case no new cache entries can be created.
     fn assign_version_tag_inner(&self) -> u32 {
+        if self.tp_versions_used.load(Ordering::Acquire) >= ATTR_CACHE_UNUSED {
+            return 0;
+        }
         let v = self.tp_version_tag.load(Ordering::Acquire);
         if v != 0 {
             return v;
@@ -1135,6 +1144,7 @@ impl PyType {
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
                 tp_version_tag: AtomicU32::new(0),
+                tp_versions_used: AtomicU16::new(0),
             },
             metaclass,
             None,
@@ -1198,6 +1208,7 @@ impl PyType {
                 slots,
                 heaptype_ext: None,
                 tp_version_tag: AtomicU32::new(0),
+                tp_versions_used: AtomicU16::new(0),
             },
             metaclass,
             None,
@@ -2793,6 +2804,7 @@ impl Py<PyType> {
                 }
                 let old_mro = core::mem::replace(&mut *cls.mro.write(), new_mro);
                 undo.push((cls.to_owned(), old_mro));
+                type_mro_modified(cls, vm);
                 cls.modified_inner();
                 let subclasses: Vec<PyTypeRef> = cls
                     .subclasses
@@ -3785,15 +3797,53 @@ fn mro_invoke(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Vec<PyTypeRef>>
         .collect()
 }
 
+// Called under the existing type lock after publishing an MRO. Match
+// type_mro_modified() for both tp_mro and tp_bases: disabling is permanent,
+// including when a later __bases__ update restores an ordinary hierarchy.
+fn type_mro_modified(typ: &Py<PyType>, vm: &VirtualMachine) {
+    let custom_mro = !typ.class().is(vm.ctx.types.type_type)
+        && match (
+            typ.class().find_name_in_mro_uncached(identifier!(vm, mro)),
+            vm.ctx
+                .types
+                .type_type
+                .find_name_in_mro_uncached(identifier!(vm, mro)),
+        ) {
+            (Some(actual), Some(default)) => !actual.is(&default),
+            (None, None) => false,
+            _ => true,
+        };
+    let mro = typ.mro_collect();
+    let bases = typ.bases.read().clone();
+    let disabled = custom_mro
+        || mro.iter().chain(bases.as_slice().iter()).any(|base| {
+            base.tp_versions_used.load(Ordering::Acquire) >= ATTR_CACHE_UNUSED
+                || !is_subtype_with_mro(&mro, typ, base)
+        });
+    if disabled {
+        // Retire the old tag before disabling assignment: modified_inner()
+        // needs that tag to clear existing MCACHE entries and descendants.
+        typ.modified_inner();
+        if let Some(ext) = typ.heaptype_ext.as_ref() {
+            ext.specialization_cache.invalidate_for_type_modified();
+        }
+        typ.tp_versions_used
+            .store(ATTR_CACHE_UNUSED, Ordering::Release);
+    }
+}
+
 fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
     let old_ptr = typ.mro.read().as_ptr();
     let new_mro = mro_invoke(typ, vm)?;
-    if typ.mro.read().as_ptr() != old_ptr {
-        return Ok(0);
-    }
-    *typ.mro.write() = new_mro;
-    typ.modified();
-    Ok(1)
+    PyType::with_type_lock(vm, || {
+        if typ.mro.read().as_ptr() != old_ptr {
+            return Ok(0);
+        }
+        *typ.mro.write() = new_mro;
+        type_mro_modified(typ, vm);
+        typ.modified_inner();
+        Ok(1)
+    })
 }
 
 /// Returns true if the two types have different instance layouts.
