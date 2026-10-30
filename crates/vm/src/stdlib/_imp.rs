@@ -391,12 +391,14 @@ mod _imp {
                 open_library_with_mode(origin_str, mode)
             }},
             windows => {
-                open_library(origin_str).map_err(|err| err.to_string())
+                open_library(origin_str)
             },
         }
         .map_err(|err| {
+            let detail = core::error::Error::source(&err)
+                .map_or_else(|| err.to_string(), |source| format!("{err}: {source}"));
             vm.new_import_error(
-                format!("cannot load dynamic module '{origin_str}': {err}"),
+                format!("cannot load dynamic module '{origin_str}': {detail}"),
                 name.clone().into_wtf8(),
             )
         })?;
