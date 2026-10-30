@@ -880,7 +880,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc)
         return proc.stdout.rstrip()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_warnings_filter_precedence(self):
         expected_filters = ("error::BytesWarning "
                             "once::UserWarning "
@@ -959,7 +958,6 @@ class CmdLineTest(unittest.TestCase):
             with self.subTest(env_var=env_var, name=name):
                 self.check_pythonmalloc(env_var, name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pythondevmode_env(self):
         # Test the PYTHONDEVMODE environment variable
         code = "import sys; print(sys.flags.dev_mode)"
