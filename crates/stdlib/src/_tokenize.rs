@@ -285,6 +285,51 @@ mod _tokenize {
                 return Err(raise_indentation_error(vm, err, source, line_index));
             }
 
+            // Ruff emits an empty Unknown and a synthetic tail when recovering
+            // from an open bracket at EOF. They are not source tokens.
+            if kind == TokenKind::Unknown
+                && range.is_empty()
+                && range.start() == source_len
+                && has_unclosed_brackets(tokens, source)
+                && errors.iter().any(|err| {
+                    let ParseErrorType::Lexical(LexicalErrorType::UnclosedBracket {
+                        opening,
+                        incomplete: true,
+                    }) = &err.error
+                    else {
+                        return false;
+                    };
+                    tokens.iter().any(|opener| {
+                        !opener.range().is_empty()
+                            && opener.range().start() == err.location.start()
+                            && matches!(
+                                (*opening, opener.kind()),
+                                ('(', TokenKind::Lpar)
+                                    | ('[', TokenKind::Lsqb)
+                                    | ('{', TokenKind::Lbrace)
+                            )
+                    })
+                })
+            {
+                *index = tokens.len();
+                if extra_tokens && core::mem::take(need_implicit_nl) {
+                    let end = line_index.line_column(source_len, source);
+                    let line = end.line.get();
+                    let column = end.column.to_zero_indexed() as isize;
+                    return Ok(PyIterReturn::Return(make_token_tuple(
+                        vm,
+                        TOKEN_NL,
+                        "",
+                        line,
+                        column,
+                        line,
+                        column + 1,
+                        last_physical_line(source),
+                    )));
+                }
+                break;
+            }
+
             if kind == TokenKind::EndOfFile {
                 continue;
             }
@@ -445,31 +490,16 @@ mod _tokenize {
         }
 
         // Check for unclosed brackets before ENDMARKER — CPython's tokenizer
-        // raises SyntaxError("EOF in multi-line statement") in this case.
+        // raises SyntaxError("unexpected EOF in multi-line statement") in this case.
         {
-            let bracket_count: i32 = tokens
-                .iter()
-                .map(|t| match t.kind() {
-                    TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => 1,
-                    TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => -1,
-                    // `$` inside an f-string interpolation is Unknown, and the
-                    // matching `}` is then also Unknown rather than Rbrace.
-                    TokenKind::Unknown => match &source[t.range()] {
-                        "(" | "[" | "{" => 1,
-                        ")" | "]" | "}" => -1,
-                        _ => 0,
-                    },
-                    _ => 0,
-                })
-                .sum();
-            if bracket_count > 0 {
+            if has_unclosed_brackets(tokens, source) {
                 let last_line = source.lines().count();
-                return Err(raise_syntax_error(
-                    vm,
-                    "EOF in multi-line statement",
-                    last_line + 1,
-                    0,
-                ));
+                let exc =
+                    raise_syntax_error(vm, "unexpected EOF in multi-line statement", last_line, 0);
+                // PyErr_SyntaxLocationObject sets the end line to the current line.
+                exc.as_object()
+                    .set_attr("end_lineno", vm.ctx.new_int(last_line), vm)?;
+                return Err(exc);
             }
         }
 
@@ -497,6 +527,25 @@ mod _tokenize {
         );
         state.phase = TokenizerPhase::Done;
         Ok(PyIterReturn::Return(result))
+    }
+
+    fn has_unclosed_brackets(tokens: &[Token], source: &str) -> bool {
+        let bracket_count: i32 = tokens
+            .iter()
+            .map(|t| match t.kind() {
+                TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => 1,
+                TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => -1,
+                // `$` inside an f-string interpolation is Unknown, and the
+                // matching `}` is then also Unknown rather than Rbrace.
+                TokenKind::Unknown => match &source[t.range()] {
+                    "(" | "[" | "{" => 1,
+                    ")" | "]" | "}" => -1,
+                    _ => 0,
+                },
+                _ => 0,
+            })
+            .sum();
+        bracket_count > 0
     }
 
     /// Determine whether to emit FSTRING_MIDDLE (60) or TSTRING_MIDDLE (63)

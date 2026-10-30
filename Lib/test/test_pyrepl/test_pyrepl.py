@@ -1553,7 +1553,6 @@ class TestPyReplModuleCompleter(TestCase):
             with self.subTest(name=name):
                 self.assertEqual(completer.get_path_and_prefix(name), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse(self):
         cases = (
             ('import ', (None, '')),
