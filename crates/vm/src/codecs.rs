@@ -1,5 +1,6 @@
 use alloc::borrow::Cow;
 use core::ops::{Deref, Range};
+use core::sync::atomic::Ordering;
 use std::collections::HashMap;
 
 use rustpython_common::{
@@ -30,6 +31,7 @@ pub struct CodecsRegistry {
 }
 
 struct RegistryInner {
+    core_codecs_ready: bool,
     search_path: Vec<PyObjectRef>,
     search_cache: HashMap<String, PyCodec>,
     errors: HashMap<String, PyObjectRef>,
@@ -215,6 +217,7 @@ impl CodecsRegistry {
         .collect();
 
         let inner = RegistryInner {
+            core_codecs_ready: false,
             search_path: Vec::new(),
             search_cache: HashMap::new(),
             errors,
@@ -223,6 +226,39 @@ impl CodecsRegistry {
         Self {
             inner: PyRwLock::new(inner),
         }
+    }
+
+    pub(crate) fn finish_core_codec_bootstrap(&self) {
+        self.inner.write().core_codecs_ready = true;
+    }
+
+    fn check_text_encoding_errors(
+        &self,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if !vm.state.config.settings.dev_mode
+            || vm.state.finalizing.load(Ordering::Acquire)
+            || !self.inner.read().core_codecs_ready
+        {
+            return Ok(());
+        }
+        // Match CPython's unicode_check_encoding_errors before text fast paths.
+        // Codec lookup may call search functions, but does not encode/decode;
+        // error-handler lookup validates the name without invoking the handler.
+        if !matches!(encoding, "utf-8" | "utf8" | "ascii") {
+            self.lookup(encoding, vm)?;
+        }
+        if let Some(errors) = errors
+            && !matches!(
+                errors.as_str(),
+                "strict" | "ignore" | "replace" | "surrogateescape" | "surrogatepass"
+            )
+        {
+            self.lookup_error(errors.as_str(), vm)?;
+        }
+        Ok(())
     }
 
     pub fn register(&self, search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -352,6 +388,7 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
+        self.check_text_encoding_errors(encoding, errors.as_deref(), vm)?;
         if let Some(b) =
             Self::encode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
                 Self::add_codec_note(exc, "encoding", encoding, vm);
@@ -394,6 +431,7 @@ impl CodecsRegistry {
             false
         };
         if empty {
+            self.check_text_encoding_errors(encoding, errors.as_deref(), vm)?;
             return Ok(vm.ctx.empty_str.to_owned());
         }
         self.decode_text(obj, encoding, errors, vm)
@@ -406,6 +444,7 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
+        self.check_text_encoding_errors(encoding, errors.as_deref(), vm)?;
         if let Some(s) =
             Self::decode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
                 Self::add_codec_note(exc, "decoding", encoding, vm);
