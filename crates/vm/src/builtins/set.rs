@@ -2,8 +2,8 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
-    PyTypeRef, builtins_iter, locked_step,
+    IterStatus, PositionIterInternal, PyDict, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
+    builtins_iter, locked_step,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -794,15 +794,16 @@ pub(super) fn exact_set_keys_with_hashes(
     Some(inner.content.keys_with_hashes())
 }
 
-fn reduce_set(zelf: &PyObject, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-    (
-        zelf.class().to_owned(),
-        #[expect(clippy::or_fun_call, reason = "changing this won't compile")]
-        vm.new_tuple((extract_set(zelf)
-            .unwrap_or(&PySetInner::default())
-            .elements(),)),
-        zelf.dict(),
-    )
+fn reduce_set(
+    zelf: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
+    let keys = vm.ctx.new_list(vm.extract_elements_sized(zelf, &|| 0, Ok)?);
+    let args = vm.new_tuple((keys,));
+    let state = zelf
+        .get_attr(identifier!(vm, __getstate__), vm)?
+        .call((), vm)?;
+    Ok((zelf.class().to_owned(), args, state))
 }
 
 impl PySet {
@@ -1091,7 +1092,7 @@ impl Py<PySet> {
     fn __reduce__(
         zelf: PyRef<PySet>,
         vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -1555,7 +1556,7 @@ impl Py<PyFrozenSet> {
     fn __reduce__(
         zelf: PyRef<PyFrozenSet>,
         vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
         reduce_set(zelf.as_ref(), vm)
     }
 
