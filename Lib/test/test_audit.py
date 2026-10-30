@@ -80,7 +80,6 @@ class AuditTest(unittest.TestCase):
     def test_cantrace(self):
         self.do_test("test_cantrace")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mmap(self):
         self.do_test("test_mmap")
 

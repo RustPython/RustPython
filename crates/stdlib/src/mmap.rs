@@ -14,7 +14,7 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef, PyUtf8StrRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::{ArgBytesLike, ArgIndex},
+        function::{ArgBytesLike, ArgIndex, ArgIntoBool},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -23,13 +23,10 @@ mod mmap {
     };
     use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::Signed;
+    use num_traits::{Signed, ToPrimitive};
     use std::io::Write;
     #[cfg(windows)]
-    use {
-        core::hint::cold_path, memchr::memchr, num_traits::ToPrimitive, rustpython_vm::exceptions,
-        std::io,
-    };
+    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions, std::io};
 
     #[cfg(unix)]
     use rustpython_host_env::crt_fd;
@@ -48,23 +45,42 @@ mod mmap {
         Copy = 3,
     }
 
-    impl AccessMode {
+    #[derive(Copy, Clone)]
+    struct AccessArg(i32);
+
+    impl AccessArg {
+        const DEFAULT: Self = Self(0);
+
         #[must_use]
         pub(crate) const fn py_default(self) -> crate::vm::function::DefaultRepr {
-            crate::vm::function::DefaultRepr::Int(self as i128)
+            crate::vm::function::DefaultRepr::Int(self.0 as i128)
+        }
+
+        fn into_mode(self, vm: &VirtualMachine) -> PyResult<AccessMode> {
+            Ok(match self.0 {
+                0 => AccessMode::Default,
+                1 => AccessMode::Read,
+                2 => AccessMode::Write,
+                3 => AccessMode::Copy,
+                _ => return Err(vm.new_value_error("mmap invalid access parameter.")),
+            })
         }
     }
 
-    impl<'a> TryFromBorrowedObject<'a> for AccessMode {
+    impl<'a> TryFromBorrowedObject<'a> for AccessArg {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            let i = u32::try_from_borrowed_object(vm, obj)?;
-            Ok(match i {
-                0 => Self::Default,
-                1 => Self::Read,
-                2 => Self::Write,
-                3 => Self::Copy,
-                _ => return Err(vm.new_value_error("Not a valid AccessMode value")),
-            })
+            let index = obj.try_index(vm)?;
+            // getargs.c's 'i' converts through C long before checking C int bounds.
+            let value = core::ffi::c_long::try_from(index.as_bigint())
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+            let value = value.to_i32().ok_or_else(|| {
+                vm.new_overflow_error(if value > 0 {
+                    "signed integer is greater than maximum"
+                } else {
+                    "signed integer is less than minimum"
+                })
+            })?;
+            Ok(Self(value))
         }
     }
 
@@ -241,12 +257,12 @@ mod mmap {
         flags: core::ffi::c_int,
         #[pyarg(any, default = host_mmap::PROT_WRITE | host_mmap::PROT_READ)]
         prot: core::ffi::c_int,
-        #[pyarg(any, default = AccessMode::Default)]
-        access: AccessMode,
+        #[pyarg(any, default = AccessArg::DEFAULT)]
+        access: AccessArg,
         #[pyarg(any, default)]
         offset: i64,
-        #[pyarg(named, default = true)]
-        trackfd: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        trackfd: ArgIntoBool,
     }
 
     #[cfg(windows)]
@@ -258,12 +274,12 @@ mod mmap {
         length: isize,
         #[pyarg(any, default)]
         tagname: Option<PyObjectRef>,
-        #[pyarg(any, default = AccessMode::Default)]
-        access: AccessMode,
+        #[pyarg(any, default = AccessArg::DEFAULT)]
+        access: AccessArg,
         #[pyarg(any, default)]
         offset: i64,
-        #[pyarg(named, default = true)]
-        trackfd: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        trackfd: ArgIntoBool,
     }
 
     impl MmapNewArgs {
@@ -407,12 +423,14 @@ mod mmap {
                 ..
             } = args;
 
-            if (access != AccessMode::Default)
+            let trackfd = trackfd.into_bool();
+            if (access.0 != AccessMode::Default as i32)
                 && ((flags != MAP_SHARED) || (prot != (PROT_WRITE | PROT_READ)))
             {
                 return Err(vm.new_value_error("mmap can't specify both access and flags, prot."));
             }
 
+            let access = access.into_mode(vm)?;
             // TODO: memmap2 doesn't support mapping with prot and flags right now
             #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
             let (flags, _prot, access) = match access {
@@ -431,6 +449,7 @@ mod mmap {
                 }
             };
 
+            vm.audit("mmap.__new__", || (fd, args.length, access as i32, offset))?;
             let anonymous = fd == -1 || flags & host_mmap::MAP_ANONYMOUS != 0;
 
             // Inspect the supplied descriptor before acquiring ownership, as
@@ -504,15 +523,20 @@ mod mmap {
 
         #[cfg(windows)]
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            vm.audit("mmap.__new__", || {
+                (args.fileno, args.length, args.access.0, args.offset)
+            })?;
+            let access = args.access.into_mode(vm)?;
             let mut map_size = args.validate_new_args(vm)?;
             let MmapNewArgs {
                 fileno,
                 tagname,
-                access,
+                access: _,
                 offset,
                 trackfd,
                 ..
             } = args;
+            let trackfd = trackfd.into_bool();
 
             // Parse tagname: None or a string
             let tag_str: Option<String> = match tagname {
@@ -1667,9 +1691,9 @@ mod mmap {
                         fileno: -1,
                         length: 64,
                         tagname: None,
-                        access: AccessMode::Default,
+                        access: AccessArg::DEFAULT,
                         offset: 0,
-                        trackfd: false,
+                        trackfd: ArgIntoBool::FALSE,
                     },
                     vm,
                 )
