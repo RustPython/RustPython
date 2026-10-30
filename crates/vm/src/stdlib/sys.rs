@@ -733,8 +733,13 @@ pub mod sys {
     }
 
     #[pyattr]
-    fn pycache_prefix(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.none()
+    fn pycache_prefix(vm: &VirtualMachine) -> Option<PyStrRef> {
+        vm.state
+            .config
+            .settings
+            .pycache_prefix
+            .clone()
+            .map(|value| vm.fsdecode(value))
     }
 
     #[pyattr(name = "version")]

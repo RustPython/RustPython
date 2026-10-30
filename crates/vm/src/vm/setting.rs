@@ -1,5 +1,4 @@
 use core::num::NonZeroI32;
-#[cfg(feature = "flame-it")]
 use std::ffi::OsString;
 
 /// Path configuration computed at runtime (like PyConfig path outputs)
@@ -74,7 +73,8 @@ pub struct Settings {
     // int malloc_stats;
     // wchar_t *filesystem_encoding;
     // wchar_t *filesystem_errors;
-    // wchar_t *pycache_prefix;
+    /// -X pycache_prefix, PYTHONPYCACHEPREFIX
+    pub pycache_prefix: Option<OsString>,
     // int parse_argv;
     // PyWideStringList orig_argv;
     /// sys.argv
@@ -230,6 +230,7 @@ impl Default for Settings {
             hash_seed: None,
             faulthandler: false,
             import_time: 0,
+            pycache_prefix: None,
             code_debug_ranges: true,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,

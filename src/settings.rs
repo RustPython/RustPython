@@ -253,7 +253,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.optimize = cmp::max(args.optimize, env_count("PYTHONOPTIMIZE"));
     settings.verbose = cmp::max(args.verbose, env_count("PYTHONVERBOSE"));
-    settings.debug = cmp::max(args.debug, env_count("PYTHONDEBUG"));
+    settings.debug = u8::from(cmp::max(args.debug, env_count("PYTHONDEBUG")) != 0);
 
     let env_bool = |env| get_env(env).is_some_and(|v| !v.is_empty());
     settings.dev_mode = env_bool("PYTHONDEVMODE");
@@ -295,6 +295,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     }
 
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
+    settings.pycache_prefix = get_env("PYTHONPYCACHEPREFIX").filter(|value| !value.is_empty());
 
     if let Some(val) = get_env("PYTHON_LAZY_IMPORTS").filter(|val| !val.is_empty()) {
         settings.lazy_imports = parse_lazy_imports(val.to_str(), "PYTHON_LAZY_IMPORTS");
@@ -314,6 +315,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     let mut import_time_option_seen = false;
     let mut frozen_modules_option_seen = false;
     let mut utf8_option_seen = false;
+    let mut pycache_prefix_option_seen = false;
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
@@ -321,6 +323,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
         match &*name {
             "dev" => settings.dev_mode = true,
+            "pycache_prefix" if !pycache_prefix_option_seen => {
+                settings.pycache_prefix = value.filter(|value| !value.is_empty()).map(Into::into);
+                pycache_prefix_option_seen = true;
+            }
             "importtime" if !import_time_option_seen => {
                 settings.import_time = parse_import_time(value, "-X importtime");
                 import_time_option_seen = true;
