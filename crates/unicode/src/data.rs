@@ -319,16 +319,15 @@ impl Ucd {
     #[must_use]
     pub fn lookup(self, search_name: &str) -> Option<LookupResult> {
         if let Some(ch) = unicode_names2::character(search_name)
+            .filter(|&ch| {
+                character_name(ch).is_some_and(|name| name.eq_ignore_ascii_case(search_name))
+            })
             .or_else(|| AlgorithmicName::check_name(search_name))
         {
             if self.modern {
                 return Some(LookupResult::Character(ch));
             }
             cold_path();
-
-            if !self.membership(ch) {
-                return None;
-            }
 
             // 3.2.0 doesn't have aliases but unicode_names2 supports aliases so reject them.
             if lookup_alias(search_name).is_some() {
@@ -445,21 +444,26 @@ impl Ucd {
             return String::new();
         };
 
-        // Decomposition is remarkable stable according to the normalization file,
-        // so the updates slice is very small - only about four char pairs. Linearly searching
-        // it is very fast. The file lists the original, incorrect decomp and the fixed char.
-        // For 3.2.0, we use the original decomp for compatibility while ignoring the update.
-        //
-        // Finally, we don't have to do anything for the latest UCD as it's already updated.
-        if self.modern
-            && let Some((_, original)) = DECOMP_UPDATES
-                .iter()
-                .find(|&&(codep, _original)| codep == ch as u32)
-        {
-            format!("{original:04X}")
-        } else if let Ok(i) =
-            DECOMP_COMPAT.binary_search_by_key(&(ch as u32), |&(codep, _, _)| codep)
-        {
+        if !self.membership(ch) {
+            return String::new();
+        }
+
+        // CPython exposes the full Hangul L/V/T decomposition, not ICU's
+        // non-recursive LV/T decomposition.
+        let code = ch as u32;
+        if (0xAC00..0xD7A4).contains(&code) {
+            let index = code - 0xAC00;
+            let leading = 0x1100 + index / (21 * 28);
+            let vowel = 0x1161 + (index % (21 * 28)) / 28;
+            let trailing = index % 28;
+            return if trailing == 0 {
+                format!("{leading:04X} {vowel:04X}")
+            } else {
+                format!("{leading:04X} {vowel:04X} {:04X}", 0x11A7 + trailing)
+            };
+        }
+
+        if let Ok(i) = DECOMP_COMPAT.binary_search_by_key(&(ch as u32), |&(codep, _, _)| codep) {
             // Compatibility decomposition
             // `icu4x` doesn't expose a non-recursive, compatibility decomposer so we
             // have to do it manually for now.
