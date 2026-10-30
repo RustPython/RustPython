@@ -5,6 +5,7 @@
 // https://docs.python.org/3/library/time.html
 
 pub use decl::time;
+pub(crate) mod pytime;
 
 pub(crate) use decl::module_def;
 pub(crate) use decl::perf_counter_ns as profiler_time;
@@ -19,7 +20,7 @@ mod decl {
     use crate::convert::{ToPyException, ToPyObject};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyFloat, PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
         common::wtf8::Wtf8Buf,
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
@@ -33,7 +34,6 @@ mod decl {
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
     use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
-    use num_traits::ToPrimitive;
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -128,43 +128,9 @@ mod decl {
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
-        let overflow = || vm.new_overflow_error("timestamp out of range for C PyTime_t");
-        let nanoseconds = if object.number().is_index() {
-            let seconds = object.try_index(vm).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
-                    overflow()
-                } else {
-                    e
-                }
-            })?;
-            seconds
-                .as_bigint()
-                .to_i64()
-                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
-                .ok_or_else(overflow)?
-        } else {
-            // PyFloat_AsDouble reads float subclasses without calling __float__.
-            let seconds = match object.downcast_ref::<PyFloat>() {
-                Some(value) => value.to_f64(),
-                None => object.try_float(vm)?.to_f64(),
-            };
-            if seconds.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-            }
-            // _PyTime_ROUND_TIMEOUT rounds away from zero.
-            let nanoseconds = seconds * SEC_TO_NS as f64;
-            let nanoseconds = if nanoseconds >= 0.0 {
-                nanoseconds.ceil()
-            } else {
-                nanoseconds.floor()
-            };
-            let minimum = i64::MIN as f64;
-            // The signed maximum rounds up to 2**63 as a double.
-            if !(minimum..-minimum).contains(&nanoseconds) {
-                return Err(overflow());
-            }
-            nanoseconds as i64
-        };
+        // _PyTime_ROUND_TIMEOUT rounds away from zero.
+        let nanoseconds =
+            super::pytime::from_seconds_object(&object, super::pytime::Round::Up, vm)?;
         if nanoseconds < 0 {
             return Err(vm.new_value_error("sleep length must be non-negative"));
         }

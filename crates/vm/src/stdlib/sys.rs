@@ -572,9 +572,6 @@ pub mod sys {
         "socket",
         "socketserver",
         "sqlite3",
-        "sre_compile",
-        "sre_constants",
-        "sre_parse",
         "ssl",
         "stat",
         "statistics",
@@ -1357,6 +1354,11 @@ pub mod sys {
     #[pyfunction]
     fn intern(string: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
         vm.ctx.intern_str(string).to_owned()
+    }
+
+    #[pyfunction]
+    fn _is_interned(string: PyRef<PyStr>) -> bool {
+        string.as_object().is_interned()
     }
 
     #[pyattr]

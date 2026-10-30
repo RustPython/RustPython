@@ -199,13 +199,15 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock, resources::resources))]
 mod _imp {
     use crate::{
-        AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
         builtins::{
             ModuleCreate, PyBytesRef, PyCode, PyDict, PyImportError, PyMemoryView, PyModule,
             PyStrRef, PyUtf8StrRef,
         },
         import, version,
     };
+    use core::ffi::c_void;
+    use core::ptr::NonNull;
     #[cfg(all(feature = "_capi", feature = "host_env", windows))]
     use rustpython_host_env::ctypes::open_library;
     #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]

@@ -352,12 +352,14 @@ jobs:
         run: |
           cargo build --manifest-path example_projects/barebone/Cargo.toml
           cargo build --manifest-path example_projects/frozen_stdlib/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: example_projects/target
 
       - name: Run example projects
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
-          example_projects/barebone/target/debug/example-barebone
-          example_projects/frozen_stdlib/target/debug/example_frozen_stdlib
+          example_projects/target/debug/example-barebone
+          example_projects/target/debug/example_frozen_stdlib
 
       - name: Build rustpython for update_lib tests
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
@@ -421,9 +423,7 @@ jobs:
           dependencies:
             gcc-mingw-w64-x86-64: true
         - os: macos-latest
-          target: aarch64-apple-ios
-        - os: macos-latest
-          target: x86_64-apple-darwin
+          target: aarch64-apple-ios x86_64-apple-darwin
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -492,11 +492,19 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation with threading
-        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        run: |
+          read -ra targets <<< "$TARGETS"
+          cargo check --locked "${targets[@]/#/--target=}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        env:
+          TARGETS: ${{ matrix.target }}
 
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
-        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
+        run: |
+          read -ra targets <<< "$TARGETS"
+          cargo check --locked "${targets[@]/#/--target=}" ${{ env.CARGO_ARGS }}
+        env:
+          TARGETS: ${{ matrix.target }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -804,7 +812,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
+        uses: j178/prek-action@af4d4fcb6922b8e6f65c0426947125fcc38794ce # v3.0.2
         with:
           cache: false
           show-verbose-logs: false
@@ -1216,4 +1224,4 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: cargo doc
-        run: cargo doc --locked
+        run: cargo doc --locked --no-deps

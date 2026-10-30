@@ -1,6 +1,6 @@
 use super::{
-    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
-    try_bigint_to_f64,
+    PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef,
+    PyUtf8StrRef, try_bigint_to_f64,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -164,19 +164,70 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 }
 
 pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
-    if v1.is_zero() && v2.is_sign_negative() {
-        Err(vm.new_zero_division_error("zero to a negative power"))
-    } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
-        let v1 = Complex64::new(v1, 0.);
-        let v2 = Complex64::new(v2, 0.);
-        Ok(super::complex::complex_pow(v1, v2, vm)?.to_pyobject(vm))
-    } else {
-        let ans = v1.powf(v2);
-        if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-            Err(vm.new_overflow_error("math range error"))
+    // Resolve special values before finite negative bases or platform pow.
+    if v2 == 0.0 {
+        return Ok(1.0.to_pyobject(vm));
+    }
+    if v1.is_nan() {
+        return Ok(v1.to_pyobject(vm));
+    }
+    if v2.is_nan() {
+        return Ok(if v1 == 1.0 { 1.0 } else { v2 }.to_pyobject(vm));
+    }
+    if v2.is_infinite() {
+        let magnitude = v1.abs();
+        let result = if magnitude == 1.0 {
+            1.0
+        } else if (v2 > 0.0) == (magnitude > 1.0) {
+            f64::INFINITY
         } else {
-            Ok(ans.to_pyobject(vm))
+            0.0
+        };
+        return Ok(result.to_pyobject(vm));
+    }
+
+    let exponent_is_odd = v2.abs() % 2.0 == 1.0;
+    if v1.is_infinite() {
+        let result = if v2 > 0.0 {
+            if exponent_is_odd { v1 } else { v1.abs() }
+        } else if exponent_is_odd {
+            0.0_f64.copysign(v1)
+        } else {
+            0.0
+        };
+        return Ok(result.to_pyobject(vm));
+    }
+    if v1 == 0.0 {
+        if v2 < 0.0 {
+            return Err(vm.new_zero_division_error("zero to a negative power"));
         }
+        return Ok(if exponent_is_odd { v1 } else { 0.0 }.to_pyobject(vm));
+    }
+
+    let mut magnitude = v1;
+    let negate_result = if v1 < 0.0 {
+        if v2 != v2.floor() {
+            let base = Complex64::new(v1, 0.0);
+            let exponent = Complex64::new(v2, 0.0);
+            return Ok(super::complex::complex_pow(base, exponent, vm)?.to_pyobject(vm));
+        }
+        magnitude = -v1;
+        exponent_is_odd
+    } else {
+        false
+    };
+    if magnitude == 1.0 {
+        return Ok(if negate_result { -1.0 } else { 1.0 }.to_pyobject(vm));
+    }
+
+    let mut result = magnitude.powf(v2);
+    if negate_result {
+        result = -result;
+    }
+    if result.is_infinite() {
+        Err(vm.new_overflow_error("math range error"))
+    } else {
+        Ok(result.to_pyobject(vm))
     }
 }
 
@@ -264,12 +315,15 @@ pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
             val.class().slot_name()
         )));
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| {
-        val.repr(vm).map_or_else(
-            |e| e,
-            |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
-        )
-    })
+    crate::literal::float::parse_bytes(b).ok_or_else(|| invalid_float_literal_error(val, vm))
+}
+
+/// Build the existing float-conversion error after native parsing has failed.
+pub fn invalid_float_literal_error(val: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    val.repr(vm).map_or_else(
+        |e| e,
+        |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
+    )
 }
 
 #[derive(FromArgs)]

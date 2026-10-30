@@ -9,9 +9,10 @@ mod resource {
         builtins::PyInt,
         convert::{ToPyException, ToPyObject},
         function::ArgIndex,
+        stdlib::_warnings,
         types::PyStructSequence,
     };
-    use num_traits::Signed;
+    use num_traits::{Signed, ToPrimitive};
     use rustpython_host_env::resource as host_resource;
     use std::io;
 
@@ -32,6 +33,20 @@ mod resource {
         RLIM_INFINITY, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
         RLIMIT_MEMLOCK, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK,
     };
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "l4re",
+        target_os = "emscripten",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "aix",
+        target_os = "fuchsia",
+        target_os = "cygwin"
+    ))]
+    #[pyattr]
+    use host_resource::{RLIM_SAVED_CUR, RLIM_SAVED_MAX};
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
     #[pyattr]
@@ -174,6 +189,20 @@ mod resource {
     fn py2rlim_limit(obj: &PyObject, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
         let int = obj.try_index(vm)?;
         if int.as_bigint().is_negative() {
+            // Only accept the legacy signed representation of RLIM_INFINITY,
+            // not arbitrary negative values truncated to the native width.
+            if let Some(value) = int.as_bigint().to_i128()
+                && value >= -(1_i128 << (host_resource::rlim_t::BITS - 1))
+                && value as host_resource::rlim_t == RLIM_INFINITY
+            {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "Use RLIM_INFINITY instead of negative limit value.".to_owned(),
+                    1,
+                    vm,
+                )?;
+                return Ok(RLIM_INFINITY);
+            }
             return Err(vm.new_value_error("Cannot convert negative int"));
         }
         let value = int

@@ -1020,6 +1020,21 @@ impl Py<PyFunction> {
                 n_free,
             )));
         }
+        let mask = bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR;
+        let old_flags = self.code.flags;
+        let new_flags = code.flags;
+        if (old_flags & mask) != (new_flags & mask) {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "Assigning a code object of non-matching type is deprecated \
+                 (e.g., from a generator to a plain function)"
+                    .to_owned(),
+                1,
+                vm,
+            )?;
+        }
         #[cfg(feature = "jit")]
         let mut jit_guard = self.jitted_code.lock();
         self.code.swap_to_temporary_refs(code, vm);

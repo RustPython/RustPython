@@ -97,6 +97,8 @@
     "implicits",
     "inity",
     "interps",
+    "isxidcontinue",
+    "isxidstart",
     "jitted",
     "jitting",
     "kwonly",

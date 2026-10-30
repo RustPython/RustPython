@@ -144,6 +144,20 @@ pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
 
+#[derive(FromArgs)]
+pub(super) struct AccessArgs<'fd> {
+    #[pyarg(any)]
+    pub(super) path: OsPath,
+    #[pyarg(any)]
+    pub(super) mode: u8,
+    #[pyarg(flatten)]
+    pub(super) dir_fd: DirFd<'fd, { _os::ACCESS_DIR_FD as usize }>,
+    #[pyarg(named, default)]
+    pub(super) effective_ids: bool,
+    #[pyarg(flatten)]
+    pub(super) follow_symlinks: FollowSymlinks,
+}
+
 #[cfg(not(windows))]
 fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
     rustpython_host_env::os::bytes_as_os_str(b).map_err(|e| {
@@ -248,6 +262,15 @@ pub(super) mod _os {
     use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
+    pub(crate) const ACCESS_DIR_FD: bool = cfg!(all(
+        unix,
+        not(any(
+            target_os = "android",
+            target_os = "espidf",
+            target_os = "horizon",
+            target_os = "vita",
+        ))
+    ));
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -548,19 +571,41 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
-                let dir_iter = match crate::host_env::fs::read_dir(&path) {
-                    Ok(iter) => iter,
-                    Err(err) => {
-                        return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                #[cfg(windows)]
+                {
+                    let wide = path
+                        .path
+                        .to_wide_cstring()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut dir = host_nt::scandir(&wide)
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut names = Vec::new();
+                    while let Some(entry) = dir
+                        .next_entry()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?
+                    {
+                        if !entry.is_dot_or_dotdot() {
+                            names.push(path.mode().process_path(entry.name, vm));
+                        }
                     }
-                };
-                let mode = path.mode();
-                dir_iter
-                    .map(|entry| match entry {
-                        Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
-                        Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
-                    })
-                    .collect::<PyResult<_>>()?
+                    names
+                }
+                #[cfg(not(windows))]
+                {
+                    let dir_iter = match crate::host_env::fs::read_dir(&path) {
+                        Ok(iter) => iter,
+                        Err(err) => {
+                            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                        }
+                    };
+                    let mode = path.mode();
+                    dir_iter
+                        .map(|entry| match entry {
+                            Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
+                            Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
+                        })
+                        .collect::<PyResult<_>>()?
+                }
             }
             OsPathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
@@ -2466,7 +2511,28 @@ pub(super) mod _os {
         let mut supports = super::platform::module::support_funcs();
         supports.extend(vec![
             SupportFunc::new("open", Some(false), Some(OPEN_DIR_FD), Some(false)),
-            SupportFunc::new("access", Some(false), Some(false), None),
+            SupportFunc::new(
+                "access",
+                Some(false),
+                Some(ACCESS_DIR_FD),
+                Some(cfg!(all(
+                    unix,
+                    not(any(
+                        target_os = "espidf",
+                        target_os = "horizon",
+                        target_os = "vita",
+                    )),
+                ))),
+            )
+            .with_effective_ids(Some(cfg!(all(
+                unix,
+                not(any(
+                    target_os = "android",
+                    target_os = "espidf",
+                    target_os = "horizon",
+                    target_os = "vita",
+                )),
+            )))),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
             // chflags Some, None Some
             SupportFunc::new("link", Some(false), Some(false), Some(cfg!(unix))),
@@ -2508,6 +2574,7 @@ pub(crate) struct SupportFunc {
     fd: Option<bool>,
     dir_fd: Option<bool>,
     follow_symlinks: Option<bool>,
+    effective_ids: Option<bool>,
 }
 
 impl SupportFunc {
@@ -2522,7 +2589,13 @@ impl SupportFunc {
             fd,
             dir_fd,
             follow_symlinks,
+            effective_ids: None,
         }
+    }
+
+    pub(crate) const fn with_effective_ids(mut self, effective_ids: Option<bool>) -> Self {
+        self.effective_ids = effective_ids;
+        self
     }
 }
 
@@ -2531,6 +2604,7 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
     let supports_follow_symlinks = PySet::default().into_ref(&vm.ctx);
+    let supports_effective_ids = PySet::default().into_ref(&vm.ctx);
     for support in support_funcs {
         let func_obj = module.get_attr(support.name, vm)?;
         if support.fd.unwrap_or(false) {
@@ -2540,7 +2614,10 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
             supports_dir_fd.clone().add(func_obj.clone(), vm)?;
         }
         if support.follow_symlinks.unwrap_or(false) {
-            supports_follow_symlinks.clone().add(func_obj, vm)?;
+            supports_follow_symlinks.clone().add(func_obj.clone(), vm)?;
+        }
+        if support.effective_ids.unwrap_or(false) {
+            supports_effective_ids.clone().add(func_obj, vm)?;
         }
     }
 
@@ -2548,6 +2625,7 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         "supports_fd" => supports_fd,
         "supports_dir_fd" => supports_dir_fd,
         "supports_follow_symlinks" => supports_follow_symlinks,
+        "supports_effective_ids" => supports_effective_ids,
         "error" => vm.ctx.exceptions.os_error.to_owned(),
     });
 

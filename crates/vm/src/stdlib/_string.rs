@@ -7,14 +7,17 @@ pub(crate) use _string::module_def;
 mod _string {
     use crate::common::ascii;
     use crate::common::format::{
-        FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
+        FieldName, FieldNamePart, FieldNameParts, FieldType, FormatPart, FormatString, FromTemplate,
     };
     use crate::common::wtf8::{CodePoint, Wtf8Buf};
     use crate::{
-        PyObjectRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyList, PyStrRef},
+        common::lock::PyMutex,
         convert::ToPyException,
         convert::ToPyObject,
+        protocol::PyIterReturn,
+        types::{IterNext, Iterable, SelfIter},
     };
     use core::mem;
 
@@ -71,29 +74,50 @@ mod _string {
         Ok(result.into())
     }
 
+    #[pyclass(no_attr, name = "fieldnameiterator", module = "builtins", traverse)]
+    #[derive(Debug, PyPayload)]
+    struct FieldNameIterator {
+        #[pytraverse(skip)]
+        parts: PyMutex<FieldNameParts>,
+    }
+
+    #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
+    impl FieldNameIterator {}
+
+    impl SelfIter for FieldNameIterator {}
+
+    impl IterNext for FieldNameIterator {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let part = zelf.parts.lock().next();
+            let Some(part) = part else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let value = match part.map_err(|e| e.to_pyexception(vm))? {
+                FieldNamePart::Attribute(attribute) => (true, attribute).to_pyobject(vm),
+                FieldNamePart::StringIndex(index) => (false, index).to_pyobject(vm),
+                FieldNamePart::Index(index) => (false, index).to_pyobject(vm),
+            };
+            Ok(PyIterReturn::Return(value))
+        }
+    }
+
     #[pyfunction]
     fn formatter_field_name_split(
         object: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name = FieldName::parse(object.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        let (field_type, parts) =
+            FieldName::split(object.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
 
-        let first = match field_name.field_type {
+        let first = match field_type {
             FieldType::Auto => vm.ctx.new_str(ascii!("")).into(),
             FieldType::Index(index) => index.to_pyobject(vm),
             FieldType::Keyword(attribute) => attribute.to_pyobject(vm),
         };
-
-        let rest = field_name
-            .parts
-            .iter()
-            .map(|p| match p {
-                FieldNamePart::Attribute(attribute) => (true, attribute).to_pyobject(vm),
-                FieldNamePart::StringIndex(index) => (false, index).to_pyobject(vm),
-                FieldNamePart::Index(index) => (false, *index).to_pyobject(vm),
-            })
-            .collect();
-
-        Ok((first, rest))
+        let rest = FieldNameIterator {
+            parts: PyMutex::new(parts),
+        }
+        .into_ref(&vm.ctx);
+        Ok((first, rest.into()))
     }
 }

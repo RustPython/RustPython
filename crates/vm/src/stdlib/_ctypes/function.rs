@@ -1,6 +1,8 @@
 // spell-checker:disable
 #![allow(unreachable_pub)]
 
+use crate::object::{Traverse, TraverseFn};
+
 use super::{
     _ctypes::CArgObject,
     PyCArray, PyCData, PyCPointer, PyCStructure, PyCUnion, StgInfo,
@@ -259,16 +261,10 @@ impl ArgumentType for PyTypeRef {
         {
             None
         } else {
-            // Use get_attr to traverse MRO (for subclasses like MyInt(c_int))
+            // Converters belong to initialized storage, not mutable _type_.
             let typ = self
-                .as_object()
-                .get_attr(vm.ctx.intern_str("_type_"), vm)
-                .ok()
+                .type_code(vm)
                 .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-            let typ = typ
-                .downcast_ref::<PyStr>()
-                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?
-                .to_string();
             if ffi_type_from_code(&typ).is_none() {
                 return Err(vm.new_type_error(format!("Unsupported argument type: {typ}")));
             }
@@ -320,7 +316,7 @@ impl ArgumentType for PyTypeRef {
                 let bytes = cdata.buffer.read().to_vec();
                 let layout = self.stg_info_opt().map_or_else(
                     || CTypeLayout::Opaque { size: bytes.len() },
-                    |stg| super::base::type_layout(self, &stg, vm),
+                    |stg| super::base::type_layout(&stg),
                 );
                 // Keep the converted instance alive through the call: the
                 // snapshot may embed pointers into buffers its keep-alive set
@@ -374,7 +370,7 @@ impl Initializer for PyCFuncPtrType {
         stg_info.flags |= StgInfoFlags::TYPEFLAG_ISPOINTER;
         stg_info.paramfunc = ParamFunc::Pointer; // CFuncPtr is passed as a pointer
 
-        let _ = new_type.init_type_data(stg_info);
+        let _ = new_type.init_traced_type_data(stg_info);
         Ok(())
     }
 }
@@ -416,7 +412,8 @@ impl PyCFuncPtrType {
     module = "_ctypes",
     name = "CFuncPtr",
     base = PyCData,
-    metaclass = "PyCFuncPtrType"
+    metaclass = "PyCFuncPtrType",
+    traverse = "manual"
 )]
 #[repr(C)]
 pub(super) struct PyCFuncPtr {
@@ -445,6 +442,56 @@ pub(super) struct PyCFuncPtr {
     /// Parameter flags for COM methods (direction: IN=1, OUT=2, IN|OUT=4)
     /// Each element is (direction, name, default) tuple
     pub paramflags: PyRwLock<Option<PyObjectRef>>,
+}
+
+// SAFETY: each stored reference is an independent strong edge, including
+// thunk when it is also retained by _base.objects.
+unsafe impl Traverse for PyCFuncPtr {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self._base.traverse(tracer);
+        self.thunk.traverse(tracer);
+        self.callable.traverse(tracer);
+        self.converters.traverse(tracer);
+        self.argtypes.traverse(tracer);
+        self.restype.traverse(tracer);
+        self.checker.traverse(tracer);
+        self.errcheck.traverse(tracer);
+        self.paramflags.traverse(tracer);
+        #[cfg(windows)]
+        self.iid.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self._base.clear(out);
+        if let Some(mut value) = self.thunk.try_write() {
+            out.extend(value.take().map(Into::into));
+        }
+        if let Some(mut value) = self.callable.try_write() {
+            out.extend(value.take());
+        }
+        if let Some(mut value) = self.converters.try_write() {
+            out.extend(value.take());
+        }
+        if let Some(mut value) = self.argtypes.try_write() {
+            out.extend(value.take());
+        }
+        if let Some(mut value) = self.restype.try_write() {
+            out.extend(value.take());
+        }
+        if let Some(mut value) = self.checker.try_write() {
+            out.extend(value.take());
+        }
+        if let Some(mut value) = self.errcheck.try_write() {
+            out.extend(value.take());
+        }
+        if let Some(mut value) = self.paramflags.try_write() {
+            out.extend(value.take());
+        }
+        #[cfg(windows)]
+        if let Some(mut value) = self.iid.try_write() {
+            out.extend(value.take());
+        }
+    }
 }
 
 impl Debug for PyCFuncPtr {
@@ -590,16 +637,12 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
         return true;
     }
 
-    // simple pointer types via StgInfo.proto (c_void_p, c_char_p, etc.)
-    if let Ok(type_attr) = ctype.get_attr("_type_", vm)
-        && let Some(s) = type_attr.downcast_ref::<PyStr>()
+    // Simple pointer types retain the representation selected at creation,
+    // even if the user later changes the Python-visible _type_ attribute.
+    if let Some(ty) = ctype.downcast_ref::<PyType>()
+        && let Some(code) = ty.type_code(vm)
     {
-        let c = s
-            .to_str()
-            .expect("_type_ is validated as ASCII at type creation");
-        if c.len() == 1 && "sPzUZXO".contains(c) {
-            return true;
-        }
+        return code.len() == 1 && "sPzUZXO".contains(code.as_str());
     }
 
     false
@@ -698,6 +741,13 @@ pub(super) fn cast_impl(
         if let Some(result_cdata) = result.downcast_ref::<PyCData>() {
             *result_cdata.objects.write() = Some(shared_objects);
         }
+    }
+
+    if obj.downcast_ref::<CArgObject>().is_some()
+        && let Some(cdata) = result.downcast_ref::<PyCData>()
+    {
+        // Preserve provenance privately: byref casts have no public _objects.
+        cdata.keep_cast_owner(obj.to_owned());
     }
 
     // 5. Store pointer value
@@ -1066,15 +1116,12 @@ fn compute_ret_spec(
         return RetSpec::Pointer;
     }
 
-    // Simple type via its _type_ code (traversing MRO)
-    if let Ok(type_attr) = restype_type
-        .as_object()
-        .get_attr(vm.ctx.intern_str("_type_"), vm)
-        && let Some(s) = type_attr.downcast_ref::<PyStr>()
-        && let Some(code) = s.to_str()
-        && ffi_type_from_code(code).is_some()
+    // Simple type via its initialized scalar converter.
+    if let Some(code) = restype_type
+        .type_code(vm)
+        .filter(|code| ffi_type_from_code(code).is_some())
     {
-        return if simple_type_is_pointer(code) {
+        return if simple_type_is_pointer(&code) {
             RetSpec::Pointer
         } else {
             RetSpec::Code(code.chars().next().unwrap_or('i'))
@@ -1086,7 +1133,7 @@ fn compute_ret_spec(
     if let Some(stg_info) = restype_type.stg_info_opt() {
         return match stg_info.paramfunc {
             ParamFunc::Structure | ParamFunc::Union => {
-                RetSpec::Aggregate(super::base::type_layout(&restype_type, &stg_info, vm))
+                RetSpec::Aggregate(super::base::type_layout(&stg_info))
             }
             // Any other aggregate-ish StgInfo without a code: size-approximated
             // register return, as before.
@@ -1552,15 +1599,11 @@ fn convert_raw_result(
     // finalize it), which would self-deadlock against a held read guard.
     let is_pointer_type = info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER);
     let has_proto = info.proto.is_some();
+    let scalar_code = info.scalar_code;
     drop(info);
 
     // py_object: interpret return value as PyObject* and materialize it.
-    if let Ok(type_attr) = restype_type
-        .as_object()
-        .get_attr(vm.ctx.intern_str("_type_"), vm)
-        && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
-        && type_str.to_str() == Some("O")
-    {
+    if scalar_code == Some('O') {
         let ptr = NonNull::new(result_word as *mut PyObject)
             .ok_or_else(|| vm.new_value_error("PyObject is NULL"))?;
         unsafe {
@@ -2070,13 +2113,34 @@ unsafe extern "C" fn thunk_callback(
 }
 
 // CThunkObject wraps a Python callable to make it callable from C code.
-#[pyclass(name = "CThunkObject", module = "_ctypes")]
+#[pyclass(
+    name = "CThunkObject",
+    module = "_ctypes",
+    traverse = "manual",
+    clear = false
+)]
 #[derive(PyPayload)]
 pub(super) struct PyCThunk {
     callable: PyObjectRef,
     #[allow(dead_code)]
     thunk_data: PyRwLock<Option<rustpython_host_env::ctypes::CallbackThunk<ThunkUserData>>>,
     code_ptr: FfiCodePtr,
+}
+
+// SAFETY: the thunk owns both callable references, and all type references in
+// its userdata. No references are inferred from executable or native pointers.
+unsafe impl Traverse for PyCThunk {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.callable.traverse(tracer);
+        if let Some(data) = self.thunk_data.try_read_recursive()
+            && let Some(data) = data.as_ref()
+        {
+            let data = data.userdata();
+            data.callable.traverse(tracer);
+            data.arg_types.traverse(tracer);
+            data.res_type.traverse(tracer);
+        }
+    }
 }
 
 impl Debug for PyCThunk {

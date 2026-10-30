@@ -101,7 +101,8 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
 // PYTHONHOME forbids falling back to the build-tree pure-Python library.
 #[cfg(feature = "stdlib")]
 fn use_build_stdlib(vm: &crate::VirtualMachine) -> bool {
-    vm.state.config.paths.stdlib_dir.is_none()
+    vm.state.config.settings.under_pth.is_none()
+        && vm.state.config.paths.stdlib_dir.is_none()
         && vm.state.config.settings.home.as_deref().is_none_or(|home| {
             let (prefix, _) = home
                 .split_once(if cfg!(windows) { ';' } else { ':' })

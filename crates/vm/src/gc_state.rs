@@ -1373,8 +1373,19 @@ pub fn current_owner() -> GcOwner {
 /// it collect if the allocation pushed gen0 past its threshold.
 ///
 /// # Safety
-/// obj must be a valid pointer to a PyObject that is not already tracked.
+/// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
+#[inline]
 pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
+    unsafe { track_new_object_impl(obj, true) };
+}
+
+/// Track fresh internal storage, optionally allowing collection before its
+/// caller publishes it.
+///
+/// # Safety
+/// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
+#[inline]
+pub(crate) unsafe fn track_new_object_impl(obj: NonNull<PyObject>, allow_collection: bool) {
     let state = gc_state();
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
@@ -1385,7 +1396,9 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
     unsafe { state.track_object_fresh(obj, gc.owner) };
-    state.maybe_collect(gc);
+    if allow_collection {
+        state.maybe_collect(gc);
+    }
 }
 
 /// Track a generator (or coroutine, or async generator) together with the

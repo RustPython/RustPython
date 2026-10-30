@@ -33,7 +33,7 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeFormArg {
 mod unicodedata {
     use super::{NormalizeFormArg, unicode_core};
     use crate::vm::{
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyModule, PyStr, PyStrRef},
         common::lock::PyMutex,
         function::OptionalArg,
@@ -50,6 +50,56 @@ mod unicodedata {
             .code_points()
             .exactly_one()
             .map_err(|_| vm.new_type_error("argument must be a unicode character, not str"))
+    }
+
+    fn property_char(
+        character: &PyObject,
+        function: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<CodePoint> {
+        let Some(character_str) = character.downcast_ref::<PyStr>() else {
+            let kind = if vm.is_none(character) {
+                "None".to_owned()
+            } else {
+                character.class().slot_name().to_string()
+            };
+            let kind = &kind[..kind.floor_char_boundary(50.min(kind.len()))];
+            return Err(vm.new_type_error(format!(
+                "{function}() argument must be a unicode character, not {kind}"
+            )));
+        };
+        character_str
+            .as_wtf8()
+            .code_points()
+            .exactly_one()
+            .map_err(|_| {
+                vm.new_type_error(format!(
+                    "{function}(): argument must be a unicode character, not a string of length {}",
+                    character_str.char_len()
+                ))
+            })
+    }
+
+    /// Return True if the character has the XID_Start property, else False.
+    #[pyfunction]
+    fn isxidstart(chr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(property_char(&chr, "isxidstart", vm)?
+            .to_char()
+            .is_some_and(unicode_core::identifier::is_xid_start))
+    }
+
+    /// Return True if the character has the XID_Continue property, else False.
+    #[pyfunction]
+    fn isxidcontinue(chr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(property_char(&chr, "isxidcontinue", vm)?
+            .to_char()
+            .is_some_and(unicode_core::identifier::is_xid_continue))
+    }
+
+    /// Return block assigned to the character chr.
+    #[pyfunction]
+    fn block(chr: PyObjectRef, vm: &VirtualMachine) -> PyResult<&'static str> {
+        property_char(&chr, "block", vm).map(unicode_core::data::block)
     }
 
     #[pyfunction]

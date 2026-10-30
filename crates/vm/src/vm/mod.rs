@@ -890,6 +890,17 @@ pub struct PyGlobalState {
     pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    pub(crate) ctypes_buffer_views: alloc::sync::Arc<stdlib::_ctypes::BufferViewRegistry>,
     /// Placeholder identity shared by all threads and fresh imports in this interpreter.
     pub(crate) functools_placeholder: crate::common::lock::OnceCell<PyObjectRef>,
     pub finalizing: AtomicBool,
@@ -1557,6 +1568,25 @@ impl VirtualMachine {
             {
                 let io = import::import_builtin(self, "_io")?;
 
+                // CPython normalizes configured stdio encodings to CodecInfo.name.
+                #[cfg(all(feature = "host_env", feature = "stdio"))]
+                let stdio_encoding: Option<PyRef<PyUtf8Str>> = self
+                    .state
+                    .config
+                    .settings
+                    .stdio_encoding
+                    .as_deref()
+                    .map(|encoding| {
+                        self.state
+                            .codec_registry
+                            .lookup(encoding, self)?
+                            .as_tuple()
+                            .as_object()
+                            .get_attr("name", self)?
+                            .try_into_value(self)
+                    })
+                    .transpose()?;
+
                 // Full stdio: FileIO → BufferedWriter → TextIOWrapper
                 #[cfg(all(feature = "host_env", feature = "stdio"))]
                 let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
@@ -1583,7 +1613,7 @@ impl VirtualMachine {
                     let line_buffering = buffered_stdio && (isatty || fd == 2);
 
                     let newline = if cfg!(windows) { None } else { Some("\n") };
-                    let encoding = self.state.config.settings.stdio_encoding.as_deref();
+                    let encoding = stdio_encoding.clone();
                     // stderr always uses backslashreplace (ignores stdio_errors)
                     let errors = if fd == 2 {
                         Some("backslashreplace")
@@ -1816,7 +1846,16 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        let msg = msg.map(|msg| self.ctx.new_str(msg));
+        self.run_unraisable_with_message(e, msg.map(|msg| self.ctx.new_str(msg)), object);
+    }
+
+    #[cold]
+    pub(crate) fn run_unraisable_with_message(
+        &self,
+        e: PyBaseExceptionRef,
+        msg: Option<PyStrRef>,
+        object: PyObjectRef,
+    ) {
         let write_original = || {
             let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);

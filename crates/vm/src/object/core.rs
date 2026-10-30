@@ -144,12 +144,44 @@ mod trashcan {
                     item
                 };
                 if let Some((obj, dealloc)) = next {
+                    // A queued deallocator may defer more objects, but its
+                    // end() must not start another drain.
+                    t.depth.set(1);
+                    let _draining = scopeguard::guard((), |()| t.depth.set(0));
                     unsafe { dealloc(obj) };
                 } else {
                     break;
                 }
             }
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        unsafe fn assert_guarded_dealloc(_: *mut super::super::PyObject) {
+            assert!(TRASHCAN.with(|t| t.depth.get() > 0));
+        }
+
+        #[test]
+        fn deferred_deallocations_remain_guarded() {
+            // This callback never dereferences its opaque object pointer.
+            let obj = core::ptr::null_mut();
+            unsafe {
+                for _ in 0..TRASHCAN_LIMIT {
+                    assert!(begin(obj, assert_guarded_dealloc));
+                }
+                assert!(!begin(obj, assert_guarded_dealloc));
+                for _ in 0..TRASHCAN_LIMIT {
+                    end();
+                }
+            }
+            TRASHCAN.with(|t| {
+                assert_eq!(t.depth.get(), 0);
+                assert!(t.queue.take().is_empty());
+            });
+        }
     }
 }
 
@@ -2946,6 +2978,36 @@ impl<T: PyPayload> PyRef<T> {
 impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
+        Self::new_ref_impl(payload, typ, dict, true)
+    }
+
+    /// Allocate and track internal storage without running collection during
+    /// publication. The next ordinary tracked allocation still checks thresholds.
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    pub(crate) fn new_ref_without_collection(
+        payload: T,
+        typ: crate::builtins::PyTypeRef,
+        dict: Option<PyDictRef>,
+    ) -> Self {
+        Self::new_ref_impl(payload, typ, dict, false)
+    }
+
+    #[inline(always)]
+    fn new_ref_impl(
+        payload: T,
+        typ: crate::builtins::PyTypeRef,
+        dict: Option<PyDictRef>,
+        allow_collection: bool,
+    ) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
         let track = !T::NEW_REF_UNTRACKED
@@ -2988,10 +3050,10 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         // unless the payload opts out via NEW_REF_UNTRACKED (e.g. call frames,
         // which are tracked lazily only on escape).
         if track {
-            // Tracks under the interpreter running now and collects if this
-            // allocation pushed gen0 past its threshold.
+            // Tracks under the interpreter running now and, when allowed,
+            // collects if this allocation pushed gen0 past its threshold.
             unsafe {
-                crate::gc_state::track_new_object(ptr.cast());
+                crate::gc_state::track_new_object_impl(ptr.cast(), allow_collection);
             }
         }
 

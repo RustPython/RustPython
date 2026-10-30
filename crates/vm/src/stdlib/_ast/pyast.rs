@@ -1291,7 +1291,7 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
         "DictComp",
         &[
             ("key", FieldType::Node("expr")),
-            ("value", FieldType::Node("expr")),
+            ("value", FieldType::Optional("expr")),
             ("generators", FieldType::ListOf("comprehension")),
         ],
     ),

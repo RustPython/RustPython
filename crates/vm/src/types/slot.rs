@@ -30,6 +30,8 @@ pub struct TypeDataSlot {
     // PyObject_GetTypeData
     type_id: TypeId,
     data: Box<dyn Any + Send + Sync>,
+    traverse: Option<fn(&dyn Any, &mut crate::object::TraverseFn<'_>)>,
+    clear: Option<fn(&mut dyn Any, &mut Vec<PyObjectRef>)>,
 }
 
 impl TypeDataSlot {
@@ -38,7 +40,17 @@ impl TypeDataSlot {
         Self {
             type_id: TypeId::of::<T>(),
             data: Box::new(data),
+            traverse: None,
+            clear: None,
         }
+    }
+
+    /// Create extension storage whose Python references participate in GC.
+    pub fn new_traced<T: Any + Send + Sync + crate::object::Traverse>(data: T) -> Self {
+        let mut slot = Self::new(data);
+        slot.traverse = Some(|data, tracer| data.downcast_ref::<T>().unwrap().traverse(tracer));
+        slot.clear = Some(|data, out| data.downcast_mut::<T>().unwrap().clear(out));
+        slot
     }
 
     /// Get a reference to the data if the type matches.
@@ -57,6 +69,20 @@ impl TypeDataSlot {
             self.data.downcast_mut()
         } else {
             None
+        }
+    }
+}
+
+// SAFETY: callbacks are installed together with the matching concrete type.
+unsafe impl crate::object::Traverse for TypeDataSlot {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        if let Some(traverse) = self.traverse {
+            traverse(&*self.data, tracer);
+        }
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(clear) = self.clear {
+            clear(&mut *self.data, out);
         }
     }
 }

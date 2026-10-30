@@ -740,6 +740,9 @@ impl SymbolTableAnalyzer {
 
         // Analyze symbols in current scope
         let function_like_scope = SymbolTableBuilder::is_function_like_scope(symbol_table.typ);
+        // Class implicit cells satisfy child requests, not this scope's own
+        // closure. Keep its free names out of drop_class_free().
+        let mut scope_free = IndexSet::default();
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(
                 symbol,
@@ -760,7 +763,7 @@ impl SymbolTableAnalyzer {
             if symbol.scope == SymbolScope::Free
                 || symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
             {
-                newfree.insert(symbol.name.clone());
+                scope_free.insert(symbol.name.clone());
             }
         }
 
@@ -797,6 +800,7 @@ impl SymbolTableAnalyzer {
             }
         }
 
+        newfree.extend(scope_free);
         Ok(newfree)
     }
 
@@ -2419,16 +2423,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Dict comprehension - is_generator = false (can be inlined)
-                    let Some(key) = key.as_deref() else {
-                        return Err(self.error_ranged(
-                            "dict unpacking cannot be used in dict comprehension".to_owned(),
-                            *range,
-                        ));
+                    let (element, value) = match key.as_deref() {
+                        Some(key) => (key, Some(value.as_ref())),
+                        None => (value.as_ref(), None),
                     };
                     self.scan_comprehension(
                         &"<dictcomp>".into(),
-                        key,
-                        Some(value),
+                        element,
+                        value,
                         generators,
                         *range,
                         false,

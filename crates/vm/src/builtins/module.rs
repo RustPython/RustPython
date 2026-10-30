@@ -142,7 +142,9 @@ impl PyModuleDef {
     pub fn from_c_slots(
         name: &'static PyStrInterned,
         doc: Option<&'static PyStrInterned>,
-        create: Option<unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject>,
+        create: Option<
+            unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject,
+        >,
         exec: Option<unsafe extern "C" fn(*mut PyObject) -> c_int>,
     ) -> Self {
         Self {

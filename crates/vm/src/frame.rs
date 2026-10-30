@@ -6122,7 +6122,12 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        if vm.use_tracing.get() && self.trace_is_set(vm) {
+                        // CPython's INSTRUMENTED_END_SEND synthesizes this event
+                        // only for generator/coroutine receivers, not other awaitables.
+                        if vm.use_tracing.get()
+                            && self.trace_is_set(vm)
+                            && self.builtin_coro(receiver).is_some()
+                        {
                             let stop_exc = vm.new_stop_iteration(value.clone());
                             self.fire_exception_trace(&stop_exc, vm)?;
                         }
@@ -6190,7 +6195,12 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        if vm.use_tracing.get() && self.trace_is_set(vm) {
+                        // CPython's INSTRUMENTED_END_SEND synthesizes this event
+                        // only for generator/coroutine receivers, not other awaitables.
+                        if vm.use_tracing.get()
+                            && self.trace_is_set(vm)
+                            && self.builtin_coro(receiver).is_some()
+                        {
                             let stop_exc = vm.new_stop_iteration(value.clone());
                             self.fire_exception_trace(&stop_exc, vm)?;
                         }

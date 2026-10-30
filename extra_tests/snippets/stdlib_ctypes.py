@@ -969,6 +969,57 @@ for _code in ("h", "q", "f"):
     MutableInt._type_ = _code
     _array[0] = -2
     assert bytes(_array) == bytes(ctypes.c_int(-2)) + bytes(ctypes.c_int(0x1234))
+    assert _array[0].value == -2
+    assert MutableInt(-3).value == -3
+
+# Native calls must use the same initialized converter for arguments and results.
+MutableInt._type_ = "h"
+_identity = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int)(lambda value: value)
+_identity.argtypes = [MutableInt]
+assert _identity(MutableInt(-65537)) == -65537
+_identity.argtypes = [ctypes.c_int]
+_identity.restype = MutableInt
+_result = _identity(-65537)
+assert getattr(_result, "value", _result) == -65537
+
+
+class MutablePointer(ctypes.c_void_p):
+    pass
+
+
+MutablePointer._type_ = "i"
+assert ctypes.cast(ctypes.c_void_p(123), MutablePointer).value == 123
+MutableInt._type_ = "P"
+try:
+    ctypes.cast(ctypes.c_void_p(123), MutableInt)
+except TypeError:
+    pass
+else:
+    raise AssertionError("cast accepted a scalar integer type")
+
+
+class SubclassBits(ctypes.Structure):
+    _fields_ = [("field", MutableInt, 3)]
+
+
+_bits = SubclassBits(3)
+assert isinstance(_bits.field, MutableInt)
+_bits.field.value = 2
+assert _bits.field.value == 2
+
+for _scalar, _text_value in ((ctypes.c_char, b"ab"), (ctypes.c_wchar, "ab")):
+
+    class MutableChar(_scalar):
+        pass
+
+    class TextField(ctypes.Structure):
+        _fields_ = [("text", MutableChar * 4)]
+
+    _text = TextField(_text_value)
+    MutableChar._type_ = "i"
+    assert _text.text == _text_value
+    _text.text = _text_value
+    assert _text.text == _text_value
 
 if _sys.platform == "win32":
 
@@ -978,3 +1029,250 @@ if _sys.platform == "win32":
     _bstr = (BSTR * 1)()
     _bstr[0] = None
     assert bytes(_bstr) == bytes(ctypes.sizeof(ctypes.c_void_p))
+
+
+# The py_object payload, not only the instance dictionary, closes this cycle.
+class ObjectOwner:
+    pass
+
+
+_owner = ObjectOwner()
+_owner.value = ctypes.py_object(_owner)
+_ref = weakref.ref(_owner)
+del _owner
+gc.collect()
+assert _ref() is None
+
+
+# Values written through a pointer remain visible through sibling views.
+for _borrowed in (False, True):
+    _storage = bytearray(ctypes.sizeof(ctypes.py_object))
+    _value = ctypes.py_object.from_buffer(_storage) if _borrowed else ctypes.py_object()
+    _value.value = None
+    _pointer = ctypes.cast(ctypes.byref(_value), ctypes.POINTER(ctypes.py_object))
+    _sibling = ctypes.pointer(_value)
+    _object = object()
+    _pointer[0] = _object
+    assert _value.value is _object and _sibling[0] is _object
+    _pointer.contents.value = object()
+    assert _value.value is _pointer[0] is _sibling[0]
+
+if _sys.implementation.name == "rustpython":
+    _cast_value = ctypes.py_object(None)
+    _cast_ref = weakref.ref(_cast_value)
+    _cast_pointer = ctypes.cast(
+        ctypes.byref(_cast_value), ctypes.POINTER(ctypes.py_object)
+    )
+    del _cast_value
+    gc.collect()
+    assert _cast_ref() is not None
+    del _cast_pointer
+    gc.collect()
+    assert _cast_ref() is None
+
+
+# A temporary pointer field writes ownership into its containing structure.
+class ObjectPointerHolder(ctypes.Structure):
+    _fields_ = [("pointer", ctypes.POINTER(ctypes.py_object))]
+
+
+_temporary_array = (ctypes.py_object * 1)(None)
+_temporary_holder = ObjectPointerHolder(
+    ctypes.cast(_temporary_array, ctypes.POINTER(ctypes.py_object))
+)
+_temporary_value = ObjectOwner()
+_temporary_ref = weakref.ref(_temporary_value)
+_temporary_holder.pointer[0] = _temporary_value
+assert _temporary_array[0] is _temporary_value
+# A weak writer registration must not extend the holder or value's lifetime.
+del _temporary_value, _temporary_holder
+gc.collect()
+assert _temporary_ref() is None
+
+# Pointer writes through a borrowed view must remain visible to its exporter.
+_exporter_array = (ctypes.py_object * 1)(None)
+_exporter_pointer = ctypes.pointer(ctypes.py_object.from_buffer(_exporter_array))
+for _exporter_value in (object(), object()):
+    _exporter_pointer[0] = _exporter_value
+    assert _exporter_array[0] is _exporter_value
+del _exporter_pointer, _exporter_array, _exporter_value
+
+# A warmed writer must follow contents changes without retaining old storage.
+_value = ctypes.py_object(None)
+_pointer = ctypes.pointer(_value)
+_pointer[0] = object()
+_ref = weakref.ref(_value)
+_value = ctypes.py_object(None)
+_pointer.contents = _value
+assert _ref() is None
+_pointer[0] = _object
+assert _value.value is _object
+
+# Different owners can describe the same address.
+_value = ctypes.py_object.from_buffer(_storage)
+_pointer = ctypes.pointer(_value)
+_pointer[0] = _object
+_other = ctypes.py_object.from_buffer(_storage)
+_pointer.contents = _other
+_pointer[0] = object()
+assert _other.value is _pointer[0]
+
+_pointer = ctypes.cast(ctypes.byref(_value), ctypes.POINTER(ctypes.py_object))
+_pointer.contents = _other
+_pointer[0] = object()
+assert _other.value is _pointer[0]
+assert _value.value is _pointer[0]
+
+# A cast array view also registers its enclosing allocation, not just contents.
+_nested = ((ctypes.py_object * 1) * 1)()
+_nested[0][0] = None
+_pointer = ctypes.cast(_nested[0], ctypes.POINTER(ctypes.py_object))
+_other = ctypes.py_object.from_buffer(_nested)
+_pointer.contents = _other
+_pointer[0] = object()
+assert _nested[0][0] is _other.value is _pointer[0]
+
+# Changing the index can bring a smaller cast source back into range.
+_pair_type = ctypes.py_object * 2
+_buffer = bytearray(ctypes.sizeof(_pair_type))
+_small = (ctypes.py_object * 1).from_buffer(_buffer)
+_large = _pair_type.from_buffer(_buffer)
+_inner = ctypes.cast(ctypes.byref(_small), ctypes.POINTER(_pair_type))
+_inner.contents = _large
+_pointer = ctypes.cast(_inner.contents, ctypes.POINTER(ctypes.py_object))
+_pointer[1] = object()
+_pointer[0] = object()
+assert _small[0] is _large[0] is _pointer[0]
+
+_backing = bytearray(ctypes.sizeof(ctypes.py_object))
+_value = ctypes.py_object.from_buffer(_backing)
+_value.value = None
+try:
+    _backing.extend(b"x")
+except BufferError:
+    pass
+else:
+    raise AssertionError("assigning None released the buffer export")
+
+
+# An aggregate assignment can overlap a reader smaller than the written value.
+_small = (ctypes.py_object * 1).from_buffer(bytearray(ctypes.sizeof(_pair_type)))
+_pointer = ctypes.cast(ctypes.byref(_small), ctypes.POINTER(_pair_type))
+for _value in (object(), object()):
+    _pointer[0] = _pair_type(_value, None)
+    assert _small[0] is _value
+
+
+# Independent exports share provenance without retaining the writer or value.
+_storage = bytearray(ctypes.sizeof(ctypes.py_object))
+_writer = ctypes.py_object.from_buffer(_storage)
+_reader = ctypes.py_object.from_buffer(memoryview(_storage))
+_pointer = ctypes.pointer(_writer)
+for _direct in (False, True):
+    _value = ObjectOwner()
+    if _direct:
+        _writer.value = _value
+    else:
+        _pointer[0] = _value
+    assert _reader.value is _value
+_ref = weakref.ref(_value)
+del _value, _writer, _pointer
+gc.collect()
+assert _ref() is None
+
+# Field caches on a cast pointer follow later assignments to the source array.
+_roots = [ctypes.py_object(None), ctypes.py_object(None)]
+_holders = (ObjectPointerHolder * 2)(
+    *(ObjectPointerHolder(ctypes.pointer(_root)) for _root in _roots)
+)
+_pointer = ctypes.cast(_holders, ctypes.POINTER(ObjectPointerHolder))
+for _index in range(2):
+    _pointer[_index].pointer[0] = object()
+_replacement = ctypes.py_object(None)
+_holders[1].pointer = ctypes.pointer(_replacement)
+_pointer[1].pointer[0] = _object
+assert _replacement.value is _object
+
+# A native exporter must see direct writes as well as pointer writes.
+_native = (ctypes.py_object * 1)(None)
+_view = ctypes.py_object.from_buffer(_native)
+_view.value = _object
+assert _native[0] is _object
+
+
+# Pointer-backed exporters need the contents provenance fallback.
+_source = ctypes.py_object(None)
+_exporter = ctypes.pointer(_source)
+_view = ctypes.py_object.from_buffer(_exporter.contents)
+_view.value = _object
+assert _source.value is _object
+
+# A cast can retain a value beyond its source view's declared extent.
+_storage = bytearray(2 * ctypes.sizeof(ctypes.py_object))
+_writer = (ctypes.py_object * 1).from_buffer(_storage)
+_reader = ctypes.py_object.from_buffer(_storage, ctypes.sizeof(ctypes.py_object))
+_pointer = ctypes.cast(_writer, ctypes.POINTER(ctypes.py_object))
+_pointer[1] = _object
+assert _reader.value is _object
+
+# byref keeps separate metadata; later aliases must still find its writes.
+_pointer = ctypes.cast(ctypes.byref(_writer), ctypes.POINTER(ctypes.py_object))
+_pointer[1] = object()
+del _reader
+_reader = ctypes.py_object.from_buffer(_storage, ctypes.sizeof(ctypes.py_object))
+assert _reader.value is _pointer[1]
+
+
+# A copied pointer outlives its original buffer view. Reentrant conversion
+# must publish the outer write's range even when it redirects the pointer.
+class ReentrantObjectCell(ctypes.Structure):
+    _fields_ = [("number", ctypes.c_int), ("value", ctypes.py_object)]
+
+
+class ReentrantObjectHolder(ctypes.Structure):
+    _fields_ = [("pointer", ctypes.POINTER(ReentrantObjectCell))]
+
+
+_pointer_size = ctypes.sizeof(ctypes.c_void_p)
+_cell_size = ctypes.sizeof(ReentrantObjectCell)
+_storage = bytearray(_pointer_size + 2 * _cell_size)
+_source = ctypes.POINTER(ReentrantObjectCell).from_buffer(_storage)
+_address = ctypes.addressof(_source) + _pointer_size
+ctypes.memmove(
+    ctypes.addressof(_source), ctypes.byref(ctypes.c_void_p(_address)), _pointer_size
+)
+_holder = ReentrantObjectHolder(_source)
+del _source
+_redirected = ReentrantObjectCell.from_address(_address + _cell_size)
+_outer_value, _inner_value = object(), object()
+
+
+class RedirectObjectWrite:
+    def __index__(self):
+        _holder.pointer.contents = _redirected
+        _holder.pointer[0] = ReentrantObjectCell(3, _inner_value)
+        return 7
+
+
+_holder.pointer[0] = (RedirectObjectWrite(), _outer_value)
+assert ReentrantObjectCell.from_buffer(_storage, _pointer_size).value is _outer_value
+assert ReentrantObjectCell.from_buffer(_storage, _pointer_size).number == 7
+
+
+# Retargeting must not hide old addresses while the writer still owns the value.
+_object = object()
+_original = ctypes.py_object()
+_redirected = ctypes.py_object()
+_pointer = ctypes.cast(
+    ctypes.c_void_p(ctypes.addressof(_original)), ctypes.POINTER(ctypes.py_object)
+)
+_pointer[0] = _object
+_pointer.contents = ctypes.py_object.from_address(ctypes.addressof(_redirected))
+for _value in (
+    None,
+    _object,
+    ctypes.py_object.from_address(ctypes.addressof(_original)),
+):
+    _pointer[0] = _value
+    assert _original.value is _object
+    assert _redirected.value is (None if _value is None else _object)

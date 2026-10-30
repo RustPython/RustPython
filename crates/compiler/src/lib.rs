@@ -1264,6 +1264,8 @@ fn first_parse_error(
     parsed: parser::Parsed<ast::Mod>,
     source_file: &SourceFile,
     mode: Mode,
+    prepared_source: &str,
+    parser_options: &parser::ParseOptions,
 ) -> Result<parser::Parsed<ast::Mod>, CompileError> {
     let Some((first, rest)) = parsed.errors().split_first() else {
         return Ok(parsed);
@@ -1272,11 +1274,554 @@ fn first_parse_error(
         !matches!(error.error, ParseErrorType::Lexical(_))
             && error.location.start() < first.location.start()
     });
-    let mut error = CompileError::from_ruff_parse_error(first.clone(), source_file, mode);
+    let normalized = unpacking_parse_diagnostic(
+        first,
+        rest,
+        parsed.tokens(),
+        parsed.syntax(),
+        parsed.unsupported_syntax_errors().is_empty(),
+    )
+    .or_else(|| call_argument_unpacking_diagnostic(&parsed, prepared_source, parser_options))
+    .or_else(|| unfinished_dict_comprehension_diagnostic(&parsed, parser_options))
+    .map_or_else(
+        || first.clone(),
+        |diagnostic| parser::ParseError {
+            error: ParseErrorType::OtherError(diagnostic.message),
+            location: diagnostic.range,
+        },
+    );
+    let mut error = CompileError::from_ruff_parse_error(normalized, source_file, mode);
     if after_syntax_error && let CompileError::Parse(error) = &mut error {
         error.is_unclosed_string = false;
     }
     Err(error)
+}
+
+// A recovered call never parsed its comprehension clauses. For a narrowly owned
+// whole-input argument list, ask the same parser to validate that exact slice once.
+fn call_argument_unpacking_diagnostic(
+    parsed: &parser::Parsed<ast::Mod>,
+    prepared_source: &str,
+    options: &parser::ParseOptions,
+) -> Option<CpythonDiagnostic> {
+    let first = parsed.errors().first()?;
+    if !matches!(
+        first.error,
+        ParseErrorType::ExpectedToken {
+            expected: TokenKind::Rpar,
+            found: TokenKind::For
+        }
+    ) || !parsed.unsupported_syntax_errors().is_empty()
+        || parsed
+            .errors()
+            .iter()
+            .any(|error| error.location.start() < first.location.start())
+    {
+        return None;
+    }
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let ast::Stmt::Expr(statement) = module.body.first()? else {
+        return None;
+    };
+    let ast::Expr::Call(call) = statement.value.as_ref() else {
+        return None;
+    };
+    let [keyword] = call.arguments.keywords.as_slice() else {
+        return None;
+    };
+    if !call.arguments.args.is_empty()
+        || keyword.arg.is_some()
+        || keyword.end() != call.arguments.end()
+        || call.end() != keyword.end()
+    {
+        return None;
+    }
+    let tokens: Vec<_> = parsed
+        .tokens()
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token.kind(),
+                TokenKind::Comment
+                    | TokenKind::NonLogicalNewline
+                    | TokenKind::Newline
+                    | TokenKind::EndOfFile
+            )
+        })
+        .collect();
+    if tokens.first()?.start() != call.start() {
+        return None;
+    }
+    let opening_index = tokens
+        .iter()
+        .position(|token| token.start() == call.arguments.start())?;
+    let opening = tokens.get(opening_index)?;
+    let operator = tokens.get(opening_index.checked_add(1)?)?;
+    let closing = tokens.last()?;
+    let clause = tokens.iter().find(|token| token.start() >= keyword.end())?;
+    if opening.kind() != TokenKind::Lpar
+        || operator.kind() != TokenKind::DoubleStar
+        || operator.start() != keyword.start()
+        || closing.kind() != TokenKind::Rpar
+        || clause.range() != first.location
+        || clause.kind() != TokenKind::For
+    {
+        return None;
+    }
+    let slice = prepared_source.get(usize::from(opening.start())..usize::from(closing.end()))?;
+    let reparsed = parser::parse_unchecked(
+        slice,
+        parser::ParseOptions::from(parser::Mode::Expression)
+            .with_target_version(options.target_version()),
+    );
+    let [error] = reparsed.errors() else {
+        return None;
+    };
+    if !matches!(error.error, ParseErrorType::ExpectedExpression)
+        || !reparsed.unsupported_syntax_errors().is_empty()
+        || opening.start().checked_add(error.location.start())? != operator.start()
+        || opening.start().checked_add(error.location.end())? != operator.end()
+    {
+        return None;
+    }
+    let ast::Mod::Expression(expression) = reparsed.syntax() else {
+        return None;
+    };
+    let ast::Expr::Generator(generator) = expression.body.as_ref() else {
+        return None;
+    };
+    let ast::Expr::BinOp(binary) = generator.elt.as_ref() else {
+        return None;
+    };
+    if !generator.parenthesized
+        || generator.start() != TextSize::new(0)
+        || usize::from(generator.end()) != slice.len()
+        || binary.end() != binary.right.end()
+    {
+        return None;
+    }
+    // Both parses must retain the same unpacked operand, not just its operator.
+    if opening.start().checked_add(generator.elt.start())? != keyword.start()
+        || opening.start().checked_add(generator.elt.end())? != keyword.end()
+        || opening.start().checked_add(binary.right.start())? != keyword.value.start()
+        || opening.start().checked_add(binary.right.end())? != keyword.value.end()
+    {
+        return None;
+    }
+    let diagnostic = owned_unpacking_diagnostic(error, reparsed.tokens(), reparsed.syntax())?;
+    if usize::from(diagnostic.range.end()) > slice.len() {
+        return None;
+    }
+    // Module recovery forgets the call's opening delimiter before reaching its
+    // closing token. Only the complete, balanced generator reparse above can
+    // justify treating this exact unmatched-closing error as a recovery shadow.
+    if parsed.errors().iter().any(|error| match &error.error {
+        ParseErrorType::Lexical(parser::LexicalErrorType::UnmatchedBracket { closing: ')' }) => {
+            !error.location.is_empty() || error.location.start() != closing.start()
+        }
+        ParseErrorType::Lexical(_) => true,
+        _ => false,
+    }) {
+        return None;
+    }
+    Some(CpythonDiagnostic {
+        message: diagnostic.message,
+        range: ruff_text_size::TextRange::new(
+            opening.start().checked_add(diagnostic.range.start())?,
+            opening.start().checked_add(diagnostic.range.end())?,
+        ),
+    })
+}
+
+// An unfinished unpacking comprehension can recover as an annotated assignment.
+// Recognize only the complete, owned recovery cascade, not arbitrary later errors.
+fn unfinished_dict_comprehension_diagnostic(
+    parsed: &parser::Parsed<ast::Mod>,
+    options: &parser::ParseOptions,
+) -> Option<CpythonDiagnostic> {
+    let first = parsed.errors().first()?;
+    if !matches!(
+        first.error,
+        ParseErrorType::ExpectedToken {
+            expected: TokenKind::Rbrace,
+            found: TokenKind::Colon
+        }
+    ) {
+        return None;
+    }
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let [ast::Stmt::AnnAssign(statement)] = module.body.as_slice() else {
+        return None;
+    };
+    let ast::Expr::DictComp(dict) = statement.target.as_ref() else {
+        return None;
+    };
+    if dict.key.is_some()
+        || dict.end() != dict.generators.last()?.end()
+        || statement.start() != dict.start()
+        || statement.value.is_some()
+        || statement.annotation.range().is_empty()
+        || statement.annotation.start() < first.location.end()
+        || statement.annotation.end() != statement.end()
+    {
+        return None;
+    }
+    let tokens: Vec<_> = parsed
+        .tokens()
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token.kind(),
+                TokenKind::Comment | TokenKind::NonLogicalNewline | TokenKind::EndOfFile
+            )
+        })
+        .collect();
+    let opening = tokens.first()?;
+    let operator = tokens.get(1)?;
+    if opening.kind() != TokenKind::Lbrace
+        || opening.start() != dict.start()
+        || operator.kind() != TokenKind::DoubleStar
+        || operator.end() > dict.value.start()
+    {
+        return None;
+    }
+    let colon = tokens.iter().find(|token| token.start() >= dict.end())?;
+    if colon.kind() != TokenKind::Colon || colon.range() != first.location {
+        return None;
+    }
+    let closing_index = tokens
+        .iter()
+        .position(|token| token.start() >= statement.end())?;
+    let closing = tokens.get(closing_index)?;
+    if closing.kind() != TokenKind::Rbrace {
+        return None;
+    }
+    let newline = match tokens.get(closing_index.checked_add(1)?..)? {
+        [] => None,
+        [newline] if newline.kind() == TokenKind::Newline => Some(*newline),
+        _ => return None,
+    };
+    let [unsupported] = parsed.unsupported_syntax_errors() else {
+        return None;
+    };
+    // The payload enum is not exported. This exact DictComp/operator range owns
+    // the parser's DictInDict producer, excluding other comprehension features.
+    if !matches!(
+        unsupported.kind,
+        parser::UnsupportedSyntaxErrorKind::UnpackingInComprehension(_)
+    ) || unsupported.range != ruff_text_size::TextRange::new(operator.start(), dict.value.end())
+        || unsupported.target_version != options.target_version()
+    {
+        return None;
+    }
+    let errors = parsed.errors();
+    if errors.len() != 3 + usize::from(newline.is_some())
+        || !matches!(
+            errors.get(1)?.error,
+            ParseErrorType::InvalidAnnotatedAssignmentTarget
+        )
+        || errors.get(1)?.location != dict.range()
+    {
+        return None;
+    }
+    let is_shadow = |error: &parser::ParseError, range| {
+        matches!(&error.error, ParseErrorType::OtherError(message) if message == "invalid syntax")
+            && error.location == range
+    };
+    if !is_shadow(errors.get(2)?, closing.range())
+        || newline.is_some_and(|newline| !is_shadow(&errors[3], newline.range()))
+    {
+        return None;
+    }
+    Some(CpythonDiagnostic {
+        message: "cannot use dict unpacking here".to_owned(),
+        range: operator.range(),
+    })
+}
+
+/// Refine unpacking errors whose grammar context and operand range the parser already
+/// identified. Tokens only distinguish the unpacking operator; they do not reparse the input.
+fn unpacking_parse_diagnostic(
+    error: &parser::ParseError,
+    following_errors: &[parser::ParseError],
+    tokens: &Tokens,
+    syntax: &ast::Mod,
+    no_unsupported_errors: bool,
+) -> Option<CpythonDiagnostic> {
+    if matches!(
+        error.error,
+        ParseErrorType::InvalidStarredExpressionUsage | ParseErrorType::ExpectedExpression
+    ) && following_errors.is_empty()
+        && no_unsupported_errors
+    {
+        return owned_unpacking_diagnostic(error, tokens, syntax);
+    }
+    let ParseErrorType::OtherError(message) = &error.error else {
+        return None;
+    };
+    let mut range = error.location;
+    let message = match message.as_str() {
+        "cannot use double starred expression here" if following_errors.is_empty() => {
+            let mut operand = tokens.iter().filter(|token| {
+                token.start() >= range.end()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            // The parser consumed a complete parenthesized operand. Lambda and
+            // `not` do not start the bitwise-or prefix required by CPython.
+            if matches!(operand.next()?.kind(), TokenKind::Lambda | TokenKind::Not) {
+                return None;
+            }
+            "cannot use dict unpacking here".to_owned()
+        }
+        "pattern cannot follow a double star pattern" => {
+            // A later recovery error can change which invalid production CPython
+            // selects. Leave those inputs to the existing diagnostic conversion.
+            if !following_errors.is_empty() {
+                return None;
+            }
+            let mut preceding = tokens.iter().rev().filter(|token| {
+                token.end() <= range.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            // The parser has already recognized a mapping entry after its rest
+            // capture. CPython points at that capture, not the following entry.
+            if preceding.next()?.kind() != TokenKind::Comma {
+                return None;
+            }
+            let capture = preceding.next()?;
+            if capture.kind() != TokenKind::Identifier
+                || preceding.next()?.kind() != TokenKind::DoubleStar
+            {
+                return None;
+            }
+            range = capture.range();
+            "double star pattern must be the last (right-most) subpattern in the mapping pattern"
+                .to_owned()
+        }
+        "conditional expression cannot be used here" => {
+            let mut preceding = tokens.iter().rev().filter(|token| {
+                token.end() <= range.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            let operator = preceding.next()?;
+            let kind = match operator.kind() {
+                TokenKind::Star => "starred",
+                // Only the first dictionary spread uses this invalid production.
+                // Dictionary values and later spreads have different error priority.
+                TokenKind::DoubleStar
+                    if preceding
+                        .next()
+                        .is_some_and(|token| token.kind() == TokenKind::Lbrace) =>
+                {
+                    "double starred"
+                }
+                _ => return None,
+            };
+            range = ruff_text_size::TextRange::new(operator.start(), range.end());
+            // Do not replace the operand error when the parser also rejected the
+            // enclosing unpacking operation, for example in a dictionary value.
+            if following_errors.iter().any(|error| {
+                error.location == range
+                    && (matches!(error.error, ParseErrorType::InvalidStarredExpressionUsage)
+                        || matches!(&error.error, ParseErrorType::OtherError(message)
+                            if message == "cannot use a starred expression in a dictionary value"))
+            }) {
+                return None;
+            }
+            format!(
+                "invalid {kind} expression. Did you forget to wrap the conditional expression in parentheses?"
+            )
+        }
+        "expected expression after 'else', but statement is given" => {
+            let operator = tokens.iter().find(|token| token.range() == range)?;
+            match operator.kind() {
+                TokenKind::Star => "cannot unpack only part of a conditional expression",
+                TokenKind::DoubleStar => {
+                    "cannot use dict unpacking on only part of a conditional expression"
+                }
+                _ => return None,
+            }
+            .to_owned()
+        }
+        _ => return None,
+    };
+    Some(CpythonDiagnostic { message, range })
+}
+
+fn owned_unpacking_diagnostic(
+    error: &parser::ParseError,
+    tokens: &Tokens,
+    syntax: &ast::Mod,
+) -> Option<CpythonDiagnostic> {
+    use ast::visitor::Visitor;
+
+    struct Checker<'a> {
+        range: ruff_text_size::TextRange,
+        tokens: &'a Tokens,
+        comprehension: bool,
+        message: Option<&'static str>,
+    }
+
+    impl Checker<'_> {
+        fn is_double_starred_operand(&self, operand: &ast::Expr) -> bool {
+            self.tokens
+                .iter()
+                .rev()
+                .find(|token| {
+                    token.end() <= operand.start()
+                        && !matches!(
+                            token.kind(),
+                            TokenKind::Comment | TokenKind::NonLogicalNewline
+                        )
+                })
+                .is_some_and(|token| {
+                    token.kind() == TokenKind::DoubleStar && token.start() == self.range.start()
+                })
+        }
+
+        fn check_comprehension(
+            &mut self,
+            element: &ast::Expr,
+            generators: &[ast::Comprehension],
+            delimiter: TokenKind,
+            container_start: TextSize,
+            message: &'static str,
+        ) {
+            let ast::Expr::BinOp(binary) = element else {
+                return;
+            };
+            let ast::Expr::Name(missing) = binary.left.as_ref() else {
+                return;
+            };
+            if binary.op != ast::Operator::Pow
+                || !missing.id.is_empty()
+                || missing.ctx != ast::ExprContext::Invalid
+                || !missing.range.is_empty()
+                || element.start() != self.range.start()
+                || generators.is_empty()
+            {
+                return;
+            }
+            let Some(operator) = self.tokens.iter().find(|token| token.range() == self.range)
+            else {
+                return;
+            };
+            let preceding = self.tokens.iter().rev().find(|token| {
+                token.end() <= operator.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            if operator.kind() == TokenKind::DoubleStar
+                && preceding.is_some_and(|token| {
+                    token.kind() == delimiter && token.start() == container_start
+                })
+            {
+                self.range = ruff_text_size::TextRange::new(operator.start(), element.end());
+                self.message = Some(message);
+            }
+        }
+
+        fn check_item(&mut self, key: Option<&ast::Expr>, value: &ast::Expr) {
+            let Some(key) = key else { return };
+            // The parser reports InvalidStarredExpressionUsage at just the first
+            // byte of the operator. Recover the operand end from its retained role.
+            if self.range.len() != TextSize::new(1) {
+                return;
+            }
+            let (message, end) = if matches!(key, ast::Expr::Starred(_))
+                && key.start() == self.range.start()
+                && self
+                    .tokens
+                    .iter()
+                    .any(|token| token.kind() == TokenKind::Star && token.range() == self.range)
+            {
+                (
+                    "cannot use a starred expression in a dictionary key",
+                    key.end(),
+                )
+            } else if self.is_double_starred_operand(key) {
+                ("cannot use dict unpacking in a dictionary key", key.end())
+            } else if self.is_double_starred_operand(value) {
+                (
+                    "cannot use dict unpacking in a dictionary value",
+                    value.end(),
+                )
+            } else {
+                return;
+            };
+            self.range = ruff_text_size::TextRange::new(self.range.start(), end);
+            self.message = Some(message);
+        }
+    }
+
+    impl<'a> Visitor<'a> for Checker<'_> {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.message.is_some() || !expr.range().contains_range(self.range) {
+                return;
+            }
+            // Retained nodes establish the operand role; the parser reported
+            // no other errors. Dictionary errors here only have first-item producers.
+            match expr {
+                ast::Expr::ListComp(comp) if self.comprehension => self.check_comprehension(
+                    &comp.elt,
+                    &comp.generators,
+                    TokenKind::Lsqb,
+                    comp.start(),
+                    "cannot use dict unpacking in list comprehension",
+                ),
+                ast::Expr::Generator(comp) if self.comprehension && comp.parenthesized => self
+                    .check_comprehension(
+                        &comp.elt,
+                        &comp.generators,
+                        TokenKind::Lpar,
+                        comp.start(),
+                        "cannot use dict unpacking in generator expression",
+                    ),
+                ast::Expr::Dict(dict) if !self.comprehension => {
+                    if let Some(item) = dict.items.first() {
+                        self.check_item(item.key.as_ref(), &item.value);
+                    }
+                }
+                ast::Expr::DictComp(dict) if !self.comprehension => {
+                    self.check_item(dict.key.as_deref(), &dict.value)
+                }
+                _ => {}
+            }
+            if self.message.is_none() {
+                ast::visitor::walk_expr(self, expr);
+            }
+        }
+    }
+
+    let mut checker = Checker {
+        range: error.location,
+        tokens,
+        comprehension: matches!(error.error, ParseErrorType::ExpectedExpression),
+        message: None,
+    };
+    match syntax {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+    checker.message.map(|message| CpythonDiagnostic {
+        message: message.to_owned(),
+        range: checker.range,
+    })
 }
 
 /// The first logical input accepted by the single-input grammar.
@@ -1586,7 +2131,7 @@ fn _compile_with_syntax_warning_handler<'a>(
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
     pre_parse_source_error(&source_file)?;
-    let parsed = parser::parse_unchecked(barry_source.source(), parser_options);
+    let parsed = parser::parse_unchecked(barry_source.source(), parser_options.clone());
     if matches!(mode, Mode::Single)
         && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
     {
@@ -1595,7 +2140,13 @@ fn _compile_with_syntax_warning_handler<'a>(
     if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
         return Err(error);
     }
-    let parsed = first_parse_error(parsed, &source_file, mode)?;
+    let parsed = first_parse_error(
+        parsed,
+        &source_file,
+        mode,
+        barry_source.source(),
+        &parser_options,
+    )?;
     if matches!(mode, Mode::Single)
         && let Some(error) = single_mode_blank_source_error(&source_file)
     {
@@ -1823,14 +2374,20 @@ pub fn interactive_input(
         options.clone(),
         future_features.contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
-    let parsed = parser::parse_unchecked(prepared.source(), options);
+    let parsed = parser::parse_unchecked(prepared.source(), options.clone());
     if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
         return Err(error);
     }
     if let Some(error) = prepared.diagnostic(parsed.errors().first(), &source_file) {
         return Err(error);
     }
-    let parsed = first_parse_error(parsed, &source_file, Mode::Single)?;
+    let parsed = first_parse_error(
+        parsed,
+        &source_file,
+        Mode::Single,
+        prepared.source(),
+        &options,
+    )?;
     let ast::Mod::Module(module) = parsed.syntax() else {
         unreachable!()
     };
@@ -1926,7 +2483,8 @@ pub fn _compile_symtable(
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             pre_parse_source_error(&source_file)?;
-            let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), parser_options);
+            let parsed =
+                ruff_python_parser::parse_unchecked(barry_source.source(), parser_options.clone());
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
             {
@@ -1935,7 +2493,13 @@ pub fn _compile_symtable(
             if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
                 return Err(error);
             }
-            let ast = first_parse_error(parsed, &source_file, mode)?;
+            let ast = first_parse_error(
+                parsed,
+                &source_file,
+                mode,
+                barry_source.source(),
+                &parser_options,
+            )?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
@@ -1958,11 +2522,18 @@ pub fn _compile_symtable(
         }
         Mode::Eval => {
             pre_parse_source_error(&source_file)?;
-            let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), parser_options);
+            let parsed =
+                ruff_python_parser::parse_unchecked(barry_source.source(), parser_options.clone());
             if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
                 return Err(error);
             }
-            let ast = first_parse_error(parsed, &source_file, mode)?;
+            let ast = first_parse_error(
+                parsed,
+                &source_file,
+                mode,
+                barry_source.source(),
+                &parser_options,
+            )?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {

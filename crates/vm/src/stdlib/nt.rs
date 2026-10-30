@@ -13,7 +13,7 @@ pub(crate) mod module {
         function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
+        stdlib::os::{_os, AccessArgs, DirFd, SupportFunc, SymlinkArgs},
     };
     use core::hint::cold_path;
     use libc::intptr_t;
@@ -76,9 +76,21 @@ pub(crate) mod module {
     };
 
     #[pyfunction]
-    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        let _ = path.to_wide_cstring(vm)?;
-        Ok(host_nt::access(path.as_ref(), mode))
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        if !args.follow_symlinks.0 {
+            return Err(vm.new_not_implemented_error(
+                "access: follow_symlinks unavailable on this platform",
+            ));
+        }
+        if args.effective_ids {
+            return Err(
+                vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
+            );
+        }
+        let wide = args.path.to_wide_cstring(vm)?;
+
+        Ok(host_nt::access(&wide, args.mode))
     }
 
     #[pyfunction]
@@ -409,8 +421,15 @@ pub(crate) mod module {
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            let fspath = FsPath::try_from_path_like(obj, true, vm)?;
-            fspath.to_wide_cstring(vm)
+            FsPath::try_from_path_like(obj, true, vm)
+                .and_then(|fspath| fspath.to_wide_cstring(vm))
+                .map_err(|err| {
+                    if err.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error("spawnv() arg 2 must contain only strings")
+                    } else {
+                        err
+                    }
+                })
         })?;
 
         let first = argv
@@ -1149,5 +1168,38 @@ pub(crate) mod module {
             show_cmd,
         )
         .map_err(|err| OSErrorBuilder::with_filename(&err, args.filepath, vm))
+    }
+
+    #[cfg(test)]
+    #[cfg(target_env = "msvc")]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn spawnv_argument_errors_preserve_non_type_errors() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for (arg, expected_type) in [
+                    (vm.ctx.new_int(123).into(), vm.ctx.exceptions.type_error),
+                    (
+                        vm.ctx.new_str("embedded\0null").into(),
+                        vm.ctx.exceptions.value_error,
+                    ),
+                ] {
+                    let argv = vm.ctx.new_list(vec![vm.ctx.new_str("unused").into(), arg]);
+                    let err =
+                        spawnv(0, OsPath::new_str("unused"), Either::A(argv), vm).unwrap_err();
+                    assert!(err.fast_isinstance(expected_type));
+                    if expected_type.is(vm.ctx.exceptions.type_error) {
+                        assert_eq!(
+                            err.args().as_slice()[0]
+                                .downcast_ref::<PyStr>()
+                                .unwrap()
+                                .as_wtf8(),
+                            "spawnv() arg 2 must contain only strings",
+                        );
+                    }
+                }
+            });
+        }
     }
 }
