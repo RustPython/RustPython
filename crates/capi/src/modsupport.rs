@@ -1,5 +1,5 @@
 use crate::PyObject;
-use crate::methodobject::{PyMethodDef, build_method_def};
+use crate::methodobject::PyMethodDef;
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
@@ -63,7 +63,8 @@ pub unsafe extern "C" fn PyModule_AddFunctions(
         let module_name = module.as_object().get_attr("__name__", vm)?;
         for def in PyMethodDef::iter(functions) {
             let name = unsafe { def.ml_name.try_as_str(vm) }?;
-            let function = build_method_def(vm, def, true)?
+            let function = def
+                .build_method_def(vm, true)?
                 .build_function(vm, Some(module.as_object().to_owned()));
             function
                 .as_object()
