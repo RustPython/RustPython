@@ -3324,7 +3324,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: PyType::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        version_tag_disabled: core::sync::atomic::AtomicBool::new(false),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
     let object_payload = PyType {
         base: unsafe { PyAtomicRef::from_optional_ref_without_retag(None) },
@@ -3335,7 +3335,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: object::PyBaseObject::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        version_tag_disabled: core::sync::atomic::AtomicBool::new(false),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
     let tuple_payload = PyType {
         base: unsafe {
@@ -3350,7 +3350,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: tuple::PyTuple::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        version_tag_disabled: core::sync::atomic::AtomicBool::new(false),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
 
     let object_element =
@@ -3398,7 +3398,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        version_tag_disabled: core::sync::atomic::AtomicBool::new(false),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
     let weakref_type = PyRef::new_ref(weakref_payload, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)

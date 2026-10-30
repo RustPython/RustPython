@@ -37,7 +37,7 @@ use core::{
     cell::Cell,
     ops::Deref,
     pin::Pin,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU16, AtomicU32, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -89,9 +89,9 @@ pub struct PyType {
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
     pub tp_version_tag: AtomicU32,
-    /// Permanent cache exclusion after an unsafe MRO, like CPython's
-    /// _Py_ATTR_CACHE_UNUSED state. A zero version alone is only temporary.
-    pub(crate) version_tag_disabled: AtomicBool,
+    /// CPython-compatible permanent cache exclusion state. Currently only zero
+    /// and ATTR_CACHE_UNUSED are used; per-type version budgeting is not implemented.
+    pub(crate) tp_versions_used: AtomicU16,
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
@@ -99,6 +99,9 @@ pub struct PyType {
 /// entries but not invalidating correctness (cache misses fall back to the
 /// generic path).
 static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
+
+// CPython _Py_ATTR_CACHE_UNUSED (Include/cpython/object.h).
+const ATTR_CACHE_UNUSED: u16 = 30_000;
 
 const MANAGED_DICT_FLAGS: PyTypeFlags =
     PyTypeFlags::from_slice(&[PyTypeFlags::HAS_DICT, PyTypeFlags::MANAGED_DICT]);
@@ -724,7 +727,7 @@ impl PyType {
     /// Assign a fresh version tag. Returns 0 if the version counter has been
     /// exhausted, in which case no new cache entries can be created.
     fn assign_version_tag_inner(&self) -> u32 {
-        if self.version_tag_disabled.load(Ordering::Acquire) {
+        if self.tp_versions_used.load(Ordering::Acquire) >= ATTR_CACHE_UNUSED {
             return 0;
         }
         let v = self.tp_version_tag.load(Ordering::Acquire);
@@ -1141,7 +1144,7 @@ impl PyType {
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
                 tp_version_tag: AtomicU32::new(0),
-                version_tag_disabled: AtomicBool::new(false),
+                tp_versions_used: AtomicU16::new(0),
             },
             metaclass,
             None,
@@ -1205,7 +1208,7 @@ impl PyType {
                 slots,
                 heaptype_ext: None,
                 tp_version_tag: AtomicU32::new(0),
-                version_tag_disabled: AtomicBool::new(false),
+                tp_versions_used: AtomicU16::new(0),
             },
             metaclass,
             None,
@@ -3820,7 +3823,7 @@ fn type_mro_modified(typ: &Py<PyType>, vm: &VirtualMachine) {
     let bases = typ.bases.read().clone();
     let disabled = custom_mro
         || mro.iter().chain(bases.as_slice().iter()).any(|base| {
-            base.version_tag_disabled.load(Ordering::Acquire)
+            base.tp_versions_used.load(Ordering::Acquire) >= ATTR_CACHE_UNUSED
                 || !is_subtype_with_mro(&mro, typ, base)
         });
     if disabled {
@@ -3830,7 +3833,8 @@ fn type_mro_modified(typ: &Py<PyType>, vm: &VirtualMachine) {
         if let Some(ext) = typ.heaptype_ext.as_ref() {
             ext.specialization_cache.invalidate_for_type_modified();
         }
-        typ.version_tag_disabled.store(true, Ordering::Release);
+        typ.tp_versions_used
+            .store(ATTR_CACHE_UNUSED, Ordering::Release);
     }
 }
 
