@@ -497,7 +497,6 @@ class CmdLineTest(unittest.TestCase):
         # for empty and unset PYTHONPATH
         self.assertEqual(out1, out2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_displayhook_unencodable(self):
         for encoding in ('ascii', 'latin-1', 'utf-8'):
             env = os.environ.copy()
