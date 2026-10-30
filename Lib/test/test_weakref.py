@@ -2280,7 +2280,6 @@ class FinalizeTestCase(unittest.TestCase):
 
 
 class ModuleTestCase(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_names(self):
         for name in ('ReferenceType', 'ProxyType', 'CallableProxyType',
                      'WeakMethod', 'WeakSet', 'WeakKeyDictionary', 'WeakValueDictionary'):
