@@ -698,7 +698,6 @@ class BaseUnicodeFunctionsTest:
         # New in 17.0.0
         self.assertEqual(eaw('\U00016FF2'), 'N' if self.old else 'W')
 
-    @unittest.skip("TODO: RUSTPYTHON; AssertionError: 'N' != 'W' (passed on latest, fails on 3.2)")
     def test_east_asian_width_unassigned(self):
         eaw = self.db.east_asian_width
         # unassigned
@@ -1099,10 +1098,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.block, 120)
         self.assertRaises(TypeError, self.db.block, '')
         self.assertRaises(TypeError, self.db.block, 'xx')
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + N
-    def test_east_asian_width_9_0_changes(self):
-        return super().test_east_asian_width_9_0_changes()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
     def test_function_checksum(self):

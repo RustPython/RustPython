@@ -380,19 +380,12 @@ impl Ucd {
     pub fn east_asian_width(&self, c: CodePoint) -> &'static str {
         c.to_char()
             .and_then(|c| {
-                if self.modern {
+                if self.modern || GeneralCategory::for_char(c) == GeneralCategory::Unassigned {
                     Some(EastAsianWidth::for_char(c))
                 } else {
                     cold_path();
-                    // CPython overrides characters in the PUA for 3.2.0.
-                    // Basic Multilingual Plane:
-                    // https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
-                    // https://en.wikipedia.org/wiki/Private_Use_Areas
-                    // https://www.unicode.org/reports/tr11/tr11-10.html
-                    // https://www.unicode.org/reports/tr11/
-                    //
-                    // Currently, this implementation is incomplete because I can't figure
-                    // out what CPython is doing.
+                    // CPython keeps modern width defaults for still-unassigned characters.
+                    // Assigned characters use their 3.2 width, or Neutral if new since 3.2.
                     lookup_table(EAST_ASIAN_WIDTH, c)
                 }
             })
