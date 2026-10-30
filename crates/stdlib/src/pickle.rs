@@ -1337,6 +1337,9 @@ mod _pickle {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let i = u32::from_le_bytes(arr) as usize;
                     let value = top!();
+                    if i > isize::MAX as usize {
+                        return Err(vm.new_value_error("negative LONG_BINPUT argument"));
+                    }
                     memo_put(zelf, Some(i), value, vm)?;
                 }
                 Some(PUT) => {

@@ -254,7 +254,6 @@ class FunctionTests(unittest.TestCase):
         cur.execute("select returnnan()")
         self.assertIsNone(cur.fetchone()[0])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="func_raiseexception")
     def test_func_exception(self):
         cur = self.con.cursor()
@@ -263,7 +262,6 @@ class FunctionTests(unittest.TestCase):
             cur.fetchone()
         self.assertEqual(str(cm.exception), 'user-defined function raised exception')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(MemoryError, msg_regex="func_memoryerror")
     def test_func_memory_error(self):
         cur = self.con.cursor()
@@ -271,7 +269,6 @@ class FunctionTests(unittest.TestCase):
             cur.execute("select memoryerror()")
             cur.fetchone()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(OverflowError, msg_regex="func_overflowerror")
     def test_func_overflow_error(self):
         cur = self.con.cursor()
@@ -305,7 +302,6 @@ class FunctionTests(unittest.TestCase):
                                self.con.execute, "select spam(?)",
                                (memoryview(b"blob")[::2],))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(BufferError, regex="buffer.*contiguous")
     def test_return_non_contiguous_blob(self):
         with self.assertRaises(sqlite.OperationalError):
@@ -384,7 +380,6 @@ class FunctionTests(unittest.TestCase):
             del x,y
             gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(OverflowError)
     def test_func_return_too_large_int(self):
         cur = self.con.cursor()
@@ -394,7 +389,6 @@ class FunctionTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.DataError, msg):
                 cur.execute("select largeint()")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(UnicodeEncodeError, "surrogates not allowed")
     def test_func_return_text_with_surrogates(self):
         cur = self.con.cursor()
@@ -499,7 +493,6 @@ class WindowFunctionTests(unittest.TestCase):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_window_function("shouldfail", -100, WindowSumInt)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(BadWindow)
     def test_win_exception_in_method(self):
         for meth in "__init__", "step", "value", "inverse":
@@ -512,7 +505,6 @@ class WindowFunctionTests(unittest.TestCase):
                         self.cur.execute(self.query % name)
                         self.cur.fetchall()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(BadWindow)
     def test_win_exception_in_finalize(self):
         # Note: SQLite does not (as of version 3.38.0) propagate finalize
@@ -524,7 +516,6 @@ class WindowFunctionTests(unittest.TestCase):
             self.cur.execute(self.query % name)
             self.cur.fetchall()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(AttributeError)
     def test_win_missing_method(self):
         class MissingValue:
@@ -556,7 +547,6 @@ class WindowFunctionTests(unittest.TestCase):
                     self.cur.execute(self.query % name)
                     self.cur.fetchall()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(AttributeError)
     def test_win_missing_finalize(self):
         # Note: SQLite does not (as of version 3.38.0) propagate finalize
@@ -633,7 +623,6 @@ class AggregateTests(unittest.TestCase):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_function("bla", -100, AggrSum)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(AttributeError, msg_regex="AggrNoStep")
     def test_aggr_no_step(self):
         cur = self.con.cursor()
@@ -649,7 +638,6 @@ class AggregateTests(unittest.TestCase):
             cur.execute("select nofinalize(t) from test")
             val = cur.fetchone()[0]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="AggrExceptionInInit")
     def test_aggr_exception_in_init(self):
         cur = self.con.cursor()
@@ -658,7 +646,6 @@ class AggregateTests(unittest.TestCase):
             val = cur.fetchone()[0]
         self.assertEqual(str(cm.exception), "user-defined aggregate's '__init__' method raised error")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="AggrExceptionInStep")
     def test_aggr_exception_in_step(self):
         cur = self.con.cursor()
@@ -667,7 +654,6 @@ class AggregateTests(unittest.TestCase):
             val = cur.fetchone()[0]
         self.assertEqual(str(cm.exception), "user-defined aggregate's 'step' method raised error")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="AggrExceptionInFinalize")
     def test_aggr_exception_in_finalize(self):
         cur = self.con.cursor()
@@ -797,12 +783,10 @@ class AuthorizerRaiseExceptionTests(AuthorizerTests):
             raise ValueError
         return sqlite.SQLITE_OK
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_table_access(self):
         super().test_table_access()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_column_access(self):
         super().test_table_access()

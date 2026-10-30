@@ -211,6 +211,56 @@ mod _tokenize {
 
         let source_len = TextSize::from(source.len() as u32);
 
+        // Ruff has no NL token for a final indentation-only line without a LF.
+        if extra_tokens
+            && *need_implicit_nl
+            && !source.is_empty()
+            && errors.is_empty()
+            && tokens[*index..]
+                .iter()
+                .all(|t| matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
+        {
+            let final_line = last_physical_line(source);
+            if !final_line.is_empty()
+                && final_line
+                    .bytes()
+                    .all(|b| matches!(b, b' ' | b'\t' | b'\x0c'))
+            {
+                *need_implicit_nl = false;
+                let end_lc = line_index.line_column(source_len, source);
+                let line = end_lc.line.get();
+                let column = end_lc.column.to_zero_indexed() as isize;
+                return Ok(PyIterReturn::Return(make_token_tuple(
+                    vm,
+                    TOKEN_NL,
+                    "",
+                    line,
+                    column,
+                    line,
+                    column + 1,
+                    final_line,
+                )));
+            }
+        }
+
+        // A comment's implicit NL precedes the terminal DEDENT sequence.
+        if extra_tokens
+            && *need_implicit_nl
+            && tokens
+                .get(*index)
+                .is_some_and(|t| t.kind() == TokenKind::Dedent)
+            && tokens[*index..]
+                .iter()
+                .all(|t| matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
+            && let Some(comment) =
+                last_non_dedent_token(tokens).filter(|t| t.kind() == TokenKind::Comment)
+        {
+            *need_implicit_nl = false;
+            return Ok(PyIterReturn::Return(implicit_comment_newline(
+                vm, comment, source, line_index,
+            )));
+        }
+
         while *index < tokens.len() {
             let token = tokens[*index];
             *index += 1;
@@ -244,7 +294,21 @@ mod _tokenize {
             }
 
             let raw_type = token_kind_value(kind);
-            let token_type = if extra_tokens
+            let leading_zero_number = extra_tokens
+                && kind == TokenKind::Unknown
+                && errors.iter().any(|err| {
+                    matches!(
+                        err.error,
+                        ParseErrorType::Lexical(LexicalErrorType::LeadingZerosInDecimalInteger)
+                    ) && err.location.start() == range.start()
+                        && err.location.end() > range.start()
+                        && err.location.end() < range.end()
+                });
+            // Ruff diagnoses the zero prefix but retains the complete numeric token.
+            // CPython accepts that token as NUMBER only in extra-token mode.
+            let token_type = if leading_zero_number {
+                token_kind_value(TokenKind::Int)
+            } else if extra_tokens
                 && (kind == TokenKind::Unknown || (raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP))
             {
                 TOKEN_OP
@@ -253,15 +317,30 @@ mod _tokenize {
             };
 
             let (token_str, start_line, start_col, end_line, end_col, line_str) =
-                if kind == TokenKind::Dedent {
+                if !extra_tokens && kind == TokenKind::Indent {
+                    // Explicit continuations can span the indentation range.
+                    // CPython reports the line reached after consuming it.
+                    let line = line_index.line_column(range.end(), source).line.get();
+                    ("", line, 0, line, 0, source.full_line_str(range.end()))
+                } else if kind == TokenKind::Dedent {
                     let last_line = source.lines().count();
                     let default_pos = if extra_tokens {
                         (last_line + 1, 0)
                     } else {
                         (last_line, 0)
                     };
-                    let (pos, dedent_line) =
-                        next_non_dedent_info(tokens, *index, source, line_index, default_pos);
+                    let default_line = if extra_tokens {
+                        ""
+                    } else {
+                        non_extra_eof_line(tokens, source, line_index)
+                    };
+                    let (pos, dedent_line) = next_non_dedent_info(
+                        tokens,
+                        *index,
+                        source,
+                        line_index,
+                        (default_pos, default_line),
+                    );
                     ("", pos.0, pos.1, pos.0, pos.1, dedent_line)
                 } else {
                     let start_lc = line_index.line_column(range.start(), source);
@@ -293,7 +372,11 @@ mod _tokenize {
                         let s = if in_source { &source[range] } else { "" };
                         (s, end_lc.line.get(), end_lc.column.to_zero_indexed())
                     };
-                    let line_str = source.full_line_str(range.start());
+                    let line_str = if kind == TokenKind::String && in_source {
+                        source.full_lines_str(range)
+                    } else {
+                        source.full_line_str(range.start())
+                    };
                     (s, start_line, start_col, el, ec, line_str)
                 };
 
@@ -334,15 +417,16 @@ mod _tokenize {
                     Some((mid_type, end_line, end_col, line_str.to_string()));
             }
 
+            // The non-extra tokenizer leaves INDENT/DEDENT token pointers unset.
+            let (token_str, start_col, end_col) =
+                if !extra_tokens && matches!(kind, TokenKind::Indent | TokenKind::Dedent) {
+                    ("", -1, -1)
+                } else {
+                    (token_str, start_col as isize, end_col as isize)
+                };
+
             return Ok(PyIterReturn::Return(make_token_tuple(
-                vm,
-                token_type,
-                token_str,
-                start_line,
-                start_col as isize,
-                end_line,
-                end_col as isize,
-                line_str,
+                vm, token_type, token_str, start_line, start_col, end_line, end_col, line_str,
             )));
         }
 
@@ -354,18 +438,8 @@ mod _tokenize {
                 .rev()
                 .find(|t| t.kind() != TokenKind::EndOfFile);
             if let Some(last) = last_tok.filter(|t| t.kind() == TokenKind::Comment) {
-                let end_lc = line_index.line_column(last.range().end(), source);
-                let nl_line = end_lc.line.get();
-                let nl_col = end_lc.column.to_zero_indexed();
-                return Ok(PyIterReturn::Return(make_token_tuple(
-                    vm,
-                    TOKEN_NL,
-                    "",
-                    nl_line,
-                    nl_col as isize,
-                    nl_line,
-                    nl_col as isize + 1,
-                    source.full_line_str(last.range().start()),
+                return Ok(PyIterReturn::Return(implicit_comment_newline(
+                    vm, last, source, line_index,
                 )));
             }
         }
@@ -404,9 +478,11 @@ mod _tokenize {
         let (em_line, em_col, em_line_str): (usize, isize, &str) = if extra_tokens {
             (last_line + 1, 0, "")
         } else {
-            let last_line_text =
-                source.full_line_str(TextSize::from(source.len().saturating_sub(1) as u32));
-            (last_line, -1, last_line_text)
+            (
+                last_line,
+                -1,
+                non_extra_eof_line(tokens, source, line_index),
+            )
         };
 
         let result = make_token_tuple(
@@ -448,6 +524,64 @@ mod _tokenize {
         60 // default to FSTRING_MIDDLE
     }
 
+    fn last_physical_line(source: &str) -> &str {
+        source.char_indices().next_back().map_or("", |(offset, _)| {
+            source.full_line_str(TextSize::from(offset as u32))
+        })
+    }
+
+    fn last_non_dedent_token(tokens: &[Token]) -> Option<&Token> {
+        tokens
+            .iter()
+            .rev()
+            .find(|t| !matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
+    }
+
+    fn non_extra_eof_line<'a>(
+        tokens: &[Token],
+        source: &'a str,
+        line_index: &LineIndex,
+    ) -> &'a str {
+        let Some(last) = last_non_dedent_token(tokens) else {
+            return "";
+        };
+        if matches!(
+            last.kind(),
+            TokenKind::Comment | TokenKind::NonLogicalNewline
+        ) || line_index
+            .line_column(last.range().start(), source)
+            .line
+            .get()
+            != source.lines().count()
+        {
+            // Ignored trailing lines never populated the non-extra line cache.
+            ""
+        } else {
+            last_physical_line(source)
+        }
+    }
+
+    fn implicit_comment_newline(
+        vm: &VirtualMachine,
+        comment: &Token,
+        source: &str,
+        line_index: &LineIndex,
+    ) -> PyObjectRef {
+        let end_lc = line_index.line_column(comment.range().end(), source);
+        let line = end_lc.line.get();
+        let column = end_lc.column.to_zero_indexed() as isize;
+        make_token_tuple(
+            vm,
+            TOKEN_NL,
+            "",
+            line,
+            column,
+            line,
+            column + 1,
+            source.full_line_str(comment.range().start()),
+        )
+    }
+
     /// Find the next non-DEDENT token's position and source line.
     /// Returns ((line, col), line_str).
     fn next_non_dedent_info<'a>(
@@ -455,12 +589,12 @@ mod _tokenize {
         index: usize,
         source: &'a str,
         line_index: &LineIndex,
-        default_pos: (usize, usize),
+        default_info: ((usize, usize), &'a str),
     ) -> ((usize, usize), &'a str) {
         for future in &tokens[index..] {
             match future.kind() {
                 TokenKind::Dedent => continue,
-                TokenKind::EndOfFile => return (default_pos, ""),
+                TokenKind::EndOfFile => return default_info,
                 _ => {
                     let flc = line_index.line_column(future.range().start(), source);
                     let pos = (flc.line.get(), flc.column.to_zero_indexed());
@@ -468,7 +602,7 @@ mod _tokenize {
                 }
             }
         }
-        (default_pos, "")
+        default_info
     }
 
     /// Raise a SyntaxError with the given message and position.

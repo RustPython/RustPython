@@ -1,4 +1,5 @@
 use crate::PyObject;
+use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
@@ -50,6 +51,27 @@ impl PyABIInfo {
 
         Ok(())
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyModule_AddFunctions(
+    module: *mut PyObject,
+    functions: *mut PyMethodDef,
+) -> c_int {
+    with_vm(|vm| {
+        let module = unsafe { module.assume_borrowed_and_cast::<PyModule>(vm) }?;
+        let module_name = module.as_object().get_attr("__name__", vm)?;
+        for def in PyMethodDef::iter(functions) {
+            let name = unsafe { def.ml_name.try_as_str(vm) }?;
+            let function = build_method_def(vm, def, true)?
+                .build_function(vm, Some(module.as_object().to_owned()));
+            function
+                .as_object()
+                .set_attr("__module__", module_name.clone(), vm)?;
+            module.dict().set_item(name, function.into(), vm)?;
+        }
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]

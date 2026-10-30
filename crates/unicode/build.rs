@@ -443,6 +443,17 @@ fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
     );
 }
 
+/// Block names and ranges from the same Unicode release as the other latest tables.
+fn generate_blocks() {
+    let mut writer = open_writer("blocks.rs");
+    write_slice_pre(&mut writer, "BLOCKS", "(u32, u32, &str)");
+    for line in UnicodeLineReader::from_file_name("Blocks.txt", true) {
+        let name = line.field(NonZeroUsize::new(1).unwrap(), None);
+        writeln!(writer, "({}, {}, {name:?}),", line.start, line.end).unwrap();
+    }
+    write_slice_post(&mut writer);
+}
+
 /// Formal name aliases (`NameAliases.txt`) and named sequences
 /// (`NamedSequences.txt`).  `unicodedata.lookup` consults both; `\N{}`
 /// accepts only a single character, so named sequences stay out of
@@ -892,6 +903,7 @@ fn drive_parsers() {
         binary_props_3_2,
         combining_class_3_2,
         generate_name_lookups,
+        generate_blocks,
     ];
 
     let mut handles = Vec::with_capacity(parsers.len() + 2);

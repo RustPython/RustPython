@@ -4,7 +4,7 @@ use num_traits::ToPrimitive;
 
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
-    protocol::{BufferFlags, PyBuffer},
+    protocol::{BufferFlags, PyBuffer, PyIterIter},
 };
 
 /// The element error `bytes` reports, which is the one entry point here that does
@@ -32,9 +32,35 @@ pub fn bytearray_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Ve
 /// [`bytes_from_object`] for `bytearray_extend()`, which names what it was
 /// doing rather than what it was converting to.
 pub fn bytearray_extend_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
-    collect_bytes(vm, obj, true, BYTE_ELEMENT_ERROR, |name| {
-        format!("can't extend bytearray with {name}")
-    })
+    let iter = obj.to_owned().get_iter(vm).map_err(|error| {
+        if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+            vm.new_type_error(format!(
+                "can't extend bytearray with {}",
+                obj.class().name()
+            ))
+        } else {
+            error
+        }
+    })?;
+    let hint = vm.length_hint_opt(obj.to_owned())?.unwrap_or(32);
+    let mut items = Vec::new();
+    items
+        .try_reserve_exact(hint)
+        .map_err(|_| vm.new_memory_error(""))?;
+    for item in PyIterIter::<PyObjectRef, _>::new(vm, iter.as_ref(), Some(hint)) {
+        let item = item?;
+        let value = value_from_object(vm, &item).map_err(|error| {
+            if obj.fast_isinstance(vm.ctx.types.str_type)
+                && error.fast_isinstance(vm.ctx.exceptions.type_error)
+            {
+                vm.new_type_error("expected iterable of integers; got: 'str'")
+            } else {
+                error
+            }
+        })?;
+        items.push(value);
+    }
+    Ok(items)
 }
 
 /// `measured` is whether the object is asked how long it is; `element` is the error

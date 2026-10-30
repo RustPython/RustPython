@@ -31,9 +31,9 @@ pub fn check_access(
     access: u8,
     #[cfg_attr(target_os = "android", expect(unused))] effective_ids: bool,
     follow_symlinks: bool,
-) -> Result<bool, AccessError> {
+) -> bool {
     let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
-    let access = Access::from_bits(access as _).ok_or(AccessError::InvalidMode)?;
+    let access = Access::from_bits_retain(access as _);
 
     #[cfg(not(target_os = "android"))]
     let flags = if effective_ids {
@@ -50,7 +50,7 @@ pub fn check_access(
     });
 
     // CPython returns false for all error codes.
-    Ok(fs::accessat(dir_fd, path.as_ref(), access, flags).is_ok())
+    fs::accessat(dir_fd, path.as_ref(), access, flags).is_ok()
 }
 
 /// https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html

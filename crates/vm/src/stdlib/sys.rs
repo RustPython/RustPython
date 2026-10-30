@@ -46,7 +46,7 @@ pub mod sys {
         convert::ToPyObject,
         frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
-        stdlib::{_warnings::warn, builtins},
+        stdlib::_warnings::warn,
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
@@ -849,6 +849,40 @@ pub mod sys {
         vm.topmost_exception()
     }
 
+    fn displayhook_encoding_fallback(
+        stdout: &PyObject,
+        object: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let encoding = stdout
+            .get_attr("encoding", vm)?
+            .downcast::<PyStr>()
+            .map_err(|_| vm.new_type_error("bad argument type for built-in operation"))?;
+        let encoding = encoding.try_as_utf8(vm)?.as_str();
+        // CPython passes the validated UTF-8 encoding name as a C string.
+        let encoding = encoding.split('\0').next().unwrap();
+        let repr = object.repr(vm)?;
+        let encoded = vm.state.codec_registry.encode_text(
+            repr,
+            encoding,
+            Some(vm.ctx.new_utf8_str("backslashreplace")),
+            vm,
+        )?;
+        if let Some(buffer) = vm.get_attribute_opt(stdout, "buffer")? {
+            vm.call_method(&buffer, "write", (encoded,))?;
+        } else {
+            let escaped = vm.state.codec_registry.decode_text_object(
+                encoded.into(),
+                encoding,
+                Some(vm.ctx.new_utf8_str("strict")),
+                vm,
+            )?;
+            let write = stdout.get_attr("write", vm)?;
+            write.call((escaped.as_object().str(vm)?,), vm)?;
+        }
+        Ok(())
+    }
+
     #[pyfunction(name = "__displayhook__")]
     #[pyfunction]
     fn displayhook(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -858,9 +892,27 @@ pub mod sys {
         }
         // set to none to avoid recursion while printing
         vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
-        // TODO: catch encoding errors
-        let repr = object.repr(vm)?.into();
-        builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
+        let stdout = vm
+            .sys_module
+            .dict()
+            .get_item_opt("stdout", vm)?
+            .filter(|stdout| !vm.is_none(stdout))
+            .ok_or_else(|| vm.new_runtime_error("lost sys.stdout"))?;
+        let result = (|| {
+            // PyFile_WriteObject obtains the writer before calling repr.
+            let write = stdout.get_attr("write", vm)?;
+            let repr = object.repr(vm)?;
+            write.call((repr,), vm)
+        })();
+        if let Err(exc) = result {
+            if !exc.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
+                return Err(exc);
+            }
+            drop(exc);
+            displayhook_encoding_fallback(&stdout, &object, vm)?;
+        }
+        vm.call_method(&stdout, "write", (vm.ctx.new_str("\n"),))?;
+        drop(stdout);
         vm.builtins.set_attr("_", object, vm)?;
         Ok(())
     }

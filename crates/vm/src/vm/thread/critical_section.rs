@@ -9,7 +9,49 @@
 //! Without the `threading` feature critical sections are no-ops.
 
 use super::lock::PyMutex;
-use crate::VirtualMachine;
+use crate::{PyResult, VirtualMachine};
+
+/// Interpreter-bound operation exclusion that permits Python callbacks.
+///
+/// Detaching or reentering can release this exclusion. Payload borrows must
+/// use separate short guards and be revalidated after callbacks or drops.
+#[derive(Debug)]
+pub struct PyOperation {
+    mutex: PyMutex,
+    interpreter_id: i64,
+}
+
+impl PyOperation {
+    pub fn new(vm: &VirtualMachine) -> Self {
+        Self {
+            mutex: PyMutex::new(),
+            interpreter_id: vm.state.interpreter_id,
+        }
+    }
+
+    pub fn with<R>(&self, vm: &VirtualMachine, f: impl FnOnce() -> PyResult<R>) -> PyResult<R> {
+        assert_eq!(
+            super::try_with_current_vm(|current| current.state.interpreter_id),
+            Some(vm.state.interpreter_id),
+            "operation requires the current interpreter"
+        );
+        #[cfg(feature = "threading")]
+        {
+            let slot = super::current_thread_slot().expect("operation requires a thread slot");
+            assert_eq!(
+                slot.state.load(core::sync::atomic::Ordering::Acquire),
+                super::ThreadState::Attached as i32,
+                "operation requires an attached interpreter"
+            );
+        }
+        // The critical-section slow path may bypass this mutex while this
+        // interpreter's world is stopped. It cannot cover another interpreter.
+        if self.interpreter_id != vm.state.interpreter_id {
+            return Err(vm.new_runtime_error("operation belongs to a different interpreter"));
+        }
+        with(vm, &self.mutex, f)
+    }
+}
 
 /// `Py_BEGIN_CRITICAL_SECTION_MUTEX(m)` ... `Py_END_CRITICAL_SECTION()`
 pub(crate) fn with<R>(vm: &VirtualMachine, m: &PyMutex, f: impl FnOnce() -> R) -> R {

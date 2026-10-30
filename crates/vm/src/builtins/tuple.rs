@@ -2,6 +2,7 @@ use super::{
     PositionIterInternal, PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
     locked_next,
 };
+use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::common::lock::LazyLock;
 use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
 use crate::object::{PyTypedRefTarget, Traverse, TraverseFn};
@@ -30,9 +31,10 @@ use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
-#[repr(transparent)]
+#[repr(C)]
 pub struct PyTuple<R = PyObjectRef> {
     elements: TupleElements<R>,
+    hash: PyAtomic<PyHash>,
 }
 
 /// Tuple storage is immutable after publication, but marshal must publish a
@@ -307,6 +309,7 @@ impl PyTuple {
     fn from_elements(elements: Vec<PyObjectRef>) -> Self {
         Self {
             elements: TupleElements::new(elements.into_boxed_slice()),
+            hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
         }
     }
 }
@@ -360,6 +363,7 @@ impl PyTuple<PyObjectRef> {
             PyRef::new_ref(
                 Self {
                     elements: TupleElements::new(elements),
+                    hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
                 },
                 ctx.types.tuple_type.to_owned(),
                 None,
@@ -374,6 +378,7 @@ impl PyTuple<PyObjectRef> {
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self {
             elements: TupleElements::new(elements),
+            hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
         }
     }
 
@@ -398,6 +403,7 @@ impl PyTuple<PyObjectRef> {
             let elements = v.into_boxed_slice();
             Self {
                 elements: TupleElements::new(elements),
+                hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
             }
             .into_ref(&vm.ctx)
         })
@@ -510,6 +516,7 @@ impl PyTuple {
                     .collect::<Box<[_]>>();
                 Self {
                     elements: TupleElements::new(elements),
+                    hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
                 }
                 .into_ref(&vm.ctx)
             }
@@ -660,7 +667,13 @@ impl AsNumber for PyTuple {
 impl Hashable for PyTuple {
     #[inline]
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        tuple_hash(zelf.as_slice(), vm)
+        let cached = Radium::load(&zelf.hash, Ordering::Relaxed);
+        if cached != hash::SENTINEL {
+            return Ok(cached);
+        }
+        let hash = tuple_hash(zelf.as_slice(), vm)?;
+        Radium::store(&zelf.hash, hash, Ordering::Relaxed);
+        Ok(hash)
     }
 }
 
@@ -735,8 +748,8 @@ impl PyRef<PyTuple<PyObjectRef>> {
         for elem in self.as_slice() {
             <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
         }
-        // SAFETY: every element satisfies T's view invariant. Transparent
-        // tuple wrappers retain the same erased storage for every marker;
+        // SAFETY: every element satisfies T's view invariant. C-layout
+        // tuple payloads retain the same erased storage and hash for every marker;
         // this transfers the owner without changing its allocation or count.
         Ok(unsafe { core::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
@@ -745,7 +758,7 @@ impl PyRef<PyTuple<PyObjectRef>> {
 impl<T: PyTypedRefTarget> PyRef<PyTuple<PyRef<T>>> {
     #[must_use]
     pub fn into_untyped(self) -> PyRef<PyTuple> {
-        // SAFETY: transparent tuple wrappers have identical erased storage;
+        // SAFETY: C-layout tuple payloads have identical erased storage and hash;
         // forgetting the element guarantee does not change the allocation.
         unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }
     }
@@ -753,7 +766,7 @@ impl<T: PyTypedRefTarget> PyRef<PyTuple<PyRef<T>>> {
 
 impl<T: PyTypedRefTarget> Py<PyTuple<PyRef<T>>> {
     pub fn as_untyped(&self) -> &Py<PyTuple> {
-        // SAFETY: transparent tuple wrappers have identical erased storage;
+        // SAFETY: C-layout tuple payloads have identical erased storage and hash;
         // forgetting the element guarantee does not change the allocation.
         unsafe { core::mem::transmute::<&Self, &Py<PyTuple>>(self) }
     }

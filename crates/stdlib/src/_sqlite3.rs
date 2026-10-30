@@ -65,8 +65,8 @@ mod _sqlite3 {
             PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
         function::{
-            ArgCallable, ArgIterable, FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue,
-            PySetterValue, TimeoutSeconds,
+            ArgCallable, ArgIterable, ArgStrOrBytesLike, FsPath, FuncArgs, KwArgs, OptionalArg,
+            PyComparisonValue, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -356,7 +356,10 @@ mod _sqlite3 {
                     if s.contains_nuls() {
                         Err(vm.new_value_error("isolation_level contains interior NULs".to_owned()))
                     } else {
-                        Ok(Self(Some(s)))
+                        begin_statement_ptr_from_isolation_level(&s, vm)?;
+                        Ok(Self(Some(
+                            vm.ctx.new_str(s.expect_str().to_ascii_uppercase()),
+                        )))
                     }
                 })
         }
@@ -366,21 +369,21 @@ mod _sqlite3 {
     struct ConnectArgs {
         #[pyarg(any)]
         database: FsPath,
-        #[pyarg(any, default = TimeoutSeconds::new(5.0))]
+        #[pyarg(named, default = TimeoutSeconds::new(5.0))]
         timeout: TimeoutSeconds,
-        #[pyarg(any, default = 0)]
+        #[pyarg(named, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = "")]
+        #[pyarg(named, default = "")]
         isolation_level: IsolationLevelArg,
-        #[pyarg(any, default = true)]
+        #[pyarg(named, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
-        factory: PyTypeRef,
-        #[pyarg(any, default = 128)]
+        #[pyarg(named, default = Connection::class(&vm.ctx).to_owned().into_object(), py_default = "ConnectionType")]
+        factory: PyObjectRef,
+        #[pyarg(named, default = 128)]
         cached_statements: c_int,
-        #[pyarg(any, default = false)]
+        #[pyarg(named, default = false)]
         uri: bool,
-        #[pyarg(any, default)]
+        #[pyarg(named, default)]
         autocommit: AutocommitMode,
     }
 
@@ -416,6 +419,20 @@ mod _sqlite3 {
     struct IterDumpArgs {
         #[pyarg(named, optional)]
         filter: Option<PyStrRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct DatabaseNameArgs {
+        #[pyarg(named, default = "main")]
+        name: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct DeserializeArgs {
+        #[pyarg(positional)]
+        data: ArgStrOrBytesLike,
+        #[pyarg(named, default = "main")]
+        name: PyStrRef,
     }
 
     #[derive(FromArgs)]
@@ -476,6 +493,26 @@ mod _sqlite3 {
             // A shared connection may invoke this callback on a different thread
             // after the registering thread's VM has already been destroyed.
             rustpython_vm::vm::thread::with_vm(obj, |vm| f(obj, vm))
+        }
+
+        fn report_exception(callable: &PyObject, exc: PyBaseExceptionRef) {
+            if !enable_traceback().load(Ordering::Relaxed) {
+                return;
+            }
+            let callable = callable.to_owned();
+            // Both repr() and sys.unraisablehook can re-enter SQLite. The
+            // surrounding operation releases its cursor/statement locks first.
+            try_defer_drop(move || {
+                rustpython_vm::vm::thread::with_vm(&callable, |vm| {
+                    let message = callable.repr(vm).ok().map(|repr| {
+                        format!(
+                            "Exception ignored on sqlite3 callback {}",
+                            repr.to_string_lossy()
+                        )
+                    });
+                    vm.run_unraisable(exc.clone(), message, vm.ctx.none());
+                });
+            });
         }
 
         // The SQLite mutex keeps the registration alive until this reference is acquired.
@@ -677,7 +714,10 @@ mod _sqlite3 {
                     val.try_to_primitive::<c_int>(vm)
                 };
 
-                f().unwrap_or(SQLITE_DENY)
+                f().unwrap_or_else(|exc| {
+                    Self::report_exception(callable, exc);
+                    SQLITE_DENY
+                })
             })
             .unwrap_or(SQLITE_DENY)
         }
@@ -696,14 +736,30 @@ mod _sqlite3 {
                             unsafe { sqlite3_expanded_sql(stmt.cast()) },
                             |sql| unsafe { sqlite3_free(sql.cast()) },
                         );
-                        let text =
-                            ptr_to_str(*expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                        let text = if expanded.is_null() {
+                            let db = unsafe { sqlite3_db_handle(stmt.cast()) };
+                            if unsafe { sqlite3_errcode(db) } == SQLITE_NOMEM {
+                                return Err(vm.new_memory_error(""));
+                            }
+                            Self::report_exception(
+                                callable,
+                                vm.new_exception_msg(
+                                    data_error_type().to_owned(),
+                                    "Expanded SQL string exceeds the maximum string length".into(),
+                                ),
+                            );
+                            ptr_to_str(sql.cast(), vm)?
+                        } else {
+                            ptr_to_str(*expanded, vm)?
+                        };
                         vm.ctx.new_str(text)
                     };
                     callable.call((stmt,), vm)?;
                     Ok(())
                 };
-                let _ = f();
+                if let Err(exc) = f() {
+                    Self::report_exception(callable, exc);
+                }
                 0
             })
             .unwrap_or(0)
@@ -712,12 +768,13 @@ mod _sqlite3 {
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
             let data = unsafe { Self::registered(data) };
             data.with_vm(|callable, vm| {
-                if let Ok(val) = callable.call((), vm)
-                    && let Ok(val) = val.is_true(vm)
-                {
-                    return val as c_int;
+                match callable.call((), vm).and_then(|val| val.is_true(vm)) {
+                    Ok(val) => val as c_int,
+                    Err(exc) => {
+                        Self::report_exception(callable, exc);
+                        -1
+                    }
                 }
-                -1
             })
             .unwrap_or(-1)
         }
@@ -811,10 +868,19 @@ mod _sqlite3 {
     }
 
     #[pyfunction]
-    fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
-        let factory = args.factory.clone();
-        let conn = Connection::py_new(&factory, args, vm)?;
-        conn.into_ref_with_type(vm, factory).map(Into::into)
+    fn connect(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if args.args.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "connect() takes at most 1 positional arguments ({} given)",
+                args.args.len()
+            )));
+        }
+        let factory = args
+            .kwargs
+            .get("factory")
+            .cloned()
+            .unwrap_or_else(|| Connection::class(&vm.ctx).to_owned().into());
+        factory.call(args, vm)
     }
 
     #[pyfunction]
@@ -1015,36 +1081,21 @@ mod _sqlite3 {
     }
 
     impl Constructor for Connection {
-        type Args = ConnectArgs;
+        type Args = FuncArgs;
 
-        fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
-
-            // For non-subclassed Connection, initialize in __new__
-            // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Self::class(&vm.ctx));
-
-            let db = if is_base_class {
-                // Initialize immediately for base class
-                Some(Self::initialize_db(&args, vm)?)
-            } else {
-                // For subclasses, require __init__ to be called
-                None
-            };
-
-            let initialized = db.is_some();
-
             Ok(Self {
-                db: PyMutex::new(db),
-                statement_cache: PyMutex::new(StatementCache::new(args.cached_statements)),
-                initialized: Radium::new(initialized),
-                detect_types: Radium::new(args.detect_types),
-                isolation_level: PyAtomicRef::from(args.isolation_level.0),
-                check_same_thread: Radium::new(args.check_same_thread),
+                db: PyMutex::new(None),
+                statement_cache: PyMutex::new(StatementCache::new(0)),
+                initialized: Radium::new(false),
+                detect_types: Radium::new(0),
+                isolation_level: PyAtomicRef::from(None),
+                check_same_thread: Radium::new(false),
                 thread_ident: PyMutex::new(std::thread::current().id()),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
-                autocommit: PyMutex::new(args.autocommit),
+                autocommit: PyMutex::new(AutocommitMode::default()),
             })
         }
     }
@@ -1354,6 +1405,12 @@ mod _sqlite3 {
         #[pymethod]
         fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             zelf.check_thread(vm)?;
+            if !zelf.initialized.load(Ordering::Acquire) {
+                return Err(new_programming_error(
+                    vm,
+                    "Base Connection.__init__ not called.".to_owned(),
+                ));
+            }
             zelf.drop_db(vm)
         }
 
@@ -1822,6 +1879,108 @@ mod _sqlite3 {
                 .map_or_else(|| vm.ctx.none(), |filter| filter.into());
             let kwargs = core::iter::once(("filter", filter)).collect::<KwArgs>();
             func.call(FuncArgs::new(vec![zelf.into()], kwargs), vm)
+        }
+
+        #[pymethod]
+        fn serialize(
+            zelf: &Py<Self>,
+            args: DatabaseNameArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<PyBytes>> {
+            use libsqlite3_sys::{SQLITE_SERIALIZE_NOCOPY, sqlite3_serialize};
+
+            with_deferred_drops(|| {
+                let name = args.name.to_cstring(vm)?;
+                let db = zelf.db_lock(vm)?;
+                let bytes = {
+                    // A no-copy SQLite view is only valid while no other operation
+                    // can modify the database. Copy it before releasing the mutex.
+                    let _guard = db.raw.lock();
+                    let mut size = 0;
+                    let mut flags = SQLITE_SERIALIZE_NOCOPY;
+                    let mut ptr =
+                        unsafe { sqlite3_serialize(db.db, name.as_ptr(), &mut size, flags) };
+                    if ptr.is_null() {
+                        flags = 0;
+                        ptr = unsafe { sqlite3_serialize(db.db, name.as_ptr(), &mut size, flags) };
+                    }
+                    let allocation = scopeguard::guard(ptr, |ptr| {
+                        if flags == 0 {
+                            unsafe { sqlite3_free(ptr.cast()) };
+                        }
+                    });
+                    if allocation.is_null() {
+                        return Err(new_operational_error(
+                            vm,
+                            format!("unable to serialize '{}'", args.name),
+                        ));
+                    }
+                    let size = usize::try_from(size)
+                        .ok()
+                        .filter(|&n| isize::try_from(n).is_ok())
+                        .ok_or_else(|| vm.new_overflow_error("serialized database is too large"))?;
+                    let mut bytes = Vec::new();
+                    bytes
+                        .try_reserve_exact(size)
+                        .map_err(|_| vm.no_memory_error())?;
+                    bytes.extend_from_slice(unsafe {
+                        core::slice::from_raw_parts(*allocation, size)
+                    });
+                    bytes
+                };
+                Ok(vm.ctx.new_bytes(bytes))
+            })
+        }
+
+        #[pymethod]
+        fn deserialize(
+            zelf: &Py<Self>,
+            args: DeserializeArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            use libsqlite3_sys::{
+                SQLITE_DESERIALIZE_FREEONCLOSE, SQLITE_DESERIALIZE_RESIZEABLE, sqlite3_deserialize,
+                sqlite3_malloc64,
+            };
+
+            if let ArgStrOrBytesLike::Str(text) = &args.data {
+                text.try_as_utf8(vm)?;
+            }
+            with_deferred_drops(|| {
+                let name = args.name.to_cstring(vm)?;
+                let db = zelf.db_lock(vm)?;
+                let (allocation, size) = {
+                    let bytes = args.data.borrow_bytes();
+                    let size = i64::try_from(bytes.len())
+                        .map_err(|_| vm.new_overflow_error("'data' is too large"))?;
+                    let ptr = unsafe { sqlite3_malloc64(size as u64) }.cast::<u8>();
+                    if ptr.is_null() {
+                        return Err(vm.no_memory_error());
+                    }
+                    let allocation =
+                        scopeguard::guard(ptr, |ptr| unsafe { sqlite3_free(ptr.cast()) });
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(bytes.as_ptr(), *allocation, bytes.len())
+                    };
+                    (allocation, size)
+                };
+                // SQLite owns this allocation on both success and failure when
+                // FREEONCLOSE is set. No source-buffer borrow spans the call.
+                let ptr = scopeguard::ScopeGuard::into_inner(allocation);
+                db.checked(
+                    || unsafe {
+                        sqlite3_deserialize(
+                            db.db,
+                            name.as_ptr(),
+                            ptr,
+                            size,
+                            size,
+                            SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE,
+                        )
+                    },
+                    vm,
+                )
+            })
         }
 
         #[pymethod]
@@ -4441,9 +4600,8 @@ mod _sqlite3 {
             } else {
                 unsafe { sqlite3_result_error(self.ctx, msg.as_ptr(), -1) }
             }
-            if enable_traceback().load(Ordering::Relaxed) {
-                vm.print_exception(&exc);
-            }
+            let callable = unsafe { (*self.user_data::<CallbackData>()).obj.as_ref() };
+            CallbackData::report_exception(callable, exc);
         }
 
         fn db_handle(self) -> *mut sqlite3 {

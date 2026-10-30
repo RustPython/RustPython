@@ -751,7 +751,24 @@ impl PyCode {
     /// `deopt_code`: the instructions with each opcode replaced by its base
     /// opcode (`_Py_GetBaseCodeUnit`) and the inline caches zeroed.
     fn deopt_code(&self) -> Vec<u8> {
-        self.code.instructions.original_bytes()
+        let monitoring_data = self.monitoring_data.lock();
+        self.code.instructions.original_bytes_with(|i, op| {
+            let Some(data) = monitoring_data.as_ref() else {
+                return op;
+            };
+            let op = match op {
+                Instruction::InstrumentedLine => Instruction::try_from(data.line_opcodes[i])
+                    .expect("INSTRUMENTED_LINE without original opcode"),
+                op => op,
+            };
+            match op {
+                Instruction::InstrumentedInstruction => {
+                    Instruction::try_from(data.per_instruction_opcodes[i])
+                        .expect("INSTRUMENTED_INSTRUCTION without original opcode")
+                }
+                op => op,
+            }
+        })
     }
 
     pub fn source_path(&self) -> &'static PyStrInterned {
@@ -787,18 +804,6 @@ impl PyCode {
         let py_code = Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)));
         apply_frozen_co_filename(&py_code, vm);
         py_code
-    }
-
-    pub fn try_new_ref_from_frozen<B: AsRef<[u8]>>(
-        vm: &VirtualMachine,
-        code: frozen::FrozenCodeObject<B>,
-    ) -> PyResult<PyRef<Self>> {
-        let code = code
-            .try_decode(PyVmBag(vm))
-            .map_err(|e| vm.new_value_error(format!("invalid frozen bytecode: {e}")))?;
-        let py_code = Self::new_ref_with_bag(vm, code);
-        apply_frozen_co_filename(&py_code, vm);
-        Ok(py_code)
     }
 
     #[cfg(feature = "host_env")]
@@ -1146,7 +1151,7 @@ impl Constructor for PyCode {
 
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
-        let instructions = CodeUnits::from_external_bytes(bytecode_bytes)
+        let instructions = CodeUnits::try_from(bytecode_bytes)
             .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
         let constants = bytecode::Constants::new(LiteralTuple(args.consts));
@@ -1693,10 +1698,10 @@ impl Py<PyCode> {
         let instructions = match co_code {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
-                CodeUnits::from_external_bytes(code_bytes.as_bytes())
+                CodeUnits::try_from(code_bytes.as_bytes())
                     .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
-            OptionalArg::Missing => CodeUnits::from_external_bytes(self.get_code(vm).as_bytes())
+            OptionalArg::Missing => CodeUnits::try_from(self.get_code(vm).as_bytes())
                 .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?,
         };
 

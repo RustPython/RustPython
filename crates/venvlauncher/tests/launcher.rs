@@ -96,4 +96,70 @@ mod tests {
             assert_eq!(output.stdout, expected);
         }
     }
+
+    #[test]
+    fn launches_rustpython_interpreter_names() {
+        for (launcher, interpreter) in [
+            ("python.exe", "rustpython.exe"),
+            ("pythonw.exe", "rustpythonw.exe"),
+            ("venvlauncher.exe", "rustpython.exe"),
+            ("venvwlauncher.exe", "rustpythonw.exe"),
+            ("venvlaunchert.exe", "rustpython.exe"),
+            ("venvwlaunchert.exe", "rustpythonw.exe"),
+        ] {
+            let fixture = TestVenv::new();
+            let home = fixture.root.join("home");
+            fs::rename(home.join("python.exe"), home.join(interpreter)).unwrap();
+            let launcher = fixture.root.join("Scripts").join(launcher);
+            fs::copy(env!("CARGO_BIN_EXE_venvlaunchert"), &launcher).unwrap();
+            let output = Command::new(launcher)
+                .args(["/d", "/c", "exit", "23"])
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(23), "{:?}", output.stderr);
+        }
+    }
+
+    #[test]
+    fn prefers_rustpython_over_legacy_name() {
+        let fixture = TestVenv::new();
+        let home = fixture.root.join("home");
+        fs::rename(home.join("python.exe"), home.join("rustpython.exe")).unwrap();
+        fs::write(home.join("python.exe"), b"not an executable").unwrap();
+        let output = fixture
+            .command()
+            .args(["/d", "/c", "exit", "23"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(23), "{:?}", output.stderr);
+    }
+
+    #[test]
+    fn retains_legacy_windowed_name() {
+        let fixture = TestVenv::new();
+        let home = fixture.root.join("home");
+        fs::rename(home.join("python.exe"), home.join("pythonw.exe")).unwrap();
+        let launcher = fixture.root.join("Scripts/pythonw.exe");
+        fs::copy(env!("CARGO_BIN_EXE_venvlaunchert"), &launcher).unwrap();
+        let output = Command::new(launcher)
+            .args(["/d", "/c", "exit", "23"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(23), "{:?}", output.stderr);
+    }
+
+    #[test]
+    fn does_not_use_console_interpreter_for_windowed_launcher() {
+        let fixture = TestVenv::new();
+        let home = fixture.root.join("home");
+        fs::rename(home.join("python.exe"), home.join("rustpython.exe")).unwrap();
+        let launcher = fixture.root.join("Scripts/pythonw.exe");
+        fs::copy(env!("CARGO_BIN_EXE_venvlaunchert"), &launcher).unwrap();
+        let output = Command::new(launcher)
+            .args(["/d", "/c", "exit", "23"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Python not found"));
+    }
 }

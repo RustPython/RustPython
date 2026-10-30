@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef, iter::builtins_iter, locked_next,
+    PositionIterInternal, PyBytes, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef, PyType,
+    PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -20,7 +20,7 @@ use crate::{
         PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -493,8 +493,8 @@ impl PyByteArray {}
 
 #[derive(FromArgs)]
 struct ByteArrayReduceExArgs {
-    #[pyarg(positional, default)]
-    proto: usize,
+    #[pyarg(positional, optional)]
+    proto: OptionalArg<ArgIndex>,
 }
 
 #[derive(FromArgs)]
@@ -666,19 +666,44 @@ impl Py<PyByteArray> {
         &self,
         args: ByteArrayReduceExArgs,
         vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let _ = args.proto;
-        self.__reduce__(vm)
+    ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
+        let proto = match args.proto {
+            OptionalArg::Present(proto) => {
+                proto.as_ref().as_bigint().to_i32().ok_or_else(|| {
+                    vm.new_overflow_error("Python int too large to convert to C int")
+                })?
+            }
+            OptionalArg::Missing => 0,
+        };
+        self.common_reduce(proto, vm)
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(self.borrow_buf().to_vec()).to_pyobject(vm);
-        (
-            self.class().to_owned(),
-            PyTuple::new_ref(vec![bytes], &vm.ctx),
-            self.as_object().dict(),
-        )
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
+        self.common_reduce(2, vm)
+    }
+
+    fn common_reduce(
+        &self,
+        proto: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
+        // Like CPython's _common_reduce, get state before reading the buffer:
+        // an overridden __getstate__ may change the bytearray contents.
+        let state = self
+            .as_object()
+            .get_attr(identifier!(vm, __getstate__), vm)?
+            .call((), vm)?;
+        let bytes = self.borrow_buf();
+        let args = if bytes.is_empty() {
+            PyTuple::new_ref(Vec::new(), &vm.ctx)
+        } else if proto < 3 {
+            let text: String = bytes.iter().map(|&byte| char::from(byte)).collect();
+            vm.new_tuple((vm.ctx.new_str(text), "latin-1"))
+        } else {
+            vm.new_tuple((PyBytes::from(bytes.to_vec()).to_pyobject(vm),))
+        };
+        Ok((self.class().to_owned(), args, state))
     }
 
     #[cfg(debug_assertions)]

@@ -1,6 +1,6 @@
 use super::{
-    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
-    try_bigint_to_f64,
+    PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef,
+    PyUtf8StrRef, try_bigint_to_f64,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -315,12 +315,15 @@ pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
             val.class().slot_name()
         )));
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| {
-        val.repr(vm).map_or_else(
-            |e| e,
-            |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
-        )
-    })
+    crate::literal::float::parse_bytes(b).ok_or_else(|| invalid_float_literal_error(val, vm))
+}
+
+/// Build the existing float-conversion error after native parsing has failed.
+pub fn invalid_float_literal_error(val: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    val.repr(vm).map_or_else(
+        |e| e,
+        |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
+    )
 }
 
 #[derive(FromArgs)]

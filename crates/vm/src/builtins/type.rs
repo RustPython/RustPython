@@ -1863,12 +1863,22 @@ impl PyType {
     pub fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         or_(zelf, other, vm)
     }
+}
 
+impl Py<PyType> {
     fn check_set_special_type_attr(
         &self,
         name: &PyStrInterned,
+        value: PySetterValue,
         vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    ) -> PyResult<PyObjectRef> {
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot delete '{}' attribute of type '{}'",
+                name,
+                self.slot_name()
+            ))
+        })?;
         if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
@@ -1876,7 +1886,11 @@ impl PyType {
                 self.slot_name()
             )));
         }
-        Ok(())
+        let name: &Py<PyStr> = name;
+        vm.audit("object.__setattr__", || {
+            (self.to_owned(), name.to_owned(), value.clone())
+        })?;
+        Ok(value)
     }
 }
 
@@ -2610,15 +2624,8 @@ impl Py<PyType> {
     #[pygetset(setter)]
     fn set___doc__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         // Similar to CPython's type_set_doc
-        let value = value.ok_or_else(|| {
-            vm.new_type_error(format!(
-                "cannot delete '__doc__' attribute of type '{}'",
-                self.slot_name()
-            ))
-        })?;
-
         // Check if we can set this special type attribute
-        self.check_set_special_type_attr(identifier!(vm, __doc__), vm)?;
+        let value = self.check_set_special_type_attr(identifier!(vm, __doc__), value, vm)?;
 
         let _prev_value = PyType::with_type_lock(vm, || {
             self.modified_inner();
@@ -2672,13 +2679,7 @@ impl Py<PyType> {
     fn set_bases(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
-        let value = value.ok_or_else(|| {
-            vm.new_type_error(format!(
-                "cannot delete '__bases__' attribute of type '{}'",
-                zelf.slot_name()
-            ))
-        })?;
-        zelf.check_set_special_type_attr(identifier!(vm, __bases__), vm)?;
+        let value = zelf.check_set_special_type_attr(identifier!(vm, __bases__), value, vm)?;
         let bases_tuple = value.downcast::<PyTuple>().map_err(|value| {
             vm.new_type_error(format!(
                 "can only assign tuple to {}.__bases__, not {}",
@@ -2923,15 +2924,15 @@ impl Py<PyType> {
 
     #[pygetset(setter)]
     fn set___qualname__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(identifier!(vm, __qualname__), vm)?;
-        let value = value.ok_or_else(|| {
+        let value = self.check_set_special_type_attr(identifier!(vm, __qualname__), value, vm)?;
+
+        let str_value = value.downcast::<PyStr>().map_err(|value| {
             vm.new_type_error(format!(
-                "cannot delete '__qualname__' attribute of immutable type '{}'",
-                self.name()
+                "can only assign string to {}.__qualname__, not '{}'",
+                self.slot_name(),
+                value.class().slot_name(),
             ))
         })?;
-
-        let str_value = downcast_qualname(value, vm)?;
 
         let heap_type = self.heaptype_ext.as_ref().ok_or_else(|| {
             vm.new_type_error(format!(
@@ -3149,8 +3150,8 @@ impl Py<PyType> {
     }
 
     #[pygetset(setter)]
-    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
+    fn set___module__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let value = self.check_set_special_type_attr(identifier!(vm, __module__), value, vm)?;
         let _prev_values = PyType::with_type_lock(vm, || {
             self.modified_inner();
             let removed = self.attributes.remove(identifier!(vm, __firstlineno__));
@@ -3196,8 +3197,8 @@ impl Py<PyType> {
     }
 
     #[pygetset(setter)]
-    fn set___name__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(identifier!(vm, __name__), vm)?;
+    fn set___name__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let value = self.check_set_special_type_attr(identifier!(vm, __name__), value, vm)?;
         let name = value.downcast::<PyStr>().map_err(|value| {
             vm.new_type_error(format!(
                 "can only assign string to {}.__name__, not '{}'",
@@ -3263,18 +3264,11 @@ impl Py<PyType> {
     #[pygetset(setter)]
     fn set___type_params__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         let key = identifier!(vm, __type_params__);
-        match value {
-            PySetterValue::Assign(val) => {
-                self.check_set_special_type_attr(key, vm)?;
-                let _prev_value = PyType::with_type_lock(vm, || {
-                    self.modified_inner();
-                    self.attributes.insert(key, val)
-                });
-            }
-            PySetterValue::Delete => {
-                return Err(vm.new_type_error("cannot delete '__type_params__'"));
-            }
-        }
+        let value = self.check_set_special_type_attr(key, value, vm)?;
+        let _prev_value = PyType::with_type_lock(vm, || {
+            self.modified_inner();
+            self.attributes.insert(key, value)
+        });
         Ok(())
     }
 }

@@ -2062,16 +2062,96 @@ fn py_to_constant_data(
     }
     if let Ok(code) = obj.clone().downcast::<PyCode>() {
         return Ok(ConstantData::Code {
-            code: Box::new(
-                code.code
-                    .map_clone_bag(&rustpython_compiler_core::bytecode::BasicBag),
-            ),
+            code: Box::new(snapshot_code_constant(&code, vm)?),
         });
     }
     Err(vm.new_type_error(format!(
         "cannot convert {} to a code constant",
         obj.class().name()
     )))
+}
+
+#[cfg(feature = "codegen")]
+fn snapshot_code_constant(
+    code: &Py<PyCode>,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_compiler_core::bytecode::CodeObject> {
+    use rustpython_compiler_core::bytecode::{BasicBag, CodeObject, CodeUnits, ConstantBag};
+
+    // get_code resolves monitoring wrappers under the owning code's lock and
+    // omits execution caches. Release that lock before visiting nested code.
+    let instructions = CodeUnits::try_from(code.get_code(vm).as_bytes())
+        .map_err(|err| vm.new_value_error(format!("invalid bytecode: {err}")))?;
+    let source = &code.code;
+    let constants = source
+        .constants
+        .iter()
+        .map(|constant| snapshot_literal_constant(constant, vm))
+        .collect::<PyResult<Vec<_>>>()?;
+    let map_name =
+        |name: &PyStrInterned| -> String { BasicBag.make_name(AsRef::<str>::as_ref(name)) };
+    let map_names = |names: &[&PyStrInterned]| -> Box<[String]> {
+        names.iter().map(|name| map_name(name)).collect()
+    };
+    Ok(CodeObject {
+        instructions,
+        constants: constants.into_iter().collect(),
+        names: map_names(&source.names),
+        varnames: map_names(&source.varnames),
+        cellvars: map_names(&source.cellvars),
+        freevars: map_names(&source.freevars),
+        source_path: map_name(code.source_path()),
+        obj_name: map_name(source.obj_name),
+        qualname: map_name(source.qualname),
+        locations: source.locations.clone(),
+        flags: source.flags,
+        posonlyarg_count: source.posonlyarg_count,
+        arg_count: source.arg_count,
+        kwonlyarg_count: source.kwonlyarg_count,
+        first_line_number: source.first_line_number,
+        max_stackdepth: source.max_stackdepth,
+        localspluskinds: source.localspluskinds.clone(),
+        linetable: source.linetable.clone(),
+        exceptiontable: source.exceptiontable.clone(),
+    })
+}
+
+#[cfg(feature = "codegen")]
+fn snapshot_literal_constant(
+    constant: &crate::builtins::code::Literal,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_compiler_core::bytecode::ConstantData> {
+    use rustpython_compiler_core::bytecode::{BorrowedConstant, Constant, ConstantData};
+
+    // Do not erase a live PyCode's owner through BorrowedConstant::Code.
+    let object: PyObjectRef = constant.clone().into();
+    if let Some(code) = object.downcast_ref::<PyCode>() {
+        return Ok(ConstantData::Code {
+            code: Box::new(snapshot_code_constant(code, vm)?),
+        });
+    }
+    Ok(match constant.borrow_constant() {
+        BorrowedConstant::Tuple { elements } => ConstantData::Tuple {
+            elements: elements
+                .iter()
+                .map(|item| snapshot_literal_constant(item, vm))
+                .collect::<PyResult<Vec<_>>>()?,
+        },
+        BorrowedConstant::Frozenset { elements } => ConstantData::Frozenset {
+            elements: elements
+                .iter()
+                .map(|item| snapshot_literal_constant(item, vm))
+                .collect::<PyResult<Vec<_>>>()?,
+        },
+        BorrowedConstant::Slice { elements } => ConstantData::Slice {
+            elements: Box::new([
+                snapshot_literal_constant(&elements[0], vm)?,
+                snapshot_literal_constant(&elements[1], vm)?,
+                snapshot_literal_constant(&elements[2], vm)?,
+            ]),
+        },
+        scalar => scalar.to_owned(),
+    })
 }
 
 #[cfg(feature = "codegen")]

@@ -66,7 +66,6 @@ class ReTests(unittest.TestCase):
     def test_error_is_PatternError_alias(self):
         assert re.error is re.PatternError
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')
@@ -1435,7 +1434,6 @@ class ReTests(unittest.TestCase):
         # current pickle expects the _compile() reconstructor in re module
         from re import _compile  # noqa: F401
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_copying(self):
         import copy
         p = re.compile(r'(?P<int>\d+)(?:\.(?P<frac>\d*))?')
@@ -2742,10 +2740,6 @@ class ReTests(unittest.TestCase):
         self.check_interrupt(r'([^:]){2,4}?:', 'abc:', 100)
         self.check_interrupt(r'([^:]){2,4}+:', 'abc:', 100)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_template_function_and_flag_is_deprecated(self):
-        return super().test_template_function_and_flag_is_deprecated()
-
 
 def get_debug_out(pat):
     with captured_stdout() as out:
@@ -2880,7 +2874,6 @@ class PatternReprTests(unittest.TestCase):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unknown_flags(self):
         self.check_flags('random pattern', 0x123000,
                          "re.compile('random pattern', 0x123000)")

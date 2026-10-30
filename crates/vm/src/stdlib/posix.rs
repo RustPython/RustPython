@@ -19,7 +19,7 @@ pub mod module {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
-        convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
@@ -398,8 +398,12 @@ pub mod module {
             .collect())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     #[pyfunction]
-    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(
+        args: AccessArgs<'_>,
+        #[allow(unused_variables)] vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         #[cfg(any(
             target_os = "android",
             target_os = "espidf",
@@ -439,14 +443,13 @@ pub mod module {
         )))]
         let dir_fd = None;
 
-        rustpython_host_env::posix::check_access(
+        Ok(rustpython_host_env::posix::check_access(
             dir_fd,
             args.path.as_ref(),
             args.mode,
             args.effective_ids,
             args.follow_symlinks.0,
-        )
-        .map_err(|err| err.to_pyexception(vm))
+        ))
     }
 
     #[pyfunction]

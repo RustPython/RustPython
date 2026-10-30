@@ -58,7 +58,6 @@ class AuditTest(unittest.TestCase):
     def test_block_add_hook_baseexception(self):
         self.do_test("test_block_add_hook_baseexception")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_marshal(self):
         import_helper.import_module("marshal")
 
@@ -69,7 +68,6 @@ class AuditTest(unittest.TestCase):
 
         self.do_test("test_pickle")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_monkeypatch(self):
         self.do_test("test_monkeypatch")
 
@@ -80,7 +78,6 @@ class AuditTest(unittest.TestCase):
     def test_cantrace(self):
         self.do_test("test_cantrace")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mmap(self):
         self.do_test("test_mmap")
 

@@ -769,7 +769,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         for cp in range(0, sys.maxunicode + 1):
             self.assertEqual(self.db.name(chr(cp), None), names_ref.get(cp))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidstart'
     def test_isxidstart(self):
         self.assertTrue(self.db.isxidstart('S'))
         self.assertTrue(self.db.isxidstart('\u0AD0'))  # GUJARATI OM
@@ -783,7 +782,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.isxidstart)
         self.assertRaises(TypeError, self.db.isxidstart, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidcontinue'
     def test_isxidcontinue(self):
         self.assertTrue(self.db.isxidcontinue('S'))
         self.assertTrue(self.db.isxidcontinue('_'))
@@ -1013,7 +1011,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
             'a\U0001F1FA\U0001F1E6\U0001F1FA\U0001F1F3'),
             ['a', '\U0001F1FA\U0001F1E6', '\U0001F1FA\U0001F1F3'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
     def test_block(self):
         self.assertEqual(self.db.block('\u0000'), 'Basic Latin')
         self.assertEqual(self.db.block('\u0041'), 'Basic Latin')
@@ -1098,7 +1095,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertEqual(self.db.block('\U00100000'), 'Supplementary Private Use Area-B')
         self.assertEqual(self.db.block('\U0010FFFF'), 'Supplementary Private Use Area-B')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
     def test_block_invalid_input(self):
         self.assertRaises(TypeError, self.db.block)
         self.assertRaises(TypeError, self.db.block, b'x')

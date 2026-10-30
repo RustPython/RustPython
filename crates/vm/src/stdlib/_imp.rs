@@ -515,7 +515,7 @@ mod _imp {
         // Frozen modules are stored in their own encoding, so it has to be
         // re-serialized rather than handed out as a view of the stored bytes.
         let data = if withdata {
-            let code = PyCode::try_new_ref_from_frozen(vm, info.code)?;
+            let code = PyCode::new_ref_from_frozen(vm, info.code);
             let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
             let bytes = dumps.call((code,), vm)?;
             Some(PyMemoryView::from_object(&bytes, vm)?.into_ref(&vm.ctx))

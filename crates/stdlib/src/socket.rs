@@ -2619,7 +2619,7 @@ mod _socket {
         #[inline]
         fn detach(zelf: &Py<Self>) -> i64 {
             let sock = zelf.take_sock();
-            sock.map_or(INVALID_SOCKET as i64, |s| into_sock_fileno(s) as i64)
+            sock.map_or(-1, |s| into_sock_fileno(s) as i64)
         }
 
         #[pymethod]
@@ -2627,7 +2627,7 @@ mod _socket {
             zelf.sock
                 .read()
                 .as_ref()
-                .map_or(INVALID_SOCKET as i64, |s| sock_fileno(s) as i64)
+                .map_or(-1, |s| sock_fileno(s) as i64)
         }
 
         #[pymethod]
@@ -2656,6 +2656,11 @@ mod _socket {
         fn gettimeout(zelf: &Py<Self>) -> Option<f64> {
             let timeout = zelf.timeout.load();
             if timeout >= 0.0 { Some(timeout) } else { None }
+        }
+
+        #[pygetset]
+        fn timeout(zelf: &Py<Self>) -> Option<f64> {
+            Self::gettimeout(zelf)
         }
 
         #[pymethod]
@@ -3938,16 +3943,8 @@ mod _socket {
         }
     }
 
-    pub(super) const INVALID_SOCKET: RawSocket = {
-        #[cfg(unix)]
-        {
-            -1
-        }
-        #[cfg(windows)]
-        {
-            host_socket::INVALID_RAW_SOCKET as RawSocket
-        }
-    };
+    #[cfg(windows)]
+    pub(super) const INVALID_SOCKET: RawSocket = host_socket::INVALID_RAW_SOCKET as RawSocket;
 
     fn convert_socket_error(
         vm: &VirtualMachine,
@@ -4067,6 +4064,30 @@ mod _socket {
         let length = length.try_index(vm)?.try_to_primitive_in_range(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
+    }
+
+    #[cfg(test)]
+    mod socket_tests {
+        use super::*;
+
+        #[test]
+        fn closed_socket_descriptors_are_negative_one() {
+            let builder = crate::vm::Interpreter::builder(Default::default());
+            let defs = crate::stdlib_module_defs(&builder.ctx);
+            let interp = builder.add_native_modules(&defs).build();
+            interp.enter(|vm| {
+                vm.import("_socket", 0).unwrap();
+                let socket = PySocket::default().into_ref(&vm.ctx);
+                for _ in 0..2 {
+                    assert_eq!(PySocket::fileno(&socket), -1);
+                    assert_eq!(PySocket::detach(&socket), -1);
+                }
+                assert_eq!(
+                    PySocket::repr_str(&socket, vm).unwrap(),
+                    "<socket object, fd=-1, family=0, type=0, proto=0>",
+                );
+            });
+        }
     }
 
     #[cfg(test)]

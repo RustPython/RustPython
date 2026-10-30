@@ -15,7 +15,7 @@ mod decl {
             PySet, PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, ArgIntoBool},
         object::{AsObject, PyPayload},
     };
     use core::cell::RefCell;
@@ -102,8 +102,8 @@ mod decl {
         value: PyObjectRef,
         #[pyarg(positional, default = 6)]
         version: i32,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -113,6 +113,7 @@ mod decl {
             allow_code,
             version,
         } = args;
+        let allow_code = allow_code.into();
 
         vm.audit("marshal.dumps", || (value.clone(), version))?;
 
@@ -526,12 +527,12 @@ mod decl {
         file: PyObjectRef,
         #[pyarg(positional, default = 6)]
         version: i32,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
-    fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let dumped = dumps(
             DumpsArgs {
                 value: args.value,
@@ -540,8 +541,7 @@ mod decl {
             },
             vm,
         )?;
-        vm.call_method(&args.file, "write", (dumped,))?;
-        Ok(())
+        vm.call_method(&args.file, "write", (dumped,))
     }
 
     #[derive(Copy, Clone)]
@@ -590,13 +590,6 @@ mod decl {
     }
 
     impl<'a> marshal::MarshalBag for PyMarshalBag<'a> {
-        fn code_units_from_bytes(
-            &self,
-            bytes: &[u8],
-        ) -> Result<rustpython_compiler_core::bytecode::CodeUnits, marshal::MarshalError> {
-            rustpython_compiler_core::bytecode::CodeUnits::from_external_bytes(bytes)
-        }
-
         type Value = PyObjectRef;
         type ConstantBag = PyVmBag<'a>;
 
@@ -835,13 +828,17 @@ mod decl {
         #[pyarg(positional)]
         // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
         bytes: ArgBytesLike,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let LoadsArgs { bytes, allow_code } = args;
+        let allow_code = allow_code.into();
+        vm.audit("marshal.loads", || {
+            (vm.ctx.new_bytes(bytes.borrow_buf().to_vec()),)
+        })?;
         let buf = bytes.borrow_buf();
 
         deserialize_value(&mut &buf[..], allow_code, vm)
@@ -851,12 +848,21 @@ mod decl {
     struct LoadArgs {
         #[pyarg(positional)]
         file: PyObjectRef,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let data = vm.call_method(&args.file, "read", (0,))?;
+        if data.downcast_ref::<PyBytes>().is_none() {
+            let name = data.class().slot_name();
+            return Err(vm.new_type_error(format!(
+                "file.read() returned not bytes but {}",
+                &name[..name.floor_char_boundary(100.min(name.len()))]
+            )));
+        }
+        vm.audit("marshal.load", || ())?;
         let mut rdr = ReadableFile {
             file: args.file,
             vm,
@@ -866,7 +872,7 @@ mod decl {
         let pending_error = RefCell::new(None);
         let result = marshal::deserialize_value(
             &mut rdr,
-            PyMarshalBag::new(vm, &pending_error, args.allow_code),
+            PyMarshalBag::new(vm, &pending_error, args.allow_code.into()),
         );
         if let Some(err) = rdr.error.take() {
             return Err(err);

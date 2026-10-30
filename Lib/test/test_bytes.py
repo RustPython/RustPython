@@ -1920,7 +1920,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         # self.assertGreater(alloc, len(b))
         self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_extend(self):
         orig = b'hello'
         a = bytearray(orig)
@@ -2646,14 +2645,6 @@ class ByteArraySubclassTest(SubclassTest, unittest.TestCase):
 class ByteArraySubclassWithSlotsTest(SubclassTest, unittest.TestCase):
     basetype = bytearray
     type2test = ByteArraySubclassWithSlots
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_copy(self):
-        return super().test_copy()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickle(self):
-        return super().test_pickle()
 
 class BytesSubclassTest(SubclassTest, unittest.TestCase):
     basetype = bytes
