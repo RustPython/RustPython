@@ -1920,7 +1920,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         # self.assertGreater(alloc, len(b))
         self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_extend(self):
         orig = b'hello'
         a = bytearray(orig)
