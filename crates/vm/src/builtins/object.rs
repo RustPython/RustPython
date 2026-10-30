@@ -445,11 +445,15 @@ impl PyBaseObject {
     #[pygetset(setter)]
     fn set___class__(
         instance: PyObjectRef,
-        value: PyObjectRef,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let value = value.ok_or_else(|| vm.new_type_error("can't delete __class__ attribute"))?;
         match value.downcast::<PyType>() {
             Ok(cls) => {
+                vm.audit("object.__setattr__", || {
+                    (instance.clone(), "__class__", cls.clone())
+                })?;
                 let current_cls = instance.class();
                 let both_module = current_cls.fast_issubclass(vm.ctx.types.module_type)
                     && cls.fast_issubclass(vm.ctx.types.module_type);

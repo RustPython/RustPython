@@ -69,7 +69,6 @@ class AuditTest(unittest.TestCase):
 
         self.do_test("test_pickle")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_monkeypatch(self):
         self.do_test("test_monkeypatch")
 
