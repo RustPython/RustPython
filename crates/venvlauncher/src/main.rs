@@ -33,13 +33,13 @@ fn run() -> Result<u32, Box<dyn core::error::Error>> {
         .to_string_lossy();
 
     // 2. Determine target executable name based on launcher name
-    // pythonw.exe / venvwlauncher -> pythonw.exe (GUI, no console)
-    // python.exe / venvlauncher -> python.exe (console)
+    // pythonw.exe / venvwlauncher -> GUI interpreter (no console)
+    // python.exe / venvlauncher -> console interpreter
     let exe_name_lower = exe_name.to_lowercase();
-    let target_exe = if exe_name_lower.contains("pythonw") || exe_name_lower.contains("venvw") {
-        "pythonw.exe"
+    let target_exes = if exe_name_lower.contains("pythonw") || exe_name_lower.contains("venvw") {
+        ["rustpythonw.exe", "pythonw.exe"]
     } else {
-        "python.exe"
+        ["rustpython.exe", "python.exe"]
     };
 
     // 3. Find pyvenv.cfg
@@ -56,10 +56,11 @@ fn run() -> Result<u32, Box<dyn core::error::Error>> {
     let home = read_home(&cfg_path)?;
 
     // 5. Locate python executable in home directory
-    let python_path = PathBuf::from(&home).join(target_exe);
-    if !python_path.exists() {
-        return Err(format!("Python not found: {}", python_path.display()).into());
-    }
+    let python_path = target_exes
+        .iter()
+        .map(|name| PathBuf::from(&home).join(name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| format!("Python not found in: {home}"))?;
 
     // 6. Set __PYVENV_LAUNCHER__ environment variable
     // This tells Python it was launched from a venv
