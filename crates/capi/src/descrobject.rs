@@ -1,5 +1,5 @@
 use crate::PyObject;
-use crate::methodobject::{PyMethodDef, build_method_def};
+use crate::methodobject::PyMethodDef;
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn PyDescr_NewMethod(
     method: *mut PyMethodDef,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let method = build_method_def(vm, unsafe { &*method }, true)?;
+        let method = unsafe { &*method }.build_method_def(vm, true)?;
         Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }
@@ -212,7 +212,7 @@ pub unsafe extern "C" fn PyDescr_NewClassMethod(
     method: *mut PyMethodDef,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let method = build_method_def(vm, unsafe { &*method }, true)?;
+        let method = unsafe { &*method }.build_method_def(vm, true)?;
         Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }

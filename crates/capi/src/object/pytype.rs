@@ -1,5 +1,5 @@
 use crate::descrobject::{PyGetSetDef, PyMemberDef};
-use crate::methodobject::{PyMethodDef, build_method_def};
+use crate::methodobject::PyMethodDef;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::slots::{PySlot, PySlotKind, PySlotType};
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                                 let name = unsafe { def.ml_name.try_as_str(vm)? };
                                 let is_static = PyMethodFlags::from_bits_retain(def.ml_flags as _)
                                     .contains(PyMethodFlags::STATIC);
-                                let method = build_method_def(vm, def, !is_static)?;
+                                let method = def.build_method_def(vm, !is_static)?;
                                 methods.push((name, method));
                             }
                         }
