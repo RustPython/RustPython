@@ -1,0 +1,202 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/if_expr_statement_after_else.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..61,
+        body: [
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 0..20,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 0..1,
+                                id: Name("x"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: If(
+                        ExprIf {
+                            node_index: NodeIndex(None),
+                            range: 4..20,
+                            test: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 9..10,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            body: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 4..5,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            orelse: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 16..20,
+                                    id: Name("pass"),
+                                    ctx: Load,
+                                },
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 21..36,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 21..22,
+                                id: Name("x"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: If(
+                        ExprIf {
+                            node_index: NodeIndex(None),
+                            range: 25..36,
+                            test: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 30..31,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            body: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 25..26,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            orelse: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 36..36,
+                                    id: Name(""),
+                                    ctx: Invalid,
+                                },
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 37..60,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 37..38,
+                                id: Name("x"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: If(
+                        ExprIf {
+                            node_index: NodeIndex(None),
+                            range: 41..60,
+                            test: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 46..47,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            body: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 41..42,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            orelse: Yield(
+                                ExprYield {
+                                    node_index: NodeIndex(None),
+                                    range: 53..60,
+                                    value: Some(
+                                        NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 59..60,
+                                                value: Int(
+                                                    2,
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | x = 1 if 1 else pass
+  |                 ^^^^ Syntax Error: expected expression after 'else', but statement is given
+2 | x = 1 if 1 else
+3 | x = 1 if 1 else yield 2
+  |
+
+
+  |
+1 | x = 1 if 1 else pass
+2 | x = 1 if 1 else
+  |                ^ Syntax Error: expected expression after 'else', but statement is given
+3 | x = 1 if 1 else yield 2
+  |
+
+
+  |
+1 | x = 1 if 1 else pass
+2 | x = 1 if 1 else
+3 | x = 1 if 1 else yield 2
+  |                 ^^^^^ Syntax Error: expected expression after 'else', but statement is given

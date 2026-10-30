@@ -14,10 +14,13 @@ repos:
     hooks:
       - id: ruff-format
         priority: 0
+        # Preserve exact upstream parser fixtures, including intentional syntax errors.
+        exclude: '^vendor/rustpython-ruff_python_parser/'
 
       - id: ruff-check
         args: [--select, I, --fix, --exit-non-zero-on-fix]
         types_or: [python]
+        exclude: '^vendor/rustpython-ruff_python_parser/'
         require_serial: true
         priority: 1
 
@@ -38,6 +41,8 @@ repos:
         entry: rustfmt
         language: system
         types: [rust]
+        # Keep the audited upstream source bytes and explicit backports intact.
+        exclude: '^vendor/rustpython-ruff_python_parser/'
         priority: 0
 
       - id: generate-rs-opcode-metadata
@@ -67,6 +72,7 @@ repos:
     hooks:
       - id: cspell
         types: [rust]
+        exclude: '^vendor/rustpython-ruff_python_parser/'
         additional_dependencies:
           - '@cspell/dict-en_us'
           - '@cspell/dict-cpp'

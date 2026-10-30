@@ -1,0 +1,24 @@
+---
+source: crates/ruff_python_parser/src/lexer.rs
+expression: lex_source(source)
+---
+## Tokens
+```
+[
+    Int 0..4,
+    Int 5..9,
+    Int 10..16,
+    Int 17..18,
+    Int 19..22,
+    Int 23..36,
+    Float 37..40,
+    Float 41..45,
+    Float 46..51,
+    Complex 52..54,
+    Complex 55..59,
+    Int 60..63,
+    Int 64..82,
+    Int 83..117,
+    Newline 117..117,
+]
+```

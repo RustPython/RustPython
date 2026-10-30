@@ -1,0 +1,144 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/class_def_unclosed_type_param_list.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..41,
+        body: [
+            ClassDef(
+                StmtClassDef {
+                    node_index: NodeIndex(None),
+                    range: 0..33,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("Foo"),
+                        range: 6..9,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: Some(
+                        TypeParams {
+                            range: 9..17,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 10..12,
+                                        name: Identifier {
+                                            id: Name("T1"),
+                                            range: 10..12,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                                TypeVarTuple(
+                                    TypeParamTypeVarTuple {
+                                        node_index: NodeIndex(None),
+                                        range: 14..17,
+                                        name: Identifier {
+                                            id: Name("T2"),
+                                            range: 15..17,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    arguments: Some(
+                        Arguments {
+                            range: 17..23,
+                            node_index: NodeIndex(None),
+                            args: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 18..19,
+                                        id: Name("a"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 21..22,
+                                        id: Name("b"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            keywords: [],
+                            runtime_args: None,
+                            runtime_bases: None,
+                        },
+                    ),
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 29..33,
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_body: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 34..40,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 34..35,
+                                id: Name("x"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 38..40,
+                            value: Int(
+                                10,
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | class Foo[T1, *T2(a, b):
+  |                  ^ Syntax Error: invalid syntax
+2 |     pass
+3 | x = 10
+  |
+
+
+  |
+1 | class Foo[T1, *T2(a, b):
+  |                       ^ Syntax Error: closing parenthesis ')' does not match opening parenthesis '['
+2 |     pass
+3 | x = 10
+  |

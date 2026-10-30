@@ -36,6 +36,8 @@ pub struct CompileWarningError {
     offset: usize,
     replacement: Option<SyntaxErrorReplacement>,
     diagnostic_text: Option<String>,
+    // Grammar-action warnings carry no source-text object.
+    omit_source_text: bool,
 }
 
 #[derive(Debug)]
@@ -124,21 +126,25 @@ impl CompileWarningError {
                 vm,
             )
             .unwrap();
-        let text = self.diagnostic_text.map_or_else(
-            || {
-                source
-                    .and_then(|source| source.split('\n').nth(self.lineno.saturating_sub(1)))
-                    .map_or_else(
-                        || vm.ctx.none(),
-                        |line| {
-                            vm.ctx
-                                .new_str(format!("{}\n", line.trim_end_matches('\r')))
-                                .into()
-                        },
-                    )
-            },
-            |text| vm.ctx.new_str(text).into(),
-        );
+        let text = if self.omit_source_text {
+            vm.ctx.none()
+        } else {
+            self.diagnostic_text.map_or_else(
+                || {
+                    source
+                        .and_then(|source| source.split('\n').nth(self.lineno.saturating_sub(1)))
+                        .map_or_else(
+                            || vm.ctx.none(),
+                            |line| {
+                                vm.ctx
+                                    .new_str(format!("{}\n", line.trim_end_matches('\r')))
+                                    .into()
+                            },
+                        )
+                },
+                |text| vm.ctx.new_str(text).into(),
+            )
+        };
         syntax_error.as_object().set_attr("text", text, vm).unwrap();
         syntax_error
     }
@@ -517,6 +523,7 @@ impl VirtualMachine {
             None
         };
 
+        let mut grammar_warnings_emitted = false;
         let emitted_parser_escapes = if is_ast_only {
             self.emit_ast_parser_warnings(
                 source,
@@ -530,9 +537,26 @@ impl VirtualMachine {
                     type_comments,
                 },
             )
-            .map_err(|warning| {
-                VmCompileError::Warning(warning).into_pyexception(self, Some(source))
-            })?
+            .map_err(|warning| warning.into_pyexception(self, Some(source)))?
+        } else if type_comments && start != CompileStart::FuncType {
+            let mode = match start {
+                CompileStart::Single => compiler::Mode::Single,
+                CompileStart::File => compiler::Mode::Exec,
+                CompileStart::Eval => compiler::Mode::Eval,
+                CompileStart::FuncType => unreachable!(),
+            };
+            let emitted = self
+                .try_emit_standard_grammar_warnings(
+                    escape_warnings::WarningSource::new(source, filename),
+                    module.map(AsObject::as_object),
+                    mode,
+                    future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+                    true,
+                    &[],
+                )
+                .map_err(|error| error.into_pyexception(self, Some(source)))?;
+            grammar_warnings_emitted = emitted.is_some();
+            emitted.unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -624,7 +648,7 @@ impl VirtualMachine {
                 },
             );
             if let Err(error) = validation {
-                if type_comment_error_offset.is_some() {
+                if type_comment_error_offset.is_some() && !grammar_warnings_emitted {
                     // The valid raw grammar stopped at a TYPE_COMMENT. Emit
                     // only reached parser actions, then tokenizer recovery,
                     // before returning the unchanged validation error.
@@ -640,9 +664,7 @@ impl VirtualMachine {
                             type_comments: true,
                         },
                     )
-                    .map_err(|warning| {
-                        VmCompileError::Warning(warning).into_pyexception(self, Some(source))
-                    })?;
+                    .map_err(|warning| warning.into_pyexception(self, Some(source)))?;
                 }
                 for (offset, ch) in pending_ast_warnings {
                     emit_ast_warning(offset, ch).map_err(|error| {
@@ -672,11 +694,41 @@ impl VirtualMachine {
         opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
         opts.future_features = future_features;
         opts.dont_imply_dedent = dont_imply_dedent;
-        let code = self
-            .compile_with_opts_and_module(source, mode, filename, opts, module, &[])
-            .map_err(|err| {
-                err.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
-            })?;
+        let code = if grammar_warnings_emitted {
+            self.compile_after_parser_warnings_object(
+                source,
+                mode,
+                filename.to_owned(),
+                opts,
+                module.map(AsObject::as_object),
+            )
+        } else if type_comments && start != CompileStart::FuncType {
+            // None from early preparation can mean all actions were blocked by
+            // TYPE_COMMENTS. Preserve that control on the final warning pass;
+            // never reinterpret the same source with TYPE_COMMENTS disabled.
+            self.emit_standard_parser_warnings_with_type_comments(
+                escape_warnings::WarningSource::new(source, filename),
+                module.map(AsObject::as_object),
+                mode,
+                future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+                true,
+                &[],
+            )
+            .and_then(|()| {
+                self.compile_after_parser_warnings_object(
+                    source,
+                    mode,
+                    filename.to_owned(),
+                    opts,
+                    module.map(AsObject::as_object),
+                )
+            })
+        } else {
+            self.compile_with_opts_and_module(source, mode, filename, opts, module, &[])
+        }
+        .map_err(|err| {
+            err.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
+        })?;
         Ok(code.into())
     }
 
@@ -723,8 +775,7 @@ impl VirtualMachine {
                 module,
                 start,
                 escape_warnings::AstParserWarningOptions::default(),
-            )
-            .map_err(VmCompileError::Warning)?;
+            )?;
         }
         #[cfg(not(feature = "parser"))]
         let _ = (module, original_filename);
@@ -774,8 +825,7 @@ impl VirtualMachine {
                 opts.future_features
                     .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
                 emitted_escapes,
-            )
-            .map_err(VmCompileError::Warning)?;
+            )?;
         }
         self.compile_after_parser_warnings_object(source, mode, source_path, opts, module)
     }
@@ -869,6 +919,25 @@ mod escape_warnings {
     use ruff_python_ast::{self as ast, visitor::Visitor};
     use ruff_text_size::TextRange;
 
+    /// Borrowed source/name pair for the composition helpers, with no ownership
+    /// or mode change and no additional parsing or allocation.
+    #[derive(Clone, Copy)]
+    pub(super) struct WarningSource<'a> {
+        source: &'a str,
+        filename: &'a str,
+        original_filename: Option<&'a Py<PyStr>>,
+    }
+
+    impl<'a> WarningSource<'a> {
+        pub(super) const fn new(source: &'a str, filename: &'a str) -> Self {
+            Self {
+                source,
+                filename,
+                original_filename: None,
+            }
+        }
+    }
+
     fn line_offset_at(source: &str, offset: usize) -> (usize, usize) {
         let offset = offset.min(source.len());
         let prefix = &source[..offset];
@@ -915,6 +984,7 @@ mod escape_warnings {
             offset,
             replacement: None,
             diagnostic_text: None,
+            omit_source_text: false,
         }
     }
 
@@ -1171,6 +1241,13 @@ mod escape_warnings {
             Option<usize>,
             Option<EscapeDiagnosticLocation>,
         ),
+        RelativeLazy {
+            action: ruff_python_parser::RelativeLazyImportWarning,
+            // True prompt input returns immediately, without tokenizer recovery.
+            recovery: Option<GrammarRecoveryPlan>,
+            index: alloc::sync::Arc<SourceDiagnosticIndex>,
+            mode: compiler::Mode,
+        },
         Numeric {
             offset: usize,
             last_offset: usize,
@@ -1184,6 +1261,7 @@ mod escape_warnings {
             match self {
                 Self::Escape(escape, ..) => escape.offset(),
                 Self::Numeric { offset, .. } => *offset,
+                Self::RelativeLazy { action, .. } => action.module.start().to_usize(),
             }
         }
 
@@ -1193,6 +1271,7 @@ mod escape_warnings {
                 // END token. Expressions and format specs have already been
                 // parsed by then, even if their escapes occur later in source.
                 Self::Escape(_, _, _, Some(diagnostic)) => diagnostic.emission_offset,
+                Self::RelativeLazy { action, .. } => action.tokenizer_end.to_usize(),
                 _ => self.offset(),
             }
         }
@@ -1419,6 +1498,7 @@ mod escape_warnings {
                 }
                 text
             }),
+            omit_source_text: false,
         })
     }
 
@@ -1449,6 +1529,46 @@ mod escape_warnings {
         .map_err(|err| compile_warning_error(err, source, filename, original_filename, offset))
     }
 
+    fn warn_numeric_literal(
+        source: &str,
+        filename: &str,
+        original_filename: Option<&Py<PyStr>>,
+        module: Option<&PyObject>,
+        last_offset: usize,
+        message: String,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        warn_syntax_at_offset(
+            source,
+            filename,
+            original_filename,
+            module,
+            last_offset,
+            message.clone(),
+            vm,
+        )
+        .map_err(|mut error| {
+            // Tokenizer numeric warnings become a zero-width
+            // error at the literal's last character, in character
+            // columns rather than grammar-action byte columns.
+            error.replacement = Some(SyntaxErrorReplacement {
+                message,
+                end_offset: error.offset,
+            });
+            // helpers.c:_syntaxerror_range uses the physical
+            // tokenizer line without its terminating LF in
+            // every compile mode, not only interactive input.
+            let line_start = source[..last_offset]
+                .rfind(['\r', '\n'])
+                .map_or(0, |index| index + 1);
+            let line_end = source[last_offset..]
+                .find(['\r', '\n'])
+                .map_or(source.len(), |index| last_offset + index);
+            error.diagnostic_text = Some(source[line_start..line_end].to_owned());
+            error
+        })
+    }
+
     pub(super) fn warn_syntax_at_location(
         filename: &str,
         module: Option<&PyObject>,
@@ -1477,6 +1597,7 @@ mod escape_warnings {
             offset: location.character_offset.get(),
             replacement: None,
             diagnostic_text: None,
+            omit_source_text: false,
         })
     }
 
@@ -2045,6 +2166,31 @@ mod escape_warnings {
         }
     }
 
+    fn tokenizer_brace_location(
+        index: &SourceDiagnosticIndex,
+        escape_offset: usize,
+        cursor_after_brace: usize,
+    ) -> EscapeDiagnosticLocation {
+        let brace_offset = cursor_after_brace - 1;
+        let line_index = index
+            .lines
+            .partition_point(|line| line.start <= brace_offset)
+            - 1;
+        let line = &index.lines[line_index];
+        // helpers.c reports the cursor after the brace, a zero-width range,
+        // and the physical line without LF. This is the existing v8 formula.
+        let column = index.character_count(cursor_after_brace) - index.character_count(line.start);
+        EscapeDiagnosticLocation {
+            emission_offset: escape_offset,
+            lineno: line_index + 1,
+            offset: column,
+            end_offset: column,
+            text_start: line.start,
+            text_end: line.end,
+            append_newline: false,
+        }
+    }
+
     fn collect_interpolated_tokenizer_warnings(
         source: &str,
         start: usize,
@@ -2065,11 +2211,6 @@ mod escape_warnings {
                 && matches!(brace, b'{' | b'}')
             {
                 let index = index.get_or_init(|| SourceDiagnosticIndex::new(source));
-                let line_index = index.lines.partition_point(|line| line.start <= cursor) - 1;
-                let line = &index.lines[line_index];
-                // helpers.c reports the tokenizer cursor after reading the
-                // brace, a zero-width range, and the physical line without LF.
-                let column = index.character_count(cursor + 1) - index.character_count(line.start);
                 warnings.push(ParserWarning::Escape(
                     InvalidEscape::Char {
                         ch: brace as char,
@@ -2077,15 +2218,7 @@ mod escape_warnings {
                     },
                     EscapeOrigin::Tokenizer,
                     None,
-                    Some(EscapeDiagnosticLocation {
-                        emission_offset: escape_offset,
-                        lineno: line_index + 1,
-                        offset: column,
-                        end_offset: column,
-                        text_start: line.start,
-                        text_end: line.end,
-                        append_newline: false,
-                    }),
+                    Some(tokenizer_brace_location(index, escape_offset, cursor + 1)),
                 ));
             } else if cursor < end {
                 cursor += source[cursor..end].chars().next().unwrap().len_utf8();
@@ -2404,12 +2537,1220 @@ mod escape_warnings {
         }
     }
 
+    enum GrammarActionReachability {
+        Reached,
+        BlockedByTypeComment(TextRange),
+        BlockedByUnownedTypeComment(ruff_python_parser::TypeCommentToken),
+        BlockedBySingle(TextRange),
+        Unavailable(GrammarReachabilityUnavailable),
+    }
+
+    impl fmt::Debug for GrammarActionReachability {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Reached => f.write_str("Reached"),
+                Self::BlockedByTypeComment(range) => {
+                    f.debug_tuple("BlockedByTypeComment").field(range).finish()
+                }
+                Self::BlockedByUnownedTypeComment(comment) => f
+                    .debug_tuple("BlockedByUnownedTypeComment")
+                    .field(comment)
+                    .finish(),
+                Self::BlockedBySingle(range) => {
+                    f.debug_tuple("BlockedBySingle").field(range).finish()
+                }
+                Self::Unavailable(reason) => f.debug_tuple("Unavailable").field(reason).finish(),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    enum GrammarReachabilityUnavailable {
+        MissingCommentToken,
+        NoncanonicalComment,
+        UnboundComment,
+        UnboundSingleCompletion,
+        IndependentStreams,
+        StaleCommentAcceptance,
+    }
+
+    /// The first-pass lexer owns the original kind. The parser may consume a
+    /// soft keyword as Identifier, retaining exactly its range and empty flags.
+    /// This is classification, not lexer recovery or a stale provenance point.
+    fn parser_classified_token_matches(
+        original: &ast::token::Token,
+        classified: &ast::token::Token,
+    ) -> bool {
+        use ast::token::{Token, TokenFlags, TokenKind};
+        use ruff_text_size::Ranged;
+        original == classified
+            || (original.kind().is_soft_keyword()
+                && *original == Token::new(original.kind(), original.range(), TokenFlags::empty())
+                && *classified
+                    == Token::new(TokenKind::Identifier, original.range(), TokenFlags::empty()))
+    }
+
+    fn grammar_action_reachability(
+        source_file: &compiler::core::SourceFile,
+        parsed: &ruff_python_parser::Parsed<ast::Mod>,
+        action: &ruff_python_parser::RelativeLazyImportWarning,
+        type_comment_rejection: Option<&crate::stdlib::_ast::TypeCommentRejection>,
+        type_comments: bool,
+        single_mode: bool,
+    ) -> GrammarActionReachability {
+        use GrammarActionReachability::{
+            BlockedBySingle, BlockedByTypeComment, Reached, Unavailable,
+        };
+        use GrammarReachabilityUnavailable as UnavailableReason;
+        use ruff_text_size::Ranged;
+        // The existing validator has intentionally retained broader line
+        // heuristics (Unicode trim_start and bare-star/duplicate checks). Its
+        // unchanged later error is not evidence of a canonical TYPE_COMMENT
+        // barrier when this actual Comment is ordinary trivia or TYPE_IGNORE.
+        // Missing identities remain errors; they are never inferred ordinary.
+        let type_comment_rejection = type_comment_rejection.filter(|rejection| {
+            rejection
+                .token
+                .and_then(|range| parsed.tokens().iter().find(|token| token.range() == range))
+                .is_none_or(|token| {
+                    if token.kind() != ast::token::TokenKind::Comment
+                        || source_file
+                            .source_text()
+                            .get(token.start().to_usize()..token.end().to_usize())
+                            .is_none_or(|text| !text.starts_with('#'))
+                    {
+                        return true;
+                    }
+                    ruff_python_parser::classify_type_comment(source_file.source_text(), token)
+                        .is_some_and(|comment| {
+                            comment.kind == ruff_python_parser::TypeCommentKind::Regular
+                        })
+                })
+        });
+        let reads = parsed.diagnostic_token_reads();
+        if !matches!(
+            parsed.diagnostic_continuity(),
+            ruff_python_parser::DiagnosticContinuity::SingleStream { .. }
+        ) {
+            return Unavailable(UnavailableReason::IndependentStreams);
+        }
+        if type_comments {
+            // A stale certificate is not an absent owner and cannot suppress a
+            // validator rejection. Validate every relevant certificate first.
+            for accepted in parsed
+                .type_comment_acceptances()
+                .iter()
+                .filter(|accepted| accepted.comment.token.start() < action.tokenizer_end)
+            {
+                if !accepted.point.original_lexical_prefix
+                    || accepted.point.token != accepted.following
+                    || !parsed.tokens().iter().any(|token| {
+                        token.range() == accepted.comment.token
+                            && ruff_python_parser::classify_type_comment(
+                                source_file.source_text(),
+                                token,
+                            )
+                            .is_some_and(|comment| comment == accepted.comment)
+                    })
+                    || !parsed
+                        .tokens()
+                        .iter()
+                        .any(|token| token == &accepted.preceding)
+                    || !parsed
+                        .tokens()
+                        .iter()
+                        .any(|token| parser_classified_token_matches(&accepted.following, token))
+                {
+                    return Unavailable(UnavailableReason::StaleCommentAcceptance);
+                }
+            }
+            for token in parsed
+                .tokens()
+                .iter()
+                .take_while(|token| token.start() < action.module.start())
+            {
+                let Some(comment) =
+                    ruff_python_parser::classify_type_comment(source_file.source_text(), token)
+                        .filter(|comment| {
+                            comment.kind == ruff_python_parser::TypeCommentKind::Regular
+                        })
+                else {
+                    continue;
+                };
+                if !parsed.type_comment_acceptances().iter().any(|accepted| {
+                    accepted.comment.token == token.range()
+                        && accepted.point.original_lexical_prefix
+                        && accepted.point.token == accepted.following
+                        && parsed
+                            .tokens()
+                            .iter()
+                            .any(|token| token == &accepted.preceding)
+                        && parsed.tokens().iter().any(|token| {
+                            parser_classified_token_matches(&accepted.following, token)
+                        })
+                }) && type_comment_rejection
+                    .is_none_or(|rejection| rejection.token != Some(token.range()))
+                {
+                    if parsed
+                        .type_comment_acceptances()
+                        .iter()
+                        .any(|accepted| accepted.comment.token == token.range())
+                    {
+                        return Unavailable(UnavailableReason::StaleCommentAcceptance);
+                    }
+                    // All six successful canonical TYPE_COMMENT owner families
+                    // are positively instrumented, including the actual async
+                    // with-item branch. An earlier original regular token with
+                    // no owner is a grammar barrier, not validator acceptance.
+                    let original = parsed
+                        .diagnostic_lexer_snapshot()
+                        .is_some_and(|snapshot| token.end() <= snapshot.seed().token.start())
+                        || reads.iter().any(|read| {
+                            read.token == *token
+                                && read.origin
+                                    == ruff_python_parser::DiagnosticReadOrigin::FirstPass
+                                && read.type_comment.is_some()
+                        });
+                    if original {
+                        return GrammarActionReachability::BlockedByUnownedTypeComment(comment);
+                    }
+                    return Unavailable(UnavailableReason::UnboundComment);
+                }
+            }
+        }
+        if let Some(rejection) = type_comment_rejection
+            // A later validation error cannot undo an already completed action.
+            && rejection.token.is_none_or(|range| range.start() < action.tokenizer_end)
+            && !parsed.type_comment_acceptances().iter().any(|accepted| {
+                rejection.token == Some(accepted.comment.token)
+            })
+        {
+            let Some(range) = rejection.token else {
+                return Unavailable(UnavailableReason::MissingCommentToken);
+            };
+            let token = parsed.tokens().iter().find(|token| token.range() == range);
+            let Some(token) = token else {
+                return Unavailable(UnavailableReason::MissingCommentToken);
+            };
+            if !ruff_python_parser::classify_type_comment(source_file.source_text(), token)
+                .is_some_and(|comment| comment.kind == ruff_python_parser::TypeCommentKind::Regular)
+            {
+                return Unavailable(UnavailableReason::NoncanonicalComment);
+            }
+            if let Some(read) = reads.iter().find(|read| read.token.range() == range) {
+                if read.origin != ruff_python_parser::DiagnosticReadOrigin::FirstPass
+                    || read.type_comment.is_none()
+                {
+                    return Unavailable(UnavailableReason::UnboundComment);
+                }
+                if read.ordinal <= action.tokenizer_read {
+                    let completed_bare_lookahead = read.ordinal == action.tokenizer_read
+                        && action
+                            .type_comment_lookahead
+                            .is_some_and(|comment| comment.token == range)
+                        && rejection.rule
+                            == crate::stdlib::_ast::TypeCommentRejectionRule::StatementPosition;
+                    if !completed_bare_lookahead {
+                        return BlockedByTypeComment(range);
+                    }
+                }
+            } else if parsed.diagnostic_lexer_snapshot().is_some_and(|snapshot| {
+                // The producer captures only an eligible error-free original
+                // header. Earlier Comment tokens are before the lazy journal,
+                // not missing recovered suffix records. Their actual token
+                // order, not the validator's longer diagnostic span, blocks it.
+                range.end() <= snapshot.seed().token.start() && range.end() <= action.module.start()
+            }) {
+                return BlockedByTypeComment(range);
+            } else {
+                return Unavailable(UnavailableReason::UnboundComment);
+            }
+        }
+        if !single_mode {
+            return Reached;
+        }
+        match compiler::single_mode_statement_boundary(parsed) {
+            Some(compiler::SingleModeStatementBoundary::Simple { newline_index, end }) => {
+                if action.module.start() < end {
+                    return Reached;
+                }
+                let original_newline = parsed
+                    .diagnostic_parser_progress()
+                    .and_then(|progress| progress.first_logical_newline.as_ref());
+                let Some(completion) = original_newline else {
+                    return Unavailable(UnavailableReason::UnboundSingleCompletion);
+                };
+                if !completion.parser_errors_absent
+                    || !completion.point.original_lexical_prefix
+                    || parsed.tokens().get(newline_index) != Some(&completion.point.token)
+                {
+                    return Unavailable(UnavailableReason::UnboundSingleCompletion);
+                }
+                // Physical NEWLINE consumption proves Simple completion. Ruff's
+                // synthetic EOF newline still requires the canonical Single
+                // control and is not accepted merely because its span is empty.
+                if completion.point.token.range().is_empty() {
+                    return Unavailable(UnavailableReason::UnboundSingleCompletion);
+                }
+                BlockedBySingle(completion.point.token.range())
+            }
+            Some(compiler::SingleModeStatementBoundary::Compound { end }) => {
+                if action.module.start() < end {
+                    return Reached;
+                }
+                let Some(completion) = parsed
+                    .diagnostic_parser_progress()
+                    .and_then(|progress| progress.first_statement_return.as_ref())
+                else {
+                    return Unavailable(UnavailableReason::UnboundSingleCompletion);
+                };
+                let token = &completion.point.token;
+                if completion.kind != ruff_python_parser::DiagnosticStatementKind::Compound
+                    || completion.statement.end() != end
+                    || !completion.parser_errors_absent
+                    || !completion.point.original_lexical_prefix
+                    || token.range().is_empty()
+                    || matches!(
+                        token.kind(),
+                        ast::token::TokenKind::EndOfFile
+                            | ast::token::TokenKind::Newline
+                            | ast::token::TokenKind::Indent
+                            | ast::token::TokenKind::Dedent
+                            | ast::token::TokenKind::Unknown
+                    )
+                    || !parsed
+                        .tokens()
+                        .iter()
+                        .any(|candidate| parser_classified_token_matches(token, candidate))
+                    || action.module.start() < token.start()
+                {
+                    return Unavailable(UnavailableReason::UnboundSingleCompletion);
+                }
+                // The clean first compound has returned at this actual next
+                // syntax token. Single rejects it before parsing another stmt.
+                BlockedBySingle(token.range())
+            }
+            None => Unavailable(UnavailableReason::UnboundSingleCompletion),
+        }
+    }
+
+    /// Preflighted tokenizer-only suffix after a proven completed grammar action.
+    /// Build this before invoking warning callbacks; unavailable provenance must
+    /// never be discovered only after partially emitting a candidate batch.
+    struct GrammarRecoveryPlan {
+        events: alloc::sync::Arc<GrammarRecoveryEvents>,
+        frontier: usize,
+        current_error_line: usize,
+    }
+
+    struct GrammarRecoveryEvents {
+        reads: Vec<(usize, ast::token::Token)>,
+        warnings: Vec<(usize, ruff_python_parser::LexicalWarningDiscovery)>,
+        stop: Option<ruff_python_parser::LexicalDiscovery>,
+    }
+
+    enum GrammarRecoveryUnavailable {
+        SourceOrMode,
+        Frontier,
+        Binding(ruff_python_parser::lexer::DiagnosticForkBindingError),
+        Unclassified(ruff_python_parser::LexicalDiscovery),
+        MissingRead,
+    }
+
+    impl fmt::Debug for GrammarRecoveryUnavailable {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::SourceOrMode => f.write_str("SourceOrMode"),
+                Self::Frontier => f.write_str("Frontier"),
+                Self::Binding(error) => f.debug_tuple("Binding").field(error).finish(),
+                Self::Unclassified(discovery) => {
+                    f.debug_tuple("Unclassified").field(discovery).finish()
+                }
+                Self::MissingRead => f.write_str("MissingRead"),
+            }
+        }
+    }
+
+    /// Barry preparation preserves byte positions and changes only '<>' to '!='.
+    /// Bind that explicit map, not a source length or diagnostic-offset guess.
+    fn same_barry_source_positions(original: &str, prepared: &str) -> bool {
+        if original.len() != prepared.len() {
+            return false;
+        }
+        let (original, prepared) = (original.as_bytes(), prepared.as_bytes());
+        let mut cursor = 0;
+        while cursor < original.len() {
+            if original[cursor] == prepared[cursor] {
+                cursor += 1;
+            } else if original.get(cursor..cursor + 2) == Some(b"<>")
+                && prepared.get(cursor..cursor + 2) == Some(b"!=")
+            {
+                cursor += 2;
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn prepare_grammar_recovery(
+        source: &str,
+        prepared_source: &compiler::BarrySource<'_>,
+        parsed: &ruff_python_parser::Parsed<ast::Mod>,
+        actions: &[ruff_python_parser::RelativeLazyImportWarning],
+        index: &SourceDiagnosticIndex,
+        prompt: bool,
+    ) -> Result<
+        (
+            alloc::sync::Arc<GrammarRecoveryEvents>,
+            Vec<Option<GrammarRecoveryPlan>>,
+        ),
+        GrammarRecoveryUnavailable,
+    > {
+        use ruff_python_parser::lexer::DiagnosticForkTermination;
+        let Some(last) = actions.iter().max_by_key(|action| action.tokenizer_read) else {
+            return Err(GrammarRecoveryUnavailable::Frontier);
+        };
+        let snapshot = parsed
+            .diagnostic_lexer_snapshot()
+            .ok_or(GrammarRecoveryUnavailable::Frontier)?;
+        if snapshot.mode() != ruff_python_parser::Mode::Module
+            || snapshot.source() != prepared_source.source()
+            || !same_barry_source_positions(source, snapshot.source())
+        {
+            return Err(GrammarRecoveryUnavailable::SourceOrMode);
+        }
+        let reads = parsed.diagnostic_token_reads();
+        for action in actions {
+            let filled = reads
+                .get(action.tokenizer_read)
+                .filter(|read| read.ordinal == action.tokenizer_read)
+                .and_then(|read| read.read_range)
+                .ok_or(GrammarRecoveryUnavailable::Frontier)?;
+            if filled.start() != action.tokenizer_start || filled.end() != action.tokenizer_end {
+                return Err(GrammarRecoveryUnavailable::Frontier);
+            }
+        }
+        if prompt {
+            // The real prompt does not recover the remaining source after a
+            // warning error (pegen_errors.c). Retain only observed original
+            // read identities for ordering; never resume or drain a fork here.
+            if !matches!(
+                parsed.diagnostic_continuity(),
+                ruff_python_parser::DiagnosticContinuity::SingleStream { .. }
+            ) || reads[..=last.tokenizer_read]
+                .iter()
+                .any(|read| read.origin != ruff_python_parser::DiagnosticReadOrigin::FirstPass)
+            {
+                return Err(GrammarRecoveryUnavailable::Frontier);
+            }
+            // A parser error alone does not rewrite the lexer. The producer's
+            // existing-read view certifies only the observed original lineage,
+            // stopping before an actual divergence or at the first hard stop.
+            // This is ordering metadata, never a prompt suffix recovery pass.
+            let continuation = ruff_python_parser::original_continuation_after(
+                reads,
+                parsed.diagnostic_continuity(),
+                last.tokenizer_read,
+            );
+            use ruff_python_parser::ContinuationTermination;
+            match &continuation.termination {
+                ContinuationTermination::IndependentStreams
+                | ContinuationTermination::UnboundFrontier { .. }
+                | ContinuationTermination::FailureAlreadyRead { .. } => {
+                    return Err(GrammarRecoveryUnavailable::Frontier);
+                }
+                ContinuationTermination::UnclassifiedDiscovery { discovery, .. } => {
+                    return Err(GrammarRecoveryUnavailable::Unclassified(
+                        (*discovery).clone(),
+                    ));
+                }
+                ContinuationTermination::MissingRead { ordinal } if *ordinal < reads.len() => {
+                    return Err(GrammarRecoveryUnavailable::MissingRead);
+                }
+                ContinuationTermination::Diverged(divergence)
+                    if divergence.next_read <= last.tokenizer_read =>
+                {
+                    return Err(GrammarRecoveryUnavailable::Frontier);
+                }
+                _ => {}
+            }
+            let mut anchors = Vec::new();
+            let mut warnings = Vec::new();
+            for read in reads[..=last.tokenizer_read]
+                .iter()
+                .chain(continuation.reads)
+            {
+                anchors.push((read.ordinal, read.token));
+                let first_stop = read.discoveries.iter().find(|discovery| {
+                    !discovery.eof_cleanup
+                        && discovery.disposition
+                            != ruff_python_parser::LexicalDisposition::ParserToken
+                });
+                warnings.extend(
+                    read.warnings
+                        .iter()
+                        .filter(|warning| {
+                            first_stop.is_none_or(|stop| warning.cursor <= stop.cursor)
+                        })
+                        .cloned()
+                        .map(|warning| (read.ordinal, warning)),
+                );
+            }
+            // Truncation is not treated as EOF: the distinct prompt wrapper has
+            // no recovery plans and never consults a suffix terminal outcome.
+            let stop = match continuation.termination {
+                ContinuationTermination::HardStop { discovery, .. } => Some(discovery.clone()),
+                _ => None,
+            };
+            let events = alloc::sync::Arc::new(GrammarRecoveryEvents {
+                reads: anchors,
+                warnings,
+                stop,
+            });
+            return Ok((events, actions.iter().map(|_| None).collect()));
+        }
+        // Bind the complete original prefix once. Every earlier action then
+        // shares these exact reads and one independent tokenizer-only suffix.
+        let mut fork = snapshot
+            .resume_after(reads, parsed.diagnostic_continuity(), last.tokenizer_read)
+            .map_err(GrammarRecoveryUnavailable::Binding)?;
+        let mut anchors = Vec::new();
+        let mut warnings = Vec::new();
+        for read in &reads[..=last.tokenizer_read] {
+            anchors.push((read.ordinal, read.token));
+            warnings.extend(
+                read.warnings
+                    .iter()
+                    .cloned()
+                    .map(|warning| (read.ordinal, warning)),
+            );
+        }
+        while let Some(read) = fork.next_read() {
+            anchors.push((read.ordinal, read.token));
+            let first_stop = read.discoveries.iter().find(|discovery| {
+                !discovery.eof_cleanup
+                    && discovery.disposition != ruff_python_parser::LexicalDisposition::ParserToken
+            });
+            // Original warning hooks run before a later same-read failure.
+            // A brace lookahead can extend beyond the returned MIDDLE range.
+            warnings.extend(
+                read.warnings
+                    .into_iter()
+                    .filter(|warning| first_stop.is_none_or(|stop| warning.cursor <= stop.cursor))
+                    .map(|warning| (read.ordinal, warning)),
+            );
+        }
+        let stop = match fork.termination() {
+            Some(DiagnosticForkTermination::EndOfInput { .. }) => None,
+            Some(DiagnosticForkTermination::HardStop { discovery, .. }) => Some(discovery.clone()),
+            Some(DiagnosticForkTermination::UnclassifiedDiscovery { discovery, .. }) => {
+                return Err(GrammarRecoveryUnavailable::Unclassified(discovery.clone()));
+            }
+            Some(DiagnosticForkTermination::MissingRead { .. }) | None => {
+                return Err(GrammarRecoveryUnavailable::MissingRead);
+            }
+        };
+        let events = alloc::sync::Arc::new(GrammarRecoveryEvents {
+            reads: anchors,
+            warnings,
+            stop,
+        });
+        let plans = actions
+            .iter()
+            .map(|action| {
+                Some(GrammarRecoveryPlan {
+                    events: events.clone(),
+                    frontier: action.tokenizer_read,
+                    // pegen_errors.c uses the START line of the furthest filled token.
+                    current_error_line: index
+                        .lines
+                        .partition_point(|line| line.start <= action.tokenizer_start.to_usize()),
+                })
+            })
+            .collect();
+        Ok((events, plans))
+    }
+
+    fn relative_lazy_message(action: &ruff_python_parser::RelativeLazyImportWarning) -> String {
+        let dots = ".".repeat(action.level as usize);
+        format!(
+            "'from {dots} lazy import' is the same as 'from {dots}lazy import'; \
+                 did you mean 'lazy from {dots} import'?"
+        )
+    }
+
+    impl VirtualMachine {
+        fn emit_relative_lazy_warning(
+            &self,
+            source: &str,
+            filename: &str,
+            original_filename: Option<&Py<PyStr>>,
+            module: Option<&PyObject>,
+            action: &ruff_python_parser::RelativeLazyImportWarning,
+            index: &SourceDiagnosticIndex,
+        ) -> Result<(), CompileWarningError> {
+            let message = relative_lazy_message(action);
+            let offset = action.module.start().to_usize();
+            let line = &index.lines[index.lines.partition_point(|line| line.start <= offset) - 1];
+            warn_syntax_at_offset(
+                source,
+                filename,
+                original_filename,
+                module,
+                offset,
+                message.clone(),
+                self,
+            )
+            .map_err(|mut error| {
+                // Grammar actions use UTF-8 byte columns and text=None,
+                // unlike numeric/brace tokenizer character columns.
+                error.offset = offset - line.start + 1;
+                error.replacement = Some(SyntaxErrorReplacement {
+                    message,
+                    end_offset: action.module.end().to_usize() - line.start + 1,
+                });
+                error.omit_source_text = true;
+                error
+            })
+        }
+
+        /// Consume an already preflighted suffix only after a parser-origin
+        /// SyntaxWarning became a pending SyntaxError. No parser action is replayed.
+        fn emit_grammar_recovery(
+            &self,
+            context: WarningSource<'_>,
+            module: Option<&PyObject>,
+            mode: compiler::Mode,
+            plan: GrammarRecoveryPlan,
+            pending: VmCompileError,
+            index: &SourceDiagnosticIndex,
+        ) -> VmCompileError {
+            let WarningSource {
+                source,
+                filename,
+                original_filename,
+            } = context;
+            use ruff_python_parser::{LexicalDisposition, LexicalWarningKind};
+            for (_, warning) in plan
+                .events
+                .warnings
+                .iter()
+                .filter(|(read, _)| *read > plan.frontier)
+            {
+                let result = match warning.kind {
+                    LexicalWarningKind::Numeric(kind) => warn_numeric_literal(
+                        source,
+                        filename,
+                        original_filename,
+                        module,
+                        warning.last_offset.to_usize(),
+                        format!("invalid {kind} literal"),
+                        self,
+                    ),
+                    LexicalWarningKind::InterpolatedBrace(ch) => warn_invalid_escape_sequence_at(
+                        source,
+                        InvalidEscape::Char {
+                            ch,
+                            offset: warning.offset.to_usize(),
+                        },
+                        filename,
+                        original_filename,
+                        module,
+                        Some(tokenizer_brace_location(
+                            index,
+                            warning.offset.to_usize(),
+                            warning.cursor.to_usize(),
+                        )),
+                        self,
+                    ),
+                };
+                if let Err(error) = result {
+                    // pegen_errors.c restores the pending parser exception if
+                    // tokenizer recovery fails inside any active f/t mode.
+                    return if warning.context.in_interpolated_string {
+                        pending
+                    } else {
+                        VmCompileError::Warning(error)
+                    };
+                }
+            }
+            let Some(stop) = plan.events.stop.as_ref() else {
+                return pending;
+            };
+            if stop.context.in_interpolated_string {
+                return pending;
+            }
+            let parse_error = match stop.disposition {
+                LexicalDisposition::RaisedErrorToken => ruff_python_parser::ParseError {
+                    error: ruff_python_parser::ParseErrorType::Lexical(stop.error.clone()),
+                    location: stop.diagnostic,
+                },
+                LexicalDisposition::BareErrorToken => {
+                    let Some(opener) = stop.context.open_bracket else {
+                        return pending;
+                    };
+                    let opener_line = index
+                        .lines
+                        .partition_point(|line| line.start <= opener.offset.to_usize());
+                    if plan.current_error_line <= opener_line {
+                        return pending;
+                    }
+                    ruff_python_parser::ParseError {
+                        error: ruff_python_parser::ParseErrorType::Lexical(
+                            ruff_python_parser::LexicalErrorType::UnclosedBracket {
+                                opening: opener.kind,
+                                incomplete: false,
+                            },
+                        ),
+                        location: TextRange::empty(opener.offset),
+                    }
+                }
+                LexicalDisposition::ParserToken | LexicalDisposition::DecoderOrUnclassified => {
+                    // Preflight never accepts these as a terminal stop.
+                    unreachable!("grammar recovery plan only contains classified tokenizer stops")
+                }
+            };
+            let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
+            let mut error = CompileError::from_ruff_parse_error(parse_error, &source_file, mode);
+            if let CompileError::Parse(error) = &mut error {
+                // Match main's existing after-syntax-error recovery contract:
+                // a later unterminated string cannot request more input.
+                error.is_unclosed_string = false;
+            }
+            VmCompileError::Compile(error)
+        }
+    }
+
     struct CollectedParserWarnings {
         warnings: Vec<ParserWarning>,
         tokenizer_recovery: bool,
         has_valid_syntax: bool,
         single_boundary: Option<compiler::SingleModeStatementBoundary>,
         type_comment_error_offset: Option<usize>,
+        grammar_type_comment_error: Option<CompileError>,
+    }
+
+    enum GrammarCompositionUnavailable {
+        Reachability {
+            module: TextRange,
+            reason: GrammarReachabilityUnavailable,
+        },
+        Recovery(GrammarRecoveryUnavailable),
+        UnboundWarning {
+            offset: usize,
+            tokenizer: bool,
+        },
+        MissingRecoveryPlan,
+    }
+
+    impl fmt::Debug for GrammarCompositionUnavailable {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Reachability { module, reason } => f
+                    .debug_struct("Reachability")
+                    .field("module", module)
+                    .field("reason", reason)
+                    .finish(),
+                Self::Recovery(error) => f.debug_tuple("Recovery").field(error).finish(),
+                Self::UnboundWarning { offset, tokenizer } => f
+                    .debug_struct("UnboundWarning")
+                    .field("offset", offset)
+                    .field("tokenizer", tokenizer)
+                    .finish(),
+                Self::MissingRecoveryPlan => f.write_str("MissingRecoveryPlan"),
+            }
+        }
+    }
+
+    struct GrammarCollection {
+        mode: compiler::Mode,
+        prompt: bool,
+        status: Result<bool, GrammarCompositionUnavailable>,
+    }
+
+    /// A same-source, same-mode batch prepared before warning callbacks.
+    /// Provenance failures indicate an internal construction invariant violation;
+    /// they must never silently drop an action or enter a fallback warning path.
+    struct PreparedGrammarWarnings {
+        source: Box<str>,
+        filename: String,
+        collected: CollectedParserWarnings,
+    }
+
+    fn prepare_relative_lazy_parser_warnings(
+        source: &str,
+        filename: &str,
+        mode: compiler::Mode,
+        inherited_barry_as_flufl: bool,
+        type_comments: bool,
+    ) -> Result<Option<PreparedGrammarWarnings>, GrammarCompositionUnavailable> {
+        let parser_mode = match mode {
+            compiler::Mode::Eval => ruff_python_parser::Mode::Expression,
+            compiler::Mode::Exec | compiler::Mode::Single | compiler::Mode::BlockExpr => {
+                ruff_python_parser::Mode::Module
+            }
+        };
+        let mut grammar = GrammarCollection {
+            mode,
+            prompt: false,
+            status: Ok(false),
+        };
+        let collected = collect_parser_warnings_impl(
+            WarningSource::new(source, filename),
+            Some(parser_mode),
+            inherited_barry_as_flufl,
+            InterpolatedBodyDiagnostics::TokenAnchored {
+                implicit_final_newline: matches!(mode, compiler::Mode::Exec),
+            },
+            matches!(mode, compiler::Mode::Single),
+            type_comments,
+            Some(&mut grammar),
+        );
+        Ok(grammar.status?.then_some(PreparedGrammarWarnings {
+            source: source.into(),
+            filename: filename.to_owned(),
+            collected,
+        }))
+    }
+
+    /// Distinct ownership prevents a no-recovery prompt batch being passed to
+    /// the standard emitter by mistake.
+    struct PreparedPromptGrammarWarnings(PreparedGrammarWarnings);
+
+    fn prepare_interactive_relative_lazy_warnings(
+        source: &str,
+        filename: &str,
+        inherited_barry_as_flufl: bool,
+    ) -> Result<Option<PreparedPromptGrammarWarnings>, GrammarCompositionUnavailable> {
+        let mut grammar = GrammarCollection {
+            mode: compiler::Mode::Single,
+            prompt: true,
+            status: Ok(false),
+        };
+        let collected = collect_parser_warnings_impl(
+            WarningSource::new(source, filename),
+            Some(ruff_python_parser::Mode::Module),
+            inherited_barry_as_flufl,
+            InterpolatedBodyDiagnostics::Legacy,
+            false,
+            false,
+            Some(&mut grammar),
+        );
+        Ok(grammar
+            .status?
+            .then_some(PreparedPromptGrammarWarnings(PreparedGrammarWarnings {
+                source: source.into(),
+                filename: filename.to_owned(),
+                collected,
+            })))
+    }
+
+    fn append_relative_lazy_warnings(
+        source_file: &compiler::core::SourceFile,
+        prepared_source: &compiler::BarrySource<'_>,
+        parsed: &ruff_python_parser::Parsed<ast::Mod>,
+        mode: compiler::Mode,
+        type_comments: bool,
+        prompt: bool,
+        warnings: &mut Vec<ParserWarning>,
+    ) -> Result<(bool, Option<(usize, CompileError)>), GrammarCompositionUnavailable> {
+        use ruff_text_size::Ranged;
+        if parsed.relative_lazy_import_warnings().is_empty() {
+            return Ok((false, None));
+        }
+        let rejection = type_comments
+            .then(|| crate::stdlib::_ast::unfiltered_type_comment_rejection(source_file, parsed))
+            .flatten();
+        let mut actions = Vec::new();
+        let mut unowned_comment = None;
+        for action in parsed.relative_lazy_import_warnings() {
+            match grammar_action_reachability(
+                source_file,
+                parsed,
+                action,
+                rejection.as_ref(),
+                type_comments,
+                matches!(mode, compiler::Mode::Single),
+            ) {
+                GrammarActionReachability::Reached => actions.push(action.clone()),
+                GrammarActionReachability::BlockedByUnownedTypeComment(comment) => {
+                    if unowned_comment.is_none() {
+                        unowned_comment = Some(comment);
+                    }
+                }
+                GrammarActionReachability::BlockedByTypeComment(_)
+                | GrammarActionReachability::BlockedBySingle(_) => {}
+                GrammarActionReachability::Unavailable(reason) => {
+                    return Err(GrammarCompositionUnavailable::Reachability {
+                        module: action.module,
+                        reason,
+                    });
+                }
+            }
+        }
+        let barrier = if let Some(comment) = unowned_comment.filter(|comment| {
+            // Retain only rejection holes; the existing validator keeps ownership
+            // and priority whenever it already has a typed rejection.
+            rejection.is_none()
+                && (!matches!(mode, compiler::Mode::Single)
+                    || crate::stdlib::_ast::type_comment_precedes_single_boundary(
+                        comment.token.start().to_usize(),
+                        source_file,
+                        parsed,
+                    ))
+        }) {
+            let diagnostic = if let Some(parameter) = parsed
+                .diagnostic_parser_progress()
+                .and_then(|progress| progress.parameter_type_comment_barrier.as_ref())
+                .filter(|parameter| parameter.comment == comment)
+            {
+                if !parameter.point.original_lexical_prefix
+                    || parameter.point.token.kind() != ast::token::TokenKind::Comma
+                    || !parsed
+                        .tokens()
+                        .iter()
+                        .any(|token| token == &parameter.point.token)
+                    || !parsed
+                        .tokens()
+                        .iter()
+                        .any(|token| token == &parameter.preceding)
+                    || parameter.preceding.end() > comment.token.start()
+                    || comment.token.end() > parameter.point.token.start()
+                {
+                    return Err(GrammarCompositionUnavailable::Reachability {
+                        module: comment.token,
+                        reason: GrammarReachabilityUnavailable::StaleCommentAcceptance,
+                    });
+                }
+                parameter.point.token.range()
+            } else {
+                comment.payload
+            };
+            Some((
+                comment.token.start().to_usize(),
+                crate::stdlib::_ast::type_comment_parse_error(
+                    source_file,
+                    "invalid syntax",
+                    diagnostic.start().to_usize(),
+                    diagnostic.end().to_usize(),
+                ),
+            ))
+        } else {
+            None
+        };
+        if actions.is_empty() {
+            return Ok((false, barrier));
+        }
+        actions.sort_by_key(|action| action.tokenizer_read);
+        let source = source_file.source_text();
+        let index = alloc::sync::Arc::new(SourceDiagnosticIndex::new(source));
+        let (events, recovery) =
+            prepare_grammar_recovery(source, prepared_source, parsed, &actions, &index, prompt)
+                .map_err(GrammarCompositionUnavailable::Recovery)?;
+        let seed_start = events.reads[0].1.start().to_usize();
+        // Every relative action is placed by its filled read identity, not a
+        // byte-offset tie. In '*1and' or '(x)1and', the number starts exactly
+        // where the completed target ends, but belongs to the NEXT read.
+        let mut insertions = Vec::with_capacity(warnings.len());
+        let mut replacements: Vec<Option<ParserWarning>> =
+            (0..warnings.len()).map(|_| None).collect();
+        for (warning_index, warning) in warnings.iter().enumerate() {
+            if let ParserWarning::Escape(escape, EscapeOrigin::Parser, ..) = warning
+                && parsed
+                    .invalid_import_alias_decoders()
+                    .iter()
+                    .any(|invalid| {
+                        invalid.first.original_lexical_prefix
+                            && invalid
+                                .first
+                                .read
+                                .and_then(|ordinal| parsed.diagnostic_token_reads().get(ordinal))
+                                .is_some_and(|read| {
+                                    read.token == invalid.first.token
+                                        && read.origin
+                                            == ruff_python_parser::DiagnosticReadOrigin::FirstPass
+                                })
+                            && parsed.tokens().iter().any(|token| {
+                                token.kind() == ast::token::TokenKind::As
+                                    && token.range() == invalid.as_keyword
+                            })
+                            && actions.iter().any(|action| {
+                                action.module.end() <= invalid.imported_name.start()
+                                    && invalid.imported_name.end() <= action.targets_end
+                            })
+                            && invalid.expression.start().to_usize() <= escape.offset()
+                            && escape.offset() < invalid.expression.end().to_usize()
+                    })
+            {
+                // Only this actual invalid-alias production is pass-two-only.
+                // Keep its tokenizer warnings and every proven grammar action.
+                insertions.push(None);
+                continue;
+            }
+            if warning.emission_offset() < seed_start {
+                insertions.push(Some(0));
+                continue;
+            }
+            if matches!(warning, ParserWarning::Escape(_, EscapeOrigin::Parser, ..)) {
+                // Preserve the existing non-grammar emission order. An import action cannot
+                // occur within a literal/interpolation; the exact invalid-alias
+                // decoder production was excluded above. Its original escape
+                // offset therefore separates it from every surrounding action.
+                let before = actions
+                    .partition_point(|action| action.module.start().to_usize() < warning.offset());
+                insertions.push(Some(before * 2));
+                continue;
+            }
+            let (read, tokenizer) = match warning {
+                ParserWarning::Numeric {
+                    offset,
+                    last_offset,
+                    ..
+                } => (
+                    events
+                        .warnings
+                        .iter()
+                        .find(|(_, discovery)| {
+                            matches!(
+                                discovery.kind,
+                                ruff_python_parser::LexicalWarningKind::Numeric(_)
+                            ) && discovery.offset.to_usize() == *offset
+                                && discovery.last_offset.to_usize() == *last_offset
+                        })
+                        .map(|(read, _)| *read),
+                    true,
+                ),
+                ParserWarning::Escape(escape, EscapeOrigin::Tokenizer, ..) => (
+                    events
+                        .warnings
+                        .iter()
+                        .find(|(_, discovery)| {
+                            matches!(
+                                discovery.kind,
+                                ruff_python_parser::LexicalWarningKind::InterpolatedBrace(_)
+                            ) && discovery.offset.to_usize() == escape.offset()
+                        })
+                        .map(|(read, _)| *read),
+                    true,
+                ),
+                ParserWarning::Escape(_, EscapeOrigin::Parser, ..) => {
+                    unreachable!("decoder warning was placed between surrounding actions")
+                }
+                ParserWarning::RelativeLazy { .. } => {
+                    unreachable!("actions are appended after preflight")
+                }
+            };
+            let Some(read) = read else {
+                if let ParserWarning::Numeric {
+                    offset,
+                    last_offset,
+                    ..
+                } = warning
+                {
+                    // The fallback scanner can consume the final dot of an
+                    // original Ellipsis as the start of a neighboring float.
+                    // Bind only this exact token boundary to the unique real
+                    // numeric discovery, never arbitrary overlapping offsets.
+                    if let Some(stop) = events.stop.as_ref()
+                        && matches!(stop.error, ruff_python_parser::LexicalErrorType::LeadingZerosInDecimalInteger)
+                        && stop.disposition == ruff_python_parser::LexicalDisposition::RaisedErrorToken
+                        && !stop.eof_cleanup
+                        && let Some(failed_range) = stop.token_range
+                        && failed_range.end().to_usize().checked_sub(1) == Some(*last_offset)
+                        && stop.cursor == failed_range.end()
+                        && events.reads.iter().any(|(read, token)| {
+                            token.kind() == ast::token::TokenKind::Unknown
+                                && token.range() == failed_range
+                                && !events.warnings.iter().any(|(warning_read, discovery)| {
+                                    warning_read == read
+                                        && matches!(discovery.kind, ruff_python_parser::LexicalWarningKind::Numeric(_))
+                                })
+                                && actions.iter().any(|action| {
+                                    parsed.diagnostic_token_reads().get(action.tokenizer_read)
+                                        .is_some_and(|filled| {
+                                            filled.ordinal == action.tokenizer_read
+                                                && filled.origin == ruff_python_parser::DiagnosticReadOrigin::FirstPass
+                                                && filled.token.kind() == ast::token::TokenKind::Ellipsis
+                                                && filled.token.end().to_usize().checked_sub(1) == Some(*offset)
+                                                && failed_range.start() == filled.token.end()
+                                                && *read == action.tokenizer_read + 1
+                                        })
+                                })
+                        })
+                    {
+                        // A leading-zero integer stops before the original
+                        // numeric warning hook. The scanner's leading-dot float
+                        // is not that token. Retain the exact hard error, not
+                        // its false warning alias; prompt still never recovers.
+                        insertions.push(None);
+                        continue;
+                    }
+                    let mut adjacent = events.warnings.iter().filter(|(read, discovery)| {
+                        matches!(
+                            discovery.kind,
+                            ruff_python_parser::LexicalWarningKind::Numeric(_)
+                        ) && discovery.last_offset.to_usize() == *last_offset
+                            && events.reads.iter().any(|(ordinal, token)| {
+                                ordinal == read
+                                    && token.start() == discovery.offset
+                                    && matches!(
+                                        token.kind(),
+                                        ast::token::TokenKind::Int
+                                            | ast::token::TokenKind::Float
+                                            | ast::token::TokenKind::Complex
+                                    )
+                                    && *last_offset < token.end().to_usize()
+                            })
+                            && actions.iter().any(|action| {
+                                parsed
+                                    .diagnostic_token_reads()
+                                    .get(action.tokenizer_read)
+                                    .is_some_and(|filled| {
+                                        filled.ordinal == action.tokenizer_read
+                                        && filled.origin
+                                            == ruff_python_parser::DiagnosticReadOrigin::FirstPass
+                                        && filled.token.kind() == ast::token::TokenKind::Ellipsis
+                                        && filled.token.end().to_usize().checked_sub(1)
+                                            == Some(*offset)
+                                        && *last_offset >= filled.token.end().to_usize()
+                                        && discovery.offset == filled.token.end()
+                                        && *read > action.tokenizer_read
+                                    })
+                            })
+                    });
+                    if let Some((read, discovery)) = adjacent.next()
+                        && adjacent.next().is_none()
+                        && let ruff_python_parser::LexicalWarningKind::Numeric(kind) =
+                            discovery.kind
+                    {
+                        if warnings.iter().any(|candidate| {
+                            matches!(candidate, ParserWarning::Numeric { offset, last_offset, .. }
+                                if *offset == discovery.offset.to_usize()
+                                    && *last_offset == discovery.last_offset.to_usize())
+                        }) {
+                            // An already exact event remains independently
+                            // bound below; do not emit its scanner alias twice.
+                            insertions.push(None);
+                            continue;
+                        }
+                        replacements[warning_index] = Some(ParserWarning::Numeric {
+                            offset: discovery.offset.to_usize(),
+                            last_offset: discovery.last_offset.to_usize(),
+                            message: format!("invalid {kind} literal"),
+                            in_interpolation: discovery.context.in_interpolated_string,
+                        });
+                        let before =
+                            actions.partition_point(|action| action.tokenizer_read < *read);
+                        insertions.push(Some(before * 2));
+                        continue;
+                    }
+                }
+                let non_code_span = match warning {
+                    ParserWarning::Numeric {
+                        offset,
+                        last_offset,
+                        ..
+                    } if offset <= last_offset => Some((*offset, *last_offset)),
+                    ParserWarning::Escape(
+                        InvalidEscape::Char {
+                            ch: '{' | '}',
+                            offset,
+                        },
+                        EscapeOrigin::Tokenizer,
+                        ..,
+                    ) => offset.checked_add(1).map(|last| (*offset, last)),
+                    _ => None,
+                };
+                if let Some((offset, last_offset)) = non_code_span
+                    && actions.iter().any(|action| {
+                        parsed.diagnostic_token_reads().get(action.tokenizer_read)
+                            .is_some_and(|filled| {
+                                filled.ordinal == action.tokenizer_read
+                                    && filled.origin == ruff_python_parser::DiagnosticReadOrigin::FirstPass
+                                    && matches!(filled.token.kind(),
+                                        ast::token::TokenKind::String | ast::token::TokenKind::Comment)
+                                    && filled.token.start().to_usize() <= offset
+                                    && last_offset < filled.token.end().to_usize()
+                                    && !filled.warnings.iter().any(|discovery| {
+                                        match (warning, discovery.kind) {
+                                            (ParserWarning::Numeric { .. }, ruff_python_parser::LexicalWarningKind::Numeric(_)) => {
+                                                discovery.offset.to_usize() == offset
+                                                    && discovery.last_offset.to_usize() == last_offset
+                                            }
+                                            (ParserWarning::Escape(_, EscapeOrigin::Tokenizer, ..),
+                                                ruff_python_parser::LexicalWarningKind::InterpolatedBrace(_)) => {
+                                                discovery.offset.to_usize() == offset
+                                            }
+                                            _ => false,
+                                        }
+                                    })
+                            })
+                    })
+                {
+                    // Legacy fallback scanners can lose quote nesting inside
+                    // f/t expressions. The exact original STRING/Comment read
+                    // proves this wholly contained number or brace is non-code
+                    // content, never a tokenizer warning. Do not generalize to
+                    // MIDDLE/END, partial spans, parser decoders, or bound events.
+                    insertions.push(None);
+                    continue;
+                }
+                let offset = warning.offset();
+                if actions.iter().all(|action| {
+                    offset < action.tokenizer_start.to_usize()
+                        || action.tokenizer_end.to_usize() <= offset
+                }) {
+                    // Inherited scanners can report warnings after original
+                    // lexical stopping. If separated from EVERY filled read,
+                    // source order still determines the surrounding actions.
+                    // This is placement only, not certified tokenizer reachability.
+                    let before =
+                        actions.partition_point(|action| action.tokenizer_end.to_usize() <= offset);
+                    insertions.push(Some(before * 2));
+                    continue;
+                }
+                return Err(GrammarCompositionUnavailable::UnboundWarning {
+                    offset: warning.offset(),
+                    tokenizer,
+                });
+            };
+            let before = actions.partition_point(|action| {
+                if tokenizer {
+                    action.tokenizer_read < read
+                } else {
+                    action.tokenizer_read <= read
+                }
+            });
+            insertions.push(Some(before * 2));
+        }
+        // No callbacks or warning-vector mutations preceded successful binding.
+        // Keep #9314's stable relative ordering among every non-grammar warning.
+        let mut ordered: Vec<_> = core::mem::take(warnings)
+            .into_iter()
+            .zip(insertions)
+            .zip(replacements)
+            .filter_map(|((warning, insertion), replacement)| {
+                insertion.map(|insertion| (insertion, replacement.unwrap_or(warning)))
+            })
+            .collect();
+        ordered.sort_by_key(|(insertion, warning)| (*insertion, warning.emission_offset()));
+        ordered.extend(actions.into_iter().zip(recovery).enumerate().map(
+            |(index_in_batch, (action, recovery))| {
+                (
+                    index_in_batch * 2 + 1,
+                    ParserWarning::RelativeLazy {
+                        action,
+                        recovery,
+                        index: index.clone(),
+                        mode,
+                    },
+                )
+            },
+        ));
+        ordered.sort_by_key(|(insertion, _)| *insertion);
+        warnings.extend(ordered.into_iter().map(|(_, warning)| warning));
+        Ok((true, barrier))
     }
 
     fn collect_parser_warnings(
@@ -2421,10 +3762,35 @@ mod escape_warnings {
         single_mode: bool,
         type_comments: bool,
     ) -> CollectedParserWarnings {
+        collect_parser_warnings_impl(
+            WarningSource::new(source, filename),
+            mode,
+            inherited_barry_as_flufl,
+            interpolated_body_diagnostics,
+            single_mode,
+            type_comments,
+            None,
+        )
+    }
+
+    fn collect_parser_warnings_impl(
+        context: WarningSource<'_>,
+        mode: Option<ruff_python_parser::Mode>,
+        inherited_barry_as_flufl: bool,
+        interpolated_body_diagnostics: InterpolatedBodyDiagnostics,
+        single_mode: bool,
+        type_comments: bool,
+        grammar: Option<&mut GrammarCollection>,
+    ) -> CollectedParserWarnings {
+        let WarningSource {
+            source, filename, ..
+        } = context;
+        let mut grammar_sorted = false;
         let mut ast_tokenizer_recovery = true;
         let mut has_valid_syntax = false;
         let mut single_boundary = None;
         let mut type_comment_error_offset = None;
+        let mut grammar_type_comment_error = None;
         let mut warnings = Vec::new();
         collect_numeric_literal_warnings(source, &mut warnings);
         // The compile that follows rejects this source; parsing it here
@@ -2433,7 +3799,8 @@ mod escape_warnings {
         if compiler::pre_parse_source_error(&source_file).is_ok()
             && let Some(mode) = mode
         {
-            let options = ruff_python_parser::ParseOptions::from(mode);
+            let options = ruff_python_parser::ParseOptions::from(mode)
+                .with_diagnostic_type_comments(grammar.is_some() && type_comments);
             let barry_source = compiler::prepare_barry_as_flufl_source(
                 source,
                 options.clone(),
@@ -2515,6 +3882,27 @@ mod escape_warnings {
                     });
                 collect_string_escape_warnings_in_range(source, 0, end, None, &mut warnings);
             }
+            if let Some(grammar) = grammar {
+                grammar.status = append_relative_lazy_warnings(
+                    &source_file,
+                    &barry_source,
+                    &parsed,
+                    grammar.mode,
+                    type_comments,
+                    grammar.prompt,
+                    &mut warnings,
+                )
+                .map(|(sorted, barrier)| {
+                    grammar_sorted = sorted;
+                    if let Some((boundary, error)) = barrier {
+                        type_comment_error_offset = Some(
+                            type_comment_error_offset.map_or(boundary, |old| old.min(boundary)),
+                        );
+                        grammar_type_comment_error = Some(error);
+                    }
+                    sorted || grammar_type_comment_error.is_some()
+                });
+            }
         } else if mode.is_none() && compiler::pre_parse_source_error(&source_file).is_ok() {
             ast_tokenizer_recovery = false;
             // Function-type input has a separate AST parser; its return
@@ -2524,7 +3912,9 @@ mod escape_warnings {
         }
         // Stable ordering retains fragment order for constants decoded by the
         // same END token. Source offsets remain separate for input boundaries.
-        warnings.sort_by_key(ParserWarning::emission_offset);
+        if !grammar_sorted {
+            warnings.sort_by_key(ParserWarning::emission_offset);
+        }
         // The legacy scanner cannot reconstruct separate tokenizer/parser
         // events. Token-anchored collection preserves both phases instead.
         if interpolated_body_diagnostics == InterpolatedBodyDiagnostics::Legacy
@@ -2543,6 +3933,7 @@ mod escape_warnings {
             has_valid_syntax,
             single_boundary,
             type_comment_error_offset,
+            grammar_type_comment_error,
         }
     }
 
@@ -2571,7 +3962,265 @@ mod escape_warnings {
     }
 
     impl VirtualMachine {
+        fn emit_prepared_grammar_warnings(
+            &self,
+            module: Option<&PyObject>,
+            original_filename: Option<&Py<PyStr>>,
+            prepared: PreparedGrammarWarnings,
+            emitted_escapes: &[usize],
+            ast_only: bool,
+        ) -> Result<Vec<usize>, VmCompileError> {
+            let source = prepared.source.as_ref();
+            let filename = prepared.filename.as_str();
+            let collected = prepared.collected;
+            if collected.warnings.iter().any(|warning| {
+                matches!(warning, ParserWarning::RelativeLazy { recovery: None, .. })
+            }) {
+                return Err(self.grammar_invariant_error(
+                    filename,
+                    GrammarCompositionUnavailable::MissingRecoveryPlan,
+                ));
+            }
+            let emitted = self.emit_parser_warning_batch_with_grammar(
+                source,
+                filename,
+                module,
+                collected.warnings,
+                ParserWarningBoundaries {
+                    single: if !ast_only
+                        || (collected.has_valid_syntax && collected.tokenizer_recovery)
+                    {
+                        collected.single_boundary
+                    } else {
+                        None
+                    },
+                    type_comment_error_offset: collected.type_comment_error_offset,
+                },
+                if ast_only {
+                    WarningEmission::Ast {
+                        tokenizer_recovery: collected.tokenizer_recovery,
+                        original_filename,
+                    }
+                } else {
+                    WarningEmission::Standard {
+                        emitted_escapes,
+                        tokenizer_recovery: collected.tokenizer_recovery,
+                    }
+                },
+            )?;
+            if let Some(error) = collected.grammar_type_comment_error {
+                return Err(VmCompileError::Compile(error));
+            }
+            Ok(emitted)
+        }
+
+        fn emit_prepared_interactive_grammar_warnings(
+            &self,
+            module: Option<&PyObject>,
+            prepared: PreparedPromptGrammarWarnings,
+            emitted: &mut super::InteractiveWarnings,
+        ) -> Result<(), VmCompileError> {
+            let PreparedPromptGrammarWarnings(prepared) = prepared;
+            self.emit_parser_warning_batch_with_grammar(
+                &prepared.source,
+                &prepared.filename,
+                module,
+                prepared.collected.warnings,
+                ParserWarningBoundaries::default(),
+                WarningEmission::Interactive(emitted),
+            )
+            .map(|_| ())
+        }
+
+        /// Fail closed on an internal parser/consumer construction inconsistency.
+        /// This is not a diagnostic for invalid Python source. The private fresh
+        /// constructors bind source, mode, original reads and recovery together;
+        /// a supported-input hit is a bug, not a permitted compatibility result.
+        fn grammar_invariant_error(
+            &self,
+            filename: &str,
+            reason: GrammarCompositionUnavailable,
+        ) -> VmCompileError {
+            VmCompileError::Warning(CompileWarningError {
+                exception: self.new_system_error(format!(
+                    "internal grammar diagnostic invariant failed: {reason:?}"
+                )),
+                filename: filename.to_owned(),
+                original_filename: None,
+                lineno: 0,
+                offset: 0,
+                replacement: None,
+                diagnostic_text: None,
+                omit_source_text: true,
+            })
+        }
+
+        /// A complete prepared batch, or no grammar actions at all. Failure is
+        /// explicit before callbacks, never a feature-presence fallback bypass.
+        pub(super) fn try_emit_standard_grammar_warnings(
+            &self,
+            context: WarningSource<'_>,
+            module: Option<&PyObject>,
+            mode: compiler::Mode,
+            inherited_barry_as_flufl: bool,
+            type_comments: bool,
+            emitted_escapes: &[usize],
+        ) -> Result<Option<Vec<usize>>, VmCompileError> {
+            let WarningSource {
+                source, filename, ..
+            } = context;
+            let prepared = prepare_relative_lazy_parser_warnings(
+                source,
+                filename,
+                mode,
+                inherited_barry_as_flufl,
+                type_comments,
+            )
+            .map_err(|reason| self.grammar_invariant_error(filename, reason))?;
+            prepared
+                .map(|prepared| {
+                    self.emit_prepared_grammar_warnings(
+                        module,
+                        None,
+                        prepared,
+                        emitted_escapes,
+                        false,
+                    )
+                })
+                .transpose()
+        }
+
         pub(super) fn emit_standard_parser_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+            module: Option<&PyObject>,
+            mode: compiler::Mode,
+            inherited_barry_as_flufl: bool,
+            emitted_escapes: &[usize],
+        ) -> Result<(), VmCompileError> {
+            self.emit_standard_parser_warnings_with_type_comments(
+                WarningSource::new(source, filename),
+                module,
+                mode,
+                inherited_barry_as_flufl,
+                false,
+                emitted_escapes,
+            )
+        }
+
+        pub(super) fn emit_standard_parser_warnings_with_type_comments(
+            &self,
+            context: WarningSource<'_>,
+            module: Option<&PyObject>,
+            mode: compiler::Mode,
+            inherited_barry_as_flufl: bool,
+            type_comments: bool,
+            emitted_escapes: &[usize],
+        ) -> Result<(), VmCompileError> {
+            let WarningSource {
+                source, filename, ..
+            } = context;
+            if self
+                .try_emit_standard_grammar_warnings(
+                    WarningSource::new(source, filename),
+                    module,
+                    mode,
+                    inherited_barry_as_flufl,
+                    type_comments,
+                    emitted_escapes,
+                )?
+                .is_some()
+            {
+                return Ok(());
+            }
+            self.emit_legacy_standard_parser_warnings(
+                source,
+                filename,
+                module,
+                mode,
+                inherited_barry_as_flufl,
+                emitted_escapes,
+            )
+            .map_err(VmCompileError::Warning)
+        }
+
+        pub(super) fn emit_ast_parser_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+            original_filename: Option<&Py<PyStr>>,
+            module: Option<&Py<PyStr>>,
+            start: CompileStart,
+            options: AstParserWarningOptions,
+        ) -> Result<Vec<usize>, VmCompileError> {
+            let mode = match start {
+                CompileStart::Single => Some(compiler::Mode::Single),
+                CompileStart::File => Some(compiler::Mode::Exec),
+                CompileStart::Eval => Some(compiler::Mode::Eval),
+                CompileStart::FuncType => None,
+            };
+            if let Some(mode) = mode
+                && let Some(prepared) = prepare_relative_lazy_parser_warnings(
+                    source,
+                    filename,
+                    mode,
+                    options.inherited_barry_as_flufl,
+                    options.type_comments,
+                )
+                .map_err(|reason| self.grammar_invariant_error(filename, reason))?
+            {
+                return self.emit_prepared_grammar_warnings(
+                    module.map(AsObject::as_object),
+                    original_filename,
+                    prepared,
+                    &[],
+                    true,
+                );
+            }
+            self.emit_legacy_ast_parser_warnings(
+                source,
+                filename,
+                original_filename,
+                module,
+                start,
+                options,
+            )
+            .map_err(VmCompileError::Warning)
+        }
+
+        pub(in crate::vm) fn emit_interactive_parser_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+            module: Option<&Py<PyStr>>,
+            inherited_barry_as_flufl: bool,
+            emitted: &mut super::InteractiveWarnings,
+        ) -> Result<(), VmCompileError> {
+            if let Some(prepared) = prepare_interactive_relative_lazy_warnings(
+                source,
+                filename,
+                inherited_barry_as_flufl,
+            )
+            .map_err(|reason| self.grammar_invariant_error(filename, reason))?
+            {
+                return self.emit_prepared_interactive_grammar_warnings(
+                    module.map(AsObject::as_object),
+                    prepared,
+                    emitted,
+                );
+            }
+            self.emit_legacy_interactive_parser_warnings(
+                source,
+                filename,
+                module,
+                inherited_barry_as_flufl,
+                emitted,
+            )
+            .map_err(VmCompileError::Warning)
+        }
+
+        fn emit_legacy_standard_parser_warnings(
             &self,
             source: &str,
             filename: &str,
@@ -2652,14 +4301,18 @@ mod escape_warnings {
             module: Option<&PyObject>,
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
+            use ruff_text_size::Ranged;
+
             let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
             if compiler::pre_parse_source_error(&source_file).is_err() {
                 return Ok(());
             }
             let mut warnings = Vec::new();
-            if let Ok(parsed) =
-                ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
-            {
+            let parsed = ruff_python_parser::parse_unchecked(
+                source,
+                ruff_python_parser::Mode::Module.into(),
+            );
+            if parsed.has_valid_syntax() {
                 let mut visitor = EscapeWarningVisitor {
                     source,
                     warnings: &mut warnings,
@@ -2679,6 +4332,26 @@ mod escape_warnings {
                     ast::Mod::Expression(expr) => visitor.visit_expr(&expr.body),
                 }
             } else {
+                // A completed statement/expression rejected the next token
+                // before CPython's string-decoder action could consume it.
+                // Match the AST collector's decoder eligibility for this
+                // first-pass stop, without discarding tokenizer recovery events.
+                let decoder_end = parsed
+                    .diagnostic_parser_progress()
+                    .and_then(|progress| progress.first_failure.as_ref())
+                    .filter(|failure| {
+                        failure.point.original_lexical_prefix
+                            && matches!(
+                                failure.kind,
+                                ruff_python_parser::DiagnosticParserFailureKind::Error(
+                                    ruff_python_parser::ParseErrorType::SimpleStatementsOnSameLine
+                                        | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken
+                                )
+                            )
+                    })
+                    .map_or(source.len(), |failure| {
+                        failure.point.token.range().start().to_usize()
+                    });
                 collect_string_escape_warnings_in_range(
                     source,
                     0,
@@ -2686,6 +4359,13 @@ mod escape_warnings {
                     None,
                     &mut warnings,
                 );
+                warnings.retain(|warning| {
+                    !matches!(
+                        warning,
+                        ParserWarning::Escape(escape, EscapeOrigin::Parser, ..)
+                            if escape.offset() >= decoder_end
+                    )
+                });
             }
             self.emit_parser_warning_batch(
                 source,
@@ -2701,7 +4381,7 @@ mod escape_warnings {
             .map(|_| ())
         }
 
-        pub(super) fn emit_ast_parser_warnings(
+        fn emit_legacy_ast_parser_warnings(
             &self,
             source: &str,
             filename: &str,
@@ -2758,7 +4438,7 @@ mod escape_warnings {
         }
 
         /// Emit the tokenizer warnings for the interactive input read so far.
-        pub(in crate::vm) fn emit_interactive_parser_warnings(
+        fn emit_legacy_interactive_parser_warnings(
             &self,
             source: &str,
             filename: &str,
@@ -2795,6 +4475,26 @@ mod escape_warnings {
             boundaries: ParserWarningBoundaries,
             emission: WarningEmission<'_>,
         ) -> Result<Vec<usize>, CompileWarningError> {
+            // All existing callers use the disabled grammar collector. Only
+            // emit_prepared_grammar_warnings can receive RelativeLazy variants.
+            self.emit_parser_warning_batch_with_grammar(
+                source, filename, module, warnings, boundaries, emission,
+            )
+            .map_err(|error| match error {
+                VmCompileError::Warning(error) => error,
+                VmCompileError::Compile(_) => unreachable!("legacy batch has no grammar recovery"),
+            })
+        }
+
+        fn emit_parser_warning_batch_with_grammar(
+            &self,
+            source: &str,
+            filename: &str,
+            module: Option<&PyObject>,
+            warnings: Vec<ParserWarning>,
+            boundaries: ParserWarningBoundaries,
+            emission: WarningEmission<'_>,
+        ) -> Result<Vec<usize>, VmCompileError> {
             let ParserWarningBoundaries {
                 single: single_boundary,
                 type_comment_error_offset,
@@ -2859,16 +4559,66 @@ mod escape_warnings {
                 {
                     continue;
                 }
+                // Keep #9314's existing pending-error continuation. A prior
+                // decoder warning suppresses every later grammar action; it
+                // does not use the relative-lazy filled-frontier recovery plan.
+                if parser_error.is_some() && matches!(warning, ParserWarning::RelativeLazy { .. }) {
+                    continue;
+                }
                 if let Some(state) = interactive.as_deref_mut() {
                     let message = match &warning {
                         ParserWarning::Escape(escape, ..) => escape.warning_message(),
                         ParserWarning::Numeric { message, .. } => message.clone(),
+                        ParserWarning::RelativeLazy { action, .. } => relative_lazy_message(action),
                     };
                     if !state.emitted.insert((warning.offset(), message)) {
                         continue;
                     }
                 }
                 match warning {
+                    ParserWarning::RelativeLazy {
+                        action,
+                        recovery,
+                        index,
+                        mode,
+                    } => {
+                        if let Err(error) = self.emit_relative_lazy_warning(
+                            source,
+                            filename,
+                            original_filename,
+                            module,
+                            &action,
+                            &index,
+                        ) {
+                            let syntax_warning = error
+                                .exception
+                                .fast_isinstance(self.ctx.exceptions.syntax_warning);
+                            let pending = VmCompileError::Warning(error);
+                            return Err(if syntax_warning && interactive.is_none() {
+                                let Some(recovery) = recovery else {
+                                    return Err(self.grammar_invariant_error(
+                                        filename,
+                                        GrammarCompositionUnavailable::MissingRecoveryPlan,
+                                    ));
+                                };
+                                self.emit_grammar_recovery(
+                                    WarningSource {
+                                        source,
+                                        filename,
+                                        original_filename,
+                                    },
+                                    module,
+                                    mode,
+                                    recovery,
+                                    pending,
+                                    &index,
+                                )
+                            } else {
+                                // A real prompt stops on every callback error.
+                                pending
+                            });
+                        }
+                    }
                     ParserWarning::Escape(escape, origin, error_column, diagnostic) => {
                         let offset = escape.offset();
                         if !considered_escapes.insert(offset) {
@@ -2885,9 +4635,7 @@ mod escape_warnings {
                                 self,
                             )
                             .map_err(|mut error| {
-                                if interactive.is_some()
-                                    && let Some(column) = error_column
-                                {
+                                if let Some(column) = error_column {
                                     error.offset = column;
                                     if let Some(replacement) = &mut error.replacement {
                                         replacement.end_offset = column + 2;
@@ -2909,7 +4657,7 @@ mod escape_warnings {
                                     // _PyPegen_tokenize_full_source preserves
                                     // the original parser error if recovery
                                     // fails while inside an interpolated string.
-                                    return Err(parser_error);
+                                    return Err(VmCompileError::Warning(parser_error));
                                 } else if pending_error_interpolated_tokenizer {
                                     // Single or TYPE_COMMENT validation already
                                     // failed. Recovery invokes the warning, but
@@ -2918,7 +4666,7 @@ mod escape_warnings {
                                     // let the following validation report it.
                                     break;
                                 } else {
-                                    return Err(error);
+                                    return Err(VmCompileError::Warning(error));
                                 }
                             }
                         }
@@ -2929,49 +4677,29 @@ mod escape_warnings {
                         in_interpolation,
                         ..
                     } => {
-                        let result = warn_syntax_at_offset(
+                        let result = warn_numeric_literal(
                             source,
                             filename,
                             original_filename,
                             module,
                             last_offset,
-                            message.clone(),
+                            message,
                             self,
-                        )
-                        .map_err(|mut error| {
-                            // Tokenizer numeric warnings become a zero-width
-                            // error at the literal's last character, in character
-                            // columns rather than grammar-action byte columns.
-                            error.replacement = Some(SyntaxErrorReplacement {
-                                message,
-                                end_offset: error.offset,
-                            });
-                            // helpers.c:_syntaxerror_range uses the physical
-                            // tokenizer line without its terminating LF in
-                            // every compile mode, not only interactive input.
-                            let line_start = source[..last_offset]
-                                .rfind(['\r', '\n'])
-                                .map_or(0, |index| index + 1);
-                            let line_end = source[last_offset..]
-                                .find(['\r', '\n'])
-                                .map_or(source.len(), |index| last_offset + index);
-                            error.diagnostic_text = Some(source[line_start..line_end].to_owned());
-                            error
-                        });
+                        );
                         if let Err(error) = result {
                             if in_interpolation && let Some(parser_error) = parser_error.take() {
-                                return Err(parser_error);
+                                return Err(VmCompileError::Warning(parser_error));
                             }
                             if pending_error_interpolated_tokenizer {
                                 break;
                             }
-                            return Err(error);
+                            return Err(VmCompileError::Warning(error));
                         }
                     }
                 }
             }
             if let Some(error) = parser_error {
-                return Err(error);
+                return Err(VmCompileError::Warning(error));
             }
             // AST warning callbacks use binary search on these source offsets,
             // which need not be emitted in source order.
@@ -3181,8 +4909,12 @@ mod escape_warnings {
         fn unparsed_identifier_suffix_is_not_a_raw_prefix() {
             let message = compile_error_message("bar'\\z' $\n");
             assert!(
-                message.contains("\"\\z\" is an invalid escape sequence"),
-                "trailing r in an identifier must not suppress the warning, got {message:?}"
+                message.contains("invalid syntax"),
+                "expected syntax error before decoding the adjacent string, got {message:?}"
+            );
+            assert!(
+                !message.contains("invalid escape"),
+                "an unparsed adjacent string must not emit an escape warning, got {message:?}"
             );
         }
 

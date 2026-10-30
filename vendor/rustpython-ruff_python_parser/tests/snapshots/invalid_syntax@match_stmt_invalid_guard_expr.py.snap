@@ -1,0 +1,242 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/match_stmt_invalid_guard_expr.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..100,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 0..30,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 6..7,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 13..30,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 18..19,
+                                    pattern: None,
+                                    name: Some(
+                                        Identifier {
+                                            id: Name("y"),
+                                            range: 18..19,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: Some(
+                                Starred(
+                                    ExprStarred {
+                                        node_index: NodeIndex(None),
+                                        range: 23..25,
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 24..25,
+                                                id: Name("a"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ),
+                            body: [
+                                Expr(
+                                    StmtExpr {
+                                        node_index: NodeIndex(None),
+                                        range: 27..30,
+                                        value: EllipsisLiteral(
+                                            ExprEllipsisLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 27..30,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 31..63,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 37..38,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 44..63,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 49..50,
+                                    pattern: None,
+                                    name: Some(
+                                        Identifier {
+                                            id: Name("y"),
+                                            range: 49..50,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: Some(
+                                Starred(
+                                    ExprStarred {
+                                        node_index: NodeIndex(None),
+                                        range: 55..57,
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 56..57,
+                                                id: Name("a"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ),
+                            body: [
+                                Expr(
+                                    StmtExpr {
+                                        node_index: NodeIndex(None),
+                                        range: 60..63,
+                                        value: EllipsisLiteral(
+                                            ExprEllipsisLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 60..63,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 64..99,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 70..71,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 77..99,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 82..83,
+                                    pattern: None,
+                                    name: Some(
+                                        Identifier {
+                                            id: Name("y"),
+                                            range: 82..83,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: Some(
+                                Yield(
+                                    ExprYield {
+                                        node_index: NodeIndex(None),
+                                        range: 87..94,
+                                        value: Some(
+                                            Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 93..94,
+                                                    id: Name("x"),
+                                                    ctx: Load,
+                                                },
+                                            ),
+                                        ),
+                                    },
+                                ),
+                            ),
+                            body: [
+                                Expr(
+                                    StmtExpr {
+                                        node_index: NodeIndex(None),
+                                        range: 96..99,
+                                        value: EllipsisLiteral(
+                                            ExprEllipsisLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 96..99,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | match x:
+2 |     case y if *a: ...
+  |               ^ Syntax Error: invalid syntax
+3 | match x:
+4 |     case y if (*a): ...
+  |
+
+
+  |
+2 |     case y if *a: ...
+3 | match x:
+4 |     case y if (*a): ...
+  |                ^^ Syntax Error: cannot use starred expression here
+5 | match x:
+6 |     case y if yield x: ...
+  |
+
+
+  |
+4 |     case y if (*a): ...
+5 | match x:
+6 |     case y if yield x: ...
+  |               ^^^^^^^ Syntax Error: yield expression cannot be used here

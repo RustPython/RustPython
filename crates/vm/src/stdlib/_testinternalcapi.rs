@@ -38,7 +38,7 @@ mod _testinternalcapi {
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
         frame::FrameObject,
-        function::{FuncArgs, OptionalArg, PyComparisonValue},
+        function::{ArgIntoBool, FuncArgs, OptionalArg, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
         stdlib::time::pytime::{self, Round},
@@ -47,12 +47,7 @@ mod _testinternalcapi {
             PyTypeFlags, SelfIter,
         },
     };
-    #[cfg(any(unix, windows))]
-    use rustpython_host_env::time::TimeT;
     use std::collections::HashMap;
-
-    #[cfg(not(any(unix, windows)))]
-    type TimeT = i64;
 
     // ADAPTIVE_WARMUP_VALUE + 1
     #[pyattr]
@@ -76,7 +71,8 @@ mod _testinternalcapi {
     const SIZEOF_PYOBJECT: usize = core::mem::size_of::<crate::PyObject>();
 
     #[pyattr]
-    const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
+    const SIZEOF_TIME_T: usize = core::mem::size_of::<pytime::TimeT>();
 
     // JUMP_BACKWARD_INITIAL_VALUE + 1
     #[pyattr]
@@ -333,27 +329,41 @@ mod _testinternalcapi {
         )
     }
 
+    #[derive(FromArgs)]
+    struct RunInSubinterpArgs {
+        #[pyarg(any)]
+        code: PyStrRef,
+        #[pyarg(any)]
+        config: PyObjectRef,
+        #[pyarg(named, default = false)]
+        xi: ArgIntoBool,
+    }
+
     #[pyfunction]
     fn run_in_subinterp_with_config(
-        code: PyStrRef,
-        config: PyObjectRef,
-        xi: OptionalArg<bool>,
+        args: RunInSubinterpArgs,
         vm: &VirtualMachine,
     ) -> PyResult<i32> {
-        if xi.unwrap_or(false) {
-            return Err(vm.new_runtime_error("cross-interpreter execution is not supported"));
-        }
-        let config = crate::stdlib::_interpreters::config_from_pyobject(&config, vm)?;
-        let source = code
+        let config = crate::stdlib::_interpreters::config_from_pyobject(&args.config, vm)?;
+        let source = args
+            .code
             .to_str()
             .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
+        if source.contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let whence = if args.xi.into_bool() {
+            crate::vm::InterpreterWhence::Xi
+        } else {
+            crate::vm::InterpreterWhence::Capi
+        };
         #[cfg(feature = "threading")]
         {
-            run_string_in_new_subinterp(source, config, vm)
+            run_string_in_new_subinterp(source, config, whence, vm)
         }
         #[cfg(not(feature = "threading"))]
         {
-            let _ = (source, config);
+            let _ = (source, config, whence);
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
     }
@@ -528,27 +538,148 @@ mod _testinternalcapi {
         Ok(settings)
     }
 
-    #[pyfunction]
-    fn create_interpreter(
+    #[derive(FromArgs)]
+    struct CreateInterpreterArgs {
+        #[pyarg(any, optional)]
         config: OptionalArg<PyObjectRef>,
-        _whence: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<i64> {
-        let cfg = match config.into_option() {
-            Some(obj) if !vm.is_none(&obj) => {
-                crate::stdlib::_interpreters::config_from_pyobject(&obj, vm)?
+        #[pyarg(named, default = 4)]
+        whence: i64,
+    }
+
+    #[pyfunction]
+    fn create_interpreter(args: CreateInterpreterArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        use crate::vm::{InterpreterConfig, InterpreterWhence};
+        let whence = match args.whence {
+            0 => InterpreterWhence::Unknown,
+            2 => InterpreterWhence::LegacyCapi,
+            3 => InterpreterWhence::Capi,
+            4 => InterpreterWhence::Xi,
+            value => return Err(vm.new_value_error(format!("unsupported whence {value}"))),
+        };
+        let config = args.config.into_option().filter(|obj| !vm.is_none(obj));
+        let cfg = if matches!(
+            whence,
+            InterpreterWhence::Unknown | InterpreterWhence::LegacyCapi
+        ) {
+            if config.is_some() {
+                return Err(vm.new_value_error("got unexpected config"));
             }
-            _ => crate::vm::InterpreterConfig::ISOLATED,
+            InterpreterConfig::LEGACY
+        } else if let Some(config) = config {
+            crate::stdlib::_interpreters::config_from_pyobject(&config, vm)?
+        } else {
+            InterpreterConfig::ISOLATED
         };
         #[cfg(feature = "threading")]
         {
-            let interp = crate::Interpreter::create_subinterpreter_from_vm(vm, cfg)
-                .map_err(|msg| crate::stdlib::_interpreters::interpreter_error(vm, msg))?;
+            let interp =
+                crate::Interpreter::create_subinterpreter_from_vm_with_whence(vm, cfg, whence)
+                    .map_err(|msg| crate::stdlib::_interpreters::interpreter_error(vm, msg))?;
             Ok(crate::vm::runtime::store_owned_interpreter(interp))
         }
         #[cfg(not(feature = "threading"))]
         {
-            let _ = cfg;
+            let _ = (cfg, whence);
+            Err(vm.new_runtime_error("isolated interpreters require threading"))
+        }
+    }
+
+    #[pyfunction]
+    fn next_interpreter_id() -> i64 {
+        crate::vm::runtime::next_interpreter_id()
+    }
+
+    #[derive(FromArgs)]
+    struct DestroyInterpreterArgs {
+        #[pyarg(any)]
+        id: PyObjectRef,
+        #[pyarg(any, default = false)]
+        basic: ArgIntoBool,
+    }
+
+    #[pyfunction]
+    fn destroy_interpreter(args: DestroyInterpreterArgs, vm: &VirtualMachine) -> PyResult<()> {
+        use crate::stdlib::_interpreters::{interpreter_error, interpreter_not_found};
+        use crate::vm::{crossinterp, runtime};
+        let id = crate::stdlib::_interpreters::parse_id(&args.id, vm)?;
+        runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        if id == vm.state.interpreter_id {
+            return Err(interpreter_error(
+                vm,
+                "cannot destroy the current interpreter",
+            ));
+        }
+        if crossinterp::is_running(id) {
+            return Err(interpreter_error(vm, "interpreter running"));
+        }
+        #[cfg(feature = "threading")]
+        {
+            let interp =
+                runtime::take_owned_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+            if args.basic.into_bool() && interp.global_state.ready.load(Ordering::Acquire) {
+                // Exercise out-of-order VM-state destruction before ending the
+                // interpreter, as the basic C-API fixture does with thread states.
+                let first = interp.new_thread();
+                let second = interp.new_thread();
+                second.run(|_| drop(first));
+                drop(second);
+            }
+            let _ = interp.finalize(None);
+            Ok(())
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            let _ = args.basic;
+            Err(vm.new_runtime_error("isolated interpreters require threading"))
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct ExecInterpreterArgs {
+        #[pyarg(any)]
+        id: PyObjectRef,
+        #[pyarg(any)]
+        code: PyStrRef,
+        #[pyarg(named, default = false)]
+        main: ArgIntoBool,
+    }
+
+    #[pyfunction]
+    fn exec_interpreter(args: ExecInterpreterArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let source = args
+            .code
+            .to_str()
+            .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
+        if source.contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let id = crate::stdlib::_interpreters::parse_id(&args.id, vm)?;
+        let state = crate::vm::runtime::lookup_interpreter(id)
+            .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
+        if !state.ready.load(Ordering::Acquire) {
+            return Err(crate::stdlib::_interpreters::interpreter_error(
+                vm,
+                "interpreter not ready",
+            ));
+        }
+        #[cfg(feature = "threading")]
+        {
+            if args.main.into_bool() {
+                crate::vm::crossinterp::with_interpreter(id, vm, |target| {
+                    run_interpreter_source(source, target)
+                })
+            } else if id == vm.state.interpreter_id {
+                vm.new_thread()
+                    .run(|target| run_interpreter_source(source, target))
+            } else {
+                let thread = crate::vm::runtime::owned_new_thread(id)
+                    .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
+                thread.run(|target| run_interpreter_source(source, target))
+            }
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            let _ = (source, args.main);
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
     }
@@ -572,8 +703,8 @@ mod _testinternalcapi {
         })
     }
 
+    // PyArg_ParseTuple's "i" first converts to C long, then checks C int bounds.
     fn pytime_c_int(object: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
-        // PyArg_ParseTuple's "i" converts to C long before checking C int bounds.
         let value: core::ffi::c_long = object
             .try_index(vm)?
             .as_bigint()
@@ -596,74 +727,6 @@ mod _testinternalcapi {
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int64_t"))
     }
 
-    fn pytime_pair(
-        value: i64,
-        denominator: i64,
-        minimum: i64,
-        maximum: i64,
-        clamp: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<(i64, i64)> {
-        let seconds = value.div_euclid(denominator);
-        if !(minimum..=maximum).contains(&seconds) {
-            if !clamp {
-                return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-            }
-            return Ok((seconds.clamp(minimum, maximum), 0));
-        }
-        Ok((seconds, value.rem_euclid(denominator)))
-    }
-
-    #[pyfunction(name = "_PyTime_AsTimespec")]
-    fn pytime_as_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec", vm)?;
-        pytime_pair(
-            pytime_i64(ns, vm)?,
-            1_000_000_000,
-            TimeT::MIN as _,
-            TimeT::MAX as _,
-            false,
-            vm,
-        )
-    }
-
-    #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
-    fn pytime_as_timespec_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec_clamp", vm)?;
-        pytime_pair(
-            pytime_i64(ns, vm)?,
-            1_000_000_000,
-            TimeT::MIN as _,
-            TimeT::MAX as _,
-            true,
-            vm,
-        )
-    }
-
-    #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
-    fn pytime_as_timeval_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval_clamp", vm)?;
-        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
-        // Validate rounding before converting the timestamp, as the C wrapper does.
-        pytime_timeval(pytime_i64(ns, vm)?, round, true, vm)
-    }
-
-    fn pytime_timeval(
-        ns: i64,
-        round: Round,
-        clamp: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<(i64, i64)> {
-        let us = round.divide(ns, 1_000);
-        // Windows timeval uses C long even though the host time_t is 64-bit.
-        #[cfg(windows)]
-        let (minimum, maximum): (i64, i64) =
-            (core::ffi::c_long::MIN as _, core::ffi::c_long::MAX as _);
-        #[cfg(not(windows))]
-        let (minimum, maximum): (i64, i64) = (TimeT::MIN as _, TimeT::MAX as _);
-        pytime_pair(us, 1_000_000, minimum, maximum, clamp, vm)
-    }
-
     #[pyfunction(name = "_PyTime_FromSeconds")]
     fn pytime_from_seconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
         let [seconds] = pytime_args::<1>(&args, "_PyTime_FromSeconds", vm)?;
@@ -677,34 +740,46 @@ mod _testinternalcapi {
         pytime::from_seconds_object(object, round, vm)
     }
 
-    #[pyfunction(name = "_PyTime_AsTimeval")]
-    fn pytime_as_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval", vm)?;
-        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
-        pytime_timeval(pytime_i64(ns, vm)?, round, false, vm)
-    }
-
-    fn pytime_as_subseconds(
-        args: FuncArgs,
-        name: &str,
-        divisor: i64,
-        vm: &VirtualMachine,
-    ) -> PyResult<i64> {
-        let [ns, round] = pytime_args::<2>(&args, name, vm)?;
-        let round = pytime_c_int(round, vm)?;
-        // These two C wrappers convert the timestamp before validating the mode.
-        let ns = pytime_i64(ns, vm)?;
-        Ok(Round::from_int(round, vm)?.divide(ns, divisor))
-    }
-
     #[pyfunction(name = "_PyTime_AsMilliseconds")]
     fn pytime_as_milliseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        pytime_as_subseconds(args, "_PyTime_AsMilliseconds", 1_000_000, vm)
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsMilliseconds", vm)?;
+        let round = pytime_c_int(round, vm)?;
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, 1_000_000))
     }
 
     #[pyfunction(name = "_PyTime_AsMicroseconds")]
     fn pytime_as_microseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        pytime_as_subseconds(args, "_PyTime_AsMicroseconds", 1_000, vm)
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsMicroseconds", vm)?;
+        let round = pytime_c_int(round, vm)?;
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, 1_000))
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimespec")]
+    fn pytime_as_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec", vm)?;
+        pytime::as_timespec(pytime_i64(ns, vm)?, false, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
+    fn pytime_as_timespec_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec_clamp", vm)?;
+        pytime::as_timespec(pytime_i64(ns, vm)?, true, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimeval")]
+    fn pytime_as_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::as_timeval(pytime_i64(ns, vm)?, round, false, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
+    fn pytime_as_timeval_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval_clamp", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::as_timeval(pytime_i64(ns, vm)?, round, true, vm)
     }
 
     #[pyfunction(name = "_PyTime_ObjectToTime_t")]
@@ -714,25 +789,18 @@ mod _testinternalcapi {
         pytime::object_to_time_t(object, round, vm)
     }
 
-    fn pytime_object_to_denominator(
-        args: FuncArgs,
-        name: &str,
-        denominator: i64,
-        vm: &VirtualMachine,
-    ) -> PyResult<(i64, i64)> {
-        let [object, round] = pytime_args::<2>(&args, name, vm)?;
+    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
+    fn pytime_object_to_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [object, round] = pytime_args::<2>(&args, "_PyTime_ObjectToTimespec", vm)?;
         let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
-        pytime::object_to_denominator(object, denominator, round, vm)
+        pytime::object_to_denominator(object, 1_000_000_000, round, vm)
     }
 
     #[pyfunction(name = "_PyTime_ObjectToTimeval")]
     fn pytime_object_to_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        pytime_object_to_denominator(args, "_PyTime_ObjectToTimeval", 1_000_000, vm)
-    }
-
-    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
-    fn pytime_object_to_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        pytime_object_to_denominator(args, "_PyTime_ObjectToTimespec", 1_000_000_000, vm)
+        let [object, round] = pytime_args::<2>(&args, "_PyTime_ObjectToTimeval", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_denominator(object, 1_000_000, round, vm)
     }
 
     #[pyfunction]
@@ -1887,41 +1955,52 @@ fn sep_or_end(path: &[char], idx: usize, size: usize) -> bool {
 }
 
 #[cfg(feature = "threading")]
-fn run_string_in_new_subinterp(
+pub(crate) fn run_string_in_new_subinterp(
     source: &str,
     config: crate::vm::InterpreterConfig,
+    whence: crate::vm::InterpreterWhence,
     vm: &VirtualMachine,
 ) -> PyResult<i32> {
-    let interp = crate::Interpreter::create_subinterpreter_from_vm(vm, config).map_err(|msg| {
-        let cause = vm.new_runtime_error(msg.to_owned());
-        let exc =
-            crate::stdlib::_interpreters::interpreter_error(vm, "sub-interpreter creation failed");
-        exc.set_context(Some(cause));
-        exc
-    })?;
+    let interp = crate::Interpreter::create_subinterpreter_from_vm_with_whence(vm, config, whence)
+        .map_err(|msg| {
+            let cause = vm.new_runtime_error(msg.to_owned());
+            let exc = crate::stdlib::_interpreters::interpreter_error(
+                vm,
+                "sub-interpreter creation failed",
+            );
+            exc.set_context(Some(cause));
+            exc
+        })?;
     let id = crate::vm::runtime::store_owned_interpreter(interp);
-    let outcome = crate::vm::crossinterp::with_interpreter(id, vm, |target| {
-        match target.compile(source, crate::compiler::Mode::Exec, "<string>") {
-            Ok(code) => {
-                let ns = target.main_namespace()?;
-                let scope = crate::scope::Scope::with_builtins(None, ns, target);
-                match target.run_code_obj(code, scope) {
-                    Ok(_) => Ok(0),
-                    Err(exc) => {
-                        target.print_exception(&exc);
-                        Ok(-1)
-                    }
-                }
-            }
-            Err(err) => {
-                let exc = err.into_pyexception(target, Some(source));
-                target.print_exception(&exc);
-                Ok(-1)
-            }
-        }
-    });
+    let outcome = {
+        let thread = crate::vm::runtime::owned_new_thread(id)
+            .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
+        thread.run(|target| run_interpreter_source(source, target))
+    };
     let _ = crate::vm::runtime::destroy_owned_interpreter(id);
     outcome
+}
+
+#[cfg(feature = "threading")]
+fn run_interpreter_source(source: &str, target: &VirtualMachine) -> PyResult<i32> {
+    match target.compile(source, crate::compiler::Mode::Exec, "<string>") {
+        Ok(code) => {
+            let ns = target.main_namespace()?;
+            let scope = crate::scope::Scope::with_builtins(None, ns, target);
+            match target.run_code_obj(code, scope) {
+                Ok(_) => Ok(0),
+                Err(exc) => {
+                    target.print_exception(&exc);
+                    Ok(-1)
+                }
+            }
+        }
+        Err(err) => {
+            let exc = err.into_pyexception(target, Some(source));
+            target.print_exception(&exc);
+            Ok(-1)
+        }
+    }
 }
 
 #[cfg(feature = "codegen")]

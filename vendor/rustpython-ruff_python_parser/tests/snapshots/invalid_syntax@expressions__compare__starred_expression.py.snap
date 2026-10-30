@@ -1,0 +1,212 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/compare/starred_expression.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..39,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..7,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 0..7,
+                            ops: [
+                                GtE,
+                            ],
+                            operands: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 0..1,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Starred(
+                                    ExprStarred {
+                                        node_index: NodeIndex(None),
+                                        range: 5..7,
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 6..7,
+                                                id: Name("y"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 8..19,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 8..19,
+                            ops: [
+                                NotIn,
+                            ],
+                            operands: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 8..9,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Starred(
+                                    ExprStarred {
+                                        node_index: NodeIndex(None),
+                                        range: 17..19,
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 18..19,
+                                                id: Name("y"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 21..27,
+                    value: Starred(
+                        ExprStarred {
+                            node_index: NodeIndex(None),
+                            range: 21..27,
+                            value: Compare(
+                                ExprCompare {
+                                    node_index: NodeIndex(None),
+                                    range: 22..27,
+                                    ops: [
+                                        Lt,
+                                    ],
+                                    operands: [
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 22..23,
+                                                id: Name("x"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 26..27,
+                                                id: Name("y"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ],
+                                    runtime_comparators: None,
+                                },
+                            ),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 28..39,
+                    value: Starred(
+                        ExprStarred {
+                            node_index: NodeIndex(None),
+                            range: 28..39,
+                            value: Compare(
+                                ExprCompare {
+                                    node_index: NodeIndex(None),
+                                    range: 29..39,
+                                    ops: [
+                                        IsNot,
+                                    ],
+                                    operands: [
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 29..30,
+                                                id: Name("x"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 38..39,
+                                                id: Name("y"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ],
+                                    runtime_comparators: None,
+                                },
+                            ),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | x >= *y
+  |      ^ Syntax Error: invalid syntax
+2 | x not in *y
+  |
+
+
+  |
+1 | x >= *y
+2 | x not in *y
+  |          ^ Syntax Error: invalid syntax
+3 |
+4 | *x < y
+  |
+
+
+  |
+2 | x not in *y
+3 |
+4 | *x < y
+  |  ^^^^^ Syntax Error: comparison expression cannot be used here
+5 | *x is not y
+  |
+
+
+  |
+4 | *x < y
+5 | *x is not y
+  |  ^^^^^^^^^^ Syntax Error: comparison expression cannot be used here

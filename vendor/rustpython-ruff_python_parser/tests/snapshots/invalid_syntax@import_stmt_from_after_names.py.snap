@@ -1,0 +1,149 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/import_stmt_from_after_names.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..44,
+        body: [
+            Import(
+                StmtImport {
+                    node_index: NodeIndex(None),
+                    range: 0..8,
+                    names: [
+                        Alias {
+                            range: 7..8,
+                            node_index: NodeIndex(None),
+                            name: Identifier {
+                                id: Name("a"),
+                                range: 7..8,
+                                node_index: NodeIndex(None),
+                            },
+                            asname: None,
+                        },
+                    ],
+                    is_lazy: false,
+                },
+            ),
+            ImportFrom(
+                StmtImportFrom {
+                    node_index: NodeIndex(None),
+                    range: 9..15,
+                    module: Some(
+                        Identifier {
+                            id: Name("b"),
+                            range: 14..15,
+                            node_index: NodeIndex(None),
+                        },
+                    ),
+                    names: [],
+                    level: 0,
+                    is_lazy: false,
+                    runtime_level: None,
+                },
+            ),
+            Import(
+                StmtImport {
+                    node_index: NodeIndex(None),
+                    range: 16..29,
+                    names: [
+                        Alias {
+                            range: 23..26,
+                            node_index: NodeIndex(None),
+                            name: Identifier {
+                                id: Name("a.b"),
+                                range: 23..26,
+                                node_index: NodeIndex(None),
+                            },
+                            asname: None,
+                        },
+                        Alias {
+                            range: 28..29,
+                            node_index: NodeIndex(None),
+                            name: Identifier {
+                                id: Name("c"),
+                                range: 28..29,
+                                node_index: NodeIndex(None),
+                            },
+                            asname: None,
+                        },
+                    ],
+                    is_lazy: false,
+                },
+            ),
+            ImportFrom(
+                StmtImportFrom {
+                    node_index: NodeIndex(None),
+                    range: 30..43,
+                    module: Some(
+                        Identifier {
+                            id: Name("d.e"),
+                            range: 35..38,
+                            node_index: NodeIndex(None),
+                        },
+                    ),
+                    names: [
+                        Alias {
+                            range: 42..43,
+                            node_index: NodeIndex(None),
+                            name: Identifier {
+                                id: Name("f"),
+                                range: 42..43,
+                                node_index: NodeIndex(None),
+                            },
+                            asname: None,
+                        },
+                    ],
+                    level: 0,
+                    is_lazy: false,
+                    runtime_level: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | import a from b
+  | ^^^^^^^^^^^^^^^ Syntax Error: Did you mean to use 'from ... import ...' instead?
+2 | import a.b, c from d.e as f
+  |
+
+
+  |
+1 | import a from b
+  |          ^^^^ Syntax Error: invalid syntax
+2 | import a.b, c from d.e as f
+  |
+
+
+  |
+1 | import a from b
+  |                ^ Syntax Error: invalid syntax
+2 | import a.b, c from d.e as f
+  |
+
+
+  |
+1 | import a from b
+2 | import a.b, c from d.e as f
+  | ^^^^^^^^^^^^^^^^^^^^^^^^ Syntax Error: Did you mean to use 'from ... import ...' instead?
+
+
+  |
+1 | import a from b
+2 | import a.b, c from d.e as f
+  |               ^^^^ Syntax Error: invalid syntax
+
+
+  |
+1 | import a from b
+2 | import a.b, c from d.e as f
+  |                        ^^ Syntax Error: invalid syntax

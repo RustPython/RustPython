@@ -1,0 +1,224 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/while_stmt_invalid_test_expr.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..70,
+        body: [
+            While(
+                StmtWhile {
+                    node_index: NodeIndex(None),
+                    range: 0..13,
+                    test: Starred(
+                        ExprStarred {
+                            node_index: NodeIndex(None),
+                            range: 6..8,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 7..8,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 10..13,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 10..13,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+            While(
+                StmtWhile {
+                    node_index: NodeIndex(None),
+                    range: 14..32,
+                    test: Yield(
+                        ExprYield {
+                            node_index: NodeIndex(None),
+                            range: 20..27,
+                            value: Some(
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 26..27,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ),
+                        },
+                    ),
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 29..32,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 29..32,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+            While(
+                StmtWhile {
+                    node_index: NodeIndex(None),
+                    range: 33..40,
+                    test: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 39..40,
+                            id: Name("a"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    orelse: [],
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+            AnnAssign(
+                StmtAnnAssign {
+                    node_index: NodeIndex(None),
+                    range: 42..48,
+                    target: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 42..43,
+                            id: Name("b"),
+                            ctx: Store,
+                        },
+                    ),
+                    annotation: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 45..48,
+                        },
+                    ),
+                    value: None,
+                    simple: true,
+                    runtime_simple: None,
+                },
+            ),
+            While(
+                StmtWhile {
+                    node_index: NodeIndex(None),
+                    range: 49..61,
+                    test: Named(
+                        ExprNamed {
+                            node_index: NodeIndex(None),
+                            range: 55..61,
+                            target: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 55..56,
+                                    id: Name("a"),
+                                    ctx: Store,
+                                },
+                            ),
+                            value: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 60..61,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    body: [],
+                    orelse: [],
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+            AnnAssign(
+                StmtAnnAssign {
+                    node_index: NodeIndex(None),
+                    range: 63..69,
+                    target: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 63..64,
+                            id: Name("b"),
+                            ctx: Store,
+                        },
+                    ),
+                    annotation: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 66..69,
+                        },
+                    ),
+                    value: None,
+                    simple: true,
+                    runtime_simple: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | while *x: ...
+  |       ^ Syntax Error: invalid syntax
+2 | while yield x: ...
+3 | while a, b: ...
+  |
+
+
+  |
+1 | while *x: ...
+2 | while yield x: ...
+  |       ^^^^^^^ Syntax Error: yield expression cannot be used here
+3 | while a, b: ...
+4 | while a := 1, b: ...
+  |
+
+
+  |
+1 | while *x: ...
+2 | while yield x: ...
+3 | while a, b: ...
+  |        ^ Syntax Error: invalid syntax
+4 | while a := 1, b: ...
+  |
+
+
+  |
+2 | while yield x: ...
+3 | while a, b: ...
+4 | while a := 1, b: ...
+  |             ^ Syntax Error: invalid syntax

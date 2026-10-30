@@ -1,0 +1,234 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/arguments/invalid_expression.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..67,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..15,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 0..15,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 0..4,
+                                    id: Name("call"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 4..15,
+                                node_index: NodeIndex(None),
+                                args: [],
+                                keywords: [
+                                    Keyword {
+                                        range: 5..14,
+                                        node_index: NodeIndex(None),
+                                        arg: Some(
+                                            Identifier {
+                                                id: Name(""),
+                                                range: 5..10,
+                                                node_index: NodeIndex(None),
+                                            },
+                                        ),
+                                        value: NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 13..14,
+                                                value: Int(
+                                                    1,
+                                                ),
+                                            },
+                                        ),
+                                    },
+                                ],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 16..32,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 16..32,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 16..20,
+                                    id: Name("call"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 20..32,
+                                node_index: NodeIndex(None),
+                                args: [],
+                                keywords: [
+                                    Keyword {
+                                        range: 21..31,
+                                        node_index: NodeIndex(None),
+                                        arg: Some(
+                                            Identifier {
+                                                id: Name(""),
+                                                range: 21..27,
+                                                node_index: NodeIndex(None),
+                                            },
+                                        ),
+                                        value: NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 30..31,
+                                                value: Int(
+                                                    1,
+                                                ),
+                                            },
+                                        ),
+                                    },
+                                ],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 34..47,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 34..47,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 34..38,
+                                    id: Name("call"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 38..47,
+                                node_index: NodeIndex(None),
+                                args: [
+                                    Yield(
+                                        ExprYield {
+                                            node_index: NodeIndex(None),
+                                            range: 39..46,
+                                            value: Some(
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 45..46,
+                                                        id: Name("x"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                            ),
+                                        },
+                                    ),
+                                ],
+                                keywords: [],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 48..66,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 48..66,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 48..52,
+                                    id: Name("call"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 52..66,
+                                node_index: NodeIndex(None),
+                                args: [
+                                    YieldFrom(
+                                        ExprYieldFrom {
+                                            node_index: NodeIndex(None),
+                                            range: 53..65,
+                                            value: Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 64..65,
+                                                    id: Name("x"),
+                                                    ctx: Load,
+                                                },
+                                            ),
+                                        },
+                                    ),
+                                ],
+                                keywords: [],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | call(x + y = 1)
+  |      ^^^^^^^ Syntax Error: expression cannot contain assignment, perhaps you meant "=="?
+2 | call(x := 1 = 1)
+  |
+
+
+  |
+1 | call(x + y = 1)
+2 | call(x := 1 = 1)
+  |      ^^^^^^^^ Syntax Error: expression cannot contain assignment, perhaps you meant "=="?
+3 |
+4 | call(yield x)
+  |
+
+
+  |
+2 | call(x := 1 = 1)
+3 |
+4 | call(yield x)
+  |      ^^^^^^^ Syntax Error: yield expression cannot be used here
+5 | call(yield from x)
+  |
+
+
+  |
+4 | call(yield x)
+5 | call(yield from x)
+  |      ^^^^^^^^^^^^ Syntax Error: yield expression cannot be used here
