@@ -1106,6 +1106,8 @@ mod decl {
 
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
+            // An iterator is asked for its iterator again, which validates its __iter__.
+            let iterator = iterator.get_iter(vm)?;
             let class = Self::class(&vm.ctx);
             if iterator.class().is(class) {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
@@ -1138,7 +1140,7 @@ mod decl {
     #[derive(FromArgs)]
     struct TeeArgs {
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
         #[pyarg(positional, default = 2)]
         n: isize,
     }
@@ -1151,17 +1153,15 @@ mod decl {
         }
         let n = n as usize;
 
-        // Only an iterator that cannot copy itself needs a tee to buffer it.
-        let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
-            iterable.into()
-        } else {
-            PyItertoolsTee::from_iter(iterable, vm)?
-        };
-
         let mut tee_vec: Vec<PyObjectRef> = Vec::new();
         tee_vec
             .try_reserve_exact(n)
             .map_err(|_| vm.no_memory_error())?;
+        if n == 0 {
+            return Ok(vm.ctx.empty_tuple.clone());
+        }
+
+        let copyable = PyItertoolsTee::from_iter(iterable.get_iter(vm)?, vm)?;
         for _ in 0..n {
             tee_vec.push(vm.call_special_method(&copyable, identifier!(vm, __copy__), ())?);
         }
