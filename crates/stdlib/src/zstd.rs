@@ -562,13 +562,13 @@ mod _zstd {
     #[pyclass(with(Constructor, Representable, AsMapping))]
     impl ZstdDict {
         #[pygetset]
-        fn dict_content(&self) -> PyBytesRef {
-            self.dict_content.clone()
+        fn dict_content(zelf: &Py<Self>) -> PyBytesRef {
+            zelf.dict_content.clone()
         }
 
         #[pygetset]
-        fn dict_id(&self) -> u32 {
-            self.dict_id
+        fn dict_id(zelf: &Py<Self>) -> u32 {
+            zelf.dict_id
         }
 
         #[pygetset]
@@ -961,7 +961,7 @@ mod _zstd {
         } else {
             ("_compression_parameter_type", "decompression")
         };
-        let wrong_kind = vm.get_attribute_opt(vm.import("_zstd", 0)?, wrong_kind_attr)?;
+        let wrong_kind = vm.get_attribute_opt(&vm.import("_zstd", 0)?, wrong_kind_attr)?;
         for (k, v) in dict {
             // Reject a key from the wrong parameter family before any numeric
             // coercion, so the error names the type rather than giving a
@@ -1322,14 +1322,18 @@ mod _zstd {
     #[pyclass(with(Constructor))]
     impl ZstdCompressor {
         #[pymethod]
-        fn compress(&self, args: CompressMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn compress(
+            zelf: &Py<Self>,
+            args: CompressMethodArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let mode = match args.mode {
                 Some(mode) => compress_mode_from_int(mode, vm)?,
                 None => CompressMode::Continue,
             };
             let end_op = mode.end_directive();
             let data = args.data.with_ref(|b| b.to_vec());
-            let mut state = self.lock_state(vm);
+            let mut state = zelf.lock_state(vm);
             match do_compress(&mut state, &data, end_op, vm) {
                 Ok(out) => {
                     state.last_mode = mode;
@@ -1343,7 +1347,7 @@ mod _zstd {
         }
 
         #[pymethod]
-        fn flush(&self, args: FlushMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn flush(zelf: &Py<Self>, args: FlushMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             // `flush()` takes only the two flushing modes, and rejects
             // everything else — `CONTINUE` included — with its own message
             // rather than the one `compress()` uses.
@@ -1363,7 +1367,7 @@ mod _zstd {
                 }
             };
             let end_op = mode.end_directive();
-            let mut state = self.lock_state(vm);
+            let mut state = zelf.lock_state(vm);
             match do_compress(&mut state, &[], end_op, vm) {
                 Ok(out) => {
                     state.last_mode = mode;
@@ -1377,7 +1381,11 @@ mod _zstd {
         }
 
         #[pymethod]
-        fn set_pledged_input_size(&self, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_pledged_input_size(
+            zelf: &Py<Self>,
+            size: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             // Parse the argument *before* taking the lock: `try_index` can run a
             // Python `__index__`, and doing that while holding `self.state` would
             // let a re-entrant call into this compressor deadlock. CPython
@@ -1410,7 +1418,7 @@ mod _zstd {
                 }
                 Some(v)
             };
-            let mut state = self.lock_state(vm);
+            let mut state = zelf.lock_state(vm);
             if state.last_mode != CompressMode::FlushFrame {
                 return Err(vm.new_value_error(
                     "set_pledged_input_size() method must be called when last_mode == FLUSH_FRAME",
@@ -1424,8 +1432,8 @@ mod _zstd {
         }
 
         #[pygetset]
-        fn last_mode(&self, vm: &VirtualMachine) -> i32 {
-            self.lock_state(vm).last_mode as i32
+        fn last_mode(zelf: &Py<Self>, vm: &VirtualMachine) -> i32 {
+            zelf.lock_state(vm).last_mode as i32
         }
 
         // Install class-level constants `CONTINUE`, `FLUSH_BLOCK`, and
@@ -1720,14 +1728,18 @@ mod _zstd {
     #[pyclass(with(Constructor))]
     impl ZstdDecompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressMethodArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let data_vec = args.data.with_ref(|b| b.to_vec());
             let max_length = if args.max_length < 0 {
                 None
             } else {
                 Some(args.max_length as usize)
             };
-            let mut state = self.lock_state(vm);
+            let mut state = zelf.lock_state(vm);
             if state.eof {
                 return Err(vm.new_exception_msg(
                     vm.ctx.exceptions.eof_error.to_owned(),
@@ -1738,18 +1750,18 @@ mod _zstd {
         }
 
         #[pygetset]
-        fn eof(&self, vm: &VirtualMachine) -> bool {
-            self.lock_state(vm).eof
+        fn eof(zelf: &Py<Self>, vm: &VirtualMachine) -> bool {
+            zelf.lock_state(vm).eof
         }
 
         #[pygetset]
-        fn needs_input(&self, vm: &VirtualMachine) -> bool {
-            self.lock_state(vm).needs_input
+        fn needs_input(zelf: &Py<Self>, vm: &VirtualMachine) -> bool {
+            zelf.lock_state(vm).needs_input
         }
 
         #[pygetset]
-        fn unused_data(&self, vm: &VirtualMachine) -> PyBytesRef {
-            self.lock_state(vm).unused_data.clone()
+        fn unused_data(zelf: &Py<Self>, vm: &VirtualMachine) -> PyBytesRef {
+            zelf.lock_state(vm).unused_data.clone()
         }
     }
 
