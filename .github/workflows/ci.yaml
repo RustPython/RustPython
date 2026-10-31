@@ -1104,6 +1104,7 @@ jobs:
         stdlib_typing
         stdlib_urllib_https_misaligned_recv
         stdlib_zoneinfo_cache
+        stdlib_zstd
         syntax_async
         syntax_async_comprehension
         syntax_deep_nesting

@@ -43,7 +43,7 @@ mod _zstd {
     };
     use rustpython_common::lock::{PyMutex, PyMutexGuard};
     use rustpython_vm::builtins::{
-        PyBaseExceptionRef, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
+        PyBaseExceptionRef, PyBytesRef, PyDict, PyInt, PyTupleRef, PyType, PyTypeRef,
     };
     use rustpython_vm::function::{ArgBytesLike, OptionalOption};
     use rustpython_vm::types::{AsMapping, Constructor, Representable};
@@ -1825,24 +1825,29 @@ mod _zstd {
         dict_size: PyObjectRef,
     }
 
-    /// Collect the elements of `tuple` into a `Vec<usize>`, validating that
-    /// each element is a non-negative int that fits in `usize`. Used by both
-    /// `train_dict` and `finalize_dict` for the `samples_sizes` argument.
+    /// Collect the sample sizes and their checked 32-bit count for libzstd.
+    /// Each element must be a non-negative int that fits in `usize`. Used by
+    /// both `train_dict` and `finalize_dict` for the `samples_sizes` argument.
     ///
-    /// Floats (and any object whose `__index__` slot is missing) raise
-    /// `TypeError`; values that do not fit `usize` raise `ValueError` so
-    /// the test suite's `(2**1000,)` / `(-1,)` coverage holds.
-    fn parse_sample_sizes(tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<Vec<usize>> {
+    /// Integer subclasses and bools are accepted without calling conversion
+    /// methods. Other objects raise `TypeError`; values that do not fit
+    /// `usize` raise `ValueError`.
+    fn parse_sample_sizes(tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<(Vec<usize>, u32)> {
         let items = tuple.as_slice();
+        let count = u32::try_from(items.len()).map_err(|_| {
+            vm.new_value_error(format!("The number of samples should be <= {}.", u32::MAX))
+        })?;
         let mut out = Vec::with_capacity(items.len());
         for item in items {
-            let idx = item.try_index(vm)?;
-            let v: usize = idx
+            let integer = item
+                .downcast_ref::<PyInt>()
+                .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+            let v: usize = integer
                 .try_to_primitive(vm)
                 .map_err(|_| vm.new_value_error("sample size out of range for size_t"))?;
             out.push(v);
         }
-        Ok(out)
+        Ok((out, count))
     }
 
     /// Convert a Python `int` to a positive `isize`. Rejects floats (via
@@ -1888,7 +1893,7 @@ mod _zstd {
     fn train_dict(args: TrainDictArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let dict_size = parse_positive_dict_size(&args.dict_size, vm)?;
         let samples_buffer = args.samples_bytes.as_bytes().to_vec();
-        let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
+        let (sizes, sample_count) = parse_sample_sizes(args.samples_sizes, vm)?;
         check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
         // `dict_size` is caller-controlled, so reserve fallibly: an
         // infallible `Vec::with_capacity` aborts the whole interpreter on a
@@ -1906,7 +1911,7 @@ mod _zstd {
                 dict_size,
                 samples_buffer.as_ptr().cast(),
                 sizes.as_ptr(),
-                sizes.len() as u32,
+                sample_count,
             )
         };
         if ZDICT_isError(written) != 0 {
@@ -1948,7 +1953,7 @@ mod _zstd {
         let compression_level: i32 = args.compression_level.try_to_value(vm)?;
         let custom_dict = args.custom_dict_bytes.as_bytes().to_vec();
         let samples_buffer = args.samples_bytes.as_bytes().to_vec();
-        let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
+        let (sizes, sample_count) = parse_sample_sizes(args.samples_sizes, vm)?;
         check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
 
         // Reserve fallibly before filling: see `train_dict`.
@@ -1974,7 +1979,7 @@ mod _zstd {
                 custom_dict.len(),
                 samples_buffer.as_ptr() as *const _,
                 sizes.as_ptr(),
-                sizes.len() as u32,
+                sample_count,
                 params,
             )
         };
@@ -2074,6 +2079,53 @@ mod _zstd {
                 for strategy in [0, ZSTD_fast, ZSTD_btultra2] {
                     cctx.apply(ZSTD_c_strategy, strategy, vm).unwrap();
                 }
+            });
+        }
+
+        #[test]
+        fn dictionary_sample_sizes_require_int_objects() {
+            let builder = rustpython_vm::Interpreter::builder(Default::default());
+            let module = module_def(&builder.ctx);
+            let interpreter = builder.add_native_module(module).build();
+            interpreter.enter(|vm| {
+                vm.run_string(
+                    vm.new_scope_with_builtins(),
+                    r#"
+import _zstd
+
+class IndexOnly:
+    def __index__(self):
+        return 1
+
+class IntSubclass(int):
+    def __index__(self):
+        raise AssertionError("__index__ should not be called")
+    def __int__(self):
+        raise AssertionError("__int__ should not be called")
+
+def train(sizes):
+    return _zstd.train_dict(b"x", sizes, 256)
+
+def finalize(sizes):
+    return _zstd.finalize_dict(b"", b"x", sizes, 256, 1)
+
+for operation in (train, finalize):
+    try:
+        operation((IndexOnly(),))
+    except TypeError as error:
+        assert str(error) == "an integer is required"
+    else:
+        raise AssertionError("sample sizes must be integers")
+
+    for size in (IntSubclass(1), True):
+        try:
+            operation((size,))
+        except _zstd.ZstdError:
+            pass
+"#,
+                    "<zstd sample sizes>",
+                )
+                .unwrap();
             });
         }
     }
