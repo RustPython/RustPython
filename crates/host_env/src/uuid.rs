@@ -33,3 +33,18 @@ pub fn create_sequential() -> SequentialUuid {
 pub fn has_stable_node() -> bool {
     create_sequential().status == STATUS_OK
 }
+
+/// Format an RPC status like CPython's PyErr_SetFromWindowsErr, without
+/// replacing the explicit status with the thread's last-error value.
+#[must_use]
+pub fn format_error_message(status: i32) -> String {
+    const LANG_NEUTRAL_SUBLANG_DEFAULT: u32 = 1 << 10;
+    let code = status as u32;
+    crate::windows::format_error_message_with_language(code, LANG_NEUTRAL_SUBLANG_DEFAULT)
+        .map(|message| {
+            message
+                .trim_end_matches(|ch: char| ch <= ' ' || ch == '.')
+                .to_owned()
+        })
+        .unwrap_or_else(|| format!("Windows Error 0x{code:x}"))
+}
