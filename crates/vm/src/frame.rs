@@ -2924,27 +2924,30 @@ pub(crate) fn yield_from_delegate(
     let resumed_at = iframe.lasti.load(Relaxed) as usize;
     // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
     let send_idx = resumed_at.checked_sub(2 + send_caches)?;
-    if !matches!(
-        monitoring::source_operation(code, resumed_at)?.op,
-        Instruction::Resume { .. }
-    ) {
+    // checked_sub above proves send_idx <= resumed_at - 2. The optional
+    // predecessor uses a duplicate zero when send_idx is zero.
+    let [before_send, send_unit, yield_unit, resume_unit] = monitoring::source_operations_sorted(
+        code,
+        [
+            send_idx.saturating_sub(1),
+            send_idx,
+            resumed_at - 1,
+            resumed_at,
+        ],
+    );
+    if !matches!(resume_unit?.op, Instruction::Resume { .. }) {
         return None;
     }
-    let yield_unit = monitoring::source_operation(code, resumed_at - 1)?;
+    let yield_unit = yield_unit?;
     if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1 {
         return None;
     }
-    let send_unit = monitoring::source_operation(code, send_idx)?;
+    let send_unit = send_unit?;
     if !matches!(code.instructions.read_op(send_idx), Instruction::SendGen) {
         return None;
     }
     // An EXTENDED_ARG prefix would make the raw oparg below the wrong exit.
-    if send_idx > 0
-        && matches!(
-            monitoring::source_operation(code, send_idx - 1)?.op,
-            Instruction::ExtendedArg
-        )
-    {
+    if send_idx > 0 && matches!(before_send?.op, Instruction::ExtendedArg) {
         return None;
     }
     let stack = iframe.localsplus.stack_as_slice();
@@ -2997,11 +3000,11 @@ pub(crate) fn is_delegating(coro: &Coro) -> bool {
     if resumed_at == 0 {
         return false;
     }
-    matches!(
-        monitoring::source_operation(code, resumed_at).map(|u| u.op),
-        Some(Instruction::Resume { .. })
-    ) && monitoring::source_operation(code, resumed_at - 1)
-        .is_some_and(|u| matches!(u.op, Instruction::YieldValue { .. }) && u8::from(u.arg) >= 1)
+    let [yield_unit, resume_unit] =
+        monitoring::source_operations_sorted(code, [resumed_at - 1, resumed_at]);
+    matches!(resume_unit.map(|u| u.op), Some(Instruction::Resume { .. }))
+        && yield_unit
+            .is_some_and(|u| matches!(u.op, Instruction::YieldValue { .. }) && u8::from(u.arg) >= 1)
 }
 
 /// Finish a `yield from` level the trampoline ran in place of the frame:
@@ -4353,7 +4356,11 @@ impl ExecutingFrame<'_> {
             return None;
         }
         let lasti = self.lasti() as usize;
-        if let Some(unit) = monitoring::source_operation(self.code, lasti) {
+        // Preserve the zero guard below; at zero both requests name the same
+        // instruction and no predecessor is consumed.
+        let [previous_unit, current_unit] =
+            monitoring::source_operations_sorted(self.code, [lasti.saturating_sub(1), lasti]);
+        if let Some(unit) = current_unit {
             match &unit.op {
                 Instruction::Send { .. } | Instruction::SendGen => {
                     return Some(self.nth_value(1));
@@ -4362,7 +4369,7 @@ impl ExecutingFrame<'_> {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
                     if lasti > 0
-                        && let Some(prev_unit) = monitoring::source_operation(self.code, lasti - 1)
+                        && let Some(prev_unit) = previous_unit
                         && matches!(
                             &prev_unit.op.into(),
                             Opcode::YieldValue | Opcode::InstrumentedYieldValue

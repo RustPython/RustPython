@@ -769,6 +769,39 @@ pub(crate) fn source_operation(
         .find_map(|(at, unit)| (at == index).then_some(unit))
 }
 
+// Batch arbitrary-offset lookups on the same owner without rescanning its prefix.
+// Indices must be nondecreasing; duplicates receive the same scalar unit.
+// Missing instruction starts (including caches) remain None, and the bounded
+// walker retains its existing wrapper and incomplete-extent stopping rules.
+pub(crate) fn source_operations_sorted<const N: usize>(
+    code: &PyCode,
+    indices: [usize; N],
+) -> [Option<rustpython_compiler_core::bytecode::CodeUnit>; N] {
+    debug_assert!(indices.windows(2).all(|pair| pair[0] <= pair[1]));
+    let mut result = [None; N];
+    let Some(&last) = indices.last() else {
+        return result;
+    };
+    let mut requested = 0;
+    for (at, unit) in code
+        .instructions
+        .base_instructions()
+        .take_while(|(at, _)| *at <= last)
+    {
+        while requested < N && indices[requested] < at {
+            requested += 1;
+        }
+        while requested < N && indices[requested] == at {
+            result[requested] = Some(unit);
+            requested += 1;
+        }
+        if requested == N {
+            break;
+        }
+    }
+    result
+}
+
 pub(crate) fn known_operation(
     vm: &VirtualMachine,
     code: &PyCode,
