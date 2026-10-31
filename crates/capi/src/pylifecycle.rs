@@ -1,24 +1,33 @@
 use crate::get_main_interpreter;
 use crate::pyerrors::init_exception_statics;
 use crate::pystate::ensure_thread_has_vm_attached;
-use core::ffi::c_int;
+use alloc::ffi::CString;
+use core::ffi::{c_char, c_int, c_ulong};
+use core::sync::atomic::{AtomicPtr, Ordering};
+use rustpython_vm::common::rc::PyRc;
+use rustpython_vm::stdlib::sys;
+use rustpython_vm::version::{MAJOR, MICRO, MINOR, RUSTPYTHON_BUILD_INFO, VERSION_HEX};
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use rustpython_vm::{Context, Interpreter};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 pub(crate) static MAIN_INTERP: Mutex<Option<Interpreter>> = Mutex::new(None);
+pub(crate) static MAIN_INTERP_PTR: AtomicPtr<Interpreter> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Request a thread local vm from the main interpreter
 pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
     get_main_interpreter()
         .as_ref()
         .expect("Interpreter not initialized")
-        .enter(|vm| vm.new_thread())
+        .new_thread()
 }
 
 #[unsafe(no_mangle)]
+pub static Py_Version: c_ulong = VERSION_HEX as c_ulong;
+
+#[unsafe(no_mangle)]
 pub extern "C" fn Py_IsInitialized() -> c_int {
-    get_main_interpreter().is_some() as c_int
+    !MAIN_INTERP_PTR.load(Ordering::Acquire).is_null() as c_int
 }
 
 #[unsafe(no_mangle)]
@@ -32,7 +41,23 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     if interp.is_none() {
         // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
         unsafe { init_exception_statics(&Context::genesis().exceptions) };
-        *interp = Interpreter::with_init(Default::default(), |_vm| {}).into();
+        let builder = Interpreter::builder(Default::default());
+        let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+        *interp = builder
+            .add_native_modules(&defs)
+            .init_hook(|vm| {
+                let state = PyRc::get_mut(&mut vm.state).unwrap();
+                let path = rustpython_pylib::LIB_PATH.to_owned();
+
+                state.config.paths.stdlib_dir = Some(path.clone());
+                state.config.paths.module_search_paths.insert(0, path);
+            })
+            .build()
+            .into();
+        MAIN_INTERP_PTR.store(
+            interp.as_ref().unwrap() as *const _ as *mut _,
+            Ordering::Release,
+        );
         drop(interp);
         ensure_thread_has_vm_attached();
     }
@@ -51,4 +76,74 @@ pub extern "C" fn Py_FinalizeEx() -> c_int {
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsFinalizing() -> c_int {
     0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetVersion() -> *const c_char {
+    static VERSION: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(format!("{MAJOR}.{MINOR}.{MICRO}"))
+            .expect("version string must not contain interior NULs")
+    });
+    VERSION.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetBuildInfo() -> *const c_char {
+    static BUILD_INFO: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(RUSTPYTHON_BUILD_INFO).expect("build info must not contain interior NULs")
+    });
+    BUILD_INFO.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetCompiler() -> *const c_char {
+    c"[RUST]".as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetCopyright() -> *const c_char {
+    sys::COPYRIGHT.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetPlatform() -> *const c_char {
+    sys::PLATFORM.as_ptr()
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+
+    #[test]
+    fn get_version() {
+        Python::attach(|py| {
+            let version = py.version_info();
+            assert!(version >= (3, 14));
+        });
+
+        assert!(unsafe { pyo3::ffi::Py_Version } >= 0x030d0000);
+    }
+
+    #[test]
+    fn requesting_thread_vm_does_not_attach() {
+        use rustpython_vm::vm::thread::{current_thread_slot, current_vm_is_set};
+
+        Python::attach(|py| {
+            let handle = std::thread::spawn(|| {
+                let before = (current_vm_is_set(), current_thread_slot().is_some());
+                let worker_vm = super::request_vm_from_interpreter();
+                let after = (current_vm_is_set(), current_thread_slot().is_some());
+                (worker_vm, before, after)
+            });
+            let (worker_vm, before, after) = py.detach(|| handle.join().unwrap());
+            // Drop cloned Python references under the parent interpreter context.
+            drop(worker_vm);
+            assert_eq!(before, (false, false), "worker must start outside any VM");
+            assert_eq!(
+                after,
+                (false, false),
+                "creating a worker VM must not attach under MAIN_INTERP"
+            );
+        });
+    }
 }

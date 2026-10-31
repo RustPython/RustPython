@@ -19,3 +19,17 @@ def test_exec_single_mode(wdriver):
         """
     )
     assert stdout == "2\n4\n"
+
+
+def test_exec_stderr_option(wdriver):
+    stderr = wdriver.execute_script(
+        """
+        let output = "";
+        save_output = function(text) {
+            output += text
+        };
+        window.rp.pyExec('import sys; print("err", file=sys.stderr)', {stderr: save_output});
+        return output;
+        """
+    )
+    assert stderr == "err\n"

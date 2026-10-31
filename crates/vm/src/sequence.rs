@@ -1,6 +1,5 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult,
-    builtins::PyIntRef,
     function::OptionalArg,
     sliceable::SequenceIndexOp,
     types::PyComparisonOp,
@@ -99,12 +98,20 @@ where
 {
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
-
-        if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
-            return Err(vm.new_memory_error(""));
+        if self.as_ref().is_empty() {
+            return Ok(Vec::new());
         }
 
-        let mut v = Vec::with_capacity(n * self.as_ref().len());
+        if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
+            return Err(vm.no_memory_error());
+        }
+
+        let total = n
+            .checked_mul(self.as_ref().len())
+            .ok_or_else(|| vm.no_memory_error())?;
+        let mut v = Vec::new();
+        v.try_reserve_exact(total)
+            .map_err(|_| vm.no_memory_error())?;
         for _ in 0..n {
             v.extend_from_slice(self.as_ref());
         }
@@ -122,17 +129,22 @@ where
 
     fn imul(&mut self, vm: &VirtualMachine, n: isize) -> PyResult<()> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
+
+        if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
+            // TODO: make a global static NoMemory shared exc object and return its reference.
+            return Err(vm.no_memory_error());
+        }
+
         if n == 0 {
             self.as_vec_mut().clear();
-        } else if n != 1 {
-            let mut sample = self.as_vec_mut().clone();
-            if n != 2 {
-                self.as_vec_mut().reserve(sample.len() * (n - 1));
-                for _ in 0..n - 2 {
-                    self.as_vec_mut().extend_from_slice(&sample);
-                }
+        } else if n != 1 && !self.as_ref().is_empty() {
+            let len = self.as_ref().len();
+            let v = self.as_vec_mut();
+            v.try_reserve_exact(len * (n - 1))
+                .map_err(|_| vm.no_memory_error())?;
+            for _ in 1..n {
+                v.extend_from_within(..len);
             }
-            self.as_vec_mut().append(&mut sample);
         }
         Ok(())
     }
@@ -146,19 +158,19 @@ impl<T: Clone> SequenceMutExt<T> for Vec<T> {
 
 #[derive(FromArgs)]
 pub struct OptionalRangeArgs {
-    #[pyarg(positional, optional)]
-    start: OptionalArg<PyObjectRef>,
-    #[pyarg(positional, optional)]
+    #[pyarg(positional, default = 0)]
+    start: PyObjectRef,
+    // Platform ssize maximum. Missing is clamped to the sequence length.
+    #[pyarg(positional, optional, py_default = "9223372036854775807")]
     stop: OptionalArg<PyObjectRef>,
 }
 
 impl OptionalRangeArgs {
     pub fn saturate(self, len: usize, vm: &VirtualMachine) -> PyResult<(usize, usize)> {
         let saturate = |obj: PyObjectRef| -> PyResult<_> {
-            obj.try_into_value(vm)
-                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
+            Ok(obj.try_index(vm)?.as_bigint().saturated_at(len))
         };
-        let start = self.start.map_or(Ok(0), saturate)?;
+        let start = saturate(self.start)?;
         let stop = self.stop.map_or(Ok(len), saturate)?;
         Ok((start, stop))
     }

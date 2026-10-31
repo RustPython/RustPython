@@ -1,54 +1,55 @@
+use super::AstSourceContext;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::ConversionFlag {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &AstSourceContext) -> PyObjectRef {
         vm.ctx.new_int(self as i8).into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_file: &SourceFile,
+        _source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        // Python's AST uses ASCII codes: 's', 'r', 'a', -1=None
-        // Note: 255 is -1i8 as u8 (ruff's ConversionFlag::None)
-        match i32::try_from_object(vm, object)? {
-            -1 | 255 => Ok(Self::None),
+        match node_object_to_i32(vm, &object)? {
+            -1 => Ok(Self::None),
             x if x == b's' as i32 => Ok(Self::Str),
             x if x == b'r' as i32 => Ok(Self::Repr),
             x if x == b'a' as i32 => Ok(Self::Ascii),
-            _ => Err(vm.new_value_error("invalid conversion flag")),
+            x => Err(vm.new_system_error(format!("Unrecognized conversion character {x}"))),
         }
     }
 }
 
 // /// This is just a string, not strictly an AST node. But it makes AST conversions easier.
 impl Node for ast::name::Name {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &AstSourceContext) -> PyObjectRef {
         vm.ctx.intern_str(self.as_str()).to_object()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_file: &SourceFile,
+        _source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        match object.downcast::<PyStr>() {
-            Ok(name) => Ok(Self::new(name)),
-            Err(_) => Err(vm.new_value_error("expected str for name")),
+        if !object.class().is(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error("AST identifier must be of type str"));
         }
+        object
+            .downcast::<PyStr>()
+            .map(Self::new)
+            .map_err(|_| vm.new_type_error("AST identifier must be of type str"))
     }
 }
 
 impl Node for ast::Decorator {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         ast::Expr::ast_to_object(self.expression, vm, source_file)
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let expression = ast::Expr::ast_from_object(vm, source_file, object)?;
@@ -63,9 +64,9 @@ impl Node for ast::Decorator {
 
 // product
 impl Node for ast::Alias {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
-            node_index: _,
+            node_index,
             name,
             asname,
             range: _range,
@@ -78,33 +79,32 @@ impl Node for ast::Alias {
             .unwrap();
         dict.set_item("asname", asname.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, _range, vm, source_file);
+        node_add_location_for_node(&dict, _range, vm, source_file, node_index.load());
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
+        let name = get_required_identifier_field(vm, source_file, &object, "name", "alias")?;
+        let asname = get_node_field_opt(vm, &object, "asname")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
+            .transpose()?;
+        let range = range_from_object(vm, source_file, &object, "alias")?;
         Ok(Self {
-            node_index: Default::default(),
-            name: Node::ast_from_object(
-                vm,
-                source_file,
-                get_node_field_required(vm, &object, "name", "alias")?,
-            )?,
-            asname: get_node_field_opt(vm, &object, "asname")?
-                .map(|obj| Node::ast_from_object(vm, source_file, obj))
-                .transpose()?,
-            range: range_from_object(vm, source_file, object, "alias")?,
+            node_index: range.node_index(),
+            name,
+            asname,
+            range: range.range,
         })
     }
 }
 
 // product
 impl Node for ast::WithItem {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
             node_index: _,
             context_expr,
@@ -132,15 +132,17 @@ impl Node for ast::WithItem {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             node_index: Default::default(),
-            context_expr: Node::ast_from_object(
+            context_expr: get_required_node_field(
                 vm,
                 source_file,
-                get_node_field_required(vm, &object, "context_expr", "withitem")?,
+                &object,
+                "context_expr",
+                "withitem",
             )?,
             optional_vars: get_node_field_opt(vm, &object, "optional_vars")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))

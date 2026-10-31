@@ -87,3 +87,50 @@ assert not math.nan > 123
 assert not math.nan < 123
 assert not math.nan >= 123
 assert not math.nan <= 123
+
+
+# str and bytes comparisons, through a function so that the operands are not
+# constants the compiler can fold, and in a loop so the specialized comparison
+# is reached.
+def cmp_all(a, b):
+    return (a == b, a != b, a < b, a <= b, a > b, a >= b)
+
+
+def check(a, b, expected):
+    for _ in range(200):
+        assert cmp_all(a, b) == expected, (a, b, cmp_all(a, b), expected)
+
+
+EQ = (True, False, False, True, False, True)
+LT = (False, True, True, True, False, False)
+GT = (False, True, False, False, True, True)
+
+same = "abc" * 3
+check(same, same, EQ)  # the very same object
+check(same, "abcabcabc", EQ)  # equal, distinct objects
+check("abc", "abd", LT)  # same length, differing content
+check("abc", "abcd", LT)  # a prefix is less than what extends it
+check("abcd", "abc", GT)
+check("", "a", LT)
+check("", "", EQ)
+check("\ud800", "\ud800", EQ)  # lone surrogates are compared as themselves
+check("\ud800", "\udfff", LT)
+check("a\U0001f600", "a\U0001f600", EQ)
+check("가나다", "가나다", EQ)
+check("가나", "가나다", LT)
+
+# Comparing with a non-string is never an error for == and !=.
+assert not "abc" == 3
+assert "abc" != 3
+
+bsame = b"abc" * 3
+check(bsame, bsame, EQ)
+check(bsame, b"abcabcabc", EQ)
+check(b"abc", b"abd", LT)
+check(b"abc", b"abcd", LT)
+check(b"abcd", b"abc", GT)
+check(bytearray(b"abc"), bytearray(b"abcd"), LT)
+check(bytearray(b"abc"), b"abc", EQ)  # bytearray and bytes compare by content
+check(b"abc", bytearray(b"abd"), LT)
+assert not b"abc" == "abc"
+assert b"abc" != "abc"

@@ -368,6 +368,11 @@ assert list(t[0]) == [1, 2, 3]
 assert list(t[0]) == []
 
 # itertools.product
+
+product_source = iter([1])
+assert list(itertools.product(product_source, repeat=0)) == [()]
+assert next(product_source) == 1
+
 it = itertools.product([1, 2], [3, 4])
 assert (1, 3) == next(it)
 assert (1, 4) == next(it)
@@ -524,3 +529,177 @@ assert next(it) == (1, 3)
 assert next(it) == (2, None)
 with assert_raises(StopIteration):
     next(it)
+
+# r is an arbitrary Python int: one too large for an index must raise
+# OverflowError, and a representable one that cannot be allocated must raise
+# MemoryError.
+for factory in (
+    itertools.combinations,
+    itertools.combinations_with_replacement,
+    itertools.permutations,
+):
+    with assert_raises(OverflowError):
+        factory(range(5), 2**64)
+
+with assert_raises(MemoryError):
+    itertools.combinations(range(5), 2**44)
+with assert_raises(MemoryError):
+    itertools.combinations_with_replacement(range(5), 2**44)
+
+# repeat is an arbitrary Python int: a negative one is refused, and one whose
+# pool cannot be allocated must raise rather than take the process down.
+with assert_raises(ValueError):
+    itertools.product([1], repeat=-1)
+with assert_raises(OverflowError):
+    itertools.product([1, 2], repeat=2**60)
+
+
+# The pools are filled by their own count, so a repeat with nothing to repeat
+# answers at once instead of counting up to it.
+assert list(itertools.product(repeat=2**62)) == [()]
+assert list(itertools.product(repeat=0)) == [()]
+
+
+# The count is settled before the arguments are read, so a repeat too large to
+# serve does not run their code first.
+ran = []
+
+
+class Watched:
+    def __iter__(self):
+        ran.append(True)
+        return iter([1])
+
+
+with assert_raises(OverflowError):
+    itertools.product(Watched(), repeat=2**62)
+assert ran == []
+
+
+# compress consumes data, then the selector, then tests the selector's truth.
+def check_compress_consumption():
+    events = []
+
+    def tracked(name, values):
+        for value in values:
+            events.append(name)
+            yield value
+        events.append(name + " exhausted")
+
+    class Selector:
+        def __init__(self, value):
+            self.value = value
+
+        def __bool__(self):
+            events.append("bool")
+            return self.value
+
+    assert list(
+        itertools.compress(
+            tracked("data", [1, 2]),
+            tracked("selectors", [Selector(False), Selector(True), Selector(True)]),
+        )
+    ) == [2]
+    assert events == [
+        "data",
+        "selectors",
+        "bool",
+        "data",
+        "selectors",
+        "bool",
+        "data exhausted",
+    ], events
+
+    events.clear()
+    data = tracked("data", [1, 2, 3])
+    assert list(itertools.compress(data, tracked("selectors", [True]))) == [1]
+    assert events == ["data", "selectors", "data", "selectors exhausted"], events
+    assert next(data) == 3
+
+    events.clear()
+    assert (
+        list(itertools.compress(tracked("data", []), tracked("selectors", [True])))
+        == []
+    )
+    assert events == ["data exhausted"], events
+
+    def failing(name):
+        events.append(name)
+        raise ValueError(name)
+        yield
+
+    events.clear()
+    with assert_raises(ValueError) as caught:
+        next(itertools.compress(failing("data"), tracked("selectors", [True])))
+    assert str(caught.exception) == "data"
+    assert events == ["data"], events
+
+    events.clear()
+    with assert_raises(ValueError) as caught:
+        next(itertools.compress(tracked("data", [1]), failing("selectors")))
+    assert str(caught.exception) == "selectors"
+    assert events == ["data", "selectors"], events
+
+    class BadSelector:
+        def __bool__(self):
+            events.append("bool")
+            raise ValueError("truth")
+
+    events.clear()
+    with assert_raises(ValueError) as caught:
+        next(itertools.compress(tracked("data", [1]), [BadSelector()]))
+    assert str(caught.exception) == "truth"
+    assert events == ["data", "bool"], events
+
+
+check_compress_consumption()
+
+
+# These public iterator types also support Python subclasses.
+for base, args in (
+    (itertools.count, ()),
+    (itertools.groupby, ([1],)),
+    (itertools.accumulate, ([1],)),
+    (itertools.product, ([1],)),
+    (itertools.combinations, ([1], 1)),
+    (itertools.combinations_with_replacement, ([1], 1)),
+    (itertools.permutations, ([1],)),
+    (itertools.zip_longest, ([1],)),
+    (itertools.pairwise, ([1, 2],)),
+):
+
+    class Subclass(base):
+        pass
+
+    instance = Subclass(*args)
+    assert type(instance) is Subclass
+    next(instance)
+
+
+class PairwiseWithLabel(itertools.pairwise):
+    def __init__(self, iterable, *, label):
+        self.label = label
+
+
+pairs = PairwiseWithLabel([1, 2], label="pairs")
+assert pairs.label == "pairs"
+assert next(pairs) == (1, 2)
+
+
+# Consumed tee values must not remain alive for the lifetime of the iterators.
+import weakref
+
+
+class TeeItem:
+    pass
+
+
+tee_left, tee_right = itertools.tee(TeeItem() for _ in range(200))
+tee_first = next(tee_left)
+tee_ref = weakref.ref(tee_first)
+del tee_first
+next(tee_right)
+for _ in range(199):
+    next(tee_left)
+    next(tee_right)
+assert tee_ref() is None

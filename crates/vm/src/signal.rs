@@ -1,28 +1,93 @@
-#![cfg_attr(target_os = "wasi", allow(dead_code))]
-use crate::{PyObjectRef, PyResult, VirtualMachine};
-use alloc::fmt;
-use core::cell::{Cell, RefCell};
+use core::{
+    cell::{Cell, RefCell},
+    fmt,
+    ops::{Deref, DerefMut, Index, IndexMut, Range},
+    sync::atomic::{AtomicBool, AtomicU8, Ordering},
+};
+use std::sync::mpsc;
+
 #[cfg(windows)]
 use core::sync::atomic::AtomicIsize;
-use core::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
 
 pub(crate) const NSIG: usize = 64;
 
-pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
-    Box::new(const { RefCell::new([const { None }; NSIG]) })
+#[cfg(not(feature = "threading"))]
+bitflagset::bitflag! {
+    /// Eval-breaker bits checked once per bytecode instruction.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    enum EvalBreakerFlag {
+        Signal = 0,
+    }
 }
-static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
-// hack to get around const array repeat expressions, rust issue #79270
-#[allow(
+
+#[cfg(feature = "threading")]
+bitflagset::bitflag! {
+    /// Eval-breaker bits checked once per bytecode instruction.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    enum EvalBreakerFlag {
+        Signal = 0,
+        Qsbr = 1,
+        Stop = 3,
+        Finalizing = 4,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    struct EvalBreakerBits(u8): EvalBreakerFlag
+}
+
+bitflagset::atomic_bitflagset!(struct EvalBreaker(AtomicU8) on EvalBreakerBits);
+
+/// Signal handlers and QSBR set bits with fetch_or (async-signal-safe,
+/// lock-free); consumers clear only their own bit with fetch_and.
+static EVAL_BREAKER: EvalBreaker = EvalBreaker::new();
+
+#[expect(
     clippy::declare_interior_mutable_const,
     reason = "workaround for const array repeat limitation (rust issue #79270)"
 )]
 const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
+
 pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
+
+/// `_PyRuntime.signals.unhandled_keyboard_interrupt`
+static UNHANDLED_KEYBOARD_INTERRUPT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn clear_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(false, Ordering::Relaxed);
+}
+
+pub(crate) fn unhandled_keyboard_interrupt() -> bool {
+    UNHANDLED_KEYBOARD_INTERRUPT.load(Ordering::Relaxed)
+}
+
+/// exit_sigint: exit through the default SIGINT handler so that the parent
+/// process sees that a KeyboardInterrupt went unhandled.
+pub(crate) fn exit_sigint() -> u32 {
+    cfg_select! {
+        unix => {
+            if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
+                let _ = crate::host_env::signal::send_sigint_to_self();
+            }
+            libc::SIGINT as u32 + 128
+        }
+        // STATUS_CONTROL_C_EXIT
+        windows => 0xC000013A,
+        _ => 2 + 128,
+    }
+}
 
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
@@ -47,11 +112,12 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     // Read-only check first: avoids cache-line invalidation on every
     // instruction when no signal is pending (the common case).
-    if !ANY_TRIGGERED.load(Ordering::Relaxed) {
+    if !EVAL_BREAKER.contains(&EvalBreakerFlag::Signal) {
         return Ok(());
     }
+
     // Atomic RMW only when a signal is actually pending.
-    if !ANY_TRIGGERED.swap(false, Ordering::Acquire) {
+    if !EVAL_BREAKER.remove(EvalBreakerFlag::Signal) {
         return Ok(());
     }
 
@@ -68,68 +134,241 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
-    // unwrap should never fail since we check above
-    let signal_handlers = vm.signal_handlers.get().unwrap().borrow();
-    for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-        let triggered = trigger.swap(false, Ordering::Relaxed);
-        if triggered
-            && let Some(handler) = &signal_handlers[signum]
-            && let Some(callable) = handler.to_callable()
-        {
-            callable.invoke((signum, vm.ctx.none()), vm)?;
+    let can_handle_signals = vm.is_main_thread() && vm.state.is_main_interpreter();
+    if can_handle_signals {
+        let signal_handlers = vm
+            .signal_handlers
+            .get()
+            .expect("should never fail since we check above");
+
+        for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
+            let triggered = trigger.swap(false, Ordering::Relaxed);
+            if !triggered {
+                continue;
+            }
+
+            // SAFETY: TRIGGERS has the same length as the signal_handlers
+            let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
+
+            // Read the handler out and drop the borrow before running it. A
+            // handler is free to call signal.signal(), which takes the same cell
+            // mutably, and a live read borrow turns that into a panic.
+            let handler = signal_handlers.borrow()[signum].clone();
+
+            if let Some(handler) = handler
+                && let Some(callable) = handler.to_callable()
+                && let Err(exc) = callable.invoke((signum.as_i32(), vm.ctx.none()), vm)
+            {
+                // On error, re-schedule a call to trigger_signals() for the
+                // remaining signals and the pending wakeup errors.
+                set_triggered();
+                return Err(exc);
+            }
+        }
+    } else {
+        let os_signals_pending = TRIGGERS
+            .iter()
+            .skip(1)
+            .any(|trigger| trigger.load(Ordering::Relaxed));
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        let os_signals_pending =
+            os_signals_pending || crate::stdlib::_signal::_signal::wakeup_errors_pending();
+        if os_signals_pending {
+            // Leave OS signals for the main interpreter's main thread. Re-arm
+            // before running VM-local callbacks, which may raise.
+            set_triggered();
         }
     }
+
     if let Some(signal_rx) = &vm.signal_rx {
         for f in signal_rx.rx.try_iter() {
-            f(vm)?;
+            if let Err(exc) = f(vm) {
+                set_triggered();
+                return Err(exc);
+            }
         }
     }
+
+    // Wakeup fd errors are pending calls that only the main interpreter's
+    // main thread runs.
+    #[cfg(all(feature = "host_env", any(unix, windows)))]
+    if can_handle_signals {
+        crate::stdlib::_signal::_signal::report_wakeup_errors(vm);
+    }
+
     Ok(())
 }
 
 pub(crate) fn set_triggered() {
-    ANY_TRIGGERED.store(true, Ordering::Release);
+    // fetch_or (not store) so a signal handler never clobbers the QSBR bit;
+    // this compiles to a lock-free RMW, safe to call from a signal handler.
+    EVAL_BREAKER.insert(EvalBreakerFlag::Signal);
 }
 
+/// Any eval-breaker bit pending? One relaxed load; checked per instruction.
 #[inline(always)]
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn is_triggered() -> bool {
-    ANY_TRIGGERED.load(Ordering::Relaxed)
+pub(crate) fn eval_breaker_pending() -> bool {
+    !EVAL_BREAKER.is_empty()
 }
+
+/// Extra eval-breaker bits used only when more than one thread can run.
+#[cfg(feature = "threading")]
+mod mt {
+    use super::{EVAL_BREAKER, EvalBreakerFlag};
+
+    /// QSBR has retired allocations pending reclamation.
+    pub(crate) fn set_qsbr_bit() {
+        EVAL_BREAKER.insert(EvalBreakerFlag::Qsbr);
+    }
+
+    pub(crate) fn clear_qsbr_bit() {
+        EVAL_BREAKER.remove(EvalBreakerFlag::Qsbr);
+    }
+
+    pub(crate) fn qsbr_bit_set() -> bool {
+        EVAL_BREAKER.contains(&EvalBreakerFlag::Qsbr)
+    }
+
+    /// Record that some thread's `stop_requested` flag may be set. Shared by
+    /// every thread rather than being per-thread: the fast path checked once
+    /// per bytecode instruction becomes a single relaxed load of this word.
+    /// Sticky until `start_the_world`/`reset_after_fork` clears it.
+    pub(crate) fn set_stop_bit() {
+        EVAL_BREAKER.insert(EvalBreakerFlag::Stop);
+    }
+
+    /// Clear the shared stop-the-world bit. Only safe to call from
+    /// `start_the_world`/`reset_after_fork`.
+    pub(crate) fn clear_stop_bit() {
+        EVAL_BREAKER.remove(EvalBreakerFlag::Stop);
+    }
+
+    /// Record that finalization has begun (`Interpreter::finalize`). Set once
+    /// and never cleared.
+    pub(crate) fn set_finalizing_bit() {
+        EVAL_BREAKER.insert(EvalBreakerFlag::Finalizing);
+    }
+
+    /// Drop every process-wide eval-breaker bit. Tests that assert a single
+    /// thread's `stop_requested` must not trip `eval_breaker_pending` have to
+    /// start from a clean word: cargo's Windows runner shares the process
+    /// across `#[test]` functions, so a sibling can leave SIGNAL/QSBR/STOP.
+    #[cfg(test)]
+    pub(crate) fn clear_eval_breaker_for_test() {
+        EVAL_BREAKER.clear();
+    }
+}
+
+#[cfg(feature = "threading")]
+pub(crate) use mt::{
+    clear_qsbr_bit, clear_stop_bit, qsbr_bit_set, set_finalizing_bit, set_qsbr_bit, set_stop_bit,
+};
+
+#[cfg(all(test, feature = "threading"))]
+pub(crate) use mt::clear_eval_breaker_for_test;
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
-#[cfg(unix)]
-#[cfg(feature = "host_env")]
+#[cfg(all(unix, feature = "host_env"))]
 pub(crate) fn clear_after_fork() {
-    ANY_TRIGGERED.store(false, Ordering::Release);
+    EVAL_BREAKER.remove(EvalBreakerFlag::Signal);
     for trigger in &TRIGGERS {
         trigger.store(false, Ordering::Relaxed);
     }
 }
 
-pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-    if (1..NSIG as i32).contains(&signum) {
-        Ok(())
-    } else {
-        Err(vm.new_value_error("signal number out of range"))
+/// A valid signal number.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct SignalNum(i32);
+
+impl SignalNum {
+    pub(crate) const VALID_RANGE: Range<i32> = 1..NSIG as i32;
+
+    /// Alias for:
+    /// ```rust
+    /// # use rustpython_vm::signal::SignalNum;
+    ///
+    /// unsafe { SignalNum::new_unchecked(libc::SIGINT) };
+    /// ```
+    #[cfg(any(unix, windows))]
+    #[allow(dead_code, reason = "Not used on all platforms")]
+    pub(crate) const SIGINT: Self = Self(libc::SIGINT);
+
+    #[cfg(all(target_os = "wasi", feature = "host_env"))]
+    #[allow(dead_code, reason = "Not used on all platforms")]
+    pub(crate) const SIGINT: Self = Self(rustpython_host_env::signal::SIGINT);
+
+    /// Construct [`Self`] without any validation on the signalnum value.
+    ///
+    /// # Safety
+    ///
+    /// Caller's responsibility to ensure the signal num is valid.
+    #[must_use]
+    pub const unsafe fn new_unchecked(value: i32) -> Self {
+        Self(value)
+    }
+
+    /// Get the self as an [`i32`].
+    #[must_use]
+    pub const fn as_i32(&self) -> i32 {
+        self.0
+    }
+
+    /// Get the self as an [`usize`].
+    #[must_use]
+    pub const fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl fmt::Display for SignalNum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<SignalNum> for i32 {
+    fn from(signalnum: SignalNum) -> Self {
+        signalnum.as_i32()
+    }
+}
+
+impl TryFrom<i32> for SignalNum {
+    type Error = String;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        let bounds = cfg_select! {
+            all(windows, feature = "host_env") => rustpython_host_env::signal::VALID_SIGNALS,
+            _ => Self::VALID_RANGE,
+        };
+
+        if bounds.contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err("signal number out of range".into())
+        }
+    }
+}
+
+impl TryFromObject for SignalNum {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Self::try_from(i32::try_from_borrowed_object(vm, &obj)?)
+            .map_err(|msg| vm.new_value_error(msg))
     }
 }
 
 /// Similar to `PyErr_SetInterruptEx` in CPython
 ///
 /// Missing signal handler for the given signal number is silently ignored.
-#[allow(dead_code)]
 #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
-pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
+pub fn set_interrupt_ex(signum: SignalNum) -> PyResult<()> {
     use crate::stdlib::_signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
-    assert_in_range(signum, vm)?;
 
-    match signum as usize {
+    match signum.as_usize() {
         SIG_DFL | SIG_IGN => Ok(()),
         _ => {
             // interrupt the main thread with given signal number
-            run_signal(signum);
+            run_signal(signum.into());
             Ok(())
         }
     }
@@ -187,4 +426,48 @@ pub fn set_sigint_event(handle: isize) {
 pub fn get_sigint_event() -> Option<isize> {
     let handle = SIGINT_EVENT.load(Ordering::Acquire);
     if handle == 0 { None } else { Some(handle) }
+}
+
+pub struct SignalHandlersInner([Option<PyObjectRef>; NSIG]);
+
+impl Default for SignalHandlersInner {
+    fn default() -> Self {
+        Self([const { None }; NSIG])
+    }
+}
+
+impl Index<SignalNum> for SignalHandlersInner {
+    type Output = Option<PyObjectRef>;
+
+    fn index(&self, index: SignalNum) -> &Self::Output {
+        &self.0[index.as_usize()]
+    }
+}
+
+impl IndexMut<SignalNum> for SignalHandlersInner {
+    fn index_mut(&mut self, index: SignalNum) -> &mut Self::Output {
+        &mut self.0[index.as_usize()]
+    }
+}
+
+pub struct SignalHandlers(Box<RefCell<SignalHandlersInner>>);
+
+impl Default for SignalHandlers {
+    fn default() -> Self {
+        Self(Box::new(RefCell::new(SignalHandlersInner::default())))
+    }
+}
+
+impl Deref for SignalHandlers {
+    type Target = Box<RefCell<SignalHandlersInner>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SignalHandlers {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }

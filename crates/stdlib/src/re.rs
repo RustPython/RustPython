@@ -9,7 +9,7 @@ mod re {
      * system.
      */
     use crate::vm::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
         convert::{ToPyObject, TryFromObject},
         function::{OptionalArg, PosArgs},
@@ -75,7 +75,7 @@ mod re {
         }
     }
 
-    /// Inner data for a match object.
+    // Inner data for a match object.
     #[pyattr]
     #[pyclass(module = "re", name = "Match", traverse)]
     #[derive(PyPayload, Traverse)]
@@ -320,54 +320,59 @@ mod re {
     #[pyclass(flags(HAS_WEAKREF))]
     impl PyPattern {
         #[pymethod(name = "match")]
-        fn match_(&self, text: PyStrRef) -> Option<PyMatch> {
-            do_match(self, text)
+        fn match_(zelf: &Py<Self>, text: PyStrRef) -> Option<PyMatch> {
+            do_match(zelf, text)
         }
 
         #[pymethod]
-        fn search(&self, text: PyStrRef) -> Option<PyMatch> {
-            do_search(self, text)
+        fn search(zelf: &Py<Self>, text: PyStrRef) -> Option<PyMatch> {
+            do_search(zelf, text)
         }
 
         #[pymethod]
-        fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let replaced_text = self.regex.replace_all(text.as_bytes(), repl.as_bytes());
+        fn sub(
+            zelf: &Py<Self>,
+            repl: PyStrRef,
+            text: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyStrRef> {
+            let replaced_text = zelf.regex.replace_all(text.as_bytes(), repl.as_bytes());
             let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
             Ok(vm.ctx.new_str(replaced_text))
         }
 
         #[pymethod]
-        fn subn(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            self.sub(repl, text, vm)
+        fn subn(zelf: &Py<Self>, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult {
+            Self::sub(zelf, repl, text, vm)
         }
 
         #[pygetset]
-        fn pattern(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Ok(vm.ctx.new_str(self.pattern.clone()))
+        fn pattern(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(vm.ctx.new_str(zelf.pattern.clone()))
         }
 
         #[pymethod]
         fn split(
-            &self,
+            zelf: &Py<Self>,
             search_text: PyStrRef,
             maxsplit: OptionalArg<PyIntRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            do_split(vm, self, search_text, maxsplit.into_option())
+            do_split(vm, zelf, search_text, maxsplit.into_option())
         }
 
         #[pymethod]
-        fn findall(&self, search_text: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            do_findall(vm, self, search_text)
+        fn findall(zelf: &Py<Self>, search_text: PyStrRef, vm: &VirtualMachine) -> PyResult {
+            do_findall(vm, zelf, search_text)
         }
     }
 
     #[pyclass]
     impl PyMatch {
         #[pymethod]
-        fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn start(zelf: &Py<Self>, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
             let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
-            let start = self.get_bounds(group, vm)?.map_or_else(
+            let start = zelf.get_bounds(group, vm)?.map_or_else(
                 || vm.ctx.new_int(-1).into(),
                 |r| vm.ctx.new_int(r.start).into(),
             );
@@ -375,9 +380,9 @@ mod re {
         }
 
         #[pymethod]
-        fn end(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn end(zelf: &Py<Self>, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
             let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
-            let end = self.get_bounds(group, vm)?.map_or_else(
+            let end = zelf.get_bounds(group, vm)?.map_or_else(
                 || vm.ctx.new_int(-1).into(),
                 |r| vm.ctx.new_int(r.end).into(),
             );
@@ -413,19 +418,19 @@ mod re {
         }
 
         #[pymethod]
-        fn group(&self, groups: PosArgs, vm: &VirtualMachine) -> PyResult {
+        fn group(zelf: &Py<Self>, groups: PosArgs, vm: &VirtualMachine) -> PyResult {
             let mut groups = groups.into_vec();
             match groups.len() {
-                0 => Ok(self
-                    .subgroup(self.captures[0].clone().unwrap())
+                0 => Ok(zelf
+                    .subgroup(zelf.captures[0].clone().unwrap())
                     .to_pyobject(vm)),
-                1 => self
+                1 => zelf
                     .get_group(groups.pop().unwrap(), vm)
                     .map(|g| g.to_pyobject(vm)),
                 _ => {
                     let output: Result<Vec<_>, _> = groups
                         .into_iter()
-                        .map(|id| self.get_group(id, vm).map(|g| g.to_pyobject(vm)))
+                        .map(|id| zelf.get_group(id, vm).map(|g| g.to_pyobject(vm)))
                         .collect();
                     Ok(vm.ctx.new_tuple(output?)).into()
                 }
@@ -433,16 +438,16 @@ mod re {
         }
 
         #[pymethod]
-        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyTupleRef {
+        fn groups(zelf: &Py<Self>, default: OptionalArg, vm: &VirtualMachine) -> PyTupleRef {
             let default = default.into_option();
-            let groups = self
+            let groups = zelf
                 .captures
                 .iter()
                 .map(|capture| {
                     vm.unwrap_or_none(
                         capture
                             .as_ref()
-                            .map(|bounds| self.subgroup(bounds.clone()).to_pyobject(vm))
+                            .map(|bounds| zelf.subgroup(bounds.clone()).to_pyobject(vm))
                             .or_else(|| default.clone()),
                     )
                 })

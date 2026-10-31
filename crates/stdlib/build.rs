@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "build scripts cannot use rustpython-host_env"
-)]
-
 // spell-checker:ignore ossl osslconf
 
 fn main() {
@@ -25,6 +20,8 @@ fn main() {
         (0x3_01_00_00_0, "ossl310"),
         (0x3_02_00_00_0, "ossl320"),
         (0x3_03_00_00_0, "ossl330"),
+        (0x3_04_00_00_0, "ossl340"),
+        (0x3_05_00_00_0, "ossl350"),
     ];
 
     for (_, cfg) in ossl_vers {
@@ -33,9 +30,11 @@ fn main() {
 
     #[cfg(feature = "ssl-openssl")]
     {
+        // Cargo `DEP_*` metadata from openssl-sys, not process host environment.
         #[allow(
+            clippy::disallowed_methods,
             clippy::unusual_byte_groupings,
-            reason = "OpenSSL version number is parsed with grouped hex fields"
+            reason = "build scripts read Cargo DEP_* vars; OpenSSL version hex is grouped by field"
         )]
         if let Ok(v) = std::env::var("DEP_OPENSSL_VERSION_NUMBER") {
             println!("cargo:rustc-env=OPENSSL_API_VERSION={v}");
@@ -47,6 +46,10 @@ fn main() {
                 }
             }
         }
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "build scripts read Cargo DEP_* vars"
+        )]
         if let Ok(v) = std::env::var("DEP_OPENSSL_CONF") {
             for conf in v.split(',') {
                 println!("cargo:rustc-cfg=osslconf=\"{conf}\"");
@@ -54,6 +57,10 @@ fn main() {
         }
         // it's possible for openssl-sys to link against the system openssl under certain conditions,
         // so let the ssl module know to only perform a probe if we're actually vendored
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "build scripts read Cargo DEP_* vars"
+        )]
         if std::env::var("DEP_OPENSSL_VENDORED").is_ok_and(|s| s == "1") {
             println!("cargo::rustc-cfg=openssl_vendored")
         }

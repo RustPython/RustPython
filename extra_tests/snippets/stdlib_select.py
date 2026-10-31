@@ -1,4 +1,5 @@
 import select
+import signal
 import socket
 import sys
 
@@ -72,8 +73,129 @@ if sys.platform != "win32":
             max_fd = sock.fileno()
             max_fd_sock = sock
     assert_raises(ValueError, select.select, [max_fd_sock], [], [], 0)
+for sock in sockets:
+    sock.close()
 del sockets
 a, b = socket.socketpair()
 # CPython disallows this on *nix systems too.
 assert_raises(ValueError, select.select, [a] * TOO_MANY_SELECT_FDS, [], [], 0)
-del a, b
+a.close()
+b.close()
+
+
+# Windows supports up to 512 entries, above the Windows SDK default of 64.
+for count in (65, 512) if sys.platform == "win32" else (65,):
+    pairs = []
+    try:
+        for _ in range(count):
+            pairs.append(socket.socketpair())
+        readers = [reader for reader, writer in pairs]
+        assert select.select(readers, [], [], 0) == ([], [], [])
+        for reader, writer in pairs:
+            writer.send(b"x")
+        assert select.select(readers, [], [], 0) == (readers, [], [])
+        if sys.platform == "win32":
+            assert_raises(ValueError, select.select, [readers[0]] * 513, [], [], 0)
+    finally:
+        for pair in pairs:
+            for sock in pair:
+                sock.close()
+
+
+# fileno() runs while the sequence is being read, and it can mutate the very
+# list it was handed.
+mutable_pair, other_end = socket.socketpair()
+
+
+class MutatesTheList:
+    def __init__(self, elements, fd):
+        self.elements = elements
+        self.fd = fd
+
+    def fileno(self):
+        self.elements.clear()
+        self.elements.append(self)
+        return self.fd
+
+
+elements = []
+elements.extend([MutatesTheList(elements, mutable_pair.fileno())] * 40)
+assert select.select(elements, [], [], 0) == ([], [], [])
+
+
+class GrowsTheList:
+    def __init__(self, elements, fd):
+        self.elements = elements
+        self.fd = fd
+
+    def fileno(self):
+        self.elements.append(self)
+        return self.fd
+
+
+# A list that grows by one on every fileno() never reaches its own end, so the
+# limit has to be answered during the walk rather than from the final length.
+elements = []
+elements.append(GrowsTheList(elements, mutable_pair.fileno()))
+assert_raises(ValueError, select.select, elements, [], [], 0)
+
+mutable_pair.close()
+other_end.close()
+
+# poll() waits with signal handlers able to run, and a handler may register on
+# the same poll object.
+if hasattr(select, "poll") and hasattr(signal, "setitimer"):
+    poller = select.poll()
+    idle, idle_peer = socket.socketpair()
+    poller.register(idle.fileno(), select.POLLIN)
+    handled = []
+
+    def register_from_handler(signum, frame):
+        poller.register(idle_peer.fileno(), select.POLLIN)
+        handled.append(signum)
+
+    previous = signal.signal(signal.SIGALRM, register_from_handler)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 0.05)
+        try:
+            poller.poll(1000)
+        except InterruptedError:
+            pass
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    assert handled == [signal.SIGALRM], handled
+    idle.close()
+    idle_peer.close()
+
+
+# fileno is an ordinary attribute, not a special method.
+class InstanceFileno:
+    pass
+
+
+class DynamicFileno:
+    def __getattr__(self, name):
+        if name == "fileno":
+            return lookup_reader.fileno
+        raise AttributeError(name)
+
+
+class IndexOnly:
+    def __index__(self):
+        return lookup_reader.fileno()
+
+
+lookup_reader, lookup_writer = socket.socketpair()
+try:
+    lookup_writer.send(b"x")
+    instance = InstanceFileno()
+    instance.fileno = lookup_reader.fileno
+    for obj in (instance, DynamicFileno()):
+        assert select.select([obj], [], [], 0) == ([obj], [], [])
+    assert_raises(TypeError, select.select, [IndexOnly()], [], [], 0)
+    instance.fileno = IndexOnly
+    assert_raises(TypeError, select.select, [instance], [], [], 0)
+finally:
+    lookup_reader.close()
+    lookup_writer.close()

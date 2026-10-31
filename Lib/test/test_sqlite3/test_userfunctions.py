@@ -170,7 +170,6 @@ class FunctionTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for invalid num args
     def test_func_error_on_create(self):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_function("bla", -100, lambda x: 2*x)
@@ -255,7 +254,6 @@ class FunctionTests(unittest.TestCase):
         cur.execute("select returnnan()")
         self.assertIsNone(cur.fetchone()[0])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="func_raiseexception")
     def test_func_exception(self):
         cur = self.con.cursor()
@@ -264,7 +262,6 @@ class FunctionTests(unittest.TestCase):
             cur.fetchone()
         self.assertEqual(str(cm.exception), 'user-defined function raised exception')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(MemoryError, msg_regex="func_memoryerror")
     def test_func_memory_error(self):
         cur = self.con.cursor()
@@ -272,7 +269,6 @@ class FunctionTests(unittest.TestCase):
             cur.execute("select memoryerror()")
             cur.fetchone()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(OverflowError, msg_regex="func_overflowerror")
     def test_func_overflow_error(self):
         cur = self.con.cursor()
@@ -306,7 +302,6 @@ class FunctionTests(unittest.TestCase):
                                self.con.execute, "select spam(?)",
                                (memoryview(b"blob")[::2],))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(BufferError, regex="buffer.*contiguous")
     def test_return_non_contiguous_blob(self):
         with self.assertRaises(sqlite.OperationalError):
@@ -385,7 +380,6 @@ class FunctionTests(unittest.TestCase):
             del x,y
             gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(OverflowError)
     def test_func_return_too_large_int(self):
         cur = self.con.cursor()
@@ -395,7 +389,6 @@ class FunctionTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.DataError, msg):
                 cur.execute("select largeint()")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(UnicodeEncodeError, "surrogates not allowed")
     def test_func_return_text_with_surrogates(self):
         cur = self.con.cursor()
@@ -428,29 +421,11 @@ class FunctionTests(unittest.TestCase):
         self.assertRaisesRegex(sqlite.OperationalError, msg,
                                self.con.execute, "select badreturn()")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON deprecation warning not emitted for keyword args
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; deprecation warning not emitted for keyword args
     def test_func_keyword_args(self):
-        regex = (
-            r"Passing keyword arguments 'name', 'narg' and 'func' to "
-            r"_sqlite3.Connection.create_function\(\) is deprecated. "
-            r"Parameters 'name', 'narg' and 'func' will become "
-            r"positional-only in Python 3.15."
-        )
-
-        def noop():
-            return None
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_function("noop", 0, func=noop)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_function("noop", narg=0, func=noop)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_function(name="noop", narg=0, func=noop)
-        self.assertEqual(cm.filename, __file__)
+        with self.assertRaisesRegex(TypeError,
+                'takes exactly 3 positional arguments'):
+            self.con.create_function("noop", 0, func=lambda: None)
 
 
 class WindowSumInt:
@@ -514,12 +489,10 @@ class WindowFunctionTests(unittest.TestCase):
         self.cur.execute(self.query % "sumint")
         self.assertEqual(self.cur.fetchall(), self.expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for invalid num args
     def test_win_error_on_create(self):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_window_function("shouldfail", -100, WindowSumInt)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(BadWindow)
     def test_win_exception_in_method(self):
         for meth in "__init__", "step", "value", "inverse":
@@ -532,7 +505,6 @@ class WindowFunctionTests(unittest.TestCase):
                         self.cur.execute(self.query % name)
                         self.cur.fetchall()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(BadWindow)
     def test_win_exception_in_finalize(self):
         # Note: SQLite does not (as of version 3.38.0) propagate finalize
@@ -544,7 +516,6 @@ class WindowFunctionTests(unittest.TestCase):
             self.cur.execute(self.query % name)
             self.cur.fetchall()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(AttributeError)
     def test_win_missing_method(self):
         class MissingValue:
@@ -576,7 +547,6 @@ class WindowFunctionTests(unittest.TestCase):
                     self.cur.execute(self.query % name)
                     self.cur.fetchall()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(AttributeError)
     def test_win_missing_finalize(self):
         # Note: SQLite does not (as of version 3.38.0) propagate finalize
@@ -649,12 +619,10 @@ class AggregateTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for invalid num args
     def test_aggr_error_on_create(self):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_function("bla", -100, AggrSum)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(AttributeError, msg_regex="AggrNoStep")
     def test_aggr_no_step(self):
         cur = self.con.cursor()
@@ -670,7 +638,6 @@ class AggregateTests(unittest.TestCase):
             cur.execute("select nofinalize(t) from test")
             val = cur.fetchone()[0]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="AggrExceptionInInit")
     def test_aggr_exception_in_init(self):
         cur = self.con.cursor()
@@ -679,7 +646,6 @@ class AggregateTests(unittest.TestCase):
             val = cur.fetchone()[0]
         self.assertEqual(str(cm.exception), "user-defined aggregate's '__init__' method raised error")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="AggrExceptionInStep")
     def test_aggr_exception_in_step(self):
         cur = self.con.cursor()
@@ -688,7 +654,6 @@ class AggregateTests(unittest.TestCase):
             val = cur.fetchone()[0]
         self.assertEqual(str(cm.exception), "user-defined aggregate's 'step' method raised error")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="AggrExceptionInFinalize")
     def test_aggr_exception_in_finalize(self):
         cur = self.con.cursor()
@@ -754,27 +719,11 @@ class AggregateTests(unittest.TestCase):
                 val = cur.fetchone()[0]
                 self.assertEqual(val, txt)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON keyword-only arguments not supported for create_aggregate
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for create_aggregate
     def test_agg_keyword_args(self):
-        regex = (
-            r"Passing keyword arguments 'name', 'n_arg' and 'aggregate_class' to "
-            r"_sqlite3.Connection.create_aggregate\(\) is deprecated. "
-            r"Parameters 'name', 'n_arg' and 'aggregate_class' will become "
-            r"positional-only in Python 3.15."
-        )
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
+        with self.assertRaisesRegex(TypeError,
+                'takes exactly 3 positional arguments'):
             self.con.create_aggregate("test", 1, aggregate_class=AggrText)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_aggregate("test", n_arg=1, aggregate_class=AggrText)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_aggregate(name="test", n_arg=0,
-                                      aggregate_class=AggrText)
-        self.assertEqual(cm.filename, __file__)
 
 
 class AuthorizerTests(unittest.TestCase):
@@ -803,13 +752,11 @@ class AuthorizerTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs
     def test_table_access(self):
         with self.assertRaises(sqlite.DatabaseError) as cm:
             self.con.execute("select * from t2")
         self.assertIn('prohibited', str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs
     def test_column_access(self):
         with self.assertRaises(sqlite.DatabaseError) as cm:
             self.con.execute("select c2 from t1")
@@ -820,18 +767,11 @@ class AuthorizerTests(unittest.TestCase):
         self.con.execute("select * from t2")
         self.con.execute("select c2 from t1")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON keyword-only arguments not supported for set_authorizer
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_authorizer
     def test_authorizer_keyword_args(self):
-        regex = (
-            r"Passing keyword argument 'authorizer_callback' to "
-            r"_sqlite3.Connection.set_authorizer\(\) is deprecated. "
-            r"Parameter 'authorizer_callback' will become positional-only in "
-            r"Python 3.15."
-        )
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
+        with self.assertRaisesRegex(TypeError,
+                'takes exactly 1 positional argument'):
             self.con.set_authorizer(authorizer_callback=lambda: None)
-        self.assertEqual(cm.filename, __file__)
 
 
 class AuthorizerRaiseExceptionTests(AuthorizerTests):
@@ -843,12 +783,10 @@ class AuthorizerRaiseExceptionTests(AuthorizerTests):
             raise ValueError
         return sqlite.SQLITE_OK
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_table_access(self):
         super().test_table_access()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_column_access(self):
         super().test_table_access()

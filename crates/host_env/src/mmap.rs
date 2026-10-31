@@ -5,6 +5,130 @@
 
 use std::io;
 
+#[cfg(unix)]
+pub use libc::{
+    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MS_ASYNC,
+    MS_INVALIDATE, MS_SYNC, PROT_EXEC, PROT_READ, PROT_WRITE,
+};
+
+#[cfg(unix)]
+bitflags::bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct MapFlags: libc::c_int {
+        const MAP_SHARED = libc::MAP_SHARED;
+        const MAP_PRIVATE = libc::MAP_PRIVATE;
+        const MAP_ANON = libc::MAP_ANON;
+        const MAP_ANONYMOUS = libc::MAP_ANONYMOUS;
+
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_DENYWRITE = libc::MAP_DENYWRITE;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_EXECUTABLE = libc::MAP_EXECUTABLE;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_POPULATE = libc::MAP_POPULATE;
+
+        #[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+        const MAP_STACK = libc::MAP_STACK;
+
+        #[cfg(target_vendor = "apple")]
+        const MAP_NORESERVE = libc::MAP_NORESERVE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_NOEXTEND = libc::MAP_NOEXTEND;
+        #[cfg(target_vendor = "apple")]
+        const MAP_HASSEMAPHORE = libc::MAP_HASSEMAPHORE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_NOCACHE = libc::MAP_NOCACHE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_JIT = libc::MAP_JIT;
+        // libc does not name these `sys/mman.h` flags.
+        #[cfg(target_vendor = "apple")]
+        const MAP_RESILIENT_CODESIGN = 0x2000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_RESILIENT_MEDIA = 0x4000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_32BIT = 0x8000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_TRANSLATED_ALLOW_EXECUTE = 0x20000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_UNIX03 = 0x40000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_TPRO = 0x80000;
+    }
+}
+
+#[cfg(unix)]
+macro_rules! map_flag_consts {
+    ($($name:ident),+ $(,)?) => {
+        $(pub const $name: libc::c_int = MapFlags::$name.bits();)+
+    };
+}
+
+#[cfg(unix)]
+map_flag_consts! {
+    MAP_SHARED, MAP_PRIVATE, MAP_ANON, MAP_ANONYMOUS,
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+map_flag_consts! {
+    MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE,
+}
+
+#[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+map_flag_consts! {
+    MAP_STACK,
+}
+
+#[cfg(target_vendor = "apple")]
+map_flag_consts! {
+    MAP_HASSEMAPHORE, MAP_JIT, MAP_NOCACHE, MAP_NOEXTEND, MAP_NORESERVE,
+    MAP_RESILIENT_CODESIGN, MAP_RESILIENT_MEDIA, MAP_32BIT,
+    MAP_TRANSLATED_ALLOW_EXECUTE, MAP_UNIX03, MAP_TPRO,
+}
+
+#[cfg(target_os = "macos")]
+pub use libc::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::MADV_FREE;
+
+#[cfg(target_os = "linux")]
+pub use libc::{
+    MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_HUGEPAGE, MADV_HWPOISON,
+    MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
+};
+
+#[cfg(any(
+    target_os = "android",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "arm",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "s390x",
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "sparc64"
+        )
+    )
+))]
+pub use libc::MADV_SOFT_OFFLINE;
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
+
+pub use libc::EOVERFLOW;
+
 #[cfg(windows)]
 use crate::windows::{CheckWin32Bool, HandleToOwned};
 #[cfg(unix)]
@@ -78,10 +202,43 @@ impl MappedFile {
         }
     }
 
-    pub fn flush_range(&self, offset: usize, size: usize) -> io::Result<()> {
+    pub fn flush_range(&self, offset: usize, size: usize, flags: i32) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            if offset > self.as_slice().len() || size > self.as_slice().len() - offset {
+                return Err(io::Error::from_raw_os_error(libc::EINVAL));
+            }
+            let ptr = unsafe { self.as_ptr().add(offset) };
+            let flags = if flags == 0 { MS_SYNC } else { flags };
+            if unsafe { libc::msync(ptr.cast_mut().cast(), size, flags) } == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = flags;
+            match self {
+                Self::Read(_) => Ok(()),
+                Self::Write(mmap) => mmap.flush_range(offset, size),
+            }
+        }
+    }
+
+    /// # Safety
+    /// The backing file must cover the mapping offset plus `new_size`, and no
+    /// exported pointers may remain live while the mapping is moved or shrunk.
+    #[cfg(target_os = "linux")]
+    pub unsafe fn remap(&mut self, new_size: usize) -> io::Result<()> {
+        // memmap2 permits a zero-length mapping, whereas mmap.resize(0) must
+        // preserve mremap's EINVAL result.
+        if new_size == 0 {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        }
+        let options = memmap2::RemapOptions::new().may_move(true);
         match self {
-            Self::Read(_) => Ok(()),
-            Self::Write(mmap) => mmap.flush_range(offset, size),
+            Self::Read(mmap) => unsafe { mmap.remap(new_size, options) },
+            Self::Write(mmap) => unsafe { mmap.remap(new_size, options) },
         }
     }
 
@@ -90,6 +247,23 @@ impl MappedFile {
         let ptr = unsafe { self.as_ptr().add(start) };
         posix::madvise(ptr as usize, length, advice)
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_mapping_name(address: usize, size: usize, name: &core::ffi::CStr) -> io::Result<()> {
+    if unsafe {
+        libc::prctl(
+            libc::PR_SET_VMA,
+            libc::PR_SET_VMA_ANON_NAME,
+            address,
+            size,
+            name.as_ptr(),
+        )
+    } == -1
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -169,16 +343,40 @@ pub fn file_len(fd: crt_fd::Borrowed<'_>) -> io::Result<i64> {
     Ok(fileutils::fstat(fd)?.st_size.into())
 }
 
+/// Inspect Python's raw descriptor without assuming that it is a valid Rust fd.
+/// CPython ignores failed fstat calls and only bounds regular-file mappings.
 #[cfg(unix)]
-pub fn prepare_file_mapping(fd: crt_fd::Borrowed<'_>) {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = posix::full_fsync(fd.into());
+pub fn regular_file_len(fd: i32) -> Option<i64> {
+    // Use the same target selection as memmap2's mmap64/off64_t aliases.
+    #[cfg(not(any(
+        target_os = "android",
+        all(target_os = "linux", not(target_env = "musl"))
+    )))]
+    use libc::{fstat, stat as Stat};
+    #[cfg(any(
+        target_os = "android",
+        all(target_os = "linux", not(target_env = "musl"))
+    ))]
+    use libc::{fstat64 as fstat, stat64 as Stat};
+
+    let mut status = core::mem::MaybeUninit::<Stat>::uninit();
+    // SAFETY: fstat accepts an arbitrary integer and initializes status only
+    // on success. No borrowed/owned descriptor is constructed from that input.
+    if unsafe { fstat(fd, status.as_mut_ptr()) } != 0 {
+        return None;
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = fd;
+    let status = unsafe { status.assume_init() };
+    if status.st_mode & libc::S_IFMT != libc::S_IFREG {
+        return None;
     }
+    #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
+    i64::try_from(status.st_size).ok()
+}
+
+#[cfg(target_os = "macos")]
+pub fn prepare_file_mapping(fd: i32) {
+    // CPython intentionally ignores F_FULLFSYNC errors, including invalid fds.
+    let _ = unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) };
 }
 
 #[cfg(windows)]
@@ -216,9 +414,9 @@ pub fn last_error() -> u32 {
 }
 
 #[cfg(windows)]
-pub fn create_named_mapping(
+pub fn create_mapping(
     file_handle: Handle,
-    tag: &str,
+    tag: Option<&str>,
     access: AccessMode,
     offset: i64,
     map_size: usize,
@@ -234,7 +432,8 @@ pub fn create_named_mapping(
         .ok_or_else(|| io::Error::from_raw_os_error(libc::EOVERFLOW))?;
     let size_hi = (total_size >> 32) as u32;
     let size_lo = total_size as u32;
-    let tag_wide: Vec<u16> = tag.encode_utf16().chain(core::iter::once(0)).collect();
+    let tag_wide: Option<Vec<u16>> =
+        tag.map(|tag| tag.encode_utf16().chain(core::iter::once(0)).collect());
 
     let map_handle = unsafe {
         CreateFileMappingW(
@@ -243,7 +442,9 @@ pub fn create_named_mapping(
             fl_protect,
             size_hi,
             size_lo,
-            tag_wide.as_ptr(),
+            tag_wide
+                .as_ref()
+                .map_or(core::ptr::null(), |tag| tag.as_ptr()),
         )
     }
     .into_owned()
@@ -285,25 +486,44 @@ pub fn map_anon(size: usize) -> io::Result<MappedFile> {
 }
 
 #[cfg(unix)]
-pub fn map_file(
-    fd: crt_fd::Borrowed<'_>,
-    offset: i64,
-    size: usize,
-    access: AccessMode,
-) -> io::Result<(crt_fd::Owned, MappedFile)> {
-    let new_fd: crt_fd::Owned = posix::dup_noninheritable(fd.into())?.into();
+pub fn duplicate_descriptor(fd: i32) -> io::Result<crt_fd::Owned> {
+    // Python supplies an arbitrary integer, so validate it through fcntl before
+    // constructing a Rust descriptor. Only the successful duplicate is owned.
+    let new_fd = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if new_fd != -1 {
+        return Ok(unsafe { crt_fd::Owned::from_raw(new_fd) });
+    }
+    let err = io::Error::last_os_error();
+    if err.raw_os_error() != Some(libc::EINVAL) {
+        return Err(err);
+    }
+    // Older kernels may not support F_DUPFD_CLOEXEC.
+    let new_fd = unsafe { libc::dup(fd) };
+    if new_fd == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let new_fd = unsafe { crt_fd::Owned::from_raw(new_fd) };
+    posix::set_inheritable(new_fd.borrow().into(), false)?;
+    Ok(new_fd)
+}
+
+#[cfg(unix)]
+pub fn map_file(fd: i32, offset: i64, size: usize, access: AccessMode) -> io::Result<MappedFile> {
     let mut mmap_opt = MmapOptions::new();
     let mmap_opt = mmap_opt.offset(offset as u64).len(size);
 
+    // len is always explicit, so memmap2 never wraps this raw fd in File to
+    // query metadata. Its mmap syscall rejects invalid descriptors directly.
+    // The caller retains any owned tracking descriptor through this call.
     let mapped = match access {
         AccessMode::Default | AccessMode::Write => {
-            unsafe { mmap_opt.map_mut(&new_fd) }.map(MappedFile::Write)?
+            unsafe { mmap_opt.map_mut(fd) }.map(MappedFile::Write)?
         }
-        AccessMode::Read => unsafe { mmap_opt.map(&new_fd) }.map(MappedFile::Read)?,
-        AccessMode::Copy => unsafe { mmap_opt.map_copy(&new_fd) }.map(MappedFile::Write)?,
+        AccessMode::Read => unsafe { mmap_opt.map(fd) }.map(MappedFile::Read)?,
+        AccessMode::Copy => unsafe { mmap_opt.map_copy(fd) }.map(MappedFile::Write)?,
     };
 
-    Ok((new_fd, mapped))
+    Ok(mapped)
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]

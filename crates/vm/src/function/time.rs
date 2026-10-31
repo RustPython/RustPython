@@ -20,6 +20,11 @@ impl TimeoutSeconds {
     pub fn to_secs_f64(self) -> f64 {
         self.value
     }
+
+    #[must_use]
+    pub const fn py_default(&self) -> super::DefaultRepr {
+        super::DefaultRepr::Float(self.value)
+    }
 }
 
 impl TryFromObject for TimeoutSeconds {
@@ -29,7 +34,7 @@ impl TryFromObject for TimeoutSeconds {
             super::Either::B(i) => i as f64,
         };
         if value.is_nan() {
-            return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
         }
         Ok(Self { value })
     }

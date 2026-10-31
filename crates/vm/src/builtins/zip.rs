@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
-    function::{ArgIntoBool, OptionalArg, PosArgs},
+    function::{ArgIntoBool, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
@@ -26,20 +26,22 @@ impl PyPayload for PyZip {
 
 #[derive(FromArgs)]
 pub struct PyZipNewArgs {
-    #[pyarg(named, optional)]
-    strict: OptionalArg<bool>,
+    #[pyarg(flatten)]
+    iterables: PosArgs<PyIter, crate::function::NameIterables>,
+    #[pyarg(named, default)]
+    strict: bool,
 }
 
 impl Constructor for PyZip {
-    type Args = (PosArgs<PyIter>, PyZipNewArgs);
+    type Args = PyZipNewArgs;
 
     fn py_new(
         _cls: &Py<PyType>,
-        (iterators, args): Self::Args,
+        PyZipNewArgs { iterables, strict }: Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let iterators = iterators.into_vec();
-        let strict = Radium::new(args.strict.unwrap_or(false));
+        let iterators = iterables.into_vec();
+        let strict = Radium::new(strict);
         Ok(Self { iterators, strict })
     }
 }
@@ -63,8 +65,8 @@ impl PyZip {
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) {
-        if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
+    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) {
+        if let Ok(obj) = ArgIntoBool::try_from_object(vm, object) {
             zelf.strict.store(obj.into(), atomic::Ordering::Release);
         }
     }
@@ -77,7 +79,7 @@ impl IterNext for PyZip {
         if zelf.iterators.is_empty() {
             return Ok(PyIterReturn::StopIteration(None));
         }
-        let mut next_objs = Vec::new();
+        let mut next_objs = Vec::with_capacity(zelf.iterators.len());
         for (idx, iterator) in zelf.iterators.iter().enumerate() {
             let item = match iterator.next(vm)? {
                 PyIterReturn::Return(obj) => obj,

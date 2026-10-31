@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8Str};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -82,15 +82,32 @@ impl PyModuleDef {
     }
 }
 
-#[pyclass(module = false, name = "module")]
+#[pyclass(module = false, name = "module", traverse = "manual")]
+// The dict lives in the object extension, not the payload. The offset is
+// the dict cell at the front of that extension.
+#[pymember(name = "__dict__", offset = ::rustpython_vm::object::dict_member_offset())]
 #[derive(Debug)]
 pub struct PyModule {
     // PyObject *md_dict;
     pub def: Option<&'static PyModuleDef>,
-    // state: Any
+    native_state: crate::object::PyAtomicRef<Option<PyObject>>,
     // weaklist
     // for logging purposes after md_dict is cleared
     pub name: Option<&'static PyStrInterned>,
+}
+
+// SAFETY: Native state is the only owned Python reference in the payload.
+// The module dictionary is visited separately by the object extension.
+unsafe impl crate::object::Traverse for PyModule {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.native_state.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(state) = self.native_state.store(None) {
+            out.push(state);
+        }
+    }
 }
 
 impl PyPayload for PyModule {
@@ -116,6 +133,7 @@ impl PyModule {
     pub const fn new() -> Self {
         Self {
             def: None,
+            native_state: crate::object::PyAtomicRef::new_empty(),
             name: None,
         }
     }
@@ -124,8 +142,20 @@ impl PyModule {
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(def),
+            native_state: crate::object::PyAtomicRef::new_empty(),
             name: Some(def.name),
         }
+    }
+
+    /// Interpreter-local native state, retained and traversed with the module.
+    #[must_use]
+    pub fn native_state(&self) -> Option<PyObjectRef> {
+        self.native_state.load_owned()
+    }
+
+    /// Replace native state without exposing it in the Python module dictionary.
+    pub fn set_native_state(&self, state: PyObjectRef) {
+        drop(self.native_state.store(Some(state)));
     }
 
     pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) {
@@ -141,17 +171,63 @@ impl Py<PyModule> {
             let func = method
                 .to_function()
                 .with_module(self.name.unwrap())
+                .with_module_object(self.to_owned().into())
                 .into_ref(&vm.ctx);
             vm.__module_set_attr(self, vm.ctx.intern_str(method.name), func)?;
         }
         Ok(())
     }
 
-    fn getattr_inner(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
+    pub(crate) fn getattr_inner(
+        &self,
+        name: &Py<PyStr>,
+        suppress_cycle: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let mut attr = self.as_object().generic_getattr_opt(name, None, vm)?;
+        if attr.is_none() {
+            if let Some(value) =
+                crate::lazy_import::try_load_submodule(self, name, suppress_cycle, vm)?
+            {
+                return Ok(value);
+            }
+            // A concurrent import may have bound a child and removed its pending entry.
+            if self.class().is(vm.ctx.types.module_type)
+                || self
+                    .class()
+                    .get_attr(vm.ctx.intern_str(name.as_wtf8()))
+                    .is_none_or(|descriptor| descriptor.class().slots().descr_get.load().is_none())
+            {
+                attr = self.dict().get_item_opt(name, vm)?;
+            }
+        }
+        if let Some(attr) = attr {
+            if let Some(deferred) =
+                attr.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+            {
+                if name.to_str() != Some("__getattr__")
+                    && let Some(getattr) = crate::lazy_import::resolved_dict_item(
+                        &self.dict(),
+                        identifier!(vm, __getattr__),
+                        vm,
+                    )?
+                {
+                    match getattr.call((name.to_owned(),), vm) {
+                        Ok(value) => return Ok(value),
+                        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+                        Err(exc) => return Err(exc),
+                    }
+                }
+                if suppress_cycle && crate::lazy_import::is_resolving(deferred, vm) {
+                    return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
+                }
+                return crate::lazy_import::reify(deferred, name, self.dict().as_object(), vm);
+            }
             return Ok(attr);
         }
-        if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
+        if let Some(getattr) =
+            crate::lazy_import::resolved_dict_item(&self.dict(), identifier!(vm, __getattr__), vm)?
+        {
             return getattr.call((name.to_owned(),), vm);
         }
         let dict = self.dict();
@@ -161,17 +237,13 @@ impl Py<PyModule> {
             .get_item_opt(identifier!(vm, __name__), vm)
             .ok()
             .flatten();
-        let mod_name_str = mod_name_obj.as_ref().and_then(|n| {
-            n.downcast_ref::<PyStr>()
-                .map(|s| s.to_string_lossy().into_owned())
-        });
+        let mod_name = mod_name_obj
+            .as_ref()
+            .and_then(|n| n.downcast_ref::<PyUtf8Str>());
 
         // If __name__ is not set or not a string, use a simpler error message
-        let mod_display = match mod_name_str.as_deref() {
-            Some(s) => s,
-            None => {
-                return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
-            }
+        let Some(mod_display) = mod_name.map(|s| s.as_str()) else {
+            return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
         };
 
         let spec = dict
@@ -180,7 +252,7 @@ impl Py<PyModule> {
             .flatten()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(&spec, vm);
+        let origin = get_spec_file_origin(spec.as_deref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -230,8 +302,7 @@ impl Py<PyModule> {
                 }
             } else {
                 // Check for uninitialized submodule
-                let submodule_initializing =
-                    is_uninitialized_submodule(mod_name_str.as_ref(), name, vm);
+                let submodule_initializing = is_uninitialized_submodule(mod_name, name, vm);
                 if submodule_initializing {
                     Err(vm.new_attribute_error(format!(
                         "cannot access submodule '{name}' of module '{mod_display}' \
@@ -273,7 +344,7 @@ impl Py<PyModule> {
 
     pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
         let attr_name = attr_name.as_pystr(&vm.ctx);
-        self.getattr_inner(attr_name, vm)
+        self.getattr_inner(attr_name, false, vm)
     }
 
     pub fn set_attr<'a>(
@@ -303,6 +374,12 @@ impl PyModule {
         let dict = dict_attr
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
+        // PEP 562: honor a module-level __dir__ if one is defined
+        if let Some(dir_func) =
+            crate::lazy_import::resolved_dict_item(&dict, identifier!(vm, __dir__), vm)?
+        {
+            return dir_func.call((), vm)?.try_to_value(vm);
+        }
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
     }
@@ -363,11 +440,13 @@ impl PyModule {
         {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
-            if !result.class().is(vm.ctx.types.dict_type) {
-                return Err(vm.new_type_error(format!(
-                    "__annotate__ returned non-dict of type '{}'",
-                    result.class().name()
-                )));
+            if !result.downcastable::<PyDict>() {
+                let error = result.class().fully_qualified_name(vm).map(|name| {
+                    vm.new_type_error(format!("__annotate__() must return a dict, not {name}"))
+                });
+                drop(annotate);
+                drop(result);
+                return Err(error?);
             }
             result
         } else {
@@ -383,7 +462,7 @@ impl PyModule {
     }
 
     /// Check if module is initializing via __spec__._initializing
-    fn is_initializing(dict: &PyDictRef, vm: &VirtualMachine) -> bool {
+    fn is_initializing(dict: &Py<PyDict>, vm: &VirtualMachine) -> bool {
         if let Ok(Some(spec)) = dict.get_item_opt(vm.ctx.intern_str("__spec__"), vm)
             && let Ok(initializing) = spec.get_attr(vm.ctx.intern_str("_initializing"), vm)
         {
@@ -421,7 +500,7 @@ impl PyModule {
 impl Initializer for PyModule {
     type Args = ModuleInitArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         debug_assert!(
             zelf.class()
                 .slots
@@ -435,7 +514,7 @@ impl Initializer for PyModule {
 
 impl GetAttr for PyModule {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        zelf.getattr_inner(name, vm)
+        zelf.getattr_inner(name, false, vm)
     }
 }
 
@@ -461,29 +540,29 @@ pub(crate) fn init(context: &'static Context) {
 
 /// Check if {module_name}.{name} is an uninitialized submodule in sys.modules.
 fn is_uninitialized_submodule(
-    module_name: Option<&String>,
+    module_name: Option<&Py<PyUtf8Str>>,
     name: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> bool {
-    let mod_name = match module_name {
-        Some(n) => n.as_str(),
-        None => return false,
+    let Some(mod_name) = module_name else {
+        return false;
     };
-    let full_name = format!("{mod_name}.{name}");
-    let sys_modules = match vm.sys_module.get_attr("modules", vm).ok() {
-        Some(m) => m,
-        None => return false,
+
+    let Ok(sys_modules) = vm.sys_module.get_attr("modules", vm) else {
+        return false;
     };
-    let sub_mod = match sys_modules.get_item(&full_name, vm).ok() {
-        Some(m) => m,
-        None => return false,
+
+    let full_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
+    let Ok(sub_mod) = sys_modules.get_item(&*full_name, vm) else {
+        return false;
     };
-    let spec = match sub_mod.get_attr("__spec__", vm).ok() {
-        Some(s) if !vm.is_none(&s) => s,
+
+    let spec = match sub_mod.get_attr("__spec__", vm) {
+        Ok(s) if !vm.is_none(&s) => s,
         _ => return false,
     };
+
     spec.get_attr("_initializing", vm)
-        .ok()
-        .and_then(|v| v.try_to_bool(vm).ok())
+        .and_then(|v| v.try_to_bool(vm))
         .unwrap_or(false)
 }

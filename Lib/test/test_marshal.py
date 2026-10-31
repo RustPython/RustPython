@@ -116,6 +116,14 @@ class StringTestCase(unittest.TestCase, HelperMixin):
         for s in [b"", b"Andr\xe8 Previn", b"abc", b" "*10000]:
             self.helper(s)
 
+    @support.cpython_only
+    def test_bytes_singleton(self):
+        for version in range(marshal.version + 1):
+            for sample in [b"", b"x"]:
+                new = marshal.loads(marshal.dumps(sample, version))
+                self.assertIs(new, sample)
+
+
 class ExceptionTestCase(unittest.TestCase):
     def test_exceptions(self):
         new = marshal.loads(marshal.dumps(StopIteration))
@@ -319,7 +327,6 @@ class BugsTestCase(unittest.TestCase):
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_list(self):
         a = []
         a.append(a)
@@ -331,7 +338,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b, list)
             self.assertIs(b[0], b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_dict(self):
         a = {}
         a[None] = a
@@ -343,7 +349,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b, dict)
             self.assertIs(b[None], b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_tuple(self):
         a = ([],)
         a[0].append(a)
@@ -356,7 +361,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b[0], list)
             self.assertIs(b[0][0], b)
 
-    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_reference_loop_code(self):
         def f():
             return 1234.5
@@ -370,7 +374,6 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, code, v)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by dumps
     def test_reference_loop_slice(self):
         a = slice([], None)
         a.start.append(a)
@@ -387,21 +390,24 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, a, v)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_reference_loop_frozendict(self):
+        a = frozendict({None: []})
+        a[None].append(a)
+        for v in range(marshal.version + 1):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+
     def test_loads_reference_loop_list(self):
         data = b'\xdb\x01\x00\x00\x00r\x00\x00\x00\x00' # [<R>]
         a = marshal.loads(data)
         self.assertIsInstance(a, list)
         self.assertIs(a[0], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_reference_loop_dict(self):
         data = b'\xfbNr\x00\x00\x00\x000' # {None: <R>}
         a = marshal.loads(data)
         self.assertIsInstance(a, dict)
         self.assertIs(a[None], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_abnormal_reference_loops(self):
         # Indirect self-references of tuples.
         data = b'\xa8\x01\x00\x00\x00[\x01\x00\x00\x00r\x00\x00\x00\x00' # ([<R>],)
@@ -439,9 +445,13 @@ class BugsTestCase(unittest.TestCase):
             b'\xba{Nr\x00\x00\x00\x000NN', # slice({None: <R>}, None)
             b'\xbaN{Nr\x00\x00\x00\x000N', # slice(None, {None: <R>})
             b'\xbaNN{Nr\x00\x00\x00\x000', # slice(None, None, {None: <R>})
+            b'\xfdN[\x01\x00\x00\x00r\x00\x00\x00\x000', # frozendict({None: [<R>]})
+            b'\xfdN{Nr\x00\x00\x00\x0000', # frozendict({None: {None: <R>})
 
             # Direct self-references which cannot be created in Python.
             b'\xbe\x01\x00\x00\x00r\x00\x00\x00\x00', # frozenset({<R>})
+            b'\xfdNr\x00\x00\x00\x000', # frozendict({None: <R>})
+            b'\xfdr\x00\x00\x00\x00N0', # frozendict({<R>: None})
             b'\xbar\x00\x00\x00\x00NN', # slice(<R>, None)
             b'\xbaNr\x00\x00\x00\x00N', # slice(None, <R>)
             b'\xbaNNr\x00\x00\x00\x00', # slice(None, None, <R>)
@@ -501,7 +511,6 @@ class BugsTestCase(unittest.TestCase):
         unicode_string = 'T'
         self.assertRaises(TypeError, marshal.loads, unicode_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_reader(self):
         class BadReader(io.BytesIO):
             def readinto(self, buf):
@@ -518,7 +527,7 @@ class BugsTestCase(unittest.TestCase):
         for i in range(len(data)):
             self.assertRaises(EOFError, marshal.loads, data[0: i])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; set iteration is insertion order, so PYTHONHASHSEED does not scramble repr
     def test_deterministic_sets(self):
         # bpo-37596: To support reproducible builds, sets and frozensets need to
         # have their elements serialized in a consistent order (even when they
@@ -547,7 +556,6 @@ class BugsTestCase(unittest.TestCase):
                     _, dump_1, _ = assert_python_ok(*args, PYTHONHASHSEED="1")
                     self.assertEqual(dump_0, dump_1)
 
-    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_unmarshallable(self):
         # Check no crash after encountering unmarshallable objects.
         # See https://github.com/python/cpython/issues/106287.
@@ -705,6 +713,15 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
             self.helper(dictobj)
             self.helper3(dictobj)
 
+    def testFrozenDict(self):
+        for obj in self.keys:
+            dictobj = frozendict({"hello": obj, "goodbye": obj, obj: "hello"})
+            self.helper(dictobj)
+
+            for version in range(6):
+                with self.assertRaises(ValueError):
+                    marshal.dumps(dictobj, version)
+
     def testModule(self):
         with open(__file__, "rb") as f:
             code = f.read()
@@ -713,7 +730,6 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
         self.helper(code)
         self.helper3(code)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testRecursion(self):
         obj = 1.2345
         d = {"hello": obj, "goodbye": obj, obj: "hello"}
@@ -748,7 +764,6 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
     strobj = "this is an interned string"
     strobj = sys.intern(strobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testIntern(self):
         s = marshal.loads(marshal.dumps(self.strobj))
         self.assertEqual(s, self.strobj)
@@ -772,7 +787,7 @@ class SliceTestCase(unittest.TestCase, HelperMixin):
             with self.subTest(obj=str(obj)):
                 self.helper(obj)
 
-                for version in range(4):
+                for version in range(5):
                     with self.assertRaises(ValueError):
                         marshal.dumps(obj, version)
 

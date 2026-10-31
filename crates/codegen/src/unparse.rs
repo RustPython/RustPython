@@ -1,3 +1,4 @@
+use crate::{interpolation_debug_text, interpolation_expression_text};
 use alloc::fmt;
 use core::fmt::Display as _;
 use ruff_python_ast as ast;
@@ -58,6 +59,63 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         self.f.write_fmt(f)
     }
 
+    fn unparse_float(&mut self, value: f64) -> fmt::Result {
+        #[allow(clippy::correctness, clippy::assertions_on_constants)]
+        const {
+            assert!(f64::MAX_10_EXP == 308)
+        };
+
+        if value.is_infinite() {
+            self.p("1e309")
+        } else {
+            self.p(&rustpython_literal::float::to_string(value))
+        }
+    }
+
+    fn unparse_complex(&mut self, real: f64, imag: f64) -> fmt::Result {
+        self.p(&rustpython_literal::complex::to_string(real, imag).replace("inf", "1e309"))
+    }
+
+    fn unparse_constant_value(&mut self, value: &ast::ConstantValue) -> fmt::Result {
+        match value {
+            ast::ConstantValue::None => self.p("None"),
+            ast::ConstantValue::Boolean(value) => self.p(if *value { "True" } else { "False" }),
+            ast::ConstantValue::Str(value) => UnicodeEscape::new_repr(value.as_ref().into())
+                .str_repr()
+                .fmt(self.f),
+            ast::ConstantValue::Bytes(value) => AsciiEscape::new_repr(value.as_ref())
+                .bytes_repr()
+                .fmt(self.f),
+            ast::ConstantValue::Integer(value) => self.p(value.as_ref()),
+            ast::ConstantValue::Tuple(elements) => {
+                self.p("(")?;
+                let mut first = true;
+                for element in elements {
+                    self.p_delim(&mut first, ", ")?;
+                    self.unparse_constant_value(element)?;
+                }
+                self.p_if(elements.len() == 1, ",")?;
+                self.p(")")
+            }
+            ast::ConstantValue::Frozenset(elements) => {
+                if elements.is_empty() {
+                    self.p("frozenset()")
+                } else {
+                    self.p("frozenset({")?;
+                    let mut first = true;
+                    for element in elements {
+                        self.p_delim(&mut first, ", ")?;
+                        self.unparse_constant_value(element)?;
+                    }
+                    self.p("})")
+                }
+            }
+            ast::ConstantValue::Float(value) => self.unparse_float(*value),
+            ast::ConstantValue::Complex { real, imag } => self.unparse_complex(*real, *imag),
+            ast::ConstantValue::Ellipsis => self.p("..."),
+        }
+    }
+
     fn unparse_expr(&mut self, ast: &ast::Expr, level: u8) -> fmt::Result {
         macro_rules! op_prec {
             ($op_ty:ident, $x:expr, $enu:path, $($var:ident($op:literal, $prec:ident)),*$(,)?) => {
@@ -87,6 +145,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 values,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 let (op, prec) = op_prec!(bin, op, ast::BoolOp, And("and", AND), Or("or", OR));
                 group_if!(prec, {
@@ -102,6 +161,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::TUPLE, {
                     self.unparse_expr(target, precedence::ATOM)?;
@@ -115,6 +175,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 right,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 let right_associative = matches!(op, ast::Operator::Pow);
                 let (op, prec) = op_prec!(
@@ -146,6 +207,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 operand,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 let (op, prec) = op_prec!(
                     un,
@@ -166,6 +228,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 body,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::TEST, {
                     if let Some(parameters) = parameters {
@@ -183,6 +246,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 orelse,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::TEST, {
                     self.unparse_expr(body, precedence::TEST + 1)?;
@@ -196,6 +260,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 items,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 let mut first = true;
@@ -214,6 +279,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 elts,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 let mut first = true;
@@ -228,6 +294,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("[")?;
                 self.unparse_expr(elt, precedence::TEST)?;
@@ -239,6 +306,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 self.unparse_expr(elt, precedence::TEST)?;
@@ -251,10 +319,15 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
-                self.unparse_expr(key, precedence::TEST)?;
-                self.p(": ")?;
+                if let Some(key) = key {
+                    self.unparse_expr(key, precedence::TEST)?;
+                    self.p(": ")?;
+                } else {
+                    self.p("**")?;
+                }
                 self.unparse_expr(value, precedence::TEST)?;
                 self.unparse_comp(generators)?;
                 self.p("}")?;
@@ -265,6 +338,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("(")?;
                 self.unparse_expr(elt, precedence::TEST)?;
@@ -275,6 +349,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::AWAIT, {
                     self.p("await ")?;
@@ -285,6 +360,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 if let Some(value) = value {
                     write!(self, "(yield {})", UnparseExpr::new(value, self.source))?;
@@ -296,6 +372,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 write!(
                     self,
@@ -303,17 +380,11 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                     UnparseExpr::new(value, self.source)
                 )?;
             }
-            ast::Expr::Compare(ast::ExprCompare {
-                left,
-                ops,
-                comparators,
-                node_index: _,
-                range: _range,
-            }) => {
+            ast::Expr::Compare(compare) => {
                 group_if!(precedence::CMP, {
                     let new_lvl = precedence::CMP + 1;
-                    self.unparse_expr(left, new_lvl)?;
-                    for (op, cmp) in ops.iter().zip(comparators) {
+                    self.unparse_expr(compare.first_operand(), new_lvl)?;
+                    for (_, op, cmp) in compare.iter() {
                         self.p(" ")?;
                         self.p(op.as_str())?;
                         self.p(" ")?;
@@ -325,7 +396,8 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 func,
                 arguments: ast::Arguments { args, keywords, .. },
                 node_index: _,
-                range: _range,
+                range_start: _range_start,
+                ..
             }) => {
                 self.unparse_expr(func, precedence::ATOM)?;
                 self.p("(")?;
@@ -379,26 +451,13 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                     .bytes_repr()
                     .fmt(self.f)?
             }
-            ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => {
-                #[allow(clippy::correctness, clippy::assertions_on_constants)]
-                const {
-                    assert!(f64::MAX_10_EXP == 308)
-                };
-
-                let inf_str = "1e309";
-                match value {
-                    ast::Number::Int(int) => int.fmt(self.f)?,
-                    &ast::Number::Float(fp) => {
-                        if fp.is_infinite() {
-                            self.p(inf_str)?
-                        } else {
-                            self.p(&rustpython_literal::float::to_string(fp))?
-                        }
-                    }
-                    &ast::Number::Complex { real, imag } => self
-                        .p(&rustpython_literal::complex::to_string(real, imag)
-                            .replace("inf", inf_str))?,
-                }
+            ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => match value {
+                ast::Number::Int(int) => int.fmt(self.f)?,
+                &ast::Number::Float(fp) => self.unparse_float(fp)?,
+                &ast::Number::Complex { real, imag } => self.unparse_complex(real, imag)?,
+            },
+            ast::Expr::Constant(ast::ExprConstant { value, .. }) => {
+                self.unparse_constant_value(value)?
             }
             ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
                 self.p(if *value { "True" } else { "False" })?
@@ -460,6 +519,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 step,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 if let Some(lower) = lower {
                     self.unparse_expr(lower, precedence::TEST)?;
@@ -548,34 +608,24 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         &mut self,
         val: &ast::Expr,
         debug_text: Option<&ast::DebugText>,
-        conversion: ast::ConversionFlag,
+        mut conversion: ast::ConversionFlag,
         spec: Option<&ast::InterpolatedStringFormatSpec>,
     ) -> fmt::Result {
         let buffered =
             fmt::from_fn(|f| Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1))
                 .to_string();
-        if let Some(ast::DebugText { leading, trailing }) = debug_text {
-            self.p(leading)?;
-            self.p(self.source.slice(val.range()))?;
-            self.p(trailing)?;
+        if let Some(debug_text) = debug_text {
+            let (text, _) = interpolation_debug_text(self.source, debug_text, val.range());
+            self.unparse_fstring_str(&text)?;
+            if conversion == ast::ConversionFlag::None && spec.is_none() {
+                conversion = ast::ConversionFlag::Repr;
+            }
         }
         let brace = if buffered.starts_with('{') {
             // put a space to avoid escaping the bracket
             "{ "
         } else {
-            // Preserve leading whitespace between '{' and the expression
-            let source_text = self.source.source_text();
-            let start = val.range().start().to_usize();
-            if start > 0
-                && source_text
-                    .as_bytes()
-                    .get(start - 1)
-                    .is_some_and(|b| b.is_ascii_whitespace())
-            {
-                "{ "
-            } else {
-                "{"
-            }
+            "{"
         };
         self.p(brace)?;
         self.p(&buffered)?;
@@ -628,8 +678,8 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         self.p("f")?;
         let body = fmt::from_fn(|f| {
             value.iter().try_for_each(|part| match part {
-                ast::FStringPart::Literal(lit) => f.write_str(lit),
-                ast::FStringPart::FString(ast::FString { elements, .. }) => {
+                ast::FStringPartRef::Literal(lit) => f.write_str(lit),
+                ast::FStringPartRef::FString(ast::FString { elements, .. }) => {
                     Unparser::new(f, self.source).unparse_fstring_body(elements)
                 }
             })
@@ -645,13 +695,74 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         self.p("t")?;
         let body = fmt::from_fn(|f| {
             value.iter().try_for_each(|tstring| {
-                Unparser::new(f, self.source).unparse_fstring_body(&tstring.elements)
+                Unparser::new(f, self.source).unparse_tstring_body(&tstring.elements)
             })
         })
         .to_string();
         UnicodeEscape::new_repr(body.as_str().as_ref())
             .str_repr()
             .write(self.f)
+    }
+
+    fn unparse_tstring_body(&mut self, elements: &[ast::InterpolatedStringElement]) -> fmt::Result {
+        for element in elements {
+            match element {
+                ast::InterpolatedStringElement::Literal(literal) => {
+                    self.unparse_fstring_str(literal)?;
+                }
+                ast::InterpolatedStringElement::Interpolation(interpolation) => {
+                    self.unparse_tstring_interpolation(interpolation)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn unparse_tstring_interpolation(
+        &mut self,
+        interpolation: &ast::InterpolatedElement,
+    ) -> fmt::Result {
+        let mut conversion = interpolation.conversion;
+        if let Some(debug_text) = &interpolation.debug_text {
+            let (text, _) =
+                interpolation_debug_text(self.source, debug_text, interpolation.expression.range());
+            self.unparse_fstring_str(&text)?;
+            if conversion == ast::ConversionFlag::None && interpolation.format_spec.is_none() {
+                conversion = ast::ConversionFlag::Repr;
+            }
+        }
+
+        let expression = if let Some(ast::ConstantValue::Str(value)) = &interpolation.runtime_str {
+            value.to_string()
+        } else if let Some(expression) = interpolation_expression_text(self.source, interpolation) {
+            expression
+        } else {
+            fmt::from_fn(|f| {
+                Unparser::new(f, self.source)
+                    .unparse_expr(&interpolation.expression, precedence::TEST + 1)
+            })
+            .to_string()
+        };
+
+        self.p(if expression.starts_with('{') {
+            "{ "
+        } else {
+            "{"
+        })?;
+        self.p(&expression)?;
+
+        if conversion != ast::ConversionFlag::None {
+            self.p("!")?;
+            let conversion_byte = [conversion as u8];
+            self.p(core::str::from_utf8(&conversion_byte).unwrap())?;
+        }
+
+        if let Some(format_spec) = &interpolation.format_spec {
+            self.p(":")?;
+            self.unparse_fstring_body(&format_spec.elements)?;
+        }
+
+        self.p("}")
     }
 }
 

@@ -15,7 +15,7 @@ pub const SEC_TO_NS: i64 = SEC_TO_MS * MS_TO_NS;
 pub const NS_TO_MS: i64 = 1000 * 1000;
 pub const NS_TO_US: i64 = 1000;
 
-/// Access to the C runtime's `tzset` / `timezone` / `daylight` / `tzname`
+/// Access to the C runtime's `tzset` / `timezone` / `altzone` / `daylight` / `tzname`
 /// globals used by Python's `time` module.
 ///
 /// Not available under MSVC (which exposes these only via the
@@ -28,6 +28,10 @@ pub mod tz {
         static c_daylight: core::ffi::c_int;
         #[link_name = "timezone"]
         static c_timezone: core::ffi::c_long;
+        // Set by `build.rs` when `time.h` exposes `altzone` (CPython `HAVE_ALTZONE`).
+        #[cfg(has_altzone)]
+        #[link_name = "altzone"]
+        static c_altzone: core::ffi::c_long;
         #[link_name = "tzname"]
         static c_tzname: [*const core::ffi::c_char; 2];
         #[link_name = "tzset"]
@@ -41,6 +45,22 @@ pub mod tz {
     #[must_use]
     pub fn timezone() -> core::ffi::c_long {
         unsafe { c_timezone }
+    }
+
+    /// DST offset west of UTC in seconds, matching CPython's `time.altzone`.
+    ///
+    /// Uses the C `altzone` global when available; otherwise falls back to
+    /// `timezone - 3600` (same as CPython without `HAVE_ALTZONE`).
+    #[must_use]
+    pub fn altzone() -> core::ffi::c_long {
+        #[cfg(has_altzone)]
+        {
+            unsafe { c_altzone }
+        }
+        #[cfg(not(has_altzone))]
+        {
+            timezone() - 3600
+        }
     }
 
     #[cfg(not(target_os = "freebsd"))]
@@ -71,7 +91,7 @@ pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
 pub type TimeT = libc::time_t;
 
 #[cfg(windows)]
-pub type TimeT = libc::time_t;
+pub type TimeT = libc::time64_t;
 
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug)]
@@ -112,32 +132,101 @@ pub fn mktime(tm: &mut libc::tm) -> TimeT {
 
 #[cfg(windows)]
 unsafe extern "C" {
-    fn _gmtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
-    fn _localtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
+    fn _gmtime64_s(tm: *mut libc::tm, time: *const TimeT) -> libc::c_int;
+    fn _localtime64_s(tm: *mut libc::tm, time: *const TimeT) -> libc::c_int;
     #[link_name = "_mktime64"]
-    fn c_mktime(tm: *mut libc::tm) -> libc::time_t;
+    fn c_mktime(tm: *mut libc::tm) -> TimeT;
+    #[link_name = "_time64"]
+    fn c_time(time: *mut TimeT) -> TimeT;
 }
 
 #[cfg(windows)]
 #[cfg_attr(target_env = "musl", allow(deprecated))]
 pub fn current_time_t() -> TimeT {
-    unsafe { libc::time(core::ptr::null_mut()) }
+    unsafe { c_time(core::ptr::null_mut()) }
 }
 
 #[cfg(windows)]
-#[cfg_attr(target_env = "musl", allow(deprecated))]
-pub fn gmtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+#[derive(Debug)]
+pub enum TimestampError {
+    FiletimeOutOfRange,
+    Os(std::io::Error),
+}
+
+#[cfg(windows)]
+fn windows_filetime(when: TimeT, local: bool) -> Result<libc::tm, TimestampError> {
+    use windows_sys::Win32::{
+        Foundation::{FILETIME, SYSTEMTIME},
+        System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime},
+    };
+
+    const SECS_BETWEEN_EPOCHS: i64 = 11_644_473_600;
+    if when < -SECS_BETWEEN_EPOCHS {
+        return Err(TimestampError::FiletimeOutOfRange);
+    }
+    // Only negative timestamps reach this fallback, so the FILETIME cannot overflow.
+    debug_assert!(when < 0);
+    let ticks = ((when + SECS_BETWEEN_EPOCHS) as u64) * 10_000_000;
+    let filetime = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    let mut utc = SYSTEMTIME::default();
+    if unsafe { FileTimeToSystemTime(&filetime, &mut utc) } == 0 {
+        return Err(TimestampError::Os(std::io::Error::last_os_error()));
+    }
+    let time = if local {
+        let mut result = SYSTEMTIME::default();
+        // Unlike FileTimeToLocalFileTime, this applies DST rules for the timestamp.
+        if unsafe { SystemTimeToTzSpecificLocalTime(core::ptr::null(), &utc, &mut result) } == 0 {
+            return Err(TimestampError::Os(std::io::Error::last_os_error()));
+        }
+        result
+    } else {
+        utc
+    };
+    const DAYS_BEFORE_MONTH: [i32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let year = i32::from(time.wYear);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let yday = DAYS_BEFORE_MONTH[usize::from(time.wMonth - 1)] + i32::from(time.wDay) - 1
+        + i32::from(time.wMonth > 2 && leap);
+    Ok(libc::tm {
+        tm_year: year - 1900,
+        tm_mon: i32::from(time.wMonth) - 1,
+        tm_mday: i32::from(time.wDay),
+        tm_hour: i32::from(time.wHour),
+        tm_min: i32::from(time.wMinute),
+        tm_sec: i32::from(time.wSecond),
+        tm_wday: i32::from(time.wDayOfWeek),
+        tm_yday: yday,
+        tm_isdst: if local { -1 } else { 0 },
+    })
+}
+
+#[cfg(windows)]
+pub fn gmtime_from_timestamp(when: TimeT) -> Result<libc::tm, TimestampError> {
+    if when < 0 {
+        return windows_filetime(when, false);
+    }
     let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
     let err = unsafe { _gmtime64_s(out.as_mut_ptr(), &when) };
-    (err == 0).then(|| unsafe { out.assume_init() })
+    if err != 0 {
+        return Err(TimestampError::Os(crate::os::io_error_from_errno(err)));
+    }
+    Ok(unsafe { out.assume_init() })
 }
 
 #[cfg(windows)]
-#[cfg_attr(target_env = "musl", allow(deprecated))]
-pub fn localtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+pub fn localtime_from_timestamp(when: TimeT) -> Result<libc::tm, TimestampError> {
+    if when < 0 {
+        return windows_filetime(when, true);
+    }
     let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
     let err = unsafe { _localtime64_s(out.as_mut_ptr(), &when) };
-    (err == 0).then(|| unsafe { out.assume_init() })
+    if err != 0 {
+        return Err(TimestampError::Os(crate::os::io_error_from_errno(err)));
+    }
+    Ok(unsafe { out.assume_init() })
 }
 
 #[cfg(windows)]
@@ -207,11 +296,13 @@ pub fn process_times() -> std::io::Result<ProcessTimes> {
     })
 }
 
-#[cfg(unix)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg(any(unix, target_os = "wasi"))]
+#[derive(Copy, Clone, Debug)]
+// WASI libc represents clockid_t as an opaque pointer type without Eq or PartialEq.
+#[cfg_attr(unix, derive(Eq, PartialEq))]
 pub struct ClockId(libc::clockid_t);
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl ClockId {
     pub const fn from_raw(raw: libc::clockid_t) -> Self {
         Self(raw)
@@ -239,9 +330,54 @@ impl ClockId {
         target_os = "solaris",
         target_os = "openbsd",
         target_os = "redox",
+        target_os = "wasi",
     )))]
     pub const CLOCK_THREAD_CPUTIME_ID: Self = Self(libc::CLOCK_THREAD_CPUTIME_ID);
+
+    #[cfg(target_vendor = "apple")]
+    pub const CLOCK_UPTIME_RAW: Self = Self(libc::CLOCK_UPTIME_RAW);
 }
+
+#[cfg(unix)]
+pub use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+
+#[cfg(target_os = "solaris")]
+pub use libc::CLOCK_HIGHRES;
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+pub use libc::CLOCK_MONOTONIC_RAW;
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "solaris",
+        target_os = "openbsd",
+    ))
+))]
+pub use libc::CLOCK_PROCESS_CPUTIME_ID;
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "solaris",
+        target_os = "openbsd",
+        target_os = "redox",
+    ))
+))]
+pub use libc::CLOCK_THREAD_CPUTIME_ID;
+
+#[cfg(target_os = "linux")]
+pub use libc::{CLOCK_BOOTTIME, CLOCK_TAI};
+
+#[cfg(target_vendor = "apple")]
+pub use libc::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
+
+#[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))]
+pub use libc::{CLOCK_PROF, CLOCK_UPTIME};
 
 #[cfg(unix)]
 fn nix_clock_id(id: ClockId) -> nix::time::ClockId {
@@ -255,11 +391,36 @@ pub fn clock_gettime(id: ClockId) -> std::io::Result<Duration> {
         .map_err(std::io::Error::from)
 }
 
+#[cfg(target_os = "wasi")]
+pub fn clock_gettime(id: ClockId) -> std::io::Result<Duration> {
+    let mut ts = core::mem::MaybeUninit::<libc::timespec>::uninit();
+
+    let ret = unsafe { libc::clock_gettime(id.as_raw(), ts.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let ts = unsafe { ts.assume_init() };
+
+    Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+}
+
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn clock_getres(id: ClockId) -> std::io::Result<Duration> {
     nix::time::clock_getres(nix_clock_id(id))
         .map(Duration::from)
         .map_err(std::io::Error::from)
+}
+
+#[cfg(target_os = "wasi")]
+pub fn clock_getres(id: ClockId) -> std::io::Result<Duration> {
+    let mut ts = core::mem::MaybeUninit::<libc::timespec>::uninit();
+    let ret = unsafe { libc::clock_getres(id.as_raw(), ts.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let ts = unsafe { ts.assume_init() };
+    Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
 }
 
 #[cfg(all(unix, not(target_os = "redox"), not(target_vendor = "apple")))]
@@ -297,7 +458,7 @@ pub fn gethrvtime_duration() -> Duration {
     Duration::from_nanos(unsafe { libc::gethrvtime() })
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 pub struct WindowsTimeZoneInfo {
@@ -308,7 +469,7 @@ pub struct WindowsTimeZoneInfo {
     pub daylight_name: String,
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 fn decode_tz_name(name: &[u16]) -> String {
     widestring::decode_utf16_lossy(name.iter().copied())
@@ -316,7 +477,7 @@ fn decode_tz_name(name: &[u16]) -> String {
         .collect()
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 #[must_use]
 pub fn get_tz_info() -> WindowsTimeZoneInfo {
@@ -584,7 +745,7 @@ pub fn mktime_tm_from_parts(parts: MktimeTmParts) -> Result<libc::tm, CheckedTmE
     Ok(tm)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
     let fmt_c = CString::new(fmt).map_err(|_| CheckedTmError::EmbeddedNul)?;
     let mut size = 1024usize;
@@ -606,7 +767,42 @@ pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError
     }
 }
 
-#[cfg(windows)]
+// These Unix platforms provide wcsftime, which returns locale text as Unicode.
+// Keep the narrow fallback on other targets, including OpenBSD (%V is broken
+// in its wcsftime implementation; CPython also uses strftime there).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
+    if fmt.contains('\0') {
+        return Err(CheckedTmError::EmbeddedNul);
+    }
+    let fmt_wide: Vec<libc::wchar_t> = fmt
+        .chars()
+        .map(|ch| ch as libc::wchar_t)
+        .chain([0])
+        .collect();
+    let mut size = 1024usize;
+    let max_scale = 256usize.saturating_mul(fmt.len().max(1));
+    loop {
+        let mut out = vec![0 as libc::wchar_t; size];
+        let written = unsafe {
+            wcsftime(
+                out.as_mut_ptr(),
+                out.len(),
+                fmt_wide.as_ptr(),
+                tm as *const libc::tm,
+            )
+        };
+        if written > 0 || size >= max_scale {
+            return Ok(out[..written]
+                .iter()
+                .map(|ch| char::from_u32(*ch as u32).unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect());
+        }
+        size = size.saturating_mul(2);
+    }
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 unsafe extern "C" {
     fn wcsftime(
         s: *mut libc::wchar_t,
@@ -618,10 +814,9 @@ unsafe extern "C" {
 
 #[cfg(windows)]
 pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
-    if fmt.contains('\0') {
-        return Err(CheckedTmError::EmbeddedNul);
-    }
-    let fmt_wide: Vec<u16> = fmt.encode_utf16().chain(core::iter::once(0)).collect();
+    let fmt_wide = widestring::WideCString::from_str(fmt)
+        .map_err(|_| CheckedTmError::EmbeddedNul)?
+        .into_vec_with_nul();
     let mut size = 1024usize;
     let max_scale = 256usize.saturating_mul(fmt.len().max(1));
     loop {

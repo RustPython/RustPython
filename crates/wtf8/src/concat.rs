@@ -67,7 +67,7 @@ impl Wtf8Concat for CodePoint {
 /// display output will be replaced with U+FFFD. Use direct [`Wtf8Concat`]
 /// impls for surrogate-preserving concatenation.
 #[allow(dead_code)]
-pub struct DisplayAsWtf8<T>(pub T);
+pub(crate) struct DisplayAsWtf8<T>(pub T);
 
 impl<T: fmt::Display> Wtf8Concat for DisplayAsWtf8<T> {
     #[inline]
@@ -112,9 +112,9 @@ impl<T: Wtf8Concat + ?Sized> Wtf8Concat for Box<T> {
     }
 }
 
-impl<T: Wtf8Concat + ?Sized> Wtf8Concat for Cow<'_, T>
+impl<T> Wtf8Concat for Cow<'_, T>
 where
-    T: ToOwned,
+    T: ToOwned + Wtf8Concat + ?Sized,
 {
     #[inline]
     fn fmt_wtf8(&self, buf: &mut Wtf8Buf) {

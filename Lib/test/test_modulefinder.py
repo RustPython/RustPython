@@ -76,6 +76,18 @@ a/c.py
                                 from sys import version_info
 """]
 
+namespace_package_test = [
+    "module",
+    ["a", "module"],
+    ["a.c", "blahblah"], [],
+    """\
+module.py
+                                import a
+                                import a.c
+                                import blahblah
+a/b.py
+"""]
+
 absolute_import_test = [
     "a.module",
     ["a", "a.module",
@@ -353,6 +365,9 @@ class ModuleFinderTest(unittest.TestCase):
     def test_package(self):
         self._do_test(package_test)
 
+    def test_namespace_package(self):
+        self._do_test(namespace_package_test)
+
     def test_maybe(self):
         self._do_test(maybe_test)
 
@@ -390,8 +405,6 @@ class ModuleFinderTest(unittest.TestCase):
         os.remove(source_path)
         self._do_test(bytecode_test)
 
-    # TODO: RUSTPYTHON; panics at code.rs with 'called Option::unwrap() on a None value'
-    @unittest.skip("TODO: RUSTPYTHON; panics in co_filename replacement")
     def test_replace_paths(self):
         old_path = os.path.join(self.test_dir, 'a', 'module.py')
         new_path = os.path.join(self.test_dir, 'a', 'spam.py')

@@ -2,7 +2,7 @@
 
 pub(crate) use ssl_error::*;
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 pub(crate) mod ssl_error {
     use crate::vm::{
         Py, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -10,30 +10,15 @@ pub(crate) mod ssl_error {
         types::Constructor,
     };
 
-    // Error type constants - exposed as pyattr and available for internal use
     #[pyattr]
-    pub(crate) const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
+    pub(crate) use rustpython_host_env::ssl::{
+        SSL_ERROR_EOF, SSL_ERROR_INVALID_ERROR_CODE, SSL_ERROR_NONE, SSL_ERROR_SSL,
+        SSL_ERROR_SYSCALL, SSL_ERROR_WANT_CONNECT, SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE,
+        SSL_ERROR_WANT_X509_LOOKUP, SSL_ERROR_ZERO_RETURN,
+    };
 
     #[pyattr]
-    #[pyexception(name = "SSLError", base = PyOSError)]
+    #[pyexception(name = "SSLError", module = "ssl", base = PyOSError)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLError(PyOSError);
@@ -42,18 +27,18 @@ pub(crate) mod ssl_error {
     impl PySSLError {
         // Returns strerror attribute if available, otherwise str(args)
         #[pymethod]
-        fn __str__(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             use crate::vm::AsObject;
             // Try to get strerror attribute first (OSError compatibility)
-            if let Ok(strerror) = exc.as_object().get_attr("strerror", vm)
+            if let Ok(strerror) = zelf.as_object().get_attr("strerror", vm)
                 && !vm.is_none(&strerror)
             {
                 return strerror.str(vm);
             }
 
             // Otherwise return str(args)
-            let args = exc.args();
-            if args.len() == 1 {
+            let args = zelf.args();
+            if args.as_slice().len() == 1 {
                 args.as_slice()[0].str(vm)
             } else {
                 args.as_object().str(vm)
@@ -62,7 +47,7 @@ pub(crate) mod ssl_error {
     }
 
     #[pyattr]
-    #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
+    #[pyexception(name = "SSLZeroReturnError", module = "ssl", base = PySSLError)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLZeroReturnError(PySSLError);
@@ -71,36 +56,37 @@ pub(crate) mod ssl_error {
     impl PySSLZeroReturnError {}
 
     #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLWantReadError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLWantReadError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLWantWriteError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLWantWriteError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLSyscallError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLSyscallError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLEOFError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLEOFError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLCertVerificationError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLCertVerificationError(PySSLError);
 
     // Helper functions to create SSL exceptions with proper errno attribute
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLWantReadError::class(&vm.ctx).to_owned(),
@@ -109,6 +95,7 @@ pub(crate) mod ssl_error {
         )
     }
 
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLWantWriteError::class(&vm.ctx).to_owned(),
@@ -117,6 +104,7 @@ pub(crate) mod ssl_error {
         )
     }
 
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLEOFError::class(&vm.ctx).to_owned(),
@@ -126,7 +114,10 @@ pub(crate) mod ssl_error {
     }
 
     #[cfg_attr(
-        all(feature = "ssl-openssl", not(feature = "ssl-rustls")),
+        any(
+            target_arch = "wasm32",
+            all(feature = "ssl-openssl", not(feature = "ssl-rustls"))
+        ),
         expect(dead_code)
     )]
     pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
@@ -138,7 +129,10 @@ pub(crate) mod ssl_error {
     }
 
     #[cfg_attr(
-        all(feature = "ssl-openssl", not(feature = "ssl-rustls")),
+        any(
+            target_arch = "wasm32",
+            all(feature = "ssl-openssl", not(feature = "ssl-rustls"))
+        ),
         expect(dead_code)
     )]
     pub(crate) fn create_ssl_syscall_error(

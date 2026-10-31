@@ -27,10 +27,20 @@ import typing       # Needed for the string "typing.ClassVar[int]" to work as an
 import dataclasses  # Needed for the string "dataclasses.InitVar[int]" to work as an annotation.
 
 from test import support
-from test.support import import_helper
+from test.support import cpython_only, import_helper
 
 # Just any custom exception we can catch.
 class CustomError(Exception): pass
+
+
+class TestImportTime(unittest.TestCase):
+
+    @cpython_only
+    def test_lazy_import(self):
+        import_helper.ensure_lazy_imports(
+            "dataclasses", {"inspect", "re", "copy"}
+        )
+
 
 class TestCase(unittest.TestCase):
     def test_no_fields(self):
@@ -71,7 +81,7 @@ class TestCase(unittest.TestCase):
         expected_output = "Field(name='id',type=None," \
                            f"default=1,default_factory={MISSING!r}," \
                            "init=True,repr=False,hash=None," \
-                           "compare=True,metadata=mappingproxy({})," \
+                           "compare=True,metadata=frozendict()," \
                            f"kw_only={MISSING!r}," \
                            "doc='Docstring'," \
                            "_field_type=None)"
@@ -985,7 +995,7 @@ class TestCase(unittest.TestCase):
         self.assertNotIn('x', D.__dict__)
 
     def test_missing_repr(self):
-        self.assertIn('MISSING_TYPE object', repr(MISSING))
+        self.assertEqual(repr(MISSING), 'MISSING')
 
     def test_dont_include_other_annotations(self):
         @dataclass
@@ -1693,17 +1703,24 @@ class TestCase(unittest.TestCase):
         class GroupDict:
             id: int
             users: Dict[str, User]
+        @dataclass
+        class GroupFrozenDict:
+            id: int
+            users: frozendict[str, User]
         a = User('Alice', 1)
         b = User('Bob', 2)
         gl = GroupList(0, [a, b])
         gt = GroupTuple(0, (a, b))
         gd = GroupDict(0, {'first': a, 'second': b})
+        gfd = GroupFrozenDict(0, frozendict({'first': a, 'second': b}))
         self.assertEqual(asdict(gl), {'id': 0, 'users': [{'name': 'Alice', 'id': 1},
                                                          {'name': 'Bob', 'id': 2}]})
         self.assertEqual(asdict(gt), {'id': 0, 'users': ({'name': 'Alice', 'id': 1},
                                                          {'name': 'Bob', 'id': 2})})
-        self.assertEqual(asdict(gd), {'id': 0, 'users': {'first': {'name': 'Alice', 'id': 1},
-                                                         'second': {'name': 'Bob', 'id': 2}}})
+        expected_dict = {'id': 0, 'users': {'first': {'name': 'Alice', 'id': 1},
+                                            'second': {'name': 'Bob', 'id': 2}}}
+        self.assertEqual(asdict(gd), expected_dict)
+        self.assertEqual(asdict(gfd), expected_dict)
 
     def test_helper_asdict_builtin_object_containers(self):
         @dataclass
@@ -1795,7 +1812,6 @@ class TestCase(unittest.TestCase):
         self.assertIsNot(d['f'], t)
         self.assertEqual(d['f'].my_a(), 6)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_helper_asdict_defaultdict(self):
         # Ensure asdict() does not throw exceptions when a
         # defaultdict is a member of a dataclass
@@ -1885,14 +1901,21 @@ class TestCase(unittest.TestCase):
         class GroupDict:
             id: int
             users: Dict[str, User]
+        @dataclass
+        class GroupFrozenDict:
+            id: int
+            users: frozendict[str, User]
         a = User('Alice', 1)
         b = User('Bob', 2)
         gl = GroupList(0, [a, b])
         gt = GroupTuple(0, (a, b))
         gd = GroupDict(0, {'first': a, 'second': b})
+        gfd = GroupFrozenDict(0, frozendict({'first': a, 'second': b}))
         self.assertEqual(astuple(gl), (0, [('Alice', 1), ('Bob', 2)]))
         self.assertEqual(astuple(gt), (0, (('Alice', 1), ('Bob', 2))))
-        self.assertEqual(astuple(gd), (0, {'first': ('Alice', 1), 'second': ('Bob', 2)}))
+        d = {'first': ('Alice', 1), 'second': ('Bob', 2)}
+        self.assertEqual(astuple(gd), (0, d))
+        self.assertEqual(astuple(gfd), (0, frozendict(d)))
 
     def test_helper_astuple_builtin_object_containers(self):
         @dataclass
@@ -1938,7 +1961,6 @@ class TestCase(unittest.TestCase):
         t = astuple(c, tuple_factory=list)
         self.assertEqual(t, ['outer', T(1, ['inner', T(11, 12, 13)], 2)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_helper_astuple_defaultdict(self):
         # Ensure astuple() does not throw exceptions when a
         # defaultdict is a member of a dataclass
@@ -2296,6 +2318,20 @@ class TestDocString(unittest.TestCase):
             pass
 
         self.assertDocStrEqual(C.__doc__, "C()")
+
+    def test_docstring_slotted(self):
+        @dataclass(slots=True)
+        class C:
+            x: int
+
+        self.assertDocStrEqual(C.__doc__, "C(x:int)")
+
+    def test_docstring_recursive(self):
+        @dataclass()
+        class C:
+            x: list[C]
+
+        self.assertDocStrEqual(C.__doc__, "C(x:list[test.test_dataclasses.TestDocString.test_docstring_recursive.<locals>.C])")
 
     def test_docstring_one_field(self):
         @dataclass
@@ -2755,6 +2791,55 @@ class TestEq(unittest.TestCase):
                 return other == 5
         self.assertEqual(C(1), 5)
         self.assertNotEqual(C(1), 1)
+
+    def test_eq_field_by_field(self):
+        @dataclasses.dataclass
+        class Point:
+            x: int
+            y: int
+
+        p1 = Point(1, 2)
+        p2 = Point(1, 2)
+        p3 = Point(2, 1)
+        self.assertEqual(p1, p2)
+        self.assertNotEqual(p1, p3)
+
+    def test_eq_type_check(self):
+        @dataclasses.dataclass
+        class A:
+            x: int
+
+        @dataclasses.dataclass
+        class B:
+            x: int
+
+        a = A(1)
+        b = B(1)
+        self.assertNotEqual(a, b)
+
+    def test_eq_custom_field(self):
+        class AlwaysEqual(int):
+            def __eq__(self, other):
+                return True
+
+        @dataclasses.dataclass
+        class Foo:
+            x: AlwaysEqual
+            y: int
+
+        f1 = Foo(AlwaysEqual(1), 2)
+        f2 = Foo(AlwaysEqual(2), 2)
+        self.assertEqual(f1, f2)
+
+    def test_eq_nan_field(self):
+        @dataclasses.dataclass
+        class D:
+            x: float
+
+        nan = float('nan')
+        d1 = D(nan)
+        d2 = D(nan)
+        self.assertNotEqual(d1, d2)
 
 
 class TestOrdering(unittest.TestCase):
@@ -3292,6 +3377,47 @@ class TestFrozen(unittest.TestCase):
                 class D:
                     x: int
                     y: int = 10
+                    z: int = 1
+
+                    @property
+                    def readonly(self) -> int:
+                        return self.x
+
+                    @property
+                    def prop(self) -> int:
+                        return self.z
+
+                    @prop.setter
+                    def prop(self, val: int) -> None:
+                        object.__setattr__(self, 'z', val)
+
+                    @prop.deleter
+                    def prop(self) -> None:
+                        object.__setattr__(self, 'z', 0)
+
+                d = D(5)
+                self.assertEqual(d.x, 5)
+                self.assertEqual(d.y, 10)
+                self.assertEqual(d.z, 1)
+                self.assertEqual(d.readonly, 5)
+                self.assertEqual(d.prop, 1)
+
+                with self.assertRaises(FrozenInstanceError):
+                    d.x = 5
+                with self.assertRaises(FrozenInstanceError):
+                    d.readonly = 5
+                with self.assertRaises(FrozenInstanceError):
+                    d.z = 5
+                with self.assertRaises(FrozenInstanceError):
+                    d.prop = 5
+                with self.assertRaises(FrozenInstanceError):
+                    del d.prop
+
+                self.assertEqual(d.x, 5)
+                self.assertEqual(d.y, 10)
+                self.assertEqual(d.z, 1)
+                self.assertEqual(d.readonly, 5)
+                self.assertEqual(d.prop, 1)
 
                 class S(D):
                     pass
@@ -3299,16 +3425,40 @@ class TestFrozen(unittest.TestCase):
                 s = S(3)
                 self.assertEqual(s.x, 3)
                 self.assertEqual(s.y, 10)
+                self.assertEqual(s.z, 1)
+                self.assertEqual(s.readonly, 3)
+                self.assertEqual(s.prop, 1)
+                # Can set new attrs:
                 s.cached = True
+                self.assertTrue(s.cached)
+                # Can mutate them:
+                s.cached = False
+                self.assertFalse(s.cached)
+
+                # Can also change writable properties:
+                with self.assertRaisesRegex(
+                    AttributeError,
+                    'object has no setter',
+                ) as cm:
+                    s.readonly = 5
+                self.assertNotIsInstance(cm.exception, FrozenInstanceError)
+                s.prop = 2
+                self.assertEqual(s.x, 3)
+                self.assertEqual(s.readonly, 3)
+                self.assertEqual(s.prop, 2)
+                self.assertEqual(s.z, 2)
 
                 # But can't change the frozen attributes.
                 with self.assertRaises(FrozenInstanceError):
                     s.x = 5
                 with self.assertRaises(FrozenInstanceError):
                     s.y = 5
+                with self.assertRaises(FrozenInstanceError):
+                    s.z = 5
                 self.assertEqual(s.x, 3)
                 self.assertEqual(s.y, 10)
-                self.assertEqual(s.cached, True)
+                self.assertEqual(s.z, 2)
+                self.assertIs(s.cached, False)
 
                 with self.assertRaises(FrozenInstanceError):
                     del s.x
@@ -3316,11 +3466,26 @@ class TestFrozen(unittest.TestCase):
                 with self.assertRaises(FrozenInstanceError):
                     del s.y
                 self.assertEqual(s.y, 10)
+                with self.assertRaisesRegex(
+                    AttributeError,
+                    'object has no deleter',
+                ) as cm:
+                    del s.readonly
+                self.assertNotIsInstance(cm.exception, FrozenInstanceError)
+                self.assertEqual(s.x, 3)
+                self.assertEqual(s.readonly, 3)
                 del s.cached
                 self.assertNotHasAttr(s, 'cached')
-                with self.assertRaises(AttributeError) as cm:
+                with self.assertRaisesRegex(
+                    AttributeError,
+                    "object has no attribute 'cached'",
+                ) as cm:
                     del s.cached
                 self.assertNotIsInstance(cm.exception, FrozenInstanceError)
+                del s.prop
+                self.assertEqual(s.z, 0)
+                self.assertEqual(s.prop, 0)
+                del s.prop
 
     def test_non_frozen_normal_derived_from_empty_frozen(self):
         @dataclass(frozen=True)
@@ -3977,7 +4142,6 @@ class TestSlots(unittest.TestCase):
         # that we create internally.
         self.assertEqual(CorrectSuper.args, ["default", "default"])
 
-    @unittest.skip("TODO: RUSTPYTHON; Crash - static type name must be already interned but async_generator_wrapped_value is not")
     def test_original_class_is_gced(self):
         # gh-135228: Make sure when we replace the class with slots=True, the original class
         # gets garbage collected.
@@ -4318,10 +4482,17 @@ class TestStringAnnotations(unittest.TestCase):
         from test.test_dataclasses import dataclass_module_1_str
         from test.test_dataclasses import dataclass_module_2
         from test.test_dataclasses import dataclass_module_2_str
+        from test.test_dataclasses import dataclass_module_3
+        from test.test_dataclasses import dataclass_module_3_str
+        from test.test_dataclasses import dataclass_module_4
+        from test.test_dataclasses import dataclass_module_4_str
 
-        for m in (dataclass_module_1, dataclass_module_1_str,
-                  dataclass_module_2, dataclass_module_2_str,
-                  ):
+        for m in (
+            dataclass_module_1, dataclass_module_1_str,
+            dataclass_module_2, dataclass_module_2_str,
+            dataclass_module_3, dataclass_module_3_str,
+            dataclass_module_4, dataclass_module_4_str,
+        ):
             with self.subTest(m=m):
                 # There's a difference in how the ClassVars are
                 # interpreted when using string annotations or
@@ -4625,6 +4796,14 @@ class TestMakeDataclass(unittest.TestCase):
         self.assertEqual(c.x, 10)
         self.assertEqual(c.__custom__, True)
 
+    def test_empty_annotation_string(self):
+        @dataclass
+        class DataclassWithEmptyTypeAnnotation:
+            x: ""
+
+        c = DataclassWithEmptyTypeAnnotation(10)
+        self.assertEqual(c.x, 10)
+
 
 class TestReplace(unittest.TestCase):
     def test(self):
@@ -4874,7 +5053,6 @@ class TestAbstract(unittest.TestCase):
         self.assertFalse(inspect.isabstract(Date))
         self.assertGreater(Date(2020,12,25), Date(2020,8,31))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_maintain_abc(self):
         class A(abc.ABC):
             @abc.abstractmethod

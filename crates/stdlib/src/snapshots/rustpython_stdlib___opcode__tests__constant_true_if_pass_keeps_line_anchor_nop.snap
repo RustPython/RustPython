@@ -1,10 +1,11 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: "if 1:\n  pass"
+assertion_line: 290
+expression: "dis(r#\"\nif 1:\n    pass\n\"#)"
 ---
   0           RESUME                   0
 
   1           NOP
 
-  2           LOAD_CONST               1 (None)
+  2           LOAD_COMMON_CONSTANT     7 (None)
               RETURN_VALUE

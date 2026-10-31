@@ -58,7 +58,8 @@ def _build_graph_for_future(
     while coro is not None:
         if hasattr(coro, 'cr_await'):
             # A native coroutine or duck-type compatible iterator
-            st.append(FrameCallGraphEntry(coro.cr_frame))
+            if coro.cr_frame is not None:
+                st.append(FrameCallGraphEntry(coro.cr_frame))
             coro = coro.cr_await
         elif hasattr(coro, 'ag_await'):
             # A native async generator or duck-type compatible iterator
@@ -112,13 +113,13 @@ def capture_call_graph(
     optional keyword-only 'depth' argument can be used to skip the specified
     number of frames from top of the stack.
 
-    If the optional keyword-only 'limit' argument is provided, each call stack
-    in the resulting graph is truncated to include at most ``abs(limit)``
-    entries. If 'limit' is positive, the entries left are the closest to
-    the invocation point. If 'limit' is negative, the topmost entries are
-    left. If 'limit' is omitted or None, all entries are present.
-    If 'limit' is 0, the call stack is not captured at all, only
-    "awaited by" information is present.
+    If the optional keyword-only 'limit' argument is provided, each call
+    stack in the resulting graph is truncated to include at most
+    ``abs(limit)`` entries.  If 'limit' is positive, the entries left are
+    the closest to the invocation point.  If 'limit' is negative, the
+    topmost entries are left.  If 'limit' is omitted or None, all entries
+    are present.  If 'limit' is 0, the call stack is not captured at all,
+    only "awaited by" information is present.
     """
 
     loop = events._get_running_loop()
@@ -154,7 +155,9 @@ def capture_call_graph(
     f = sys._getframe(depth) if limit != 0 else None
     try:
         while f is not None:
-            is_async = f.f_generator is not None
+            # gh-156988: sync gen should not clear the call chain
+            is_async = isinstance(
+                f.f_generator, (types.CoroutineType, types.AsyncGeneratorType))
             call_stack.append(FrameCallGraphEntry(f))
 
             if is_async:

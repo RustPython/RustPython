@@ -163,6 +163,29 @@ assert T4.t1.__doc__ == "t1"
 cm = classmethod(lambda cls: cls)
 assert cm.__func__(int) is int
 
+
+class Callback:
+    def __init__(self, error):
+        self.error = error
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+    def __repr__(self):
+        raise self.error
+
+
+callback = Callback(RuntimeError("callback is unavailable"))
+
+with assert_raises(RuntimeError) as caught:
+    repr(staticmethod(callback))
+assert caught.exception is callback.error
+
+with assert_raises(RuntimeError) as caught:
+    repr(classmethod(callback))
+assert caught.exception is callback.error
+
+
 assert str(super(int, 5)) == "<super: <class 'int'>, <int object>>"
 
 class T5(int):

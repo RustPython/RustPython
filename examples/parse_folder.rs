@@ -8,11 +8,12 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
+use core::time::Duration;
 use ruff_python_parser::parse_module;
 use rustpython_compiler::ast;
 use std::{
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 fn main() {
@@ -131,4 +132,4 @@ struct ParsedFile {
     result: ParseResult,
 }
 
-type ParseResult = Result<Vec<ast::Stmt>, String>;
+type ParseResult = Result<ast::Suite, String>;

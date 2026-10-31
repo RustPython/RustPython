@@ -1,6 +1,7 @@
 import _pyio
 import array
 import contextlib
+import errno
 import importlib.util
 import io
 import itertools
@@ -20,14 +21,15 @@ from tempfile import TemporaryFile
 from random import randint, random, randbytes
 
 from test import archiver_tests
-from test.support import script_helper, os_helper
+from test.support import script_helper
 from test.support import (
     findfile, requires_zlib, requires_bz2, requires_lzma,
     requires_zstd, captured_stdout, captured_stderr, requires_subprocess,
     cpython_only
 )
 from test.support.os_helper import (
-    TESTFN, unlink, rmtree, temp_dir, temp_cwd, fd_count, FakePath
+    TESTFN, unlink, rmtree, temp_dir, temp_cwd, fd_count, FakePath,
+    with_source_date_epoch, without_source_date_epoch,
 )
 from test.support.import_helper import ensure_lazy_imports
 
@@ -653,6 +655,12 @@ class StoredTestsWithSourceFile(AbstractTestsWithSourceFile,
         try:
             os.utime(TESTFN, (ts, ts))
         except OverflowError:
+            self.skipTest('Host fs cannot set timestamp to required value.')
+        except OSError as exc:
+            # Some file systems (e.g. UFS and ZFS on illumos) do not
+            # support timestamps that do not fit in 32 bits.
+            if exc.errno != errno.EOVERFLOW:
+                raise
             self.skipTest('Host fs cannot set timestamp to required value.')
 
         mtime_ns = os.stat(TESTFN).st_mtime_ns
@@ -1452,7 +1460,6 @@ class PyZipFileTests(unittest.TestCase):
             self.skipTest('requires write access to the installed location')
         unlink(filename)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_pyfile(self):
         self.requiresWriteAccess(os.path.dirname(__file__))
         with TemporaryFile() as t, zipfile.PyZipFile(t, "w") as zipfp:
@@ -1483,7 +1490,6 @@ class PyZipFileTests(unittest.TestCase):
             self.assertNotIn(bn, zipfp.namelist())
             self.assertCompiledIn(bn, zipfp.namelist())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_python_package(self):
         import email
         packagedir = os.path.dirname(email.__file__)
@@ -1498,7 +1504,6 @@ class PyZipFileTests(unittest.TestCase):
             self.assertCompiledIn('email/__init__.py', names)
             self.assertCompiledIn('email/mime/text.py', names)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AttributeError: module 'os' has no attribute 'supports_effective_ids'
     def test_write_filtered_python_package(self):
         import test
         packagedir = os.path.dirname(test.__file__)
@@ -1529,7 +1534,6 @@ class PyZipFileTests(unittest.TestCase):
                 print(reportStr)
             self.assertTrue('SyntaxError' not in reportStr)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_with_optimization(self):
         import email
         packagedir = os.path.dirname(email.__file__)
@@ -1880,34 +1884,30 @@ class OtherTests(unittest.TestCase):
                 zinfo.flag_bits |= zipfile._MASK_USE_DATA_DESCRIPTOR  # Include an extended local header.
                 orig_zip.writestr(zinfo, data)
 
+    @with_source_date_epoch(epoch=1735715999)
     def test_write_with_source_date_epoch(self):
-        with os_helper.EnvironmentVarGuard() as env:
-            # Set the SOURCE_DATE_EPOCH environment variable to a specific timestamp
-            env['SOURCE_DATE_EPOCH'] = "1735715999"
+        with zipfile.ZipFile(TESTFN, "w") as zf:
+            zf.writestr("test_source_date_epoch.txt", "Testing SOURCE_DATE_EPOCH")
 
-            with zipfile.ZipFile(TESTFN, "w") as zf:
-                zf.writestr("test_source_date_epoch.txt", "Testing SOURCE_DATE_EPOCH")
+        with zipfile.ZipFile(TESTFN, "r") as zf:
+            zip_info = zf.getinfo("test_source_date_epoch.txt")
+            expected_utc = (2025, 1, 1, 7, 19, 58)
+            self.assertEqual(zip_info.date_time, expected_utc)
 
-            with zipfile.ZipFile(TESTFN, "r") as zf:
-                zip_info = zf.getinfo("test_source_date_epoch.txt")
-                get_time = time.localtime(int(os.environ['SOURCE_DATE_EPOCH']))[:6]
-                # Compare each element of the date_time tuple
-                # Allow for a 1-second difference
-                for z_time, g_time in zip(zip_info.date_time, get_time):
-                    self.assertAlmostEqual(z_time, g_time, delta=1)
-
+    @without_source_date_epoch
     def test_write_without_source_date_epoch(self):
-        with os_helper.EnvironmentVarGuard() as env:
-            del env['SOURCE_DATE_EPOCH']
+        with zipfile.ZipFile(TESTFN, "w") as zf:
+            zf.writestr("test_no_source_date_epoch.txt", "Testing without SOURCE_DATE_EPOCH")
 
-            with zipfile.ZipFile(TESTFN, "w") as zf:
-                zf.writestr("test_no_source_date_epoch.txt", "Testing without SOURCE_DATE_EPOCH")
+        with zipfile.ZipFile(TESTFN, "r") as zf:
+            zip_info = zf.getinfo("test_no_source_date_epoch.txt")
+            self.assertTimestampAlmostEqual(time.localtime(), zip_info.date_time, tolerance=2)
 
-            with zipfile.ZipFile(TESTFN, "r") as zf:
-                zip_info = zf.getinfo("test_no_source_date_epoch.txt")
-                current_time = time.localtime()[:6]
-                for z_time, c_time in zip(zip_info.date_time, current_time):
-                    self.assertAlmostEqual(z_time, c_time, delta=2)
+    def assertTimestampAlmostEqual(self, time1, time2, tolerance):
+        import datetime
+        dt1 = datetime.datetime(*time1[:6])
+        dt2 = datetime.datetime(*time2[:6])
+        self.assertLessEqual((dt1 - dt2).total_seconds(), tolerance)
 
     def test_close(self):
         """Check that the zipfile is closed after the 'with' block."""
@@ -2717,6 +2717,115 @@ class OtherTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
         unlink(TESTFN2)
+
+
+class AbstractBoundedDecompressTests:
+    # ZipExtFile._read1() bounds the output of each decompress() call so that a
+    # small member declaring a large uncompressed size cannot expand into one
+    # unbounded read.
+    def test_read1_output_is_bounded(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=self.compression) as zf:
+            zf.writestr("big", b"\0" * (4 * 1024 * 1024))
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
+            with zf.open("big") as f:
+                self.assertLessEqual(len(f._read1(100)), f.MIN_READ_SIZE)
+
+
+class StoredBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                   unittest.TestCase):
+    compression = zipfile.ZIP_STORED
+
+
+@requires_zlib()
+class DeflateBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                    unittest.TestCase):
+    compression = zipfile.ZIP_DEFLATED
+
+
+@requires_bz2()
+class Bzip2BoundedDecompressTests(AbstractBoundedDecompressTests,
+                                  unittest.TestCase):
+    compression = zipfile.ZIP_BZIP2
+
+
+@requires_lzma()
+class LzmaBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                 unittest.TestCase):
+    compression = zipfile.ZIP_LZMA
+
+
+@requires_zstd()
+class ZstdBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                 unittest.TestCase):
+    compression = zipfile.ZIP_ZSTANDARD
+
+
+class MonkeypatchedDecompressorTests(unittest.TestCase):
+    # Some third-party projects monkey-patch _get_decompressor() to add
+    # additional compression schemes. This can break at any time as the
+    # internal compressor objects change.
+    # To protect users, we try to keep this case working.
+    # See also: GH-156002 and GH-113767.
+    COMPRESSION = 99
+
+    class Compressor:
+        """Compressor with only the original BZ2Compressor API"""
+        def compress(self, data):
+            return data.swapcase()
+
+        def flush(self):
+            return b''
+
+    class Decompressor:
+        """Decompressor with only the 3.3+ BZ2Decompressor API"""
+        eof = False
+
+        def decompress(self, data):
+            return data.swapcase()
+
+    def setUp(self):
+        orig_check_compression = zipfile._check_compression
+        orig_get_compressor = zipfile._get_compressor
+        orig_get_decompressor = zipfile._get_decompressor
+
+        def check_compression(compression):
+            if compression != self.COMPRESSION:
+                orig_check_compression(compression)
+
+        def get_compressor(compress_type, compresslevel=None):
+            if compress_type == self.COMPRESSION:
+                return self.Compressor()
+            return orig_get_compressor(compress_type, compresslevel)
+
+        def get_decompressor(compress_type):
+            if compress_type == self.COMPRESSION:
+                return self.Decompressor()
+            return orig_get_decompressor(compress_type)
+
+        self.enterContext(mock.patch.object(
+            zipfile, '_check_compression', check_compression))
+        self.enterContext(mock.patch.object(
+            zipfile, '_get_compressor', get_compressor))
+        self.enterContext(mock.patch.object(
+            zipfile, '_get_decompressor', get_decompressor))
+
+    def test_roundtrip_monkeypatched_decompressor(self):
+        data = bytes(range(256)) * 8
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=self.COMPRESSION) as zf:
+            zf.writestr("member", data)
+        self.assertIn(data.swapcase(), buf.getvalue())
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
+            self.assertEqual(zf.read("member"), data)
+            with zf.open("member") as f:
+                self.assertEqual(f.read(100), data[:100])
+                self.assertEqual(f.read1(100), data[100:200])
+                f.seek(-100, os.SEEK_END)
+                self.assertEqual(f.read(), data[-100:])
+                # Rewinding past the read buffer re-creates the decompressor.
+                f.seek(0)
+                self.assertEqual(f.read(), data)
 
 
 class AbstractBadCrcTests:
@@ -3550,7 +3659,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
     def test_read_zip64_with_exe_prepended(self):
         self._test_zip_works(self.exe_zip64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -3559,7 +3667,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
         output = subprocess.check_output([self.exe_zip, sys.executable])
         self.assertIn(b'number in executable: 5', output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -3568,7 +3675,7 @@ class TestExecutablePrependedZip(unittest.TestCase):
         output = subprocess.check_output([self.exe_zip64, sys.executable])
         self.assertIn(b'number in executable: 5', output)
 
-@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis")
+
 class EncodedMetadataTests(unittest.TestCase):
     file_names = ['\u4e00', '\u4e8c', '\u4e09']  # Han 'one', 'two', 'three'
     file_content = [
@@ -3576,8 +3683,7 @@ class EncodedMetadataTests(unittest.TestCase):
         # This is modern Japanese. (UTF-8)
         "\u3053\u308c\u306f\u73fe\u4ee3\u7684\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('utf-8'),
         # This is obsolete Japanese. (Shift JIS)
-        # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-        # "\u3053\u308c\u306f\u53e4\u3044\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('shift_jis'),
+        "\u3053\u308c\u306f\u53e4\u3044\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('shift_jis'),
     ]
 
     def setUp(self):
@@ -3646,29 +3752,23 @@ class EncodedMetadataTests(unittest.TestCase):
 
     def test_read_after_append(self):
         newname = '\u56db'  # Han 'four'
-        expected_names = [name.encode('shift_jis').decode('cp437')
-                          for name in self.file_names[:2]] + self.file_names[2:]
-        expected_names.append(newname)
-        expected_content = (*self.file_content, b"newcontent")
+        newname2 = 'fünf'  # representable in cp437, but still stored as UTF-8
+        expected_names = [*self.file_names, newname, newname2]
+        mojibake_expected_names = [name.encode('shift_jis').decode('cp437')
+                                   if i < 2 else name
+                                   for i, name in enumerate(expected_names)]
+        expected_content = (*self.file_content, b"newcontent", b"newcontent2")
 
         with zipfile.ZipFile(TESTFN, "a") as zipfp:
             zipfp.writestr(newname, "newcontent")
-            self.assertEqual(sorted(zipfp.namelist()), sorted(expected_names))
+            zipfp.writestr(newname2, "newcontent2")
+            self.assertEqual(sorted(zipfp.namelist()), sorted(mojibake_expected_names))
 
         with zipfile.ZipFile(TESTFN, "r") as zipfp:
-            self._test_read(zipfp, expected_names, expected_content)
+            self._test_read(zipfp, mojibake_expected_names, expected_content)
 
         with zipfile.ZipFile(TESTFN, "r", metadata_encoding='shift_jis') as zipfp:
-            self.assertEqual(sorted(zipfp.namelist()), sorted(expected_names))
-            for i, (name, content) in enumerate(zip(expected_names, expected_content)):
-                info = zipfp.getinfo(name)
-                self.assertEqual(info.filename, name)
-                self.assertEqual(info.file_size, len(content))
-                if i < 2:
-                    with self.assertRaises(zipfile.BadZipFile):
-                        zipfp.read(name)
-                else:
-                    self.assertEqual(zipfp.read(name), content)
+            self._test_read(zipfp, expected_names, expected_content)
 
     def test_write_with_metadata_encoding(self):
         ZF = zipfile.ZipFile
@@ -3676,6 +3776,20 @@ class EncodedMetadataTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,
                                         "^metadata_encoding is only"):
                 ZF("nonesuch.zip", mode, metadata_encoding="shift_jis")
+
+    def test_add_comment(self):
+        with zipfile.ZipFile(TESTFN, "r") as zipfp:
+            mojibake_expected_names = zipfp.namelist()
+
+        with zipfile.ZipFile(TESTFN, "a") as zipfp:
+            zipfp.comment = b'comment'
+            self.assertEqual(zipfp.namelist(), mojibake_expected_names)
+
+        with zipfile.ZipFile(TESTFN, "r") as zipfp:
+            self._test_read(zipfp, mojibake_expected_names, self.file_content)
+
+        with zipfile.ZipFile(TESTFN, "r", metadata_encoding='shift_jis') as zipfp:
+            self._test_read(zipfp, self.file_names, self.file_content)
 
     def test_cli_with_metadata_encoding(self):
         errmsg = "Non-conforming encodings not supported with -c."

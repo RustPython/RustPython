@@ -96,7 +96,7 @@ impl Drop for Owned {
     fn drop(&mut self) {}
 }
 
-impl<'fd> Borrowed<'fd> {
+impl Borrowed<'_> {
     /// Create a `crt_fd::Borrowed` from a raw file descriptor.
     ///
     /// # Safety
@@ -152,6 +152,8 @@ pub fn fsync(_fd: Borrowed<'_>) -> io::Result<()> {
 pub fn close(_fd: Owned) -> io::Result<()> {
     Err(ebadf())
 }
+
+pub fn closerange(_fd_low: Raw, _fd_high: Raw) {}
 
 pub fn ftruncate(_fd: Borrowed<'_>, _len: Offset) -> io::Result<()> {
     Err(ebadf())

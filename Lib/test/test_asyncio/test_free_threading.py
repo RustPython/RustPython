@@ -189,10 +189,6 @@ class TestPyFreeThreading(TestFreeThreading, TestCase):
     def factory(self, loop, coro, **kwargs):
         return asyncio.tasks._PyTask(coro, loop=loop, **kwargs)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs - Python _current_tasks dict not thread-safe")
-    def test_all_tasks_race(self):
-        return super().test_all_tasks_race()
-
 
 @unittest.skipUnless(hasattr(asyncio.tasks, "_c_all_tasks"), "requires _asyncio")
 class TestCFreeThreading(TestFreeThreading, TestCase):
@@ -223,10 +219,6 @@ class TestCFreeThreading(TestFreeThreading, TestCase):
 class TestEagerPyFreeThreading(TestPyFreeThreading):
     def factory(self, loop, coro, eager_start=True, **kwargs):
         return asyncio.tasks._PyTask(coro, loop=loop, **kwargs, eager_start=eager_start)
-
-    @unittest.skip("TODO: RUSTPYTHON; hangs - Python _current_tasks dict not thread-safe")
-    def test_all_tasks_race(self):
-        return super().test_all_tasks_race()
 
 
 @unittest.skipUnless(hasattr(asyncio.tasks, "_c_all_tasks"), "requires _asyncio")

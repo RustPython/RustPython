@@ -1,19 +1,20 @@
 //! This module provides functionality to suggest similar names for attributes or variables.
 //! This is used during tracebacks.
 
+use core::iter::ExactSizeIterator;
+
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseException,
     sliceable::SliceableSequenceOp,
 };
-use core::iter::ExactSizeIterator;
 use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
 
 const MAX_CANDIDATE_ITEMS: usize = 750;
 
 pub fn calculate_suggestions<'a>(
-    dir_iter: impl ExactSizeIterator<Item = &'a PyObjectRef>,
+    dir_iter: impl ExactSizeIterator<Item = &'a PyObject>,
     name: &PyObject,
 ) -> Option<PyStrRef> {
     if dir_iter.len() >= MAX_CANDIDATE_ITEMS {
@@ -61,27 +62,38 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
             return None;
         }
 
-        calculate_suggestions(vm.dir(Some(obj)).ok()?.borrow_vec().iter(), &name)
+        calculate_suggestions(
+            vm.dir(Some(obj)).ok()?.borrow_vec().iter().map(|o| &**o),
+            &name,
+        )
     } else if exc.class().fast_issubclass(vm.ctx.exceptions.name_error) {
         let name = exc.as_object().get_attr("name", vm).ok()?;
         if vm.is_none(&name) {
             return None;
         }
-        let tb = exc.__traceback__()?;
+        let tb = exc.traceback()?;
         let tb = tb.iter().last().unwrap_or(tb);
 
-        let varnames = tb.frame.code.clone().co_varnames(vm);
-        if let Some(suggestions) = calculate_suggestions(varnames.iter(), &name) {
+        let varnames = tb.frame.iframe().code().to_owned().co_varnames(vm);
+        if let Some(suggestions) =
+            calculate_suggestions(varnames.as_slice().iter().map(|o| &**o), &name)
+        {
             return Some(suggestions);
         };
 
-        let globals: Vec<_> = tb.frame.globals.as_object().try_to_value(vm).ok()?;
-        if let Some(suggestions) = calculate_suggestions(globals.iter(), &name) {
+        let globals: Vec<PyObjectRef> = tb
+            .frame
+            .iframe()
+            .globals()
+            .as_object()
+            .try_to_value(vm)
+            .ok()?;
+        if let Some(suggestions) = calculate_suggestions(globals.iter().map(|o| &**o), &name) {
             return Some(suggestions);
         };
 
-        let builtins: Vec<_> = tb.frame.builtins.try_to_value(vm).ok()?;
-        calculate_suggestions(builtins.iter(), &name)
+        let builtins: Vec<PyObjectRef> = tb.frame.iframe().builtins().try_to_value(vm).ok()?;
+        calculate_suggestions(builtins.iter().map(|o| &**o), &name)
     } else if exc.class().fast_issubclass(vm.ctx.exceptions.import_error) {
         let mod_name = exc.as_object().get_attr("name", vm).ok()?;
         let wrong_name = exc.as_object().get_attr("name_from", vm).ok()?;
@@ -91,7 +103,10 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
         let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
         let module = sys_modules.get_item(mod_name_str, vm).ok()?;
 
-        calculate_suggestions(vm.dir(Some(module)).ok()?.borrow_vec().iter(), &wrong_name)
+        calculate_suggestions(
+            vm.dir(Some(module)).ok()?.borrow_vec().iter().map(|o| &**o),
+            &wrong_name,
+        )
     } else {
         None
     }

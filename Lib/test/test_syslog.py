@@ -16,7 +16,6 @@ class Test(unittest.TestCase):
     def tearDown(self):
         syslog.closelog()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_openlog(self):
         syslog.openlog('python')
         # Issue #6697.

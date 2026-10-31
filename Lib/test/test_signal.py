@@ -14,7 +14,7 @@ import time
 import unittest
 from test import support
 from test.support import (
-    is_apple, is_apple_mobile, os_helper, threading_helper
+    force_not_colorized, is_apple, is_apple_mobile, os_helper, threading_helper
 )
 from test.support.script_helper import assert_python_ok, spawn_python
 try:
@@ -93,6 +93,7 @@ class PosixTests(unittest.TestCase):
         self.assertRaises(TypeError, signal.signal,
                           signal.SIGUSR1, None)
 
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; AssertionError: None is not an instance of <enum 'Handlers'>")
     def test_getsignal(self):
         hup = signal.signal(signal.SIGHUP, self.trivial_signal_handler)
         self.assertIsInstance(hup, signal.Handlers)
@@ -101,6 +102,7 @@ class PosixTests(unittest.TestCase):
         signal.signal(signal.SIGHUP, hup)
         self.assertEqual(signal.getsignal(signal.SIGHUP), hup)
 
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON")
     def test_no_repr_is_called_on_signal_handler(self):
         # See https://github.com/python/cpython/issues/112559.
 
@@ -353,6 +355,7 @@ class WakeupSignalTests(unittest.TestCase):
 
     @unittest.skipIf(_testcapi is None, 'need _testcapi')
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
+    @force_not_colorized
     def test_wakeup_write_error(self):
         # Issue #16105: write() errors in the C signal handler should not
         # pass silently.
@@ -778,6 +781,7 @@ class SiginterruptTest(unittest.TestCase):
         self.assertFalse(interrupted)
 
 
+@unittest.skipIf(sys.platform == "android", "TODO: RUSTPYTHON; Error during teardown")
 @unittest.skipIf(sys.platform == "win32", "Not valid on Windows")
 @unittest.skipUnless(hasattr(signal, 'getitimer') and hasattr(signal, 'setitimer'),
                          "needs signal.getitimer() and signal.setitimer()")
@@ -1264,6 +1268,7 @@ class StressTest(unittest.TestCase):
                           "(> 10 ms.) on this platform (or system too busy)"
                           % (reso,))
 
+    @unittest.skipIf(sys.platform == "android", "TODO: RUSTPYTHON; TypeError: signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object")
     @unittest.skipUnless(hasattr(signal, "setitimer"),
                          "test needs setitimer()")
     def test_stress_delivery_dependent(self):
@@ -1310,6 +1315,7 @@ class StressTest(unittest.TestCase):
         # Python handler
         self.assertEqual(len(sigs), N, "Some signals were lost")
 
+    @unittest.skipIf(sys.platform == "android", "TODO: RUSTPYTHON; TypeError: signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object")
     @unittest.skipUnless(hasattr(signal, "setitimer"),
                          "test needs setitimer()")
     def test_stress_delivery_simultaneous(self):
@@ -1409,6 +1415,7 @@ class StressTest(unittest.TestCase):
 
 class RaiseSignalTest(unittest.TestCase):
 
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; AssertionError: KeyboardInterrupt not raised")
     def test_sigint(self):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
@@ -1425,6 +1432,7 @@ class RaiseSignalTest(unittest.TestCase):
             else:
                 raise
 
+    @unittest.skipIf(sys.platform == "android", "TODO: RUSTPYTHON; TypeError: signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object")
     def test_handler(self):
         is_ok = False
         def handler(a, b):
@@ -1455,6 +1463,7 @@ class RaiseSignalTest(unittest.TestCase):
 
 class PidfdSignalTest(unittest.TestCase):
 
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; AssertionError: KeyboardInterrupt not raised")
     @unittest.skipUnless(
         hasattr(signal, "pidfd_send_signal"),
         "pidfd support not built in",

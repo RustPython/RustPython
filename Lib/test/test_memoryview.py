@@ -387,7 +387,6 @@ class AbstractMemoryTests:
         m = self._view(b)
         self.assertRaises(ValueError, hash, m)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; re-entrant buffer release not detected
     def test_hash_use_after_free(self):
         # Prevent crash in memoryview(v).__hash__ with re-entrant v.__hash__.
         # Regression test for https://github.com/python/cpython/issues/142664.
@@ -457,7 +456,6 @@ class AbstractMemoryTests:
         self.assertEqual(c.format, "H")
         self.assertEqual(d.format, "H")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; re-entrant buffer release not detected
     def test_hex_use_after_free(self):
         # Prevent UAF in memoryview.hex(sep) with re-entrant sep.__len__.
         # Regression test for https://github.com/python/cpython/issues/143195.
@@ -566,10 +564,6 @@ class BytesMemoryviewTest(unittest.TestCase,
             self.assertRaises(TypeError, memoryview, argument=ob)
             self.assertRaises(TypeError, memoryview, ob, argument=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ecb1920>
-    def test_gc(self):
-        return super().test_gc()
-
 class ArrayMemoryviewTest(unittest.TestCase,
     BaseMemoryviewTests, BaseArrayMemoryTests):
 
@@ -580,6 +574,79 @@ class ArrayMemoryviewTest(unittest.TestCase,
         new_a = array.array('i', range(9, -1, -1))
         m[:] = new_a
         self.assertEqual(a, new_a)
+
+    def test_compare_equal(self):
+        # A memoryview is equal to itself: there is no need to compare
+        # individual values. This is not true for float values since they can
+        # be NaN, and NaN is not equal to itself.
+
+        def check_equal(view, is_equal):
+            self.assertEqual(view == view, is_equal)
+            self.assertEqual(view != view, not is_equal)
+
+            # Comparison with a different memoryview doesn't use
+            # the optimization and should give the same result.
+            view2 = memoryview(view)
+            self.assertEqual(view2 == view, is_equal)
+            self.assertEqual(view2 != view2, not is_equal)
+
+        # Test integer formats
+        for int_format in 'bBhHiIlLqQ':
+            with self.subTest(format=int_format):
+                a = array.array(int_format, [1, 2, 3])
+                m = memoryview(a)
+                check_equal(m, True)
+
+                if int_format in 'bB':
+                    m2 = m.cast('@' + m.format)
+                    check_equal(m2, True)
+
+        # Test 'c' format
+        a = array.array('B', [1, 2, 3])
+        m = memoryview(a.tobytes()).cast('c')
+        check_equal(m, True)
+
+        # Test 'n' and 'N' formats
+        if struct.calcsize('L') == struct.calcsize('N'):
+            int_format = 'L'
+        elif struct.calcsize('Q') == struct.calcsize('N'):
+            int_format = 'Q'
+        else:
+            int_format = None
+        if int_format:
+            a = array.array(int_format, [1, 2, 3])
+            m = memoryview(a.tobytes()).cast('N')
+            check_equal(m, True)
+            m = memoryview(a.tobytes()).cast('n')
+            check_equal(m, True)
+
+        # Test '?' format
+        m = memoryview(b'\0\1\2').cast('?')
+        check_equal(m, True)
+
+        # Test float formats
+        for float_format in 'fd':
+            with self.subTest(format=float_format):
+                a = array.array(float_format, [1.0, 2.0, float('nan')])
+                m = memoryview(a)
+                # nan is not equal to nan
+                check_equal(m, False)
+
+                a = array.array(float_format, [1.0, 2.0, 3.0])
+                m = memoryview(a)
+                check_equal(m, True)
+
+        # Test complex formats
+        for complex_format in ('Zf', 'Zd'):
+            with self.subTest(format=complex_format):
+                data = struct.pack(complex_format * 3, 1.0, 2.0, float('nan'))
+                m = memoryview(data).cast(complex_format)
+                # nan is not equal to nan
+                check_equal(m, False)
+
+                data = struct.pack(complex_format * 3, 1.0, 2.0, 3.0)
+                m = memoryview(data).cast(complex_format)
+                check_equal(m, True)
 
     def test_boolean_format(self):
         # Test '?' format (keep all the checks below for UBSan)
@@ -608,10 +675,6 @@ class BytesMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseBytesMemoryTests):
     pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ecb13e0>
-    def test_gc(self):
-        return super().test_gc()
-
 class ArrayMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseArrayMemoryTests):
     pass
@@ -619,10 +682,6 @@ class ArrayMemorySliceTest(unittest.TestCase,
 class BytesMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseBytesMemoryTests):
     pass
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ddca1c0>
-    def test_gc(self):
-        return super().test_gc()
 
 class ArrayMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseArrayMemoryTests):
@@ -657,6 +716,14 @@ class OtherTest(unittest.TestCase):
         self.assertEqual(half_view.nbytes * 2, float_view.nbytes)
         self.assertListEqual(half_view.tolist(), float_view.tolist())
 
+    def test_complex_types(self):
+        float_complex_data = struct.pack('FFF', 0.0, -1.5j, 1+2j)
+        double_complex_data = struct.pack('DDD', 0.0, -1.5j, 1+2j)
+        float_complex_view = memoryview(float_complex_data).cast('Zf')
+        double_complex_view = memoryview(double_complex_data).cast('Zd')
+        self.assertEqual(float_complex_view.nbytes * 2, double_complex_view.nbytes)
+        self.assertListEqual(float_complex_view.tolist(), double_complex_view.tolist())
+
     def test_memoryview_hex(self):
         # Issue #9951: memoryview.hex() segfaults with non-contiguous buffers.
         x = b'0' * 200000
@@ -664,7 +731,6 @@ class OtherTest(unittest.TestCase):
         m2 = m1[::-1]
         self.assertEqual(m2.hex(), '30' * 200000)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument sep
     def test_memoryview_hex_separator(self):
         x = bytes(range(97, 102))
         m1 = memoryview(x)
@@ -674,10 +740,10 @@ class OtherTest(unittest.TestCase):
         self.assertEqual(m2.hex(':', -2), '6564:6362:61')
         self.assertEqual(m2.hex(sep=':', bytes_per_sep=2), '65:6463:6261')
         self.assertEqual(m2.hex(sep=':', bytes_per_sep=-2), '6564:6362:61')
-        for bytes_per_sep in 5, -5, 2**31-1, -(2**31-1):
+        for bytes_per_sep in 5, -5, sys.maxsize, -sys.maxsize:
             with self.subTest(bytes_per_sep=bytes_per_sep):
                 self.assertEqual(m2.hex(':', bytes_per_sep), '6564636261')
-        for bytes_per_sep in 2**31, -2**31, 2**1000, -2**1000:
+        for bytes_per_sep in sys.maxsize+1, -sys.maxsize-1, 2**1000, -2**1000:
             with self.subTest(bytes_per_sep=bytes_per_sep):
                 try:
                     self.assertEqual(m2.hex(':', bytes_per_sep), '6564636261')
@@ -695,7 +761,6 @@ class OtherTest(unittest.TestCase):
             with self.assertRaises(TypeError):
                 pickle.dumps(m, proto)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_use_released_memory(self):
         # gh-92888: Previously it was possible to use a memoryview even after
         # backing buffer is freed in certain cases. This tests that those
@@ -798,7 +863,6 @@ class OtherTest(unittest.TestCase):
             m[0] = MyBool()
         self.assertEqual(ba[:8], b'\0'*8)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'memoryview' object has no attribute '__buffer__'
     def test_buffer_reference_loop(self):
         m = memoryview(b'abc').__buffer__(0)
         o = MyObject()
@@ -809,7 +873,6 @@ class OtherTest(unittest.TestCase):
         gc.collect()
         self.assertIsNone(wr())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_picklebuffer_reference_loop(self):
         pb = pickle.PickleBuffer(memoryview(b'abc'))
         o = MyObject()

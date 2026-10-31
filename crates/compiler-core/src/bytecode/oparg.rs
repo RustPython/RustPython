@@ -342,6 +342,11 @@ oparg_enum!(
     }
 );
 
+/// Values used in the oparg for `GET_ITER`.
+pub const GET_ITER_YIELD_FROM: u32 = 1;
+pub const GET_ITER_YIELD_FROM_NO_CHECK: u32 = 2;
+pub const GET_ITER_YIELD_FROM_CORO_CHECK: u32 = 3;
+
 pub type NameIdx = u32;
 
 impl OpArgType for u32 {}
@@ -756,6 +761,16 @@ oparg_enum!(
         BuiltinList = (5, "list"),
         /// Built-in `set` type
         BuiltinSet = (6, "set"),
+        /// The None singleton.
+        None = (7, "None"),
+        /// The empty string.
+        EmptyStr = (8, "empty string"),
+        /// The true singleton.
+        True = (9, "True"),
+        /// The false singleton.
+        False = (10, "False"),
+        /// Integer minus one.
+        MinusOne = (11, "-1"),
     }
 );
 
@@ -777,19 +792,20 @@ oparg_enum!(
 #[derive(Copy, Clone)]
 pub struct UnpackExArgs {
     pub before: u8,
-    pub after: u8,
+    pub after: u32,
 }
 
 impl From<u32> for UnpackExArgs {
     fn from(value: u32) -> Self {
-        let [before, after, ..] = value.to_le_bytes();
+        let before = (value & 0xFF) as u8;
+        let after = value >> 8;
         Self { before, after }
     }
 }
 
 impl From<UnpackExArgs> for u32 {
     fn from(value: UnpackExArgs) -> Self {
-        Self::from_le_bytes([value.before, value.after, 0, 0])
+        Self::from(value.before) | (value.after << 8)
     }
 }
 
@@ -905,11 +921,11 @@ newtype_oparg!(
 );
 
 impl ResumeContext {
-    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.14.3/Include/internal/pycore_opcode_utils.h#L84)
-    pub const LOCATION_MASK: u32 = 0x3;
+    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.15.0/Include/internal/pycore_opcode_utils.h#L92)
+    pub const LOCATION_MASK: u32 = 0x7;
 
-    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.14.3/Include/internal/pycore_opcode_utils.h#L85)
-    pub const DEPTH1_MASK: u32 = 0x4;
+    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.15.0/Include/internal/pycore_opcode_utils.h#L93)
+    pub const DEPTH1_MASK: u32 = 0x8;
 
     #[must_use]
     pub const fn new(location: ResumeLocation, is_exception_depth1: bool) -> Self {
@@ -925,8 +941,8 @@ impl ResumeContext {
     /// Resume location is determined by [`Self::LOCATION_MASK`].
     #[must_use]
     pub fn location(&self) -> ResumeLocation {
-        // SAFETY: The mask should return a value that is in range.
-        unsafe { ResumeLocation::try_from(self.as_u32() & Self::LOCATION_MASK).unwrap_unchecked() }
+        ResumeLocation::try_from(self.as_u32() & Self::LOCATION_MASK)
+            .expect("invalid RESUME location")
     }
 
     /// True if the bit at [`Self::DEPTH1_MASK`] is on.
@@ -946,6 +962,9 @@ pub enum ResumeLocation {
     AfterYieldFrom,
     /// After an `await` expression.
     AfterAwait,
+    /// Start of a generator expression, before its outermost iterator is
+    /// acquired and the generator is created.
+    AtGenExprStart,
 }
 
 impl From<ResumeLocation> for ResumeContext {
@@ -963,6 +982,7 @@ impl TryFrom<u32> for ResumeLocation {
             1 => Self::AfterYield,
             2 => Self::AfterYieldFrom,
             3 => Self::AfterAwait,
+            4 => Self::AtGenExprStart,
             _ => return Err(Self::Error::InvalidBytecode),
         })
     }
@@ -976,6 +996,7 @@ impl ResumeLocation {
             Self::AfterYield => 1,
             Self::AfterYieldFrom => 2,
             Self::AfterAwait => 3,
+            Self::AtGenExprStart => 4,
         }
     }
 

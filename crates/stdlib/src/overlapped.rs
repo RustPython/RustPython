@@ -9,16 +9,19 @@ mod _overlapped {
 
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTupleRef, PyType},
+        builtins::{
+            PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTuple, PyTupleRef, PyType,
+        },
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
-        function::OptionalArg,
+        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
         object::{Traverse, TraverseFn},
         protocol::PyBuffer,
         types::{Constructor, Destructor},
     };
     use rustpython_host_env::{
         overlapped as host_overlapped, winapi as host_winapi, windows as host_windows,
+        windows::ToWideString,
     };
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -204,23 +207,29 @@ mod _overlapped {
     }
 
     /// Parse a Python address tuple to SOCKADDR
-    fn parse_address(addr_obj: &PyTupleRef, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
-        match addr_obj.len() {
+    fn parse_address(addr_obj: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
+        match addr_obj.as_slice().len() {
             2 => {
                 // IPv4: (host, port)
-                let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
-                let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
-                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
+                let host: PyStrRef = addr_obj.as_slice()[0].clone().try_into_value(vm)?;
+                let port: u16 = addr_obj.as_slice()[1].clone().try_to_value(vm)?;
+                let host_wide = host
+                    .as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|e| e.to_pyexception(vm))?;
                 host_overlapped::parse_address_v4_wide(&host_wide, port)
                     .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
             }
             4 => {
                 // IPv6: (host, port, flowinfo, scope_id)
-                let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
-                let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
-                let flowinfo: u32 = addr_obj[2].clone().try_to_value(vm)?;
-                let scope_id: u32 = addr_obj[3].clone().try_to_value(vm)?;
-                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
+                let host: PyStrRef = addr_obj.as_slice()[0].clone().try_into_value(vm)?;
+                let port: u16 = addr_obj.as_slice()[1].clone().try_to_value(vm)?;
+                let flowinfo: u32 = addr_obj.as_slice()[2].clone().try_to_value(vm)?;
+                let scope_id: u32 = addr_obj.as_slice()[3].clone().try_to_value(vm)?;
+                let host_wide = host
+                    .as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|e| e.to_pyexception(vm))?;
                 host_overlapped::parse_address_v6_wide(&host_wide, port, flowinfo, scope_id)
                     .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
             }
@@ -253,27 +262,27 @@ mod _overlapped {
     #[pyclass(with(Constructor, Destructor))]
     impl Overlapped {
         #[pygetset]
-        fn address(&self, _vm: &VirtualMachine) -> usize {
-            let inner = self.inner.lock();
+        fn address(zelf: &Py<Self>, _vm: &VirtualMachine) -> usize {
+            let inner = zelf.inner.lock();
             &inner.overlapped as *const _ as usize
         }
 
         #[pygetset]
-        fn pending(&self, _vm: &VirtualMachine) -> bool {
-            let inner = self.inner.lock();
+        fn pending(zelf: &Py<Self>, _vm: &VirtualMachine) -> bool {
+            let inner = zelf.inner.lock();
             !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
                 && !matches!(inner.data, OverlappedData::NotStarted)
         }
 
         #[pygetset]
-        fn error(&self, _vm: &VirtualMachine) -> u32 {
-            let inner = self.inner.lock();
+        fn error(zelf: &Py<Self>, _vm: &VirtualMachine) -> u32 {
+            let inner = zelf.inner.lock();
             inner.error
         }
 
         #[pygetset]
-        fn event(&self, _vm: &VirtualMachine) -> isize {
-            let inner = self.inner.lock();
+        fn event(zelf: &Py<Self>, _vm: &VirtualMachine) -> isize {
+            let inner = zelf.inner.lock();
             inner.overlapped.hEvent as isize
         }
 
@@ -309,8 +318,9 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation failed to start"));
             }
 
-            let result =
-                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait);
+            let result = vm.allow_threads(|| {
+                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait)
+            });
             let transferred = result.transferred;
             let err = result.error;
             inner.error = err;
@@ -427,12 +437,14 @@ mod _overlapped {
         fn ReadFileInto(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // w*, as _overlapped.Overlapped.ReadFileInto takes
+            buf: ArgMemoryBuffer,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -529,13 +541,15 @@ mod _overlapped {
         fn WSARecvInto(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // w*, as _overlapped.Overlapped.WSARecvInto takes
+            buf: ArgMemoryBuffer,
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -582,10 +596,12 @@ mod _overlapped {
         fn WriteFile(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // y*, as _overlapped.Overlapped.WriteFile takes
+            buf: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -628,11 +644,13 @@ mod _overlapped {
         fn WSASend(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // y*, as _overlapped.Overlapped.WSASend takes
+            buf: ArgBytesLike,
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -869,12 +887,14 @@ mod _overlapped {
         fn WSASendTo(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // y*, as _overlapped.Overlapped.WSASendTo takes
+            buf: ArgBytesLike,
             flags: u32,
             address: PyTupleRef,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -1000,7 +1020,8 @@ mod _overlapped {
         fn WSARecvFromInto(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // w*, as _overlapped.Overlapped.WSARecvFromInto takes
+            buf: ArgMemoryBuffer,
             size: u32,
             flags: OptionalArg<u32>,
             vm: &VirtualMachine,
@@ -1008,6 +1029,7 @@ mod _overlapped {
             use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -1024,6 +1046,10 @@ mod _overlapped {
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
                 return Err(vm.new_value_error("buffer too large"));
+            }
+
+            if size as usize > buf_len {
+                return Err(vm.new_value_error("nbytes is greater than the length of the buffer"));
             }
 
             let address: host_overlapped::SocketAddrV6 = unsafe { core::mem::zeroed() };
@@ -1108,31 +1134,38 @@ mod _overlapped {
             let olderr = host_winapi::get_last_error();
 
             // Cancel pending I/O and wait for completion
-            if !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
+            let pending_error = if !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
                 && !matches!(inner.data, OverlappedData::NotStarted)
             {
-                match host_overlapped::cancel_overlapped_for_drop(inner.handle, &inner.overlapped)
-                    .error
-                {
-                    ERROR_SUCCESS | ERROR_NOT_FOUND | ERROR_OPERATION_ABORTED => {}
-                    _ => {
-                        let msg = format!(
-                            "{zelf:?} still has pending operation at deallocation, the process may crash"
-                        );
-                        let exc = vm.new_runtime_error(msg);
-                        let err_msg = Some(format!(
-                            "Exception ignored while deallocating overlapped operation {zelf:?}"
-                        ));
-                        let obj: PyObjectRef = zelf.to_owned().into();
-                        vm.run_unraisable(exc, err_msg, obj);
-                    }
-                }
-            }
+                !matches!(
+                    vm.allow_threads(|| host_overlapped::cancel_overlapped_for_drop(
+                        inner.handle,
+                        &inner.overlapped
+                    ))
+                    .error,
+                    ERROR_SUCCESS | ERROR_NOT_FOUND | ERROR_OPERATION_ABORTED
+                )
+            } else {
+                false
+            };
 
             // Close the event handle
             if !inner.overlapped.hEvent.is_null() {
                 let _ = host_winapi::close_handle(inner.overlapped.hEvent);
                 inner.overlapped.hEvent = core::ptr::null_mut();
+            }
+            // Debug formatting takes inner again; the unraisable hook can also
+            // re-enter this object. Complete native cleanup before either runs.
+            drop(inner);
+            if pending_error {
+                let msg = format!(
+                    "{zelf:?} still has pending operation at deallocation, the process may crash"
+                );
+                let exc = vm.new_runtime_error(msg);
+                let err_msg = Some(format!(
+                    "Exception ignored while deallocating overlapped operation {zelf:?}"
+                ));
+                vm.run_unraisable(exc, err_msg, vm.ctx.none());
             }
 
             // Restore last error
@@ -1162,7 +1195,8 @@ mod _overlapped {
 
     #[pyfunction]
     fn GetQueuedCompletionStatus(port: isize, msecs: u32, vm: &VirtualMachine) -> PyResult {
-        match host_overlapped::get_queued_completion_status(port, msecs)
+        match vm
+            .allow_threads(|| host_overlapped::get_queued_completion_status(port, msecs))
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))?
         {
             host_overlapped::WaitResult::Timeout => Ok(vm.ctx.none()),
@@ -1269,5 +1303,41 @@ mod _overlapped {
     fn ResetEvent(handle: isize, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::reset_event(handle as host_winapi::Handle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::vm::{TryFromObject, builtins::PyByteArray};
+
+        #[test]
+        fn recvfrom_into_rejects_oversized_request_before_starting_io() {
+            let builder = crate::vm::Interpreter::builder(Default::default());
+            let defs = crate::stdlib_module_defs(&builder.ctx);
+            let interp = builder.add_native_modules(&defs).build();
+            interp.enter(|vm| {
+                let module = vm.import("_overlapped", 0).unwrap();
+                let overlapped = module
+                    .get_attr("Overlapped", vm)
+                    .unwrap()
+                    .call((0,), vm)
+                    .unwrap()
+                    .downcast::<Overlapped>()
+                    .unwrap();
+                let buffer = PyByteArray::from(vec![0; 8]).into_ref(&vm.ctx);
+                let buffer = ArgMemoryBuffer::try_from_object(vm, buffer.into()).unwrap();
+                let err = Overlapped::WSARecvFromInto(
+                    &overlapped,
+                    0,
+                    buffer,
+                    9,
+                    OptionalArg::Missing,
+                    vm,
+                )
+                .unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.value_error));
+                assert!(matches!(overlapped.inner.lock().data, OverlappedData::None));
+            });
+        }
     }
 }

@@ -738,7 +738,6 @@ class TestSSL(test_utils.TestCase):
                 asyncio.wait_for(client(srv.addr),
                                  timeout=support.SHORT_TIMEOUT))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_create_connection_memory_leak(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -1545,6 +1544,9 @@ class TestSSL(test_utils.TestCase):
             # This triggers bug gh-115514, also tested using mocks in
             # test.test_asyncio.test_selector_events.SelectorSocketTransportTests.test_write_buffer_after_close
             socket_transport = writer.transport._ssl_protocol._transport
+            # connection_lost may have already cleared _transport.
+            if socket_transport is None:
+                return
 
             class SocketWrapper:
                 def __init__(self, sock) -> None:
@@ -1617,7 +1619,6 @@ class TestSSL(test_utils.TestCase):
             else:
                 self.fail('Unexpected ResourceWarning: {}'.format(cm.warning))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_handshake_timeout_handler_leak(self):
         s = socket.socket(socket.AF_INET)
         s.bind(('127.0.0.1', 0))

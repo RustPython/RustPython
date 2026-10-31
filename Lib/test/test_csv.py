@@ -87,12 +87,10 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(ValueError, ctor, arg,
                           quotechar='\x85', lineterminator='\x85')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_reader_arg_valid(self):
         self._test_arg_valid(csv.reader, [])
         self.assertRaises(OSError, csv.reader, BadIterable())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_writer_arg_valid(self):
         self._test_arg_valid(csv.writer, StringIO())
         class BadWriter:
@@ -213,7 +211,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test([bigstring,bigstring], '%s,%s' % \
                          (bigstring, bigstring))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_quoting(self):
         self._write_test(['a',1,'p,q'], 'a,1,"p,q"')
         self._write_error_test(csv.Error, ['a',1,'p,q'],
@@ -231,7 +228,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test(['a','',None,1], '"a","",,"1"',
                          quoting = csv.QUOTE_NOTNULL)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_escape(self):
         self._write_test(['a',1,'p,q'], 'a,1,"p,q"',
                          escapechar='\\')
@@ -263,7 +259,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test(['C\\', '6', '7', 'X"'], 'C\\\\,6,7,"X"""',
                          escapechar='\\', quoting=csv.QUOTE_MINIMAL)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_lineterminator(self):
         for lineterminator in '\r\n', '\n', '\r', '!@#', '\0':
             with self.subTest(lineterminator=lineterminator):
@@ -277,7 +272,6 @@ class Test_Csv(unittest.TestCase):
                                      f'1,2{lineterminator}'
                                      f'"\r","\n"{lineterminator}')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_iterable(self):
         self._write_test(iter(['a', 1, 'p,q']), 'a,1,"p,q"')
         self._write_test(iter(['a', 1, None]), 'a,1,')
@@ -320,7 +314,6 @@ class Test_Csv(unittest.TestCase):
             self.assertEqual(fileobj.read(), 'a\r\n""\r\n')
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_empty_fields(self):
         self._write_test((), '')
         self._write_test([''], '""')
@@ -334,7 +327,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test(['', ''], ',')
         self._write_test([None, None], ',')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_empty_fields_space_delimiter(self):
         self._write_test([''], '""', delimiter=' ', skipinitialspace=False)
         self._write_test([''], '""', delimiter=' ', skipinitialspace=True)
@@ -375,7 +367,6 @@ class Test_Csv(unittest.TestCase):
         result = list(reader)
         self.assertEqual(result, expect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_oddinputs(self):
         self._read_test([], [])
         self._read_test([''], [[]])
@@ -386,7 +377,6 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(csv.Error, self._read_test,
                           [b'abc'], None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_eol(self):
         self._read_test(['a,b', 'c,d'], [['a','b'], ['c','d']])
         self._read_test(['a,b\n', 'c,d\n'], [['a','b'], ['c','d']])
@@ -401,7 +391,6 @@ class Test_Csv(unittest.TestCase):
         with self.assertRaisesRegex(csv.Error, errmsg):
             next(csv.reader(['a,b\r\nc,d']))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_eof(self):
         self._read_test(['a,"'], [['a', '']])
         self._read_test(['"a'], [['a']])
@@ -411,7 +400,6 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(csv.Error, self._read_test,
                           ['^'], [], escapechar='^', strict=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_nul(self):
         self._read_test(['\0'], [['\0']])
         self._read_test(['a,\0b,c'], [['a', '\0b', 'c']])
@@ -424,7 +412,6 @@ class Test_Csv(unittest.TestCase):
         self._read_test(['a;b;c'], [['a', 'b', 'c']], delimiter=';')
         self._read_test(['a\0b\0c'], [['a', 'b', 'c']], delimiter='\0')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape(self):
         self._read_test(['a,\\b,c'], [['a', 'b', 'c']], escapechar='\\')
         self._read_test(['a,b\\,c'], [['a', 'b,c']], escapechar='\\')
@@ -437,7 +424,6 @@ class Test_Csv(unittest.TestCase):
         self._read_test(['a,\\b,c'], [['a', '\\b', 'c']], escapechar=None)
         self._read_test(['a,\\b,c'], [['a', '\\b', 'c']])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_quoting(self):
         self._read_test(['1,",3,",5'], [['1', ',3,', '5']])
         self._read_test(['1,",3,",5'], [['1', '"', '3', '"', '5']],
@@ -474,7 +460,6 @@ class Test_Csv(unittest.TestCase):
         self._read_test(['1\\.5,\\.5,"\\.5"'], [[1.5, 0.5, ".5"]],
                         quoting=csv.QUOTE_STRINGS, escapechar='\\')
 
-    @unittest.skip("TODO: RUSTPYTHON; slice index starts at 1 but ends at 0")
     def test_read_skipinitialspace(self):
         self._read_test(['no space, space,  spaces,\ttab'],
                         [['no space', 'space', 'spaces', '\ttab']],
@@ -489,7 +474,6 @@ class Test_Csv(unittest.TestCase):
                         [[None, None, None]],
                         skipinitialspace=True, quoting=csv.QUOTE_STRINGS)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_space_delimiter(self):
         self._read_test(['a   b', '  a  ', '  ', ''],
                         [['a', '', '', 'b'], ['', '', 'a', '', ''], ['', '', ''], []],
@@ -529,7 +513,6 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(StopIteration, next, r)
         self.assertEqual(r.line_num, 3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_roundtrip_quoteed_newlines(self):
         rows = [
             ['\na', 'b\nc', 'd\n'],
@@ -548,7 +531,6 @@ class Test_Csv(unittest.TestCase):
                     for i, row in enumerate(csv.reader(fileobj)):
                         self.assertEqual(row, rows[i])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_roundtrip_escaped_unquoted_newlines(self):
         rows = [
             ['\na', 'b\nc', 'd\n'],
@@ -571,7 +553,6 @@ class Test_Csv(unittest.TestCase):
                         self.assertEqual(row, rows[i])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised
     def test_reader_reentrant_iterator(self):
         # gh-145105: re-entering the reader from the iterator must not crash.
         class ReentrantIter:
@@ -691,7 +672,6 @@ class TestDialectRegistry(unittest.TestCase):
             fileobj.seek(0)
             self.assertEqual(fileobj.read(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dialect_apply(self):
         class testA(csv.excel):
             delimiter = "\t"
@@ -813,7 +793,6 @@ class TestDialectExcel(TestCsvBase):
                                  '"I see," said the blind man',
                                  'as he picked up his hammer and saw']])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quoted_nl(self):
         input = '''\
 1,2,3,"""I see,""
@@ -854,18 +833,15 @@ class EscapedExcel(csv.excel):
 class TestEscapedExcel(TestCsvBase):
     dialect = EscapedExcel()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_escape_fieldsep(self):
         self.writerAssertEqual([['abc,def']], 'abc\\,def\r\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape_fieldsep(self):
         self.readerAssertEqual('abc\\,def\r\n', [['abc,def']])
 
 class TestDialectUnix(TestCsvBase):
     dialect = 'unix'
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_writer(self):
         self.writerAssertEqual([[1, 'abc def', 'abc']], '"1","abc def","abc"\n')
 
@@ -882,7 +858,6 @@ class TestQuotedEscapedExcel(TestCsvBase):
     def test_write_escape_fieldsep(self):
         self.writerAssertEqual([['abc,def']], '"abc,def"\r\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape_fieldsep(self):
         self.readerAssertEqual('"abc\\,def"\r\n', [['abc,def']])
 
@@ -1088,7 +1063,6 @@ class TestDictFields(unittest.TestCase):
                                          "s1": 'abc',
                                          "s2": 'def'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_with_blanks(self):
         reader = csv.DictReader(["1,2,abc,4,5,6\r\n","\r\n",
                                  "1,2,abc,4,5,6\r\n"],
@@ -1140,7 +1114,6 @@ class TestArrayWrites(unittest.TestCase):
             fileobj.seek(0)
             self.assertEqual(fileobj.read(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_char_write(self):
         import array, string
         a = array.array('w', string.ascii_letters)
@@ -1310,7 +1283,6 @@ class TestDialectValidity(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                          '"lineterminator" must be a string, not NoneType')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_chars(self):
         def create_invalid(field_name, value, **kwargs):
             class mydialect(csv.Dialect):
@@ -1334,6 +1306,19 @@ class TestDialectValidity(unittest.TestCase):
                 if field_name != "delimiter":
                     self.assertRaises(ValueError, create_invalid, field_name, " ",
                                       skipinitialspace=True)
+
+    def test_dialect_getattr_non_attribute_error_propagates(self):
+        # gh-145966: non-AttributeError exceptions raised by __getattr__
+        # during dialect attribute lookup must propagate, not be silenced.
+        class BadDialect:
+            def __getattr__(self, name):
+                raise RuntimeError("boom")
+
+        with self.assertRaises(RuntimeError):
+            csv.reader([], dialect=BadDialect())
+
+        with self.assertRaises(RuntimeError):
+            csv.writer(StringIO(), dialect=BadDialect())
 
 
 class TestSniffer(unittest.TestCase):
@@ -1430,6 +1415,9 @@ ghi\0jkl
     sample18.append("v,twenty_one")  # 'u' was not skipped
     sample18 = '\n'.join(sample18)
 
+    sample19 = ('time,title\r\n'
+                '2020-10-01,"Pocket - Save news, videos, stories and more"\r\n')
+
     def test_issue43625(self):
         sniffer = csv.Sniffer()
         self.assertTrue(sniffer.has_header(self.sample12))
@@ -1509,6 +1497,9 @@ ghi\0jkl
                                sniffer.sniff, self.sample15)
         self.assertRaisesRegex(csv.Error, "Could not determine delimiter",
                                sniffer.sniff, self.sample16)
+        dialect = sniffer.sniff(self.sample19)
+        self.assertEqual(dialect.delimiter, ',')
+        self.assertEqual(dialect.quotechar, '"')
 
     def test_doublequote(self):
         sniffer = csv.Sniffer()
@@ -1522,6 +1513,107 @@ ghi\0jkl
         self.assertFalse(dialect.doublequote)
         dialect = sniffer.sniff(self.sample9)
         self.assertTrue(dialect.doublequote)
+
+    def test_guess_delimiter_crlf_not_chosen(self):
+        # Ensure that we pick the real delimiter ("|") over "\r" in a tie.
+        sniffer = csv.Sniffer()
+        sample = "a|b\r\nc|d\r\ne|f\r\n"
+        self.assertEqual(sniffer.sniff(sample).delimiter, "|")
+        self.assertNotEqual(sniffer.sniff(sample).delimiter, "\r")
+
+    def test_zero_mode_tie_order_independence(self):
+        sniffer = csv.Sniffer()
+        # ":" appears in half the rows (1, 0, 1, 0) - a tie between
+        #     0 and 1 per line.
+        # "," appears once every row (true delimiter).
+        #
+        # Even if the zero-frequency bucket is appended vs. inserted, the tie
+        # yields an adjusted score of 0, so ":" should not be promoted and
+        # "," must be selected.
+        sample = (
+            "a,b:c\n"
+            "d,e\n"
+            "f,g:c\n"
+            "h,i\n"
+        )
+        dialect = sniffer.sniff(sample)
+        self.assertEqual(dialect.delimiter, ",")
+
+    def test_zero_mode_tie_order_comma_first(self):
+        sniffer = csv.Sniffer()
+        pattern = (
+            "a,b\n"
+            "c:d\n"
+            "e,f\n"
+            "g:h\n"
+        )
+        sample = pattern * 10
+        with self.assertRaisesRegex(csv.Error, "Could not determine delimiter"):
+            sniffer.sniff(sample)
+
+    def test_zero_mode_tie_order_colon_first(self):
+        sniffer = csv.Sniffer()
+        pattern = (
+            "a:b\n"
+            "c,d\n"
+            "e:f\n"
+            "g,h\n"
+        )
+        sample = pattern * 10
+        with self.assertRaisesRegex(csv.Error, "Could not determine delimiter"):
+            sniffer.sniff(sample)
+
+
+    def test_sniff_regex_backtracking(self):
+        # gh-109638: this artificial sample used to take minutes.
+        sniffer = csv.Sniffer()
+        sample = '"",' * 100 + '"' * 100 + '0' + '"' * 100 + '0'
+        self.assertEqual(sniffer.sniff(sample).delimiter, ',')
+
+    def test_sniff_doublequote_across_fields(self):
+        # A quoted field which contains the delimiter, followed by
+        # an empty quoted field, is not a doubled quote.
+        sniffer = csv.Sniffer()
+        sample = '",","",","\n' * 4
+        dialect = sniffer.sniff(sample)
+        self.assertEqual(dialect.delimiter, ',')
+        self.assertEqual(dialect.quotechar, '"')
+        self.assertIs(dialect.doublequote, False)
+        self.assertEqual(next(csv.reader(StringIO(sample), dialect)),
+                         [',', '', ','])
+
+    def test_sniff_doublequote_record_separators(self):
+        # The record separator ends a field as a delimiter does.
+        sniffer = csv.Sniffer()
+        for sep in '\n', '\r\n', '\r':
+            with self.subTest(sep=sep):
+                sample = ('x,"a""b"' + sep + 'y,"c"' + sep) * 2
+                self.assertIs(sniffer.sniff(sample).doublequote, True)
+                sample = ('"",","' + sep) * 4
+                self.assertIs(sniffer.sniff(sample).doublequote, False)
+
+    def test_sniff_single_column(self):
+        # This sample used to be quadratic.
+        sniffer = csv.Sniffer()
+        sample = '"a"\n' + ' ' * 100000
+        with self.assertRaisesRegex(csv.Error, "Could not determine delimiter"):
+            sniffer.sniff(sample, delimiters=',;')
+
+    def test_sniff_space_delimiter(self):
+        # This sample used to be quadratic.
+        sniffer = csv.Sniffer()
+        sample = '"a" "b"\n' + ' ' * 100000
+        dialect = sniffer.sniff(sample)
+        self.assertEqual(dialect.delimiter, ' ')
+        self.assertIs(dialect.doublequote, False)
+
+    def test_sniff_quoted_single_column(self):
+        # gh-98820: this sample used to take minutes.
+        sniffer = csv.Sniffer()
+        sample = '"abcdefghijklmnopqrstuvwxyz"\n' * 10000
+        with self.assertRaisesRegex(csv.Error, "Could not determine delimiter"):
+            sniffer.sniff(sample, delimiters=',:|\t')
+
 
 class NUL:
     def write(s, *args):
@@ -1688,6 +1780,17 @@ class MiscTestCase(unittest.TestCase):
         for tp in _csv.Reader, _csv.Writer:
             with self.subTest(tp=tp):
                 check_disallow_instantiation(self, tp)
+
+
+class TestModule(unittest.TestCase):
+    def test_deprecated__version__(self):
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            "'__version__' is deprecated and slated for removal in Python 3.20",
+        ) as cm:
+            getattr(csv, "__version__")
+        self.assertEqual(cm.filename, __file__)
+
 
 if __name__ == '__main__':
     unittest.main()

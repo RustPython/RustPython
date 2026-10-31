@@ -23,7 +23,6 @@ mod errno_mod {
     }
 }
 
-#[cfg(any(unix, windows, target_os = "wasi"))]
 pub use rustpython_host_env::errno::errors;
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
@@ -722,6 +721,8 @@ const ERROR_CODES: &[(&str, i32)] = &[
         EPROGUNAVAIL
     ),
     e!(cfg(target_vendor = "apple"), EPWROFF),
+    e!(cfg(target_vendor = "apple"), EQFULL),
+    e!(cfg(target_vendor = "apple"), ENOTCAPABLE),
     e!(
         cfg(any(
             target_os = "dragonfly",

@@ -13,3 +13,6 @@ select = [
     "F7",
     "F82",
 ]
+
+[lint.isort]
+known-first-party = ["cpython", "opcodes", "utils"]

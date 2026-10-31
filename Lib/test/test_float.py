@@ -255,7 +255,6 @@ class GeneralFloatCases(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             float(x='3.14')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument newarg
     def test_keywords_in_subclass(self):
         class subclass(float):
             pass
@@ -432,7 +431,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqualAndEqualSign(mod(1e-100, -1.0), -1.0)
         self.assertEqualAndEqualSign(mod(1.0, -1.0), -0.0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: must be real number, not complex
     @support.requires_IEEE_754
     def test_float_pow(self):
         # test builtin pow and ** operator for IEEE 754 special cases.
@@ -725,7 +723,6 @@ class IEEEFormatTestCase(unittest.TestCase):
 
 class FormatTestCase(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Invalid format specifier
     def test_format(self):
         # these should be rewritten to use both format(x, spec) and
         # x.__format__(spec)
@@ -1262,7 +1259,6 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
                     self.identical(got, expected)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: invalid hexadecimal floating-point string
     def test_from_hex(self):
         MIN = self.MIN
         MAX = self.MAX

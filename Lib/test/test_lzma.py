@@ -63,7 +63,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd.decompress(empty)
         self.assertRaises(EOFError, lzd.decompress, b"quux")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Failed to initialize encoder
     def test_bad_filter_spec(self):
         self.assertRaises(TypeError, LZMACompressor, filters=[b"wobsite"])
         self.assertRaises(ValueError, LZMACompressor, filters=[{"xyzzy": 3}])
@@ -143,7 +142,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; EOFError: End of stream already reached
     def test_decompressor_chunks_empty(self):
         lzd = LZMADecompressor()
         out = []
@@ -159,7 +157,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_chunks_maxsize(self):
         lzd = LZMADecompressor()
         max_length = 100
@@ -656,7 +653,6 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), check=lzma.CHECK_UNKNOWN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     def test_init_bad_preset(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", preset=4.39)
@@ -676,7 +672,6 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), preset=3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Failed to initialize encoder
     def test_init_bad_filter_spec(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", filters=[b"wobsite"])
@@ -1353,7 +1348,6 @@ class FileTestCase(unittest.TestCase):
         f.close()
         self.assertRaises(ValueError, f.tell)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: True is not false
     def test_issue21872(self):
         # sometimes decompress data incompletely
 

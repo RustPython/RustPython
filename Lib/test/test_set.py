@@ -188,7 +188,10 @@ class TestJointOps:
         self.assertEqual(type(i), self.basetype)
         self.assertRaises(PassThru, self.s.symmetric_difference, check_pass_thru())
         self.assertRaises(TypeError, self.s.symmetric_difference, [[]])
-        for C in set, frozenset, dict.fromkeys, str, list, tuple:
+        constructors = (set, frozenset,
+                        dict.fromkeys, frozendict.fromkeys,
+                        str, list, tuple)
+        for C in constructors:
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('cdc')), set('abd'))
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('efgfe')), set('abcefg'))
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('ccb')), set('a'))
@@ -330,7 +333,6 @@ class TestJointOps:
             name = repr(s).partition('(')[0]    # strip class name
             self.assertEqual(repr(s), '%s({%s(...)})' % (name, name))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_do_not_rehash_dict_keys(self):
         n = 10
         d = dict.fromkeys(map(HashCountingInt, range(n)))
@@ -350,7 +352,6 @@ class TestJointOps:
         self.assertEqual(sum(elem.hash_count for elem in d), n)
         self.assertEqual(d3, dict.fromkeys(d, 123))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for set iterator object
         class C(object):
@@ -363,7 +364,6 @@ class TestJointOps:
         gc.collect()
         self.assertTrue(ref() is None, "Cycle was not collected")
 
-    @unittest.skipIf("RUSTPYTHON_SKIP_ENV_POLLUTERS" in __import__("os").environ, "TODO: RUSTPYTHON")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 
@@ -657,7 +657,6 @@ class TestSet(TestJointOps, unittest.TestCase):
         self.assertRaises(KeyError, myset.remove, set(range(1)))
         self.assertRaises(KeyError, myset.remove, set(range(3)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unhashable_element(self):
         myset = {'a'}
         elem = [1, 2, 3]
@@ -673,7 +672,7 @@ class TestSet(TestJointOps, unittest.TestCase):
         with check_unhashable_element():
             myset.discard(elem)
 
-        # Only TypeError exception is overriden,
+        # Only TypeError exception is overridden,
         # other exceptions are left unchanged.
         class HashError:
             def __hash__(self):
@@ -829,7 +828,6 @@ class TestFrozenSetSubclass(TestFrozenSet):
     thetype = FrozenSetSubclass
     basetype = frozenset
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         class subclass(frozenset):
             pass
@@ -890,10 +888,6 @@ class TestSetSubclassWithSlots(unittest.TestCase):
     thetype = SetSubclassWithSlots
     setUp = TestJointOps.setUp
     test_pickling = TestJointOps.test_pickling
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_pickling(self):
-        return super().test_pickling()
 
 class FrozenSetSubclassWithSlots(frozenset):
     __slots__ = ('x', 'y', '__dict__')
@@ -1596,6 +1590,14 @@ class TestOnlySetsDict(TestOnlySetsInBinaryOps, unittest.TestCase):
     def setUp(self):
         self.set   = set((1, 2, 3))
         self.other = {1:2, 3:4}
+        self.otherIsIterable = True
+
+#------------------------------------------------------------------------------
+
+class TestOnlySetsFrozenDict(TestOnlySetsInBinaryOps, unittest.TestCase):
+    def setUp(self):
+        self.set   = set((1, 2, 3))
+        self.other = frozendict({1:2, 3:4})
         self.otherIsIterable = True
 
 #------------------------------------------------------------------------------

@@ -287,6 +287,22 @@ class TestBasic(unittest.TestCase):
                     else:
                         self.assertEqual(d.index(element, start, stop), target)
 
+        # Test stop argument
+        for elem in d:
+            index = d.index(elem)
+            self.assertEqual(
+                index,
+                d.index(elem, 0),
+            )
+            self.assertEqual(
+                index,
+                d.index(elem, 0, len(d)),
+            )
+            self.assertEqual(
+                index,
+                d.index(elem, 0, len(d) + 100),
+            )
+
         # Test large start argument
         d = deque(range(0, 10000, 10))
         for step in range(100):
@@ -726,7 +742,6 @@ class TestBasic(unittest.TestCase):
             d.append(1)
             gc.collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : Cycle was not collected
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for deque iterator objects
         class C(object):
@@ -841,7 +856,6 @@ class TestSubclass(unittest.TestCase):
                     self.assertEqual(e.z, d.z)
                     self.assertNotHasAttr(e, 'y')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'Deque' object has no attribute 'x'
     def test_pickle_recursive(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for d in Deque('abc'), Deque('abc', 3):

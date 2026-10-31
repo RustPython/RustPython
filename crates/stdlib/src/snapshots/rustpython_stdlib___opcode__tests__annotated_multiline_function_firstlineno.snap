@@ -1,0 +1,39 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\n\na = 1\ndef f(\n    x: a,\n): ...\n\"#, true)"
+---
+0:0-1:0            RESUME                   0
+
+1:4-1:5            LOAD_SMALL_INT           1
+1:0-1:1            STORE_NAME               0 (a)
+
+2:0-4:6            LOAD_CONST               1 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 2>)
+2:0-4:6            MAKE_FUNCTION
+2:0-4:6            LOAD_CONST               2 (<code object f at 0xdeadbeef, file "<?>", line 2>)
+2:0-4:6            MAKE_FUNCTION
+2:0-4:6            SET_FUNCTION_ATTRIBUTE  16 (annotate)
+2:0-4:6            STORE_NAME               1 (f)
+2:0-4:6            LOAD_COMMON_CONSTANT     7 (None)
+2:0-4:6            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 2>:
+2:0-2:0            RESUME                   0
+2:0-4:6            LOAD_FAST_BORROW         0 (format)
+2:0-4:6            LOAD_SMALL_INT           2
+2:0-4:6            COMPARE_OP             132 (>)
+2:0-4:6            POP_JUMP_IF_FALSE        3 (to L1)
+2:0-4:6            NOT_TAKEN
+2:0-4:6            LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+2:0-4:6            RAISE_VARARGS            1
+2:0-4:6    L1:     LOAD_CONST               1 ('x')
+
+3:7-3:8            LOAD_GLOBAL              0 (a)
+
+2:0-4:6            BUILD_MAP                1
+2:0-4:6            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 2>:
+2:0-2:0            RESUME                   0
+
+4:3-4:6            LOAD_COMMON_CONSTANT     7 (None)
+4:3-4:6            RETURN_VALUE

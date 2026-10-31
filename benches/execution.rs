@@ -1,83 +1,128 @@
+extern crate alloc;
+
+use alloc::collections::BTreeMap;
+use core::hint::black_box;
 use criterion::{
     Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
     measurement::WallTime,
 };
+use pyo3::types::{PyCode, PyCodeMethods, PyDict, PyDictMethods, code::PyCodeInput};
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
-use std::{collections::HashMap, hint::black_box, path::Path};
+use std::path::Path;
 
-fn bench_cpython_code(b: &mut Bencher, source: &str) {
-    let c_str_source_head = std::ffi::CString::new(source).unwrap();
+/// `true` when the benchmarks are executed by the CodSpeed runner.
+///
+/// CodSpeed tracks the performance of RustPython itself, so the CPython
+/// reference benchmarks are skipped there: they double the (already slow)
+/// instrumented run without ever reporting a change of RustPython.
+fn is_codspeed() -> bool {
+    std::env::var_os("CODSPEED_ENV").is_some()
+}
+
+fn bench_cpython_code(b: &mut Bencher<'_>, source: &str) {
+    let c_str_source_head = alloc::ffi::CString::new(source).unwrap();
     let c_str_source = c_str_source_head.as_c_str();
     pyo3::Python::attach(|py| {
         b.iter(|| {
-            let module = pyo3::types::PyModule::from_code(py, c_str_source, c"", c"")
+            let code = PyCode::compile(py, c_str_source, c"<benchmark>", PyCodeInput::File)
+                .expect("Error compiling source");
+            let globals = PyDict::new(py);
+            globals.set_item("__name__", "__main__").unwrap();
+            let result = code
+                .run(Some(&globals), None)
                 .expect("Error running source");
-            black_box(module);
+            black_box(result);
         })
     })
 }
 
-fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
+fn bench_rustpython_code(b: &mut Bencher<'_>, name: &str, source: &str) {
     // NOTE: Take long time.
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
     settings.user_site_directory = false;
+    // Pin the str/bytes hash secret so dict/set probe sequences (and thus
+    // timings) are reproducible across benchmark runs.
+    settings.hash_seed = Some(0);
     let builder = Interpreter::builder(settings);
     let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
     builder.add_native_modules(&defs).build().enter(|vm| {
         // Note: bench_cpython is both compiling and executing the code.
         // As such we compile the code in the benchmark loop as well.
         b.iter(|| {
-            let code = vm.compile(source, Mode::Exec, name.to_owned()).unwrap();
+            let code = vm.compile(source, Mode::Exec, name).unwrap();
             let scope = vm.new_scope_with_builtins();
-            let res: PyResult = vm.run_code_obj(code.clone(), scope);
+            scope
+                .globals
+                .set_item("__name__", vm.ctx.new_str("__main__").into(), vm)
+                .unwrap();
+            let res: PyResult = vm.run_code_obj(code, scope);
             vm.unwrap_pyresult(res);
         })
     })
 }
 
-pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
-    group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
-        bench_cpython_code(b, contents)
-    });
+pub fn benchmark_file_execution(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+    contents: &str,
+) {
+    if !is_codspeed() {
+        group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
+            bench_cpython_code(b, contents)
+        });
+    }
     group.bench_function(BenchmarkId::new(name, "rustpython"), |b| {
         bench_rustpython_code(b, name, contents)
     });
 }
 
-pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
+pub fn benchmark_file_parsing(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+    contents: &str,
+) {
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
         b.iter(|| ruff_python_parser::parse_module(contents).unwrap())
     });
-    group.bench_function(BenchmarkId::new("cpython", name), |b| {
-        use pyo3::types::PyAnyMethods;
-        pyo3::Python::attach(|py| {
-            let builtins =
-                pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
-            let compile = builtins.getattr("compile").expect("no compile in builtins");
-            b.iter(|| {
-                let x = compile
-                    .call1((contents, name, "exec"))
-                    .expect("Failed to parse code");
-                black_box(x);
+    if !is_codspeed() {
+        group.bench_function(BenchmarkId::new("cpython", name), |b| {
+            use pyo3::types::PyAnyMethods;
+            pyo3::Python::attach(|py| {
+                let builtins = pyo3::types::PyModule::import(py, "builtins")
+                    .expect("Failed to import builtins");
+                let compile = builtins.getattr("compile").expect("no compile in builtins");
+                let ast = pyo3::types::PyModule::import(py, "ast").expect("Failed to import ast");
+                let only_ast: i32 = ast
+                    .getattr("PyCF_ONLY_AST")
+                    .and_then(|flag| flag.extract())
+                    .expect("no PyCF_ONLY_AST in ast");
+                b.iter(|| {
+                    let x = compile
+                        .call1((contents, name, "exec", only_ast))
+                        .expect("Failed to parse code");
+                    black_box(x);
+                })
             })
-        })
-    });
+        });
+    }
 }
 
-pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String) {
+pub fn benchmark_pystone(group: &mut BenchmarkGroup<'_, WallTime>, contents: String) {
     // Default is 50_000. This takes a while, so reduce it to 30k.
     for idx in (10_000..=30_000).step_by(10_000) {
         let code_with_loops = format!("LOOPS = {idx}\n{contents}");
         let code_str = code_with_loops.as_str();
 
         group.throughput(Throughput::Elements(idx as u64));
-        group.bench_function(BenchmarkId::new("cpython", idx), |b| {
-            bench_cpython_code(b, code_str)
-        });
+        if !is_codspeed() {
+            group.bench_function(BenchmarkId::new("cpython", idx), |b| {
+                bench_cpython_code(b, code_str)
+            });
+        }
         group.bench_function(BenchmarkId::new("rustpython", idx), |b| {
             bench_rustpython_code(b, "pystone", code_str)
         });
@@ -89,14 +134,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut benches = benchmark_dir
         .read_dir()
         .unwrap()
-        .map(|entry| {
-            let path = entry.unwrap().path();
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "py"))
+        .map(|path| {
             (
                 path.file_name().unwrap().to_str().unwrap().to_owned(),
                 std::fs::read_to_string(path).unwrap(),
             )
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
 
     // Benchmark parsing
     let mut parse_group = c.benchmark_group("parse_to_ast");

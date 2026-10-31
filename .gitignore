@@ -8,12 +8,15 @@ __pycache__/
 .repl_history.txt
 .vscode/
 wasm-pack.log
-.idea/
+.idea/*
+!.idea/icon.svg
+!.idea/vcs.xml
 .envrc
 
 flame-graph.html
 flame.txt
 flamescope.json
+/build/codspeed-environment*.json
 /wapm.lock
 /wapm_packages
 /.cargo/config
@@ -27,4 +30,9 @@ Lib/site-packages/*
 Lib/test/data/*
 !Lib/test/data/README
 cpython/
-.claude/scheduled_tasks.lock
+.claude/
+docs/superpowers/
+
+scripts/pyperformance/results/
+scripts/pyperformance/stub_psutil/build/
+scripts/pyperformance/stub_psutil/src/psutil.egg-info/

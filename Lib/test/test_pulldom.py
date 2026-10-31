@@ -24,7 +24,6 @@ SMALL_SAMPLE = """<?xml version="1.0"?>
 
 class PullDOMTestCase(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory (os error 2): 'xmltestdata/test.xml' -> 'None'
     def test_parse(self):
         """Minimal test of DOMEventStream.parse()"""
 
@@ -41,7 +40,6 @@ class PullDOMTestCase(unittest.TestCase):
         with open(tstfile, "rb") as fin:
             list(pulldom.parse(fin))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; implement DOM semantic
     def test_parse_semantics(self):
         """Test DOMEventStream parsing semantics."""
 
@@ -104,7 +102,6 @@ class PullDOMTestCase(unittest.TestCase):
         #evt, node = next(items)
         #self.assertEqual(pulldom.END_DOCUMENT, evt)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; pulldom.parseString(SMALL_SAMPLE) return iterator with tuple with 2 elements
     def test_expandItem(self):
         """Ensure expandItem works as expected."""
         items = pulldom.parseString(SMALL_SAMPLE)
@@ -301,7 +298,6 @@ class SAX2DOMTestCase(unittest.TestCase):
     def confirm(self, test, testname="Test"):
         self.assertTrue(test, testname)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; read from stream io
     def test_basic(self):
         """Ensure SAX2DOM can parse from a stream."""
         with io.StringIO(SMALL_SAMPLE) as fin:

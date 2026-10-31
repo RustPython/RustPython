@@ -1,3 +1,5 @@
+import sys
+
 from testutils import assert_raises
 
 assert (1, 2) == (1, 2)
@@ -93,3 +95,8 @@ assert (float("inf"), float("inf")) <= (float("inf"), float("inf"))
 assert (float("inf"), float("inf")) >= (float("inf"), float("inf"))
 assert not (float("inf"), float("inf")) < (float("inf"), float("inf"))
 assert not (float("inf"), float("inf")) > (float("inf"), float("inf"))
+
+# The repeat count is multiplied by the element size; a count that overflows
+# that product must raise instead of wrapping into a short allocation.
+with assert_raises(MemoryError):
+    (1,) * sys.maxsize

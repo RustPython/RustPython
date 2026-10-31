@@ -8,7 +8,7 @@ pub mod string;
 
 pub use constants::{SRE_MAGIC, SreAtCode, SreCatCode, SreFlag, SreInfo, SreOpcode};
 pub use engine::{Request, SearchIter, State};
-pub use string::{StrDrive, StringCursor};
+pub use string::{Locale, StrDrive, StringCursor};
 
 pub const CODESIZE: usize = 4;
 

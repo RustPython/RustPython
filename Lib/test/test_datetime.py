@@ -21,14 +21,8 @@ def load_tests(loader, tests, pattern):
         for modname in ['datetime', '_datetime', '_pydatetime', '_strptime']:
             sys.modules.pop(modname, None)
 
-    test_modules = [
-        pure_tests,
-        # fast_tests  # XXX: RUSTPYTHON; not supported yet
-    ]
-    test_suffixes = [
-        "_Pure",
-        # "_Fast"  # XXX: RUSTPYTHON; not supported yet
-    ]
+    test_modules = [pure_tests, fast_tests]
+    test_suffixes = ["_Pure", "_Fast"]
 
     # XXX(gb) First run all the _Pure tests, then all the _Fast tests.  You might
     # not believe this, but in spite of all the sys.modules trickery running a _Pure

@@ -1,6 +1,10 @@
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import warnings
+from pathlib import Path
 
 from testutils import assert_raises
 
@@ -23,6 +27,13 @@ assert "sys" in sys.builtin_module_names
 
 assert isinstance(sys.implementation.name, str)
 assert isinstance(sys.implementation.cache_tag, str)
+
+assert sys.version_info[:3] == (3, 15, 0)
+assert sys.hexversion >> 8 == 0x030F00
+assert sys.version.startswith("3.15.0")
+assert sys.implementation.cache_tag == (
+    f"{sys.implementation.name}-{sys.version_info.major}{sys.version_info.minor}"
+)
 
 assert sys.getfilesystemencoding() == "utf-8"
 assert sys.getfilesystemencodeerrors().startswith("surrogate")
@@ -57,6 +68,169 @@ demo(5)
 sys.settrace(None)
 
 assert ("demo", "call", None) in events
+
+# The eager iterator prefix of a generator expression is not traced, but
+# monitoring still reports the error it raises.
+
+
+class GoodIterable:
+    def __iter__(self):
+        return iter([1])
+
+
+class BadIterable:
+    def __iter__(self):
+        raise ValueError("eager iterator")
+
+
+def create_genexpr(iterable):
+    return (value for value in iterable)
+
+
+events = []
+
+
+def trc(frame, event, arg):
+    if frame.f_code.co_name in ("create_genexpr", "<genexpr>", "__iter__"):
+        events.append((frame.f_code.co_name, event))
+    return trc
+
+
+sys.settrace(trc)
+try:
+    create_genexpr(GoodIterable()).close()
+    try:
+        create_genexpr(BadIterable())
+    except ValueError as error:
+        tb_names = []
+        tb = error.__traceback__
+        while tb is not None:
+            tb_names.append(tb.tb_frame.f_code.co_name)
+            tb = tb.tb_next
+    else:
+        raise AssertionError("expected eager iterator error")
+finally:
+    sys.settrace(None)
+assert events == [
+    ("create_genexpr", "call"),
+    ("create_genexpr", "line"),
+    ("__iter__", "call"),
+    ("__iter__", "line"),
+    ("__iter__", "return"),
+    ("create_genexpr", "return"),
+    ("create_genexpr", "call"),
+    ("create_genexpr", "line"),
+    ("__iter__", "call"),
+    ("__iter__", "line"),
+    ("__iter__", "exception"),
+    ("__iter__", "return"),
+    ("create_genexpr", "exception"),
+    ("create_genexpr", "return"),
+    ("create_genexpr", "exception"),
+    ("create_genexpr", "return"),
+], events
+assert tb_names == ["<module>", "create_genexpr", "__iter__"], tb_names
+
+monitoring = sys.monitoring
+event_names = ("PY_START", "PY_RESUME", "PY_UNWIND", "RAISE", "LINE", "INSTRUCTION")
+records = []
+monitoring.use_tool_id(2, "genexpr-prefix")
+try:
+    for name in event_names:
+
+        def callback(code, *args, name=name):
+            if code.co_name == "<genexpr>":
+                records.append(name)
+
+        monitoring.register_callback(2, getattr(monitoring.events, name), callback)
+    monitoring.set_events(
+        2, sum(getattr(monitoring.events, name) for name in event_names)
+    )
+    create_genexpr(GoodIterable()).close()
+    assert records == [], records
+    with assert_raises(ValueError):
+        create_genexpr(BadIterable())
+finally:
+    monitoring.set_events(2, 0)
+    monitoring.free_tool_id(2)
+assert records == ["RAISE", "PY_UNWIND"], records
+
+# A loop body large enough to require EXTENDED_ARG on its jump targets.
+namespace = {}
+exec(
+    "def large_loop(skip=False):\n if skip:\n  return 'done'\n"
+    " total = 0\n for x in (1, 2):\n" + "  total += x\n" * 100 + " return total\n",
+    namespace,
+)
+large_loop = namespace["large_loop"]
+
+
+def jump_out_of_large_loop(code, line):
+    global loop_hits
+    if code is large_loop.__code__ and line == 5:
+        loop_hits += 1
+        if loop_hits == 2:
+            sys._getframe(1).f_lineno = 3
+
+
+def jump_after_large_loop(code, line):
+    if code is large_loop.__code__ and line == 5:
+        sys._getframe(1).f_lineno = 106
+
+
+monitoring.use_tool_id(2, "extended-arg")
+try:
+    for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
+        monitoring.register_callback(2, event, lambda *args: None)
+    for events in (
+        monitoring.events.LINE,
+        monitoring.events.LINE | monitoring.events.INSTRUCTION,
+    ):
+        monitoring.set_local_events(2, large_loop.__code__, events)
+        assert large_loop() == 300
+    loop_hits = 0
+    monitoring.register_callback(2, monitoring.events.LINE, jump_out_of_large_loop)
+    monitoring.set_local_events(2, large_loop.__code__, monitoring.events.LINE)
+    assert large_loop() == "done"
+    assert loop_hits == 2
+    monitoring.register_callback(2, monitoring.events.LINE, jump_after_large_loop)
+    assert large_loop() == 0
+finally:
+    monitoring.set_local_events(2, large_loop.__code__, 0)
+    for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
+        monitoring.register_callback(2, event, None)
+    monitoring.free_tool_id(2)
+
+
+# Combined instruction events must preserve loop-header line events.
+def monitored_loop():
+    total = 0
+    for value in (1, 2):
+        total += value
+    return total
+
+
+lines = []
+monitoring.use_tool_id(2, "combined-lines")
+try:
+    monitoring.register_callback(
+        2,
+        monitoring.events.LINE,
+        lambda code, line: lines.append(line - code.co_firstlineno),
+    )
+    monitoring.register_callback(2, monitoring.events.INSTRUCTION, lambda *args: None)
+    monitoring.set_local_events(
+        2,
+        monitored_loop.__code__,
+        monitoring.events.LINE | monitoring.events.INSTRUCTION,
+    )
+    assert monitored_loop() == 3
+    assert lines == [1, 2, 3, 2, 3, 2, 4]
+finally:
+    monitoring.set_local_events(2, monitored_loop.__code__, 0)
+    for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
+        monitoring.register_callback(2, event, None)
+    monitoring.free_tool_id(2)
 
 assert sys.exc_info() == (None, None, None)
 
@@ -148,6 +322,17 @@ proc = subprocess.run(args, stdout=subprocess.PIPE, universal_newlines=True, env
 assert proc.stdout.rstrip() == "True"
 assert proc.returncode == 0, proc
 
+# -S must prevent the site import itself, not just its customizations.
+subprocess.run(
+    [
+        sys.executable,
+        "-S",
+        "-c",
+        "import sys; assert sys.flags.no_site; assert 'site' not in sys.modules",
+    ],
+    check=True,
+)
+
 assert sys._getframemodulename() == "__main__", sys._getframemodulename()
 
 
@@ -158,3 +343,147 @@ def test_getframemodulename():
 test_getframemodulename.__module__ = "awesome_module"
 
 assert test_getframemodulename() == "awesome_module"
+
+# An unimportable $PYTHONBREAKPOINT warns, and the hook has to survive that
+# warning being turned into an exception.
+saved_breakpoint_env = os.environ.get("PYTHONBREAKPOINT")
+os.environ["PYTHONBREAKPOINT"] = "nonexistent_xyz.foo"
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with assert_raises(RuntimeWarning):
+            sys.breakpointhook()
+finally:
+    if saved_breakpoint_env is None:
+        del os.environ["PYTHONBREAKPOINT"]
+    else:
+        os.environ["PYTHONBREAKPOINT"] = saved_breakpoint_env
+
+
+# A venv's symlink target takes precedence over home/<invoked name>.
+if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        interpreter = Path(sys.executable).resolve()
+        # A framework build can also run its embedded app directly. Match the
+        # installed launcher's file identity before applying launcher semantics.
+        framework_base = (
+            Path(sys.base_prefix)
+            / "bin"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        )
+        framework_launcher = (
+            sys.platform == "darwin"
+            and bool(getattr(sys, "_framework", ""))
+            and framework_base.is_file()
+            and interpreter.samefile(framework_base)
+        )
+        home = root / "home"
+        home.mkdir()
+        venv_env = dict(os.environ)
+        for name in ("PYTHONHOME", "PYTHONEXECUTABLE", "__PYVENV_LAUNCHER__"):
+            venv_env.pop(name, None)
+        # Keep startup imports available even with the synthetic home directory.
+        venv_env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        path_code = (
+            "import sys; print(sys.executable); "
+            "print(sys._base_executable); print(sys.prefix)"
+        )
+
+        def executable_paths(executable, *, cwd=None, env=venv_env):
+            result = subprocess.run(
+                [str(executable), "-B", "-S", "-c", path_code],
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, result.stderr
+            return result.stdout.splitlines()
+
+        for kind in ("absolute", "relative", "chain"):
+            bin_dir = root / kind / "bin"
+            bin_dir.mkdir(parents=True)
+            # Exercise both parent and adjacent pyvenv.cfg discovery.
+            prefix = bin_dir if kind == "chain" else bin_dir.parent
+            (prefix / "pyvenv.cfg").write_text(f"home = {home}\n")
+            executable = bin_dir / kind
+            # This regular file must never be preferred to a symlink's target.
+            (home / kind).touch()
+            if kind == "absolute":
+                executable.symlink_to(interpreter)
+            elif kind == "relative":
+                executable.symlink_to(os.path.relpath(interpreter, bin_dir))
+            else:
+                (bin_dir / "target").symlink_to(interpreter)
+                executable.symlink_to("target")
+            invocation = f"./bin/{kind}" if kind == "relative" else executable
+            assert executable_paths(invocation, cwd=bin_dir.parent) == [
+                str(executable),
+                str(framework_base if framework_launcher else interpreter),
+                str(prefix),
+            ]
+
+        # Framework launchers preset their base; ordinary binaries keep argv[0].
+        plain = root / "plain" / "python"
+        plain.parent.mkdir()
+        plain.symlink_to(interpreter)
+        assert executable_paths(plain)[:2] == [
+            str(plain),
+            str(framework_base if framework_launcher else plain),
+        ]
+
+        # Without a launcher preset, copies fall back to home/<invoked name>.
+        copied = root / "copied" / "python"
+        copied.parent.mkdir()
+        shutil.copy2(interpreter, copied)
+        (home / copied.name).touch()
+        (copied.parent / "pyvenv.cfg").write_text(f"home = {home}\n")
+        assert executable_paths(copied) == [
+            str(copied),
+            str(framework_base if framework_launcher else home / copied.name),
+            str(copied.parent),
+        ]
+
+        # A directory alias does not turn a copied executable into a symlink.
+        directory_alias = root / "directory-alias"
+        directory_alias.symlink_to(copied.parent, target_is_directory=True)
+        aliased_copy = directory_alias / copied.name
+        # The framework launcher canonicalizes its directory before dispatch.
+        assert executable_paths(aliased_copy) == [
+            str(copied if framework_launcher else aliased_copy),
+            str(framework_base if framework_launcher else home / copied.name),
+            str(copied.parent if framework_launcher else directory_alias),
+        ]
+
+        # Without a launcher preset, final-link resolution preserves target aliases.
+        target_link = root / "linked" / "python"
+        target_link.parent.mkdir()
+        (target_link.parent / "pyvenv.cfg").write_text(f"home = {home}\n")
+        target_link.symlink_to("../directory-alias/python")
+        assert executable_paths(target_link) == [
+            str(target_link),
+            str(framework_base if framework_launcher else aliased_copy),
+            str(target_link.parent),
+        ]
+
+        # macOS framework builds use a framework-derived base for overrides.
+        if sys.platform == "linux":
+            # Relative targets also preserve a double-leading-slash directory.
+            double_target = root / "double-target"
+            double_target.symlink_to("directory-alias/python")
+            target_link.unlink()
+            target_link.symlink_to("/" + str(double_target))
+            assert executable_paths(target_link) == [
+                str(target_link),
+                "/" + str(aliased_copy),
+                str(target_link.parent),
+            ]
+
+            override_env = dict(venv_env, __PYVENV_LAUNCHER__=str(executable))
+            assert executable_paths(plain, env=override_env) == [
+                str(executable),
+                str(plain),
+                str(prefix),
+            ]

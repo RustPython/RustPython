@@ -1,3 +1,4 @@
+import re
 from types import (
     AsyncGeneratorType,
     BuiltinFunctionType,
@@ -62,3 +63,9 @@ for typ in reviter_types:
 for typ in internal_types:
     with assert_raises(TypeError):
         typ()
+
+# a match object carries state that only the matcher can fill in
+with assert_raises(TypeError):
+    re.Match()
+with assert_raises(TypeError):
+    re.Match.__new__(re.Match)

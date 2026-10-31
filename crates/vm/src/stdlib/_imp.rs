@@ -1,30 +1,52 @@
 use crate::builtins::{PyCode, PyStrInterned};
 use crate::frozen::FrozenModule;
-use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
+use crate::{Py, VirtualMachine, builtins::PyBaseExceptionRef};
 use core::borrow::Borrow;
 
 pub(crate) use _imp::module_def;
 
 pub(super) use crate::vm::resolve_frozen_alias;
 
+mod resources;
+
 #[cfg(feature = "threading")]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_imp")]
 mod lock {
     use crate::{PyResult, VirtualMachine, stdlib::_thread::RawRMutex};
+    use core::cell::Cell;
 
     static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
+    thread_local! {
+        static IMP_LOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn bump_depth() {
+        IMP_LOCK_DEPTH.with(|c| c.set(c.get() + 1));
+    }
+
+    fn drop_depth() {
+        IMP_LOCK_DEPTH.with(|c| c.set(c.get().saturating_sub(1)));
+    }
+
     #[pyfunction]
-    fn acquire_lock(_vm: &VirtualMachine) {
-        acquire_lock_for_fork()
+    fn acquire_lock(vm: &VirtualMachine) {
+        // Detach while blocking on IMP_LOCK. The import lock is held across
+        // bytecode by the importlib bootstrap, so its holder can be parked at a
+        // safepoint mid-hold. Blocking here while attached would keep this
+        // thread from honoring a stop-the-world request, so a requester could
+        // wait for this thread while this thread waits for the parked holder.
+        // Detaching makes the wait park-friendly.
+        vm.allow_threads(acquire_lock_for_fork);
     }
 
     #[pyfunction]
     fn release_lock(vm: &VirtualMachine) -> PyResult<()> {
-        if !IMP_LOCK.is_locked() {
+        if !IMP_LOCK.is_locked() || !IMP_LOCK.is_owned_by_current_thread() {
             Err(vm.new_runtime_error("Global import lock not held"))
         } else {
             unsafe { IMP_LOCK.unlock() };
+            drop_depth();
             Ok(())
         }
     }
@@ -36,49 +58,57 @@ mod lock {
 
     pub(super) fn acquire_lock_for_fork() {
         IMP_LOCK.lock();
+        bump_depth();
     }
 
     #[cfg(all(unix, feature = "host_env"))]
     pub(super) fn release_lock_after_fork_parent() {
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
             unsafe { IMP_LOCK.unlock() };
+            drop_depth();
         }
     }
 
-    /// Reset import lock after fork() — only if held by a dead thread.
+    /// Reset the import lock after `fork()`.
     ///
-    /// `IMP_LOCK` is a reentrant mutex. If the *current* (surviving) thread
-    /// held it at fork time, the child must be able to release it normally.
-    /// Only reset if a now-dead thread was the owner.
+    /// Zero the lock so waiter queues from dead threads are discarded, then
+    /// re-acquire it as many times as this thread held it. `unlock()` on the
+    /// inherited lock would unpark those waiters.
     ///
     /// # Safety
     ///
     /// Must only be called from single-threaded child after fork().
     #[cfg(all(unix, feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork() {
-        if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
-            // Held by a dead thread — reset to unlocked.
-            unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
+        let depth = IMP_LOCK_DEPTH.with(Cell::get);
+        unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
+        for _ in 0..depth {
+            IMP_LOCK.lock();
         }
     }
 
-    /// Match CPython's `_PyImport_ReInitLock()` + `_PyImport_ReleaseLock()`
-    /// behavior in the post-fork child:
-    /// 1) if ownership metadata is stale (dead owner / changed tid), reset;
-    /// 2) if current thread owns the lock, release it.
+    /// Restore the child's import lock, then drop the extra hold taken
+    /// before `fork()`. Nested `imp.acquire_lock()` holds stay so the
+    /// child's `release_lock()` can unwind them.
     #[cfg(all(unix, feature = "host_env"))]
     pub(super) unsafe fn after_fork_child_reinit_and_release() {
         unsafe { reinit_after_fork() };
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
             unsafe { IMP_LOCK.unlock() };
+            drop_depth();
         }
     }
 }
 
 /// Re-export for fork safety code in posix.rs
+///
+/// Runs pre-fork on a normal attached VM thread. Detach while blocking so the
+/// wait honors a concurrent stop-the-world request instead of pinning this
+/// thread attached on IMP_LOCK; re-attach completes before `stop_the_world`, so
+/// the fork requester protocol is unaffected.
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
-pub(crate) fn acquire_imp_lock_for_fork() {
-    lock::acquire_lock_for_fork();
+pub(crate) fn acquire_imp_lock_for_fork(vm: &VirtualMachine) {
+    vm.allow_threads(lock::acquire_lock_for_fork);
 }
 
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
@@ -97,7 +127,7 @@ pub(crate) unsafe fn after_fork_child_imp_lock_release() {
 }
 
 #[cfg(not(feature = "threading"))]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_imp")]
 mod lock {
     use crate::vm::VirtualMachine;
     #[pyfunction]
@@ -123,14 +153,13 @@ enum FrozenError {
 
 impl FrozenError {
     fn to_pyexception(&self, mod_name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        use FrozenError::*;
         let msg = match self {
-            BadName | NotFound => format!("No such frozen object named {mod_name}"),
-            Disabled => format!(
+            Self::BadName | Self::NotFound => format!("No such frozen object named {mod_name}"),
+            Self::Disabled => format!(
                 "Frozen modules are disabled and the frozen object named {mod_name} is not essential"
             ),
-            Excluded => format!("Excluded frozen object named {mod_name}"),
-            Invalid => format!("Frozen object named {mod_name} is invalid"),
+            Self::Excluded => format!("Excluded frozen object named {mod_name}"),
+            Self::Invalid => format!("Frozen object named {mod_name} is invalid"),
         };
         vm.new_import_error(msg, vm.ctx.new_utf8_str(mod_name))
     }
@@ -153,25 +182,42 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
         return Ok(frozen);
     }
 
-    // use_frozen(): override > 0 → true, override < 0 → false, 0 → default (true)
+    // use_frozen(): override > 0 → true, override < 0 → false, 0 → startup setting
     // When disabled, non-bootstrap modules are simply not found (same as look_up_frozen)
     let override_val = vm.state.override_frozen_modules.load();
-    if override_val < 0 {
+    if override_val < 0
+        || (override_val == 0
+            && vm.import_bootstrap_complete
+            && !vm.state.config.settings.use_frozen_modules)
+    {
         return Err(FrozenError::NotFound);
     }
 
     Ok(frozen)
 }
 
-#[pymodule(with(lock))]
+#[pymodule(with(lock, resources::resources))]
 mod _imp {
     use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
-        convert::TryFromBorrowedObject,
-        function::OptionalArg,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
+        builtins::{
+            PyBytesRef, PyCode, PyDict, PyImportError, PyMemoryView, PyModule, PyStrRef,
+            PyUtf8StrRef,
+        },
         import, version,
     };
+
+    use super::FrozenError;
+
+    // Private exact-dict relocation primitive for future import-cache ordering.
+    #[pyfunction]
+    fn _dict_move_to_end(
+        modules: PyRefExact<PyDict>,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        modules.move_to_end(key, vm)
+    }
 
     #[pyattr]
     fn check_hash_based_pycs(vm: &VirtualMachine) -> PyStrRef {
@@ -187,27 +233,74 @@ mod _imp {
         Vec::new()
     }
 
+    // This hook is also used by eager imports that satisfy pending lazy targets.
     #[pyfunction]
-    fn is_builtin(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
-        vm.state.module_defs.contains_key(name.as_str())
+    fn _set_lazy_attributes(
+        _modobj: PyObjectRef,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        crate::lazy_import::clear_submodule(&name, false, vm)?;
+        vm.state.lazy_imports.modules.discard(name.into(), vm)
     }
 
     #[pyfunction]
-    fn is_frozen(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
-        super::find_frozen(name.as_str(), vm).is_ok()
+    fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> i32 {
+        match name.to_str() {
+            Some("sys" | "builtins") => -1,
+            Some(name) => i32::from(vm.state.module_defs.contains_key(name)),
+            None => 0,
+        }
+    }
+
+    #[pyfunction]
+    fn is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
+        name.to_str()
+            .is_some_and(|name| super::find_frozen(name, vm).is_ok())
     }
 
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sys_modules = vm.sys_module.get_attr("modules", vm).unwrap();
-        let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
+        let name_obj = spec.get_attr("name", vm)?;
+        let name: PyStrRef = name_obj.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "name must be string, not {:.200}",
+                obj.class().name()
+            ))
+        })?;
+        if name.is_empty() {
+            return Err(vm.new_value_error("name must not be empty"));
+        }
+        // Builtin module names use ASCII even when an unknown name is supplied.
+        if !name.as_bytes().is_ascii() {
+            vm.state
+                .codec_registry
+                .encode_text(name.clone(), "ascii", None, vm)?;
+        }
+        let name_str = name.as_utf8().expect("ASCII module name").as_str();
+        if name_str.contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        if !matches!(name_str, "sys" | "builtins") && !vm.state.module_defs.contains_key(name_str) {
+            let exc = vm.new_payload_exception::<PyImportError>(
+                vm.ctx.exceptions.module_not_found_error.to_owned(),
+                vec![
+                    vm.ctx
+                        .new_str(format!("{name_str} module not found"))
+                        .into(),
+                ]
+                .into(),
+            )?;
+            exc.as_object().set_attr("name", name.clone(), vm)?;
+            return Err(exc.upcast());
+        }
 
-        // Check sys.modules first
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        // Only registered builtins (or the two core modules) may use this cache.
         if let Ok(module) = sys_modules.get_item(&*name, vm) {
             return Ok(module);
         }
 
-        let name_str = name.as_str();
         if let Some(&def) = vm.state.module_defs.get(name_str) {
             // Phase 1: Create module (use create slot if provided, else default creation)
             let module = if let Some(create) = def.slots.create {
@@ -224,7 +317,7 @@ mod _imp {
             module.__init_methods(vm)?;
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
-            sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
+            sys_modules.set_item(&*name, module.clone().into(), vm)?;
 
             // Phase 2: Call exec slot (can safely import other modules now)
             if let Some(exec) = def.slots.exec {
@@ -237,36 +330,123 @@ mod _imp {
         Ok(vm.ctx.none())
     }
 
+    #[derive(FromArgs)]
+    struct CreateDynamicArgs {
+        #[pyarg(positional)]
+        spec: PyObjectRef,
+        #[pyarg(positional, optional)]
+        _file: crate::function::OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn create_dynamic(args: CreateDynamicArgs, vm: &VirtualMachine) -> PyResult {
+        let name_obj = args.spec.get_attr("name", vm)?;
+        let name: PyUtf8StrRef = name_obj.try_into_value(vm)?;
+        if name.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character".to_owned()));
+        }
+
+        let origin_obj = args.spec.get_attr("origin", vm)?;
+        if vm.is_none(&origin_obj) {
+            return Err(vm.new_value_error("origin must be set".to_owned()));
+        }
+        let origin: PyUtf8StrRef = origin_obj.try_into_value(vm)?;
+        if origin.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character".to_owned()));
+        }
+
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        if let Ok(module) = sys_modules.get_item(&*name, vm) {
+            return Ok(module);
+        }
+
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        {
+            let origin_str = origin.as_str();
+            let short_name = name.as_str().rsplit('.').next().unwrap_or(name.as_str());
+            let export_func_name = format!("PyModExport_{short_name}");
+
+            #[cfg(unix)]
+            let handle_res = {
+                let mode = rustpython_host_env::ctypes::dlopen_mode(None);
+                rustpython_host_env::ctypes::open_library_with_mode(origin_str, mode)
+            };
+            #[cfg(windows)]
+            let handle_res = rustpython_host_env::ctypes::open_library(origin_str);
+
+            if let Ok(handle) = handle_res
+                && let Ok(export_fn_addr) = rustpython_host_env::ctypes::lookup_function_symbol_addr(
+                    handle,
+                    export_func_name.as_bytes(),
+                )
+                && export_fn_addr != 0
+            {
+                // abi3t PyModExport entry point
+                type ModExportFn = unsafe extern "C" fn() -> *mut crate::PyObject;
+                let export_fn: ModExportFn =
+                    unsafe { core::mem::transmute(export_fn_addr as *const ()) };
+                let mod_ptr = unsafe { export_fn() };
+                if let Some(mod_nonnull) = core::ptr::NonNull::new(mod_ptr) {
+                    let py_obj = unsafe { crate::PyObjectRef::from_raw(mod_nonnull) };
+                    return Ok(py_obj);
+                }
+            }
+        }
+
+        Err(vm.new_import_error(
+            format!(
+                "dynamic module does not define module export function (PyModExport_{})",
+                name.as_str()
+            ),
+            name.into_wtf8(),
+        ))
+    }
+
+    #[pyfunction]
+    fn exec_dynamic(_module: PyRef<PyModule>) -> i32 {
+        0
+    }
+
     #[pyfunction]
     fn exec_builtin(_mod: PyRef<PyModule>) -> i32 {
         // For multi-phase init modules, exec is already called in create_builtin
         0
     }
 
-    #[pyfunction]
-    fn get_frozen_object(
+    #[derive(FromArgs)]
+    struct FrozenObjectArgs {
+        #[pyarg(positional)]
         name: PyUtf8StrRef,
-        data: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyCode>> {
-        if let OptionalArg::Present(data) = data
+        #[pyarg(positional, optional)]
+        data: Option<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn get_frozen_object(args: FrozenObjectArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+        let FrozenObjectArgs { name, data } = args;
+        if let Some(data) = data
             && !vm.is_none(&data)
         {
-            let buf = crate::protocol::PyBuffer::try_from_borrowed_object(vm, &data)?;
-            let contiguous = buf.as_contiguous().ok_or_else(|| {
-                vm.new_buffer_error("get_frozen_object() requires a contiguous buffer")
-            })?;
             let invalid_err = || {
                 vm.new_import_error(
                     format!("Frozen object named '{}' is invalid", name.as_str()),
                     name.clone().into_wtf8(),
                 )
             };
-            let bag = crate::builtins::code::PyVmBag(vm);
-            let code =
-                rustpython_compiler_core::marshal::deserialize_code(&mut &contiguous[..], bag)
-                    .map_err(|_| invalid_err())?;
-            return Ok(PyCode::new_ref_with_bag(vm, code));
+            // A non-buffer is a TypeError, not invalid frozen data. The request
+            // is the one marshal.loads() makes, so that what passes here is
+            // exactly what it accepts.
+            crate::protocol::PyBuffer::from_object(
+                vm,
+                &data,
+                crate::protocol::BufferFlags::SIMPLE,
+            )?;
+            // The data is a marshalled code object: a whole marshal value, which
+            // deserialize_code() does not read — it takes the code body alone,
+            // without the type byte the writer puts in front of it.
+            let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
+            let code = loads.call((data,), vm).map_err(|_| invalid_err())?;
+            return code.downcast::<PyCode>().map_err(|_| invalid_err());
         }
         import::make_frozen(vm, name.as_str())
     }
@@ -285,8 +465,8 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _override_frozen_modules_for_tests(value: isize, vm: &VirtualMachine) {
-        vm.state.override_frozen_modules.store(value);
+    fn _override_frozen_modules_for_tests(r#override: isize, vm: &VirtualMachine) {
+        vm.state.override_frozen_modules.store(r#override);
     }
 
     #[pyfunction]
@@ -305,25 +485,42 @@ mod _imp {
             .collect()
     }
 
+    #[derive(FromArgs)]
+    struct FindFrozenArgs {
+        #[pyarg(positional)]
+        name: PyStrRef,
+        #[pyarg(named, default)]
+        withdata: bool,
+    }
+
     #[allow(clippy::type_complexity)]
     #[pyfunction]
     fn find_frozen(
-        name: PyUtf8StrRef,
-        withdata: OptionalArg<bool>,
+        args: FindFrozenArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
-        use super::FrozenError::*;
-
-        if withdata.into_option().is_some() {
-            // this is keyword-only argument in CPython
-            unimplemented!();
-        }
-
-        let name_str = name.as_str();
+        let FindFrozenArgs { name, withdata } = args;
+        let Some(name_str) = name.to_str() else {
+            return Ok(None);
+        };
         let info = match super::find_frozen(name_str, vm) {
             Ok(info) => info,
-            Err(NotFound | Disabled | BadName) => return Ok(None),
+            Err(FrozenError::NotFound | FrozenError::Disabled | FrozenError::BadName) => {
+                return Ok(None);
+            }
             Err(e) => return Err(e.to_pyexception(name_str, vm)),
+        };
+
+        // The data is what get_frozen_object() takes back, i.e. marshalled code.
+        // Frozen modules are stored in their own encoding, so it has to be
+        // re-serialized rather than handed out as a view of the stored bytes.
+        let data = if withdata {
+            let code = PyCode::new_ref_from_frozen(vm, info.code);
+            let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
+            let bytes = dumps.call((code,), vm)?;
+            Some(PyMemoryView::from_object(&bytes, vm)?.into_ref(&vm.ctx))
+        } else {
+            None
         };
 
         // When origname is empty (e.g. __hello_only__), return None.
@@ -334,18 +531,26 @@ mod _imp {
         } else {
             Some(vm.ctx.new_utf8_str(origname_str).into())
         };
-        Ok(Some((None, info.package, origname)))
+        Ok(Some((data, info.package, origname)))
+    }
+
+    #[derive(FromArgs)]
+    struct SourceHashArgs {
+        #[pyarg(any)]
+        key: u64,
+        #[pyarg(any)]
+        source: PyBytesRef,
     }
 
     #[pyfunction]
-    fn source_hash(key: u64, source: PyBytesRef) -> Vec<u8> {
+    fn source_hash(SourceHashArgs { key, source }: SourceHashArgs) -> Vec<u8> {
         let hash: u64 = crate::common::hash::keyed_hash(key, source.as_bytes());
         hash.to_le_bytes().to_vec()
     }
 }
 
 fn update_code_filenames(
-    code: &PyCode,
+    code: &Py<PyCode>,
     old_name: &'static PyStrInterned,
     new_name: &'static PyStrInterned,
 ) {

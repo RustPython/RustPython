@@ -209,7 +209,6 @@ class TestSpecifics(unittest.TestCase):
         self.assertEqual(eval("0o777"), 511)
         self.assertEqual(eval("-0o0000010"), -8)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_int_literals_too_long(self):
         n = 3000
         source = f"a = 1\nb = 2\nc = {'3'*n}\nd = 4"
@@ -283,7 +282,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertRaises(SyntaxError, compile, stmt, 'tmp', 'single')
             self.assertRaises(SyntaxError, compile, stmt, 'tmp', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile
     def test_import(self):
         succeed = [
             'import sys',
@@ -348,7 +346,6 @@ class TestSpecifics(unittest.TestCase):
         l = lambda: "this is the only const"
         self.assertEqual(l.__code__.co_consts, ("this is the only const",))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile
     def test_encoding(self):
         code = b'# -*- coding: badencoding -*-\npass\n'
         self.assertRaises(SyntaxError, compile, code, 'tmp', 'exec')
@@ -465,7 +462,6 @@ class TestSpecifics(unittest.TestCase):
         # See gh-113054
         compile('if (5 if 5 else T): 0', '<eval>', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_condition_expression_with_redundant_comparisons_compiles(self):
         # See gh-113054, gh-114083
         exprs = [
@@ -580,7 +576,6 @@ class TestSpecifics(unittest.TestCase):
 
         compile(ast.fix_missing_locations(tree), "<file>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <code object <module> at 0xb77555080 file "<assign>1", line 1> != <code object <module> at 0xb77554f00 file "<assign>3", line 1>
     def test_compile_ast(self):
         fname = __file__
         if fname.lower().endswith('pyc'):
@@ -696,7 +691,6 @@ class TestSpecifics(unittest.TestCase):
         self.compile_single("class T:\n   pass")
         self.compile_single("c = '''\na=1\nb=2\nc=3\n'''")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile_single
     def test_bad_single_statement(self):
         self.assertInvalidSingle('1\n2')
         self.assertInvalidSingle('def f(): pass')
@@ -708,7 +702,6 @@ class TestSpecifics(unittest.TestCase):
         self.assertInvalidSingle('x = 5 # comment\nx = 6\n')
         self.assertInvalidSingle("c = '''\nd=1\n'''\na = 1\n\nb = 2\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'source code cannot contain null bytes' not found in b'OSError: stream did not contain valid UTF-8\n'
     def test_particularly_evil_undecodable(self):
         # Issue 24022
         src = b'0000\x00\n00000000000\n\x00\n\x9e\n'
@@ -719,7 +712,6 @@ class TestSpecifics(unittest.TestCase):
             res = script_helper.run_python_until_end(fn)[0]
         self.assertIn(b"source code cannot contain null bytes", res.err)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'source code cannot contain null bytes' not found in b'OSError: stream did not contain valid UTF-8\n'
     def test_yet_more_evil_still_undecodable(self):
         # Issue #25388
         src = b"#\x00\n#\xfd\n"
@@ -732,6 +724,7 @@ class TestSpecifics(unittest.TestCase):
 
     @support.cpython_only
     @unittest.skipIf(support.is_wasi, "exhausts limited stack on WASI")
+    @support.skip_if_huge_c_stack(100_000 if sys.platform == "android" else 500_000)
     @support.skip_emscripten_stack_overflow()
     def test_compiler_recursion_limit(self):
         # Compiler frames are small
@@ -756,7 +749,6 @@ class TestSpecifics(unittest.TestCase):
         # check_limit("a", " if a else a")
         # check_limit("if a: pass", "\nelif a: pass", mode="exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "cannot contain null" does not match "invalid syntax (<dummy>, line 1)"
     def test_null_terminated(self):
         # The source code is null-terminated internally, but bytes-like
         # objects are accepted, which could be not terminated.
@@ -848,8 +840,10 @@ class TestSpecifics(unittest.TestCase):
             else:
                 return "unused"
 
-        self.assertEqual(f.__code__.co_consts,
-                         (f.__doc__, "used"))
+        if f.__doc__ is None:
+            self.assertEqual(f.__code__.co_consts, (True, "used"))
+        else:
+            self.assertEqual(f.__code__.co_consts, (f.__doc__, "used"))
 
     @support.cpython_only
     def test_remove_unused_consts_no_docstring(self):
@@ -894,7 +888,11 @@ class TestSpecifics(unittest.TestCase):
         def f1():
             "docstring"
             return 42
-        self.assertEqual(f1.__code__.co_consts, (f1.__doc__,))
+
+        if f1.__doc__ is None:
+            self.assertEqual(f1.__code__.co_consts, (42,))
+        else:
+            self.assertEqual(f1.__code__.co_consts, (f1.__doc__,))
 
     # This is a regression test for a CPython specific peephole optimizer
     # implementation bug present in a few releases.  It's assertion verifies
@@ -1301,7 +1299,7 @@ class TestSpecifics(unittest.TestCase):
                     x
                     in
                     y)
-        genexp_lines = [0, 4, 2, 0, 4]
+        genexp_lines = [4, 0, 4, 2, 0, 4]
 
         genexp_code = return_genexp.__code__.co_consts[0]
         code_lines = self.get_code_lines(genexp_code)
@@ -1636,6 +1634,17 @@ class TestSpecifics(unittest.TestCase):
         def f():
             a if (1 if b else c) else d
 
+    def test_lineno_propagation_empty_blocks(self):
+        # Smoke test. See gh-138714.
+        def f():
+            while name:
+                try:
+                    break
+                except:
+                    pass
+            else:
+                1 if 1 else 1
+
     def test_global_declaration_in_except_used_in_else(self):
         # See gh-111123
         code = textwrap.dedent("""\
@@ -1673,7 +1682,6 @@ class TestSpecifics(unittest.TestCase):
 
         self.assertRaises(NameError, ns['foo'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [3, 5, 3, 5]
     def test_compile_warnings(self):
         # Each invocation of compile() emits compiler warnings, even if they
         # have the same message and line number.
@@ -1691,7 +1699,6 @@ class TestSpecifics(unittest.TestCase):
 
         self.assertEqual([wm.lineno for wm in caught], [3, 5] * 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [5, 9]
     def test_compile_warning_in_finally(self):
         # Ensure that warnings inside finally blocks are
         # only emitted once despite the block being
@@ -1742,7 +1749,30 @@ class TestSpecifics(unittest.TestCase):
             self.assertEqual(wm.category, SyntaxWarning)
             self.assertIn("\"is\" with 'int' literal", str(wm.message))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_filter_syntax_warnings_by_module(self):
+        filename = support.findfile('test_import/data/syntax_warnings.py')
+        with open(filename, 'rb') as f:
+            source = f.read()
+        module_re = r'test\.test_import\.data\.syntax_warnings\z'
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=module_re)
+            compile(source, filename, 'exec')
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
+        for wm in wlog:
+            self.assertEqual(wm.filename, filename)
+            self.assertIs(wm.category, SyntaxWarning)
+
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=r'package\.module\z')
+            warnings.filterwarnings('error', module=module_re)
+            compile(source, filename, 'exec', module='package.module')
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
+        for wm in wlog:
+            self.assertEqual(wm.filename, filename)
+            self.assertIs(wm.category, SyntaxWarning)
+
     @support.subTests('src', [
         textwrap.dedent("""
             def f():
@@ -2429,8 +2459,8 @@ class TestSourcePositions(unittest.TestCase):
                 for i, pos in enumerate(positions):
                     with self.subTest(i=i, pos=pos):
                         start_line, end_line, start_col, end_col = pos
-                        if i == 0 and start_col == end_col == 0:
-                            # ignore the RESUME in the beginning
+                        if i <= 1:
+                            # ignore the RESUME and CACHE in the beginning
                             continue
                         self.assertEqual(start_line, 1)
                         self.assertEqual(end_line, 1)
@@ -2456,12 +2486,13 @@ class TestSourcePositions(unittest.TestCase):
             start_line, end_line, _, _ = instr.positions
             self.assertEqual(start_line, end_line)
 
-        # Expect four `LOAD_CONST None` instructions:
+        # Expect four `None`-loading instructions:
         # three for the no-exception __exit__ call, and one for the return.
         # They should all have the locations of the context manager ('xyz').
 
         load_none = [instr for instr in dis.get_instructions(f) if
-                     instr.opname == 'LOAD_CONST' and instr.argval is None]
+                     instr.opname in ('LOAD_CONST', 'LOAD_COMMON_CONSTANT')
+                     and instr.argval is None]
         return_value = [instr for instr in dis.get_instructions(f) if
                         instr.opname == 'RETURN_VALUE']
 

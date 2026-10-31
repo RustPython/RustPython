@@ -1,12 +1,15 @@
-use lexopt::Arg::*;
+use core::cmp;
+use core::num::NonZeroI32;
+use core::str::FromStr;
+use lexopt::Arg::{Long, Short, Value};
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
-use std::str::FromStr;
-use std::{cmp, env};
+use std::env;
+use std::ffi::OsString;
 
 pub enum RunMode {
     Script(String),
-    Command(String),
+    Command(OsString),
     Module(String),
     InstallPip(InstallPipMode),
     Repl,
@@ -93,6 +96,8 @@ Options (and corresponding environment variables):
          also PYTHONWARNINGS=arg
 -x     : skip first line of source, allowing use of non-Unix forms of #!cmd
 -X opt : set implementation-specific option
+-X lazy_imports=all|normal: control global lazy imports (default: normal);
+         also PYTHON_LAZY_IMPORTS
 --check-hash-based-pycs always|default|never:
          control how Python invalidates hash-based .pyc files
 --help-env: print help about Python environment variables and exit
@@ -108,20 +113,22 @@ file   : program read from script file
 arg ...: arguments passed to program in sys.argv[1:]
 ";
 
-fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
+fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
     let mut args = CliArgs::default();
     let mut parser = lexopt::Parser::from_env();
-    fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<String>, lexopt::Error> {
-        std::iter::once(Ok(argv0))
-            .chain(parser.raw_args()?.map(|arg| arg.string()))
-            .collect()
+    fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<OsString>, lexopt::Error> {
+        // Arguments after the entry point are filesystem-encoded data, not
+        // necessarily Unicode. Decode only when constructing Python strings.
+        Ok(core::iter::once(argv0.into())
+            .chain(parser.raw_args()?)
+            .collect())
     }
     while let Some(arg) = parser.next()? {
         match arg {
             Short('b') => args.bytes_warning += 1,
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
-                let cmd = parser.value()?.string()?;
+                let cmd = parser.value()?;
                 return Ok((args, RunMode::Command(cmd), argv("-c".to_owned(), parser)?));
             }
             Short('d') => args.debug += 1,
@@ -131,7 +138,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('I') => args.isolate = true,
             Short('m') => {
                 let module = parser.value()?.string()?;
-                let argv = argv("PLACEHOLDER".to_owned(), parser)?;
+                let argv = argv("-m".to_owned(), parser)?;
                 return Ok((args, RunMode::Module(module), argv));
             }
             Short('O') => args.optimize += 1,
@@ -163,7 +170,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
 
             Long("install-pip") => {
                 let (mode, argv) = if let Some(val) = parser.optional_value() {
-                    (val.parse()?, vec![val.string()?])
+                    (val.parse()?, vec![val])
                 } else if let Ok(argv0) = parser.value() {
                     let mode = argv0.parse()?;
                     (mode, argv(argv0.string()?, parser)?)
@@ -171,7 +178,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
                     (
                         InstallPipMode::Ensurepip,
                         ["ensurepip", "--upgrade", "--default-pip"]
-                            .map(str::to_owned)
+                            .map(OsString::from)
                             .into(),
                     )
                 };
@@ -209,14 +216,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     let (args, mode, argv) = parse_args()?;
 
     let mut settings = Settings::default();
-    settings.isolated = args.isolate;
+    if let Err(err) = rustpython_vm::getpath::configure_under_pth(&mut settings) {
+        eprintln!("Fatal Python error: cannot configure ._pth paths: {err}");
+        std::process::exit(1);
+    }
+    settings.isolated |= args.isolate;
     settings.ignore_environment = settings.isolated || args.ignore_environment;
     settings.bytes_warning = args.bytes_warning.into();
-    settings.import_site = !args.no_site;
+    if settings.under_pth != Some(rustpython_vm::getpath::UnderPth::Isolated) {
+        settings.import_site = !args.no_site;
+    }
 
     let ignore_environment = settings.ignore_environment;
 
-    if !ignore_environment {
+    if !ignore_environment && settings.under_pth.is_none() {
         settings.path_list.extend(get_paths("RUSTPYTHONPATH"));
         settings.path_list.extend(get_paths("PYTHONPATH"));
     }
@@ -224,6 +237,12 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     // Now process command line flags:
 
     let get_env = |env| (!ignore_environment).then(|| env::var_os(env)).flatten();
+
+    if settings.under_pth.is_none() {
+        settings.home = get_env("PYTHONHOME")
+            .filter(|home| !home.is_empty())
+            .map(|home| home.to_string_lossy().into_owned());
+    }
 
     let env_count = |env| {
         get_env(env).filter(|v| !v.is_empty()).map_or(0, |val| {
@@ -233,9 +252,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.optimize = cmp::max(args.optimize, env_count("PYTHONOPTIMIZE"));
     settings.verbose = cmp::max(args.verbose, env_count("PYTHONVERBOSE"));
-    settings.debug = cmp::max(args.debug, env_count("PYTHONDEBUG"));
+    settings.debug = u8::from(cmp::max(args.debug, env_count("PYTHONDEBUG")) != 0);
 
     let env_bool = |env| get_env(env).is_some_and(|v| !v.is_empty());
+    settings.dev_mode = env_bool("PYTHONDEVMODE");
 
     settings.user_site_directory =
         !(settings.isolated || args.no_user_site || env_bool("PYTHONNOUSERSITE"));
@@ -258,19 +278,14 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
     }
 
-    settings.check_hash_pycs_mode = args.check_hash_based_pycs;
-
-    if let Some(val) = get_env("PYTHONUTF8")
-        && let Some(val_str) = val.to_str()
-        && !val_str.is_empty()
-    {
-        settings.utf8_mode = match val_str {
-            "1" => 1,
-            "0" => 0,
-            _ => {
+    if let Some(val) = get_env("PYTHON_CPU_COUNT") {
+        settings.cpu_count = match parse_cpu_count(val.to_str()) {
+            Ok(cpu_count) => cpu_count,
+            Err(()) => {
                 error!(
-                    "Fatal Python error: config_init_utf8_mode: \
-                     PYTHONUTF8=N: N is missing or invalid\n\
+                    "Fatal Python error: config_init_cpu_count: \
+                     -X cpu_count=n option: n is missing or an invalid number, \
+                     n must be greater than 0\n\
                      Python runtime state: preinitialized"
                 );
                 std::process::exit(1);
@@ -278,6 +293,28 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
     }
 
+    settings.check_hash_pycs_mode = args.check_hash_based_pycs;
+    settings.pycache_prefix = get_env("PYTHONPYCACHEPREFIX").filter(|value| !value.is_empty());
+
+    if let Some(val) = get_env("PYTHON_LAZY_IMPORTS").filter(|val| !val.is_empty()) {
+        settings.lazy_imports = parse_lazy_imports(val.to_str(), "PYTHON_LAZY_IMPORTS");
+    }
+
+    if let Some(value) = get_env("PYTHONPROFILEIMPORTTIME").filter(|value| !value.is_empty()) {
+        settings.import_time = parse_import_time(value.to_str(), "PYTHONPROFILEIMPORTTIME");
+    }
+
+    if let Some(value) = get_env("PYTHON_FROZEN_MODULES").filter(|value| !value.is_empty()) {
+        settings.use_frozen_modules =
+            parse_frozen_modules(Some(&value.to_string_lossy()), "PYTHON_FROZEN_MODULES");
+    }
+
+    // CPython uses the first occurrence of these -X options.
+    let mut lazy_imports_option_seen = false;
+    let mut import_time_option_seen = false;
+    let mut frozen_modules_option_seen = false;
+    let mut utf8_option_seen = false;
+    let mut pycache_prefix_option_seen = false;
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
@@ -285,28 +322,60 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
         match &*name {
             "dev" => settings.dev_mode = true,
+            "pycache_prefix" if !pycache_prefix_option_seen => {
+                settings.pycache_prefix = value.filter(|value| !value.is_empty()).map(Into::into);
+                pycache_prefix_option_seen = true;
+            }
+            "importtime" if !import_time_option_seen => {
+                settings.import_time = parse_import_time(value, "-X importtime");
+                import_time_option_seen = true;
+            }
+            "frozen_modules" if !frozen_modules_option_seen => {
+                settings.use_frozen_modules =
+                    parse_frozen_modules(value, "option -X frozen_modules");
+                frozen_modules_option_seen = true;
+            }
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
-            "utf8" => {
+            "utf8" if !utf8_option_seen => {
                 settings.utf8_mode = match value {
                     None => 1,
                     Some("1") => 1,
                     Some("0") => 0,
                     _ => {
                         error!(
-                            "Fatal Python error: config_init_utf8_mode: \
-                             -X utf8=n: n is missing or invalid\n\
+                            "Fatal Python error: preconfig_init_utf8_mode: \
+                             invalid -X utf8 option value\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+                utf8_option_seen = true;
+            }
+            "no_sig_int" => settings.install_signal_handlers = false,
+            "no_debug_ranges" => settings.code_debug_ranges = false,
+            "lazy_imports" if !lazy_imports_option_seen => {
+                settings.lazy_imports = parse_lazy_imports(value, "-X lazy_imports");
+                lazy_imports_option_seen = true;
+            }
+            "cpu_count" => {
+                settings.cpu_count = match parse_cpu_count(value) {
+                    Ok(cpu_count) => cpu_count,
+                    Err(()) => {
+                        error!(
+                            "Fatal Python error: config_init_cpu_count: \
+                             -X cpu_count=n option: n is missing or an invalid \
+                             number, n must be greater than 0\n\
                              Python runtime state: preinitialized"
                         );
                         std::process::exit(1);
                     }
                 };
             }
-            "no_sig_int" => settings.install_signal_handlers = false,
-            "no_debug_ranges" => settings.code_debug_ranges = false,
             "int_max_str_digits" => {
-                settings.int_max_str_digits = match value.unwrap().parse() {
-                    Ok(digits) if digits == 0 || digits >= 640 => digits,
+                settings.int_max_str_digits = match value.and_then(|value| value.parse().ok()) {
+                    Some(digits) if digits == 0 || digits >= 640 => digits,
                     _ => {
                         error!(
                             "Fatal Python error: config_init_int_max_str_digits: \
@@ -337,6 +406,34 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         (name, value.map(str::to_owned))
     });
     settings.xoptions.extend(xopts);
+
+    if !utf8_option_seen && let Some(val) = get_env("PYTHONUTF8").filter(|value| !value.is_empty())
+    {
+        settings.utf8_mode = match val.to_str() {
+            Some("1") => 1,
+            Some("0") => 0,
+            _ => {
+                error!(
+                    "Fatal Python error: preconfig_init_utf8_mode: \
+                     invalid PYTHONUTF8 environment variable value\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
+
+    // CPython validates the first frozen_modules option before initialization,
+    // then getpath's config dictionary round-trip keeps the last occurrence.
+    if let Some((_, value)) = settings
+        .xoptions
+        .iter()
+        .rev()
+        .find(|(name, _)| name == "frozen_modules")
+    {
+        settings.use_frozen_modules =
+            parse_frozen_modules(value.as_deref(), "option -X frozen_modules");
+    }
 
     // Resolve utf8_mode if not explicitly set by PYTHONUTF8 or -X utf8.
     // Default to UTF-8 mode since RustPython's locale encoding detection
@@ -383,9 +480,25 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         }
     }
 
+    // Lowest to highest priority; exact duplicate options keep their first position.
+    let mut add_warning = |warning: String| {
+        if !settings.warnoptions.contains(&warning) {
+            settings.warnoptions.push(warning);
+        }
+    };
     if settings.dev_mode {
-        settings.warnoptions.push("default".to_owned());
+        add_warning("default".to_owned());
         settings.faulthandler = true;
+    }
+    if let Some(val) = get_env("PYTHONWARNINGS")
+        && let Some(val_str) = val.to_str()
+    {
+        for warning in val_str.split(',').filter(|warning| !warning.is_empty()) {
+            add_warning(warning.to_owned());
+        }
+    }
+    for warning in args.warning_control {
+        add_warning(warning);
     }
     if settings.bytes_warning > 0 {
         let warn = if settings.bytes_warning > 1 {
@@ -393,20 +506,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         } else {
             "default::BytesWarning"
         };
-        settings.warnoptions.push(warn.to_owned());
+        add_warning(warn.to_owned());
     }
-    if let Some(val) = get_env("PYTHONWARNINGS")
-        && let Some(val_str) = val.to_str()
-        && !val_str.is_empty()
-    {
-        for warning in val_str.split(',') {
-            let warning = warning.trim();
-            if !warning.is_empty() {
-                settings.warnoptions.push(warning.to_owned());
-            }
-        }
-    }
-    settings.warnoptions.extend(args.warning_control);
 
     settings.hash_seed = match (!args.random_hash_seed)
         .then(|| get_env("PYTHONHASHSEED"))
@@ -436,7 +537,78 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     Ok((settings, mode))
 }
 
-/// Helper function to retrieve a sequence of paths from an environment variable.
+/// `-X cpu_count` / `PYTHON_CPU_COUNT`: a count above zero, or `"default"`.
+/// `Ok(None)` leaves the count to the host. Zero, negatives, and values above
+/// `i32::MAX` are rejected.
+/// = config_init_cpu_count
+fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
+    match value {
+        None => Err(()),
+        Some("default") => Ok(None),
+        Some(number) => number
+            .parse()
+            .ok()
+            .filter(|count: &NonZeroI32| count.get() > 0)
+            .map(Some)
+            .ok_or(()),
+    }
+}
+
+fn parse_frozen_modules(value: Option<&str>, source: &str) -> bool {
+    match value {
+        None | Some("" | "on") => true,
+        Some("off") => false,
+        _ => {
+            eprintln!(
+                "Fatal Python error: config_init_import: bad value for {source} (expected \"on\" or \"off\")"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// = config_init_import_time
+fn parse_import_time(value: Option<&str>, source: &str) -> u8 {
+    let value = value
+        .and_then(|value| {
+            value
+                .trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .parse::<i32>()
+                .ok()
+        })
+        .unwrap_or(1);
+    if !(0..=2).contains(&value) {
+        let numeric = if source == "PYTHONPROFILEIMPORTTIME" {
+            "numeric "
+        } else {
+            ""
+        };
+        eprintln!(
+            "Fatal Python error: config_init_import_time: {source}: \
+             {numeric}values other than 1 and 2 are reserved for future use.\n\
+             Python runtime state: preinitialized\n"
+        );
+        std::process::exit(1);
+    }
+    value as u8
+}
+
+/// = config_init_lazy_imports
+fn parse_lazy_imports(value: Option<&str>, source: &str) -> i8 {
+    match value {
+        Some("normal") => -1,
+        Some("all") => 1,
+        _ => {
+            eprintln!(
+                "Fatal Python error: config_init_lazy_imports: \
+                 {source}: invalid value; expected 'all' or 'normal'\n\
+                 Python runtime state: preinitialized\n"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .filter(|v| !v.is_empty())
@@ -464,4 +636,71 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
             .to_owned()
             .into()
     })
+}
+
+/// Remove common whitespace prefix from all lines in a string.
+///
+/// This is like textwrap.dedent, and is used to process -c's code
+/// argument.  It's different from ruff's dedent, which does not
+/// distinguish between tab and space characters when dedenting.
+pub(crate) fn dedent(input: &str) -> String {
+    let mut prefix: Option<String> = None;
+    let isspace = |c| c == ' ' || c == '\t';
+
+    // All-whitespace lines become empty.
+    let deblanked: Vec<&str> = input
+        .lines()
+        .map(|line| if line.chars().all(isspace) { "" } else { line })
+        .collect();
+
+    // Find maximum common whitespace prefix, if any.
+    for line in &deblanked {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(ref mut pstr) = prefix {
+            for (i, (c, pc)) in line.chars().zip(pstr.chars()).enumerate() {
+                // It's okay if `line` is shorter than `pstr`.  At
+                // least one char in `line` must be non-whitespace,
+                // and if `line` is shorter than `pstr`, this
+                // non-whitespace char will be compared to a
+                // whitespace char, and loop will terminate.
+                if c != pc {
+                    pstr.truncate(i);
+                    break;
+                }
+            }
+        } else {
+            let mut pstr = String::new();
+            for c in line.chars() {
+                if isspace(c) {
+                    pstr.push(c);
+                } else {
+                    break;
+                }
+            }
+            prefix = Some(pstr);
+            continue;
+        }
+    }
+
+    if let Some(pstr) = prefix {
+        // Strip common prefix.
+        deblanked
+            .iter()
+            .map(|line| {
+                if line.is_empty() {
+                    String::from("")
+                } else {
+                    // All non-empty lines start with pstr, must be at
+                    // least pstr.len() long.
+                    String::from(line.get(pstr.len()..).unwrap())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        // No prefix found: all lines blank.
+        deblanked.join("\n")
+    }
 }

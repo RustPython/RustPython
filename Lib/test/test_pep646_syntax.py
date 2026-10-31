@@ -312,7 +312,7 @@ is *not* valid syntax.)
     >>> f4.__annotations__
     {'args': StarredB, 'arg1': <class 'int'>}
 
-    >>> def f5(*args: *b = (1,)): pass  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> def f5(*args: *b = (1,)): pass
     Traceback (most recent call last):
         ...
     SyntaxError: invalid syntax
@@ -321,8 +321,7 @@ is *not* valid syntax.)
 __test__ = {'doctests' : doctests}
 
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
-    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker())) # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite())
     return tests
 
 

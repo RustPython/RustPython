@@ -482,11 +482,8 @@ class BaseTest:
         self.checkequal('  a\n b', ' \ta\n\tb', 'expandtabs', 1)
 
         self.checkraises(TypeError, 'hello', 'expandtabs', 42, 42)
-        # TODO: RUSTPYTHON; expandtabs overflow checks
-        # if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4:
-        #
         # This test is only valid when sizeof(int) == sizeof(void*) == 4.
-        if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4 and False:
+        if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4:
             self.checkraises(OverflowError,
                              '\ta\n\tb', 'expandtabs', sys.maxsize)
 
@@ -1304,7 +1301,6 @@ class StringLikeTest(BaseTest):
         self.checkequal(False, 'asd', '__contains__', 'asdf')
         self.checkequal(False, '', '__contains__', 'asdf')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_subscript(self):
         self.checkequal('a', 'abc', '__getitem__', 0)
         self.checkequal('c', 'abc', '__getitem__', -1)
@@ -1559,7 +1555,6 @@ class StringLikeTest(BaseTest):
         self.checkequal(True, s, 'startswith', 'h', None, -2)
         self.checkequal(False, s, 'startswith', 'x', None, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         s = 'hello'

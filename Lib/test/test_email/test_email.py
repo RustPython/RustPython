@@ -41,6 +41,7 @@ from email import utils
 
 from test import support
 from test.support import threading_helper
+from test.support import warnings_helper
 from test.support.os_helper import unlink
 from test.test_email import openfile, TestEmailBase
 
@@ -916,7 +917,6 @@ class TestEncoders(unittest.TestCase):
         msg = MIMEText('hello \xf8 world', _charset='iso-8859-1')
         eq(msg['content-transfer-encoding'], 'quoted-printable')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_encode7or8bit(self):
         # Make sure a charset whose input character set is 8bit but
         # whose output character set is 7bit gets a transfer-encoding
@@ -1079,12 +1079,10 @@ wasnipoop; giraffes="very-long-necked-animals";
 wasnipoop; giraffes="very-long-necked-animals";
 \tspooge="yummy"; hippos="gargantuan"; marshmallows="gooey"''')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_header_encode_with_different_output_charset(self):
         h = Header('文', 'euc-jp')
         self.assertEqual(h.encode(), "=?iso-2022-jp?b?GyRCSjgbKEI=?=")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc-jp
     def test_long_header_encode_with_different_output_charset(self):
         h = Header(b'test-ja \xa4\xd8\xc5\xea\xb9\xc6\xa4\xb5\xa4\xec\xa4'
             b'\xbf\xa5\xe1\xa1\xbc\xa5\xeb\xa4\xcf\xbb\xca\xb2\xf1\xbc\xd4'
@@ -3812,7 +3810,6 @@ Do you like this message?
 -Me
 """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pushCR_LF(self):
         '''FeedParser BufferedSubFile.push() assumed it received complete
            line endings.  A CR ending one push() followed by a LF starting
@@ -3843,7 +3840,6 @@ Do you like this message?
         self.assertEqual(len(om), nt)
         self.assertEqual(''.join([il for il, n in imt]), ''.join(om))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_push_random(self):
         from email.feedparser import BufferedSubFile, NeedMoreData
 
@@ -3877,7 +3873,6 @@ class TestFeedParsers(TestEmailBase):
         self.assertEqual(msg['First'], 'val')
         self.assertEqual(msg['Second'], 'val')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Feedparser.feed -> Feedparser._input.push, Feedparser._call_parse -> Feedparser._parse does not keep _input state between calls
     def test_newlines(self):
         m = self.parse(['a:\nb:\rc:\r\nd:\n'])
         self.assertEqual(m.keys(), ['a', 'b', 'c', 'd'])
@@ -3896,7 +3891,6 @@ class TestFeedParsers(TestEmailBase):
         m = self.parse(['a:\r', 'b:\x85', 'c:\n'])
         self.assertEqual(m.items(), [('a', ''), ('b', '\x85c:')])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_long_lines(self):
         # Expected peak memory use on 32-bit platform: 6*N*M bytes.
         M, N = 1000, 20000
@@ -4977,6 +4971,128 @@ class TestCharset(unittest.TestCase):
         except KeyError:
             pass
 
+    def test_attributes(self):
+        from email import charset
+        c = Charset()
+        self.assertEqual(c.input_charset, 'us-ascii')
+        self.assertEqual(c.header_encoding, None)
+        self.assertEqual(c.body_encoding, None)
+        self.assertEqual(c.output_charset, 'us-ascii')
+        self.assertEqual(c.input_codec, None)
+        self.assertEqual(c.output_codec, None)
+
+        c = Charset('us-ascii')
+        self.assertEqual(c.input_charset, 'us-ascii')
+        self.assertEqual(c.header_encoding, None)
+        self.assertEqual(c.body_encoding, None)
+        self.assertEqual(c.output_charset, 'us-ascii')
+        self.assertEqual(c.input_codec, None)
+        self.assertEqual(c.output_codec, None)
+
+        c = Charset('utf8')
+        self.assertEqual(c.input_charset, 'utf-8')
+        self.assertEqual(c.header_encoding, charset.SHORTEST)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'utf-8')
+        self.assertEqual(c.input_codec, 'utf-8')
+        self.assertEqual(c.output_codec, 'utf-8')
+
+        c = Charset('latin1')
+        self.assertEqual(c.input_charset, 'iso-8859-1')
+        self.assertEqual(c.header_encoding, charset.QP)
+        self.assertEqual(c.body_encoding, charset.QP)
+        self.assertEqual(c.output_charset, 'iso-8859-1')
+        self.assertEqual(c.input_codec, 'iso-8859-1')
+        self.assertEqual(c.output_codec, 'iso-8859-1')
+
+        c = Charset('latin9')
+        self.assertEqual(c.input_charset, 'iso-8859-15')
+        self.assertEqual(c.header_encoding, charset.QP)
+        self.assertEqual(c.body_encoding, charset.QP)
+        self.assertEqual(c.output_charset, 'iso-8859-15')
+        self.assertEqual(c.input_codec, 'iso-8859-15')
+        self.assertEqual(c.output_codec, 'iso-8859-15')
+
+        c = Charset('cyrillic')
+        self.assertEqual(c.input_charset, 'iso-8859-5')
+        self.assertEqual(c.header_encoding, charset.SHORTEST)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'iso-8859-5')
+        self.assertEqual(c.input_codec, 'iso-8859-5')
+        self.assertEqual(c.output_codec, 'iso-8859-5')
+
+        c = Charset('cp1251')
+        self.assertEqual(c.input_charset, 'windows-1251')
+        self.assertEqual(c.header_encoding, charset.SHORTEST)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'windows-1251')
+        self.assertEqual(c.input_codec, 'windows-1251')
+        self.assertEqual(c.output_codec, 'windows-1251')
+
+        c = Charset('cp1252')
+        self.assertEqual(c.input_charset, 'windows-1252')
+        self.assertEqual(c.header_encoding, charset.QP)
+        self.assertEqual(c.body_encoding, charset.QP)
+        self.assertEqual(c.output_charset, 'windows-1252')
+        self.assertEqual(c.input_codec, 'windows-1252')
+        self.assertEqual(c.output_codec, 'windows-1252')
+
+        c = Charset('eucjp')
+        self.assertEqual(c.input_charset, 'euc-jp')
+        self.assertEqual(c.header_encoding, charset.BASE64)
+        self.assertEqual(c.body_encoding, None)
+        self.assertEqual(c.output_charset, 'iso-2022-jp')
+        self.assertEqual(c.input_codec, 'euc-jp')
+        self.assertEqual(c.output_codec, 'iso-2022-jp')
+
+        c = Charset('cp949')
+        self.assertEqual(c.input_charset, 'ks_c_5601-1987')
+        self.assertEqual(c.header_encoding, charset.SHORTEST)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'ks_c_5601-1987')
+        self.assertEqual(c.input_codec, 'ks_c_5601-1987')
+        self.assertEqual(c.output_codec, 'ks_c_5601-1987')
+
+        c = Charset('gb2312')
+        self.assertEqual(c.input_charset, 'gb2312')
+        self.assertEqual(c.header_encoding, charset.BASE64)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'gb2312')
+        self.assertEqual(c.input_codec, 'gb2312')
+        self.assertEqual(c.output_codec, 'gb2312')
+
+        c = Charset('big5')
+        self.assertEqual(c.input_charset, 'big5')
+        self.assertEqual(c.header_encoding, charset.BASE64)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'big5')
+        self.assertEqual(c.input_codec, 'big5')
+        self.assertEqual(c.output_codec, 'big5')
+
+    def test_user_charsets(self):
+        from email import charset
+        c = Charset('fake0')
+        self.assertEqual(c.input_charset, 'fake0')
+        self.assertEqual(c.header_encoding, charset.SHORTEST)
+        self.assertEqual(c.body_encoding, charset.BASE64)
+        self.assertEqual(c.output_charset, 'fake0')
+        self.assertEqual(c.input_codec, 'fake0')
+        self.assertEqual(c.output_codec, 'fake0')
+
+        charset.add_alias('fake1', 'mime-fake')
+        charset.add_alias('output-mime-fake', 'output-mime-fake-alias')
+        charset.add_codec('mime-fake', 'fakecodec')
+        charset.add_codec('output-mime-fake-alias', 'outputfakecodec')
+        charset.add_charset('mime-fake', charset.QP, None, 'output-mime-fake')
+
+        c = Charset('fake1')
+        self.assertEqual(c.input_charset, 'mime-fake')
+        self.assertEqual(c.header_encoding, charset.QP)
+        self.assertEqual(c.body_encoding, None)
+        self.assertEqual(c.output_charset, 'output-mime-fake-alias')
+        self.assertEqual(c.input_codec, 'fakecodec')
+        self.assertEqual(c.output_codec, 'outputfakecodec')
+
     def test_codec_encodeable(self):
         eq = self.assertEqual
         # Make sure us-ascii = no Unicode conversion
@@ -5002,15 +5118,8 @@ class TestCharset(unittest.TestCase):
         # Try the convert argument, where input codec != output codec
         c = Charset('euc-jp')
         # With apologies to Tokio Kikuchi ;)
-        # XXX FIXME
-##         try:
-##             eq('\x1b$B5FCO;~IW\x1b(B',
-##                c.body_encode('\xb5\xc6\xc3\xcf\xbb\xfe\xc9\xd7'))
-##             eq('\xb5\xc6\xc3\xcf\xbb\xfe\xc9\xd7',
-##                c.body_encode('\xb5\xc6\xc3\xcf\xbb\xfe\xc9\xd7', False))
-##         except LookupError:
-##             # We probably don't have the Japanese codecs installed
-##             pass
+        eq('\x1b$B5FCO;~IW\x1b(B',
+           c.body_encode('\u83ca\u5730\u6642\u592b'))
         # Testing SF bug #625509, which we have to fake, since there are no
         # built-in encodings where the header encoding is QP but the body
         # encoding is not.
@@ -5023,6 +5132,11 @@ class TestCharset(unittest.TestCase):
         charset = Charset('us-ascii')
         self.assertEqual(str(charset), 'us-ascii')
         self.assertRaises(errors.CharsetError, Charset, 'asc\xffii')
+
+    def test_bytes_charset_name(self):
+        charset = Charset(b'us-ascii')
+        self.assertEqual(str(charset), 'us-ascii')
+        self.assertRaises(errors.CharsetError, Charset, b'asc\xffii')
 
 
 
@@ -5363,7 +5477,6 @@ A very long line that must get split to something other than at the
         s = 'Subject: =?EUC-KR?B?CSixpLDtKSC/7Liuvsax4iC6uLmwMcijIKHaILzSwd/H0SC8+LCjwLsgv7W/+Mj3I ?='
         raises(errors.HeaderParseError, decode_header, s)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_shift_jis_charset(self):
         h = Header('文', charset='shift_jis')
         self.assertEqual(h.encode(), '=?iso-2022-jp?b?GyRCSjgbKEI=?=')
@@ -5668,7 +5781,8 @@ Content-Disposition: inline; filename*=utf-8\udce2\udc80\udc9d''myfile.txt
 
 """
         msg = email.message_from_string(m)
-        self.assertEqual(msg.get_filename(), 'myfile.txt')
+        with warnings_helper.check_warnings(('', DeprecationWarning)):
+            self.assertEqual(msg.get_filename(), 'myfile.txt')
 
     def test_rfc2231_single_tick_in_filename_extended(self):
         eq = self.assertEqual

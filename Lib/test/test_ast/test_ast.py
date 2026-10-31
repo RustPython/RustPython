@@ -1,4 +1,5 @@
 import _ast_unparse
+import _ast
 import ast
 import builtins
 import contextlib
@@ -13,6 +14,7 @@ import tempfile
 import textwrap
 import types
 import unittest
+import warnings
 import weakref
 from io import StringIO
 from pathlib import Path
@@ -24,7 +26,9 @@ except ImportError:
 
 from test import support
 from test.support import os_helper
-from test.support import skip_emscripten_stack_overflow, skip_wasi_stack_overflow, skip_if_unlimited_stack_size
+from test.support import (skip_emscripten_stack_overflow,
+                          skip_wasi_stack_overflow,
+                          skip_if_unlimited_stack_size, skip_if_huge_c_stack)
 from test.support.ast_helper import ASTTestMixin
 from test.support.import_helper import ensure_lazy_imports
 from test.test_ast.utils import to_tuple
@@ -84,7 +88,9 @@ class AST_Tests(unittest.TestCase):
         self.assertEqual(ast_node._fields, ast_node.__match_args__)
 
     def test_AST_objects(self):
-        x = ast.AST()
+        # Directly instantiating abstract node class AST is allowed (but deprecated)
+        with self.assertWarns(DeprecationWarning):
+            x = ast.AST()
         self.assertEqual(x._fields, ())
         x.foobar = 42
         self.assertEqual(x.foobar, 42)
@@ -93,7 +99,7 @@ class AST_Tests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             x.vararg
 
-        with self.assertRaises(TypeError):
+        with self.assertRaises(TypeError), self.assertWarns(DeprecationWarning):
             # "ast.AST constructor takes 0 positional arguments"
             ast.AST(2)
 
@@ -109,15 +115,21 @@ class AST_Tests(unittest.TestCase):
 
         msg = "type object 'ast.AST' has no attribute '_fields'"
         # Both examples used to crash:
-        with self.assertRaisesRegex(AttributeError, msg):
+        with (
+            self.assertRaisesRegex(AttributeError, msg),
+            self.assertWarns(DeprecationWarning),
+        ):
             ast.AST(arg1=123)
-        with self.assertRaisesRegex(AttributeError, msg):
+        with (
+            self.assertRaisesRegex(AttributeError, msg),
+            self.assertWarns(DeprecationWarning),
+        ):
             ast.AST()
 
-    def test_AST_garbage_collection(self):
+    def test_node_garbage_collection(self):
         class X:
             pass
-        a = ast.AST()
+        a = ast.Module()
         a.x = X()
         a.x.a = a
         ref = weakref.ref(a.x)
@@ -131,7 +143,7 @@ class AST_Tests(unittest.TestCase):
                                     (eval_tests, eval_results, "eval")):
             for i, o in zip(input, output):
                 with self.subTest(action="parsing", input=i):
-                    ast_tree = compile(i, "?", kind, ast.PyCF_ONLY_AST)
+                    ast_tree = compile(i, "?", kind, ast.PyCF_ONLY_AST, optimize=False)
                     self.assertEqual(to_tuple(ast_tree), o)
                     self._assertTrueorder(ast_tree, (0, 0))
                 with self.subTest(action="compiling", input=i, kind=kind):
@@ -141,7 +153,7 @@ class AST_Tests(unittest.TestCase):
         # compile() is the only function that calls PyAST_Validate
         snippets_to_validate = exec_tests + single_tests + eval_tests
         for snippet in snippets_to_validate:
-            tree = ast.parse(snippet)
+            tree = ast.parse(snippet, optimize=False)
             compile(tree, '<string>', 'exec')
 
     def test_parse_invalid_ast(self):
@@ -150,7 +162,15 @@ class AST_Tests(unittest.TestCase):
             self.assertRaises(TypeError, ast.parse, ast.Constant(42),
                               optimize=optval)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
+    def test_parse_ast_func_type(self):
+        # see gh-156689
+        tree = ast.parse('(int, str) -> bool', mode='func_type')
+        self.assertEqual(ast.dump(ast.parse(tree, mode='func_type')),
+                         ast.dump(tree))
+        self.assertRaises(TypeError, ast.parse, ast.Constant(42),
+                          mode='func_type')
+        self.assertRaises(TypeError, ast.parse, tree, mode='exec')
+
     def test_optimization_levels__debug__(self):
         cases = [(-1, '__debug__'), (0, '__debug__'), (1, False), (2, False)]
         for (optval, expected) in cases:
@@ -418,6 +438,17 @@ class AST_Tests(unittest.TestCase):
                 if isinstance(x, ast.AST):
                     self.assertIs(type(x._fields), tuple)
 
+    def test_dynamic_attr(self):
+        for name, item in ast.__dict__.items():
+            # constructor has a different signature
+            if name == 'Index':
+                continue
+            if self._is_ast_node(name, item):
+                x = self._construct_ast_class(item)
+                # Custom attribute assignment is allowed
+                x.foo = 5
+                self.assertEqual(x.foo, 5)
+
     def _construct_ast_class(self, cls):
         kwargs = {}
         for name, typ in cls.__annotations__.items():
@@ -428,7 +459,15 @@ class AST_Tests(unittest.TestCase):
             elif typ is object:
                 kwargs[name] = b'capybara'
             elif isinstance(typ, type) and issubclass(typ, ast.AST):
-                kwargs[name] = self._construct_ast_class(typ)
+                if _ast._is_abstract(typ):
+                    # Use an arbitrary concrete subclass
+                    concrete = next((sub for sub in typ.__subclasses__()
+                                     if not _ast._is_abstract(sub)), None)
+                    msg = f"abstract node class {typ} has no concrete subclasses"
+                    self.assertIsNotNone(concrete, msg)
+                else:
+                    concrete = typ
+                kwargs[name] = self._construct_ast_class(concrete)
         return cls(**kwargs)
 
     def test_arguments(self):
@@ -459,14 +498,9 @@ class AST_Tests(unittest.TestCase):
         self.assertEqual(x._fields, 666)
 
     def test_classattrs(self):
-        with self.assertWarns(DeprecationWarning):
-            x = ast.Constant()
+        x = ast.Constant(42)
         self.assertEqual(x._fields, ('value', 'kind'))
 
-        with self.assertRaises(AttributeError):
-            x.value
-
-        x = ast.Constant(42)
         self.assertEqual(x.value, 42)
 
         with self.assertRaises(AttributeError):
@@ -486,11 +520,8 @@ class AST_Tests(unittest.TestCase):
         self.assertRaises(TypeError, ast.Constant, 1, None, 2)
         self.assertRaises(TypeError, ast.Constant, 1, None, 2, lineno=0)
 
-        # Arbitrary keyword arguments are supported (but deprecated)
-        with self.assertWarns(DeprecationWarning):
-            self.assertEqual(ast.Constant(1, foo='bar').foo, 'bar')
-
-        with self.assertRaisesRegex(TypeError, "Constant got multiple values for argument 'value'"):
+        msg = "ast.Constant got multiple values for argument 'value'"
+        with self.assertRaisesRegex(TypeError, re.escape(msg)):
             ast.Constant(1, value=2)
 
         self.assertEqual(ast.Constant(42).value, 42)
@@ -529,22 +560,23 @@ class AST_Tests(unittest.TestCase):
         self.assertEqual(x.body, body)
 
     def test_nodeclasses(self):
-        # Zero arguments constructor explicitly allowed (but deprecated)
-        with self.assertWarns(DeprecationWarning):
-            x = ast.BinOp()
-        self.assertEqual(x._fields, ('left', 'op', 'right'))
-
-        # Random attribute allowed too
-        x.foobarbaz = 5
-        self.assertEqual(x.foobarbaz, 5)
+        # Zero arguments constructor is not allowed
+        msg = "ast.BinOp.__init__ missing 3 required positional arguments: 'left', 'op', and 'right'"
+        self.assertRaisesRegex(TypeError, re.escape(msg), ast.BinOp)
 
         n1 = ast.Constant(1)
         n3 = ast.Constant(3)
         addop = ast.Add()
         x = ast.BinOp(n1, addop, n3)
+        self.assertEqual(x._fields, ('left', 'op', 'right'))
         self.assertEqual(x.left, n1)
         self.assertEqual(x.op, addop)
         self.assertEqual(x.right, n3)
+
+        # Arbitrary attributes are allowed
+        x.foobarbaz = 5
+        self.assertEqual(x.foobarbaz, 5)
+        self.assertEqual(x._fields, ('left', 'op', 'right'))
 
         x = ast.BinOp(1, 2, 3)
         self.assertEqual(x.left, 1)
@@ -569,10 +601,14 @@ class AST_Tests(unittest.TestCase):
         self.assertEqual(x.right, 3)
         self.assertEqual(x.lineno, 0)
 
-        # Random kwargs also allowed (but deprecated)
-        with self.assertWarns(DeprecationWarning):
-            x = ast.BinOp(1, 2, 3, foobarbaz=42)
-        self.assertEqual(x.foobarbaz, 42)
+        # Arbitrary keyword arguments are not allowed
+        msg = "ast.BinOp.__init__ got an unexpected keyword argument 'foobarbaz'"
+        with self.assertRaisesRegex(TypeError, re.escape(msg)):
+            ast.BinOp(1, 2, 3, foobarbaz=42)
+
+        # Directly instantiating abstract node types is allowed (but deprecated)
+        self.assertWarns(DeprecationWarning, ast.stmt)
+        self.assertWarns(DeprecationWarning, ast.expr_context)
 
     def test_no_fields(self):
         # this used to fail because Sub._fields was None
@@ -581,12 +617,14 @@ class AST_Tests(unittest.TestCase):
 
     def test_invalid_sum(self):
         pos = dict(lineno=2, col_offset=3)
-        m = ast.Module([ast.Expr(ast.expr(**pos), **pos)], [])
+        with self.assertWarns(DeprecationWarning):
+            # Creating instances of ast.expr is deprecated
+            e = ast.expr(**pos)
+        m = ast.Module([ast.Expr(e, **pos)], [])
         with self.assertRaises(TypeError) as cm:
             compile(m, "<test>", "exec")
         self.assertIn("but got expr()", str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: expected str for name
     def test_invalid_identifier(self):
         m = ast.Module([ast.Expr(ast.Name(42, ast.Load()))], [])
         ast.fix_missing_locations(m)
@@ -949,6 +987,34 @@ class AST_Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, f"identifier field can't represent '{constant}' constant"):
                 compile(expr, "<test>", "eval")
 
+    def test_constant_in_identifier_fields(self):
+        # gh-85260: an identifier field holding a constant name used to
+        # crash the compiler
+        for statement in [
+            "def x(): pass",
+            "async def x(): pass",
+            "class x: pass",
+            "from a import x",
+            "from a import b as x",
+            "from a import b, c, d as x",
+            "import x",
+            "import a, b, x",
+            "try: pass\nexcept A as x: pass",
+            "try: pass\nexcept A as b: pass\nexcept B as x: pass\n",
+        ]:
+            for constant in "True", "False", "None":
+                with self.subTest(statement=statement, constant=constant):
+                    tree = ast.parse(statement)
+                    for node in ast.walk(tree):
+                        for field, value in ast.iter_fields(node):
+                            if value == "x":
+                                setattr(node, field, constant)
+                    with self.assertRaisesRegex(
+                            ValueError,
+                            f"identifier field can't represent "
+                            f"'{constant}' constant"):
+                        compile(tree, "<test>", "exec")
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_constant_as_unicode_name(self):
         constants = [
@@ -992,7 +1058,7 @@ class AST_Tests(unittest.TestCase):
         enum._test_simple_enum(_Precedence, _ast_unparse._Precedence)
 
     @support.cpython_only
-    @skip_if_unlimited_stack_size
+    @support.skip_if_huge_c_stack(100_000 if sys.platform == "android" else 500_000)
     @skip_wasi_stack_overflow()
     @skip_emscripten_stack_overflow()
     def test_ast_recursion_limit(self):
@@ -1054,7 +1120,7 @@ class AST_Tests(unittest.TestCase):
         snapshots = AST_REPR_DATA_FILE.read_text().split("\n")
         for test, snapshot in zip(ast_repr_get_test_cases(), snapshots, strict=True):
             with self.subTest(test_input=test):
-                self.assertEqual(repr(ast.parse(test)), snapshot)
+                self.assertEqual(repr(ast.parse(test, optimize=False)), snapshot)
 
     def test_repr_large_input_crash(self):
         # gh-125010: Fix use-after-free in ast repr()
@@ -1075,13 +1141,28 @@ class AST_Tests(unittest.TestCase):
         self.assertIsInstance(tree.body[0].value.values[0], ast.Constant)
         self.assertIsInstance(tree.body[0].value.values[1], ast.Interpolation)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_optimization_levels_const_folding(self):
-        return super().test_optimization_levels_const_folding()
+    def test_filter_syntax_warnings_by_module(self):
+        filename = support.findfile('test_import/data/syntax_warnings.py')
+        with open(filename, 'rb') as f:
+            source = f.read()
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=r'<unknown>\z')
+            ast.parse(source)
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10])
+        for wm in wlog:
+            self.assertEqual(wm.filename, '<unknown>')
+            self.assertIs(wm.category, SyntaxWarning)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; will be removed in Python 3.14
-    def test_constant_subclasses_deprecated(self):
-        return super().test_constant_subclasses_deprecated()
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=r'package\.module\z')
+            warnings.filterwarnings('error', module=r'<unknown>')
+            ast.parse(source, filename, module='package.module')
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10])
+        for wm in wlog:
+            self.assertEqual(wm.filename, filename)
+            self.assertIs(wm.category, SyntaxWarning)
 
 
 class CopyTests(unittest.TestCase):
@@ -1091,13 +1172,18 @@ class CopyTests(unittest.TestCase):
     def iter_ast_classes():
         """Iterate over the (native) subclasses of ast.AST recursively.
 
-        This excludes the special class ast.Index since its constructor
-        returns an integer.
+        This excludes:
+          * abstract AST nodes
+          * the special class ast.Index, since its constructor returns
+            an integer.
         """
         def do(cls):
             if cls.__module__ != 'ast':
                 return
             if cls is ast.Index:
+                return
+            # Don't attempt to create instances of abstract AST nodes
+            if _ast._is_abstract(cls):
                 return
 
             yield cls
@@ -1333,7 +1419,6 @@ class CopyTests(unittest.TestCase):
         self.assertEqual(repl.x, 0)
         self.assertEqual(repl.y, y)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'x' is not 'x'
     def test_replace_ignore_known_custom_instance_fields(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1365,16 +1450,15 @@ class CopyTests(unittest.TestCase):
         self.assertIs(repl.ctx, context)
         self.assertRaises(AttributeError, getattr, repl, 'extra')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ missing\ 1\ keyword\ argument:\ 'id'\." does not match "replace() does not support Name objects"
     def test_replace_reject_missing_field(self):
-        # case: warn if deleted field is not replaced
+        # case: raise if deleted field is not replaced
         node = ast.parse('x').body[0].value
         context = node.ctx
         del node.id
 
         self.assertRaises(AttributeError, getattr, node, 'id')
         self.assertIs(node.ctx, context)
-        msg = "Name.__replace__ missing 1 keyword argument: 'id'."
+        msg = "ast.Name.__init__ missing 1 required positional argument: 'id'"
         with self.assertRaisesRegex(TypeError, re.escape(msg)):
             copy.replace(node)
         # assert that there is no side-effect
@@ -1404,7 +1488,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node2.returns, None)
         self.assertEqual(node2.decorator_list, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'extra'\." does not match "replace() does not support Name objects"
     def test_replace_reject_known_custom_instance_fields_commits(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1412,7 +1495,7 @@ class CopyTests(unittest.TestCase):
 
         # explicit rejection of known instance fields
         self.assertHasAttr(node, 'extra')
-        msg = "Name.__replace__ got an unexpected keyword argument 'extra'."
+        msg = "ast.Name.__init__ got an unexpected keyword argument 'extra'"
         with self.assertRaisesRegex(TypeError, re.escape(msg)):
             copy.replace(node, extra=1)
         # assert that there is no side-effect
@@ -1420,14 +1503,13 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node.ctx, context)
         self.assertIs(node.extra, extra)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'unknown'\." does not match "replace() does not support Name objects"
     def test_replace_reject_unknown_instance_fields(self):
         node = ast.parse('x').body[0].value
         context = node.ctx
 
         # explicit rejection of unknown extra fields
         self.assertRaises(AttributeError, getattr, node, 'unknown')
-        msg = "Name.__replace__ got an unexpected keyword argument 'unknown'."
+        msg = "ast.Name.__init__ got an unexpected keyword argument 'unknown'"
         with self.assertRaisesRegex(TypeError, re.escape(msg)):
             copy.replace(node, unknown=1)
         # assert that there is no side-effect
@@ -1462,17 +1544,17 @@ class ASTHelpers_Test(unittest.TestCase):
     def test_dump(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node),
-            "Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), "
-            "args=[Name(id='eggs', ctx=Load()), Constant(value='and cheese')]))])"
+            "Module(body=[Expr(value=Call(func=Name(id='spam'), "
+            "args=[Name(id='eggs'), Constant(value='and cheese')]))])"
         )
         self.assertEqual(ast.dump(node, annotate_fields=False),
-            "Module([Expr(Call(Name('spam', Load()), [Name('eggs', Load()), "
+            "Module([Expr(Call(Name('spam'), [Name('eggs'), "
             "Constant('and cheese')]))])"
         )
         self.assertEqual(ast.dump(node, include_attributes=True),
-            "Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load(), "
+            "Module(body=[Expr(value=Call(func=Name(id='spam', "
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=4), "
-            "args=[Name(id='eggs', ctx=Load(), lineno=1, col_offset=5, "
+            "args=[Name(id='eggs', lineno=1, col_offset=5, "
             "end_lineno=1, end_col_offset=9), Constant(value='and cheese', "
             "lineno=1, col_offset=11, end_lineno=1, end_col_offset=23)], "
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=24), "
@@ -1486,18 +1568,18 @@ Module(
    body=[
       Expr(
          value=Call(
-            func=Name(id='spam', ctx=Load()),
+            func=Name(id='spam'),
             args=[
-               Name(id='eggs', ctx=Load()),
+               Name(id='eggs'),
                Constant(value='and cheese')]))])""")
         self.assertEqual(ast.dump(node, annotate_fields=False, indent='\t'), """\
 Module(
 \t[
 \t\tExpr(
 \t\t\tCall(
-\t\t\t\tName('spam', Load()),
+\t\t\t\tName('spam'),
 \t\t\t\t[
-\t\t\t\t\tName('eggs', Load()),
+\t\t\t\t\tName('eggs'),
 \t\t\t\t\tConstant('and cheese')]))])""")
         self.assertEqual(ast.dump(node, include_attributes=True, indent=3), """\
 Module(
@@ -1506,7 +1588,6 @@ Module(
          value=Call(
             func=Name(
                id='spam',
-               ctx=Load(),
                lineno=1,
                col_offset=0,
                end_lineno=1,
@@ -1514,7 +1595,6 @@ Module(
             args=[
                Name(
                   id='eggs',
-                  ctx=Load(),
                   lineno=1,
                   col_offset=5,
                   end_lineno=1,
@@ -1544,23 +1624,23 @@ Module(
         )
         node = ast.Raise(exc=ast.Name(id='e', ctx=ast.Load()), lineno=3, col_offset=4)
         self.assertEqual(ast.dump(node),
-            "Raise(exc=Name(id='e', ctx=Load()))"
+            "Raise(exc=Name(id='e'))"
         )
         self.assertEqual(ast.dump(node, annotate_fields=False),
-            "Raise(Name('e', Load()))"
+            "Raise(Name('e'))"
         )
         self.assertEqual(ast.dump(node, include_attributes=True),
-            "Raise(exc=Name(id='e', ctx=Load()), lineno=3, col_offset=4)"
+            "Raise(exc=Name(id='e'), lineno=3, col_offset=4)"
         )
         self.assertEqual(ast.dump(node, annotate_fields=False, include_attributes=True),
-            "Raise(Name('e', Load()), lineno=3, col_offset=4)"
+            "Raise(Name('e'), lineno=3, col_offset=4)"
         )
         node = ast.Raise(cause=ast.Name(id='e', ctx=ast.Load()))
         self.assertEqual(ast.dump(node),
-            "Raise(cause=Name(id='e', ctx=Load()))"
+            "Raise(cause=Name(id='e'))"
         )
         self.assertEqual(ast.dump(node, annotate_fields=False),
-            "Raise(cause=Name('e', Load()))"
+            "Raise(cause=Name('e'))"
         )
         # Arguments:
         node = ast.arguments(args=[ast.arg("x")])
@@ -1592,10 +1672,10 @@ Module(
             [ast.Name('dataclass', ctx=ast.Load())],
         )
         self.assertEqual(ast.dump(node),
-            "ClassDef(name='T', keywords=[keyword(arg='a', value=Constant(value=None))], decorator_list=[Name(id='dataclass', ctx=Load())])",
+            "ClassDef(name='T', keywords=[keyword(arg='a', value=Constant(value=None))], decorator_list=[Name(id='dataclass')])",
         )
         self.assertEqual(ast.dump(node, annotate_fields=False),
-            "ClassDef('T', [], [keyword('a', Constant(None))], [], [Name('dataclass', Load())])",
+            "ClassDef('T', [], [keyword('a', Constant(None))], [], [Name('dataclass')])",
         )
 
     def test_dump_show_empty(self):
@@ -1623,7 +1703,7 @@ Module(
         check_node(
             # Corner case: there are no real `Name` instances with `id=''`:
             ast.Name(id='', ctx=ast.Load()),
-            empty="Name(id='', ctx=Load())",
+            empty="Name(id='')",
             full="Name(id='', ctx=Load())",
         )
 
@@ -1671,36 +1751,45 @@ Module(
 
         check_text(
             "def a(b: int = 0, *, c): ...",
-            empty="Module(body=[FunctionDef(name='a', args=arguments(args=[arg(arg='b', annotation=Name(id='int', ctx=Load()))], kwonlyargs=[arg(arg='c')], kw_defaults=[None], defaults=[Constant(value=0)]), body=[Expr(value=Constant(value=Ellipsis))])])",
+            empty="Module(body=[FunctionDef(name='a', args=arguments(args=[arg(arg='b', annotation=Name(id='int'))], kwonlyargs=[arg(arg='c')], kw_defaults=[None], defaults=[Constant(value=0)]), body=[Expr(value=Constant(value=Ellipsis))])])",
             full="Module(body=[FunctionDef(name='a', args=arguments(posonlyargs=[], args=[arg(arg='b', annotation=Name(id='int', ctx=Load()))], kwonlyargs=[arg(arg='c')], kw_defaults=[None], defaults=[Constant(value=0)]), body=[Expr(value=Constant(value=Ellipsis))], decorator_list=[], type_params=[])], type_ignores=[])",
         )
 
         check_text(
             "def a(b: int = 0, *, c): ...",
-            empty="Module(body=[FunctionDef(name='a', args=arguments(args=[arg(arg='b', annotation=Name(id='int', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=12), lineno=1, col_offset=6, end_lineno=1, end_col_offset=12)], kwonlyargs=[arg(arg='c', lineno=1, col_offset=21, end_lineno=1, end_col_offset=22)], kw_defaults=[None], defaults=[Constant(value=0, lineno=1, col_offset=15, end_lineno=1, end_col_offset=16)]), body=[Expr(value=Constant(value=Ellipsis, lineno=1, col_offset=25, end_lineno=1, end_col_offset=28), lineno=1, col_offset=25, end_lineno=1, end_col_offset=28)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=28)])",
+            empty="Module(body=[FunctionDef(name='a', args=arguments(args=[arg(arg='b', annotation=Name(id='int', lineno=1, col_offset=9, end_lineno=1, end_col_offset=12), lineno=1, col_offset=6, end_lineno=1, end_col_offset=12)], kwonlyargs=[arg(arg='c', lineno=1, col_offset=21, end_lineno=1, end_col_offset=22)], kw_defaults=[None], defaults=[Constant(value=0, lineno=1, col_offset=15, end_lineno=1, end_col_offset=16)]), body=[Expr(value=Constant(value=Ellipsis, lineno=1, col_offset=25, end_lineno=1, end_col_offset=28), lineno=1, col_offset=25, end_lineno=1, end_col_offset=28)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=28)])",
             full="Module(body=[FunctionDef(name='a', args=arguments(posonlyargs=[], args=[arg(arg='b', annotation=Name(id='int', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=12), lineno=1, col_offset=6, end_lineno=1, end_col_offset=12)], kwonlyargs=[arg(arg='c', lineno=1, col_offset=21, end_lineno=1, end_col_offset=22)], kw_defaults=[None], defaults=[Constant(value=0, lineno=1, col_offset=15, end_lineno=1, end_col_offset=16)]), body=[Expr(value=Constant(value=Ellipsis, lineno=1, col_offset=25, end_lineno=1, end_col_offset=28), lineno=1, col_offset=25, end_lineno=1, end_col_offset=28)], decorator_list=[], type_params=[], lineno=1, col_offset=0, end_lineno=1, end_col_offset=28)], type_ignores=[])",
             include_attributes=True,
         )
 
         check_text(
             'spam(eggs, "and cheese")',
-            empty="Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), args=[Name(id='eggs', ctx=Load()), Constant(value='and cheese')]))])",
+            empty="Module(body=[Expr(value=Call(func=Name(id='spam'), args=[Name(id='eggs'), Constant(value='and cheese')]))])",
             full="Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), args=[Name(id='eggs', ctx=Load()), Constant(value='and cheese')], keywords=[]))], type_ignores=[])",
         )
 
         check_text(
             'spam(eggs, text="and cheese")',
-            empty="Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), args=[Name(id='eggs', ctx=Load())], keywords=[keyword(arg='text', value=Constant(value='and cheese'))]))])",
+            empty="Module(body=[Expr(value=Call(func=Name(id='spam'), args=[Name(id='eggs')], keywords=[keyword(arg='text', value=Constant(value='and cheese'))]))])",
             full="Module(body=[Expr(value=Call(func=Name(id='spam', ctx=Load()), args=[Name(id='eggs', ctx=Load())], keywords=[keyword(arg='text', value=Constant(value='and cheese'))]))], type_ignores=[])",
         )
 
         check_text(
             "import _ast as ast; from module import sub",
-            empty="Module(body=[Import(names=[alias(name='_ast', asname='ast')]), ImportFrom(module='module', names=[alias(name='sub')], level=0)])",
-            full="Module(body=[Import(names=[alias(name='_ast', asname='ast')]), ImportFrom(module='module', names=[alias(name='sub')], level=0)], type_ignores=[])",
+            empty="Module(body=[Import(names=[alias(name='_ast', asname='ast')], is_lazy=0), ImportFrom(module='module', names=[alias(name='sub')], level=0, is_lazy=0)])",
+            full="Module(body=[Import(names=[alias(name='_ast', asname='ast')], is_lazy=0), ImportFrom(module='module', names=[alias(name='sub')], level=0, is_lazy=0)], type_ignores=[])",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                                              ^^^^^^^^^                                                                                  ^^^^^^^^^
+    def test_dump_with_color(self):
+        node = ast.parse("x = 1")
+        self.assertNotIn("\x1b[", ast.dump(node))
+        self.assertNotIn("\x1b[", ast.dump(node, color=False))
+        self.assertIn("\x1b[", ast.dump(node, color=True))
+
+        node = ast.Constant(value="\x1b[31m")
+        self.assertEqual(ast.dump(node), "Constant(value='\\x1b[31m')")
+        self.assertIn("'\\x1b[31m'", ast.dump(node, color=True))
+
     def test_copy_location(self):
         src = ast.parse('1 + 1', mode='eval')
         src.body.right = ast.copy_location(ast.Constant(2), src.body.right)
@@ -1725,19 +1814,18 @@ Module(
         self.assertEqual(src, ast.fix_missing_locations(src))
         self.maxDiff = None
         self.assertEqual(ast.dump(src, include_attributes=True),
-            "Module(body=[Expr(value=Call(func=Name(id='write', ctx=Load(), "
+            "Module(body=[Expr(value=Call(func=Name(id='write', "
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=5), "
             "args=[Constant(value='spam', lineno=1, col_offset=6, end_lineno=1, "
             "end_col_offset=12)], lineno=1, col_offset=0, end_lineno=1, "
             "end_col_offset=13), lineno=1, col_offset=0, end_lineno=1, "
-            "end_col_offset=13), Expr(value=Call(func=Name(id='spam', ctx=Load(), "
+            "end_col_offset=13), Expr(value=Call(func=Name(id='spam', "
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=0), "
             "args=[Constant(value='eggs', lineno=1, col_offset=0, end_lineno=1, "
             "end_col_offset=0)], lineno=1, col_offset=0, end_lineno=1, "
             "end_col_offset=0), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)])"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                                              ^^^^^^^^^                                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     def test_increment_lineno(self):
         src = ast.parse('1 + 1', mode='eval')
         self.assertEqual(ast.increment_lineno(src, n=3), src)
@@ -1792,22 +1880,22 @@ Module(
         )
 
     def test_get_docstring(self):
-        node = ast.parse('"""line one\n  line two"""')
+        node = ast.parse('"""line one\n  line two"""', optimize=False)
         self.assertEqual(ast.get_docstring(node),
                          'line one\nline two')
 
-        node = ast.parse('class foo:\n  """line one\n  line two"""')
+        node = ast.parse('class foo:\n  """line one\n  line two"""', optimize=False)
         self.assertEqual(ast.get_docstring(node.body[0]),
                          'line one\nline two')
 
-        node = ast.parse('def foo():\n  """line one\n  line two"""')
+        node = ast.parse('def foo():\n  """line one\n  line two"""', optimize=False)
         self.assertEqual(ast.get_docstring(node.body[0]),
                          'line one\nline two')
 
-        node = ast.parse('async def foo():\n  """spam\n  ham"""')
+        node = ast.parse('async def foo():\n  """spam\n  ham"""', optimize=False)
         self.assertEqual(ast.get_docstring(node.body[0]), 'spam\nham')
 
-        node = ast.parse('async def foo():\n  """spam\n  ham"""')
+        node = ast.parse('async def foo():\n  """spam\n  ham"""', optimize=False)
         self.assertEqual(ast.get_docstring(node.body[0], clean=False), 'spam\n  ham')
 
         node = ast.parse('x')
@@ -1846,7 +1934,8 @@ Module(
             'def foo():\n  """line one\n  line two"""\n\n'
             '  def bar():\n    """line one\n    line two"""\n'
             '  """line one\n  line two"""\n'
-            '"""line one\nline two"""\n\n'
+            '"""line one\nline two"""\n\n',
+            optimize=False
         )
         self.assertEqual(node.body[0].col_offset, 0)
         self.assertEqual(node.body[0].lineno, 1)
@@ -1896,7 +1985,6 @@ Module(
         self.assertRaises(ValueError, ast.literal_eval, '+True')
         self.assertRaises(ValueError, ast.literal_eval, '2+3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError not raised
     def test_literal_eval_str_int_limit(self):
         with support.adjust_int_max_str_digits(4000):
             ast.literal_eval('3'*4000)  # no error
@@ -1959,7 +2047,6 @@ Module(
                 (\
             \ ''')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: required field "lineno" missing from alias
     def test_bad_integer(self):
         # issue13436: Bad error message with invalid numeric values
         body = [ast.ImportFrom(module='time',
@@ -1983,7 +2070,7 @@ Module(
         exec(code, ns)
         self.assertIn('sleep', ns)
 
-    @skip_if_unlimited_stack_size
+    @skip_if_huge_c_stack()
     @skip_emscripten_stack_overflow()
     def test_recursion_direct(self):
         e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0, operand=ast.Constant(1))
@@ -1992,7 +2079,7 @@ Module(
             with support.infinite_recursion():
                 compile(ast.Expression(e), "<test>", "eval")
 
-    @skip_if_unlimited_stack_size
+    @skip_if_huge_c_stack()
     @skip_emscripten_stack_overflow()
     def test_recursion_indirect(self):
         e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0, operand=ast.Constant(1))
@@ -2064,7 +2151,6 @@ class ASTValidatorTests(unittest.TestCase):
                           kw_defaults=[None, ast.Name("x", ast.Store())]),
                           "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_funcdef(self):
         a = ast.arguments([], [], None, [], [], None, [])
         f = ast.FunctionDef("x", a, [], [], None, None, [])
@@ -2276,7 +2362,6 @@ class ASTValidatorTests(unittest.TestCase):
         u = ast.UnaryOp(ast.Not(), ast.Name("x", ast.Store()))
         self.expr(u, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_lambda(self):
         a = ast.arguments([], [], None, [], [], None, [])
         self.expr(ast.Lambda(a, ast.Name("x", ast.Store())),
@@ -2423,9 +2508,9 @@ class ASTValidatorTests(unittest.TestCase):
                 fn = os.path.join(STDLIB, module)
                 with open(fn, "r", encoding="utf-8") as fp:
                     source = fp.read()
-                mod = ast.parse(source, fn)
+                mod = ast.parse(source, fn, optimize=False)
                 compile(mod, fn, "exec")
-                mod2 = ast.parse(source, fn)
+                mod2 = ast.parse(source, fn, optimize=False)
                 self.assertTrue(ast.compare(mod, mod2))
 
     constant_1 = ast.Constant(1)
@@ -2639,16 +2724,17 @@ class ConstantTests(unittest.TestCase):
                          "to in Store context")
 
     def test_get_docstring(self):
-        tree = ast.parse("'docstring'\nx = 1")
+        tree = ast.parse("'docstring'\nx = 1", optimize=False)
         self.assertEqual(ast.get_docstring(tree), 'docstring')
 
     def get_load_const(self, tree):
         # Compile to bytecode, disassemble and get parameter of LOAD_CONST
-        # instructions
+        # and LOAD_COMMON_CONSTANT instructions
         co = compile(tree, '<string>', 'exec')
         consts = []
         for instr in dis.get_instructions(co):
-            if instr.opcode in dis.hasconst:
+            if instr.opcode in dis.hasconst or \
+                    instr.opname == 'LOAD_COMMON_CONSTANT':
                 consts.append(instr.argval)
         return consts
 
@@ -3071,8 +3157,8 @@ class EndPositionTests(unittest.TestCase):
 
 class NodeTransformerTests(ASTTestMixin, unittest.TestCase):
     def assertASTTransformation(self, transformer_class,
-                                initial_code, expected_code):
-        initial_ast = ast.parse(dedent(initial_code))
+                                code, expected_code):
+        initial_ast = ast.parse(dedent(code))
         expected_ast = ast.parse(dedent(expected_code))
 
         transformer = transformer_class()
@@ -3192,11 +3278,10 @@ class ASTConstructorTests(unittest.TestCase):
         args = ast.arguments()
         self.assertEqual(args.args, [])
         self.assertEqual(args.posonlyargs, [])
-        with self.assertWarnsRegex(DeprecationWarning,
-                                   r"FunctionDef\.__init__ missing 1 required positional argument: 'name'"):
-            node = ast.FunctionDef(args=args)
-        self.assertNotHasAttr(node, "name")
-        self.assertEqual(node.decorator_list, [])
+        msg = "ast.FunctionDef.__init__ missing 1 required positional argument: 'name'"
+        with self.assertRaisesRegex(TypeError, re.escape(msg)):
+            ast.FunctionDef(args=args)
+
         node = ast.FunctionDef(name='foo', args=args)
         self.assertEqual(node.name, 'foo')
         self.assertEqual(node.decorator_list, [])
@@ -3214,9 +3299,8 @@ class ASTConstructorTests(unittest.TestCase):
         self.assertEqual(name3.id, "x")
         self.assertIsInstance(name3.ctx, ast.Del)
 
-        with self.assertWarnsRegex(DeprecationWarning,
-                                   r"Name\.__init__ missing 1 required positional argument: 'id'"):
-            name3 = ast.Name()
+        msg = "ast.Name.__init__ missing 1 required positional argument: 'id'"
+        self.assertRaisesRegex(TypeError, re.escape(msg), ast.Name)
 
     def test_custom_subclass_with_no_fields(self):
         class NoInit(ast.AST):
@@ -3255,25 +3339,21 @@ class ASTConstructorTests(unittest.TestCase):
         self.assertEqual(obj.a, 1)
         self.assertEqual(obj.b, 2)
 
-        with self.assertWarnsRegex(DeprecationWarning,
-                                   r"MyAttrs.__init__ got an unexpected keyword argument 'c'."):
-            obj = MyAttrs(c=3)
+        msg = "MyAttrs.__init__ got an unexpected keyword argument 'c'"
+        with self.assertRaisesRegex(TypeError, re.escape(msg)):
+            MyAttrs(c=3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_fields_and_types_no_default(self):
         class FieldsAndTypesNoDefault(ast.AST):
             _fields = ('a',)
             _field_types = {'a': int}
 
-        with self.assertWarnsRegex(DeprecationWarning,
-                                   r"FieldsAndTypesNoDefault\.__init__ missing 1 required positional argument: 'a'\."):
-            obj = FieldsAndTypesNoDefault()
-        with self.assertRaises(AttributeError):
-            obj.a
+        msg = "FieldsAndTypesNoDefault.__init__ missing 1 required positional argument: 'a'"
+        self.assertRaisesRegex(TypeError, re.escape(msg), FieldsAndTypesNoDefault)
+
         obj = FieldsAndTypesNoDefault(a=1)
         self.assertEqual(obj.a, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_incomplete_field_types(self):
         class MoreFieldsThanTypes(ast.AST):
             _fields = ('a', 'b')
@@ -3281,27 +3361,20 @@ class ASTConstructorTests(unittest.TestCase):
             a: int | None = None
             b: int | None = None
 
-        with self.assertWarnsRegex(
-            DeprecationWarning,
-            r"Field 'b' is missing from MoreFieldsThanTypes\._field_types"
-        ):
-            obj = MoreFieldsThanTypes()
-        self.assertIs(obj.a, None)
-        self.assertIs(obj.b, None)
+        msg = r"Field 'b' is missing from .*\.MoreFieldsThanTypes\._field_types"
+        self.assertRaisesRegex(TypeError, msg, MoreFieldsThanTypes)
 
         obj = MoreFieldsThanTypes(a=1, b=2)
         self.assertEqual(obj.a, 1)
         self.assertEqual(obj.b, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_malformed_fields_with_bytes(self):
         class BadFields(ast.AST):
             _fields = (b'\xff'*64,)
             _field_types = {'a': int}
 
         # This should not crash
-        with self.assertWarnsRegex(DeprecationWarning, r"Field b'\\xff\\xff.*' .*"):
-            obj = BadFields()
+        self.assertRaisesRegex(TypeError, r"Field b'\\xff\\xff.*' .*", BadFields)
 
     def test_complete_field_types(self):
         class _AllFieldTypes(ast.AST):
@@ -3421,6 +3494,7 @@ class ModuleStateTests(unittest.TestCase):
         self.assertEqual(res, 0)
 
 
+@support.force_not_colorized_test_class
 class CommandLineTests(unittest.TestCase):
     def setUp(self):
         self.filename = tempfile.mktemp()
@@ -3493,7 +3567,7 @@ class CommandLineTests(unittest.TestCase):
                body=[
                   AnnAssign(
                      target=Name(id='x', ctx=Store()),
-                     annotation=Name(id='bool', ctx=Load()),
+                     annotation=Name(id='bool'),
                      value=Constant(value=1),
                      simple=1)],
                type_ignores=[
@@ -3521,7 +3595,7 @@ class CommandLineTests(unittest.TestCase):
         expect = '''
             Expression(
                body=Call(
-                  func=Name(id='print', ctx=Load()),
+                  func=Name(id='print'),
                   args=[
                      Constant(value=1),
                      Constant(value=2),
@@ -3537,12 +3611,11 @@ class CommandLineTests(unittest.TestCase):
         expect = '''
             FunctionType(
                argtypes=[
-                  Name(id='int', ctx=Load()),
-                  Name(id='str', ctx=Load())],
+                  Name(id='int'),
+                  Name(id='str')],
                returns=Subscript(
-                  value=Name(id='list', ctx=Load()),
-                  slice=Name(id='int', ctx=Load()),
-                  ctx=Load()))
+                  value=Name(id='list'),
+                  slice=Name(id='int')))
         '''
         for flag in ('-m=func_type', '--mode=func_type'):
             with self.subTest(flag=flag):
@@ -3556,7 +3629,7 @@ class CommandLineTests(unittest.TestCase):
                body=[
                   AnnAssign(
                      target=Name(id='x', ctx=Store()),
-                     annotation=Name(id='bool', ctx=Load()),
+                     annotation=Name(id='bool'),
                      value=Constant(value=1),
                      simple=1)])
         '''
@@ -3601,7 +3674,7 @@ class CommandLineTests(unittest.TestCase):
             Module(
                body=[
                   Match(
-                     subject=Name(id='x', ctx=Load()),
+                     subject=Name(id='x'),
                      cases=[
                         match_case(
                            pattern=MatchValue(
@@ -3624,7 +3697,7 @@ class CommandLineTests(unittest.TestCase):
             Module(
                body=[
                   Match(
-                     subject=Name(id='a', ctx=Load()),
+                     subject=Name(id='a'),
                      cases=[
                         match_case(
                            pattern=MatchValue(
@@ -3650,7 +3723,7 @@ class CommandLineTests(unittest.TestCase):
             Module(
                body=[
                   Match(
-                     subject=Name(id='a', ctx=Load()),
+                     subject=Name(id='a'),
                      cases=[
                         match_case(
                            pattern=MatchValue(
@@ -3713,7 +3786,6 @@ class ASTOptimizationTests(unittest.TestCase):
             f"{ast.dump(optimized_tree)}",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
     def test_folding_format(self):
         code = "'%s' % (a,)"
 
@@ -3805,46 +3877,6 @@ class ASTOptimizationTests(unittest.TestCase):
         folded = "MatchValue(value=Constant(value=(1+2j)))"
         for optval in (0, 1, 2):
             self.assertIn(folded if optval else unfolded, ast.dump(ast.parse(src, optimize=optval)))
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_binop(self):
-        return super().test_folding_binop()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_comparator(self):
-        return super().test_folding_comparator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_iter(self):
-        return super().test_folding_iter()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_not(self):
-        return super().test_folding_not()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_subscript(self):
-        return super().test_folding_subscript()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_tuple(self):
-        return super().test_folding_tuple()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_type_param_in_class_def(self):
-        return super().test_folding_type_param_in_class_def()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_type_param_in_function_def(self):
-        return super().test_folding_type_param_in_function_def()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_type_param_in_type_alias(self):
-        return super().test_folding_type_param_in_type_alias()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
-    def test_folding_unaryop(self):
-        return super().test_folding_unaryop()
 
 
 if __name__ == '__main__':

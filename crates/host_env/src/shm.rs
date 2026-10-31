@@ -3,6 +3,8 @@ use std::io;
 
 use crate::os::CheckLibcResult;
 
+pub use libc::mode_t;
+
 pub fn shm_open(name: &CStr, flags: libc::c_int, mode: libc::c_uint) -> io::Result<libc::c_int> {
     #[cfg(target_os = "freebsd")]
     let mode = mode.try_into().unwrap();

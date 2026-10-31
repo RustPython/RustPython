@@ -1,9 +1,11 @@
-#[cfg(feature = "flame-it")]
+use core::num::NonZeroI32;
 use std::ffi::OsString;
 
 /// Path configuration computed at runtime (like PyConfig path outputs)
 #[derive(Debug, Clone, Default)]
 pub struct Paths {
+    /// program_name: the name the interpreter was invoked as
+    pub program_name: OsString,
     /// sys.executable
     pub executable: String,
     /// sys._base_executable (original interpreter in venv)
@@ -25,6 +27,7 @@ pub struct Paths {
 /// Combined configuration: user settings + computed paths
 /// CPython directly exposes every fields under both of them.
 /// We separate them to maintain better ownership discipline.
+#[derive(Clone)]
 pub struct PyConfig {
     pub settings: Settings,
     pub paths: Paths,
@@ -39,6 +42,7 @@ impl PyConfig {
 
 /// User-configurable settings for the python vm.
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct Settings {
     /// -I
     pub isolated: bool,
@@ -59,7 +63,8 @@ pub struct Settings {
 
     // int tracemalloc;
     // int perf_profiling;
-    // int import_time;
+    /// -X importtime, PYTHONPROFILEIMPORTTIME: 2 also reports cached imports.
+    pub import_time: u8,
     /// -X no_debug_ranges: disable column info in bytecode
     pub code_debug_ranges: bool,
     // int show_ref_count;
@@ -68,11 +73,12 @@ pub struct Settings {
     // int malloc_stats;
     // wchar_t *filesystem_encoding;
     // wchar_t *filesystem_errors;
-    // wchar_t *pycache_prefix;
+    /// -X pycache_prefix, PYTHONPYCACHEPREFIX
+    pub pycache_prefix: Option<OsString>,
     // int parse_argv;
     // PyWideStringList orig_argv;
-    /// sys.argv
-    pub argv: Vec<String>,
+    /// sys.argv, decoded with the filesystem encoding during sys initialization.
+    pub argv: Vec<OsString>,
 
     // spell-checker:ignore Xfoo
     /// -Xfoo[=bar]
@@ -96,6 +102,10 @@ pub struct Settings {
 
     /// -X context_aware_warnings, whether warnings are context aware
     pub context_aware_warnings: bool,
+
+    /// -X lazy_imports, PYTHON_LAZY_IMPORTS: -1 for normal, 1 for all.
+    /// This startup value is independent of later sys.set_lazy_imports() calls.
+    pub lazy_imports: i8,
 
     /// -i
     pub inspect: bool,
@@ -129,12 +139,16 @@ pub struct Settings {
     /// --check-hash-based-pycs
     pub check_hash_pycs_mode: CheckHashPycsMode,
 
-    // int use_frozen_modules;
+    /// -X frozen_modules=on|off (bootstrap modules remain available).
+    pub use_frozen_modules: bool,
     /// -P
     pub safe_path: bool,
 
     /// -X int_max_str_digits
     pub int_max_str_digits: i64,
+
+    /// `-X cpu_count` / `PYTHON_CPU_COUNT` override; `None` leaves the count to the host
+    pub cpu_count: Option<NonZeroI32>,
 
     // /* --- Path configuration inputs ------------ */
     // int pathconfig_warnings;
@@ -142,7 +156,11 @@ pub struct Settings {
     /// Environment PYTHONPATH (and RUSTPYTHONPATH)
     pub path_list: Vec<String>,
 
-    // wchar_t *home;
+    /// Standalone CLI ._pth path override; embedded applications do not discover these files.
+    pub under_pth: Option<crate::getpath::UnderPth>,
+
+    /// PYTHONHOME: explicit prefix, optionally followed by the exec prefix.
+    pub home: Option<String>,
     // wchar_t *platlibdir;
     /// -d command line switch
     pub debug: u8,
@@ -190,6 +208,7 @@ impl Default for Settings {
             install_signal_handlers: true,
             user_site_directory: true,
             import_site: true,
+            use_frozen_modules: true,
             ignore_environment: false,
             verbose: 0,
             quiet: false,
@@ -202,11 +221,16 @@ impl Default for Settings {
             warn_default_encoding: false,
             thread_inherit_context: false,
             context_aware_warnings: false,
+            lazy_imports: -1,
             warnoptions: vec![],
             path_list: vec![],
+            under_pth: None,
+            home: None,
             argv: vec![],
             hash_seed: None,
             faulthandler: false,
+            import_time: 0,
+            pycache_prefix: None,
             code_debug_ranges: true,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
@@ -215,6 +239,7 @@ impl Default for Settings {
             stdio_errors: None,
             utf8_mode: -1,
             int_max_str_digits: 4300,
+            cpu_count: None,
             #[cfg(feature = "flame-it")]
             profile_output: None,
             #[cfg(feature = "flame-it")]

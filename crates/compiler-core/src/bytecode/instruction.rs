@@ -18,23 +18,29 @@ macro_rules! define_opcodes {
         }
     ) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr($typ)]
         $opcode_vis enum $opcode_name {
-            $($op_name),*
+            $($op_name = $op_id),*
         }
 
         impl $opcode_name {
             #[doc = concat!("Converts this opcode to [`", stringify!($instr_name), "`].")]
             #[must_use]
+            #[inline]
             $opcode_vis const fn as_instruction(&self) -> $instr_name {
-                match self {
-                    $(
-                        Self::$op_name => $instr_name::$op_name $({ $arg_name: Arg::marker() })?,
-                    )*
-                }
+                // SAFETY: `$opcode_name` and `$instr_name` are both `#[repr($typ)]`
+                // enums sharing identical explicit discriminants, and every
+                // `$instr_name` payload field is the zero-sized `Arg<T>` marker
+                // (see the `size_of` assertion near its definition), so both
+                // enums have the same one-`$typ`-wide representation: just the
+                // discriminant. Converting a live `$opcode_name` value therefore
+                // yields the `$instr_name` variant with the matching discriminant.
+                unsafe { core::mem::transmute(*self) }
             }
 
             /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
             #[must_use]
+            #[inline]
             $opcode_vis const fn deoptimize(self) -> Self {
                 match self.deopt() {
                     Some(v) => v,
@@ -49,6 +55,9 @@ macro_rules! define_opcodes {
             }
 
             // NOTE: Keep private. Will be exposed under `try_from_u8/try_from_u16`.
+            // Kept as a match rather than a range check + transmute: `$op_id`
+            // values are not contiguous (specialized/instrumented opcodes leave
+            // gaps), so validity can't be expressed as a simple bound.
             pub(super) const fn try_from_numeric(value: $typ) -> Result<Self, $crate::marshal::MarshalError> {
                 match value {
                     $($op_id => Ok(Self::$op_name),)*
@@ -58,10 +67,11 @@ macro_rules! define_opcodes {
 
             // NOTE: Keep private. Will be exposed under `as_u8/as_u16`.
             #[must_use]
+            #[inline]
             pub(super) const fn as_numeric(self) -> $typ {
-                match self {
-                    $(Self::$op_name => $op_id,)*
-                }
+                // `$opcode_name` is `#[repr($typ)]` with an explicit `$op_id`
+                // discriminant on every variant, so this is a plain identity cast.
+                self as $typ
             }
         }
 
@@ -95,15 +105,24 @@ macro_rules! define_opcodes {
             ),*
         }
 
+        // Every `$instr_name` payload field is the zero-sized `Arg<T>` marker, so
+        // (combined with the `#[repr($typ)]` above) each variant's representation
+        // is exactly its `$typ` discriminant with no padding. `as_opcode` and
+        // `$opcode_name::as_instruction` rely on this to convert via
+        // `mem::transmute` instead of a per-variant match.
+        const _: () = assert!(core::mem::size_of::<$instr_name>() == core::mem::size_of::<$typ>());
+
         impl $instr_name {
             #[doc = concat!("Get the corresponding [`", stringify!($opcode_name), "`].")]
             #[must_use]
+            #[inline]
             $instr_vis const fn as_opcode(&self) -> $opcode_name {
-                match self {
-                    $(
-                        Self::$op_name $({ $arg_name: _ })? => $opcode_name::$op_name,
-                    )*
-                }
+                // SAFETY: symmetric to `$opcode_name::as_instruction` above:
+                // `*self`'s representation is exactly its `$typ` discriminant
+                // (checked by the `size_of` assertion above this impl), and that
+                // discriminant is always a valid `$opcode_name` discriminant
+                // because both enums share the same explicit `$op_id` list.
+                unsafe { core::mem::transmute(*self) }
             }
 
             #[must_use]
@@ -314,261 +333,260 @@ define_opcodes!(
         FormatWithSpec = 13,
         GetAiter = 14,
         GetAnext = 15,
-        GetIter = 16,
+        GetLen = 16,
         Reserved = 17,
-        GetLen = 18,
-        GetYieldFromIter = 19,
-        InterpreterExit = 20,
-        LoadBuildClass = 21,
-        LoadLocals = 22,
-        MakeFunction = 23,
-        MatchKeys = 24,
-        MatchMapping = 25,
-        MatchSequence = 26,
-        Nop = 27,
-        NotTaken = 28,
-        PopExcept = 29,
-        PopIter = 30,
-        PopTop = 31,
-        PushExcInfo = 32,
-        PushNull = 33,
-        ReturnGenerator = 34,
-        ReturnValue = 35,
-        SetupAnnotations = 36,
-        StoreSlice = 37,
-        StoreSubscr = 38,
-        ToBool = 39,
-        UnaryInvert = 40,
-        UnaryNegative = 41,
-        UnaryNot = 42,
-        WithExceptStart = 43,
+        InterpreterExit = 18,
+        LoadBuildClass = 19,
+        LoadLocals = 20,
+        MakeFunction = 21,
+        MatchKeys = 22,
+        MatchMapping = 23,
+        MatchSequence = 24,
+        Nop = 25,
+        NotTaken = 26,
+        PopExcept = 27,
+        PopIter = 28,
+        PopTop = 29,
+        PushExcInfo = 30,
+        PushNull = 31,
+        ReturnGenerator = 32,
+        ReturnValue = 33,
+        SetupAnnotations = 34,
+        StoreSlice = 35,
+        StoreSubscr = 36,
+        ToBool = 37,
+        UnaryInvert = 38,
+        UnaryNegative = 39,
+        UnaryNot = 40,
+        WithExceptStart = 41,
         BinaryOp {
             op: Arg<oparg::BinaryOperator>,
-        } = 44,
+        } = 42,
         BuildInterpolation {
             format: Arg<u32>,
-        } = 45,
+        } = 43,
         BuildList {
             count: Arg<u32>,
-        } = 46,
+        } = 44,
         BuildMap {
             count: Arg<u32>,
-        } = 47,
+        } = 45,
         BuildSet {
             count: Arg<u32>,
-        } = 48,
+        } = 46,
         BuildSlice {
             argc: Arg<oparg::BuildSliceArgCount>,
-        } = 49,
+        } = 47,
         BuildString {
             count: Arg<u32>,
-        } = 50,
+        } = 48,
         BuildTuple {
             count: Arg<u32>,
-        } = 51,
+        } = 49,
         Call {
             argc: Arg<u32>,
-        } = 52,
+        } = 50,
         CallIntrinsic1 {
             func: Arg<oparg::IntrinsicFunction1>,
-        } = 53,
+        } = 51,
         CallIntrinsic2 {
             func: Arg<oparg::IntrinsicFunction2>,
-        } = 54,
+        } = 52,
         CallKw {
             argc: Arg<u32>,
-        } = 55,
+        } = 53,
         CompareOp {
             opname: Arg<oparg::ComparisonOperator>,
-        } = 56,
+        } = 54,
         ContainsOp {
             invert: Arg<oparg::Invert>,
-        } = 57,
+        } = 55,
         ConvertValue {
             oparg: Arg<oparg::ConvertValueOparg>,
-        } = 58,
+        } = 56,
         Copy {
             i: Arg<u32>,
-        } = 59,
+        } = 57,
         CopyFreeVars {
             n: Arg<u32>,
-        } = 60,
+        } = 58,
         DeleteAttr {
             namei: Arg<oparg::NameIdx>,
-        } = 61,
+        } = 59,
         DeleteDeref {
             i: Arg<oparg::VarNum>,
-        } = 62,
+        } = 60,
         DeleteFast {
             var_num: Arg<oparg::VarNum>,
-        } = 63,
+        } = 61,
         DeleteGlobal {
             namei: Arg<oparg::NameIdx>,
-        } = 64,
+        } = 62,
         DeleteName {
             namei: Arg<oparg::NameIdx>,
-        } = 65,
+        } = 63,
         DictMerge {
             i: Arg<u32>,
-        } = 66,
+        } = 64,
         DictUpdate {
             i: Arg<u32>,
-        } = 67,
-        EndAsyncFor = 68,
-        ExtendedArg = 69,
+        } = 65,
+        EndAsyncFor = 66,
+        ExtendedArg = 67,
         ForIter {
             delta: Arg<oparg::Label>,
-        } = 70,
+        } = 68,
         GetAwaitable {
             r#where: Arg<u32>,
-        } = 71,
+        } = 69,
+        GetIter { mode: Arg<u32> } = 70,
         ImportFrom {
             namei: Arg<oparg::NameIdx>,
-        } = 72,
+        } = 71,
         ImportName {
             namei: Arg<oparg::NameIdx>,
-        } = 73,
+        } = 72,
         IsOp {
             invert: Arg<oparg::Invert>,
-        } = 74,
+        } = 73,
         JumpBackward {
             delta: Arg<oparg::Label>,
-        } = 75,
+        } = 74,
         JumpBackwardNoInterrupt {
             delta: Arg<oparg::Label>,
-        } = 76,
+        } = 75,
         JumpForward {
             delta: Arg<oparg::Label>,
-        } = 77,
+        } = 76,
         ListAppend {
             i: Arg<u32>,
-        } = 78,
+        } = 77,
         ListExtend {
             i: Arg<u32>,
-        } = 79,
+        } = 78,
         LoadAttr {
             namei: Arg<oparg::LoadAttr>,
-        } = 80,
+        } = 79,
         LoadCommonConstant {
             idx: Arg<oparg::CommonConstant>,
-        } = 81,
+        } = 80,
         LoadConst {
             consti: Arg<oparg::ConstIdx>,
-        } = 82,
+        } = 81,
         LoadDeref {
             i: Arg<oparg::VarNum>,
-        } = 83,
+        } = 82,
         LoadFast {
             var_num: Arg<oparg::VarNum>,
-        } = 84,
+        } = 83,
         LoadFastAndClear {
             var_num: Arg<oparg::VarNum>,
-        } = 85,
+        } = 84,
         LoadFastBorrow {
             var_num: Arg<oparg::VarNum>,
-        } = 86,
+        } = 85,
         LoadFastBorrowLoadFastBorrow {
             var_nums: Arg<oparg::VarNums>,
-        } = 87,
+        } = 86,
         LoadFastCheck {
             var_num: Arg<oparg::VarNum>,
-        } = 88,
+        } = 87,
         LoadFastLoadFast {
             var_nums: Arg<oparg::VarNums>,
-        } = 89,
+        } = 88,
         LoadFromDictOrDeref {
             i: Arg<oparg::VarNum>,
-        } = 90,
+        } = 89,
         LoadFromDictOrGlobals {
             i: Arg<oparg::NameIdx>,
-        } = 91,
+        } = 90,
         LoadGlobal {
             namei: Arg<oparg::NameIdx>,
-        } = 92,
+        } = 91,
         LoadName {
             namei: Arg<oparg::NameIdx>,
-        } = 93,
+        } = 92,
         LoadSmallInt {
             i: Arg<u32>,
-        } = 94,
+        } = 93,
         LoadSpecial {
             method: Arg<oparg::SpecialMethod>,
-        } = 95,
+        } = 94,
         LoadSuperAttr {
             namei: Arg<oparg::LoadSuperAttr>,
-        } = 96,
+        } = 95,
         MakeCell {
             i: Arg<oparg::VarNum>,
-        } = 97,
+        } = 96,
         MapAdd {
             i: Arg<u32>,
-        } = 98,
+        } = 97,
         MatchClass {
             count: Arg<u32>,
-        } = 99,
+        } = 98,
         PopJumpIfFalse {
             delta: Arg<oparg::Label>,
-        } = 100,
+        } = 99,
         PopJumpIfNone {
             delta: Arg<oparg::Label>,
-        } = 101,
+        } = 100,
         PopJumpIfNotNone {
             delta: Arg<oparg::Label>,
-        } = 102,
+        } = 101,
         PopJumpIfTrue {
             delta: Arg<oparg::Label>,
-        } = 103,
+        } = 102,
         RaiseVarargs {
             argc: Arg<oparg::RaiseKind>,
-        } = 104,
+        } = 103,
         Reraise {
             depth: Arg<u32>,
-        } = 105,
+        } = 104,
         Send {
             delta: Arg<oparg::Label>,
-        } = 106,
+        } = 105,
         SetAdd {
             i: Arg<u32>,
-        } = 107,
+        } = 106,
         SetFunctionAttribute {
             flag: Arg<oparg::MakeFunctionFlag>,
-        } = 108,
+        } = 107,
         SetUpdate {
             i: Arg<u32>,
-        } = 109,
+        } = 108,
         StoreAttr {
             namei: Arg<oparg::NameIdx>,
-        } = 110,
+        } = 109,
         StoreDeref {
             i: Arg<oparg::VarNum>,
-        } = 111,
+        } = 110,
         StoreFast {
             var_num: Arg<oparg::VarNum>,
-        } = 112,
+        } = 111,
         StoreFastLoadFast {
             var_nums: Arg<oparg::VarNums>,
-        } = 113,
+        } = 112,
         StoreFastStoreFast {
             var_nums: Arg<oparg::VarNums>,
-        } = 114,
+        } = 113,
         StoreGlobal {
             namei: Arg<oparg::NameIdx>,
-        } = 115,
+        } = 114,
         StoreName {
             namei: Arg<oparg::NameIdx>,
-        } = 116,
+        } = 115,
         Swap {
             i: Arg<u32>,
-        } = 117,
+        } = 116,
         UnpackEx {
             counts: Arg<oparg::UnpackExArgs>,
-        } = 118,
+        } = 117,
         UnpackSequence {
             count: Arg<u32>,
-        } = 119,
+        } = 118,
         YieldValue {
             arg: Arg<u32>,
-        } = 120,
+        } = 119,
         Resume {
             context: Arg<oparg::ResumeContext>,
         } = 128,
@@ -584,99 +602,108 @@ define_opcodes!(
         BinaryOpSubscrListSlice = 138,
         BinaryOpSubscrStrInt = 139,
         BinaryOpSubscrTupleInt = 140,
-        BinaryOpSubtractFloat = 141,
-        BinaryOpSubtractInt = 142,
-        CallAllocAndEnterInit = 143,
-        CallBoundMethodExactArgs = 144,
-        CallBoundMethodGeneral = 145,
-        CallBuiltinClass = 146,
-        CallBuiltinFast = 147,
-        CallBuiltinFastWithKeywords = 148,
-        CallBuiltinO = 149,
-        CallIsinstance = 150,
-        CallKwBoundMethod = 151,
-        CallKwNonPy = 152,
-        CallKwPy = 153,
-        CallLen = 154,
-        CallListAppend = 155,
-        CallMethodDescriptorFast = 156,
-        CallMethodDescriptorFastWithKeywords = 157,
-        CallMethodDescriptorNoargs = 158,
-        CallMethodDescriptorO = 159,
-        CallNonPyGeneral = 160,
-        CallPyExactArgs = 161,
-        CallPyGeneral = 162,
-        CallStr1 = 163,
-        CallTuple1 = 164,
-        CallType1 = 165,
-        CompareOpFloat = 166,
-        CompareOpInt = 167,
-        CompareOpStr = 168,
-        ContainsOpDict = 169,
-        ContainsOpSet = 170,
-        ForIterGen = 171,
-        ForIterList = 172,
-        ForIterRange = 173,
-        ForIterTuple = 174,
-        JumpBackwardJit = 175,
-        JumpBackwardNoJit = 176,
-        LoadAttrClass = 177,
-        LoadAttrClassWithMetaclassCheck = 178,
-        LoadAttrGetattributeOverridden = 179,
-        LoadAttrInstanceValue = 180,
-        LoadAttrMethodLazyDict = 181,
-        LoadAttrMethodNoDict = 182,
-        LoadAttrMethodWithValues = 183,
-        LoadAttrModule = 184,
-        LoadAttrNondescriptorNoDict = 185,
-        LoadAttrNondescriptorWithValues = 186,
-        LoadAttrProperty = 187,
-        LoadAttrSlot = 188,
-        LoadAttrWithHint = 189,
-        LoadConstImmortal = 190,
-        LoadConstMortal = 191,
-        LoadGlobalBuiltin = 192,
-        LoadGlobalModule = 193,
-        LoadSuperAttrAttr = 194,
-        LoadSuperAttrMethod = 195,
-        ResumeCheck = 196,
-        SendGen = 197,
-        StoreAttrInstanceValue = 198,
-        StoreAttrSlot = 199,
-        StoreAttrWithHint = 200,
-        StoreSubscrDict = 201,
-        StoreSubscrListInt = 202,
-        ToBoolAlwaysTrue = 203,
-        ToBoolBool = 204,
-        ToBoolInt = 205,
-        ToBoolList = 206,
-        ToBoolNone = 207,
-        ToBoolStr = 208,
-        UnpackSequenceList = 209,
-        UnpackSequenceTuple = 210,
-        UnpackSequenceTwoTuple = 211,
-        InstrumentedEndFor = 234,
-        InstrumentedPopIter = 235,
-        InstrumentedEndSend = 236,
-        InstrumentedForIter = 237,
-        InstrumentedInstruction = 238,
-        InstrumentedJumpForward = 239,
-        InstrumentedNotTaken = 240,
-        InstrumentedPopJumpIfTrue = 241,
-        InstrumentedPopJumpIfFalse = 242,
-        InstrumentedPopJumpIfNone = 243,
-        InstrumentedPopJumpIfNotNone = 244,
-        InstrumentedResume = 245,
-        InstrumentedReturnValue = 246,
-        InstrumentedYieldValue = 247,
-        InstrumentedEndAsyncFor = 248,
-        InstrumentedLoadSuperAttr = 249,
-        InstrumentedCall = 250,
-        InstrumentedCallKw = 251,
-        InstrumentedCallFunctionEx = 252,
-        InstrumentedJumpBackward = 253,
-        InstrumentedLine = 254,
-        EnterExecutor = 255,
+        BinaryOpSubscrUstrInt = 141,
+        BinaryOpSubtractFloat = 142,
+        BinaryOpSubtractInt = 143,
+        CallAllocAndEnterInit = 144,
+        CallBoundMethodExactArgs = 145,
+        CallBoundMethodGeneral = 146,
+        CallBuiltinClass = 147,
+        CallBuiltinFast = 148,
+        CallBuiltinFastWithKeywords = 149,
+        CallBuiltinO = 150,
+        CallExNonPyGeneral = 151,
+        CallExPy = 152,
+        CallIsinstance = 153,
+        CallKwBoundMethod = 154,
+        CallKwNonPy = 155,
+        CallKwPy = 156,
+        CallLen = 157,
+        CallListAppend = 158,
+        CallMethodDescriptorFast = 159,
+        CallMethodDescriptorFastWithKeywords = 160,
+        CallMethodDescriptorNoargs = 161,
+        CallMethodDescriptorO = 162,
+        CallNonPyGeneral = 163,
+        CallPyExactArgs = 164,
+        CallPyGeneral = 165,
+        CallStr1 = 166,
+        CallTuple1 = 167,
+        CallType1 = 168,
+        CompareOpFloat = 169,
+        CompareOpInt = 170,
+        CompareOpStr = 171,
+        ContainsOpDict = 172,
+        ContainsOpSet = 173,
+        ForIterGen = 174,
+        ForIterList = 175,
+        ForIterRange = 176,
+        ForIterTuple = 177,
+        ForIterVirtual = 178,
+        GetIterSelf = 179,
+        GetIterVirtual = 180,
+        JumpBackwardJit = 181,
+        JumpBackwardNoJit = 182,
+        LoadAttrClass = 183,
+        LoadAttrClassWithMetaclassCheck = 184,
+        LoadAttrGetattributeOverridden = 185,
+        LoadAttrInstanceValue = 186,
+        LoadAttrMethodLazyDict = 187,
+        LoadAttrMethodNoDict = 188,
+        LoadAttrMethodWithValues = 189,
+        LoadAttrModule = 190,
+        LoadAttrNondescriptorNoDict = 191,
+        LoadAttrNondescriptorWithValues = 192,
+        LoadAttrProperty = 193,
+        LoadAttrSlot = 194,
+        LoadAttrWithHint = 195,
+        LoadGlobalBuiltin = 196,
+        LoadGlobalModule = 197,
+        LoadSuperAttrAttr = 198,
+        LoadSuperAttrMethod = 199,
+        ResumeCheck = 200,
+        ResumeCheckJit = 201,
+        SendAsyncGen = 202,
+        SendGen = 203,
+        SendVirtual = 204,
+        StoreAttrInstanceValue = 205,
+        StoreAttrSlot = 206,
+        StoreAttrWithHint = 207,
+        StoreSubscrDict = 208,
+        StoreSubscrListInt = 209,
+        ToBoolAlwaysTrue = 210,
+        ToBoolBool = 211,
+        ToBoolInt = 212,
+        ToBoolList = 213,
+        ToBoolNone = 214,
+        ToBoolStr = 215,
+        UnpackSequenceList = 216,
+        UnpackSequenceTuple = 217,
+        UnpackSequenceTwoTuple = 218,
+        BuildListFromArg = 219,
+        InstrumentedEndFor = 233,
+        InstrumentedPopIter = 234,
+        InstrumentedEndSend = 235,
+        InstrumentedForIter = 236,
+        InstrumentedInstruction = 237,
+        InstrumentedJumpForward = 238,
+        InstrumentedNotTaken = 239,
+        InstrumentedPopJumpIfTrue = 240,
+        InstrumentedPopJumpIfFalse = 241,
+        InstrumentedPopJumpIfNone = 242,
+        InstrumentedPopJumpIfNotNone = 243,
+        InstrumentedResume = 244,
+        InstrumentedReturnValue = 245,
+        InstrumentedYieldValue = 246,
+        InstrumentedEndAsyncFor = 247,
+        InstrumentedLoadSuperAttr = 248,
+        InstrumentedCall = 249,
+        InstrumentedCallKw = 250,
+        InstrumentedCallFunctionEx = 251,
+        InstrumentedJumpBackward = 252,
+        InstrumentedLine = 253,
+        EnterExecutor = 254,
+        TraceRecord = 255,
     }
 );
 
@@ -754,9 +781,8 @@ impl Opcode {
     /// Stack effect when the instruction takes its branch (jump=true).
     ///
     /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-    /// For most instructions this equals the fallthrough effect.
-    /// Override for instructions where branch and fallthrough differ
-    /// (e.g. [`Self::ForIter`]: fallthrough = +1, branch = −1).
+    /// Current opcode metadata has the same real-opcode stack effect
+    /// for jump and fallthrough stack-depth calculation.
     #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
         self.stack_effect(oparg)
@@ -1398,6 +1424,9 @@ mod tests {
         assert!(PseudoOpcode::JumpIfTrue.has_arg());
         assert!(PseudoOpcode::JumpNoInterrupt.has_arg());
         assert!(PseudoOpcode::LoadClosure.has_arg());
+        assert!(PseudoOpcode::SetupCleanup.has_arg());
+        assert!(PseudoOpcode::SetupFinally.has_arg());
+        assert!(PseudoOpcode::SetupWith.has_arg());
         assert!(PseudoOpcode::StoreFastMaybeNull.has_arg());
         assert!(!PseudoOpcode::AnnotationsPlaceholder.has_arg());
         assert!(!PseudoOpcode::PopBlock.has_arg());
@@ -1406,13 +1435,31 @@ mod tests {
     #[test]
     fn const_flags_match_cpython_opcode_metadata() {
         assert!(Opcode::LoadConst.has_const());
-        assert!(Opcode::LoadConstImmortal.has_const());
-        assert!(Opcode::LoadConstMortal.has_const());
         assert!(!Opcode::LoadSmallInt.has_const());
         assert!(!Opcode::Nop.has_const());
 
         assert!(!PseudoOpcode::LoadClosure.has_const());
         assert!(!AnyInstruction::from(PseudoOpcode::Jump).has_const());
+    }
+
+    #[test]
+    fn stack_effects_match_cpython_opcode_metadata() {
+        assert_eq!(Opcode::ForIter.stack_effect_info(0).popped(), 2);
+        assert_eq!(Opcode::ForIter.stack_effect_info(0).pushed(), 3);
+        assert_eq!(Opcode::ForIter.stack_effect(0), 1);
+        assert_eq!(Opcode::ForIter.stack_effect_jump(0), 1);
+
+        assert_eq!(Opcode::EndAsyncFor.stack_effect_info(0).popped(), 2);
+        assert_eq!(Opcode::EndAsyncFor.stack_effect_info(0).pushed(), 0);
+        assert_eq!(Opcode::PopJumpIfFalse.stack_effect(0), -1);
+        assert_eq!(Opcode::PopJumpIfFalse.stack_effect_jump(0), -1);
+
+        assert_eq!(PseudoOpcode::SetupFinally.stack_effect_info(0).pushed(), 1);
+        assert_eq!(PseudoOpcode::SetupFinally.stack_effect(0), 0);
+        assert_eq!(PseudoOpcode::SetupFinally.stack_effect_jump(0), 1);
+        assert_eq!(PseudoOpcode::SetupCleanup.stack_effect_info(0).pushed(), 2);
+        assert_eq!(PseudoOpcode::SetupCleanup.stack_effect(0), 0);
+        assert_eq!(PseudoOpcode::SetupCleanup.stack_effect_jump(0), 2);
     }
 
     #[test]
@@ -1430,5 +1477,233 @@ mod tests {
         assert!(!PseudoOpcode::SetupWith.is_no_fallthrough());
 
         assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());
+    }
+
+    /// Snapshot of the chained `match` implementations that `Opcode::deopt`
+    /// and `Opcode::cache_entries` used before they were rewritten as table
+    /// lookups. Exists only to pin the observable behavior of the table
+    /// lookups against the logic they replaced.
+    mod reference {
+        use super::Opcode;
+
+        pub(super) const fn deopt(op: Opcode) -> Option<Opcode> {
+            Some(match op {
+                Opcode::ResumeCheck | Opcode::ResumeCheckJit => Opcode::Resume,
+                Opcode::ToBoolAlwaysTrue
+                | Opcode::ToBoolBool
+                | Opcode::ToBoolInt
+                | Opcode::ToBoolList
+                | Opcode::ToBoolNone
+                | Opcode::ToBoolStr => Opcode::ToBool,
+                Opcode::BinaryOpMultiplyInt
+                | Opcode::BinaryOpAddInt
+                | Opcode::BinaryOpSubtractInt
+                | Opcode::BinaryOpMultiplyFloat
+                | Opcode::BinaryOpAddFloat
+                | Opcode::BinaryOpSubtractFloat
+                | Opcode::BinaryOpAddUnicode
+                | Opcode::BinaryOpSubscrListInt
+                | Opcode::BinaryOpSubscrListSlice
+                | Opcode::BinaryOpSubscrTupleInt
+                | Opcode::BinaryOpSubscrStrInt
+                | Opcode::BinaryOpSubscrUstrInt
+                | Opcode::BinaryOpSubscrDict
+                | Opcode::BinaryOpSubscrGetitem
+                | Opcode::BinaryOpExtend
+                | Opcode::BinaryOpInplaceAddUnicode => Opcode::BinaryOp,
+                Opcode::StoreSubscrDict | Opcode::StoreSubscrListInt => Opcode::StoreSubscr,
+                Opcode::SendGen | Opcode::SendAsyncGen | Opcode::SendVirtual => Opcode::Send,
+                Opcode::UnpackSequenceTwoTuple
+                | Opcode::UnpackSequenceTuple
+                | Opcode::UnpackSequenceList => Opcode::UnpackSequence,
+                Opcode::StoreAttrInstanceValue
+                | Opcode::StoreAttrSlot
+                | Opcode::StoreAttrWithHint => Opcode::StoreAttr,
+                Opcode::LoadGlobalModule | Opcode::LoadGlobalBuiltin => Opcode::LoadGlobal,
+                Opcode::LoadSuperAttrAttr | Opcode::LoadSuperAttrMethod => Opcode::LoadSuperAttr,
+                Opcode::LoadAttrInstanceValue
+                | Opcode::LoadAttrModule
+                | Opcode::LoadAttrWithHint
+                | Opcode::LoadAttrSlot
+                | Opcode::LoadAttrClass
+                | Opcode::LoadAttrClassWithMetaclassCheck
+                | Opcode::LoadAttrProperty
+                | Opcode::LoadAttrGetattributeOverridden
+                | Opcode::LoadAttrMethodWithValues
+                | Opcode::LoadAttrMethodNoDict
+                | Opcode::LoadAttrMethodLazyDict
+                | Opcode::LoadAttrNondescriptorWithValues
+                | Opcode::LoadAttrNondescriptorNoDict => Opcode::LoadAttr,
+                Opcode::CompareOpFloat | Opcode::CompareOpInt | Opcode::CompareOpStr => {
+                    Opcode::CompareOp
+                }
+                Opcode::ContainsOpSet | Opcode::ContainsOpDict => Opcode::ContainsOp,
+                Opcode::JumpBackwardNoJit | Opcode::JumpBackwardJit => Opcode::JumpBackward,
+                Opcode::ForIterList
+                | Opcode::ForIterTuple
+                | Opcode::ForIterRange
+                | Opcode::ForIterGen
+                | Opcode::ForIterVirtual => Opcode::ForIter,
+                Opcode::GetIterSelf | Opcode::GetIterVirtual => Opcode::GetIter,
+                Opcode::CallBoundMethodExactArgs
+                | Opcode::CallPyExactArgs
+                | Opcode::CallType1
+                | Opcode::CallStr1
+                | Opcode::CallTuple1
+                | Opcode::CallBuiltinClass
+                | Opcode::CallBuiltinO
+                | Opcode::CallBuiltinFast
+                | Opcode::CallBuiltinFastWithKeywords
+                | Opcode::CallLen
+                | Opcode::CallIsinstance
+                | Opcode::CallListAppend
+                | Opcode::CallMethodDescriptorO
+                | Opcode::CallMethodDescriptorFastWithKeywords
+                | Opcode::CallMethodDescriptorNoargs
+                | Opcode::CallMethodDescriptorFast
+                | Opcode::CallAllocAndEnterInit
+                | Opcode::CallPyGeneral
+                | Opcode::CallBoundMethodGeneral
+                | Opcode::CallNonPyGeneral => Opcode::Call,
+                Opcode::CallKwBoundMethod | Opcode::CallKwPy | Opcode::CallKwNonPy => {
+                    Opcode::CallKw
+                }
+                Opcode::CallExPy | Opcode::CallExNonPyGeneral => Opcode::CallFunctionEx,
+                _ => return None,
+            })
+        }
+
+        pub(super) const fn deoptimize(op: Opcode) -> Opcode {
+            match deopt(op) {
+                Some(v) => v,
+                None => match op.to_base() {
+                    Some(v) => v,
+                    None => op,
+                },
+            }
+        }
+
+        pub(super) const fn cache_entries(op: Opcode) -> usize {
+            match deoptimize(op) {
+                Opcode::Resume | Opcode::GetIter | Opcode::CallFunctionEx => 1,
+                Opcode::StoreSubscr => 1,
+                Opcode::ToBool => 3,
+                Opcode::BinaryOp => 5,
+                Opcode::Call => 3,
+                Opcode::CallKw => 3,
+                Opcode::CompareOp => 1,
+                Opcode::ContainsOp => 1,
+                Opcode::ForIter => 1,
+                Opcode::JumpBackward => 1,
+                Opcode::LoadAttr => 9,
+                Opcode::LoadGlobal => 4,
+                Opcode::LoadSuperAttr => 1,
+                Opcode::PopJumpIfFalse => 1,
+                Opcode::PopJumpIfNone => 1,
+                Opcode::PopJumpIfNotNone => 1,
+                Opcode::PopJumpIfTrue => 1,
+                Opcode::Send => 1,
+                Opcode::StoreAttr => 4,
+                Opcode::UnpackSequence => 1,
+                _ => 0,
+            }
+        }
+    }
+
+    #[test]
+    fn cache_entries_and_deopt_tables_match_reference_impl() {
+        let mut checked = 0;
+        for byte in 0u8..=255 {
+            let Ok(op) = Opcode::try_from_u8(byte) else {
+                continue;
+            };
+
+            assert_eq!(
+                op.deopt(),
+                reference::deopt(op),
+                "deopt() mismatch for {op:?}"
+            );
+            assert_eq!(
+                op.cache_entries(),
+                reference::cache_entries(op),
+                "cache_entries() mismatch for {op:?}"
+            );
+            checked += 1;
+        }
+
+        // Sanity check that the loop actually exercised opcodes rather than
+        // silently skipping all of them.
+        assert!(checked > 200);
+    }
+
+    /// `Opcode::as_numeric`, `Opcode::as_instruction` and
+    /// `Instruction::as_opcode` used to be per-variant matches; they are now
+    /// an identity cast and two `mem::transmute`s respectively. `byte` (an
+    /// input independent of any of those three functions) together with the
+    /// untouched `try_from_u8`/`TryFrom<u8>` conversions serve as the
+    /// reference: every opcode reachable from a byte must convert back to
+    /// that exact byte and round-trip through `Instruction`.
+    #[test]
+    fn opcode_instruction_numeric_conversions_match_try_from_numeric() {
+        let mut checked = 0;
+        for byte in 0u8..=255 {
+            let Ok(op) = Opcode::try_from_u8(byte) else {
+                continue;
+            };
+
+            assert_eq!(op.as_numeric(), byte, "as_numeric() mismatch for {op:?}");
+
+            let instr = op.as_instruction();
+            assert_eq!(
+                instr.as_opcode(),
+                op,
+                "as_instruction()/as_opcode() round trip mismatch for {op:?}"
+            );
+
+            let instr_via_try_from = Instruction::try_from(byte).unwrap();
+            assert_eq!(
+                instr_via_try_from.as_opcode(),
+                op,
+                "Instruction::try_from({byte}) mismatch"
+            );
+
+            checked += 1;
+        }
+
+        assert!(checked > 200);
+    }
+
+    /// Same as [`opcode_instruction_numeric_conversions_match_try_from_numeric`]
+    /// but for the `u16`-discriminant pseudo-opcode instantiation of
+    /// `define_opcodes!`.
+    #[test]
+    fn pseudo_opcode_instruction_numeric_conversions_match_try_from_numeric() {
+        let mut checked = 0;
+        for value in 0u16..=u16::MAX {
+            let Ok(op) = PseudoOpcode::try_from_u16(value) else {
+                continue;
+            };
+
+            assert_eq!(op.as_numeric(), value, "as_numeric() mismatch for {op:?}");
+
+            let instr = op.as_instruction();
+            assert_eq!(
+                instr.as_opcode(),
+                op,
+                "as_instruction()/as_opcode() round trip mismatch for {op:?}"
+            );
+
+            let instr_via_try_from = PseudoInstruction::try_from(value).unwrap();
+            assert_eq!(
+                instr_via_try_from.as_opcode(),
+                op,
+                "PseudoInstruction::try_from({value}) mismatch"
+            );
+
+            checked += 1;
+        }
+
+        // All 11 `PseudoInstruction` variants should have been exercised.
+        assert_eq!(checked, 11);
     }
 }

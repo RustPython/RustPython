@@ -166,21 +166,20 @@ class ParseArgsTestCase(unittest.TestCase):
                 ns = self.parse_args([opt])
                 self.assertTrue(ns.randomize)
 
-        with os_helper.EnvironmentVarGuard() as env:
-            # with SOURCE_DATE_EPOCH
-            env['SOURCE_DATE_EPOCH'] = '1697839080'
-            ns = self.parse_args(['--randomize'])
-            regrtest = main.Regrtest(ns)
-            self.assertFalse(regrtest.randomize)
-            self.assertIsInstance(regrtest.random_seed, str)
-            self.assertEqual(regrtest.random_seed, '1697839080')
+    @os_helper.with_source_date_epoch(epoch=1697839080)
+    def test_randomize_with_source_date_epoch(self):
+        ns = self.parse_args(['--randomize'])
+        regrtest = main.Regrtest(ns)
+        self.assertFalse(regrtest.randomize)
+        self.assertIsInstance(regrtest.random_seed, str)
+        self.assertEqual(regrtest.random_seed, '1697839080')
 
-            # without SOURCE_DATE_EPOCH
-            del env['SOURCE_DATE_EPOCH']
-            ns = self.parse_args(['--randomize'])
-            regrtest = main.Regrtest(ns)
-            self.assertTrue(regrtest.randomize)
-            self.assertIsInstance(regrtest.random_seed, int)
+    @os_helper.without_source_date_epoch
+    def test_randomize_without_source_date_epoch(self):
+        ns = self.parse_args(['--randomize'])
+        regrtest = main.Regrtest(ns)
+        self.assertTrue(regrtest.randomize)
+        self.assertIsInstance(regrtest.random_seed, int)
 
     def test_no_randomize(self):
         ns = self.parse_args([])
@@ -279,26 +278,56 @@ class ParseArgsTestCase(unittest.TestCase):
         for opt in '-u', '--use':
             with self.subTest(opt=opt):
                 ns = self.parse_args([opt, 'gui,network'])
-                self.assertEqual(ns.use_resources, ['gui', 'network'])
+                self.assertEqual(ns.use_resources, {'gui': None, 'network': None})
+                ns = self.parse_args([opt, 'gui', opt, 'network'])
+                self.assertEqual(ns.use_resources, {'gui': None, 'network': None})
 
                 ns = self.parse_args([opt, 'gui,none,network'])
-                self.assertEqual(ns.use_resources, ['network'])
+                self.assertEqual(ns.use_resources, {'network': None})
+                ns = self.parse_args([opt, 'gui', opt, 'none', opt, 'network'])
+                self.assertEqual(ns.use_resources, {'network': None})
 
-                expected = list(cmdline.ALL_RESOURCES)
-                expected.remove('gui')
+                expected = dict.fromkeys(cmdline.ALL_RESOURCES)
+                del expected['gui']
                 ns = self.parse_args([opt, 'all,-gui'])
                 self.assertEqual(ns.use_resources, expected)
+
                 self.checkError([opt], 'expected one argument')
                 self.checkError([opt, 'foo'], 'invalid resource')
 
                 # all + a resource not part of "all"
+                expected = dict.fromkeys(cmdline.ALL_RESOURCES)
+                expected['tzdata'] = None
                 ns = self.parse_args([opt, 'all,tzdata'])
-                self.assertEqual(ns.use_resources,
-                                 list(cmdline.ALL_RESOURCES) + ['tzdata'])
+                self.assertEqual(ns.use_resources, expected)
+                ns = self.parse_args([opt, 'all', opt, 'tzdata'])
+                self.assertEqual(ns.use_resources, expected)
 
                 # test another resource which is not part of "all"
                 ns = self.parse_args([opt, 'extralargefile'])
-                self.assertEqual(ns.use_resources, ['extralargefile'])
+                self.assertEqual(ns.use_resources, {'extralargefile': None})
+
+                # test resource with value
+                ns = self.parse_args([opt, 'xpickle=2.7'])
+                self.assertEqual(ns.use_resources, {'xpickle': '2.7'})
+                ns = self.parse_args([opt, 'xpickle=2.7,xpickle=3.3'])
+                self.assertEqual(ns.use_resources, {'xpickle': '3.3'})
+                ns = self.parse_args([opt, 'xpickle=2.7,none'])
+                self.assertEqual(ns.use_resources, {})
+                ns = self.parse_args([opt, 'xpickle=2.7,-xpickle'])
+                self.assertEqual(ns.use_resources, {})
+
+                expected = dict.fromkeys(cmdline.ALL_RESOURCES)
+                expected['xpickle'] = '2.7'
+                ns = self.parse_args([opt, 'all,xpickle=2.7'])
+                self.assertEqual(ns.use_resources, expected)
+                ns = self.parse_args([opt, 'all', opt, 'xpickle=2.7'])
+                self.assertEqual(ns.use_resources, expected)
+
+                # test invalid resources with value
+                self.checkError([opt, 'all=0'], 'invalid resource: all=0')
+                self.checkError([opt, 'none=0'], 'invalid resource: none=0')
+                self.checkError([opt, 'all,-gui=0'], 'invalid resource: -gui=0')
 
     def test_memlimit(self):
         for opt in '-M', '--memlimit':
@@ -459,20 +488,20 @@ class ParseArgsTestCase(unittest.TestCase):
         self.assertTrue(regrtest.fail_env_changed)
         self.assertTrue(regrtest.print_slowest)
         self.assertEqual(regrtest.output_on_failure, output_on_failure)
-        self.assertEqual(sorted(regrtest.use_resources), sorted(use_resources))
+        self.assertEqual(regrtest.use_resources, use_resources)
         return regrtest
 
     def test_fast_ci(self):
         args = ['--fast-ci']
-        use_resources = sorted(cmdline.ALL_RESOURCES)
-        use_resources.remove('cpu')
+        use_resources = dict.fromkeys(cmdline.ALL_RESOURCES)
+        del use_resources['cpu']
         regrtest = self.check_ci_mode(args, use_resources)
         self.assertEqual(regrtest.timeout, 10 * 60)
 
     def test_fast_ci_python_cmd(self):
         args = ['--fast-ci', '--python', 'python -X dev']
-        use_resources = sorted(cmdline.ALL_RESOURCES)
-        use_resources.remove('cpu')
+        use_resources = dict.fromkeys(cmdline.ALL_RESOURCES)
+        del use_resources['cpu']
         regrtest = self.check_ci_mode(args, use_resources, rerun=False)
         self.assertEqual(regrtest.timeout, 10 * 60)
         self.assertEqual(regrtest.python_cmd, ('python', '-X', 'dev'))
@@ -480,32 +509,33 @@ class ParseArgsTestCase(unittest.TestCase):
     def test_fast_ci_resource(self):
         # it should be possible to override resources individually
         args = ['--fast-ci', '-u-network']
-        use_resources = sorted(cmdline.ALL_RESOURCES)
-        use_resources.remove('cpu')
-        use_resources.remove('network')
+        use_resources = dict.fromkeys(cmdline.ALL_RESOURCES)
+        del use_resources['cpu']
+        del use_resources['network']
         self.check_ci_mode(args, use_resources)
 
     def test_fast_ci_verbose(self):
         args = ['--fast-ci', '--verbose']
-        use_resources = sorted(cmdline.ALL_RESOURCES)
-        use_resources.remove('cpu')
+        use_resources = dict.fromkeys(cmdline.ALL_RESOURCES)
+        del use_resources['cpu']
         regrtest = self.check_ci_mode(args, use_resources,
                                       output_on_failure=False)
         self.assertEqual(regrtest.verbose, True)
 
     def test_slow_ci(self):
         args = ['--slow-ci']
-        use_resources = sorted(cmdline.ALL_RESOURCES)
+        use_resources = dict.fromkeys(cmdline.ALL_RESOURCES)
         regrtest = self.check_ci_mode(args, use_resources)
         self.assertEqual(regrtest.timeout, 20 * 60)
 
     def test_ci_no_randomize(self):
-        all_resources = set(cmdline.ALL_RESOURCES)
+        use_resources = dict.fromkeys(cmdline.ALL_RESOURCES)
         self.check_ci_mode(
-            ["--slow-ci", "--no-randomize"], all_resources, randomize=False
+            ["--slow-ci", "--no-randomize"], use_resources, randomize=False
         )
+        del use_resources['cpu']
         self.check_ci_mode(
-            ["--fast-ci", "--no-randomize"], all_resources - {'cpu'}, randomize=False
+            ["--fast-ci", "--no-randomize"], use_resources, randomize=False
         )
 
     def test_dont_add_python_opts(self):
@@ -539,6 +569,13 @@ class ParseArgsTestCase(unittest.TestCase):
             regrtest = self.create_regrtest(args)
         self.assertEqual(regrtest.num_workers, 0)
         self.assertTrue(regrtest.single_process)
+
+    def test_pythoninfo(self):
+        ns = self.parse_args([])
+        self.assertFalse(ns.pythoninfo)
+
+        ns = self.parse_args(['--pythoninfo'])
+        self.assertTrue(ns.pythoninfo)
 
 
 @dataclasses.dataclass(slots=True)
@@ -884,7 +921,6 @@ class ProgramsTestCase(BaseTestCase):
         args = [*self.python_args, script, *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_test(self):
         # -m test
         args = [*self.python_args, '-m', 'test',
@@ -897,14 +933,12 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_autotest(self):
         # -m test.autotest
         args = [*self.python_args, '-m', 'test.autotest',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_from_test_autotest(self):
         # from test import autotest
         code = 'from test import autotest'
@@ -912,7 +946,6 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_script_autotest(self):
         # Lib/test/autotest.py
         script = os.path.join(self.testdir, 'autotest.py')
@@ -1195,7 +1228,6 @@ class ArgsTestCase(BaseTestCase):
                 regex = ('10 slowest tests:\n')
                 self.check_line(output, regex)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^lines +cov% +module +\\(path\\)\\n(?: *[0-9]+ *[0-9]{1,2}\\.[0-9]% *[^ ]+ +\\([^)]+\\)+)+' not found in 'Warning: collecting coverage without -j is imprecise. Configure --with-pydebug and run -m test -T -j for best results.\nUsing random seed: 2780369491\n0:00:00 Run 1 test sequentially in a single process\n0:00:00 [1/1] test_regrtest_coverage\n0:00:00 [1/1] test_regrtest_coverage passed\n\n== Tests result: SUCCESS ==\n\n1 test OK.\n\nTotal duration: 102 ms\nTotal tests: run=1\nTotal test files: run=1/1\nResult: SUCCESS\n'
     def test_coverage(self):
         # test --coverage
         test = self.create_test('coverage')
@@ -2003,7 +2035,6 @@ class ArgsTestCase(BaseTestCase):
         for name in names:
             self.assertFalse(os.path.exists(name), name)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipIf(support.is_wasi,
                      'checking temp files is not implemented on WASI')
     def test_leak_tmp_file(self):
@@ -2116,7 +2147,7 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, [testname],
                                   failed=[testname],
                                   parallel=True,
-                                  stats=TestStats(1, 1, 0))
+                                  stats=TestStats(1, 2, 1))
 
     def _check_random_seed(self, run_workers: bool):
         # gh-109276: When -r/--randomize is used, random.seed() is called
@@ -2155,11 +2186,9 @@ class ArgsTestCase(BaseTestCase):
     def test_random_seed(self):
         self._check_random_seed(run_workers=False)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_random_seed_workers(self):
         self._check_random_seed(run_workers=True)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_python_command(self):
         code = textwrap.dedent(r"""
             import sys
@@ -2201,10 +2230,7 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, tests, stats=3)
 
     def check_add_python_opts(self, option):
-        # --fast-ci and --slow-ci add "-u -W default -bb -E" options to Python
-
-        # Skip test if _testinternalcapi is missing
-        import_helper.import_module('_testinternalcapi')
+        # --fast-ci and --slow-ci add "-u -W error -bb -E" options to Python
 
         code = textwrap.dedent(r"""
             import sys
@@ -2219,25 +2245,26 @@ class ArgsTestCase(BaseTestCase):
             use_environment = (support.is_emscripten or support.is_wasi)
 
             class WorkerTests(unittest.TestCase):
-                @unittest.skipUnless(config_get is None, 'need config_get()')
+                @unittest.skipIf(config_get is None, 'need config_get()')
                 def test_config(self):
-                    config = config_get()
                     # -u option
                     self.assertEqual(config_get('buffered_stdio'), 0)
-                    # -W default option
-                    self.assertTrue(config_get('warnoptions'), ['default'])
+                    # -W error option
+                    self.assertEqual(config_get('warnoptions'),
+                                     ['error', 'error::BytesWarning'])
                     # -bb option
-                    self.assertTrue(config_get('bytes_warning'), 2)
+                    self.assertEqual(config_get('bytes_warning'), 2)
                     # -E option
-                    self.assertTrue(config_get('use_environment'), use_environment)
+                    self.assertEqual(config_get('use_environment'), use_environment)
 
                 def test_python_opts(self):
                     # -u option
                     self.assertTrue(sys.__stdout__.write_through)
                     self.assertTrue(sys.__stderr__.write_through)
 
-                    # -W default option
-                    self.assertTrue(sys.warnoptions, ['default'])
+                    # -W error option
+                    self.assertEqual(sys.warnoptions,
+                                     ['error', 'error::BytesWarning'])
 
                     # -bb option
                     self.assertEqual(sys.flags.bytes_warning, 2)
@@ -2256,7 +2283,8 @@ class ArgsTestCase(BaseTestCase):
         proc = subprocess.run(cmd,
                               stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT,
-                              text=True)
+                              text=True,
+                              env=support.make_clean_env())
         self.assertEqual(proc.returncode, 0, proc)
 
     def test_add_python_opts(self):
@@ -2324,7 +2352,6 @@ class ArgsTestCase(BaseTestCase):
             self.check_executed_tests(output, testname, stats=1, parallel=True)
             self.assertNotIn('SPAM SPAM SPAM', output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
     def test_xml(self):
         code = textwrap.dedent(r"""
             import unittest
@@ -2406,6 +2433,11 @@ class ArgsTestCase(BaseTestCase):
         self.assertNotIn('test_re', tests)
         self.assertEqual(len(tests), len(pgo_tests) - 1)
 
+    def test_pythoninfo(self):
+        testname = self.create_test()
+        output = self.run_tests('--pythoninfo', testname)
+        self.assertIn("Python build information", output)
+
 
 class TestUtils(unittest.TestCase):
     def test_format_duration(self):
@@ -2445,20 +2477,20 @@ class TestUtils(unittest.TestCase):
         format_resources = utils.format_resources
         ALL_RESOURCES = utils.ALL_RESOURCES
         self.assertEqual(
-            format_resources(("network",)),
+            format_resources({"network": None}),
             'resources (1): network')
         self.assertEqual(
-            format_resources(("audio", "decimal", "network")),
+            format_resources(dict.fromkeys(("audio", "decimal", "network"))),
             'resources (3): audio,decimal,network')
         self.assertEqual(
-            format_resources(ALL_RESOURCES),
+            format_resources(dict.fromkeys(ALL_RESOURCES)),
             'resources: all')
         self.assertEqual(
-            format_resources(tuple(name for name in ALL_RESOURCES
-                                   if name != "cpu")),
+            format_resources({name: None for name in ALL_RESOURCES
+                              if name != "cpu"}),
             'resources: all,-cpu')
         self.assertEqual(
-            format_resources((*ALL_RESOURCES, "tzdata")),
+            format_resources({**dict.fromkeys(ALL_RESOURCES), "tzdata": None}),
             'resources: all,tzdata')
 
     def test_match_test(self):

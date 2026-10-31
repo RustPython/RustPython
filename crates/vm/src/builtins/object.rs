@@ -5,18 +5,14 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
-    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{
+        ArgumentError, Either, FromArgs, FuncArgs, Param, PyArithmeticValue, PyComparisonValue,
+        PySetterValue,
+    },
     types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
 
-/// object()
-/// --
-///
-/// The base class of the class hierarchy.
-///
-/// When called, it accepts no arguments and returns a new featureless
-/// instance that has no instance attributes and cannot be given any.
 #[pyclass(module = false, name = "object")]
 #[derive(Debug)]
 pub struct PyBaseObject;
@@ -28,11 +24,22 @@ impl PyPayload for PyBaseObject {
     }
 }
 
+pub struct ObjectArgs;
+
+impl FromArgs for ObjectArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[]);
+
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
+    }
+}
+
 impl Constructor for PyBaseObject {
-    type Args = FuncArgs;
+    type Args = ObjectArgs;
 
     // = object_new
-    fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() || !args.kwargs.is_empty() {
             // Check if type's __new__ != object.__new__
             let tp_new = cls.get_attr(identifier!(vm, __new__));
@@ -65,34 +72,24 @@ impl Constructor for PyBaseObject {
         }
 
         // Ensure that all abstract methods are implemented before instantiating instance.
-        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
-            && let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm)
-        {
+        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
             let methods: Vec<PyUtf8StrRef> = abs_methods.try_to_value(vm)?;
-            let methods: String = Itertools::intersperse(
-                methods.iter().map(|name| name.as_str().to_owned()),
-                "', '".to_owned(),
-            )
-            .collect();
-
-            let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
-            let name = cls.name().to_string();
-
-            match unimplemented_abstract_method_count {
-                0 => {}
-                1 => {
-                    return Err(vm.new_type_error(format!(
-                        "class {name} without an implementation for abstract method '{methods}'"
-                    )));
-                }
-                2.. => {
-                    return Err(vm.new_type_error(format!(
-                        "class {name} without an implementation for abstract methods '{methods}'"
-                    )));
-                }
-                // TODO: remove `allow` when redox build doesn't complain about it
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
+            let unimplemented_abstract_method_count = methods.len();
+            if unimplemented_abstract_method_count > 0 {
+                let methods: String = Itertools::intersperse(
+                    methods.iter().map(|name| name.as_str().to_owned()),
+                    "', '".to_owned(),
+                )
+                .collect();
+                let name = cls.name().to_string();
+                let noun = if unimplemented_abstract_method_count == 1 {
+                    "method"
+                } else {
+                    "methods"
+                };
+                return Err(vm.new_type_error(format!(
+                    "class {name} without an implementation for abstract {noun} '{methods}'"
+                )));
             }
         }
 
@@ -121,10 +118,10 @@ pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine)
 }
 
 impl Initializer for PyBaseObject {
-    type Args = FuncArgs;
+    type Args = ObjectArgs;
 
     // object_init: excess_args validation
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         if args.is_empty() {
             return Ok(());
         }
@@ -132,8 +129,12 @@ impl Initializer for PyBaseObject {
         let typ = zelf.class();
         let object_type = &vm.ctx.types.object_type;
 
-        let typ_init = typ.slots.init.load().map(|f| f as usize);
-        let object_init = object_type.slots.init.load().map(|f| f as usize);
+        let typ_init = typ.slots.init.load().map(|f| crate::types::fn_addr(f));
+        let object_init = object_type
+            .slots
+            .init
+            .load()
+            .map(|f| crate::types::fn_addr(f));
 
         // if (type->tp_init != object_init) → first error
         if typ_init != object_init {
@@ -158,26 +159,28 @@ impl Initializer for PyBaseObject {
         Ok(())
     }
 
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         unreachable!("slot_init is defined")
     }
 }
 
-// TODO: implement _PyType_GetSlotNames properly
+// _PyType_GetSlotNames
 fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<super::PyListRef>> {
-    // let attributes = typ.attributes.read();
-    // if let Some(slot_names) = attributes.get(identifier!(vm.ctx, __slotnames__)) {
-    //     return match_class!(match slot_names.clone() {
-    //         l @ super::PyList => Ok(Some(l)),
-    //         _n @ super::PyNone => Ok(None),
-    //         _ => Err(vm.new_type_error(format!(
-    //             "{:.200}.__slotnames__ should be a list or None, not {:.200}",
-    //             typ.name(),
-    //             slot_names.class().name()
-    //         ))),
-    //     });
-    // }
+    // The class caches its slot names in `__slotnames__`.
+    if let Some(slot_names) = typ.get_direct_attr(identifier!(vm.ctx, __slotnames__)) {
+        return match_class!(match slot_names {
+            l @ super::PyList => Ok(Some(l)),
+            _n @ super::PyNone => Ok(None),
+            other => Err(vm.new_type_error(format!(
+                "{:.200}.__slotnames__ should be a list or None, not {:.200}",
+                typ.name(),
+                other.class().name()
+            ))),
+        });
+    }
 
+    // copyreg._slotnames collects the slots of the class and its bases and
+    // caches them in `__slotnames__`.
     let copyreg = vm.import("copyreg", 0)?;
     let copyreg_slotnames = copyreg.get_attr("_slotnames", vm)?;
     let slot_names = copyreg_slotnames.call((typ.to_owned(),), vm)?;
@@ -192,7 +195,7 @@ fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<sup
 // object_getstate_default
 fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
     // Check itemsize
-    if required && obj.class().slots.itemsize > 0 {
+    if required && obj.class().slots().itemsize > 0 {
         return Err(vm.new_type_error(format!("cannot pickle {:.200} objects", obj.class().name())));
     }
 
@@ -206,39 +209,14 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         state.into()
     };
 
-    let slot_names =
-        type_slot_names(obj.class(), vm).map_err(|_| vm.new_type_error("cannot pickle object"))?;
+    let slot_names = type_slot_names(obj.class(), vm)?;
 
     if required {
-        // Start with PyBaseObject_Type's basicsize
-        let mut basicsize = vm.ctx.types.object_type.slots.basicsize;
-
-        // Add __dict__ size if type has dict
-        if obj.class().slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
-            basicsize += core::mem::size_of::<PyObjectRef>();
-        }
-
-        // Add __weakref__ size if type has weakref support
-        let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
-            match &ext.slots {
-                None => true, // Heap type without __slots__ has automatic weakref
-                Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
-            }
-        } else {
-            let weakref_name = vm.ctx.intern_str("__weakref__");
-            obj.class().attributes.read().contains_key(weakref_name)
-        };
-        if has_weakref {
-            basicsize += core::mem::size_of::<PyObjectRef>();
-        }
-
-        // Add slots size
-        if let Some(ref slot_names) = slot_names {
-            basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
-        }
-
-        // Fail if actual type's basicsize > expected basicsize
-        if obj.class().slots.basicsize > basicsize {
+        // Dict, weakref list, and slot cells sit in the prefix in front of
+        // the object header. `slots.basicsize` is the header plus the payload,
+        // so only state stored inside the payload counts.
+        let basicsize = vm.ctx.types.object_type.slots().basicsize;
+        if obj.class().slots().basicsize > basicsize {
             return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }
     }
@@ -248,16 +226,23 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         if slot_names_len > 0 {
             let slots = vm.ctx.new_dict();
             for i in 0..slot_names_len {
-                let borrowed_names = slot_names.borrow_vec();
-                // Check if slotnames changed during iteration
-                if borrowed_names.len() != slot_names_len {
+                // Release the list lock before the attribute lookup: a getter
+                // or `__getattr__` may mutate `__slotnames__`.
+                let name = slot_names.borrow_vec()[i].clone();
+                let name = name.downcast::<PyStr>().map_err(|name| {
+                    vm.new_type_error(format!(
+                        "attribute name must be string, not '{}'",
+                        name.class().name()
+                    ))
+                })?;
+                if let Some(value) = vm.get_attribute_opt(obj, &name)? {
+                    slots.set_item(name.as_wtf8(), value, vm)?;
+                }
+                // The list is stored on the class, so it may change while we
+                // iterate over it.
+                if slot_names.borrow_vec().len() != slot_names_len {
                     return Err(vm.new_runtime_error("__slotnames__ changed size during iteration"));
                 }
-                let name = borrowed_names[i].downcast_ref::<PyStr>().unwrap();
-                let Ok(value) = obj.get_attr(name, vm) else {
-                    continue;
-                };
-                slots.set_item(name.as_wtf8(), value, vm).unwrap();
             }
 
             if !slots.is_empty() {
@@ -300,9 +285,8 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
 #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
-    #[pymethod(raw)]
-    fn __getstate__(vm: &VirtualMachine, args: FuncArgs) -> PyResult {
-        let (zelf,): (PyObjectRef,) = args.bind(vm)?;
+    #[pymethod]
+    fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         object_getstate_default(&zelf, false, vm)
     }
 
@@ -332,7 +316,7 @@ impl PyBaseObject {
                 }
             }
             PyComparisonOp::Ne => {
-                let cmp = zelf.class().slots.richcompare.load().unwrap();
+                let cmp = zelf.class().slots().richcompare.load().unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
@@ -346,23 +330,7 @@ impl PyBaseObject {
         Ok(res)
     }
 
-    /// Implement setattr(self, name, value).
-    #[pymethod]
-    fn __setattr__(
-        obj: PyObjectRef,
-        name: PyStrRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        obj.generic_setattr(&name, PySetterValue::Assign(value), vm)
-    }
-
-    /// Implement delattr(self, name).
-    #[pymethod]
-    fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.generic_setattr(&name, PySetterValue::Delete, vm)
-    }
-
+    // __setattr__ and __delattr__ are added as slot wrappers by add_operators.
     #[pyslot]
     pub(crate) fn slot_setattro(
         obj: &PyObject,
@@ -373,7 +341,7 @@ impl PyBaseObject {
         obj.generic_setattr(attr_name, value, vm)
     }
 
-    /// Return str(self).
+    // Return str(self).
     #[pyslot]
     fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // FIXME: try tp_repr first and fallback to object.__repr__
@@ -383,14 +351,16 @@ impl PyBaseObject {
     #[pyslot]
     fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let class = zelf.class();
+        // A missing `__module__` is not an error here.
+        let module = class.__module__(vm).ok();
         match (
             class
                 .__qualname__(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_wtf8()),
-            class
-                .__module__(vm)
-                .downcast_ref::<PyStr>()
+            module
+                .as_ref()
+                .and_then(|m| m.downcast_ref::<PyStr>())
                 .map(|m| m.as_wtf8()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
@@ -411,7 +381,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod]
-    fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn __subclasshook__(_cls: PyTypeRef, _object: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
@@ -419,8 +389,37 @@ impl PyBaseObject {
     fn __init_subclass__(_cls: PyTypeRef) {}
 
     #[pymethod]
-    pub fn __dir__(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        obj.dir(vm)
+    pub fn __dir__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+        let mut names: Vec<PyObjectRef> = Vec::new();
+
+        match zelf.get_attr(identifier!(vm, __dict__), vm) {
+            Ok(obj) => {
+                if let Ok(dict) = obj.downcast::<PyDict>() {
+                    names.extend(
+                        dict.into_iter()
+                            .filter_map(|(k, _)| k.downcast_ref::<PyStr>().is_some().then_some(k)),
+                    );
+                }
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+
+        match zelf.get_attr(identifier!(vm, __class__), vm) {
+            Ok(cls_obj) => {
+                if let Some(cls) = cls_obj.downcast_ref::<PyType>() {
+                    for (name, _) in cls.get_attributes(&vm.ctx) {
+                        names.push(name.to_object());
+                    }
+                }
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+
+        let lst = PyList::from(names);
+        lst.sort(Default::default(), vm)?;
+        Ok(lst)
     }
 
     #[pymethod]
@@ -432,7 +431,7 @@ impl PyBaseObject {
         if !format_spec.is_empty() {
             return Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
-                obj.class().name()
+                obj.class().slot_name()
             )));
         }
         obj.str(vm)
@@ -446,11 +445,15 @@ impl PyBaseObject {
     #[pygetset(setter)]
     fn set___class__(
         instance: PyObjectRef,
-        value: PyObjectRef,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let value = value.ok_or_else(|| vm.new_type_error("can't delete __class__ attribute"))?;
         match value.downcast::<PyType>() {
             Ok(cls) => {
+                vm.audit("object.__setattr__", || {
+                    (instance.clone(), "__class__", cls.clone())
+                })?;
                 let current_cls = instance.class();
                 let both_module = current_cls.fast_issubclass(vm.ctx.types.module_type)
                     && cls.fast_issubclass(vm.ctx.types.module_type);
@@ -461,40 +464,15 @@ impl PyBaseObject {
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
-                    let has_dict =
-                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
-                    let has_weakref =
-                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
-                    // Compare slots tuples
-                    let slots_equal = match (
-                        current_cls
-                            .heaptype_ext
-                            .as_ref()
-                            .and_then(|e| e.slots.as_ref()),
-                        cls.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
-                    ) {
-                        (Some(a), Some(b)) => {
-                            a.len() == b.len()
-                                && a.iter()
-                                    .zip(b.iter())
-                                    .all(|(x, y)| x.as_wtf8() == y.as_wtf8())
-                        }
-                        (None, None) => true,
-                        _ => false,
-                    };
-                    if current_cls.slots.basicsize != cls.slots.basicsize
-                        || !slots_equal
-                        || has_dict(current_cls) != has_dict(&cls)
-                        || has_weakref(current_cls) != has_weakref(&cls)
-                        || current_cls.slots.member_count != cls.slots.member_count
-                    {
-                        return Err(vm.new_type_error(format!(
-                            "__class__ assignment: '{}' object layout differs from '{}'",
-                            cls.name(),
-                            current_cls.name()
-                        )));
-                    }
+                    super::type_::compatible_for_assignment(
+                        current_cls,
+                        &cls,
+                        "__class__",
+                        true,
+                        vm,
+                    )?;
                     instance.set_class(cls, vm);
+                    crate::stdlib::_testinternalcapi::note_set_class();
                     Ok(())
                 } else {
                     Err(vm.new_type_error(
@@ -512,7 +490,9 @@ impl PyBaseObject {
         }
     }
 
-    /// Return getattr(self, name).
+    // Return getattr(self, name).
+    //
+    // __getattribute__ is added as a slot wrapper by add_operators.
     #[pyslot]
     pub(crate) fn getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
@@ -520,27 +500,22 @@ impl PyBaseObject {
     }
 
     #[pymethod]
-    fn __getattribute__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(&obj, &name, vm)
+    fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        common_reduce(zelf, 0, vm)
     }
 
     #[pymethod]
-    fn __reduce__(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        common_reduce(obj, 0, vm)
-    }
-
-    #[pymethod]
-    fn __reduce_ex__(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+    fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
-        if let Some(reduce) = vm.get_attribute_opt(obj.clone(), __reduce__)? {
+        if let Some(reduce) = vm.get_attribute_opt(&zelf, __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
-            let typ_obj: PyObjectRef = obj.class().to_owned().into();
+            let typ_obj: PyObjectRef = zelf.class().to_owned().into();
             let class_reduce = typ_obj.get_attr(__reduce__, vm)?;
             if !class_reduce.is(&object_reduce) {
                 return reduce.call((), vm);
             }
         }
-        common_reduce(obj, proto, vm)
+        common_reduce(zelf, protocol, vm)
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
@@ -551,11 +526,15 @@ impl PyBaseObject {
 
     #[pymethod]
     fn __sizeof__(zelf: PyObjectRef) -> usize {
-        zelf.class().slots.basicsize
+        // `slots.basicsize` includes the object header. This reports the payload.
+        zelf.class()
+            .slots()
+            .basicsize
+            .saturating_sub(crate::object::SIZEOF_PYOBJECT_HEAD)
     }
 }
 
-pub(crate) fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
     if let Some(dict) = obj.dict() {
         Ok(dict)
     } else {
@@ -567,41 +546,51 @@ pub(crate) fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
 }
 pub(crate) fn object_set_dict(
     obj: PyObjectRef,
-    value: PySetterValue<PyDictRef>,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
-    let dict = match value {
-        PySetterValue::Assign(dict) => Some(dict),
-        PySetterValue::Delete => None,
-    };
-    obj.set_dict(dict)
-        .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
-}
-
-pub(crate) fn object_generic_set_dict(
-    obj: PyObjectRef,
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let dict = match value {
-        PySetterValue::Assign(value) => {
-            let dict = value.downcast::<PyDict>().map_err(|value| {
-                vm.new_type_error(format!(
-                    "__dict__ must be set to a dictionary, not a '{}'",
-                    value.class().name()
-                ))
-            })?;
-            PySetterValue::Assign(dict)
-        }
-        PySetterValue::Delete => return Err(vm.new_type_error("cannot delete __dict__")),
+        PySetterValue::Assign(value) => Some(downcast_dict(value, vm)?),
+        PySetterValue::Delete => None,
     };
-    object_set_dict(obj, dict, vm)
+    if let Some(instance_dict) = obj.instance_dict() {
+        instance_dict.invalidate_inline_values();
+    }
+    obj.set_dict(dict)
+        .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
+}
+
+/// The dictionary an object holds its attributes in, which is one thing and
+/// one thing only. = subtype_setdict
+fn downcast_dict(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    value.downcast::<PyDict>().map_err(|value| {
+        vm.new_type_error(format!(
+            "__dict__ must be set to a dictionary, not a '{}'",
+            value.class().name()
+        ))
+    })
+}
+
+/// = PyObject_GenericSetDict
+pub fn object_generic_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if matches!(value, PySetterValue::Delete) {
+        return Err(vm.new_type_error("cannot delete __dict__"));
+    }
+    object_set_dict(obj, value, vm)
 }
 
 pub(crate) fn init(ctx: &'static Context) {
     // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
-    ctx.types.object_type.slots.alloc.store(Some(generic_alloc));
+    ctx.types
+        .object_type
+        .slots()
+        .alloc
+        .store(Some(generic_alloc));
     ctx.types
         .object_type
         .slots
@@ -627,10 +616,10 @@ fn get_new_arguments(
             ))
         })?;
 
-        if newargs_tuple.len() != 2 {
+        if newargs_tuple.as_slice().len() != 2 {
             return Err(vm.new_value_error(format!(
                 "__getnewargs_ex__ should return a tuple of length 2, not {}",
-                newargs_tuple.len()
+                newargs_tuple.as_slice().len()
             )));
         }
 
@@ -705,7 +694,7 @@ fn object_getstate(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyRes
 }
 
 /// Get list items iterator if obj is a list (or subclass), None iterator otherwise
-fn get_items_iter(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+fn get_items_iter(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
     let listitems: PyObjectRef = if obj.fast_isinstance(vm.ctx.types.list_type) {
         obj.get_iter(vm)?.into()
     } else {
@@ -723,14 +712,14 @@ fn get_items_iter(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectR
 }
 
 /// reduce_newobj - creates reduce tuple for protocol >= 2
-fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
     // Check if type has tp_new
     let cls = obj.class();
     if cls.slots.new.load().is_none() {
         return Err(vm.new_type_error(format!("cannot pickle '{}' object", cls.name())));
     }
 
-    let (args, kwargs) = get_new_arguments(&obj, vm)?;
+    let (args, kwargs) = get_new_arguments(obj, vm)?;
 
     let copyreg = vm.import("copyreg", 0)?;
 
@@ -773,9 +762,9 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let is_dict = obj.fast_isinstance(vm.ctx.types.dict_type);
     let required = !(has_args || is_list || is_dict);
 
-    let state = object_getstate(&obj, required, vm)?;
+    let state = object_getstate(obj, required, vm)?;
 
-    let (listitems, dictitems) = get_items_iter(&obj, vm)?;
+    let (listitems, dictitems) = get_items_iter(obj, vm)?;
 
     let result = vm
         .ctx
@@ -785,7 +774,7 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
-        reduce_newobj(obj, vm)
+        reduce_newobj(&obj, vm)
     } else {
         let copyreg = vm.import("copyreg", 0)?;
         let reduce_ex = copyreg.get_attr("_reduce_ex", vm)?;

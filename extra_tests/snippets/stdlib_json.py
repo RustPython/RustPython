@@ -67,6 +67,24 @@ assert "{}" == json.dumps({})
 assert "{}" == json_dump({})
 assert round_trip_test({"a": "b"})
 
+
+class EmptyDictWithItems(dict):
+    def items(self):
+        raise AssertionError("items() must not be called for an empty dictionary")
+
+
+for sort_keys in (False, True):
+    assert json.dumps(EmptyDictWithItems(), sort_keys=sort_keys) == "{}"
+    assert json.dumps([EmptyDictWithItems()], sort_keys=sort_keys) == "[{}]"
+
+
+class NonemptyDictWithItems(dict):
+    def items(self):
+        return [("replacement", 2)]
+
+
+assert json.dumps(NonemptyDictWithItems(original=1)) == '{"replacement": 2}'
+
 # should reject non-str keys in jsons
 assert_raises(json.JSONDecodeError, lambda: json.loads('{3: "abc"}'))
 assert_raises(json.JSONDecodeError, lambda: json_load('{3: "abc"}'))
@@ -219,24 +237,30 @@ assert json.dumps(i) == str(i)
 assert json.decoder.scanstring('✨x"', 1) == ("x", 3)
 
 
-# Recursion guard: deeply-nested input must raise RecursionError instead of
-# overflowing the native stack (SIGSEGV). Matches CPython's
-# _Py_EnterRecursiveCall in Modules/_json.c.
+# Recursion guard: deeply-nested input must not overflow the native stack
+# (SIGSEGV). CPython may either finish parsing or raise RecursionError,
+# depending on the nesting shape.
 
 _deep = 100_000  # well above the ~45k native-stack crash threshold
 
+
+def assert_no_native_stack_overflow(func):
+    try:
+        func()
+    except RecursionError:
+        pass
+
+
 # Array nesting
-assert_raises(RecursionError, lambda: json.loads("[" * _deep + "]" * _deep))
+assert_no_native_stack_overflow(lambda: json.loads("[" * _deep + "]" * _deep))
 
 # Object nesting
-assert_raises(
-    RecursionError,
+assert_no_native_stack_overflow(
     lambda: json.loads('{"a":' * _deep + "1" + "}" * _deep),
 )
 
 # Alternating array/object nesting
-assert_raises(
-    RecursionError,
+assert_no_native_stack_overflow(
     lambda: json.loads(('[{"x":' * _deep) + "1" + ("}]" * _deep)),
 )
 

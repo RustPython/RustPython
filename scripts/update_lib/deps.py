@@ -329,7 +329,6 @@ DEPENDENCIES = {
         ],
     },
     "re": {
-        "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
         "test": [
             "test_re.py",
             "re_tests.py",
@@ -570,10 +569,7 @@ DEPENDENCIES = {
     "io": {
         "hard_deps": ["_pyio.py"],
         "test": [
-            "test_io.py",
-            "test_bufio.py",
-            "test_fileio.py",
-            "test_memoryio.py",
+            "test_io",
         ],
     },
     "dbm": {
@@ -607,8 +603,7 @@ DEPENDENCIES = {
     "file": {
         "lib": [],
         "test": [
-            "test_file.py",
-            "test_largefile.py",
+            "test_io",
         ],
     },
     "fcntl": {
@@ -651,6 +646,7 @@ DEPENDENCIES = {
         "lib": [],
         "test": [
             "test_math.py",
+            "test_math_integer.py",
             "test_math_property.py",
         ],
     },
@@ -676,7 +672,7 @@ DEPENDENCIES = {
     "profile": {
         "test": [
             "test_profile.py",
-            "test_cprofile.py",
+            "test_profiling/test_tracing_profiler.py",
         ],
     },
     "string": {
@@ -723,6 +719,12 @@ DEPENDENCIES = {
             "test_curses.py",
             "curses_tests.py",
         ],
+    },
+    "signal": {
+        "test": [
+            "signalinterproctester.py",
+            "test_signal.py",
+        ]
     },
 }
 

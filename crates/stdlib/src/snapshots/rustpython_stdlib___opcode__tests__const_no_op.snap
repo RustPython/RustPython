@@ -1,10 +1,11 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: x = not True
+assertion_line: 281
+expression: "dis(r#\"\nx = not True\n\"#)"
 ---
   0           RESUME                   0
 
-  1           LOAD_CONST               2 (False)
+  1           LOAD_COMMON_CONSTANT    10 (False)
               STORE_NAME               0 (x)
-              LOAD_CONST               1 (None)
+              LOAD_COMMON_CONSTANT     7 (None)
               RETURN_VALUE

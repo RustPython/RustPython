@@ -5,7 +5,7 @@ mod gc {
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::PyListRef,
-        function::{FuncArgs, OptionalArg},
+        function::{NameObjs, OptionalArg, PosArgs},
         gc_state,
     };
 
@@ -21,35 +21,31 @@ mod gc {
     #[pyattr]
     const DEBUG_LEAK: u32 = gc_state::GcDebugFlags::LEAK.bits();
 
-    /// Enable automatic garbage collection.
     #[pyfunction]
-    fn enable() {
-        gc_state::gc_state().enable();
+    fn enable(vm: &VirtualMachine) {
+        vm.state.gc.enable();
     }
 
-    /// Disable automatic garbage collection.
     #[pyfunction]
-    fn disable() {
-        gc_state::gc_state().disable();
+    fn disable(vm: &VirtualMachine) {
+        vm.state.gc.disable();
     }
 
-    /// Return true if automatic gc is enabled.
     #[pyfunction]
-    fn isenabled() -> bool {
-        gc_state::gc_state().is_enabled()
+    fn isenabled(vm: &VirtualMachine) -> bool {
+        vm.state.gc.is_enabled()
     }
 
     /// Run a garbage collection. Returns the number of unreachable objects found.
     #[derive(FromArgs)]
     struct CollectArgs {
-        #[pyarg(any, optional)]
-        generation: OptionalArg<i32>,
+        #[pyarg(any, default = 2)]
+        generation: i32,
     }
 
     #[pyfunction]
     fn collect(args: CollectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let generation = args.generation;
-        let generation_num = generation.unwrap_or(2);
+        let generation_num = args.generation;
         if !(0..=2).contains(&generation_num) {
             return Err(vm.new_value_error("invalid generation"));
         }
@@ -58,15 +54,14 @@ mod gc {
         invoke_callbacks(vm, "start", generation_num as usize, &Default::default());
 
         // Manual gc.collect() should run even if GC is disabled
-        let gc = gc_state::gc_state();
+        let gc = &vm.state.gc;
         let result = gc.collect_force(generation_num as usize);
 
-        // Move objects from gc_state.garbage to vm.ctx.gc_garbage (for DEBUG_SAVEALL)
+        // Publish what the collection saved as gc.garbage (for DEBUG_SAVEALL)
         {
             let mut state_garbage = gc.garbage.lock();
             if !state_garbage.is_empty() {
-                let py_garbage = &vm.ctx.gc_garbage;
-                let mut garbage_vec = py_garbage.borrow_vec_mut();
+                let mut garbage_vec = gc.py_garbage.borrow_vec_mut();
                 for obj in state_garbage.drain(..) {
                     garbage_vec.push(obj);
                 }
@@ -79,10 +74,9 @@ mod gc {
         Ok((result.collected + result.uncollectable) as i32)
     }
 
-    /// Return the current collection thresholds as a tuple.
     #[pyfunction]
     fn get_threshold(vm: &VirtualMachine) -> PyObjectRef {
-        let (t0, t1, t2) = gc_state::gc_state().get_threshold();
+        let (t0, t1, t2) = vm.state.gc.get_threshold();
         vm.ctx
             .new_tuple(vec![
                 vm.ctx.new_int(t0).into(),
@@ -92,17 +86,20 @@ mod gc {
             .into()
     }
 
-    /// Set the collection thresholds.
     #[pyfunction]
-    fn set_threshold(threshold0: u32, threshold1: OptionalArg<u32>, threshold2: OptionalArg<u32>) {
-        gc_state::gc_state().set_threshold(
+    fn set_threshold(
+        threshold0: u32,
+        threshold1: OptionalArg<u32>,
+        threshold2: OptionalArg<u32>,
+        vm: &VirtualMachine,
+    ) {
+        vm.state.gc.set_threshold(
             threshold0,
             threshold1.into_option(),
             threshold2.into_option(),
         );
     }
 
-    /// Return the current collection counts as a tuple.
     #[pyfunction]
     fn get_count(vm: &VirtualMachine) -> PyObjectRef {
         let (c0, c1, c2) = gc_state::gc_state().get_count();
@@ -115,22 +112,21 @@ mod gc {
             .into()
     }
 
-    /// Return the current debugging flags.
     #[pyfunction]
-    fn get_debug() -> u32 {
-        gc_state::gc_state().get_debug().bits()
+    fn get_debug(vm: &VirtualMachine) -> u32 {
+        vm.state.gc.get_debug().bits()
     }
 
-    /// Set the debugging flags.
     #[pyfunction]
-    fn set_debug(flags: u32) {
-        gc_state::gc_state().set_debug(gc_state::GcDebugFlags::from_bits_truncate(flags));
+    fn set_debug(flags: u32, vm: &VirtualMachine) {
+        vm.state
+            .gc
+            .set_debug(gc_state::GcDebugFlags::from_bits_truncate(flags));
     }
 
-    /// Return a list of per-generation gc stats.
     #[pyfunction]
     fn get_stats(vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let stats = gc_state::gc_state().get_stats();
+        let stats = vm.state.gc.get_stats();
         let mut result = Vec::with_capacity(3);
 
         for stat in &stats {
@@ -154,27 +150,26 @@ mod gc {
     #[derive(FromArgs)]
     struct GetObjectsArgs {
         #[pyarg(any, optional)]
-        generation: OptionalArg<Option<i32>>,
+        generation: Option<i32>,
     }
 
     #[pyfunction]
     fn get_objects(args: GetObjectsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let generation_opt = args.generation.flatten();
+        let generation_opt = args.generation;
         if let Some(g) = generation_opt
             && !(0..=2).contains(&g)
         {
             return Err(vm.new_value_error(format!("generation must be in range(0, 3), not {g}")));
         }
-        let objects = gc_state::gc_state().get_objects(generation_opt);
+        let objects = vm.state.gc.get_objects(generation_opt);
         Ok(vm.ctx.new_list(objects))
     }
 
-    /// Return the list of objects directly referred to by any of the arguments.
     #[pyfunction]
-    fn get_referents(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
+    fn get_referents(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         let mut result = Vec::new();
 
-        for obj in args.args {
+        for obj in objs.iter() {
             // Use the gc_get_referents method to get references
             result.extend(obj.gc_get_referents());
         }
@@ -182,14 +177,12 @@ mod gc {
         vm.ctx.new_list(result)
     }
 
-    /// Return the list of objects that directly refer to any of the arguments.
     #[pyfunction]
-    fn get_referrers(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
+    fn get_referrers(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         use std::collections::HashSet;
 
         // Build a set of target object pointers for fast lookup
-        let targets: HashSet<usize> = args
-            .args
+        let targets: HashSet<usize> = objs
             .iter()
             .map(|obj| obj.as_ref() as *const crate::PyObject as usize)
             .collect();
@@ -199,78 +192,82 @@ mod gc {
         // PyObjects, so they never appear in get_referrers results. Since
         // RustPython materializes every frame as a PyObject, we must exclude
         // them manually to match the expected behavior.
-        let stack_frames: HashSet<usize> = vm
-            .frames
-            .borrow()
-            .iter()
-            .map(|fp| {
-                let frame: &crate::PyObject = unsafe { fp.as_ref() }.as_ref();
-                frame as *const crate::PyObject as usize
-            })
-            .collect();
+        let mut stack_frames: HashSet<usize> = HashSet::new();
+        crate::frame::for_each_current_frame(|frame| {
+            let obj: &crate::PyObject = frame.as_ref();
+            stack_frames.insert(obj as *const crate::PyObject as usize);
+        });
+
+        let refers_to_target = |obj: &crate::PyObject| -> bool {
+            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
+            referent_ptrs
+                .iter()
+                .any(|child_ptr| targets.contains(&(child_ptr.as_ptr() as usize)))
+        };
 
         let mut result = Vec::new();
 
         // Scan all tracked objects across all generations
-        let all_objects = gc_state::gc_state().get_objects(None);
+        let all_objects = vm.state.gc.get_objects(None);
         for obj in all_objects {
             let obj_ptr = obj.as_ref() as *const crate::PyObject as usize;
+            // Generator/coroutine frames are embedded in their owner, so
+            // locals show up as referents of the owner rather than the frame.
+            if let Some(frame) = obj.downcast_ref::<crate::frame::FrameObject>()
+                && let Some(owner) = frame.iframe().generator.to_owned()
+            {
+                if refers_to_target(obj.as_ref()) {
+                    result.push(owner);
+                }
+                continue;
+            }
             if stack_frames.contains(&obj_ptr) {
                 continue;
             }
-            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
-            for child_ptr in referent_ptrs {
-                if targets.contains(&(child_ptr.as_ptr() as usize)) {
-                    result.push(obj.clone());
-                    break;
-                }
+            if refers_to_target(obj.as_ref()) {
+                result.push(obj);
             }
         }
 
         vm.ctx.new_list(result)
     }
 
-    /// Return True if the object is tracked by the garbage collector.
     #[pyfunction]
     fn is_tracked(obj: PyObjectRef) -> bool {
         // An object is tracked if it has IS_TRACE = true (has a trace function)
         obj.is_gc_tracked()
     }
 
-    /// Return True if the object has been finalized by the garbage collector.
     #[pyfunction]
     fn is_finalized(obj: PyObjectRef) -> bool {
         obj.gc_finalized()
     }
 
-    /// Freeze all objects tracked by gc.
     #[pyfunction]
-    fn freeze() {
-        gc_state::gc_state().freeze();
+    fn freeze(vm: &VirtualMachine) {
+        vm.state.gc.freeze();
     }
 
-    /// Unfreeze all objects in the permanent generation.
     #[pyfunction]
-    fn unfreeze() {
-        gc_state::gc_state().unfreeze();
+    fn unfreeze(vm: &VirtualMachine) {
+        vm.state.gc.unfreeze();
     }
 
-    /// Return the number of objects in the permanent generation.
     #[pyfunction]
     fn get_freeze_count() -> usize {
         gc_state::gc_state().get_freeze_count()
     }
 
-    /// gc.garbage - list of uncollectable objects
+    // gc.garbage - list of uncollectable objects
     #[pyattr]
     fn garbage(vm: &VirtualMachine) -> PyListRef {
-        vm.ctx.gc_garbage.clone()
+        vm.state.gc.py_garbage.clone()
     }
 
-    /// gc.callbacks - list of callbacks to be invoked
+    // gc.callbacks - list of callbacks to be invoked
     #[pyattr]
     fn callbacks(vm: &VirtualMachine) -> PyListRef {
-        vm.ctx.gc_callbacks.clone()
+        vm.state.gc.py_callbacks.clone()
     }
 
     /// Helper function to invoke GC callbacks
@@ -280,7 +277,7 @@ mod gc {
         generation: usize,
         result: &gc_state::CollectResult,
     ) {
-        let callbacks_list = &vm.ctx.gc_callbacks;
+        let callbacks_list = &vm.state.gc.py_callbacks;
         let callbacks: Vec<PyObjectRef> = callbacks_list.borrow_vec().to_vec();
         if callbacks.is_empty() {
             return;

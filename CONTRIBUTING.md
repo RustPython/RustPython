@@ -49,7 +49,7 @@ RustPython requires the following:
       stable version: `rustup update stable`
     - If you do not have Rust installed, use [rustup](https://rustup.rs/) to
       do so.
-- CPython version 3.14 or higher
+- CPython version 3.15 or higher
     - CPython can be installed by your operating system's package manager,
       from the [Python website](https://www.python.org/downloads/), or
       using a third-party distribution, such as 
@@ -89,7 +89,15 @@ $ pytest -v
 Rust unit tests can be run with `cargo`:
 
 ```shell
-$ cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher
+$ cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
+```
+
+`rustpython-capi` needs to be tested from inside its own directory, since it has a
+separate `cargo` config that only applies there:
+
+```shell
+$ cd crates/capi
+$ cargo test
 ```
 
 Python unit tests can be run by compiling RustPython and running the test module:

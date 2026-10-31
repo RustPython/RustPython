@@ -1,4 +1,5 @@
 import builtins
+import itertools
 import pickle
 import platform
 import sys
@@ -393,3 +394,19 @@ except* ValueError as err:
     assert err.exceptions[0].args == ("x",)
 else:
     assert False, "except* handler did not run"
+
+# The exceptions argument is a sequence, so an arbitrary iterable must be
+# rejected rather than drained.
+try:
+    ExceptionGroup("m", itertools.count())
+except TypeError:
+    pass
+else:
+    assert False, "ExceptionGroup accepted an unbounded iterable"
+
+# ImportError.__reduce__ has to cope with the exception carrying no args.
+assert pickle.loads(pickle.dumps(ImportError())).args == ()
+restored = pickle.loads(pickle.dumps(ImportError("m", name="n", path="p")))
+assert restored.args == ("m",)
+assert restored.name == "n"
+assert restored.path == "p"

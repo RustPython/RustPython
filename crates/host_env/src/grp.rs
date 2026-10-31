@@ -1,5 +1,7 @@
 use std::io;
 
+pub use libc::gid_t;
+
 pub struct Group {
     pub name: String,
     pub passwd: String,

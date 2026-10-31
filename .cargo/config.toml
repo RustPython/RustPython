@@ -10,9 +10,12 @@ rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
 # Enforce a 1 MB stack limit for WASI targets.
 # (Runaway heap growth is fixed by the smaller DataStack chunk
 # and the size‑optimized wasm‑release profile.)
+
 [target.wasm32-wasip1]
 rustflags = [
     "-C", "link-arg=-zstack-size=1048576",
+    "-L", "crates/host_env/vendor/wasm32-wasip1",
+    "-l", "wasi-emulated-signal",
 ]
 
 [target.wasm32-wasip2]

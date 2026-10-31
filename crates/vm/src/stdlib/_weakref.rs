@@ -17,44 +17,44 @@ mod _weakref {
     fn ref_(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakref_type.to_owned()
     }
-    #[pyattr]
-    fn proxy(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.to_owned()
+
+    #[pyfunction]
+    fn proxy(args: crate::builtins::WeakProxyNewArgs, vm: &VirtualMachine) -> PyResult {
+        crate::builtins::PyWeakProxy::from_new_args(args, vm).map(Into::into)
     }
+
     #[pyattr(name = "ReferenceType")]
     fn reference_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakref_type.to_owned()
     }
+
     #[pyattr(name = "ProxyType")]
     fn proxy_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakproxy_type.to_owned()
     }
+
     #[pyattr(name = "CallableProxyType")]
     fn callable_proxy_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.to_owned()
+        vm.ctx.types.weakcallableproxy_type.to_owned()
     }
 
     #[pyfunction]
-    fn getweakrefcount(obj: PyObjectRef) -> usize {
-        obj.weak_count().unwrap_or(0)
+    fn getweakrefcount(object: PyObjectRef) -> usize {
+        object.weak_count().unwrap_or(0)
     }
 
     #[pyfunction]
-    fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
-        match obj.get_weak_references() {
-            Some(v) => v.into_iter().map(Into::into).collect(),
-            None => vec![],
-        }
+    fn getweakrefs(object: PyObjectRef) -> Vec<PyObjectRef> {
+        object
+            .get_weak_references()
+            .map_or_else(Vec::new, |v| v.into_iter().map(Into::into).collect())
     }
 
     #[pyfunction]
-    fn _remove_dead_weakref(
-        dict: PyDictRef,
-        key: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        dict._as_dict_inner()
-            .delete_if(vm, &*key, |wr| {
+    fn _remove_dead_weakref(dct: PyDictRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let hash = key.hash(vm)?;
+        dct._as_dict_inner()
+            .delete_if(vm, &*key, hash, |wr| {
                 let wr = wr
                     .downcast_ref::<PyWeak>()
                     .ok_or_else(|| vm.new_type_error("not a weakref"))?;

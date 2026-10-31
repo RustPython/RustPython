@@ -20,7 +20,7 @@ pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
 pub(crate) mod dict;
-pub use dict::{PyDict, PyDictRef};
+pub use dict::{PyAnyDict, PyDict, PyDictRef, PyFrozenDict};
 pub(crate) mod enumerate;
 pub use enumerate::PyEnumerate;
 pub(crate) mod filter;
@@ -28,6 +28,8 @@ pub use filter::PyFilter;
 pub(crate) mod float;
 pub use float::PyFloat;
 pub(crate) mod frame;
+pub(crate) mod frame_locals_proxy;
+pub use frame_locals_proxy::FrameLocalsProxy;
 pub(crate) mod function;
 pub use function::{PyBoundMethod, PyFunction};
 pub(crate) mod generator;
@@ -56,6 +58,7 @@ pub(crate) mod namespace;
 pub use namespace::PyNamespace;
 pub(crate) mod object;
 pub use object::PyBaseObject;
+pub use object::{object_generic_set_dict, object_get_dict};
 pub(crate) mod property;
 pub use property::PyProperty;
 #[path = "bool.rs"]
@@ -72,6 +75,8 @@ pub(crate) mod type_;
 pub use type_::{PyType, PyTypeRef};
 pub(crate) mod range;
 pub use range::PyRange;
+pub(crate) mod sentinel;
+pub use sentinel::PySentinel;
 pub(crate) mod set;
 pub use set::{PyFrozenSet, PySet};
 pub(crate) mod singletons;
@@ -87,7 +92,7 @@ pub use traceback::PyTraceback;
 pub(crate) mod tuple;
 pub use tuple::{PyTuple, PyTupleRef};
 pub(crate) mod weakproxy;
-pub use weakproxy::PyWeakProxy;
+pub use weakproxy::{PyWeakCallableProxy, PyWeakProxy, WeakProxyNewArgs};
 pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;
@@ -95,8 +100,14 @@ pub use zip::PyZip;
 #[path = "union.rs"]
 pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
-pub(crate) mod descriptor;
+pub mod descriptor;
+pub use descriptor::{
+    MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef as DescriptorMemberDef,
+    PyMemberDescriptor, PyMemberFlags,
+};
 
+pub use float::float_from_string as parse_float_from_string;
+pub use float::invalid_float_literal_error;
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
 

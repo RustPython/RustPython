@@ -81,8 +81,6 @@ __all__ = ["QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE",
            "unregister_dialect", "DictReader", "DictWriter",
            "unix_dialect"]
 
-__version__ = "1.0"
-
 
 class Dialect:
     """Describe a CSV dialect.
@@ -243,7 +241,13 @@ class Sniffer:
     def sniff(self, sample, delimiters=None):
         """
         Returns a dialect (or None) corresponding to the sample
+
+        If several delimiters fit the sample equally well, the
+        delimiters listed in the preferred attribute are preferred, in
+        that order, no matter how many times each of them occurs.
         """
+
+        sample = sample.replace('\r\n', '\n').replace('\r', '\n')
 
         quotechar, doublequote, delimiter, skipinitialspace = \
                    self._guess_quote_and_delimiter(sample, delimiters)
@@ -282,12 +286,16 @@ class Sniffer:
         """
         import re
 
+        # The body of a quoted field ends at the first quote which is
+        # not doubled, as it does for a reader.  A lazy ".*?" scans to
+        # the end of the sample instead, from every start: quadratically.
+        body = r'(?:(?P=quote){2}|(?!(?P=quote)).)*+'
         matches = []
-        for restr in (r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\']).*?(?P=quote)(?P=delim)', # ,".*?",
-                      r'(?:^|\n)(?P<quote>["\']).*?(?P=quote)(?P<delim>[^\w\n"\'])(?P<space> ?)',   #  ".*?",
-                      r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\']).*?(?P=quote)(?:$|\n)',   # ,".*?"
-                      r'(?:^|\n)(?P<quote>["\']).*?(?P=quote)(?:$|\n)'):                            #  ".*?" (no delim, no space)
-            regexp = re.compile(restr, re.DOTALL | re.MULTILINE)
+        for restr in (r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\'])%s(?P=quote)(?P=delim)',   # ,"...",
+                      r'(?:^|\n)(?P<quote>["\'])%s(?P=quote)(?P<delim>[^\w\n"\'])(?P<space> ?)',     #  "...",
+                      r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\'])%s(?P=quote)(?:$|\n)',  # ,"..."
+                      r'(?:^|\n)(?P<quote>["\'])%s(?P=quote)(?:$|\n)'):                           #  "..." (no delim, no space)
+            regexp = re.compile(restr % body, re.DOTALL | re.MULTILINE)
             matches = regexp.findall(data)
             if matches:
                 break
@@ -330,18 +338,22 @@ class Sniffer:
             delim = ''
             skipinitialspace = 0
 
-        # if we see an extra quote between delimiters, we've got a
-        # double quoted format
-        dq_regexp = re.compile(
-                               r"((%(delim)s)|^)\W*%(quote)s[^%(delim)s\n]*%(quote)s[^%(delim)s\n]*%(quote)s\W*((%(delim)s)|$)" % \
-                               {'delim':re.escape(delim), 'quote':quotechar}, re.MULTILINE)
-
-
-
-        if dq_regexp.search(data):
-            doublequote = True
-        else:
-            doublequote = False
+        # A doubled quote character inside a quoted field means
+        # a double quoted format.  Match whole fields, so that a match
+        # cannot slide across field boundaries.
+        doublequote = False
+        if delim:
+            dq_regexp = re.compile(
+                    r"(?:(?<=%(delim)s)|^)%(space)s%(quote)s"     # ,"
+                    r"((?:%(quote)s%(quote)s|[^%(quote)s]++)*+)"  # the body
+                    r"%(quote)s(?:%(delim)s|$)"                   # ",
+                    % {'delim': re.escape(delim), 'quote': quotechar,
+                       # Skipping spaces after a space rescans them.
+                       'space': ' *+' if delim != ' ' else ''},
+                    re.MULTILINE)
+            dquotechar = quotechar * 2
+            doublequote = any(dquotechar in m[1]
+                              for m in dq_regexp.finditer(data))
 
         return (quotechar, doublequote, delim, skipinitialspace)
 
@@ -364,31 +376,33 @@ class Sniffer:
         try and evaluate the smallest portion of the data possible, evaluating
         additional chunks as necessary.
         """
+        from collections import Counter, defaultdict
 
         data = list(filter(None, data.split('\n')))
-
-        ascii = [chr(c) for c in range(127)] # 7-bit ASCII
 
         # build frequency tables
         chunkLength = min(10, len(data))
         iteration = 0
-        charFrequency = {}
+        num_lines = 0
+        # {char -> {count_per_line -> num_lines_with_that_count}}
+        char_frequency = defaultdict(Counter)
         modes = {}
         delims = {}
         start, end = 0, chunkLength
         while start < len(data):
             iteration += 1
             for line in data[start:end]:
-                for char in ascii:
-                    metaFrequency = charFrequency.get(char, {})
-                    # must count even if frequency is 0
-                    freq = line.count(char)
-                    # value is the mode
-                    metaFrequency[freq] = metaFrequency.get(freq, 0) + 1
-                    charFrequency[char] = metaFrequency
+                num_lines += 1
+                for char, count in Counter(line).items():
+                    if char.isascii():
+                        char_frequency[char][count] += 1
 
-            for char in charFrequency.keys():
-                items = list(charFrequency[char].items())
+            for char, counts in char_frequency.items():
+                items = list(counts.items())
+                missed_lines = num_lines - sum(counts.values())
+                if missed_lines:
+                    # Store the number of lines 'char' was missing from.
+                    items.append((0, missed_lines))
                 if len(items) == 1 and items[0][0] == 0:
                     continue
                 # get the mode of the frequencies
@@ -511,3 +525,12 @@ class Sniffer:
                     hasHeader -= 1
 
         return hasHeader > 0
+
+
+def __getattr__(name):
+    if name == "__version__":
+        from warnings import _deprecated
+
+        _deprecated("__version__", remove=(3, 20))
+        return "1.0"  # Do not change
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

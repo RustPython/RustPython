@@ -237,7 +237,6 @@ class ReprTests(unittest.TestCase):
         eq(r([[[[[[{}]]]]]]), "[[[[[[{}]]]]]]")
         eq(r([[[[[[[{}]]]]]]]), "[[[[[[[...]]]]]]]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cell(self):
         def get_cell():
             x = 42
@@ -696,8 +695,11 @@ class LongReprTest(unittest.TestCase):
         source_path_len += 2 * (len(self.longname) + 1)
         # a path separator + `module_name` + ".py"
         source_path_len += len(module_name) + 1 + len(".py")
-        cached_path_len = (source_path_len +
-            len(importlib.util.cache_from_source("x.py")) - len("x.py"))
+        try:
+            cached_path_len = (source_path_len +
+                len(importlib.util.cache_from_source("x.py")) - len("x.py"))
+        except NotImplementedError:
+            cached_path_len = source_path_len
         if os.name == 'nt' and cached_path_len >= 258:
             # Under Windows, the max path len is 260 including C's terminating
             # NUL character.

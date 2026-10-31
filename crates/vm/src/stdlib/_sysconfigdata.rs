@@ -1,4 +1,4 @@
-// spell-checker: words LDSHARED ARFLAGS CPPFLAGS CCSHARED BASECFLAGS BLDSHARED
+// spell-checker: words LDSHARED LDCXXSHARED ARFLAGS CPPFLAGS CCSHARED BASECFLAGS BLDSHARED
 
 pub(crate) use _sysconfigdata::module_def;
 
@@ -19,7 +19,10 @@ mod _sysconfigdata {
         let paths = &vm.state.config.paths;
         build_time_vars.set_item("prefix", paths.prefix.clone().to_pyobject(vm), vm)?;
         build_time_vars.set_item("exec_prefix", paths.exec_prefix.clone().to_pyobject(vm), vm)?;
-        let bindir = format!("{}/bin", &paths.exec_prefix);
+        if let Some(stdlib_dir) = &paths.stdlib_dir {
+            build_time_vars.set_item("LIBDEST", stdlib_dir.to_pyobject(vm), vm)?;
+        }
+        let bindir = format!("{}/bin", paths.exec_prefix);
         build_time_vars.set_item("BINDIR", bindir.to_pyobject(vm), vm)?;
 
         module.set_attr("build_time_vars", build_time_vars, vm)?;
@@ -60,6 +63,7 @@ mod _sysconfigdata {
             "CPPFLAGS" => "",
             "LDFLAGS" => "",
             "LDSHARED" => "cc -shared",
+            "LDCXXSHARED" => "c++ -shared",
             "CCSHARED" => "",
             "SHLIB_SUFFIX" => ".so",
             "SO" => ".so",
@@ -69,7 +73,6 @@ mod _sysconfigdata {
             "BASECFLAGS" => "",
             "BLDSHARED" => "cc -shared",
         }
-        include!(concat!(env!("OUT_DIR"), "/env_vars.rs"));
         vars
     }
 }

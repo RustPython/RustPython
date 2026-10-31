@@ -49,7 +49,15 @@ unsafe impl Traverse for PyObjectRef {
 
 unsafe impl Traverse for PyStackRef {
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        traverse_fn(self.as_object())
+        // A borrowed stack ref owns no strong count, so it is not an edge the
+        // cycle collector may subtract: counting it would push a live object's
+        // `gc_refs` to zero and free it out from under the frame. The object a
+        // borrow points at is always reachable another way -- through the
+        // fastlocals slot that keeps it alive, which this same frame traversal
+        // visits -- so skipping it loses no reachability either.
+        if !self.is_borrowed() {
+            traverse_fn(self.as_object())
+        }
     }
 }
 
@@ -108,22 +116,63 @@ where
     }
 }
 
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<Option<T>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        if let Some(obj) = self.deref() {
+            traverse_fn(obj.as_object());
+        }
+    }
+}
+
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<T> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self.as_object());
+    }
+}
+
+unsafe impl Traverse for super::ext::PyAtomicRef<PyObject> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self);
+    }
+}
+
+unsafe impl Traverse for super::ext::PyAtomicRef<Option<PyObject>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        let ptr = self.load_ptr();
+        // SAFETY: traversal runs with other threads stopped, so a non-null
+        // slot pointer stays allocated for this borrow.
+        if let Some(obj) = unsafe { ptr.as_ref() } {
+            traverse_fn(obj);
+        }
+    }
+}
+
 unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        // if can't get a lock, this means something else is holding the lock,
-        // but since gc stopped the world, during gc the lock is always held
-        // so it is safe to ignore those in gc
+        // A failed try_read means a writer holds the lock. Traversal runs with
+        // the world stopped, but a thread force-parked while DETACHED (CAS'd
+        // straight to SUSPENDED from native code) may still hold the write lock
+        // it was in the middle of taking. Skipping such an object is safe: the
+        // collector then does not see its outgoing edges, which only
+        // under-traverses and thus over-approximates liveness (a conservative
+        // keep-alive), never freeing a reachable object. In single-threaded
+        // builds a failure only reflects the current thread's own re-entrant
+        // read, likewise safely skipped.
         if let Some(inner) = self.try_read_recursive() {
             inner.traverse(traverse_fn)
         }
     }
 }
 
-/// Safety: We can't hold lock during traverse it's child because it may cause deadlock.
-/// TODO(discord9): check if this is thread-safe to do
-/// (Outside of gc phase, only incref/decref will call trace,
-/// and refcnt is atomic, so it should be fine?)
+/// Safety: the lock is not held across visiting children to avoid a re-entrant
+/// deadlock. In threading builds traversal runs under stop-the-world so no
+/// other thread mutates the guarded value while we read it; in single-threaded
+/// builds there is no other writer.
 unsafe impl<T: Traverse> Traverse for PyMutex<T> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
@@ -135,7 +184,9 @@ unsafe impl<T: Traverse> Traverse for PyMutex<T> {
         }
         chs.iter()
             .map(|ch| {
-                // Safety: during gc, this should be fine, because nothing should write during gc's tracing?
+                // Safety: the world is stopped (threading builds) or the
+                // interpreter is single-threaded, so `ch` is not concurrently
+                // freed while we hand it to the tracer.
                 let ch = unsafe { ch.as_ref() };
                 traverse_fn(ch);
             })

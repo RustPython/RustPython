@@ -198,8 +198,7 @@ For evil cases like these as well, no actual count to be shown
 __test__ = {'doctests' : doctests}
 
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON
-    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker())) # XXX: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite())
     return tests
 
 

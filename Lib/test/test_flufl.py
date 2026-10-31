@@ -4,7 +4,6 @@ import unittest
 
 class FLUFLTests(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_barry_as_bdfl(self):
         code = "from __future__ import barry_as_FLUFL\n2 {0} 3"
         compile(code.format('<>'), '<BDFL test>', 'exec',
@@ -22,7 +21,6 @@ class FLUFLTests(unittest.TestCase):
         # parser reports the start of the token
         self.assertEqual(cm.exception.offset, 3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_guido_as_bdfl(self):
         code = '2 {0} 3'
         compile(code.format('!='), '<BDFL test>', 'exec')
@@ -36,7 +34,6 @@ class FLUFLTests(unittest.TestCase):
         # parser reports the start of the token
         self.assertEqual(cm.exception.offset, 3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_barry_as_bdfl_look_ma_with_no_compiler_flags(self):
         # Check that the future import is handled by the parser
         # even if the compiler flags are not passed.
@@ -50,7 +47,6 @@ class FLUFLTests(unittest.TestCase):
         self.assertEqual(cm.exception.lineno, 1)
         self.assertEqual(cm.exception.offset, len(code) - 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_barry_as_bdfl_relative_import(self):
         code = "from .__future__ import barry_as_FLUFL;2 {0} 3"
         compile(code.format('!='), '<FLUFL test>', 'exec')

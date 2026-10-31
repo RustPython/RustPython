@@ -3,6 +3,39 @@ from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapp
 
 from testutils import assert_raises
 
+# Overwriting replaces characters, even when their encoded widths differ.
+for initial, replacement in (
+    ("abc", "é"),
+    ("ébc", "a"),
+    ("а😀в", "XY"),
+    ("a\ud800c", "\udfffé"),
+):
+    stream = StringIO("prefix:" + initial)
+    stream.seek(7)
+    assert stream.write(replacement) == len(replacement)
+    assert stream.getvalue() == "prefix:" + replacement + initial[len(replacement) :]
+    assert stream.tell() == 7 + len(replacement)
+    assert stream.read() == initial[len(replacement) :]
+    assert stream.tell() == 7 + len(initial)
+
+# Truncation keeps the character position, then pads in characters on writing.
+stream = StringIO("é😀abc")
+stream.seek(4)
+stream.truncate(1)
+assert stream.tell() == 4
+assert stream.read() == ""
+assert stream.tell() == 4
+assert stream.write("") == 0
+assert stream.getvalue() == "é"
+state = stream.__getstate__()
+stream = StringIO()
+stream.__setstate__(state)
+assert stream.tell() == 4
+stream.write("Ж")
+assert stream.getvalue() == "é\0\0\0Ж"
+assert stream.tell() == 5
+
+
 fi = FileIO("README.md")
 assert fi.seekable()
 bb = BufferedReader(fi)
@@ -84,3 +117,208 @@ textio = TextIOWrapper(raw, encoding="utf-8", write_through=True)
 raw.textio = textio
 with assert_raises(AttributeError):
     textio.writelines(["x"])
+
+textio = TextIOWrapper(BytesIO())
+
+for invalid_chunk_size in (0, -1, 2**100):
+    try:
+        textio._CHUNK_SIZE = invalid_chunk_size
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"expected ValueError for {invalid_chunk_size!r}")
+
+for invalid_chunk_size in (1.5, "4"):
+    try:
+        textio._CHUNK_SIZE = invalid_chunk_size
+    except TypeError:
+        pass
+    else:
+        raise AssertionError(f"expected TypeError for {invalid_chunk_size!r}")
+
+
+class ChunkSize:
+    def __index__(self):
+        return 16
+
+
+textio._CHUNK_SIZE = ChunkSize()
+assert textio._CHUNK_SIZE == 16
+
+
+class OversizedChunkSize:
+    def __index__(self):
+        return 2**100
+
+
+try:
+    textio._CHUNK_SIZE = OversizedChunkSize()
+except ValueError as error:
+    expected = "cannot fit 'OversizedChunkSize' into an index-sized integer"
+    if str(error) != expected:
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for oversized indexable object")
+
+
+def expect_value_error(expected, operation):
+    try:
+        operation()
+    except ValueError as error:
+        if str(error) != expected:
+            raise AssertionError(f"unexpected error message: {error}") from error
+    else:
+        raise AssertionError(f"expected ValueError: {expected}")
+
+
+class UninitializedChunkSize:
+    def __init__(self):
+        self.called = False
+
+    def __index__(self):
+        self.called = True
+        return 16
+
+
+uninitialized_textio = TextIOWrapper.__new__(TextIOWrapper)
+uninitialized_chunk_size = UninitializedChunkSize()
+expect_value_error(
+    "I/O operation on uninitialized object",
+    lambda: setattr(uninitialized_textio, "_CHUNK_SIZE", uninitialized_chunk_size),
+)
+
+if uninitialized_chunk_size.called:
+    raise AssertionError(
+        "__index__ should not be called for uninitialized TextIOWrapper"
+    )
+
+
+detached_textio = TextIOWrapper(BytesIO())
+detached_textio.detach()
+expect_value_error(
+    "underlying buffer has been detached",
+    lambda: setattr(detached_textio, "_CHUNK_SIZE", 16),
+)
+for wrapper, error_type, message in (
+    (textio, AttributeError, "cannot delete attribute"),
+    (uninitialized_textio, ValueError, "I/O operation on uninitialized object"),
+    (detached_textio, ValueError, "underlying buffer has been detached"),
+):
+    with assert_raises(error_type) as error:
+        del wrapper._CHUNK_SIZE
+    assert str(error.exception) == message
+
+
+for wrapper_name in ("ChunkWrapper", "€" * 34):
+    wrapper_type = type(wrapper_name, (TextIOWrapper,), {})
+    wrapper = wrapper_type(BytesIO())
+    with assert_raises(AttributeError) as error:
+        del wrapper._CHUNK_SIZE
+    assert str(error.exception) == "cannot delete attribute"
+    wrapper.close()
+
+
+long_type_name = "X" * 250
+LongNamedChunkSize = type(
+    long_type_name,
+    (),
+    {"__index__": lambda self: 2**100},
+)
+expect_value_error(
+    f"cannot fit '{long_type_name[:200]}' into an index-sized integer",
+    lambda: setattr(textio, "_CHUNK_SIZE", LongNamedChunkSize()),
+)
+
+
+non_ascii_type_name = "é" * 250
+NonAsciiNamedChunkSize = type(
+    non_ascii_type_name,
+    (),
+    {"__index__": lambda self: 2**100},
+)
+truncated_non_ascii_type_name = non_ascii_type_name.encode("utf-8")[:200].decode(
+    "utf-8"
+)
+expect_value_error(
+    f"cannot fit '{truncated_non_ascii_type_name}' into an index-sized integer",
+    lambda: setattr(textio, "_CHUNK_SIZE", NonAsciiNamedChunkSize()),
+)
+
+
+# A buffer size or read size that cannot be allocated is a MemoryError, not an
+# aborted process.
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a"), buffer_size=2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read(2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read1(2**62))
+
+
+def _text_cookie(
+    start_pos=0,
+    dec_flags=0,
+    bytes_to_feed=0,
+    chars_to_skip=0,
+    need_eof=0,
+    bytes_to_skip=0,
+):
+    packed = (
+        start_pos.to_bytes(8, "little", signed=True)
+        + dec_flags.to_bytes(4, "little", signed=True)
+        + bytes_to_feed.to_bytes(4, "little", signed=True)
+        + chars_to_skip.to_bytes(4, "little", signed=True)
+        + bytes([need_eof])
+        + bytes_to_skip.to_bytes(4, "little", signed=True)
+    )
+    return int.from_bytes(packed, "little")
+
+
+# A cookie names a position both in characters and in bytes, and everything
+# read back from it indexes what was decoded, so a position past the end is
+# refused rather than stored.
+for _bad in (
+    _text_cookie(bytes_to_feed=10, chars_to_skip=1000, bytes_to_skip=0),
+    _text_cookie(bytes_to_feed=10, chars_to_skip=100000, bytes_to_skip=3),
+    _text_cookie(bytes_to_feed=10, chars_to_skip=1, bytes_to_skip=1000),
+):
+    _textio = TextIOWrapper(BytesIO(b"hello world " * 20), encoding="utf-8")
+    _textio.read(1)
+    try:
+        _textio.seek(_bad)
+    except (OSError, OverflowError):
+        pass
+    else:
+        assert _textio.read(50) is not None
+        _textio.tell()
+
+
+# Reinitialization releases arguments after unlocking the stream.
+for _type, _content in ((BytesIO, b"hello"), (StringIO, "hello")):
+    _stream = _type(_content)
+    _stream.close()
+    _stream.__init__(_content)
+    assert not _stream.closed
+    assert _stream.getvalue() == _content
+
+    class ClosingValue(type(_content)):
+        def __del__(self):
+            _stream.close()
+
+    _stream.__init__(ClosingValue(_content))
+    assert _stream.closed
+
+
+_stream = BytesIO(b"old")
+_released_values = []
+
+
+class ClosingBuffer:
+    def __buffer__(self, flags):
+        return memoryview(b"new")
+
+    def __release_buffer__(self, view):
+        _released_values.append(_stream.getvalue())
+        _stream.close()
+
+
+_stream.__init__(ClosingBuffer())
+assert _released_values == [b"new"]
+assert _stream.closed

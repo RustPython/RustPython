@@ -480,9 +480,16 @@ class MinidomTest(unittest.TestCase):
         self.assertEqual(child2.getAttributeNS("http://www.python.org", "missing"),
                          '')
 
-    def testGetAttributeNode(self): pass
+    def testGetAttributeNode(self):
+        dom = parseString("<doc a='1'/>")
+        elem = dom.documentElement
+        attr = elem.getAttributeNode("a")
+        self.assertEqual(attr.name, "a")
+        self.assertEqual(attr.value, "1")
+        self.assertIs(attr.ownerElement, elem)
+        self.assertIsNone(elem.getAttributeNode("b"))
+        dom.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testGetElementsByTagNameNS(self):
         d="""<foo xmlns:minidom='http://pyxml.sf.net/minidom'>
         <minidom:myelem/>
@@ -553,7 +560,6 @@ class MinidomTest(unittest.TestCase):
         self.assertEqual(str(node), repr(node))
         dom.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testWriteXML(self):
         str = '<?xml version="1.0" ?><a b="c"/>'
         dom = parseString(str)
@@ -601,7 +607,6 @@ class MinidomTest(unittest.TestCase):
                 'lflf="&#10;&#10;" '
                 'ws="&#9;&#10;&#13; "/>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testAltNewline(self):
         str = '<?xml version="1.0" ?>\n<a b="c"/>\n'
         dom = parseString(str)
@@ -643,7 +648,6 @@ class MinidomTest(unittest.TestCase):
                 dom.getElementsByTagName('B')[0].childNodes[0].toxml(),
                 dom2.getElementsByTagName('B')[0].childNodes[0].toxml())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testProcessingInstruction(self):
         dom = parseString('<e><?mypi \t\n data \t\n ?></e>')
         pi = dom.documentElement.firstChild
@@ -659,7 +663,6 @@ class MinidomTest(unittest.TestCase):
         self.assertIsNone(pi.localName)
         self.assertEqual(pi.namespaceURI, xml.dom.EMPTY_NAMESPACE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testProcessingInstructionRepr(self):
         dom = parseString('<e><?mypi \t\n data \t\n ?></e>')
         pi = dom.documentElement.firstChild
@@ -674,9 +677,34 @@ class MinidomTest(unittest.TestCase):
         self.assertEqual(str(el), repr(el))
         self.assertEqual('<DOM Text node "\'foo\'">', str(el))
 
-    def testWriteText(self): pass
+    def testWriteText(self):
+        dom = parseString("<doc><a>text</a><b>&lt;&amp;&gt;</b></doc>")
+        elem = dom.documentElement
+        writer = io.StringIO()
+        elem.writexml(writer)
+        self.assertEqual(writer.getvalue(),
+                "<doc><a>text</a><b>&lt;&amp;&gt;</b></doc>")
+        writer = io.StringIO()
+        elem.writexml(writer, indent="  ", addindent="  ", newl="\n")
+        self.assertEqual(writer.getvalue(),
+                "  <doc>\n"
+                "    <a>text</a>\n"
+                "    <b>&lt;&amp;&gt;</b>\n"
+                "  </doc>\n")
+        dom.unlink()
 
-    def testDocumentElement(self): pass
+    def testDocumentElement(self):
+        dom = parseString("<!-- comment --><doc/><?pi data?>")
+        elem = dom.documentElement
+        self.assertEqual(elem.tagName, "doc")
+        self.assertIs(elem, dom.childNodes[1])
+        dom.unlink()
+
+        dom = Document()
+        self.assertIsNone(dom.documentElement)
+        elem = dom.appendChild(dom.createElement("doc"))
+        self.assertIs(dom.documentElement, elem)
+        dom.unlink()
 
     def testTooManyDocumentElements(self):
         doc = parseString("<doc/>")
@@ -686,27 +714,127 @@ class MinidomTest(unittest.TestCase):
         elem.unlink()
         doc.unlink()
 
-    def testCreateElementNS(self): pass
+    def testCreateElementNS(self):
+        dom = Document()
+        elem = dom.createElementNS("http://xml.python.org/ns", "p:elem")
+        self.assertEqual(elem.nodeType, Node.ELEMENT_NODE)
+        self.assertEqual(elem.tagName, "p:elem")
+        self.assertEqual(elem.nodeName, "p:elem")
+        self.assertEqual(elem.namespaceURI, "http://xml.python.org/ns")
+        self.assertEqual(elem.prefix, "p")
+        self.assertEqual(elem.localName, "elem")
+        self.assertIs(elem.ownerDocument, dom)
+        self.assertIsNone(elem.parentNode)
 
-    def testCreateAttributeNS(self): pass
+        elem = dom.createElementNS("http://xml.python.org/ns", "elem")
+        self.assertEqual(elem.tagName, "elem")
+        self.assertIsNone(elem.prefix)
+        self.assertEqual(elem.localName, "elem")
+        dom.unlink()
 
-    def testParse(self): pass
+    def testCreateAttributeNS(self):
+        dom = Document()
+        attr = dom.createAttributeNS("http://xml.python.org/ns", "p:attr")
+        self.assertEqual(attr.nodeType, Node.ATTRIBUTE_NODE)
+        self.assertEqual(attr.name, "p:attr")
+        self.assertEqual(attr.nodeName, "p:attr")
+        self.assertEqual(attr.namespaceURI, "http://xml.python.org/ns")
+        self.assertEqual(attr.prefix, "p")
+        self.assertEqual(attr.localName, "attr")
+        self.assertEqual(attr.value, "")
+        self.assertIs(attr.ownerDocument, dom)
+        self.assertIsNone(attr.ownerElement)
 
-    def testParseString(self): pass
+        elem = dom.appendChild(dom.createElement("doc"))
+        elem.setAttributeNode(attr)
+        self.assertIs(attr.ownerElement, elem)
+        self.assertIs(elem.getAttributeNodeNS("http://xml.python.org/ns",
+                                              "attr"), attr)
+        dom.unlink()
 
-    def testComment(self): pass
+    def testParse(self):
+        # parsing from a file object is tested in testParseFromBinaryFile
+        # and testParseFromTextFile
+        dom = parse(tstfile)
+        self.assertEqual(dom.nodeType, Node.DOCUMENT_NODE)
+        self.assertEqual(dom.documentElement.tagName, "HTML")
+        dom.unlink()
 
-    def testAttrListItem(self): pass
+        self.assertRaises(ExpatError, parseString, "<doc>")
 
-    def testAttrListItems(self): pass
+    def testParseString(self):
+        dom = parseString("<doc>text</doc>")
+        self.assertEqual(dom.nodeType, Node.DOCUMENT_NODE)
+        self.assertEqual(dom.documentElement.tagName, "doc")
+        self.assertEqual(dom.documentElement.firstChild.data, "text")
+        dom.unlink()
 
-    def testAttrListItemNS(self): pass
+        dom = parseString(b"<?xml version='1.0' encoding='utf-8'?>"
+                          b"<doc>\xc3\xa9</doc>")
+        self.assertEqual(dom.documentElement.firstChild.data, "\xe9")
+        dom.unlink()
 
-    def testAttrListKeys(self): pass
+    def testComment(self):
+        dom = Document()
+        comment = dom.createComment("comment")
+        self.assertEqual(comment.nodeType, Node.COMMENT_NODE)
+        self.assertEqual(comment.nodeName, "#comment")
+        self.assertEqual(comment.data, "comment")
+        self.assertEqual(comment.nodeValue, "comment")
+        self.assertIsNone(comment.attributes)
+        dom.appendChild(comment)
+        self.assertEqual(dom.toxml(),
+                         '<?xml version="1.0" ?><!--comment-->')
+        dom.unlink()
 
-    def testAttrListKeysNS(self): pass
+        dom = parseString("<doc><!--comment--></doc>")
+        comment = dom.documentElement.firstChild
+        self.assertEqual(comment.nodeType, Node.COMMENT_NODE)
+        self.assertEqual(comment.data, "comment")
+        dom.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def testAttrListItem(self):
+        dom = parseString("<doc a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(attrs.item(0).name, "a")
+        self.assertEqual(attrs.item(1).name, "b")
+        self.assertIsNone(attrs.item(2))
+        dom.unlink()
+
+    def testAttrListItems(self):
+        dom = parseString("<doc a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(attrs.items(), [("a", "1"), ("b", "2")])
+        dom.unlink()
+
+    def testAttrListItemNS(self):
+        dom = parseString("<doc xmlns:p='http://xml.python.org/ns' "
+                          "p:a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(attrs.itemsNS(), [
+            ((xml.dom.XMLNS_NAMESPACE, "p"), "http://xml.python.org/ns"),
+            (("http://xml.python.org/ns", "a"), "1"),
+            ((None, "b"), "2"),
+        ])
+        dom.unlink()
+
+    def testAttrListKeys(self):
+        dom = parseString("<doc a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(list(attrs.keys()), ["a", "b"])
+        dom.unlink()
+
+    def testAttrListKeysNS(self):
+        dom = parseString("<doc xmlns:p='http://xml.python.org/ns' "
+                          "p:a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(list(attrs.keysNS()), [
+            (xml.dom.XMLNS_NAMESPACE, "p"),
+            ("http://xml.python.org/ns", "a"),
+            (None, "b"),
+        ])
+        dom.unlink()
+
     def testRemoveNamedItem(self):
         doc = parseString("<doc a=''/>")
         e = doc.documentElement
@@ -716,7 +844,6 @@ class MinidomTest(unittest.TestCase):
         self.assertTrue(a1.isSameNode(a2))
         self.assertRaises(xml.dom.NotFoundErr, attrs.removeNamedItem, "a")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testRemoveNamedItemNS(self):
         doc = parseString("<doc xmlns:a='http://xml.python.org/' a:b=''/>")
         e = doc.documentElement
@@ -727,29 +854,161 @@ class MinidomTest(unittest.TestCase):
         self.assertRaises(xml.dom.NotFoundErr, attrs.removeNamedItemNS,
                           "http://xml.python.org/", "b")
 
-    def testAttrListValues(self): pass
+    def testAttrListValues(self):
+        dom = parseString("<doc a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual([attr.name for attr in attrs.values()], ["a", "b"])
+        self.assertEqual([attr.value for attr in attrs.values()], ["1", "2"])
+        dom.unlink()
 
-    def testAttrListLength(self): pass
+    def testAttrListLength(self):
+        dom = parseString("<doc a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(attrs.length, 2)
+        self.assertEqual(len(attrs), 2)
+        dom.unlink()
 
-    def testAttrList__getitem__(self): pass
+        dom = parseString("<doc/>")
+        self.assertEqual(dom.documentElement.attributes.length, 0)
+        dom.unlink()
 
-    def testAttrList__setitem__(self): pass
+    def testAttrList__getitem__(self):
+        dom = parseString("<doc xmlns:p='http://xml.python.org/ns' "
+                          "p:a='1' b='2'/>")
+        attrs = dom.documentElement.attributes
+        self.assertEqual(attrs["b"].value, "2")
+        self.assertEqual(attrs[("http://xml.python.org/ns", "a")].value, "1")
+        self.assertRaises(KeyError, attrs.__getitem__, "missing")
+        self.assertRaises(KeyError, attrs.__getitem__, (None, "missing"))
+        dom.unlink()
 
-    def testSetAttrValueandNodeValue(self): pass
+    def testAttrList__setitem__(self):
+        dom = parseString("<doc a='1'/>")
+        elem = dom.documentElement
+        attrs = elem.attributes
+        attrs["a"] = "2"
+        self.assertEqual(elem.getAttribute("a"), "2")
+        attrs["b"] = "3"
+        self.assertEqual(elem.getAttribute("b"), "3")
+        self.assertEqual(attrs.length, 2)
 
-    def testParseElement(self): pass
+        attr = dom.createAttribute("c")
+        attr.value = "4"
+        attrs["c"] = attr
+        self.assertIs(elem.getAttributeNode("c"), attr)
+        self.assertEqual(elem.getAttribute("c"), "4")
+        dom.unlink()
 
-    def testParseAttributes(self): pass
+    def testSetAttrValueandNodeValue(self):
+        dom = parseString("<doc a='1'/>")
+        attr = dom.documentElement.getAttributeNode("a")
+        self.assertEqual(attr.value, "1")
+        self.assertEqual(attr.nodeValue, "1")
+        attr.value = "2"
+        self.assertEqual(attr.nodeValue, "2")
+        attr.nodeValue = "3"
+        self.assertEqual(attr.value, "3")
+        self.assertEqual(dom.documentElement.getAttribute("a"), "3")
+        dom.unlink()
 
-    def testParseElementNamespaces(self): pass
+    def testParseElement(self):
+        dom = parseString("<doc><child/><child/></doc>")
+        elem = dom.documentElement
+        self.assertEqual(elem.nodeType, Node.ELEMENT_NODE)
+        self.assertEqual(elem.tagName, "doc")
+        self.assertIsNone(elem.namespaceURI)
+        self.assertIs(elem.parentNode, dom)
+        self.assertIs(elem.ownerDocument, dom)
+        self.assertEqual([child.tagName for child in elem.childNodes],
+                         ["child", "child"])
+        dom.unlink()
 
-    def testParseAttributeNamespaces(self): pass
+    def testParseAttributes(self):
+        dom = parseString("<doc a='1' b='&amp;'/>")
+        elem = dom.documentElement
+        self.assertEqual(elem.getAttribute("a"), "1")
+        self.assertEqual(elem.getAttribute("b"), "&")
+        self.assertEqual(elem.getAttribute("missing"), "")
+        self.assertTrue(elem.hasAttribute("a"))
+        self.assertFalse(elem.hasAttribute("missing"))
+        attr = elem.getAttributeNode("a")
+        self.assertIsNone(attr.namespaceURI)
+        dom.unlink()
 
-    def testParseProcessingInstructions(self): pass
+    def testParseElementNamespaces(self):
+        dom = parseString("<p:doc xmlns:p='http://xml.python.org/ns'"
+                          " xmlns='http://xml.python.org/default'>"
+                          "<child/></p:doc>")
+        elem = dom.documentElement
+        self.assertEqual(elem.tagName, "p:doc")
+        self.assertEqual(elem.namespaceURI, "http://xml.python.org/ns")
+        self.assertEqual(elem.prefix, "p")
+        self.assertEqual(elem.localName, "doc")
+        child = elem.getElementsByTagName("child")[0]
+        self.assertEqual(child.namespaceURI, "http://xml.python.org/default")
+        self.assertIsNone(child.prefix)
+        self.assertEqual(child.localName, "child")
+        dom.unlink()
 
-    def testChildNodes(self): pass
+    def testParseAttributeNamespaces(self):
+        dom = parseString("<doc xmlns:p='http://xml.python.org/ns'"
+                          " p:a='1' b='2'/>")
+        elem = dom.documentElement
+        self.assertEqual(elem.getAttributeNS("http://xml.python.org/ns", "a"),
+                         "1")
+        self.assertEqual(elem.getAttributeNS(None, "b"), "2")
+        attr = elem.getAttributeNodeNS("http://xml.python.org/ns", "a")
+        self.assertEqual(attr.name, "p:a")
+        self.assertEqual(attr.prefix, "p")
+        self.assertEqual(attr.localName, "a")
+        declaration = elem.getAttributeNode("xmlns:p")
+        self.assertEqual(declaration.namespaceURI, xml.dom.XMLNS_NAMESPACE)
+        self.assertEqual(declaration.value, "http://xml.python.org/ns")
+        dom.unlink()
 
-    def testFirstChild(self): pass
+    def testParseProcessingInstructions(self):
+        # the content of a processing instruction is tested
+        # in testProcessingInstruction
+        dom = parseString("<?before data?><doc/><?after?>")
+        pi = dom.childNodes[0]
+        self.assertEqual(pi.nodeType, Node.PROCESSING_INSTRUCTION_NODE)
+        self.assertEqual(pi.target, "before")
+        self.assertEqual(pi.data, "data")
+        self.assertIs(pi.parentNode, dom)
+        pi = dom.childNodes[2]
+        self.assertEqual(pi.target, "after")
+        self.assertEqual(pi.data, "")
+        dom.unlink()
+
+    def testChildNodes(self):
+        dom = parseString("<doc>text<child/><!--comment--></doc>")
+        children = dom.documentElement.childNodes
+        self.assertEqual(len(children), 3)
+        self.assertEqual([child.nodeType for child in children],
+                         [Node.TEXT_NODE, Node.ELEMENT_NODE, Node.COMMENT_NODE])
+        for child in children:
+            self.assertIs(child.parentNode, dom.documentElement)
+        dom.unlink()
+
+        dom = parseString("<doc/>")
+        self.assertEqual(len(dom.documentElement.childNodes), 0)
+        dom.unlink()
+
+    def testFirstChild(self):
+        dom = parseString("<doc><a/><b/></doc>")
+        elem = dom.documentElement
+        self.assertEqual(elem.firstChild.tagName, "a")
+        self.assertEqual(elem.lastChild.tagName, "b")
+        self.assertIs(elem.firstChild, elem.childNodes[0])
+        self.assertIs(elem.lastChild, elem.childNodes[-1])
+        self.assertIsNone(elem.firstChild.previousSibling)
+        self.assertIs(elem.firstChild.nextSibling, elem.lastChild)
+        dom.unlink()
+
+        dom = parseString("<doc/>")
+        self.assertIsNone(dom.documentElement.firstChild)
+        self.assertIsNone(dom.documentElement.lastChild)
+        dom.unlink()
 
     def testHasChildNodes(self):
         dom = parseString("<doc><foo/></doc>")
@@ -789,7 +1048,6 @@ class MinidomTest(unittest.TestCase):
         root.setAttribute("added", "VALUE")
         return dom, clone
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneElementShallow(self):
         dom, clone = self._setupCloneElement(0)
         self.assertEqual(len(clone.childNodes), 0)
@@ -941,11 +1199,9 @@ class MinidomTest(unittest.TestCase):
         self.confirm(clone.specified,
                 testName + ": cloned attribute must have specified == True")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneAttributeShallow(self):
         self.check_clone_attribute(0, "testCloneAttributeShallow")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneAttributeDeep(self):
         self.check_clone_attribute(1, "testCloneAttributeDeep")
 
@@ -957,11 +1213,9 @@ class MinidomTest(unittest.TestCase):
         self.confirm(clone.target == pi.target
                 and clone.data == pi.data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testClonePIShallow(self):
         self.check_clone_pi(0, "testClonePIShallow")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testClonePIDeep(self):
         self.check_clone_pi(1, "testClonePIDeep")
 
@@ -1219,7 +1473,6 @@ class MinidomTest(unittest.TestCase):
         self.assertIsNone(node.childNodes[-1].nextSibling,
                      "Final child's .nextSibling should be None")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSiblings(self):
         doc = parseString("<doc><?pi?>text?<elm/></doc>")
         root = doc.documentElement
@@ -1261,7 +1514,6 @@ class MinidomTest(unittest.TestCase):
                 "test NodeList.item()")
         doc.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testEncodings(self):
         doc = parseString('<foo>&#x20ac;</foo>')
         self.assertEqual(doc.toxml(),
@@ -1340,7 +1592,6 @@ class MinidomTest(unittest.TestCase):
         self.assertRaises(xml.dom.WrongDocumentErr, doc2.renameNode, node,
                           xml.dom.EMPTY_NAMESPACE, "foo")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testRenameAttribute(self):
         doc = parseString("<doc a='v'/>")
         elem = doc.documentElement
@@ -1545,7 +1796,6 @@ class MinidomTest(unittest.TestCase):
         self.confirm(text is None
                 and len(elem.childNodes) == 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSchemaType(self):
         doc = parseString(
             "<!DOCTYPE doc [\n"
@@ -1579,7 +1829,6 @@ class MinidomTest(unittest.TestCase):
             self.confirm(hasattr(t, "name")
                     and t.namespace == xml.dom.EMPTY_NAMESPACE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSetIdAttribute(self):
         doc = parseString("<doc a1='v' a2='w'/>")
         e = doc.documentElement
@@ -1611,7 +1860,6 @@ class MinidomTest(unittest.TestCase):
         self.confirm(e.isSameNode(doc.getElementById("w"))
                 and a2.isId)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSetIdAttributeNS(self):
         NS1 = "http://xml.python.org/ns1"
         NS2 = "http://xml.python.org/ns2"
@@ -1648,7 +1896,6 @@ class MinidomTest(unittest.TestCase):
         self.confirm(e.isSameNode(doc.getElementById("w"))
                 and a2.isId)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSetIdAttributeNode(self):
         NS1 = "http://xml.python.org/ns1"
         NS2 = "http://xml.python.org/ns2"
@@ -1746,7 +1993,6 @@ class MinidomTest(unittest.TestCase):
         doc2 = parseString(doc.toxml())
         self.assertEqual(doc2.namespaceURI, xml.dom.EMPTY_NAMESPACE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testExceptionOnSpacesInXMLNSValue(self):
         with self.assertRaises((ValueError, ExpatError)):
             parseString(
@@ -1770,7 +2016,6 @@ class MinidomTest(unittest.TestCase):
         pi = doc.createProcessingInstruction("y", "z")
         pi.nodeValue = "crash"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_minidom_attribute_order(self):
         xml_str = '<?xml version="1.0" ?><curriculum status="public" company="example"/>'
         doc = parseString(xml_str)
@@ -1778,13 +2023,11 @@ class MinidomTest(unittest.TestCase):
         doc.writexml(output)
         self.assertEqual(output.getvalue(), xml_str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_toxml_with_attributes_ordered(self):
         xml_str = '<?xml version="1.0" ?><curriculum status="public" company="example"/>'
         doc = parseString(xml_str)
         self.assertEqual(doc.toxml(), xml_str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_toprettyxml_with_attributes_ordered(self):
         xml_str = '<?xml version="1.0" ?><curriculum status="public" company="example"/>'
         doc = parseString(xml_str)
@@ -1792,7 +2035,6 @@ class MinidomTest(unittest.TestCase):
                          '<?xml version="1.0" ?>\n'
                          '<curriculum status="public" company="example"/>\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_toprettyxml_with_cdata(self):
         xml_str = '<?xml version="1.0" ?><root><node><![CDATA[</data>]]></node></root>'
         doc = parseString(xml_str)

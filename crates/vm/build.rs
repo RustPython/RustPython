@@ -3,13 +3,9 @@
     reason = "build scripts cannot use rustpython-host_env"
 )]
 
-use chrono::{Local, prelude::DateTime};
-use core::time::Duration;
-use itertools::Itertools;
+use jiff::{Timestamp, Zoned, tz::TimeZone};
 use std::{
-    env,
-    io::{self, prelude::*},
-    path::PathBuf,
+    env, io,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -25,9 +21,10 @@ fn main() {
         println!("cargo:rerun-if-changed={display}");
     }
     println!("cargo:rerun-if-changed=../../Lib/importlib/_bootstrap.py");
+    println!("cargo:rerun-if-changed=../../Lib/zipimport.py");
 
-    // = 3.14.0alpha
-    python_version(3, 14, 0, "alpha", 0);
+    // = 3.15.0alpha
+    python_version(3, 15, 0, "alpha", 0);
 
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());
     println!(
@@ -54,16 +51,6 @@ fn main() {
         "cargo:rustc-env=RUSTPYTHON_TARGET_TRIPLE={}",
         env::var("TARGET").unwrap()
     );
-
-    let mut env_path = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    env_path.push("env_vars.rs");
-    let mut f = std::fs::File::create(env_path).unwrap();
-    write!(
-        f,
-        "sysvars! {{ {} }}",
-        std::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{k:?} => {v:?}")))
-    )
-    .unwrap();
 }
 
 fn git_hash() -> String {
@@ -123,24 +110,27 @@ fn git_identifier() -> String {
     }
 }
 
-fn get_git_timestamp_datetime() -> DateTime<Local> {
-    let timestamp = git_timestamp().parse::<u64>().unwrap_or_default();
-    let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    datetime.into()
+fn get_git_timestamp_raw() -> Option<Timestamp> {
+    let git_timestamp = git_timestamp().parse::<i64>().ok()?;
+    Timestamp::from_second(git_timestamp).ok()
+}
+
+fn get_git_timestamp_datetime() -> Zoned {
+    get_git_timestamp_raw().map_or_else(Zoned::now, |timestamp| {
+        Zoned::new(timestamp, TimeZone::system())
+    })
 }
 
 #[must_use]
 fn get_git_date() -> String {
     let datetime = get_git_timestamp_datetime();
-
-    datetime.format("%b %e %Y").to_string()
+    datetime.strftime("%b %e %Y").to_string()
 }
 
 #[must_use]
 fn get_git_time() -> String {
     let datetime = get_git_timestamp_datetime();
-
-    datetime.format("%H:%M:%S").to_string()
+    datetime.strftime("%H:%M:%S").to_string()
 }
 
 fn rustc_version() -> String {
@@ -173,14 +163,16 @@ fn get_version(cpy_version: &str) -> (String, String) {
     // Windows: include MSC v. for compatibility with ctypes.util.find_library
     // MSC v.1929 = VS 2019, version 14+ makes find_msvcrt() return None
     let msc_info = cfg_select! {
-        windows => {{
-            // Include both RustPython identifier and MSC v. for compatibility
-            if cfg!(target_pointer_width = "64") {
-                " MSC v.1929 64 bit (AMD64)"
-            } else {
-                " MSC v.1929 32 bit (Intel)"
+        windows => {
+            {
+                // Include both RustPython identifier and MSC v. for compatibility
+                if cfg!(target_pointer_width = "64") {
+                    " MSC v.1929 64 bit (AMD64)"
+                } else {
+                    " MSC v.1929 32 bit (Intel)"
+                }
             }
-        }},
+        }
         _ => "",
     };
 

@@ -3,9 +3,11 @@ use crate::{
     builtins::{
         PyType,
         builtin_func::{PyNativeFunction, PyNativeMethod},
-        descriptor::PyMethodDescriptor,
+        descriptor::{PyClassMethodDescriptor, PyMethodDescriptor},
     },
-    function::{IntoPyNativeFn, PyNativeFn},
+    class::PyClassDef,
+    function::{FuncArgs, IntoPyNativeFn, PyNativeFn, SigArg},
+    types::PyTypeFlags,
 };
 
 bitflags::bitflags! {
@@ -28,7 +30,7 @@ bitflags::bitflags! {
         // already filled the entry.  When defined, the flag allows a separate
         // method, "__contains__" for example, to coexist with a defined
         // slot like sq_contains.
-        // const COEXIST = 0x0040;
+        const COEXIST = 0x0040;
 
         // if not Py_LIMITED_API
         const FASTCALL = 0x0080;
@@ -48,6 +50,22 @@ bitflags::bitflags! {
 impl PyMethodFlags {
     // FIXME: macro temp
     pub const EMPTY: Self = Self::empty();
+
+    const CALL_CONVENTION: Self = Self::VARARGS
+        .union(Self::KEYWORDS)
+        .union(Self::NOARGS)
+        .union(Self::O)
+        .union(Self::FASTCALL);
+
+    /// Adds the calling convention inferred from `args` unless one is set.
+    /// For METHOD and CLASS the first argument is the bound receiver.
+    pub(crate) const fn with_call_convention(self, args: &[SigArg]) -> Self {
+        if self.intersects(Self::CALL_CONVENTION) {
+            return self;
+        }
+        let receiver = self.intersects(Self::METHOD.union(Self::CLASS));
+        self.union(super::signature::native_call_flags(args, receiver))
+    }
 }
 
 #[macro_export]
@@ -58,6 +76,12 @@ macro_rules! define_methods {
             name: $name,
             func: $crate::function::static_func($func),
             flags: $crate::function::PyMethodFlags::$flags,
+            #[cfg(feature = "doc")]
+            doc_off: 0,
+            #[cfg(feature = "doc")]
+            doc_len: 0,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
             doc: None,
         }),+ ]
     };
@@ -68,22 +92,63 @@ pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned
     pub func: &'static dyn PyNativeFn,
     pub flags: PyMethodFlags,
-    pub doc: Option<&'static str>, // TODO: interned
+    /// Start of the database body. Read only when `doc_len != 0`.
+    /// Absent when the `doc` feature is off, as are `doc_len` and `doc_body_pending`.
+    #[cfg(feature = "doc")]
+    pub doc_off: u32,
+    /// Length of the database body.
+    /// `0` means the body is not a database span: `doc` is the whole text, or there is no body.
+    #[cfg(feature = "doc")]
+    pub doc_len: u32,
+    /// The body is still taken from the owning class's attribute table.
+    /// True only when the method has no Rust doc body and expansion did not
+    /// resolve a database span. `concat_with_attr_docs` copies that span into
+    /// `doc_off`/`doc_len` when the table has one, then sets this to false.
+    /// False means the body is already settled: a Rust doc, a span resolved
+    /// while expanding the method, or no body at all.
+    #[cfg(feature = "doc")]
+    pub doc_body_pending: bool,
+    /// Static text beside the database span.
+    /// `None` when there is no static text: the body is the `doc_len` span, or there is no docstring.
+    /// `Some` is a plain docstring, a full internal docstring, or only the
+    /// signature prefix while the body is the `doc_len` span or still pending.
+    pub doc: Option<&'static str>,
 }
 
 impl PyMethodDef {
+    #[must_use]
+    pub fn item_doc(&self) -> super::ItemDoc {
+        super::ItemDoc {
+            text: self.doc,
+            #[cfg(feature = "doc")]
+            offset: self.doc_off,
+            #[cfg(feature = "doc")]
+            len: self.doc_len,
+            #[cfg(not(feature = "doc"))]
+            offset: 0,
+            #[cfg(not(feature = "doc"))]
+            len: 0,
+        }
+    }
+
     #[inline]
-    pub const fn new_const<Kind>(
+    pub const fn new_const<Kind, F: IntoPyNativeFn<Kind>>(
         name: &'static str,
-        func: impl IntoPyNativeFn<Kind>,
+        func: F,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_func(func),
-            flags,
-            doc,
+            flags: flags.with_call_convention(F::ARGS),
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
+            doc: doc.text,
         }
     }
 
@@ -92,13 +157,19 @@ impl PyMethodDef {
         name: &'static str,
         func: impl PyNativeFn,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_raw_func(func),
-            flags,
-            doc,
+            flags: flags.with_call_convention(&[SigArg::from_arg::<FuncArgs>("args")]),
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
+            doc: doc.text,
         }
     }
 
@@ -123,7 +194,8 @@ impl PyMethodDef {
         PyNativeFunction {
             zelf: None,
             value: self,
-            module: None,
+            module_object: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         }
     }
@@ -145,7 +217,8 @@ impl PyMethodDef {
             func: PyNativeFunction {
                 zelf: Some(obj),
                 value: self,
-                module: None,
+                module_object: None,
+                module: crate::object::PyAtomicRef::new_empty(),
                 _method_def_owner: None,
             },
             class,
@@ -161,11 +234,21 @@ impl PyMethodDef {
         ctx: &Context,
         obj: PyObjectRef,
     ) -> PyRef<PyNativeFunction> {
+        self.build_bound_function_with_owner(ctx, obj, None)
+    }
+
+    pub(crate) fn build_bound_function_with_owner(
+        &'static self,
+        ctx: &Context,
+        obj: PyObjectRef,
+        owner: Option<PyObjectRef>,
+    ) -> PyRef<PyNativeFunction> {
         let function = PyNativeFunction {
             zelf: Some(obj),
             value: self,
-            module: None,
-            _method_def_owner: None,
+            module_object: None,
+            module: crate::object::PyAtomicRef::new_empty(),
+            _method_def_owner: owner,
         };
         PyRef::new_ref(
             function,
@@ -192,7 +275,7 @@ impl PyMethodDef {
     ) -> PyRef<PyNativeMethod> {
         PyRef::new_ref(
             self.to_bound_method(obj, class),
-            ctx.types.builtin_function_or_method_type.to_owned(),
+            ctx.types.builtin_method_type.to_owned(),
             None,
         )
     }
@@ -201,29 +284,57 @@ impl PyMethodDef {
         &'static self,
         ctx: &Context,
         class: &'static Py<PyType>,
-    ) -> PyRef<PyMethodDescriptor> {
-        PyRef::new_ref(
-            self.to_method(class, ctx),
-            ctx.types.method_descriptor_type.to_owned(),
-            None,
-        )
+    ) -> PyRef<PyClassMethodDescriptor> {
+        debug_assert!(self.flags.contains(PyMethodFlags::CLASS));
+        PyClassMethodDescriptor::new(self, class, ctx).into_ref(ctx)
     }
 
     pub fn build_staticmethod(
         &'static self,
         ctx: &Context,
         class: &'static Py<PyType>,
-    ) -> PyRef<PyNativeMethod> {
+    ) -> PyRef<PyNativeFunction> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
-        // Set zelf to the class (m_self = type for static methods).
-        // Callable::call skips prepending when STATIC flag is set.
-        let func = PyNativeFunction {
-            zelf: Some(class.to_owned().into()),
-            value: self,
-            module: None,
-            _method_def_owner: None,
+        // Match PyCFunction_NewEx(meth, type, type_module(type)): snapshot
+        // module metadata here so later mutation/deletion remains observable.
+        let module = if class.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            class.attributes.get(ctx.intern_str("__module__"))
+        } else {
+            let name = class.slot_name();
+            let module = name
+                .rsplit_once('.')
+                .map_or("builtins", |(module, _)| module);
+            Some(ctx.intern_str(module).to_owned().into())
         };
-        PyNativeMethod { func, class }.into_ref(ctx)
+        // m_self is the type; STATIC skips prepending it on call.
+        let function = self.build_bound_function(ctx, class.to_owned().into());
+        drop(function.module.store(module));
+        function
+    }
+
+    /// Concatenate method groups. A pending body is copied from `docs`, then cleared.
+    #[cfg(feature = "doc")]
+    #[must_use]
+    pub const fn concat_with_attr_docs<const N: usize>(
+        method_groups: &[&[Self]],
+        docs: &[(&str, u32, u32)],
+    ) -> [Self; N] {
+        let combined = Self::__const_concat_arrays::<N>(method_groups);
+        let mut i = 0;
+        let mut out = combined;
+        while i < N {
+            if out[i].doc_body_pending {
+                if let Some((offset, len)) = crate::class::attr_doc(docs, out[i].name)
+                    && len != 0
+                {
+                    out[i].doc_off = offset;
+                    out[i].doc_len = len;
+                }
+                out[i].doc_body_pending = false;
+            }
+            i += 1;
+        }
+        out
     }
 
     #[doc(hidden)]
@@ -233,8 +344,14 @@ impl PyMethodDef {
     ) -> [Self; SUM_LEN] {
         const NULL_METHOD: PyMethodDef = PyMethodDef {
             name: "",
-            func: &|_, _| unreachable!(),
+            func: &|_, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
+            #[cfg(feature = "doc")]
+            doc_off: 0,
+            #[cfg(feature = "doc")]
+            doc_len: 0,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
             doc: None,
         };
         let mut all_methods = [NULL_METHOD; SUM_LEN];
@@ -253,11 +370,18 @@ impl PyMethodDef {
         all_methods
     }
 
+    #[must_use]
     const fn const_copy(&self) -> Self {
         Self {
             name: self.name,
             func: self.func,
             flags: self.flags,
+            #[cfg(feature = "doc")]
+            doc_off: self.doc_off,
+            #[cfg(feature = "doc")]
+            doc_len: self.doc_len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: self.doc_body_pending,
             doc: self.doc,
         }
     }
@@ -282,15 +406,51 @@ impl core::fmt::Debug for PyMethodDef {
 // This is not a part of CPython API.
 // But useful to support dynamically generated methods
 #[pyclass(name, module = false, ctx = "method_def")]
-#[derive(Debug)]
 pub struct HeapMethodDef {
     method: PyMethodDef,
+    _function_owner: Option<Box<dyn PyNativeFn>>,
+}
+
+impl core::fmt::Debug for HeapMethodDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.method.fmt(f)
+    }
 }
 
 impl HeapMethodDef {
     #[must_use]
     pub const fn new(method: PyMethodDef) -> Self {
-        Self { method }
+        Self {
+            method,
+            _function_owner: None,
+        }
+    }
+
+    pub(crate) fn with_owned_function(
+        name: &'static str,
+        function: Box<dyn PyNativeFn>,
+        flags: PyMethodFlags,
+        doc: super::ItemDoc,
+    ) -> Self {
+        // SAFETY: the box has a stable address and is retained by this payload.
+        // The definition is private; all functions/descriptors referring to it
+        // retain this HeapMethodDef and expose no static reference to callers.
+        let func = unsafe { &*core::ptr::from_ref(&*function) };
+        Self {
+            method: PyMethodDef {
+                name,
+                func,
+                flags,
+                #[cfg(feature = "doc")]
+                doc_off: doc.offset,
+                #[cfg(feature = "doc")]
+                doc_len: doc.len,
+                #[cfg(feature = "doc")]
+                doc_body_pending: false,
+                doc: doc.text,
+            },
+            _function_owner: Some(function),
+        }
     }
 }
 
@@ -331,3 +491,60 @@ impl Py<HeapMethodDef> {
 
 #[pyclass]
 impl HeapMethodDef {}
+
+pub(crate) fn init(ctx: &'static Context) {
+    // TODO: Should we extend the class instead of interning only the name?
+    // HeapMethodDef::extend_class(ctx, ctx.types.method_def);
+
+    let _ = ctx.intern_str(HeapMethodDef::NAME);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AsObject, function::FuncArgs};
+
+    #[test]
+    fn generated_functions_own_and_release_their_native_captures() {
+        use alloc::sync::Arc;
+        let captured = Arc::new(17);
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let capture = captured.clone();
+            let definition = vm.ctx.new_method_def(
+                "captured",
+                move |_args: FuncArgs| *capture,
+                PyMethodFlags::empty(),
+                super::super::ItemDoc::NONE,
+            );
+            let function = definition.build_function(vm, None);
+            let descriptor = definition.build_method(vm.ctx.types.object_type, vm);
+            drop(definition);
+            assert_eq!(Arc::strong_count(&captured), 2);
+            assert_eq!(
+                function
+                    .as_object()
+                    .call((), vm)
+                    .unwrap()
+                    .try_into_value::<i32>(vm)
+                    .unwrap(),
+                17
+            );
+            let method = descriptor.bind(vm.ctx.none(), &vm.ctx);
+            assert!(method._method_def_owner.is_some());
+            drop(function);
+            drop(descriptor);
+            assert_eq!(Arc::strong_count(&captured), 2);
+            assert_eq!(
+                method
+                    .as_object()
+                    .call((), vm)
+                    .unwrap()
+                    .try_into_value::<i32>(vm)
+                    .unwrap(),
+                17
+            );
+            drop(method);
+            assert_eq!(Arc::strong_count(&captured), 1);
+        });
+    }
+}

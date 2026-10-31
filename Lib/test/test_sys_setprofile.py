@@ -169,7 +169,6 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exception_propagation(self):
         def f(p):
             1/0
@@ -261,7 +260,6 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unfinished_generator(self):
         def f():
             for i in range(2):

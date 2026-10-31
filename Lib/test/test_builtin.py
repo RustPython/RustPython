@@ -4,6 +4,7 @@ import ast
 import builtins
 import collections
 import contextlib
+import copy
 import decimal
 import fractions
 import gc
@@ -21,6 +22,7 @@ import types
 import typing
 import unittest
 import warnings
+import weakref
 from contextlib import ExitStack
 from functools import partial
 from inspect import CO_COROUTINE
@@ -31,6 +33,7 @@ from operator import neg
 from test import support
 from test.support import cpython_only, swap_attr
 from test.support import async_yield, run_yielding_async_fn
+from test.support import warnings_helper
 from test.support.import_helper import import_module
 from test.support.os_helper import (EnvironmentVarGuard, TESTFN, unlink)
 from test.support.script_helper import assert_python_ok
@@ -51,6 +54,10 @@ HAVE_DOUBLE_ROUNDING = (x + y == 1e16 + 4)
 
 # used as proof of globals being used
 A_GLOBAL_VALUE = 123
+A_SENTINEL = sentinel("A_SENTINEL")
+
+class SentinelContainer:
+    CLASS_SENTINEL = sentinel("SentinelContainer.CLASS_SENTINEL")
 
 class Squares:
 
@@ -245,7 +252,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         S = [10, 20, 30]
         self.assertEqual(any(x > 42 for x in S), False)
 
-    def test_all_any_tuple_optimization(self):
+    def test_all_any_tuple_list_set_optimization(self):
         def f_all():
             return all(x-2 for x in [1,2,3])
 
@@ -255,7 +262,13 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         def f_tuple():
             return tuple(2*x for x in [1,2,3])
 
-        funcs = [f_all, f_any, f_tuple]
+        def f_list():
+            return list(2*x for x in [1,2,3])
+
+        def f_set():
+            return set(2*x for x in [1,2,3])
+
+        funcs = [f_all, f_any, f_tuple, f_list, f_set]
 
         for f in funcs:
             # check that generator code object is not duplicated
@@ -265,33 +278,35 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
 
         # check the overriding the builtins works
 
-        global all, any, tuple
-        saved = all, any, tuple
+        global all, any, tuple, list, set
+        saved = all, any, tuple, list, set
         try:
             all = lambda x : "all"
             any = lambda x : "any"
             tuple = lambda x : "tuple"
+            list = lambda x : "list"
+            set = lambda x : "set"
 
             overridden_outputs = [f() for f in funcs]
         finally:
-            all, any, tuple = saved
+            all, any, tuple, list, set = saved
 
-        self.assertEqual(overridden_outputs, ['all', 'any', 'tuple'])
-
+        self.assertEqual(overridden_outputs, ['all', 'any', 'tuple', 'list', 'set'])
         # Now repeat, overriding the builtins module as well
-        saved = all, any, tuple
+        saved = all, any, tuple, list, set
         try:
             builtins.all = all = lambda x : "all"
             builtins.any = any = lambda x : "any"
             builtins.tuple = tuple = lambda x : "tuple"
+            builtins.list = list = lambda x : "list"
+            builtins.set = set = lambda x : "set"
 
             overridden_outputs = [f() for f in funcs]
         finally:
-            all, any, tuple = saved
-            builtins.all, builtins.any, builtins.tuple = saved
+            all, any, tuple, list, set = saved
+            builtins.all, builtins.any, builtins.tuple, builtins.list, builtins.set = saved
 
-        self.assertEqual(overridden_outputs, ['all', 'any', 'tuple'])
-
+        self.assertEqual(overridden_outputs, ['all', 'any', 'tuple', 'list', 'set'])
 
     def test_builtin_call_async_genexpr_no_crash(self):
         async def f_all():
@@ -486,7 +501,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                                 msg=f"source={source} mode={mode}")
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_top_level_await(self):
         """Test whether code with top level await can be compiled.
 
@@ -528,6 +542,10 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             '''a = [x async for x in (x async for x in arange(5))][1]''',
             '''a, = [1 for x in {x async for x in arange(1)}]''',
             '''a = [await sleep(0, x) async for x in arange(2)][1]''',
+            '''a = [await sleep(0, 1) for _ in [0]][0]''',
+            '''a = {await sleep(0, 1) for _ in [0]}.pop()''',
+            '''a = {0: await sleep(0, 1) for _ in [0]}[0]''',
+            '''a = (lambda x=[await sleep(0, 1) for _ in [0]]: x)()[0]''',
             # gh-121637: Make sure we correctly handle the case where the
             # async code is optimized away
             '''assert not await sleep(0); a = 1''',
@@ -596,7 +614,26 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             '''def f():
                    async with Lock() as l:
                        a = 1
-            '''
+            ''',
+            '''class C:
+                   [await x for x in y]
+            ''',
+            '''class C:
+                   [x async for x in arange(10)]
+            ''',
+            '''async def f():
+                   class C:
+                       [await x for x in y]
+            ''',
+            '''lambda: [await x for x in y]''',
+            '''class C:
+                   def f(self, x=[await y for y in z]):
+                       pass
+            ''',
+            '''type T = [await x for x in y]''',
+            '''async def f[T=[await x for x in y]]():
+                   pass
+            ''',
         ]
         for mode, code_sample in product(modes, code_samples):
             source = dedent(code_sample)
@@ -627,7 +664,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(co, glob)
         self.assertEqual(type(glob['ticker']()), AsyncGeneratorType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <_ast.Name object at 0xb40000731e3d1360> is not an instance of <class '_ast.Constant'>
     def test_compile_ast(self):
         args = ("a*__debug__", "f.py", "exec")
         raw = compile(*args, flags = ast.PyCF_ONLY_AST).body[0]
@@ -657,7 +693,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         msg = r"^attribute name must be string, not 'int'$"
         self.assertRaisesRegex(TypeError, msg, delattr, sys, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__repr__' unexpectedly found in ['__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__firstlineno__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__slots__', '__str__', '__subclasshook__', 'bar']
     def test_dir(self):
         # dir(wrong number of arguments)
         self.assertRaises(TypeError, dir, 42, 42)
@@ -799,6 +834,16 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, eval, "foo", {}, X())
 
+    def test_eval_frozendict(self):
+        ns = frozendict(x=1, data=[], __builtins__=__builtins__)
+        eval("data.append(x)", ns, ns)
+        self.assertEqual(ns['data'], [1])
+
+        ns = frozendict()
+        errmsg = "cannot assign __builtins__ to frozendict globals"
+        with self.assertRaisesRegex(TypeError, errmsg):
+            eval("", ns, ns)
+
     def test_eval_kwargs(self):
         data = {"A_GLOBAL_VALUE": 456}
         self.assertEqual(eval("globals()['A_GLOBAL_VALUE']", globals=data), 456)
@@ -897,6 +942,21 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             del l['__builtins__']
         self.assertEqual((g, l), ({'a': 1}, {'b': 2}))
 
+    def test_exec_frozendict(self):
+        ns = frozendict(x=1, data=[], __builtins__=__builtins__)
+        exec("data.append(x)", ns, ns)
+        self.assertEqual(ns['data'], [1])
+
+        ns = frozendict(__builtins__=__builtins__)
+        errmsg = "'frozendict' object does not support item assignment"
+        with self.assertRaisesRegex(TypeError, errmsg):
+            exec("x = 1", ns, ns)
+
+        ns = frozendict()
+        errmsg = "cannot assign __builtins__ to frozendict globals"
+        with self.assertRaisesRegex(TypeError, errmsg):
+            exec("", ns, ns)
+
     def test_exec_kwargs(self):
         g = {}
         exec('global z\nz = 1', globals=g)
@@ -991,7 +1051,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                eval, code, ns)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_exec_builtins_mapping_import(self):
         code = compile("import foo.bar", "test", "exec")
         ns = {'__builtins__': types.MappingProxyType({})}
@@ -1000,7 +1059,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(code, ns)
         self.assertEqual(ns['foo'], ('foo.bar', ns, ns, None, 0))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AttributeError not raised by eval
     def test_eval_builtins_mapping_reduce(self):
         # list_iterator.__reduce__() calls _PyEval_GetBuiltin("iter")
         code = compile("x.__reduce__()", "test", "eval")
@@ -1020,7 +1078,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         finally:
             sys.stdout = savestdout
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument closure
     def test_exec_closure(self):
         def function_without_closures():
             return 3 * 5
@@ -1113,6 +1170,29 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             three_freevars.__code__,
             three_freevars.__globals__,
             closure=my_closure)
+
+    def test_exec_filter_syntax_warnings_by_module(self):
+        filename = support.findfile('test_import/data/syntax_warnings.py')
+        with open(filename, 'rb') as f:
+            source = f.read()
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=r'<string>\z')
+            exec(source, {})
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
+        for wm in wlog:
+            self.assertEqual(wm.filename, '<string>')
+            self.assertIs(wm.category, SyntaxWarning)
+
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=r'package.module\z')
+            warnings.filterwarnings('error', module=r'<string>')
+            exec(source, {'__name__': 'package.module', '__file__': filename})
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
+        for wm in wlog:
+            self.assertEqual(wm.filename, '<string>')
+            self.assertIs(wm.category, SyntaxWarning)
 
 
     def test_filter(self):
@@ -1874,6 +1954,115 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             __repr__ = None
         self.assertRaises(TypeError, repr, C())
 
+    def test_sentinel(self):
+        missing = sentinel("MISSING")
+        other = sentinel("MISSING")
+
+        self.assertIsInstance(missing, sentinel)
+        self.assertIs(type(missing), sentinel)
+        self.assertEqual(missing.__name__, "MISSING")
+        self.assertEqual(missing.__module__, __name__)
+        self.assertIsNot(missing, other)
+        self.assertEqual(repr(missing), "MISSING")
+        self.assertTrue(missing)
+        self.assertIs(copy.copy(missing), missing)
+        self.assertIs(copy.deepcopy(missing), missing)
+        self.assertEqual(missing, missing)
+        self.assertNotEqual(missing, other)
+        self.assertRaises(TypeError, sentinel)
+        self.assertRaises(TypeError, sentinel, "MISSING", "EXTRA")
+        self.assertRaises(TypeError, sentinel, name="MISSING")
+        with self.assertRaisesRegex(TypeError, "must be str"):
+            sentinel(1)
+        self.assertTrue(sentinel.__flags__ & support._TPFLAGS_IMMUTABLETYPE)
+        self.assertTrue(sentinel.__flags__ & support._TPFLAGS_HAVE_GC)
+        self.assertFalse(sentinel.__flags__ & support._TPFLAGS_BASETYPE)
+        with self.assertRaises(TypeError):
+            class SubSentinel(sentinel):
+                pass
+
+    def test_sentinel_attributes(self):
+        missing = sentinel("MISSING")
+        with self.assertRaises(TypeError):
+            sentinel.attribute = "value"
+        with self.assertRaises(AttributeError):
+            missing.attribute = "value"
+        with self.assertRaises(AttributeError):
+            missing.__name__ = "CHANGED"
+        missing.__module__ = "changed"
+        self.assertEqual(missing.__module__, "changed")
+        with self.assertRaises(AttributeError):
+            del missing.__name__
+        del missing.__module__
+        with self.assertRaises(AttributeError):
+            missing.__module__
+
+    def test_sentinel_repr(self):
+        with_repr = sentinel("WITH_REPR", repr="custom")
+        without_repr = sentinel("WITHOUT_REPR", repr=None)
+        self.assertEqual(repr(with_repr), "custom")
+        self.assertEqual(repr(without_repr), "WITHOUT_REPR")
+        self.assertEqual(str(with_repr), "custom")
+        self.assertEqual(str(without_repr), "WITHOUT_REPR")
+
+        with self.assertRaisesRegex(TypeError, "repr.*str or None"):
+            sentinel("BAD_REPR", repr=42)
+
+    def test_sentinel_pickle(self):
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            with self.subTest(protocol=proto):
+                self.assertIs(
+                    pickle.loads(pickle.dumps(A_SENTINEL, protocol=proto)),
+                    A_SENTINEL)
+                self.assertIs(
+                    pickle.loads(pickle.dumps(
+                        SentinelContainer.CLASS_SENTINEL, protocol=proto)),
+                    SentinelContainer.CLASS_SENTINEL)
+
+        missing = sentinel("MISSING")
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            with self.subTest(protocol=proto):
+                with self.assertRaises(pickle.PicklingError):
+                    pickle.dumps(missing, protocol=proto)
+
+    def test_sentinel_str_subclass_name_cycle(self):
+        class Name(str):
+            pass
+
+        name = Name("MISSING")
+        missing = sentinel(name)
+        self.assertIs(missing.__name__, name)
+        self.assertTrue(gc.is_tracked(missing))
+
+        name.missing = missing
+        ref = weakref.ref(name)
+        del name, missing
+        support.gc_collect()
+        self.assertIsNone(ref())
+
+    def test_sentinel_union(self):
+        missing = sentinel("MISSING")
+
+        self.assertIsInstance(missing | int, typing.Union)
+        self.assertEqual((missing | int).__args__, (missing, int))
+        self.assertIsInstance(int | missing, typing.Union)
+        self.assertEqual((int | missing).__args__, (int, missing))
+        self.assertIs(missing | missing, missing)
+        self.assertEqual(repr(int | missing), "int | MISSING")
+        self.assertIsInstance(missing | None, typing.Union)
+        self.assertEqual((missing | None).__args__, (missing, type(None)))
+        self.assertIsInstance(None | missing, typing.Union)
+        self.assertEqual((None | missing).__args__, (type(None), missing))
+        self.assertIsInstance(missing | list[int], typing.Union)
+        self.assertEqual((missing | list[int]).__args__, (missing, list[int]))
+        self.assertIsInstance(missing | (int | str), typing.Union)
+        self.assertEqual((missing | (int | str)).__args__, (missing, int, str))
+
+        with self.assertRaises(TypeError):
+            missing | 1
+        with self.assertRaises(TypeError):
+            1 | missing
+
     def test_round(self):
         self.assertEqual(round(0.0), 0.0)
         self.assertEqual(type(round(0.0)), int)
@@ -2600,6 +2789,7 @@ class PtyTests(unittest.TestCase):
         finally:
             signal.signal(signal.SIGHUP, old_sighup)
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     def _run_child(self, child, terminal_input):
         r, w = os.pipe()  # Pipe test results from child back to parent
         try:
@@ -2717,43 +2907,35 @@ class PtyTests(unittest.TestCase):
         else:
             yield
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty(self):
         # Test input() functionality when wired to a tty
         self.check_input_tty("prompt", b"quux")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii(self):
         # Check stdin/stdout encoding is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xc3\xa9", "utf-8")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii_unicode_errors(self):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_null_in_prompt(self):
         self.check_input_tty("prompt\0", b"",
                 expected='ValueError: input: prompt string cannot contain '
                          'null characters')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_nonencodable_prompt(self):
         self.check_input_tty("prompté", b"quux", "ascii", stdout_errors='strict',
                 expected="UnicodeEncodeError: 'ascii' codec can't encode "
                          "character '\\xe9' in position 6: ordinal not in "
                          "range(128)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_nondecodable_input(self):
         self.check_input_tty("prompt", b"quux\xe9", "ascii", stdin_errors='strict',
                 expected="UnicodeDecodeError: 'ascii' codec can't decode "
                          "byte 0xe9 in position 4: ordinal not in "
                          "range(128)")
 
-    @unittest.skip("TODO: RUSTPYTHON; FAILURE, WORKER BUG")
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
         # fails, do not use the original stdout file descriptor
@@ -2973,7 +3155,6 @@ class TestType(unittest.TestCase):
         A.__firstlineno__ = 43
         self.assertEqual(A.__dict__['__firstlineno__'], 43)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'tuple' but 'str' found.
     def test_type_typeparams(self):
         class A[T]:
             pass
@@ -2997,6 +3178,12 @@ class TestType(unittest.TestCase):
         for doc in 'x', '\xc4', '\U0001f40d', 'x\x00y', 'x\udcdcy', b'x', 42, None:
             A.__doc__ = doc
             self.assertEqual(A.__doc__, doc)
+
+    def test_type_frozendict(self):
+        A = type('A', (), frozendict({'x': 4, 'y': 2}))
+        self.assertEqual(A.x, 4)
+        self.assertEqual(A.y, 2)
+        self.assertEqual(A.__name__, 'A')
 
     def test_bad_args(self):
         with self.assertRaises(TypeError):
@@ -3043,7 +3230,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (B,), {'__slots__': '__weakref__'})
 
-    @unittest.skip("TODO: RUSTPYTHON; random failure")
     def test_namespace_order(self):
         # bpo-34320: namespace should preserve order
         od = collections.OrderedDict([('a', 1), ('b', 2)])

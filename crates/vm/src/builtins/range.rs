@@ -2,11 +2,11 @@ use super::{
     PyGenericAlias, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter,
     tuple::tuple_hash,
 };
-use crate::common::lock::LazyLock;
+use crate::common::lock::{LazyLock, PyMutex};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -16,7 +16,6 @@ use crate::{
     },
 };
 use core::cell::Cell;
-use core::cmp::max;
 use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
@@ -39,7 +38,7 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    for element in iter.iter_without_hint::<PyObjectRef>(vm)? {
+    for element in iter.iter::<PyObjectRef>(vm)? {
         if vm.bool_eq(item, &*element?)? {
             match flag {
                 SearchType::Index => return Ok(count),
@@ -64,8 +63,11 @@ fn iter_search(
 #[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
+    #[pymember(type = "object_ex")]
     pub start: PyIntRef,
+    #[pymember(type = "object_ex")]
     pub stop: PyIntRef,
+    #[pymember(type = "object_ex")]
     pub step: PyIntRef,
 }
 
@@ -217,19 +219,6 @@ pub(crate) fn init(context: &'static Context) {
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyclass(
-    with(
-        Py,
-        AsMapping,
-        AsNumber,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        Representable
-    ),
-    flags(SEQUENCE)
-)]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self {
@@ -242,8 +231,8 @@ impl PyRange {
 
     fn new_from(
         cls: PyTypeRef,
-        start: PyObjectRef,
-        stop: PyObjectRef,
+        start: &PyObject,
+        stop: &PyObject,
         step: OptionalArg<ArgIndex>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
@@ -259,67 +248,8 @@ impl PyRange {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pygetset]
-    fn start(&self) -> PyIntRef {
-        self.start.clone()
-    }
-
-    #[pygetset]
-    fn stop(&self) -> PyIntRef {
-        self.stop.clone()
-    }
-
-    #[pygetset]
-    fn step(&self) -> PyIntRef {
-        self.step.clone()
-    }
-
-    #[pymethod]
-    fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let start = self.start.as_bigint();
-        let step = self.step.as_bigint();
-
-        // Use CPython calculation for this:
-        let length = self.__len__();
-        let new_stop = start - step;
-        let start = &new_stop + length.clone() * step;
-        let step = -step;
-
-        if let (Some(start), Some(step), Some(_)) =
-            (start.to_isize(), step.to_isize(), new_stop.to_isize())
-        {
-            PyRangeIterator {
-                index: AtomicCell::new(0),
-                start,
-                step,
-                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
-                // always fit in a usize.
-                length: length.to_usize().unwrap_or(0),
-            }
-            .into_pyobject(vm)
-        } else {
-            PyLongRangeIterator {
-                index: AtomicCell::new(0),
-                start,
-                step,
-                length,
-            }
-            .into_pyobject(vm)
-        }
-    }
-
     fn __len__(&self) -> BigInt {
         self.compute_length()
-    }
-
-    #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-        let range_parameters: Vec<PyObjectRef> = [&self.start, &self.stop, &self.step]
-            .iter()
-            .map(|x| x.as_object().to_owned())
-            .collect();
-        let range_parameters_tuple = vm.ctx.new_tuple(range_parameters);
-        (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
     fn __getitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -349,25 +279,31 @@ impl PyRange {
         }
     }
 
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.len() <= 1 {
-            let stop = args.bind(vm)?;
-            Self::new(cls, stop, vm)
-        } else {
-            let (start, stop, step) = args.bind(vm)?;
-            Self::new_from(cls, start, stop, step, vm)
-        }?;
-
-        Ok(range.into())
-    }
-
     // TODO: Uncomment when Python adds __class_getitem__ to range
     // #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
+
+#[pyclass(
+    with(
+        Py,
+        AsMapping,
+        AsNumber,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        Representable
+    ),
+    flags(SEQUENCE)
+)]
+impl PyRange {}
 
 #[pyclass]
 impl Py<PyRange> {
@@ -383,13 +319,13 @@ impl Py<PyRange> {
         }
     }
 
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
-        self.contains_inner(&needle, vm)
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> bool {
+        self.contains_inner(needle, vm)
     }
 
     #[pymethod]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let Ok(int) = needle.clone().downcast::<PyInt>() {
+    fn index(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let Ok(int) = object.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{int} is not in range"))),
@@ -398,33 +334,89 @@ impl Py<PyRange> {
             // Fallback to iteration.
             Ok(BigInt::from_bytes_be(
                 Sign::Plus,
-                &iter_search(self.as_object(), &needle, SearchType::Index, vm)?.to_be_bytes(),
+                &iter_search(self.as_object(), &object, SearchType::Index, vm)?.to_be_bytes(),
             ))
         }
     }
 
     #[pymethod]
-    fn count(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        if let Ok(int) = item.clone().downcast::<PyInt>() {
-            let count = if self.index_of(int.as_bigint()).is_some() {
-                1
-            } else {
-                0
-            };
-            Ok(count)
+    fn count(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        if let Ok(int) = object.clone().downcast::<PyInt>() {
+            Ok(usize::from(self.index_of(int.as_bigint()).is_some()))
         } else {
             // Dealing with classes who might compare equal with ints in their
             // __eq__, slow search.
-            iter_search(self.as_object(), &item, SearchType::Count, vm)
+            iter_search(self.as_object(), &object, SearchType::Count, vm)
         }
+    }
+
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let start = self.start.as_bigint();
+        let step = self.step.as_bigint();
+
+        // Use CPython calculation for this:
+        let length = self.__len__();
+        let new_stop = start - step;
+        let start = &new_stop + length.clone() * step;
+        let step = -step;
+
+        if let (Some(start), Some(step), Some(_)) =
+            (start.to_isize(), step.to_isize(), new_stop.to_isize())
+        {
+            PyRangeIterator {
+                index: AtomicCell::new(0),
+                start,
+                step,
+                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
+                // always fit in a usize.
+                length: length.to_usize().unwrap_or(0),
+            }
+            .into_pyobject(vm)
+        } else {
+            PyLongRangeIterator {
+                index: PyMutex::new(BigInt::zero()),
+                start,
+                step,
+                length,
+            }
+            .into_pyobject(vm)
+        }
+    }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+        let range_parameters: Vec<PyObjectRef> = [&self.start, &self.stop, &self.step]
+            .iter()
+            .map(|x| x.as_object().to_owned())
+            .collect();
+        let range_parameters_tuple = vm.ctx.new_tuple(range_parameters);
+        (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
+    }
+
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let range = if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(PyRange::NAME, 1..=3, 0));
+        } else if args.args.len() == 1 {
+            let stop = args.bind_for(vm, PyRange::NAME)?;
+            PyRange::new(cls, stop, vm)
+        } else {
+            let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<ArgIndex>) =
+                args.bind_for(vm, PyRange::NAME)?;
+            PyRange::new_from(cls, &start, &stop, step, vm)
+        }?;
+
+        Ok(range.into())
     }
 }
 
 impl PyRange {
     fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        PyInt::from(self.__len__())
-            .try_to_primitive::<isize>(vm)
+        self.__len__()
+            .to_isize()
             .map(|x| x as usize)
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to Rust isize"))
     }
 }
 
@@ -483,14 +475,14 @@ impl Hashable for PyRange {
         } else if length.is_one() {
             [
                 vm.ctx.new_int(length).into(),
-                zelf.start().into(),
+                zelf.start.clone().into(),
                 vm.ctx.none(),
             ]
         } else {
             [
                 vm.ctx.new_int(length).into(),
-                zelf.start().into(),
-                zelf.step().into(),
+                zelf.start.clone().into(),
+                zelf.step.clone().into(),
             ]
         };
         tuple_hash(&elements, vm)
@@ -551,7 +543,7 @@ impl Iterable for PyRange {
             .into_pyobject(vm))
         } else {
             Ok(PyLongRangeIterator {
-                index: AtomicCell::new(0),
+                index: PyMutex::new(BigInt::zero()),
                 start: start.clone(),
                 step: step.clone(),
                 length,
@@ -573,18 +565,11 @@ impl Representable for PyRange {
     }
 }
 
-// Semantically, this is the same as the previous representation.
-//
-// Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can
-// generally be used. As such, usize::MAX is the upper bound on number of elements (length)
-// the range can contain in RustPython.
-//
-// This doesn't preclude the range from containing large values, since start and step
-// can be BigInts, we can store any arbitrary range of values.
+// Long ranges need arbitrary-precision positions as well as values.
 #[pyclass(module = false, name = "longrange_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyLongRangeIterator {
-    index: AtomicCell<usize>,
+    index: PyMutex<BigInt>,
     start: BigInt,
     step: BigInt,
     length: BigInt,
@@ -598,10 +583,10 @@ impl PyPayload for PyLongRangeIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyLongRangeIterator {
+impl Py<PyLongRangeIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> BigInt {
-        let index = BigInt::from(self.index.load());
+        let index = self.index.lock().clone();
         if index < self.length {
             self.length.clone() - index
         } else {
@@ -611,17 +596,19 @@ impl PyLongRangeIterator {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.index.store(range_state(&self.length, state, vm)?);
+        let index = range_state(&self.length, &state, vm)?;
+        *self.index.lock() = index;
         Ok(())
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let index = self.index.lock().clone();
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
             self.step.clone(),
-            self.index.load(),
+            index,
             vm,
         )
     }
@@ -630,17 +617,17 @@ impl PyLongRangeIterator {
 impl SelfIter for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        // TODO: In pathological case (index == usize::MAX) this can wrap around
-        // (since fetch_add wraps). This would result in the iterator spinning again
-        // from the beginning.
-        let index = BigInt::from(zelf.index.fetch_add(1));
-        let r = if index < zelf.length {
-            let value = zelf.start.clone() + index * zelf.step.clone();
-            PyIterReturn::Return(vm.ctx.new_int(value).into())
-        } else {
-            PyIterReturn::StopIteration(None)
+        let index = {
+            let mut index = zelf.index.lock();
+            if *index >= zelf.length {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+            let current = index.clone();
+            *index += 1;
+            current
         };
-        Ok(r)
+        let value = zelf.start.clone() + index * zelf.step.clone();
+        Ok(PyIterReturn::Return(vm.ctx.new_int(value).into()))
     }
 }
 
@@ -663,7 +650,7 @@ impl PyPayload for PyRangeIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyRangeIterator {
+impl Py<PyRangeIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         let index = self.index.load();
@@ -671,19 +658,22 @@ impl PyRangeIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.index
-            .store(range_state(&BigInt::from(self.length), state, vm)?);
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.index.store(
+            range_state(&BigInt::from(self.length), &object, vm)?
+                .to_usize()
+                .unwrap(),
+        );
         Ok(())
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),
             BigInt::from(self.step),
-            self.index.load(),
+            BigInt::from(self.index.load()),
             vm,
         )
     }
@@ -693,12 +683,14 @@ impl PyRangeIterator {
     /// Fast path for FOR_ITER specialization. Returns the next isize value
     /// without allocating PyInt or PyIterReturn.
     pub(crate) fn fast_next(&self) -> Option<isize> {
-        let index = self.index.fetch_add(1);
-        if index < self.length {
-            Some(self.start + (index as isize) * self.step)
-        } else {
-            None
-        }
+        let index = self
+            .index
+            .fetch_update(|index| (index < self.length).then(|| index + 1))
+            .ok()?;
+        Some(
+            self.start
+                .wrapping_add((index as isize).wrapping_mul(self.step)),
+        )
     }
 }
 
@@ -717,28 +709,26 @@ fn range_iter_reduce(
     start: BigInt,
     length: BigInt,
     step: BigInt,
-    index: usize,
+    index: BigInt,
     vm: &VirtualMachine,
-) -> PyTupleRef {
-    let iter = builtins_iter(vm);
+) -> PyResult<PyTupleRef> {
+    let iter = builtins_iter(vm)?;
+    // CPython pickles the remaining range with a None state.
+    let index = index.min(length.clone());
     let stop = start.clone() + length * step.clone();
+    let start = start + index * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(&vm.ctx),
         stop: PyInt::from(stop).into_ref(&vm.ctx),
         step: PyInt::from(step).into_ref(&vm.ctx),
     };
-    vm.new_tuple((iter, (range,), index))
+    Ok(vm.new_tuple((iter, (range,), vm.ctx.none())))
 }
 
-// Silently clips state (i.e index) in range [0, usize::MAX].
-fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+// Silently clips state (i.e index) in range [0, length].
+fn range_state(length: &BigInt, state: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
     if let Some(i) = state.downcast_ref::<PyInt>() {
-        let mut index = i.as_bigint();
-        let max_usize = BigInt::from(usize::MAX);
-        if index > length {
-            index = max(length, &max_usize);
-        }
-        Ok(index.to_usize().unwrap_or(0))
+        Ok(i.as_bigint().clone().clamp(BigInt::zero(), length.clone()))
     } else {
         Err(vm.new_type_error("an integer is required."))
     }
@@ -762,5 +752,50 @@ impl TryFromObject for RangeIndex {
                 Ok(Self::Int(val))
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_iterator_preserves_arbitrary_precision_state() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let length: BigInt = BigInt::one() << 100;
+            let iter = PyLongRangeIterator {
+                index: PyMutex::new(BigInt::zero()),
+                start: BigInt::zero(),
+                step: BigInt::one(),
+                length: length.clone(),
+            }
+            .into_ref(&vm.ctx);
+            let state: BigInt = &length - 1;
+            iter.__setstate__(vm.ctx.new_bigint(&state).into(), vm)
+                .unwrap();
+            assert_eq!(iter.__length_hint__(), BigInt::one());
+            let PyIterReturn::Return(value) = PyLongRangeIterator::next(&iter, vm).unwrap() else {
+                panic!("wide iterator state was lost");
+            };
+            assert_eq!(value.downcast_ref::<PyInt>().unwrap().as_bigint(), &state);
+            for _ in 0..2 {
+                assert!(matches!(
+                    PyLongRangeIterator::next(&iter, vm).unwrap(),
+                    PyIterReturn::StopIteration(None)
+                ));
+            }
+        });
+    }
+
+    #[test]
+    fn exhausted_fast_iterator_does_not_wrap_its_index() {
+        let iter = PyRangeIterator {
+            index: AtomicCell::new(usize::MAX),
+            start: 0,
+            step: 1,
+            length: usize::MAX,
+        };
+        assert_eq!(iter.fast_next(), None);
+        assert_eq!(iter.fast_next(), None);
     }
 }

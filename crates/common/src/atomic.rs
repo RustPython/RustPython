@@ -52,6 +52,33 @@ impl<T> PyAtomicScalar for *mut T {
     type Radium = atomic_ty!(*mut T, AtomicPtr<T>);
 }
 
+/// Atomic `f64`. The value is stored as its bits in an `AtomicU64`.
+#[repr(transparent)]
+pub struct AtomicF64 {
+    bits: AtomicU64,
+}
+
+impl AtomicF64 {
+    #[inline]
+    #[must_use]
+    pub const fn new(value: f64) -> Self {
+        Self {
+            bits: AtomicU64::new(value.to_bits()),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn load(&self, order: Ordering) -> f64 {
+        f64::from_bits(self.bits.load(order))
+    }
+
+    #[inline]
+    pub fn store(&self, value: f64, order: Ordering) {
+        self.bits.store(value.to_bits(), order);
+    }
+}
+
 pub struct OncePtr<T> {
     inner: PyAtomic<*mut T>,
 }

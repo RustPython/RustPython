@@ -1,9 +1,10 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::pyerrors::init_exception_statics;
-use crate::pylifecycle::MAIN_INTERP;
+use crate::pylifecycle::{MAIN_INTERP, MAIN_INTERP_PTR};
+use core::sync::atomic::Ordering;
 pub use rustpython_vm::PyObject;
-use rustpython_vm::{Context, Interpreter};
+use rustpython_vm::{Context, Interpreter, VirtualMachine};
 use std::sync::MutexGuard;
 
 extern crate alloc;
@@ -13,23 +14,38 @@ pub mod boolobject;
 pub mod bytearrayobject;
 pub mod bytesobject;
 pub mod ceval;
+pub mod codecs;
 pub mod complexobject;
+pub mod critical_section;
 pub mod descrobject;
 pub mod dictobject;
+pub mod fileobject;
 pub mod floatobject;
+pub mod genericaliasobject;
 pub mod import;
+pub mod iterobject;
 pub mod listobject;
 pub mod longobject;
+pub mod memoryobject;
 pub mod methodobject;
+pub mod modsupport;
 pub mod moduleobject;
 pub mod object;
+pub mod objimpl;
+pub mod osmodule;
+pub mod pybuffer;
 pub mod pycapsule;
 pub mod pyerrors;
+pub mod pyframe;
 pub mod pylifecycle;
+pub mod pymem;
 pub mod pystate;
+pub mod pystrcmp;
 pub mod refcount;
 pub mod setobject;
 pub mod sliceobject;
+pub mod slots;
+pub mod sysmodule;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
@@ -52,4 +68,38 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
     // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
     unsafe { init_exception_statics(&Context::genesis().exceptions) };
     *interp = Some(interpreter);
+    MAIN_INTERP_PTR.store(
+        interp.as_ref().unwrap() as *const _ as *mut _,
+        Ordering::Release,
+    );
+}
+
+/// Py_RunMain for an interpreter that C API threads can attach to.
+///
+/// `f` reports its own errors and returns the exit code.
+pub fn run_main_interpreter(
+    mut interpreter: Interpreter,
+    f: impl FnOnce(&VirtualMachine) -> u32,
+) -> u32 {
+    let main_thread = interpreter.take_main_thread();
+    init_main_interpreter(interpreter);
+
+    struct RegistrationGuard;
+    impl Drop for RegistrationGuard {
+        fn drop(&mut self) {
+            let mut registered = MAIN_INTERP
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            MAIN_INTERP_PTR.store(core::ptr::null_mut(), Ordering::Release);
+            let interpreter = registered.take();
+            drop(registered);
+            drop(interpreter);
+        }
+    }
+    let _registration = RegistrationGuard;
+
+    // The registered interpreter is an inactive worker-VM template. Running
+    // the original VM locally preserves main-thread state without keeping the
+    // global mutex locked across Python execution or finalization callbacks.
+    main_thread.run_main(f)
 }

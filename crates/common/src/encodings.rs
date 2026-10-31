@@ -5,6 +5,17 @@ use num_traits::ToPrimitive;
 use crate::str::StrKind;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
+#[cfg(feature = "cjk-codecs")]
+pub mod cjk;
+mod wide;
+pub use wide::ByteOrder;
+pub mod escape;
+pub mod raw_unicode_escape;
+pub mod unicode_escape;
+pub mod utf16;
+pub mod utf32;
+pub mod utf7;
+
 pub trait StrBuffer: AsRef<Wtf8> {
     fn is_compatible_with(&self, kind: StrKind) -> bool {
         let s = self.as_ref();
@@ -414,7 +425,7 @@ pub mod errors {
             let mut out = String::with_capacity(num_chars * 4);
             for c in err_str.code_points() {
                 let c_u32 = c.to_u32();
-                if let Some(c_name) = c.to_char().and_then(unicode_names2::name) {
+                if let Some(c_name) = c.to_char().and_then(rustpython_unicode::character_name) {
                     write!(out, "\\N{{{c_name}}}").unwrap();
                 } else if c_u32 >= 0x10000 {
                     write!(out, "\\U{c_u32:08x}").unwrap();

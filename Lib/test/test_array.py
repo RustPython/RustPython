@@ -5,7 +5,7 @@
 import collections.abc
 import unittest
 from test import support
-from test.support import import_helper
+from test.support import import_helper, script_helper
 from test.support import os_helper
 from test.support import _2G
 from test.support import subTests
@@ -31,9 +31,17 @@ class ArraySubclassWithKwargs(array.array):
     def __init__(self, typecode, newarg=None):
         array.array.__init__(self)
 
-typecodes = 'uwbBhHiIlLfdqQ'
+typecodes = (
+    'u', 'w', 'b', 'B', 'h', 'H', 'i', 'I', 'l', 'L',
+    'f', 'd', 'q', 'Q', 'e', 'Zf', 'Zd')
+
 
 class MiscTest(unittest.TestCase):
+
+    def test_array_type_importable(self):
+        from array import ArrayType
+
+        self.assertIs(array.array, ArrayType)
 
     def test_array_is_sequence(self):
         self.assertIsInstance(array.array("B"), collections.abc.MutableSequence)
@@ -42,8 +50,26 @@ class MiscTest(unittest.TestCase):
     def test_bad_constructor(self):
         self.assertRaises(TypeError, array.array)
         self.assertRaises(TypeError, array.array, spam=42)
-        self.assertRaises(TypeError, array.array, 'xx')
+        self.assertRaises(ValueError, array.array, 'xx')
         self.assertRaises(ValueError, array.array, 'x')
+        self.assertRaises(ValueError, array.array, 'Z')
+
+    @support.cpython_only
+    def test_does_not_crash_on_broken_imports(self):
+        # gh-153210
+        code = """if 1:
+            import collections.abc
+
+            del collections.abc.MutableSequence
+
+            try:
+                import array  # it used to crash before
+            except AttributeError:
+                pass
+            else:
+                raise AssertionError('AttributeError was not raised')
+        """
+        script_helper.assert_python_ok('-c', code)
 
     @support.cpython_only
     def test_disallow_instantiation(self):
@@ -67,6 +93,29 @@ class MiscTest(unittest.TestCase):
         self.assertEqual(len(a * 3), 0)
         a += a
         self.assertEqual(len(a), 0)
+
+    def test_fromlist_reentrant_index_mutation(self):
+
+        class Evil:
+            def __init__(self, lst):
+                self.lst = lst
+            def __index__(self):
+                self.lst.clear()
+                return "not an int"
+
+        for typecode in ('I', 'L', 'Q'):
+            with self.subTest(typecode=typecode):
+                lst = []
+                lst.append(Evil(lst))
+                a = array.array(typecode)
+                with self.assertRaises(TypeError):
+                    a.fromlist(lst)
+
+    def test_typecodes(self):
+        self.assertIsInstance(array.typecodes, tuple)
+        for typecode in array.typecodes:
+            self.assertIsInstance(typecode, str)
+            self.assertGreaterEqual(len(typecode), 1)
 
 
 # Machine format codes.
@@ -96,6 +145,14 @@ UTF16_LE = 18
 UTF16_BE = 19
 UTF32_LE = 20
 UTF32_BE = 21
+IEEE_754_FLOAT_COMPLEX_LE = 22
+IEEE_754_FLOAT_COMPLEX_BE = 23
+IEEE_754_DOUBLE_COMPLEX_LE = 24
+IEEE_754_DOUBLE_COMPLEX_BE = 25
+IEEE_754_FLOAT16_LE = 26
+IEEE_754_FLOAT16_BE = 27
+
+MACHINE_FORMAT_CODE_MAX = 27
 
 
 class ArrayReconstructorTest(unittest.TestCase):
@@ -122,7 +179,7 @@ class ArrayReconstructorTest(unittest.TestCase):
         self.assertRaises(ValueError, array_reconstructor,
                           array.array, "b", UNKNOWN_FORMAT, b"")
         self.assertRaises(ValueError, array_reconstructor,
-                          array.array, "b", 22, b"")
+                          array.array, "b", MACHINE_FORMAT_CODE_MAX + 1, b"")
         self.assertRaises(ValueError, array_reconstructor,
                           array.array, "d", 16, b"a")
 
@@ -167,6 +224,10 @@ class ArrayReconstructorTest(unittest.TestCase):
              [-1<<63, (1<<63)-1, 0]),
             (['l'], SIGNED_INT64_BE, '>qqq',
              [-1<<63, (1<<63)-1, 0]),
+            (['e'], IEEE_754_FLOAT16_LE, '<eeee',
+             [1.0, float('inf'), float('-inf'), -0.0]),
+            (['e'], IEEE_754_FLOAT16_BE, '>eeee',
+             [1.0, float('inf'), float('-inf'), -0.0]),
             (['f'], IEEE_754_FLOAT_LE, '<ffff',
              [16711938.0, float('inf'), float('-inf'), -0.0]),
             (['f'], IEEE_754_FLOAT_BE, '>ffff',
@@ -174,7 +235,15 @@ class ArrayReconstructorTest(unittest.TestCase):
             (['d'], IEEE_754_DOUBLE_LE, '<dddd',
              [9006104071832581.0, float('inf'), float('-inf'), -0.0]),
             (['d'], IEEE_754_DOUBLE_BE, '>dddd',
-             [9006104071832581.0, float('inf'), float('-inf'), -0.0])
+             [9006104071832581.0, float('inf'), float('-inf'), -0.0]),
+            (['Zf'], IEEE_754_FLOAT_COMPLEX_LE, '<ZfZfZfZf',
+             [16711938.0j, float('inf'), complex('1-infj'), -0.0]),
+            (['Zf'], IEEE_754_FLOAT_COMPLEX_BE, '>ZfZfZfZf',
+             [16711938.0j, float('inf'), complex('1-infj'), -0.0]),
+            (['Zd'], IEEE_754_DOUBLE_COMPLEX_LE, '<ZdZdZdZd',
+             [9006104071832581.0j, float('inf'), complex('1-infj'), -0.0]),
+            (['Zd'], IEEE_754_DOUBLE_COMPLEX_BE, '>ZdZdZdZd',
+             [9006104071832581.0j, float('inf'), complex('1-infj'), -0.0]),
         )
         for testcase in testcases:
             valid_typecodes, mformat_code, struct_fmt, values = testcase
@@ -189,7 +258,16 @@ class ArrayReconstructorTest(unittest.TestCase):
                 self.assertEqual(a, b,
                     msg="{0!r} != {1!r}; testcase={2!r}".format(a, b, testcase))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
+    def test_float16_endianness(self):
+        # gh-154568: array_reconstructor() slow-path decoder for
+        # IEEE_754_FLOAT16_LE ignored the encoding.
+        le_bytes = struct.pack('<e', 1.5)
+        be_bytes = struct.pack('>e', 1.5)
+        b_le = array_reconstructor(array.array, 'd', IEEE_754_FLOAT16_LE, le_bytes)
+        b_be = array_reconstructor(array.array, 'd', IEEE_754_FLOAT16_BE, be_bytes)
+        self.assertEqual(b_le.tolist(), [1.5])
+        self.assertEqual(b_be.tolist(), [1.5])
+
     def test_unicode(self):
         teststr = "Bonne Journ\xe9e \U0002030a\U00020347"
         testcases = (
@@ -263,7 +341,7 @@ class BaseTest:
             example = self.example
         a = array.array(self.typecode, example)
         self.assertRaises(TypeError, a.byteswap, 42)
-        if a.itemsize in (1, 2, 4, 8):
+        if a.itemsize in (1, 2, 4, 8, 16):
             b = array.array(self.typecode, example)
             b.byteswap()
             if a.itemsize==1:
@@ -1180,7 +1258,6 @@ class BaseTest:
         basesize = support.calcvobjsize('Pn2Pi')
         support.check_sizeof(self, a, basesize)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
     def test_initialize_with_unicode(self):
         if self.typecode not in ('u', 'w'):
             with self.assertRaises(TypeError) as cm:
@@ -1200,12 +1277,14 @@ class BaseTest:
         a = array.array('B', b"")
         self.assertRaises(BufferError, _testcapi.getbuffer_with_null_view, a)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, array.array,
                                            (self.typecode,))
         support.check_free_after_iterating(self, reversed, array.array,
                                            (self.typecode,))
+
+    def test_known_typecode(self):
+        self.assertIn(self.typecode, array.typecodes)
 
 class StringTest(BaseTest):
 
@@ -1267,206 +1346,10 @@ class UnicodeTest(StringTest, unittest.TestCase):
                 self.assertEqual(len(a), 0)
                 self.assertEqual(a.typecode, 'u')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_add(self):
-        return super().test_add()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_extend(self):
-        return super().test_extend()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_iadd(self):
-        return super().test_iadd()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_setiadd(self):
-        return super().test_setiadd()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_setslice(self):
-        return super().test_setslice()
-
 
 class UCS4Test(UnicodeTest):
     typecode = 'w'
     minitemsize = 4
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_buffer(self):
-        return super().test_buffer()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_buffer_info(self):
-        return super().test_buffer_info()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_byteswap(self):
-        return super().test_byteswap()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_clear(self):
-        return super().test_clear()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_cmp(self):
-        return super().test_cmp()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_constructor(self):
-        return super().test_constructor()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_constructor_with_iterable_argument(self):
-        return super().test_constructor_with_iterable_argument()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_copy(self):
-        return super().test_copy()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_count(self):
-        return super().test_count()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_coveritertraverse(self):
-        return super().test_coveritertraverse()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_deepcopy(self):
-        return super().test_deepcopy()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_delitem(self):
-        return super().test_delitem()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_exhausted_iterator(self):
-        return super().test_exhausted_iterator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_exhausted_reverse_iterator(self):
-        return super().test_exhausted_reverse_iterator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_extended_getslice(self):
-        return super().test_extended_getslice()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_extended_set_del_slice(self):
-        return super().test_extended_set_del_slice()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_filewrite(self):
-        return super().test_filewrite()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_fromarray(self):
-        return super().test_fromarray()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_fromfile_ioerror(self):
-        return super().test_fromfile_ioerror()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_getitem(self):
-        return super().test_getitem()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_getslice(self):
-        return super().test_getslice()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_imul(self):
-        return super().test_imul()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_index(self):
-        return super().test_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_insert(self):
-        return super().test_insert()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_issue17223(self):
-        return super().test_issue17223()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_iterator_pickle(self):
-        return super().test_iterator_pickle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_len(self):
-        return super().test_len()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_mul(self):
-        return super().test_mul()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_pickle(self):
-        return super().test_pickle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_pickle_for_empty_array(self):
-        return super().test_pickle_for_empty_array()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_pop(self):
-        return super().test_pop()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reduce_ex(self):
-        return super().test_reduce_ex()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_remove(self):
-        return super().test_remove()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_repr(self):
-        return super().test_repr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reverse(self):
-        return super().test_reverse()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reverse_iterator(self):
-        return super().test_reverse_iterator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reverse_iterator_picking(self):
-        return super().test_reverse_iterator_picking()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_setitem(self):
-        return super().test_setitem()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_str(self):
-        return super().test_str()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_tofrombytes(self):
-        return super().test_tofrombytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_tofromfile(self):
-        return super().test_tofromfile()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_tofromlist(self):
-        return super().test_tofromlist()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_unicode(self):
-        return super().test_unicode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_weakref(self):
-        return super().test_weakref()
 
 
 class NumberTest(BaseTest):
@@ -1707,6 +1590,78 @@ class FPTest(NumberTest):
             b.byteswap()
             self.assertEqual(a, b)
 
+class CFPTest(NumberTest):
+    example = [-42j, 0, 42+1j, 1e5j, -1e10]
+    outside = 23
+
+    def assertEntryEqual(self, entry1, entry2):
+        self.assertAlmostEqual(entry1, entry2)
+
+    def test_cmp(self):
+        a = array.array(self.typecode, self.example)
+        self.assertIs(a == 42, False)
+        self.assertIs(a != 42, True)
+
+        self.assertIs(a == a, True)
+        self.assertIs(a != a, False)
+        self.assertIs(a < a, False)
+        self.assertIs(a <= a, True)
+        self.assertIs(a > a, False)
+        self.assertIs(a >= a, True)
+
+        self.assertIs(a == 2*a, False)
+        self.assertIs(a != 2*a, True)
+        self.assertIs(a < 2*a, True)
+        self.assertIs(a <= 2*a, True)
+        self.assertIs(a > 2*a, False)
+        self.assertIs(a >= 2*a, False)
+
+    def test_nan(self):
+        a = array.array(self.typecode, [float('nan')])
+        b = array.array(self.typecode, [float('nan')])
+        self.assertIs(a != b, True)
+        self.assertIs(a == b, False)
+
+    def test_byteswap(self):
+        a = array.array(self.typecode, self.example)
+        self.assertRaises(TypeError, a.byteswap, 42)
+        if a.itemsize in (1, 2, 4, 8, 16):
+            b = array.array(self.typecode, self.example)
+            b.byteswap()
+            if a.itemsize == 1:
+                self.assertEqual(a, b)
+            else:
+                # On alphas treating the byte swapped bit patterns as
+                # floats/doubles results in floating-point exceptions
+                # => compare the 8bit string values instead
+                self.assertNotEqual(a.tobytes(), b.tobytes())
+            b.byteswap()
+            self.assertEqual(a, b)
+
+    def test_byteswap_single_call_result(self):
+        # A single byteswap() must swap each item's two halves (real,
+        # imag) independently. test_byteswap above only checks that
+        # byteswap() twice round-trips to the original, which passes
+        # even if a single call scrambles multi-item arrays.
+        a = array.array(self.typecode, self.example)
+        original = a.tobytes()
+        a.byteswap()
+        itemsize = a.itemsize
+        half = itemsize // 2
+        expected = bytearray()
+        for i in range(0, len(original), itemsize):
+            item = original[i:i + itemsize]
+            expected += item[half - 1::-1] + item[itemsize - 1:half - 1:-1]
+        self.assertEqual(a.tobytes(), bytes(expected))
+
+
+class HalfFloatTest(FPTest, unittest.TestCase):
+    example = [-42.0, 0, 42, 1e2, -1e4]
+    smallerexample = [-42.0, 0, 42, 1e2, -2e4]
+    biggerexample = [-42.0, 0, 42, 1e2, 1e4]
+    typecode = 'e'
+    minitemsize = 2
+
 class FloatTest(FPTest, unittest.TestCase):
     typecode = 'f'
     minitemsize = 4
@@ -1731,6 +1686,15 @@ class DoubleTest(FPTest, unittest.TestCase):
             pass
         else:
             self.fail("Array of size > maxsize created - MemoryError expected")
+
+
+class ComplexFloatTest(CFPTest, unittest.TestCase):
+    typecode = 'Zf'
+    minitemsize = 8
+
+class ComplexDoubleTest(CFPTest, unittest.TestCase):
+    typecode = 'Zd'
+    minitemsize = 16
 
 
 class LargeArrayTest(unittest.TestCase):
@@ -1884,7 +1848,6 @@ class LargeArrayTest(unittest.TestCase):
     # when the index conversion mutates the array.
     # See: https://github.com/python/cpython/issues/142555.
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     @subTests("dtype", ["b", "B", "h", "H", "i", "l", "q", "I", "L", "Q"])
     def test_setitem_use_after_clear_with_int_data(self, dtype):
         victim = array.array(dtype, list(range(64)))
@@ -1897,7 +1860,6 @@ class LargeArrayTest(unittest.TestCase):
         self.assertRaises(IndexError, victim.__setitem__, 1, Index())
         self.assertEqual(len(victim), 0)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_setitem_use_after_shrink_with_int_data(self):
         victim = array.array('b', [1, 2, 3])
 
@@ -1909,7 +1871,6 @@ class LargeArrayTest(unittest.TestCase):
 
         self.assertRaises(IndexError, victim.__setitem__, 1, Index())
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     @subTests("dtype", ["f", "d"])
     def test_setitem_use_after_clear_with_float_data(self, dtype):
         victim = array.array(dtype, [1.0, 2.0, 3.0])

@@ -3,7 +3,6 @@ import sys
 import textwrap
 from test import list_tests, support
 from test.support import cpython_only
-from test.support.import_helper import import_module
 from test.support.script_helper import assert_python_failure, assert_python_ok
 import pickle
 import unittest
@@ -50,7 +49,6 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             list(sequence=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         class subclass(list):
             pass
@@ -106,7 +104,6 @@ class ListTest(list_tests.CommonTest):
         x[:] = x
         self.assertEqual(x, [])
 
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_list_resize_overflow(self):
         # gh-97616: test new_allocated * sizeof(PyObject*) overflow
         # check in list_resize()
@@ -228,7 +225,6 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises(TypeError):
             (3,) + L([1,2])
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_equal_operator_modifying_operand(self):
         # test fix for seg fault reported in bpo-38588 part 2.
         class X:
@@ -254,7 +250,6 @@ class ListTest(list_tests.CommonTest):
         list4 = [1]
         self.assertFalse(list3 == list4)
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_lt_operator_modifying_operand(self):
         # See gh-120298
         class evil:
@@ -330,10 +325,9 @@ class ListTest(list_tests.CommonTest):
             a.append(4)
             self.assertEqual(list(it), [])
 
-    @support.cpython_only
+    @support.nomemtest
     def test_no_memory(self):
         # gh-118331: Make sure we don't crash if list allocation fails
-        import_module("_testcapi")
         code = textwrap.dedent("""
         import _testcapi, sys
         # Prime the freelist

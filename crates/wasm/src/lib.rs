@@ -3,6 +3,8 @@ extern crate alloc;
 pub mod browser_module;
 pub mod convert;
 pub mod js_module;
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+mod ssl;
 pub mod vm_class;
 pub mod wasm_builtins;
 
@@ -66,11 +68,16 @@ pub mod eval {
         };
 
         vm.set_stdout(Reflect::get(&options, &"stdout".into())?)?;
+        vm.set_stderr(Reflect::get(&options, &"stderr".into())?)?;
 
         if let Some(js_vars) = js_vars {
             vm.add_to_scope("js_vars".into(), js_vars.into())?;
         }
-        vm.run(source, mode, None)
+        if matches!(mode, Mode::Single) {
+            vm.exec_single(source, None)
+        } else {
+            vm.run(source, mode, None)
+        }
     }
 
     /// Evaluate Python code
@@ -89,6 +96,8 @@ pub mod eval {
     /// -   `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
     ///     native print native print function, and it will be `console.log` when giving
     ///     `undefined` or "console", and it will be a dumb function when giving null.
+    /// -   `stderr?`: `"console" | ((out: string) => void) | null`: A function to replace
+    ///     `sys.stderr`, and it will be `console.error` when giving `undefined` or "console".
     #[wasm_bindgen(js_name = pyEval)]
     pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
         run_py(source, options, Mode::Eval)

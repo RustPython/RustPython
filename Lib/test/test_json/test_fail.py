@@ -1,7 +1,5 @@
 from test.test_json import PyTest, CTest
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 # 2007-10-05
 JSONDOCS = [
     # https://json.org/JSON_checker/test/fail1.json
@@ -145,6 +143,13 @@ class TestFail:
         test_cases += [
             ('"', 'Unterminated string starting at', 0),
             ('"spam', 'Unterminated string starting at', 0),
+        ]
+        # A complete \uXXXX escape at end of input leaves it unterminated.
+        test_cases += [
+            (r'"\u0041', 'Unterminated string starting at', 0),
+            (r'"\ud834', 'Unterminated string starting at', 0),
+            (r'"\ud834\udd1e', 'Unterminated string starting at', 0),
+            (r'{"a": "\u0041', 'Unterminated string starting at', 6),
         ]
         for data, msg, idx in test_cases:
             with self.assertRaises(self.JSONDecodeError) as cm:

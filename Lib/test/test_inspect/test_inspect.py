@@ -7,13 +7,14 @@ import datetime
 import functools
 import gc
 import importlib
+import importlib.util
 import inspect
 import io
 import linecache
 import os
 import dis
 from os.path import normcase
-# import _pickle # TODO: RUSTPYTHON
+import _pickle
 import pickle
 import shutil
 import stat
@@ -46,6 +47,7 @@ from test import support
 
 from test.test_inspect import inspect_fodder as mod
 from test.test_inspect import inspect_fodder2 as mod2
+from test.test_inspect import inspect_fodder3 as mod3
 from test.test_inspect import inspect_stringized_annotations
 from test.test_inspect import inspect_deferred_annotations
 
@@ -122,7 +124,6 @@ class IsTestBase(unittest.TestCase):
             else:
                 self.assertFalse(other(obj), 'not %s(%s)' % (other.__name__, exp))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; First has 0, Second has 1:  'iskeyword'
     def test__all__(self):
         support.check__all__(self, inspect, not_exported=("modulesbyfile",), extra=("get_annotations",))
 
@@ -173,9 +174,17 @@ class custom_descriptor:
         return self.func.__get__(instance, owner)
 
 
+class TestImportTime(unittest.TestCase):
+
+    @cpython_only
+    def test_lazy_import(self):
+        import_helper.ensure_lazy_imports(
+            "inspect", {"re", "tokenize"}
+        )
+
+
 class TestPredicates(IsTestBase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'defaultdict' has no attribute 'default_factory'
     def test_excluding_predicates(self):
         global tb
         self.istest(inspect.isbuiltin, 'sys.exit')
@@ -479,7 +488,6 @@ class TestPredicates(IsTestBase):
         self.assertIn('a', members)
         self.assertNotIn('b', members)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_isabstract(self):
         from abc import ABCMeta, abstractmethod
 
@@ -502,7 +510,6 @@ class TestPredicates(IsTestBase):
         self.assertFalse(inspect.isabstract(int))
         self.assertFalse(inspect.isabstract(5))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [True, False]
     def test_isabstract_during_init_subclass(self):
         from abc import ABCMeta, abstractmethod
         isabstract_checks = []
@@ -588,7 +595,6 @@ class TestInterpreterStack(IsTestBase):
         self.assertEqual(inspect.formatargvalues(args, varargs, varkw, locals),
                          '(x=11, y=14)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'f_code'
     def test_previous_frame(self):
         args, varargs, varkw, locals = inspect.getargvalues(mod.fr.f_back)
         self.assertEqual(args, ['a', 'b', 'c', 'd', 'e', 'f'])
@@ -693,10 +699,56 @@ class TestRetrievingSourceCode(GetSourceBase):
         self.assertEqual(inspect.getdoc(mod.FesteringGob.contradiction),
                          'The automatic gainsaying.')
 
+    @unittest.skipIf(sys.flags.optimize >= 2,
+                     "Docstrings are omitted with -O2 and above")
+    def test_getdoc_inherited_class_doc(self):
+        class A:
+            """Common base class"""
+        class B(A):
+            pass
+
+        a = A()
+        self.assertEqual(inspect.getdoc(A), 'Common base class')
+        self.assertEqual(inspect.getdoc(A, inherit_class_doc=False),
+                         'Common base class')
+        self.assertEqual(inspect.getdoc(a), 'Common base class')
+        self.assertIsNone(inspect.getdoc(a, fallback_to_class_doc=False))
+        a.__doc__ = 'Instance'
+        self.assertEqual(inspect.getdoc(a, fallback_to_class_doc=False),
+                          'Instance')
+
+        b = B()
+        self.assertEqual(inspect.getdoc(B), 'Common base class')
+        self.assertIsNone(inspect.getdoc(B, inherit_class_doc=False))
+        self.assertIsNone(inspect.getdoc(b))
+        self.assertIsNone(inspect.getdoc(b, fallback_to_class_doc=False))
+        b.__doc__ = 'Instance'
+        self.assertEqual(inspect.getdoc(b, fallback_to_class_doc=False), 'Instance')
+
+    def test_getdoc_inherited_cached_property(self):
+        doc = inspect.getdoc(mod3.ParentInheritDoc.foo)
+        self.assertEqual(doc, 'docstring for foo defined in parent')
+        self.assertEqual(inspect.getdoc(mod3.ChildInheritDoc.foo), doc)
+        self.assertEqual(inspect.getdoc(mod3.ChildInheritDefineDoc.foo), doc)
+
+    def test_getdoc_redefine_cached_property_as_other(self):
+        self.assertEqual(inspect.getdoc(mod3.ChildPropertyFoo.foo),
+                         'docstring for the property foo')
+        self.assertEqual(inspect.getdoc(mod3.ChildMethodFoo.foo),
+                         'docstring for the method foo')
+
+    def test_getdoc_define_cached_property(self):
+        self.assertEqual(inspect.getdoc(mod3.ChildDefineDoc.foo),
+                         'docstring for foo defined in child')
+
+    def test_getdoc_nodoc_inherited(self):
+        self.assertIsNone(inspect.getdoc(mod3.ChildNoDoc.foo))
+
     @unittest.skipIf(MISSING_C_DOCSTRINGS, "test requires docstrings")
     def test_finddoc(self):
         finddoc = inspect._finddoc
         self.assertEqual(finddoc(int), int.__doc__)
+        self.assertIsNone(finddoc(int, search_in_class=False))
         self.assertEqual(finddoc(int.to_bytes), int.to_bytes.__doc__)
         self.assertEqual(finddoc(int().to_bytes), int.to_bytes.__doc__)
         self.assertEqual(finddoc(int.from_bytes), int.from_bytes.__doc__)
@@ -1304,9 +1356,10 @@ class TestClassesAndFunctions(unittest.TestCase):
                                     varkw_e=None, defaults_e=None,
                                     posonlyargs_e=[], kwonlyargs_e=[],
                                     kwonlydefaults_e=None,
-                                    ann_e={}):
+                                    ann_e={},
+                                    annotation_format=Format.VALUE):
         args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, ann = \
-            inspect.getfullargspec(routine)
+            inspect.getfullargspec(routine, annotation_format=annotation_format)
         self.assertEqual(args, args_e)
         self.assertEqual(varargs, varargs_e)
         self.assertEqual(varkw, varkw_e)
@@ -1339,6 +1392,19 @@ class TestClassesAndFunctions(unittest.TestCase):
                                      kwonlyargs_e=['e', 'f'],
                                      kwonlydefaults_e={'e': 4, 'f': 5})
 
+    def get_getfullargspec_with_undefined_names_in_annotations(self):
+        def my_func(a: undefined_name):
+            pass
+
+        with self.assertRaises(NameError):
+            inspect.getfullargspec(my_func)
+
+        self.assertFullArgSpecEquals(my_func, ['a'], ann_e={'a': 'undefined_name'},
+                                     annotation_format=Format.STRING)
+
+        arg_spec = inspect.getfullargspec(my_func, annotation_format=Format.FORWARDREF)
+        self.assertIsInstance(arg_spec.annotations['a'], ForwardRef)
+
     def test_argspec_api_ignores_wrapped(self):
         # Issue 20684: low level introspection API must ignore __wrapped__
         @functools.wraps(mod.spam)
@@ -1366,7 +1432,6 @@ class TestClassesAndFunctions(unittest.TestCase):
         spec = inspect.getfullargspec(test)
         self.assertEqual(test.__annotations__, spec.annotations)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_getfullargspec_builtin_methods(self):
@@ -1531,7 +1596,6 @@ class TestClassesAndFunctions(unittest.TestCase):
         self.assertIn(('md', 'method', A), attrs, 'missing method descriptor')
         self.assertIn(('dd', 'data', A), attrs, 'missing data descriptor')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ('to_bytes', 'method', <class 'int'>) not found in [('__abs__', 'method', <class 'bool'>), ('__add__', 'method', <class 'bool'>), ('__and__', 'method', <class 'bool'>), ('__bool__', 'method', <class 'bool'>), ('__ceil__', 'class method', <class 'int'>), ('__class__', 'data', <class 'object'>), ('__delattr__', 'class method', <class 'object'>), ('__dir__', 'class method', <class 'object'>), ('__divmod__', 'method', <class 'bool'>), ('__doc__', 'data', <class 'bool'>), ('__eq__', 'class method', <class 'int'>), ('__float__', 'method', <class 'bool'>), ('__floor__', 'class method', <class 'int'>), ('__floordiv__', 'method', <class 'bool'>), ('__format__', 'class method', <class 'bool'>), ('__ge__', 'class method', <class 'int'>), ('__getattribute__', 'class method', <class 'object'>), ('__getnewargs__', 'class method', <class 'int'>), ('__getstate__', 'class method', <class 'object'>), ('__gt__', 'class method', <class 'int'>), ('__hash__', 'method', <class 'int'>), ('__index__', 'method', <class 'bool'>), ('__init__', 'method', <class 'object'>), ('__init_subclass__', 'class method', <class 'object'>), ('__int__', 'method', <class 'bool'>), ('__invert__', 'method', <class 'bool'>), ('__le__', 'class method', <class 'int'>), ('__lshift__', 'method', <class 'bool'>), ('__lt__', 'class method', <class 'int'>), ('__mod__', 'method', <class 'bool'>), ('__mul__', 'method', <class 'bool'>), ('__ne__', 'class method', <class 'int'>), ('__neg__', 'method', <class 'bool'>), ('__new__', 'static method', <class 'bool'>), ('__or__', 'method', <class 'bool'>), ('__pos__', 'method', <class 'bool'>), ('__pow__', 'method', <class 'bool'>), ('__radd__', 'method', <class 'bool'>), ('__rand__', 'method', <class 'bool'>), ('__rdivmod__', 'method', <class 'bool'>), ('__reduce__', 'class method', <class 'object'>), ('__reduce_ex__', 'class method', <class 'object'>), ('__repr__', 'method', <class 'bool'>), ('__rfloordiv__', 'method', <class 'bool'>), ('__rlshift__', 'method', <class 'bool'>), ('__rmod__', 'method', <class 'bool'>), ('__rmul__', 'method', <class 'bool'>), ('__ror__', 'method', <class 'bool'>), ('__round__', 'class method', <class 'int'>), ('__rpow__', 'method', <class 'bool'>), ('__rrshift__', 'method', <class 'bool'>), ('__rshift__', 'method', <class 'bool'>), ('__rsub__', 'method', <class 'bool'>), ('__rtruediv__', 'method', <class 'bool'>), ('__rxor__', 'method', <class 'bool'>), ('__setattr__', 'class method', <class 'object'>), ('__sizeof__', 'class method', <class 'int'>), ('__str__', 'method', <class 'object'>), ('__sub__', 'method', <class 'bool'>), ('__subclasshook__', 'class method', <class 'object'>), ('__truediv__', 'method', <class 'bool'>), ('__trunc__', 'class method', <class 'int'>), ('__xor__', 'method', <class 'bool'>), ('as_integer_ratio', 'class method', <class 'int'>), ('bit_count', 'class method', <class 'int'>), ('bit_length', 'class method', <class 'int'>), ('conjugate', 'class method', <class 'int'>), ('denominator', 'data', <class 'int'>), ('from_bytes', 'class method', <class 'int'>), ('imag', 'data', <class 'int'>), ('is_integer', 'class method', <class 'int'>), ('numerator', 'data', <class 'int'>), ('real', 'data', <class 'int'>), ('to_bytes', 'class method', <class 'int'>)] : missing plain method
     def test_classify_builtin_types(self):
         # Simple sanity check that all built-in types can have their
         # attributes classified.
@@ -2274,7 +2338,6 @@ class TestGetcallargsFunctions(unittest.TestCase):
                                  '(4,[5,6])]), q=0, **collections.UserDict('
                                  'y=9, z=10)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + <lambda>() got an unexpected keyword argument 'x'
     def test_errors(self):
         f0 = self.makeCallable('')
         f1 = self.makeCallable('a, b')
@@ -2861,16 +2924,13 @@ class TestGetCoroutineState(unittest.TestCase):
     def _coroutinestate(self):
         return inspect.getcoroutinestate(self.coroutine)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_created(self):
         self.assertEqual(self._coroutinestate(), inspect.CORO_CREATED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_suspended(self):
         self.coroutine.send(None)
         self.assertEqual(self._coroutinestate(), inspect.CORO_SUSPENDED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_exhaustion(self):
         while True:
             try:
@@ -2880,13 +2940,11 @@ class TestGetCoroutineState(unittest.TestCase):
 
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             self.coroutine.throw(RuntimeError)
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_close(self):
         self.coroutine.close()
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
@@ -2936,17 +2994,14 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
     def _asyncgenstate(self):
         return inspect.getasyncgenstate(self.asyncgen)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     def test_created(self):
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CREATED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_suspended(self):
         value = await anext(self.asyncgen)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_SUSPENDED)
         self.assertEqual(value, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_closed_after_exhaustion(self):
         countdown = 7
         with self.assertRaises(StopAsyncIteration):
@@ -2955,13 +3010,11 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(countdown, 1)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             await self.asyncgen.athrow(RuntimeError)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_running(self):
         async def running_check_asyncgen():
             for number in range(5):
@@ -3527,7 +3580,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "positional_or_keyword")),
                           int))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class 'classmethod'>
     def test_signature_on_classmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(classmethod),
@@ -3551,7 +3603,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "keyword_only")),
                           ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class 'staticmethod'>
     def test_signature_on_staticmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(staticmethod),
@@ -3965,7 +4016,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('b', ..., ..., "positional_or_keyword")),
                           ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class(self):
         class C:
             def __init__(self, a):
@@ -4222,7 +4272,6 @@ class TestSignatureObject(unittest.TestCase):
             self.assertEqual(self.signature(C.__call__, follow_wrapped=False),
                              varargs_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_wrapped_init(self):
         class C:
             @identity_wrapper
@@ -4320,7 +4369,6 @@ class TestSignatureObject(unittest.TestCase):
                 self.assertEqual(self.signature(C.__new__, follow_wrapped=False),
                                 varargs_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_wrapped_new(self):
         with self.subTest('FunctionType'):
             class C:
@@ -4473,7 +4521,6 @@ class TestSignatureObject(unittest.TestCase):
                             ((('a', ..., ..., "positional_or_keyword"),),
                             ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_new(self):
         with self.subTest('FunctionType'):
             class C:
@@ -4634,7 +4681,6 @@ class TestSignatureObject(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "callable.*is not supported"):
             self.assertEqual(inspect.signature(D), None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_on_builtin_class(self):
@@ -4660,7 +4706,6 @@ class TestSignatureObject(unittest.TestCase):
             pass
         self.assertEqual(str(inspect.signature(P4)), '(foo, bar)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_callable_objects(self):
         class Foo:
             def __call__(self, a):
@@ -5177,7 +5222,6 @@ class TestSignatureObject(unittest.TestCase):
         foo_sig = MySignature.from_callable(foo)
         self.assertIsInstance(foo_sig, MySignature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_from_callable_builtin_obj(self):
@@ -5988,7 +6032,6 @@ class TestSignaturePrivateHelpers(unittest.TestCase):
         self.assertEqual(computed_clean_signature, clean_signature)
         self.assertEqual(computed_self_parameter, self_parameter)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (module, /, path, mode, *, dir_fd=None, effective_ids=False, follow_symlinks=True)
     def test_signature_strip_non_python_syntax(self):
         self._strip_non_python_syntax(
             "($module, /, path, mode, *, dir_fd=None, " +
@@ -6108,7 +6151,8 @@ class TestSignatureDefinitions(unittest.TestCase):
                 self.assertRaises(ValueError, inspect.signature, getattr(cls, name))
 
     def test_builtins_have_signatures(self):
-        no_signature = {'type', 'super', 'bytearray', 'bytes', 'dict', 'int', 'str'}
+        no_signature = {'type', 'super', 'bytearray', 'bytes',
+                        'dict', 'frozendict', 'int', 'str'}
         # These need PEP 457 groups
         needs_groups = {"range", "slice", "dir", "getattr",
                         "next", "iter", "vars"}
@@ -6140,6 +6184,7 @@ class TestSignatureDefinitions(unittest.TestCase):
             'AsyncGeneratorType': {'athrow'},
             'CoroutineType': {'throw'},
             'GeneratorType': {'throw'},
+            'FrameLocalsProxyType': {'setdefault', 'pop', 'get'},
         }
         self._test_module_has_signatures(types,
                 unsupported_signature=unsupported_signature,
@@ -6184,6 +6229,21 @@ class TestSignatureDefinitions(unittest.TestCase):
         import collections.abc
         self._test_module_has_signatures(collections.abc)
 
+    def test_datetime_module_has_signatures(self):
+        # Only test if the C implementation is available.
+        import_helper.import_module('_datetime')
+        import datetime
+        no_signature = {'tzinfo'}
+        unsupported_signature = {'timezone'}
+        methods_unsupported_signature = {
+            'date': {'replace'},
+            'time': {'replace'},
+            'datetime': {'replace', 'combine'},
+        }
+        self._test_module_has_signatures(datetime,
+                no_signature, unsupported_signature,
+                methods_unsupported_signature=methods_unsupported_signature)
+
     def test_errno_module_has_signatures(self):
         import errno
         self._test_module_has_signatures(errno)
@@ -6196,8 +6256,7 @@ class TestSignatureDefinitions(unittest.TestCase):
         self._test_module_has_signatures(faulthandler, unsupported_signature=unsupported_signature)
 
     def test_functools_module_has_signatures(self):
-        unsupported_signature = {"reduce"}
-        self._test_module_has_signatures(functools, unsupported_signature=unsupported_signature)
+        self._test_module_has_signatures(functools)
 
     def test_gc_module_has_signatures(self):
         import gc
@@ -6241,7 +6300,10 @@ class TestSignatureDefinitions(unittest.TestCase):
 
     def test_re_module_has_signatures(self):
         import re
-        methods_no_signature = {'Match': {'group'}}
+        methods_no_signature = {
+                'Match': {'group'},
+                'Pattern': {'match'},  # It is now an alias for prefixmatch
+        }
         self._test_module_has_signatures(re,
                 methods_no_signature=methods_no_signature,
                 good_exceptions={'error', 'PatternError'})
@@ -6253,6 +6315,10 @@ class TestSignatureDefinitions(unittest.TestCase):
     def test_stat_module_has_signatures(self):
         import stat
         self._test_module_has_signatures(stat)
+
+    def test_struct_module_has_signatures(self):
+        import struct
+        self._test_module_has_signatures(struct)
 
     def test_string_module_has_signatures(self):
         import string
@@ -6311,7 +6377,7 @@ class TestSignatureDefinitions(unittest.TestCase):
                 methods_unsupported_signature=methods_unsupported_signature)
 
     def test_warnings_module_has_signatures(self):
-        unsupported_signature = {'warn', 'warn_explicit'}
+        unsupported_signature = {'warn_explicit'}
         self._test_module_has_signatures(warnings, unsupported_signature=unsupported_signature)
 
     def test_weakref_module_has_signatures(self):
@@ -6319,7 +6385,6 @@ class TestSignatureDefinitions(unittest.TestCase):
         no_signature = {'ReferenceType', 'ref'}
         self._test_module_has_signatures(weakref, no_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: <function TestSignatureDefinitions.test_python_function_override_signature.<locals>.func at 0xa4c07a580> builtin has invalid signature
     def test_python_function_override_signature(self):
         def func(*args, **kwargs):
             pass
@@ -6350,7 +6415,6 @@ class TestSignatureDefinitions(unittest.TestCase):
         with self.assertRaises(ValueError):
             inspect.signature(func)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != '(raw, buffer_size=DEFAULT_BUFFER_SIZE)'
     @support.requires_docstrings
     def test_base_class_have_text_signature(self):
         # see issue 43118
@@ -6444,8 +6508,32 @@ class TestUnwrap(unittest.TestCase):
         self.assertIs(inspect.unwrap(staticmethod(classmethod)), classmethod)
         self.assertIs(inspect.unwrap(classmethod(staticmethod)), staticmethod)
 
+def _clean_object_ids(text):
+    # Helper to handle "<obj at 0x...>" details in CLI output checks
+    import re
+    detect = r"object at 0x([0-9A-Fa-f]+)>"
+    replace = "object at 0x...>"
+    return re.sub(detect, replace, text)
 
-class TestMain(unittest.TestCase):
+class TestModuleCLI(unittest.TestCase):
+
+    BUILTIN_ERROR = "No source code available for builtin module"
+    NO_SOURCE_ERROR = "No source code available for defining module"
+    NO_SOURCE_TARGET_ERROR = "Failed to retrieve source code for given target"
+
+    @staticmethod
+    def _expected_cached(module):
+        # assert_python_ok() runs the subprocess in isolated mode (-I), which
+        # ignores PYTHONPYCACHEPREFIX, so compute the expected cached path the
+        # same way (i.e. without any pycache prefix) to stay independent of the
+        # environment the test suite is run in.  Modules without a cached path
+        # (e.g. frozen modules such as ntpath/importlib.machinery on Windows)
+        # report None, so preserve that.
+        if module.__spec__.cached is None:
+            return None
+        with support.swap_attr(sys, 'pycache_prefix', None):
+            return importlib.util.cache_from_source(module.__spec__.origin)
+
     def test_only_source(self):
         module = importlib.import_module('unittest')
         rc, out, err = assert_python_ok('-m', 'inspect',
@@ -6473,26 +6561,227 @@ class TestMain(unittest.TestCase):
                          inspect.getsource(ThreadPoolExecutor).splitlines())
         self.assertEqual(err, b'')
 
-    def test_builtins(self):
+    def test_error_builtins(self):
         _, out, err = assert_python_failure('-m', 'inspect',
                                             'sys')
         lines = err.decode().splitlines()
-        self.assertEqual(lines, ["Can't get info for builtin modules."])
+        self.assertEqual(lines, [self.BUILTIN_ERROR])
 
-    def test_details(self):
-        module = importlib.import_module('unittest')
+    @unittest.skipIf(importlib.util.find_spec("_testcapi") is None, "TODO: RUSTPYTHON; _testcapi extension fixture is unavailable")
+    def test_error_extension(self):
+        module_name = "_testcapi"
+        if module_name in sys.builtin_module_names:
+            # WASI test environment has even _testcapi as a builtin module
+            expected_error = self.BUILTIN_ERROR
+        else:
+            expected_error = self.NO_SOURCE_ERROR
+        _, out, err = assert_python_failure('-m', 'inspect',
+                                            module_name)
+        lines = err.decode().splitlines()
+        self.assertEqual(lines, [expected_error])
+
+    def test_error_data(self):
+        _, out, err = assert_python_failure('-m', 'inspect',
+                                            'importlib.machinery:SOURCE_SUFFIXES')
+        lines = err.decode().splitlines()
+        self.assertEqual(lines, [self.NO_SOURCE_TARGET_ERROR])
+
+    def test_details_option_with_package(self):
+        module_name = 'unittest'
+        module = importlib.import_module(module_name)
         args = support.optim_args_from_interpreter_flags()
         rc, out, err = assert_python_ok(*args, '-m', 'inspect',
-                                        'unittest', '--details')
-        output = out.decode()
-        # Just a quick sanity check on the output
-        self.assertIn(module.__spec__.name, output)
-        self.assertIn(module.__name__, output)
-        self.assertIn(module.__spec__.origin, output)
-        self.assertIn(module.__file__, output)
-        self.assertIn(module.__spec__.cached, output)
-        self.assertIn(module.__cached__, output)
+                                        module_name, '--details')
+        cached = self._expected_cached(module)
+        # Full rendering check on the expected output
+        expected_lines = [
+            f"Target: {module.__name__}",  # No aliasing
+            f"Origin: {module.__spec__.origin}",
+            f"Source: {module.__file__}",
+            f"Cached: {cached}",  # None is still displayed
+            f"Loader: {_clean_object_ids(repr(module.__spec__.loader))}",
+            f"Submodule search paths: {module.__path__}",
+            "",
+        ]
+        output_lines = _clean_object_ids(out.decode()).splitlines()
+        self.assertEqual(output_lines, expected_lines)
         self.assertEqual(err, b'')
+
+    def test_details_option_with_builtin_module(self):
+        # Also an end-to-end test of non-package lookups
+        module_name = 'sys'
+        module = importlib.import_module(module_name)
+        args = support.optim_args_from_interpreter_flags()
+        rc, out, err = assert_python_ok(*args, '-m', 'inspect',
+                                        module_name, '--details')
+        # Full rendering check on the expected output
+        # No error is reported when just fetching the module details
+        expected_lines = [
+            f"Target: {module.__name__}",  # No aliasing
+            f"Origin: {module.__spec__.origin}",
+            "Source: None",
+            "Cached: None",
+            f"Loader: {_clean_object_ids(repr(module.__spec__.loader))}",
+            "",
+        ]
+        output_lines = _clean_object_ids(out.decode()).splitlines()
+        self.assertEqual(output_lines, expected_lines)
+        self.assertEqual(err, b'')
+
+    def test_details_option_with_data_target(self):
+        # Also an end-to-end test of non-module lookups without aliasing
+        module_name = 'importlib.machinery'
+        cli_target = f"{module_name}:SOURCE_SUFFIXES"
+        module = importlib.import_module(module_name)
+        args = support.optim_args_from_interpreter_flags()
+        rc, out, err = assert_python_ok(*args, '-m', 'inspect',
+                                        cli_target, '--details')
+        cached = self._expected_cached(module)
+        # Full rendering check on the expected output
+        # The error is only informational when reading source details
+        expected_lines = [
+            f"Target: {cli_target}",  # No aliasing
+            f"Origin: {module.__spec__.origin}",
+            f"Source: {module.__file__}",
+            f"Cached: {cached}",  # None is still displayed
+            self.NO_SOURCE_TARGET_ERROR,
+            "",
+        ]
+        output_lines = out.decode().splitlines()
+        self.assertEqual(output_lines, expected_lines)
+        self.assertEqual(err, b'')
+
+    @unittest.skipIf(not os.path.exists(os.path.__file__), "Needs frozen source file")
+    def test_details_option_with_aliased_target(self):
+        # Also an end-to-end test of successful non-module lookups
+        module = importlib.import_module("os.path")
+        target = module.join
+        cli_target = "os:path.join"  # Defining module is os.path, not os
+        defining_target = f"{target.__module__}:{target.__qualname__}"
+
+        args = support.optim_args_from_interpreter_flags()
+        rc, out, err = assert_python_ok(*args, '-m', 'inspect',
+                                        cli_target, '--details')
+        cached = self._expected_cached(module)
+        # Full rendering check on the expected output
+        expected_lines = [
+            f'Target: {defining_target} (looked up as "{cli_target}")',
+            f"Origin: {module.__spec__.origin}",
+            f"Source: {module.__file__}",
+            f"Cached: {cached}",  # None is still displayed
+            f"Line: {inspect.findsource(target)[1]}",
+            "",
+        ]
+        output_lines = out.decode().splitlines()
+        self.assertEqual(output_lines, expected_lines)
+        self.assertEqual(err, b'')
+
+    def _check_details(self, module, details, other_expected_keys=(), *, alias=None, error=None):
+        expected_keys = {"target", "origin", "source", "cached"}
+        if other_expected_keys:
+            expected_keys |= other_expected_keys
+        if alias is not None:
+            expected_keys.add("alias")
+        if error is not None:
+            expected_keys.add("error")
+        self.assertEqual(set(details.keys()), expected_keys)
+        self.assertEqual(module.__spec__.origin, details["origin"])
+        try:
+            expected_source = inspect.getsourcefile(module)
+        except Exception:
+            expected_source = None
+        if expected_source and expected_source.startswith("<frozen"):
+            # Check special case for frozen modules
+            expected_source = module.__file__
+        self.assertEqual(expected_source, details["source"])
+        self.assertEqual(module.__spec__.cached, details["cached"])
+        if "loader" in other_expected_keys:
+            self.assertEqual(repr(module.__spec__.loader), details["loader"])
+        if "submodule_paths" in other_expected_keys:
+            self.assertEqual(repr(module.__path__), details["submodule_paths"])
+        if alias is not None:
+            self.assertEqual(details["alias"], alias)
+            self.assertNotEqual(details["target"], alias)
+        if error is not None:
+            self.assertEqual(details["error"], error)
+
+    def test_get_cli_details_for_source_module(self):
+        module_name = "inspect"
+        module = importlib.import_module(module_name)
+        details = inspect._get_details_for_cli(module, module_name, module)
+        self._check_details(module, details, {"loader"})
+        target = module.signature
+        nominal_target = f"{module_name}:{target.__qualname__}"
+        details = inspect._get_details_for_cli(module, nominal_target, target)
+        self._check_details(module, details, {"lineno"})
+        self.assertEqual(inspect.findsource(target)[1], details["lineno"])
+
+    def test_get_cli_details_for_source_package(self):
+        module_name = "importlib"
+        module = importlib.import_module(module_name)
+        details = inspect._get_details_for_cli(module, module_name, module)
+        self._check_details(module, details, {"loader", "submodule_paths"})
+        target = module.import_module  # Assumes this is not re-exported
+        nominal_target = f"{module_name}:{target.__qualname__}"
+        details = inspect._get_details_for_cli(module, nominal_target, target)
+        self._check_details(module, details, {"lineno"})
+        self.assertEqual(inspect.findsource(target)[1], details["lineno"])
+
+    def test_get_cli_details_for_builtin_module(self):
+        expected_error = self.BUILTIN_ERROR
+        module_name = "sys"
+        module = importlib.import_module(module_name)
+        details = inspect._get_details_for_cli(module, module_name, module)
+        self._check_details(module, details, {"loader"}, error=expected_error)
+        target = module.exit
+        nominal_target = f"{module_name}:{target.__qualname__}"
+        details = inspect._get_details_for_cli(module, nominal_target, target)
+        self._check_details(module, details, error=expected_error)
+
+    def test_get_cli_details_for_frozen_module(self):
+        # Source is actually available for this frozen module, as
+        # __file__ refers to the location of importlib._bootstrap
+        module_name = "_frozen_importlib"
+        module = importlib.import_module(module_name)
+        details = inspect._get_details_for_cli(module, module_name, module)
+        self._check_details(module, details, {"loader"}, alias=module_name)
+        target = module.__import__
+        nominal_target = f"{module_name}:{target.__qualname__}"
+        details = inspect._get_details_for_cli(module, nominal_target, target)
+        self._check_details(module, details, {"lineno"}, alias=nominal_target)
+        self.assertEqual(inspect.findsource(target)[1], details["lineno"])
+
+    @unittest.skipIf(importlib.util.find_spec("_testcapi") is None, "TODO: RUSTPYTHON; _testcapi extension fixture is unavailable")
+    def test_get_cli_details_for_extension_module(self):
+        module_name = "_testcapi"
+        if module_name in sys.builtin_module_names:
+            # WASI test environment has even _testcapi as a builtin module
+            expected_error = self.BUILTIN_ERROR
+        else:
+            expected_error = self.NO_SOURCE_ERROR
+        module = importlib.import_module(module_name)
+        details = inspect._get_details_for_cli(module, module_name, module)
+        self._check_details(module, details, {"loader"}, error=expected_error)
+        target = module.fatal_error
+        nominal_target = f"{module_name}:{target.__qualname__}"
+        details = inspect._get_details_for_cli(module, nominal_target, target)
+        self._check_details(module, details, error=expected_error)
+
+    @unittest.skipIf(not os.path.exists(os.path.__file__), "Needs frozen source file")
+    def test_get_cli_details_for_aliased_module(self):
+        # os.path is an alias for a platform dependent implementation module
+        # Test is skipped if the source file is missing (as the output changes),
+        # which may happen if running the test suite after deployment.
+        module_name = "os.path"
+        module = importlib.import_module(module_name)
+        details = inspect._get_details_for_cli(module, module_name, module)
+        self._check_details(module, details, {"loader"}, alias=module_name)
+        nominal_module = importlib.import_module("os")
+        nominal_target = "os:path.join"
+        target = module.join
+        details = inspect._get_details_for_cli(nominal_module, nominal_target, target)
+        self._check_details(module, details, {"lineno"}, alias=nominal_target)
+        self.assertEqual(inspect.findsource(target)[1], details["lineno"])
 
 
 class TestReload(unittest.TestCase):
@@ -6534,12 +6823,14 @@ class TestRepl(unittest.TestCase):
         object.
         """
 
+        # TODO(picnixz): refactor this as it's used by test_repl.py
+
         # To run the REPL without using a terminal, spawn python with the command
         # line option '-i' and the process name set to '<stdin>'.
         # The directory of argv[0] must match the directory of the Python
         # executable for the Popen() call to python to succeed as the directory
-        # path may be used by Py_GetPath() to build the default module search
-        # path.
+        # path may be used by PyConfig_Get("module_search_paths") to build the
+        # default module search path.
         stdin_fname = os.path.join(os.path.dirname(sys.executable), "<stdin>")
         cmd_line = [stdin_fname, '-E', '-i']
         cmd_line.extend(args)
@@ -6569,7 +6860,6 @@ class TestRepl(unittest.TestCase):
             raise ValueError("Process didn't exit properly.")
         return output
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'The source is: <<<def f():\n    print(0)\n    return 1 + 2\n>>>' not found in 'Traceback (most recent call last):\n  File "<stdin>", line 1, in <module>\n  File "crates/pylib/Lib/inspect.py", line 1161, in getsource\n    lines, lnum = getsourcelines(object)\n                  ~~~~~~~~~~~~~~^^^^^^^^\n  File "crates/pylib/Lib/inspect.py", line 1143, in getsourcelines\n    lines, lnum = findsource(object)\n                  ~~~~~~~~~~^^^^^^^^\n  File "crates/pylib/Lib/inspect.py", line 978, in findsource\n    raise OSError(\'could not get source code\')\nOSError: could not get source code\n'
     @unittest.skipIf(not has_subprocess_support, "test requires subprocess")
     def test_getsource(self):
         output = self.run_on_interactive_mode(textwrap.dedent("""\
@@ -6583,8 +6873,6 @@ class TestRepl(unittest.TestCase):
 
         expected = "The source is: <<<def f():\n    print(0)\n    return 1 + 2\n>>>"
         self.assertIn(expected, output)
-
-
 
 
 if __name__ == "__main__":
