@@ -53,8 +53,10 @@ mod syslog {
         if let Some(argv) = vm.state.config.settings.argv.first()
             && !argv.is_empty()
         {
+            let argv = vm.fsdecode(argv.clone());
+            let argv = argv.as_wtf8();
             return Some(
-                PyStr::from(match argv.find('\\') {
+                PyStr::from(match argv.as_bytes().iter().position(|&b| b == b'\\') {
                     Some(value) => &argv[value..],
                     None => argv,
                 })

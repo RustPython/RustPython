@@ -5,6 +5,7 @@ use lexopt::Arg::{Long, Short, Value};
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
 use std::env;
+use std::ffi::OsString;
 
 pub enum RunMode {
     Script(String),
@@ -112,13 +113,15 @@ file   : program read from script file
 arg ...: arguments passed to program in sys.argv[1:]
 ";
 
-fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
+fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
     let mut args = CliArgs::default();
     let mut parser = lexopt::Parser::from_env();
-    fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<String>, lexopt::Error> {
-        core::iter::once(Ok(argv0))
-            .chain(parser.raw_args()?.map(|arg| arg.string()))
-            .collect()
+    fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<OsString>, lexopt::Error> {
+        // Arguments after the entry point are filesystem-encoded data, not
+        // necessarily Unicode. Decode only when constructing Python strings.
+        Ok(core::iter::once(argv0.into())
+            .chain(parser.raw_args()?)
+            .collect())
     }
     while let Some(arg) = parser.next()? {
         match arg {
@@ -171,7 +174,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
 
             Long("install-pip") => {
                 let (mode, argv) = if let Some(val) = parser.optional_value() {
-                    (val.parse()?, vec![val.string()?])
+                    (val.parse()?, vec![val])
                 } else if let Ok(argv0) = parser.value() {
                     let mode = argv0.parse()?;
                     (mode, argv(argv0.string()?, parser)?)
@@ -179,7 +182,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
                     (
                         InstallPipMode::Ensurepip,
                         ["ensurepip", "--upgrade", "--default-pip"]
-                            .map(str::to_owned)
+                            .map(OsString::from)
                             .into(),
                     )
                 };

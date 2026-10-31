@@ -252,7 +252,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<u32> {
 }
 
 fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<u32> {
-    let program_name = &vm.state.config.paths.program_name;
+    let program_name = vm.fsdecode(vm.state.config.paths.program_name.clone());
     let filename_repr = vm.ctx.new_str(path).as_object().repr(vm)?;
     let errno = err.raw_os_error().unwrap_or(2);
     let strerror = vm::host_env::errno::strerror_string(errno).unwrap_or_default();
