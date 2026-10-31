@@ -3,10 +3,12 @@ pub(crate) use _symtable::module_def;
 #[pymodule]
 mod _symtable {
     use crate::{
-        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyUtf8StrRef},
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyStrRef, PyUtf8StrRef},
         compiler,
+        function::{ArgStrOrBytesLike, FsPath},
         types::Representable,
+        vm::VmCompileError,
     };
     use alloc::fmt;
     use rustpython_codegen::symboltable::{CompilerScope, SymbolFlags, SymbolScope, SymbolTable};
@@ -95,27 +97,146 @@ mod _symtable {
     #[pyattr]
     pub(super) const TYPE_TYPE_VARIABLE: i32 = 6;
 
+    #[derive(FromArgs)]
+    struct SymtableArgs {
+        #[pyarg(positional)]
+        source: ArgStrOrBytesLike,
+        #[pyarg(positional)]
+        filename: FsPath,
+        #[pyarg(positional)]
+        startstr: PyUtf8StrRef,
+        #[pyarg(named, optional)]
+        module: Option<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn symtable(
-        source: PyUtf8StrRef,
-        filename: PyUtf8StrRef,
-        mode: PyUtf8StrRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PySymbolTable>> {
-        let mode = mode
+    fn symtable(args: SymtableArgs, vm: &VirtualMachine) -> PyResult<PyRef<PySymbolTable>> {
+        let SymtableArgs {
+            source,
+            filename,
+            startstr,
+            module,
+        } = args;
+        let mode = startstr
             .as_str()
             .parse::<compiler::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-        let symtable = compiler::compile_symtable(source.as_str(), mode, filename.as_str())
-            .map_err(|err| vm.new_syntax_error(&err, Some(source.as_str())))?;
+        let filename_obj = match &filename {
+            FsPath::Str(filename) => filename.clone(),
+            FsPath::Bytes(filename) => {
+                let filename = FsPath::bytes_as_os_str(filename.as_bytes(), vm)?.to_owned();
+                vm.fsdecode(filename)
+            }
+        };
+        let filename = filename_obj.to_string_lossy();
+        let source = match &source {
+            ArgStrOrBytesLike::Str(source) => source.try_as_utf8(vm)?.as_str().to_owned(),
+            ArgStrOrBytesLike::Buf(source) => vm
+                .decode_source_bytes(&source.borrow_buf(), &filename, false)
+                .map_err(|err| set_syntax_error_filename(err, &filename_obj, vm))?,
+        };
+        if source.as_bytes().contains(&0) {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.syntax_error.to_owned(),
+                "source code string cannot contain null bytes".into(),
+            ));
+        }
+        let module = module.filter(|module| !vm.is_none(module));
+        let module = module
+            .map(|module| {
+                PyStrRef::try_from_object(vm, module.clone()).map_err(|_| {
+                    vm.new_type_error(format!(
+                        "symtable() argument 'module' must be str or None, not {}",
+                        module.class().name()
+                    ))
+                })
+            })
+            .transpose()?;
+        let symtable = vm
+            .compile_symtable_with_module(
+                &source,
+                mode,
+                &filename,
+                &filename_obj,
+                module.as_deref(),
+            )
+            .map_err(|err| match err {
+                VmCompileError::Compile(err) => {
+                    let err = vm.new_syntax_error(&err, Some(&source));
+                    set_syntax_error_filename(err, &filename_obj, vm)
+                }
+                // Warning hooks may raise their own exception, including a
+                // SyntaxError subclass. Propagate it without changing attributes.
+                warning @ VmCompileError::Warning(_) => warning.into_pyexception(vm, Some(&source)),
+            })?;
 
-        let py_symbol_table = to_py_symbol_table(symtable);
-        Ok(py_symbol_table.into_ref(&vm.ctx))
+        Ok(to_py_symbol_table(symtable, vm))
     }
 
-    const fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
-        PySymbolTable { symtable }
+    fn set_syntax_error_filename(
+        err: PyBaseExceptionRef,
+        filename: &Py<PyStr>,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        if err.fast_isinstance(vm.ctx.exceptions.syntax_error) {
+            err.as_object()
+                .set_attr("filename", filename.to_owned(), vm)
+                .unwrap();
+        }
+        err
+    }
+
+    fn append_visible_child(table: SymbolTable, children: &mut Vec<SymbolTable>) {
+        if table.comp_inlined {
+            for child in table.sub_tables {
+                append_visible_child(child, children);
+            }
+        } else {
+            children.push(table);
+        }
+    }
+
+    fn to_py_symbol_table(mut symtable: SymbolTable, vm: &VirtualMachine) -> PyRef<PySymbolTable> {
+        let mut child_tables = Vec::new();
+        for table in core::mem::take(&mut symtable.sub_tables) {
+            append_visible_child(table, &mut child_tables);
+        }
+        if !symtable.future_annotations
+            && let Some(annotation_block) = symtable.annotation_block.take()
+        {
+            child_tables.push(*annotation_block);
+        }
+        child_tables.sort_by_key(|table| table.block_index);
+
+        let children = vm.ctx.new_list(
+            child_tables
+                .into_iter()
+                .map(|table| to_py_symbol_table(table, vm).into())
+                .collect(),
+        );
+        let symbols = vm.ctx.new_dict();
+        for (name, symbol) in &symtable.symbols {
+            let packed_flags =
+                i32::from(symbol.flags.bits()) | (symbol.scope.as_i32() << SCOPE_OFFSET);
+            symbols
+                .set_item(name.as_str(), vm.new_pyobj(packed_flags), vm)
+                .unwrap();
+        }
+        let varnames = vm.ctx.new_list(
+            symtable
+                .varnames
+                .iter()
+                .map(|name| vm.ctx.new_str(name.as_str()).into())
+                .collect(),
+        );
+        PySymbolTable {
+            symtable,
+            children,
+            symbols,
+            varnames,
+        }
+        .into_ref(&vm.ctx)
     }
 
     #[pyattr]
@@ -123,6 +244,9 @@ mod _symtable {
     #[derive(PyPayload)]
     struct PySymbolTable {
         symtable: SymbolTable,
+        children: PyListRef,
+        symbols: PyDictRef,
+        varnames: PyListRef,
     }
 
     impl fmt::Debug for PySymbolTable {
@@ -132,10 +256,16 @@ mod _symtable {
     }
 
     #[pyclass(with(Representable))]
-    impl PySymbolTable {
+    impl Py<PySymbolTable> {
         #[pygetset]
         fn name(&self) -> String {
-            self.symtable.name.clone()
+            match self.symtable.typ {
+                CompilerScope::Lambda => "<lambda>".to_owned(),
+                CompilerScope::Comprehension if self.symtable.name.as_str() == "genexpr" => {
+                    "<genexpr>".to_owned()
+                }
+                _ => self.symtable.name.to_string(),
+            }
         }
 
         #[pygetset(name = "type")]
@@ -155,45 +285,32 @@ mod _symtable {
         }
 
         #[pygetset]
-        const fn lineno(&self) -> u32 {
+        fn lineno(&self) -> u32 {
             self.symtable.line_number
         }
 
         #[pygetset]
-        fn children(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-            self.symtable
-                .sub_tables
-                .iter()
-                .flat_map(|t| {
-                    if t.comp_inlined {
-                        // Flatten: replace inlined comprehension tables with their children
-                        t.sub_tables.iter().collect::<Vec<_>>()
-                    } else {
-                        vec![t]
-                    }
-                })
-                .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
-                .collect()
+        fn children(&self) -> PyListRef {
+            self.children.clone()
         }
 
         #[pygetset]
         fn id(&self) -> usize {
-            self as *const Self as *const core::ffi::c_void as usize
+            self.payload() as *const PySymbolTable as *const core::ffi::c_void as usize
         }
 
         #[pygetset]
-        fn symbols(&self, vm: &VirtualMachine) -> PyDictRef {
-            let dict = vm.ctx.new_dict();
-            for (name, symbol) in &self.symtable.symbols {
-                let packed_flags =
-                    i32::from(symbol.flags.bits()) | (symbol.scope.as_i32() << SCOPE_OFFSET);
-                dict.set_item(name, vm.new_pyobj(packed_flags), vm).unwrap();
-            }
-            dict
+        fn symbols(&self) -> PyDictRef {
+            self.symbols.clone()
         }
 
         #[pygetset]
-        const fn nested(&self) -> bool {
+        fn varnames(&self) -> PyListRef {
+            self.varnames.clone()
+        }
+
+        #[pygetset]
+        fn nested(&self) -> bool {
             self.symtable.is_nested
         }
     }

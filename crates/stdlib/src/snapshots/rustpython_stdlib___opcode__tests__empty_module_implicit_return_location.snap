@@ -1,0 +1,7 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(\"\", true)"
+---
+0:0-1:0            RESUME                   0
+0:0-1:0            LOAD_COMMON_CONSTANT     7 (None)
+0:0-1:0            RETURN_VALUE

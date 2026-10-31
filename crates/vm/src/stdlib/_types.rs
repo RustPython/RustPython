@@ -59,6 +59,16 @@ mod _types {
     }
 
     #[pyattr]
+    fn FrameLocalsProxyType(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.types.frame_locals_proxy_type.to_owned().into()
+    }
+
+    #[pyattr]
+    fn LazyImportType(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.types.lazy_import_type.to_owned().into()
+    }
+
+    #[pyattr]
     fn FrameType(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.types.frame_type.to_owned().into()
     }
@@ -106,8 +116,7 @@ mod _types {
 
     #[pyattr]
     fn ClassMethodDescriptorType(vm: &VirtualMachine) -> PyObjectRef {
-        // TODO: implement as separate type
-        vm.ctx.types.method_descriptor_type.to_owned().into()
+        vm.ctx.types.classmethod_descriptor_type.to_owned().into()
     }
 
     #[pyattr]

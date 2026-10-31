@@ -7,6 +7,19 @@ pub use libc::{
     RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK, c_long, rlim_t, rlimit, timeval,
 };
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "l4re",
+    target_os = "emscripten",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "aix",
+    target_os = "fuchsia",
+    target_os = "cygwin"
+))]
+pub use libc::{RLIM_SAVED_CUR, RLIM_SAVED_MAX};
+
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
 pub use libc::{RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_RTPRIO, RLIMIT_SIGPENDING};
 
@@ -54,6 +67,37 @@ pub struct RUsage {
     pub ru_nsignals: libc::c_long,
     pub ru_nvcsw: libc::c_long,
     pub ru_nivcsw: libc::c_long,
+}
+
+impl RUsage {
+    pub fn utime_secs(&self) -> f64 {
+        timeval_to_secs(self.ru_utime)
+    }
+
+    pub fn stime_secs(&self) -> f64 {
+        timeval_to_secs(self.ru_stime)
+    }
+
+    pub fn total_cpu_duration(&self) -> Option<core::time::Duration> {
+        let utime = timeval_to_nanos(self.ru_utime)?;
+        let stime = timeval_to_nanos(self.ru_stime)?;
+        let total = utime.checked_add(stime)?;
+        Some(core::time::Duration::from_nanos(total as u64))
+    }
+}
+
+fn timeval_to_secs(tv: libc::timeval) -> f64 {
+    tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
+}
+
+fn timeval_to_nanos(tv: libc::timeval) -> Option<i64> {
+    let secs = widen_to_i64(tv.tv_sec)?.checked_mul(1_000_000_000)?;
+    let usecs = widen_to_i64(tv.tv_usec)?.checked_mul(1_000)?;
+    secs.checked_add(usecs)
+}
+
+fn widen_to_i64<T: Copy + TryInto<i64>>(v: T) -> Option<i64> {
+    v.try_into().ok()
 }
 
 impl From<libc::rusage> for RUsage {

@@ -49,7 +49,15 @@ unsafe impl Traverse for PyObjectRef {
 
 unsafe impl Traverse for PyStackRef {
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        traverse_fn(self.as_object())
+        // A borrowed stack ref owns no strong count, so it is not an edge the
+        // cycle collector may subtract: counting it would push a live object's
+        // `gc_refs` to zero and free it out from under the frame. The object a
+        // borrow points at is always reachable another way -- through the
+        // fastlocals slot that keeps it alive, which this same frame traversal
+        // visits -- so skipping it loses no reachability either.
+        if !self.is_borrowed() {
+            traverse_fn(self.as_object())
+        }
     }
 }
 
@@ -104,6 +112,41 @@ where
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         for elem in self {
             elem.traverse(traverse_fn);
+        }
+    }
+}
+
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<Option<T>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        if let Some(obj) = self.deref() {
+            traverse_fn(obj.as_object());
+        }
+    }
+}
+
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<T> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self.as_object());
+    }
+}
+
+unsafe impl Traverse for super::ext::PyAtomicRef<PyObject> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self);
+    }
+}
+
+unsafe impl Traverse for super::ext::PyAtomicRef<Option<PyObject>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        let ptr = self.load_ptr();
+        // SAFETY: traversal runs with other threads stopped, so a non-null
+        // slot pointer stays allocated for this borrow.
+        if let Some(obj) = unsafe { ptr.as_ref() } {
+            traverse_fn(obj);
         }
     }
 }

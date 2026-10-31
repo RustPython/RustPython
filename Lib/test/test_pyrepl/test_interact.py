@@ -114,7 +114,7 @@ class TestSimpleInteract(unittest.TestCase):
         r = """
     def f(x, x): ...
              ^
-SyntaxError: duplicate argument 'x' in function definition"""
+SyntaxError: duplicate parameter 'x' in function definition"""
         self.assertIn(r, f.getvalue())
 
     def test_runsource_shows_syntax_error_for_failed_compilation(self):
@@ -166,7 +166,6 @@ SyntaxError: duplicate argument 'x' in function definition"""
         self.assertFalse(result)
         self.assertEqual(f.getvalue(), "{'x': 'int'}\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_barry_as_flufl(self):
         console = InteractiveColoredConsole()
         f = io.StringIO()

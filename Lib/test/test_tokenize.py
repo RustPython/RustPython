@@ -1233,6 +1233,20 @@ f'''
     FSTRING_END \'"\'           (2, 2) (2, 3)
     """)
 
+    def test_ineq_tokens(self):
+        self.check_tokenize("1 != 2", """\
+    NUMBER     '1'           (1, 0) (1, 1)
+    OP         '!='          (1, 2) (1, 4)
+    NUMBER     '2'           (1, 5) (1, 6)
+""")
+        self.check_tokenize("1 <> 2", """\
+    NUMBER     '1'           (1, 0) (1, 1)
+    OP         '<'           (1, 2) (1, 3)
+    OP         '>'           (1, 3) (1, 4)
+    NUMBER     '2'           (1, 5) (1, 6)
+""")
+
+
 class GenerateTokensTest(TokenizeTest):
     def check_tokenize(self, s, expected):
         # Format the tokens in s in a table format.
@@ -1907,7 +1921,6 @@ class TestTokenize(TestCase):
         tokens = list(tokenize.tokenize(BytesIO(source.encode('utf-8')).readline))
         self.assertEqual(tokens, expected_tokens)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 869 characters long. Set self.maxDiff to None to see it.
     def test_newline_and_space_at_the_end_of_the_source_without_newline(self):
         # See https://github.com/python/cpython/issues/105435
         source = 'a\n '
@@ -2226,7 +2239,6 @@ class InvalidPythonTests(TestCase):
         tokens = list(tokenize.generate_tokens(StringIO(source).readline))
         self.assertEqual(tokens, expected_tokens)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 855 characters long. Set self.maxDiff to None to see it.
     def test_number_starting_with_zero(self):
         source = "01234"
         expected_tokens = [
@@ -2867,7 +2879,6 @@ f'''__{
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_async(self):
 
         self.check_tokenize('async = 1', """\
@@ -3193,7 +3204,6 @@ async def f():
             with self.subTest(case=case):
                 self.assertRaises(tokenize.TokenError, get_tokens, case)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: IndentationError not raised by <lambda>
     @support.skip_wasi_stack_overflow()
     def test_max_indent(self):
         MAXINDENT = 100
@@ -3217,7 +3227,6 @@ async def f():
             IndentationError, compile, invalid, "<string>", "exec"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; (0, '')]
     def test_continuation_lines_indentation(self):
         def get_tokens(string):
             the_string = StringIO(string)
@@ -3333,6 +3342,7 @@ class CTokenizerBufferTests(unittest.TestCase):
             run_test_script(file_name)
 
 
+@support.force_not_colorized_test_class
 class CommandLineTest(unittest.TestCase):
     def setUp(self):
         self.filename = tempfile.mktemp()

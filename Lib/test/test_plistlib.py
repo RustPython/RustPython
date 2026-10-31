@@ -792,6 +792,25 @@ class TestPlistlib(unittest.TestCase):
                 })
                 self.assertIsNot(pl2['first'], pl2['second'])
 
+    def test_frozendict(self):
+        pl = frozendict(
+            aString="Doodah",
+            anInt=728,
+            aDict=frozendict(
+                anotherString="hello",
+                aTrueValue=True,
+            ),
+            aList=["A", "B", 12],
+        )
+
+        for fmt in ALL_FORMATS:
+            with self.subTest(fmt=fmt):
+                data = plistlib.dumps(pl, fmt=fmt)
+                pl2 = plistlib.loads(data)
+                self.assertEqual(pl2, dict(pl))
+                self.assertIsInstance(pl2, dict)
+                self.assertIsInstance(pl2['aDict'], dict)
+
     def test_controlcharacters(self):
         for i in range(128):
             c = chr(i)
@@ -831,7 +850,6 @@ class TestPlistlib(unittest.TestCase):
                 self.assertEqual(test1, result1)
                 self.assertEqual(test2, result2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidarray(self):
         for i in ["<key>key inside an array</key>",
                   "<key>key inside an array2</key><real>3</real>",
@@ -839,7 +857,6 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array>%s</array></plist>"%i).encode())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invaliddict(self):
         for i in ["<key><true/>k</key><string>compound key</string>",
                   "<key>single key</key>",
@@ -851,12 +868,10 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array><dict>%s</dict></array></plist>"%i).encode())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidinteger(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not integer</integer></plist>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidreal(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not real</integer></plist>")
@@ -1138,7 +1153,6 @@ class TestBinaryPlistlib(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             plistlib.dumps(dt, fmt=plistlib.FMT_BINARY, aware_datetime=False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_dump_utc_aware_datetime_without_aware_datetime_option(self):
         dt = datetime.datetime(2345, 6, 7, 8, tzinfo=datetime.UTC)
         msg = "can't subtract offset-naive and offset-aware datetimes"

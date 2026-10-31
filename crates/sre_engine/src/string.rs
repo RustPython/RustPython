@@ -391,15 +391,44 @@ pub(crate) fn is_digit(ch: u32) -> bool {
     u8::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
 }
 
-#[inline]
-pub(crate) fn is_loc_alnum(ch: u32) -> bool {
-    // FIXME: Ignore the locales
-    u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
+/// Byte classification and case conversion in the current locale.
+///
+/// Callbacks keep host APIs outside this `no_std` engine. They are called while
+/// matching, rather than cached in a compiled pattern, so a locale change also
+/// affects existing patterns and scanners. Without host callbacks, matching uses
+/// the ASCII rules of the C locale.
+#[derive(Debug, Clone, Copy)]
+pub struct Locale {
+    pub is_alnum: fn(u8) -> bool,
+    pub to_lower: fn(u8) -> u32,
+    pub to_upper: fn(u8) -> u32,
 }
 
-#[inline]
-pub(crate) fn is_loc_word(ch: u32) -> bool {
-    ch == UNDERSCORE || is_loc_alnum(ch)
+impl Default for Locale {
+    fn default() -> Self {
+        Self {
+            is_alnum: |ch| ch.is_ascii_alphanumeric(),
+            to_lower: |ch| ch.to_ascii_lowercase() as u32,
+            to_upper: |ch| ch.to_ascii_uppercase() as u32,
+        }
+    }
+}
+
+impl Locale {
+    #[inline]
+    pub(crate) fn is_word(self, ch: u32) -> bool {
+        ch == UNDERSCORE || u8::try_from(ch).is_ok_and(self.is_alnum)
+    }
+
+    #[inline]
+    pub(crate) fn lower(self, ch: u32) -> u32 {
+        u8::try_from(ch).map_or(ch, self.to_lower)
+    }
+
+    #[inline]
+    pub(crate) fn upper(self, ch: u32) -> u32 {
+        u8::try_from(ch).map_or(ch, self.to_upper)
+    }
 }
 
 #[inline]
@@ -414,27 +443,26 @@ pub fn lower_ascii(ch: u32) -> u32 {
 }
 
 #[inline]
-pub(crate) fn lower_locate(ch: u32) -> u32 {
-    // FIXME: Ignore the locales
-    lower_ascii(ch)
-}
-
-#[inline]
-pub(crate) fn upper_locate(ch: u32) -> u32 {
-    // FIXME: Ignore the locales
-    u8::try_from(ch).map_or(ch, |x| x.to_ascii_uppercase() as u32)
-}
-
-#[inline]
 pub(crate) fn is_uni_digit(ch: u32) -> bool {
     // SRE_UNI_IS_DIGIT matches Unicode decimal digits (Py_UNICODE_ISDECIMAL),
-    // not just ASCII 0-9.
+    // not just ASCII 0-9. Fast-path true ASCII (< 0x80) to skip the
+    // general-category table lookup for the overwhelmingly common case;
+    // u8 covers the whole Latin-1 range, so gate on 0x80 rather than
+    // `u8::try_from` succeeding.
+    if ch < 0x80 {
+        return (ch as u8).is_ascii_digit();
+    }
     char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_decimal)
 }
 
 #[inline]
 pub(crate) fn is_uni_space(ch: u32) -> bool {
-    // SRE_UNI_IS_SPACE is Py_UNICODE_ISSPACE.
+    // SRE_UNI_IS_SPACE is Py_UNICODE_ISSPACE. Fast-path ASCII: besides the
+    // usual whitespace bytes, Py_UNICODE_ISSPACE also covers the 0x1C..=0x1F
+    // separators (bidirectional class B/S/WS).
+    if ch < 0x80 {
+        return matches!(ch, 0x09..=0x0D | 0x1C..=0x20);
+    }
     char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_space)
 }
 
@@ -449,6 +477,13 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
+    // Fast-path true ASCII (< 0x80) to skip the general-category table
+    // lookup, which dominates \w matching over otherwise-ASCII text (the
+    // common case). Latin-1 supplement characters (0x80..=0xFF) still need
+    // the full table (e.g. 'Ä' is alphanumeric but not ASCII).
+    if ch < 0x80 {
+        return (ch as u8).is_ascii_alphanumeric();
+    }
     char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_alnum)
 }
 

@@ -1,0 +1,48 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(parameters):\n    return ((p, type(p)) for p in parameters)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:45            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:45            MAKE_FUNCTION
+1:0-2:45            STORE_NAME               0 (f)
+1:0-2:45            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:45            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:11-2:45            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 2>)
+2:11-2:45            MAKE_FUNCTION
+2:34-2:44            LOAD_FAST_BORROW         0 (parameters)
+2:11-2:45            CALL                     0
+2:4-2:45             RETURN_VALUE
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 2>:
+  --                 RESUME                   4
+
+2:34-2:44            LOAD_FAST                0 (.0)
+2:34-2:44            GET_ITER                 0
+2:?-2:?              RETURN_GENERATOR
+2:?-2:?              POP_TOP
+2:0-2:0      L1:     RESUME                   0
+2:34-2:44    L2:     FOR_ITER                18 (to L3)
+2:29-2:30            STORE_FAST_LOAD_FAST    17 (p, p)
+2:16-2:20            LOAD_GLOBAL              1 (type + NULL)
+2:21-2:22            LOAD_FAST_BORROW         1 (p)
+2:16-2:23            CALL                     1
+2:12-2:24            BUILD_TUPLE              2
+2:12-2:24            YIELD_VALUE              0
+2:12-2:24            RESUME                   9
+2:12-2:24            POP_TOP
+2:12-2:24            JUMP_BACKWARD           20 (to L2)
+2:34-2:44    L3:     END_FOR
+2:34-2:44            POP_ITER
+2:34-2:44            LOAD_COMMON_CONSTANT     7 (None)
+2:34-2:44            RETURN_VALUE
+
+  --         L4:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L4 -> L4 [2] lasti

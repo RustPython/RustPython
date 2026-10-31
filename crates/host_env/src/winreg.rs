@@ -24,6 +24,8 @@ use windows_sys::Win32::{
 pub type HKEY = Registry::HKEY;
 pub const ERROR_MORE_DATA: u32 = Foundation::ERROR_MORE_DATA;
 pub const ERROR_INVALID_HANDLE: u32 = Foundation::ERROR_INVALID_HANDLE;
+pub const ERROR_FILE_NOT_FOUND: u32 = Foundation::ERROR_FILE_NOT_FOUND;
+pub const ERROR_INVALID_DATA: u32 = Foundation::ERROR_INVALID_DATA;
 pub const HKEY_CLASSES_ROOT: HKEY = Registry::HKEY_CLASSES_ROOT;
 pub const HKEY_CURRENT_USER: HKEY = Registry::HKEY_CURRENT_USER;
 pub const HKEY_LOCAL_MACHINE: HKEY = Registry::HKEY_LOCAL_MACHINE;
@@ -159,6 +161,11 @@ pub unsafe fn delete_value(key: Registry::HKEY, value_name: Option<&widestring::
     unsafe { Registry::RegDeleteValueW(key, name_ptr) }
 }
 
+pub unsafe fn delete_tree(key: Registry::HKEY, sub_key: Option<&widestring::WideCStr>) -> u32 {
+    let name_ptr = sub_key.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegDeleteTreeW(key, name_ptr) }
+}
+
 pub unsafe fn enum_key_ex(
     key: Registry::HKEY,
     index: u32,
@@ -278,12 +285,13 @@ pub unsafe fn load_key(
 
 pub unsafe fn open_key_ex(
     key: Registry::HKEY,
-    sub_key: &widestring::WideCStr,
+    sub_key: Option<&widestring::WideCStr>,
     options: u32,
     sam: u32,
     out_key: *mut Registry::HKEY,
 ) -> u32 {
-    unsafe { Registry::RegOpenKeyExW(key, sub_key.as_ptr(), options, sam, out_key) }
+    let name_ptr = sub_key.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegOpenKeyExW(key, name_ptr, options, sam, out_key) }
 }
 
 pub unsafe fn query_value_ex(
@@ -349,7 +357,15 @@ pub fn query_default_value(
 ) -> Result<String, QueryStringError> {
     let child_key = if let Some(sub_key) = sub_key.filter(|s| !s.is_empty()) {
         let mut out_key = core::ptr::null_mut();
-        let res = unsafe { open_key_ex(hkey, sub_key, 0, Registry::KEY_QUERY_VALUE, &mut out_key) };
+        let res = unsafe {
+            open_key_ex(
+                hkey,
+                Some(sub_key),
+                0,
+                Registry::KEY_QUERY_VALUE,
+                &mut out_key,
+            )
+        };
         if res != 0 {
             return Err(QueryStringError::Code(res));
         }
@@ -516,4 +532,26 @@ pub fn expand_environment_strings(
 
     let len = out.iter().position(|&c| c == 0).unwrap_or(out.len());
     String::from_utf16(&out[..len]).map_err(ExpandEnvironmentStringsError::Utf16)
+}
+
+/// Same walk as [`expand_environment_strings`], keeping unpaired surrogates.
+pub fn expand_environment_strings_wide(
+    wide_input: &widestring::WideCStr,
+) -> Result<Vec<u16>, ExpandEnvironmentStringsError> {
+    let required_size = unsafe {
+        Environment::ExpandEnvironmentStringsW(wide_input.as_ptr(), core::ptr::null_mut(), 0)
+    };
+    if required_size == 0 {
+        return Err(ExpandEnvironmentStringsError::Os);
+    }
+    let mut out = vec![0u16; required_size as usize];
+    let written = unsafe {
+        Environment::ExpandEnvironmentStringsW(wide_input.as_ptr(), out.as_mut_ptr(), required_size)
+    };
+    if written == 0 {
+        return Err(ExpandEnvironmentStringsError::Os);
+    }
+    let end = out.iter().position(|&unit| unit == 0).unwrap_or(out.len());
+    out.truncate(end);
+    Ok(out)
 }

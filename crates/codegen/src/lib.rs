@@ -8,6 +8,7 @@ extern crate log;
 
 extern crate alloc;
 
+use alloc::string::String;
 use rustpython_compiler_core::bytecode::ConstantData;
 
 type IndexMap<K, V> = indexmap::IndexMap<K, V, rapidhash::quality::RandomState>;
@@ -17,12 +18,16 @@ pub mod compile;
 pub mod error;
 pub mod ir;
 pub mod preprocess;
+pub mod source_location;
 mod string_parser;
 pub mod symboltable;
 mod unparse;
 
 pub use compile::CompileOpts;
 use ruff_python_ast as ast;
+use ruff_text_size::{Ranged, TextRange, TextSize, TextSlice};
+use rustpython_compiler_core::SourceFile;
+use rustpython_wtf8::Wtf8Buf;
 
 pub(crate) use compile::InternalResult;
 
@@ -91,6 +96,221 @@ pub(crate) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
         },
         ast::ConstantValue::Ellipsis => ConstantData::Ellipsis,
     }
+}
+
+/// The range a decorated definition covers from its `def`/`class` keyword on.
+///
+/// The parser hands over a statement that starts at the first decorator, while a
+/// definition is located at the keyword that introduces it.
+#[must_use]
+pub fn decorated_definition_range(
+    source_file: &SourceFile,
+    statement_range: TextRange,
+    decorator_list: &[ast::Decorator],
+    keyword: &str,
+) -> TextRange {
+    let Some(last_decorator) = decorator_list.last() else {
+        return statement_range;
+    };
+    let search_start = last_decorator.expression.range().end();
+    if search_start >= statement_range.end() {
+        return statement_range;
+    }
+    let search_range = TextRange::new(search_start, statement_range.end());
+    let source = source_file.source_text().slice(search_range);
+    let Some(keyword_offset) = source.find(keyword) else {
+        return statement_range;
+    };
+    let Ok(keyword_offset) = u32::try_from(keyword_offset) else {
+        return statement_range;
+    };
+    TextRange::new(
+        search_start + TextSize::new(keyword_offset),
+        statement_range.end(),
+    )
+}
+
+/// The value of a string literal.
+///
+/// The parser has nowhere to keep a lone surrogate in the value it hands over,
+/// and leaves a replacement character standing in for one, so a literal that
+/// carries any is read again from the source it was written in.
+#[must_use]
+pub fn string_literal_value(source_file: &SourceFile, string: &ast::StringLiteralValue) -> Wtf8Buf {
+    let value = string.to_str();
+    if value.contains(char::REPLACEMENT_CHARACTER) {
+        string
+            .iter()
+            .map(|part| string_literal_part_value(source_file, part))
+            .collect()
+    } else {
+        value.into()
+    }
+}
+
+/// The value of one of the literals a string literal is written as.
+#[must_use]
+pub fn string_literal_part_value(source_file: &SourceFile, string: &ast::StringLiteral) -> Wtf8Buf {
+    if string.value.contains(char::REPLACEMENT_CHARACTER) {
+        let source = source_file.source_text().slice(string.range);
+        string_parser::parse_string_literal(source, string.flags.into()).into()
+    } else {
+        string.value.to_string().into()
+    }
+}
+
+/// The value of a literal written between the interpolations of an f-string or
+/// a t-string.
+#[must_use]
+pub fn interpolated_string_literal_value(
+    source_file: &SourceFile,
+    element: &ast::InterpolatedStringLiteralElement,
+    flags: ast::AnyStringFlags,
+) -> Wtf8Buf {
+    if element.value.contains(char::REPLACEMENT_CHARACTER) {
+        let source = source_file.source_text().slice(element.range);
+        string_parser::parse_fstring_literal_element(source.into(), flags).into()
+    } else {
+        element.value.to_string().into()
+    }
+}
+
+/// The text a `{expr=}` interpolation puts in front of its value, and the range
+/// that text covers.
+///
+/// The text is the expression as it is written plus whatever the parser found
+/// around it inside the braces, with comments taken out. The range covers that
+/// surrounding text as it stands, comments included.
+#[must_use]
+pub fn interpolation_debug_text(
+    source_file: &SourceFile,
+    debug_text: &ast::DebugText,
+    expression_range: TextRange,
+) -> (String, TextRange) {
+    let leading = debug_text.leading();
+    let trailing = debug_text.trailing();
+    let text = strip_python_comments(
+        &[
+            leading,
+            source_file.source_text().slice(expression_range),
+            trailing,
+        ]
+        .concat(),
+    );
+    let width =
+        |len: usize| TextSize::new(u32::try_from(len).expect("debug interpolation text too long"));
+    let range = TextRange::new(
+        expression_range.start() - width(leading.len()),
+        expression_range.end() + width(trailing.len()),
+    );
+    (text, range)
+}
+
+/// The source text stored in a template interpolation, including whitespace
+/// before its debug marker, conversion, format specifier, or closing brace.
+/// Returns `None` for a synthetic node without a source interpolation range.
+#[must_use]
+pub fn interpolation_expression_text(
+    source_file: &SourceFile,
+    interpolation: &ast::InterpolatedElement,
+) -> Option<String> {
+    if let Some(debug_text) = &interpolation.debug_text {
+        let mut text = strip_python_comments(debug_text.as_str());
+        let end = interpolation_suffix_end(&text);
+        if text[..end].ends_with('=') {
+            text.truncate(end - 1);
+        }
+        return Some(text);
+    }
+
+    let expression_range = interpolation.expression.range();
+    if interpolation.range.start() >= expression_range.start()
+        || interpolation.range.end() <= expression_range.end()
+    {
+        return None;
+    }
+    let start = interpolation.range.start() + TextSize::new(1);
+    let end = interpolation
+        .format_spec
+        .as_ref()
+        .map_or_else(
+            || interpolation.range.end(),
+            |format_spec| format_spec.range.start(),
+        )
+        .checked_sub(TextSize::new(1))?;
+    if start > expression_range.start() || end < expression_range.end() {
+        return None;
+    }
+    let mut text =
+        strip_python_comments(source_file.source_text().slice(TextRange::new(start, end)));
+    if interpolation.conversion != ast::ConversionFlag::None {
+        let end = interpolation_suffix_end(&text);
+        let conversion_start = end.checked_sub(2)?;
+        if text.as_bytes().get(conversion_start) != Some(&b'!') {
+            return None;
+        }
+        text.truncate(conversion_start);
+    }
+    Some(text)
+}
+
+fn interpolation_suffix_end(text: &str) -> usize {
+    let mut end = text.len();
+    // Debug markers and conversions can be followed by whitespace and line
+    // continuations. Whitespace preceding either marker remains significant.
+    loop {
+        let trimmed = text[..end].trim_end();
+        let has_newline = text[trimmed.len()..end].contains(['\n', '\r']);
+        end = trimmed.len();
+        if has_newline && text[..end].ends_with('\\') {
+            end -= 1;
+        } else {
+            return end;
+        }
+    }
+}
+
+fn strip_python_comments(text: &str) -> String {
+    // Tokenizer metadata uses universal newlines even when source ranges refer
+    // to the original CRLF or CR input.
+    let normalized;
+    let text = if text.contains('\r') {
+        normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        normalized.as_str()
+    } else {
+        text
+    };
+    let mut chars = text.chars();
+    let mut result = String::with_capacity(text.len());
+    let mut quote = None;
+
+    while let Some(ch) = chars.next() {
+        // Match tokenizer metadata reconstruction, including escaped quotes
+        // outside literals and its per-quote handling of triple strings.
+        if ch == '\\' {
+            result.push(ch);
+            if let Some(escaped) = chars.next() {
+                result.push(escaped);
+            }
+        } else if matches!(ch, '\'' | '"') {
+            if quote.is_none() {
+                quote = Some(ch);
+            } else if quote == Some(ch) {
+                quote = None;
+            }
+            result.push(ch);
+        } else if ch == '#' && quote.is_none() {
+            for comment_ch in chars.by_ref() {
+                if comment_ch == '\n' {
+                    result.push('\n');
+                    break;
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 pub trait ToPythonName {

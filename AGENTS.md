@@ -4,7 +4,7 @@ This document provides guidelines for AI coding agents (GitHub Copilot, Claude C
 
 ## Project Overview
 
-RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0+ compatibility. The project aims to provide:
+RustPython is a Python 3 interpreter written in Rust, targeting Python 3.15 with compatibility work in progress. The project aims to provide:
 
 - A complete Python-3 environment entirely in Rust (not CPython bindings)
 - A clean implementation without compatibility hacks
@@ -116,12 +116,19 @@ rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
 
 ### Testing
 
+- Never add tests to `extra_tests/snippets` that duplicate coverage in `Lib/test`.
+- Prefer adding tests to the most closely related existing file in `extra_tests/snippets` rather than creating a new snippet file.
+
 ```bash
 # Run Rust unit tests
 cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
 
 # Run C-API tests from their directory so their separate Cargo config applies
 (cd crates/capi && cargo test)
+
+# Run Clippy with the same C-API separation
+cargo clippy --workspace --all-targets --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
+(cd crates/capi && cargo clippy --all-targets)
 
 # Run Python snippets tests (debug mode recommended for faster compilation)
 cargo run -- extra_tests/snippets/builtin_bytes.py
@@ -157,7 +164,7 @@ Run `./scripts/whats_left.py` to get a list of unimplemented methods, which is h
 
 - Do not delete or rewrite existing comments unless they are factually wrong or directly contradict the new code.
 - Do not add decorative section separators (e.g. `// -----------`, `// ===`, `/* *** */`). Use `///` doc-comments or short `//` comments only when they add value.
-- Do not put `///` doc comments on items annotated with `#[pyattr]`, `#[pyclass]`, or `#[pyfunction]`. The derive macros pull authoritative docstrings from CPython via the `rustpython-doc` crate; a Rust doc comment overrides that source, and on `#[pyattr]` it is silently dropped.
+- A `///` doc comment on a Python-exposed item (`#[pyattr]`, `#[pyclass]`, `#[pyfunction]`, `#[pymethod]`, `#[pyclassmethod]`, `#[pystaticmethod]`, `#[pygetset]`, `#[pymember]`, `#[pyslot]`, `#[pyexception]`, `#[pymodule]`, `#[pystruct_sequence]`) is that item's docstring and overrides the stored docs in `rustpython-doc` (`crates/doc`). Those stored docs are used only when the item has no `///` comment. Developer notes on these items must be `//` comments.
 
 #### Avoid Duplicate Code in Branches
 

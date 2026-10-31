@@ -124,6 +124,11 @@ class BaseLockTests(BaseTestCase):
         lock = self.locktype()
         del lock
 
+    def test_constructor_noargs(self):
+        self.assertRaises(TypeError, self.locktype, 1)
+        self.assertRaises(TypeError, self.locktype, x=1)
+        self.assertRaises(TypeError, self.locktype, 1, x=2)
+
     def test_repr(self):
         lock = self.locktype()
         self.assertRegex(repr(lock), "<unlocked .* object (.*)?at .*>")
@@ -162,7 +167,6 @@ class BaseLockTests(BaseTestCase):
         self.assertFalse(result[0])
         lock.release()
 
-    @unittest.skip("TODO: RUSTPYTHON; sometimes hangs")
     def test_acquire_contended(self):
         lock = self.locktype()
         lock.acquire()
@@ -210,7 +214,6 @@ class BaseLockTests(BaseTestCase):
         with Bunch(f, 1):
             pass
 
-    @unittest.skip("TODO: RUSTPYTHON; sometimes hangs")
     def test_thread_leak(self):
         # The lock shouldn't leak a Thread instance when used from a foreign
         # (non-threading) thread.

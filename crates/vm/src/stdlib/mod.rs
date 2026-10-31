@@ -3,9 +3,11 @@ mod _abc;
 pub(crate) mod _ast;
 mod _codecs;
 mod _collections;
+pub(crate) use _collections::ordered_dict::ordered_dict::PyOrderedDict;
 mod _functools;
 mod _imp;
 pub mod _io;
+mod _lsprof;
 mod _operator;
 mod _sre;
 mod _stat;
@@ -14,6 +16,7 @@ mod _string;
 mod _symtable;
 mod _sysconfig;
 mod _sysconfigdata;
+pub(crate) mod _testinternalcapi;
 mod _types;
 pub mod _typing;
 pub mod _warnings;
@@ -37,6 +40,8 @@ pub mod posix;
 #[cfg(all(feature = "host_env", not(any(unix, windows))))]
 #[path = "posix_compat.rs"]
 pub mod posix;
+#[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
+pub mod posix_unix_like;
 
 #[cfg(all(
     feature = "host_env",
@@ -48,7 +53,7 @@ pub mod posix;
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-mod _ctypes;
+pub(crate) mod _ctypes;
 #[cfg(all(feature = "host_env", windows))]
 pub(crate) mod msvcrt;
 
@@ -59,6 +64,9 @@ pub(crate) mod msvcrt;
 ))]
 mod pwd;
 
+pub(crate) mod _interpchannels;
+pub(crate) mod _interpqueues;
+pub(crate) mod _interpreters;
 #[cfg(feature = "host_env")]
 pub(crate) mod _signal;
 #[cfg(feature = "threading")]
@@ -75,6 +83,24 @@ mod winreg;
 mod winsound;
 
 use crate::{Context, builtins::PyModuleDef};
+
+// Keep ctypes-specific alias detection available to memoryview on all targets.
+pub(crate) fn is_borrowed_ctypes_buffer(_obj: &crate::PyObject) -> bool {
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    if _ctypes::is_borrowed_buffer(_obj) {
+        return true;
+    }
+    false
+}
 
 /// Returns module definitions for multi-phase init modules.
 ///
@@ -112,6 +138,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         msvcrt::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         nt::module_def(ctx),
+        _lsprof::module_def(ctx),
         _operator::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
         posix::module_def(ctx),
@@ -128,12 +155,17 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _sre::module_def(ctx),
         _stat::module_def(ctx),
         _string::module_def(ctx),
+        _testinternalcapi::module_def(ctx),
         #[cfg(feature = "compiler")]
         _symtable::module_def(ctx),
         _sysconfigdata::module_def(ctx),
         _sysconfig::module_def(ctx),
+        _sysconfig::_missing_stdlib_info::module_def(ctx),
         #[cfg(feature = "threading")]
         _thread::module_def(ctx),
+        _interpchannels::module_def(ctx),
+        _interpqueues::module_def(ctx),
+        _interpreters::module_def(ctx),
         time::module_def(ctx),
         _typing::module_def(ctx),
         _warnings::module_def(ctx),

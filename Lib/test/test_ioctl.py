@@ -127,9 +127,8 @@ class IoctlTestsTty(unittest.TestCase):
         self._check_ioctl_not_mutate_len(1024)
 
     def test_ioctl_mutate_2048(self):
-        # Test with a larger buffer, just for the record.
         self._check_ioctl_mutate_len(2048)
-        self.assertRaises(ValueError, self._check_ioctl_not_mutate_len, 2048)
+        self._check_ioctl_not_mutate_len(1024)
 
 
 @unittest.skipUnless(hasattr(os, 'openpty'), "need os.openpty()")
@@ -209,7 +208,9 @@ class IoctlTestsPty(unittest.TestCase):
         with self.assertRaises(OSError):
             fcntl.ioctl(fd, fcntl.FICLONE, fd)
         with self.assertRaises(OSError):
-            fcntl.ioctl(fd, fcntl.FICLONE, b'\0' * 1024)
+            fcntl.ioctl(fd, fcntl.FICLONE, b'\0' * 10)
+        with self.assertRaises(OSError):
+            fcntl.ioctl(fd, fcntl.FICLONE, b'\0' * 2048)
 
 
 if __name__ == "__main__":

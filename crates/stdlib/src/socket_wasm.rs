@@ -1,0 +1,407 @@
+//! Wasm `_socket` surface so `Lib/socket.py` and `Lib/ssl.py` can import.
+//!
+//! There are no BSD sockets on wasm32-unknown-unknown, and WASI does not
+//! expose the host_env socket engine yet. Constants, address conversion,
+//! timeouts, and a constructible `socket` type are provided; connect-side
+//! operations raise `OSError`.
+
+pub(crate) use _socket::module_def;
+
+#[pymodule]
+mod _socket {
+    use rustpython_vm::{
+        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyType, PyTypeRef, PyUtf8StrRef},
+        common::lock::PyMutex,
+        function::{ArgBytesLike, ArgIntoFloat, OptionalArg},
+        types::{Constructor, Initializer},
+    };
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+
+    #[pyattr]
+    use rustpython_host_env::socket::{
+        AF_INET, AF_INET6, AF_UNIX, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST,
+        AI_NUMERICSERV, AI_PASSIVE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
+        IPPORT_RESERVED, IPPORT_USERRESERVED, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_UDP,
+        MSG_DONTROUTE, MSG_OOB, MSG_PEEK, NI_DGRAM, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST,
+        NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE,
+        SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM, SOL_SOCKET,
+        SOL_TCP, TCP_NODELAY,
+    };
+    #[pyattr(name = "has_ipv6")]
+    const HAS_IPV6: bool = true;
+
+    static DEFAULT_TIMEOUT: AtomicU64 = AtomicU64::new(f64::to_bits(-1.0));
+
+    fn unsupported(
+        vm: &VirtualMachine,
+        op: &str,
+    ) -> PyRef<rustpython_vm::builtins::PyBaseException> {
+        vm.new_os_error(format!("{op} is not available"))
+    }
+
+    #[pyattr]
+    fn error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.exceptions.os_error.to_owned()
+    }
+
+    #[pyattr]
+    fn timeout(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.exceptions.timeout_error.to_owned()
+    }
+
+    #[pyattr(once)]
+    fn herror(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "socket",
+            "herror",
+            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
+        )
+    }
+
+    #[pyattr(once)]
+    fn gaierror(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "socket",
+            "gaierror",
+            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
+        )
+    }
+
+    #[pyfunction]
+    const fn htonl(x: u32) -> u32 {
+        u32::to_be(x)
+    }
+
+    #[pyfunction]
+    const fn htons(x: u16) -> u16 {
+        u16::to_be(x)
+    }
+
+    #[pyfunction]
+    const fn ntohl(x: u32) -> u32 {
+        u32::from_be(x)
+    }
+
+    #[pyfunction]
+    const fn ntohs(x: u16) -> u16 {
+        u16::from_be(x)
+    }
+
+    #[pyfunction]
+    fn inet_aton(ip: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        ip.as_str()
+            .parse::<Ipv4Addr>()
+            .map(|addr| addr.octets().to_vec())
+            .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton"))
+    }
+
+    #[pyfunction]
+    fn inet_ntoa(packed: ArgBytesLike, vm: &VirtualMachine) -> PyResult<String> {
+        let buf = packed.borrow_buf();
+        let octets: [u8; 4] = (&*buf)
+            .try_into()
+            .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa"))?;
+        Ok(Ipv4Addr::from(octets).to_string())
+    }
+
+    #[pyfunction]
+    fn inet_pton(af: i32, ip: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        match af {
+            AF_INET => ip
+                .as_str()
+                .parse::<Ipv4Addr>()
+                .map(|addr| addr.octets().to_vec())
+                .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_pton")),
+            AF_INET6 => ip
+                .as_str()
+                .parse::<Ipv6Addr>()
+                .map(|addr| addr.octets().to_vec())
+                .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_pton")),
+            _ => Err(vm.new_os_error("Address family not supported")),
+        }
+    }
+
+    #[pyfunction]
+    fn inet_ntop(af: i32, packed: ArgBytesLike, vm: &VirtualMachine) -> PyResult<String> {
+        let buf = packed.borrow_buf();
+        match af {
+            AF_INET => {
+                let octets: [u8; 4] = (&*buf).try_into().map_err(|_| {
+                    vm.new_value_error("invalid length of packed IP address string")
+                })?;
+                Ok(Ipv4Addr::from(octets).to_string())
+            }
+            AF_INET6 => {
+                let octets: [u8; 16] = (&*buf).try_into().map_err(|_| {
+                    vm.new_value_error("invalid length of packed IP address string")
+                })?;
+                Ok(Ipv6Addr::from(octets).to_string())
+            }
+            _ => Err(vm.new_value_error("unknown address family")),
+        }
+    }
+
+    #[pyfunction]
+    fn getdefaulttimeout() -> Option<f64> {
+        let timeout = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
+        (timeout >= 0.0).then_some(timeout)
+    }
+
+    #[pyfunction]
+    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        match timeout {
+            None => DEFAULT_TIMEOUT.store((-1.0f64).to_bits(), Ordering::Relaxed),
+            Some(value) => {
+                let value = value.into_float();
+                if value.is_nan() {
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                }
+                if value < 0.0 || !value.is_finite() {
+                    return Err(vm.new_value_error("Timeout value out of range"));
+                }
+                DEFAULT_TIMEOUT.store(value.to_bits(), Ordering::Relaxed);
+            }
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn gethostname(vm: &VirtualMachine) -> PyResult<String> {
+        Err(unsupported(vm, "gethostname").into())
+    }
+
+    #[pyfunction]
+    fn gethostbyname(_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        Err(unsupported(vm, "gethostbyname").into())
+    }
+
+    #[pyfunction]
+    fn getaddrinfo(
+        _host: OptionalArg<PyObjectRef>,
+        _port: OptionalArg<PyObjectRef>,
+        _family: OptionalArg<i32>,
+        _type: OptionalArg<i32>,
+        _proto: OptionalArg<i32>,
+        _flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        Err(unsupported(vm, "getaddrinfo").into())
+    }
+
+    #[derive(FromArgs)]
+    struct SocketInitArgs {
+        #[pyarg(any, optional)]
+        family: OptionalArg<i32>,
+        #[pyarg(any, optional)]
+        r#type: OptionalArg<i32>,
+        #[pyarg(any, optional)]
+        proto: OptionalArg<i32>,
+        #[pyarg(any, optional)]
+        fileno: Option<PyObjectRef>,
+    }
+
+    #[pyattr(name = "socket")]
+    #[pyattr(name = "SocketType")]
+    #[pyclass(name = "socket")]
+    #[derive(Debug, PyPayload)]
+    struct PySocket {
+        #[pymember]
+        family: AtomicI32,
+        #[pymember(name = "type")]
+        kind: AtomicI32,
+        #[pymember]
+        proto: AtomicI32,
+        timeout: PyMutex<Option<f64>>,
+        closed: PyMutex<bool>,
+    }
+
+    impl Default for PySocket {
+        fn default() -> Self {
+            Self {
+                family: AtomicI32::new(AF_INET),
+                kind: AtomicI32::new(SOCK_STREAM),
+                proto: AtomicI32::new(0),
+                timeout: PyMutex::new(None),
+                closed: PyMutex::new(false),
+            }
+        }
+    }
+
+    #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
+    impl PySocket {
+        fn ensure_open(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if *self.closed.lock() {
+                return Err(vm.new_os_error("Bad file descriptor"));
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn fileno(zelf: &Py<Self>) -> i32 {
+            if *zelf.closed.lock() { -1 } else { 0 }
+        }
+
+        #[pymethod]
+        fn close(zelf: &Py<Self>) {
+            *zelf.closed.lock() = true;
+        }
+
+        #[pymethod]
+        fn detach(zelf: &Py<Self>) -> i32 {
+            *zelf.closed.lock() = true;
+            -1
+        }
+
+        #[pymethod]
+        fn gettimeout(zelf: &Py<Self>) -> Option<f64> {
+            *zelf.timeout.lock()
+        }
+
+        #[pymethod]
+        fn settimeout(
+            zelf: &Py<Self>,
+            timeout: Option<ArgIntoFloat>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            *zelf.timeout.lock() = match timeout {
+                None => None,
+                Some(value) => {
+                    let value = value.into_float();
+                    if value.is_nan() {
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                    }
+                    if value < 0.0 || !value.is_finite() {
+                        return Err(vm.new_value_error("Timeout value out of range"));
+                    }
+                    Some(value)
+                }
+            };
+            Ok(())
+        }
+
+        #[pymethod]
+        fn setblocking(zelf: &Py<Self>, blocking: bool) {
+            *zelf.timeout.lock() = if blocking { None } else { Some(0.0) };
+        }
+
+        #[pymethod]
+        fn getblocking(zelf: &Py<Self>) -> bool {
+            !matches!(*zelf.timeout.lock(), Some(t) if t == 0.0)
+        }
+
+        #[pymethod]
+        fn getsockopt(
+            zelf: &Py<Self>,
+            level: i32,
+            optname: i32,
+            vm: &VirtualMachine,
+        ) -> PyResult<i32> {
+            zelf.ensure_open(vm)?;
+            if level == SOL_SOCKET && optname == SO_TYPE {
+                return Ok(zelf.kind.load(Ordering::Relaxed));
+            }
+            if level == SOL_SOCKET && optname == SO_ERROR {
+                return Ok(0);
+            }
+            Err(unsupported(vm, "getsockopt").into())
+        }
+
+        #[pymethod]
+        fn setsockopt(
+            zelf: &Py<Self>,
+            _level: i32,
+            _optname: i32,
+            _value: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
+            Ok(())
+        }
+
+        #[pymethod]
+        fn bind(zelf: &Py<Self>, _address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "bind").into())
+        }
+
+        #[pymethod]
+        fn connect(zelf: &Py<Self>, _address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "connect").into())
+        }
+
+        #[pymethod]
+        fn listen(
+            zelf: &Py<Self>,
+            _backlog: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "listen").into())
+        }
+
+        #[pymethod]
+        fn _accept(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "accept").into())
+        }
+
+        #[pymethod]
+        fn send(zelf: &Py<Self>, _data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "send").into())
+        }
+
+        #[pymethod]
+        fn recv(zelf: &Py<Self>, _bufsize: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "recv").into())
+        }
+
+        #[pymethod]
+        fn shutdown(zelf: &Py<Self>, _how: i32, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "shutdown").into())
+        }
+
+        #[pymethod]
+        fn getsockname(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(String, i32)> {
+            zelf.ensure_open(vm)?;
+            Ok(("0.0.0.0".to_owned(), 0))
+        }
+
+        #[pymethod]
+        fn getpeername(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(String, i32)> {
+            zelf.ensure_open(vm)?;
+            Err(unsupported(vm, "getpeername").into())
+        }
+    }
+
+    impl Constructor for PySocket {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::default())
+        }
+    }
+
+    impl Initializer for PySocket {
+        type Args = SocketInitArgs;
+
+        fn init(zelf: &Py<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            let family = args.family.unwrap_or(AF_INET);
+            let kind = args.r#type.unwrap_or(SOCK_STREAM);
+            let proto = args.proto.unwrap_or(0);
+            let _ = args.fileno;
+            zelf.family.store(family, Ordering::Relaxed);
+            zelf.kind.store(kind, Ordering::Relaxed);
+            zelf.proto.store(proto, Ordering::Relaxed);
+            *zelf.closed.lock() = false;
+            let default = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
+            *zelf.timeout.lock() = (default >= 0.0).then_some(default);
+            Ok(())
+        }
+    }
+}

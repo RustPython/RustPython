@@ -105,7 +105,7 @@ Verify that parenthesis are required in a statement
 
 Verify that parenthesis are required when used as a keyword argument value
 
-    >>> dict(a = i for i in range(10))  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> dict(a = i for i in range(10))
     Traceback (most recent call last):
        ...
     SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
@@ -130,14 +130,6 @@ Verify late binding for the outermost if-expression
     >>> include = (1,3,5,7,9)
     >>> list(g)
     [1, 9, 25, 49, 81]
-
-Verify that the outermost for-expression makes an immediate check
-for iterability
-    >>> (i for i in 6)
-    Traceback (most recent call last):
-      File "<pyshell#4>", line 1, in -toplevel-
-        (i for i in 6)
-    TypeError: 'int' object is not iterable
 
 Verify late binding for the innermost for-expression
 
@@ -242,7 +234,7 @@ Check that generator attributes are present
     True
 
     >>> from test.support import HAVE_DOCSTRINGS
-    >>> print(g.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> print(g.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
     Implement next(self).
     >>> import types
     >>> isinstance(g, types.GeneratorType)

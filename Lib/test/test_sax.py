@@ -715,7 +715,6 @@ class XmlgenTest:
         self.assertEqual(result.getvalue(),
             self.xml('<my:a xmlns:my="qux" b="c"/>'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_5027_1(self):
         # The xml prefix (as in xml:lang below) is reserved and bound by
         # definition to http://www.w3.org/XML/1998/namespace.  XMLGenerator had
@@ -999,7 +998,6 @@ class ExpatReaderTest(XmlTestBase):
             [("GIF", "-//CompuServe//NOTATION Graphics Interchange Format 89a//EN", None)])
         self.assertEqual(handler._entities, [("img", None, "expat.gif", "GIF")])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_external_dtd_enabled(self):
         # clear _opener global variable
         self.addCleanup(urllib.request.urlcleanup)
@@ -1055,7 +1053,6 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(result.getvalue(), start +
                          b"<doc><entity></entity></doc>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_entityresolver_default(self):
         parser = create_parser()
         self.assertEqual(parser.getFeature(feature_external_ges), False)
@@ -1112,7 +1109,6 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_empty_nsattrs(gather._attrs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_nsattrs_wattr(self):
         parser = create_parser(1)
         gather = self.AttrGatherer()
@@ -1206,7 +1202,6 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== IncrementalParser support
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incremental(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1219,7 +1214,6 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), start + b"<doc></doc>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incremental_reset(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1602,6 +1596,18 @@ class TestModuleAll(unittest.TestCase):
             'SAXReaderNotAvailable',
         )
         check__all__(self, sax, extra=extra)
+
+
+class TestModule(unittest.TestCase):
+    def test_deprecated__version__and__date__(self):
+        for module in (sax.expatreader, sax.handler):
+            with self.subTest(module=module):
+                with self.assertWarnsRegex(
+                    DeprecationWarning,
+                    "'version' is deprecated and slated for removal in Python 3.20",
+                ) as cm:
+                    getattr(module, "version")
+                self.assertEqual(cm.filename, __file__)
 
 
 if __name__ == "__main__":

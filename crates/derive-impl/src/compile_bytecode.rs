@@ -47,6 +47,16 @@ struct CompilationSource {
     span: (Span, Span),
 }
 
+/// Read a source file as text. A byte order mark belongs to the file's
+/// encoding rather than to the text, so it never reaches the compiler.
+fn read_source_file(path: &Path) -> std::io::Result<String> {
+    let mut source = fs::read_to_string(path)?;
+    if source.starts_with('\u{feff}') {
+        source.drain(..'\u{feff}'.len_utf8());
+    }
+    Ok(source)
+}
+
 pub trait Compiler {
     fn compile(
         &self,
@@ -103,7 +113,7 @@ impl CompilationSource {
         match &self.kind {
             CompilationSourceKind::File { base, rel_path } => {
                 let path = base.join(rel_path);
-                let source = fs::read_to_string(&path).map_err(|err| {
+                let source = read_source_file(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
                         format!("Error reading file {path:?}: {err}"),
@@ -135,10 +145,16 @@ impl CompilationSource {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
             .or_else(|e| {
+                // Without symlink support git checks a symlink out as a text file
+                // holding its target, which is relative to the file's own directory.
                 if cfg!(windows)
-                    && let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap())
+                    && let Ok(target) = fs::read_to_string(path)
                 {
-                    return fs::read_dir(real_path.trim());
+                    let target_dir = path
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""))
+                        .join(target.trim());
+                    return fs::read_dir(target_dir);
                 }
                 Err(e)
             })
@@ -161,6 +177,10 @@ impl CompilationSource {
                 };
                 code_map.extend(self.compile_dir(base, &path, &nparent, mode, compiler)?);
             } else if file_name.ends_with(".py") {
+                // These fixtures must be parsed at import time to exercise syntax errors.
+                if parent == "test.test_lazy_import.data.badsyntax" {
+                    continue;
+                }
                 let stem = path.file_stem().unwrap().to_str().unwrap();
                 let is_init = stem == "__init__";
                 let module_name = if is_init {
@@ -172,7 +192,7 @@ impl CompilationSource {
                 };
 
                 let compile_path = |src_path: &Path| {
-                    let source = fs::read_to_string(src_path).map_err(|err| {
+                    let source = read_source_file(src_path).map_err(|err| {
                         Diagnostic::spans_error(
                             self.span,
                             format!("Error reading file {path:?}: {err}"),

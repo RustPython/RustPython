@@ -9,55 +9,16 @@ mod winsound {
     use crate::convert::{IntoPyException, ToPyException};
     use crate::protocol::{BufferFlags, PyBuffer};
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
+    use rustpython_host_env::winsound as host_winsound;
     use rustpython_host_env::winsound::{PlaySoundError, PlaySoundSource, play_sound};
 
-    // PlaySound flags
     #[pyattr]
-    const SND_SYNC: u32 = 0x0000;
-    #[pyattr]
-    const SND_ASYNC: u32 = 0x0001;
-    #[pyattr]
-    const SND_NODEFAULT: u32 = 0x0002;
-    #[pyattr]
-    const SND_MEMORY: u32 = 0x0004;
-    #[pyattr]
-    const SND_LOOP: u32 = 0x0008;
-    #[pyattr]
-    const SND_NOSTOP: u32 = 0x0010;
-    #[pyattr]
-    const SND_PURGE: u32 = 0x0040;
-    #[pyattr]
-    const SND_APPLICATION: u32 = 0x0080;
-    #[pyattr]
-    const SND_NOWAIT: u32 = 0x00002000;
-    #[pyattr]
-    const SND_ALIAS: u32 = 0x00010000;
-    #[pyattr]
-    const SND_FILENAME: u32 = 0x00020000;
-    #[pyattr]
-    const SND_SENTRY: u32 = 0x00080000;
-    #[pyattr]
-    const SND_SYSTEM: u32 = 0x00200000;
-
-    // MessageBeep types
-    #[pyattr]
-    const MB_OK: u32 = 0x00000000;
-    #[pyattr]
-    const MB_ICONHAND: u32 = 0x00000010;
-    #[pyattr]
-    const MB_ICONQUESTION: u32 = 0x00000020;
-    #[pyattr]
-    const MB_ICONEXCLAMATION: u32 = 0x00000030;
-    #[pyattr]
-    const MB_ICONASTERISK: u32 = 0x00000040;
-    #[pyattr]
-    const MB_ICONERROR: u32 = MB_ICONHAND;
-    #[pyattr]
-    const MB_ICONSTOP: u32 = MB_ICONHAND;
-    #[pyattr]
-    const MB_ICONINFORMATION: u32 = MB_ICONASTERISK;
-    #[pyattr]
-    const MB_ICONWARNING: u32 = MB_ICONEXCLAMATION;
+    use host_winsound::{
+        MB_ICONASTERISK, MB_ICONERROR, MB_ICONEXCLAMATION, MB_ICONHAND, MB_ICONINFORMATION,
+        MB_ICONQUESTION, MB_ICONSTOP, MB_ICONWARNING, MB_OK, SND_ALIAS, SND_APPLICATION, SND_ASYNC,
+        SND_FILENAME, SND_LOOP, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP, SND_NOWAIT, SND_PURGE,
+        SND_SENTRY, SND_SYNC, SND_SYSTEM,
+    };
 
     #[derive(FromArgs)]
     struct PlaySoundArgs {
@@ -88,6 +49,9 @@ mod winsound {
         }
 
         if flags & SND_MEMORY != 0 {
+            if flags & SND_ASYNC != 0 {
+                return Err(vm.new_runtime_error("Cannot play asynchronously from memory"));
+            }
             let buffer = PyBuffer::from_object(vm, &sound, BufferFlags::SIMPLE)?;
             let buf = buffer
                 .as_contiguous()
@@ -150,6 +114,9 @@ mod winsound {
         };
 
         // Check for embedded null characters
+        if path.contains(&0) {
+            return Err(vm.new_value_error("embedded null character"));
+        }
         let wide_cstr =
             widestring::WideCString::from_vec(path).map_err(|e| e.to_pyexception(vm))?;
         play_sound(PlaySoundSource::Name(&wide_cstr), flags).map_err(map_play_err(vm))
@@ -178,12 +145,52 @@ mod winsound {
 
     #[derive(FromArgs)]
     struct MessageBeepArgs {
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         r#type: u32,
     }
 
     #[pyfunction]
     fn MessageBeep(args: MessageBeepArgs, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::winsound::message_beep(args.r#type).map_err(|e| e.into_pyexception(vm))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn async_memory_rejected_before_buffer_conversion() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for sound in [
+                    vm.ctx.new_str("none").into(),
+                    vm.ctx.new_bytes(vec![]).into(),
+                ] {
+                    let err = PlaySound(
+                        PlaySoundArgs {
+                            sound,
+                            flags: (SND_ASYNC | SND_MEMORY) as i32,
+                        },
+                        vm,
+                    )
+                    .unwrap_err();
+                    assert!(err.class().is(vm.ctx.exceptions.runtime_error));
+                }
+            });
+        }
+
+        #[test]
+        fn embedded_null_rejected_before_playback() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let err = PlaySound(
+                    PlaySoundArgs {
+                        sound: vm.ctx.new_str("bad\0").into(),
+                        flags: 0,
+                    },
+                    vm,
+                )
+                .unwrap_err();
+                assert!(err.class().is(vm.ctx.exceptions.value_error));
+            });
+        }
     }
 }

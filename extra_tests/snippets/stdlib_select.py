@@ -83,6 +83,25 @@ a.close()
 b.close()
 
 
+# Windows supports up to 512 entries, above the Windows SDK default of 64.
+for count in (65, 512) if sys.platform == "win32" else (65,):
+    pairs = []
+    try:
+        for _ in range(count):
+            pairs.append(socket.socketpair())
+        readers = [reader for reader, writer in pairs]
+        assert select.select(readers, [], [], 0) == ([], [], [])
+        for reader, writer in pairs:
+            writer.send(b"x")
+        assert select.select(readers, [], [], 0) == (readers, [], [])
+        if sys.platform == "win32":
+            assert_raises(ValueError, select.select, [readers[0]] * 513, [], [], 0)
+    finally:
+        for pair in pairs:
+            for sock in pair:
+                sock.close()
+
+
 # fileno() runs while the sequence is being read, and it can mutate the very
 # list it was handed.
 mutable_pair, other_end = socket.socketpair()
@@ -148,3 +167,35 @@ if hasattr(select, "poll") and hasattr(signal, "setitimer"):
     assert handled == [signal.SIGALRM], handled
     idle.close()
     idle_peer.close()
+
+
+# fileno is an ordinary attribute, not a special method.
+class InstanceFileno:
+    pass
+
+
+class DynamicFileno:
+    def __getattr__(self, name):
+        if name == "fileno":
+            return lookup_reader.fileno
+        raise AttributeError(name)
+
+
+class IndexOnly:
+    def __index__(self):
+        return lookup_reader.fileno()
+
+
+lookup_reader, lookup_writer = socket.socketpair()
+try:
+    lookup_writer.send(b"x")
+    instance = InstanceFileno()
+    instance.fileno = lookup_reader.fileno
+    for obj in (instance, DynamicFileno()):
+        assert select.select([obj], [], [], 0) == ([obj], [], [])
+    assert_raises(TypeError, select.select, [IndexOnly()], [], [], 0)
+    instance.fileno = IndexOnly
+    assert_raises(TypeError, select.select, [instance], [], [], 0)
+finally:
+    lookup_reader.close()
+    lookup_writer.close()

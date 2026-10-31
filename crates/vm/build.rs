@@ -3,12 +3,9 @@
     reason = "build scripts cannot use rustpython-host_env"
 )]
 
-use itertools::Itertools;
 use jiff::{Timestamp, Zoned, tz::TimeZone};
 use std::{
-    env,
-    io::{self, prelude::*},
-    path::PathBuf,
+    env, io,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -24,9 +21,10 @@ fn main() {
         println!("cargo:rerun-if-changed={display}");
     }
     println!("cargo:rerun-if-changed=../../Lib/importlib/_bootstrap.py");
+    println!("cargo:rerun-if-changed=../../Lib/zipimport.py");
 
-    // = 3.14.0alpha
-    python_version(3, 14, 0, "alpha", 0);
+    // = 3.15.0alpha
+    python_version(3, 15, 0, "alpha", 0);
 
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());
     println!(
@@ -53,16 +51,6 @@ fn main() {
         "cargo:rustc-env=RUSTPYTHON_TARGET_TRIPLE={}",
         env::var("TARGET").unwrap()
     );
-
-    let mut env_path = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    env_path.push("env_vars.rs");
-    let mut f = std::fs::File::create(env_path).unwrap();
-    write!(
-        f,
-        "sysvars! {{ {} }}",
-        std::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{k:?} => {v:?}")))
-    )
-    .unwrap();
 }
 
 fn git_hash() -> String {
@@ -175,14 +163,16 @@ fn get_version(cpy_version: &str) -> (String, String) {
     // Windows: include MSC v. for compatibility with ctypes.util.find_library
     // MSC v.1929 = VS 2019, version 14+ makes find_msvcrt() return None
     let msc_info = cfg_select! {
-        windows => {{
-            // Include both RustPython identifier and MSC v. for compatibility
-            if cfg!(target_pointer_width = "64") {
-                " MSC v.1929 64 bit (AMD64)"
-            } else {
-                " MSC v.1929 32 bit (Intel)"
+        windows => {
+            {
+                // Include both RustPython identifier and MSC v. for compatibility
+                if cfg!(target_pointer_width = "64") {
+                    " MSC v.1929 64 bit (AMD64)"
+                } else {
+                    " MSC v.1929 32 bit (Intel)"
+                }
             }
-        }},
+        }
         _ => "",
     };
 

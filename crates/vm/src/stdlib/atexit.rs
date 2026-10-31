@@ -3,9 +3,7 @@ pub(crate) use atexit::module_def;
 
 #[pymodule]
 mod atexit {
-    use crate::{
-        AsObject, PyObjectRef, PyResult, VirtualMachine, common::rc::PyRc, function::FuncArgs,
-    };
+    use crate::{PyObjectRef, PyResult, VirtualMachine, common::rc::PyRc, function::FuncArgs};
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
@@ -19,7 +17,11 @@ mod atexit {
 
     #[pyfunction]
     fn _clear(vm: &VirtualMachine) {
-        vm.state.atexit_funcs.lock().clear();
+        let funcs = core::mem::take(&mut *vm.state.atexit_funcs.lock());
+        // Like clearing the callback list, release entries backwards and unlocked.
+        for entry in funcs.into_iter().rev() {
+            drop(entry);
+        }
     }
 
     #[pyfunction]
@@ -71,22 +73,24 @@ mod atexit {
 
     #[pyfunction]
     pub fn _run_exitfuncs(vm: &VirtualMachine) {
-        let funcs: Vec<_> = core::mem::take(&mut *vm.state.atexit_funcs.lock());
+        let funcs = vm.state.atexit_funcs.lock().clone();
         // Callbacks stored in LIFO order, iterate forward
-        for entry in funcs {
-            let (func, args) = PyRc::try_unwrap(entry).unwrap_or_else(|e| (*e).clone());
-            if let Err(e) = func.call(args, vm) {
-                let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
+        for entry in &funcs {
+            let (func, args) = &**entry;
+            if let Err(e) = func.call(args.clone(), vm) {
                 let msg = func
                     .repr(vm)
                     .ok()
                     .map(|r| format!("Exception ignored in atexit callback {}", r.as_wtf8()));
                 vm.run_unraisable(e, msg, vm.ctx.none());
-                if exit {
-                    break;
-                }
             }
         }
+        // Keep the whole snapshot alive through every callback, then release it
+        // before clearing the live registry, as atexit_callfuncs does.
+        for entry in funcs.into_iter().rev() {
+            drop(entry);
+        }
+        _clear(vm);
     }
 
     #[pyfunction]

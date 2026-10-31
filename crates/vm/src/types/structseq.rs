@@ -1,15 +1,17 @@
 use crate::common::lock::LazyLock;
-use crate::common::wtf8::Wtf8;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
-    class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    class::{PyClassImpl, StaticType, class_attr_item_doc},
+    function::{
+        Either, FuncArgs, KwArgs, NameChanges, OptionalArg, PyComparisonValue, PyMethodDef,
+        PyMethodFlags,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
-    sliceable::{SequenceIndex, SliceableSequenceOp},
+    sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::PyComparisonOp,
     vm::Context,
 };
@@ -17,18 +19,29 @@ use crate::{
 const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     "__reduce__",
     |zelf: PyRef<PyTuple>, vm: &VirtualMachine| -> PyTupleRef {
-        vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
+        vm.new_tuple((
+            zelf.class().to_owned(),
+            (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
+        ))
     },
     PyMethodFlags::METHOD,
-    None,
+    crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
 );
+
+/// Text signature `(iterable=(), /)` shared by every struct sequence.
+pub const STRUCT_SEQUENCE_PARAMS: Option<&'static [crate::function::Param]> =
+    Some(&[crate::function::Param {
+        name: "iterable",
+        kind: crate::function::ParamKind::PositionalOnly,
+        default: Some(crate::function::DefaultRepr::Raw("()")),
+    }]);
 
 /// The arguments every struct sequence constructor takes.
 #[derive(FromArgs)]
 pub struct StructSequenceNewArgs {
     #[pyarg(any)]
     pub sequence: PyObjectRef,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, py_default = "{}")]
     pub dict: OptionalArg<PyObjectRef>,
 }
 
@@ -147,7 +160,7 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             // Convert to visible-only tuple, then use regular tuple concat
             let n_seq = get_visible_len(seq.obj, vm)?;
             let tuple = seq.obj.downcast_ref::<PyTuple>().unwrap();
-            let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+            let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
             let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
             // Use tuple's concat implementation
             visible_tuple
@@ -159,7 +172,7 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             // Convert to visible-only tuple, then use regular tuple repeat
             let n_seq = get_visible_len(seq.obj, vm)?;
             let tuple = seq.obj.downcast_ref::<PyTuple>().unwrap();
-            let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+            let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
             let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
             // Use tuple's repeat implementation
             visible_tuple.as_object().sequence_unchecked().repeat(n, vm)
@@ -179,12 +192,12 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             if idx >= n_seq {
                 return Err(vm.new_index_error("tuple index out of range"));
             }
-            Ok(tuple[idx].clone())
+            Ok(tuple.as_slice()[idx].clone())
         }),
         contains: atomic_func!(|seq, needle, vm| {
             let n_seq = get_visible_len(seq.obj, vm)?;
             let tuple = seq.obj.downcast_ref::<PyTuple>().unwrap();
-            for item in tuple.iter().take(n_seq) {
+            for item in tuple.as_slice().iter().take(n_seq) {
                 if item.rich_compare_bool(needle, PyComparisonOp::Eq, vm)? {
                     return Ok(true);
                 }
@@ -204,7 +217,7 @@ static STRUCT_SEQUENCE_AS_MAPPING: LazyLock<PyMappingMethods> =
             let tuple = mapping.obj.downcast_ref::<PyTuple>().unwrap();
             let visible_elements = &tuple.as_slice()[..n_seq];
 
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "tuple")? {
+            match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, needle)? {
                 SequenceIndex::Int(i) => visible_elements.getitem_by_index(vm, i),
                 SequenceIndex::Slice(slice) => visible_elements
                     .getitem_by_slice(vm, slice)
@@ -250,7 +263,12 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        struct_sequence_new(cls, args.bind(vm)?, Self::Data::OPTIONAL_FIELD_NAMES, vm)
+        struct_sequence_new(
+            cls,
+            args.bind_for(vm, Self::NAME)?,
+            Self::Data::OPTIONAL_FIELD_NAMES,
+            vm,
+        )
     }
 
     /// Convert a Data struct into a PyStructSequence instance.
@@ -277,6 +295,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         let (body, suffix) =
             if let Some(_guard) = rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_ref()) {
                 let fields: PyResult<Vec<_>> = zelf
+                    .as_slice()
                     .iter()
                     .map(|value| value.as_ref())
                     .zip(field_names.iter().copied())
@@ -304,12 +323,13 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         Ok(vm.ctx.new_str(repr_str))
     }
 
+    // Return a copy of the structure with new values for the specified fields.
     #[pymethod]
-    fn __replace__(zelf: PyRef<PyTuple>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
-        }
-
+    fn __replace__(
+        zelf: PyRef<PyTuple>,
+        changes: KwArgs<PyObjectRef, NameChanges>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         if Self::Data::UNNAMED_FIELDS_LEN > 0 {
             return Err(vm.new_type_error(format!(
                 "__replace__() is not supported for {} because it has unnamed field(s)",
@@ -321,7 +341,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::OPTIONAL_FIELD_NAMES.len();
         let mut items: Vec<PyObjectRef> = zelf.as_slice()[..n_fields].to_vec();
 
-        let mut kwargs = args.kwargs;
+        let mut kwargs = changes;
 
         // Replace fields from kwargs
         let all_field_names: Vec<&str> = Self::Data::REQUIRED_FIELD_NAMES
@@ -335,10 +355,15 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             }
         }
 
-        // Check for unexpected keyword arguments
         if !kwargs.is_empty() {
-            let names: Vec<&Wtf8> = kwargs.keys().map(|k| k.as_ref()).collect();
-            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names:?}")));
+            let names = vm.ctx.new_list(
+                kwargs
+                    .keys()
+                    .map(|k| vm.ctx.new_str(k.to_owned()).into())
+                    .collect(),
+            );
+            let names_repr = names.as_object().repr(vm)?;
+            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names_repr}")));
         }
 
         PyTuple::new_unchecked(items.into_boxed_slice())
@@ -351,7 +376,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         let n_seq = get_visible_len(zelf.as_ref(), vm)?;
         let visible_elements = &zelf.as_slice()[..n_seq];
 
-        match SequenceIndex::try_from_borrowed_object(vm, &needle, "tuple")? {
+        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, &needle)? {
             SequenceIndex::Int(i) => visible_elements.getitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => visible_elements
                 .getitem_by_slice(vm, slice)
@@ -363,27 +388,24 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
         // Getters for named visible fields (indices 0 to REQUIRED_FIELD_NAMES.len() - 1)
         for (i, &name) in Self::Data::REQUIRED_FIELD_NAMES.iter().enumerate() {
-            // cast i to a u8 so there's less to store in the getter closure.
-            // Hopefully there's not struct sequences with >=256 elements :P
-            let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
-                    zelf[i as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, i, class_attr_item_doc::<Self>(name))
+                    .into(),
             );
         }
 
         // Getters for hidden/skipped fields (indices after visible fields)
         let visible_count = Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::UNNAMED_FIELDS_LEN;
         for (i, &name) in Self::Data::OPTIONAL_FIELD_NAMES.iter().enumerate() {
-            let idx = (visible_count + i) as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
-                    zelf[idx as usize].to_owned()
-                })
+                ctx.new_readonly_tuple_member(
+                    name,
+                    class,
+                    visible_count + i,
+                    class_attr_item_doc::<Self>(name),
+                )
                 .into(),
             );
         }
@@ -441,11 +463,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         // Default __reduce__: only set if not already overridden by the impl's extend_class.
         // This allows struct sequences like sched_param to provide a custom __reduce__
         // (equivalent to METH_COEXIST in structseq.c).
-        if !class
-            .attributes
-            .read()
-            .contains_key(ctx.intern_str("__reduce__"))
-        {
+        if !class.attributes.contains(ctx.intern_str("__reduce__")) {
             class.set_attr(
                 ctx.intern_str("__reduce__"),
                 DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),
@@ -460,7 +478,7 @@ fn struct_sequence_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         .downcast_ref::<PyTuple>()
         .ok_or_else(|| vm.new_type_error("expected tuple"))?;
     let n_seq = get_visible_len(&zelf, vm)?;
-    let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+    let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
     let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
     visible_tuple
         .as_object()
@@ -479,7 +497,7 @@ fn struct_sequence_hash(
         .ok_or_else(|| vm.new_type_error("expected tuple"))?;
     let n_seq = get_visible_len(zelf, vm)?;
     // Create a visible-only tuple and hash it
-    let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+    let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
     let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
     visible_tuple.as_object().hash(vm)
 }
@@ -502,7 +520,7 @@ fn struct_sequence_richcompare(
 
     let zelf_len = get_visible_len(zelf, vm)?;
     // For other, try to get visible len; if it fails (not a struct sequence), use full length
-    let other_len = get_visible_len(other, vm).unwrap_or(other_tuple.len());
+    let other_len = get_visible_len(other, vm).unwrap_or(other_tuple.as_slice().len());
 
     let zelf_visible = &zelf_tuple.as_slice()[..zelf_len];
     let other_visible = &other_tuple.as_slice()[..other_len];
@@ -510,6 +528,7 @@ fn struct_sequence_richcompare(
     // Use the same comparison logic as regular tuples
     zelf_visible
         .iter()
-        .richcompare(other_visible.iter(), op, vm)
+        .map(|o| &**o)
+        .richcompare(other_visible.iter().map(|o| &**o), op, vm)
         .map(|v| Either::B(PyComparisonValue::Implemented(v)))
 }

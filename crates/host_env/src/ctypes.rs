@@ -221,6 +221,36 @@ const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 )))]
 const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 
+/// Return the loader's current shared-object names, including its empty main entry.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn dllist() -> Vec<std::ffi::OsString> {
+    use std::os::unix::ffi::OsStringExt;
+
+    unsafe extern "C" fn collect(
+        info: *mut libc::dl_phdr_info,
+        _size: libc::size_t,
+        data: *mut c_void,
+    ) -> c_int {
+        // dl_iterate_phdr supplies a valid record and calls synchronously while
+        // the loader keeps the object and its NUL-terminated name alive.
+        let name = unsafe { (*info).dlpi_name };
+        let names = unsafe { &mut *data.cast::<Vec<std::ffi::OsString>>() };
+        if !name.is_null() {
+            let bytes = unsafe { CStr::from_ptr(name) }.to_bytes().to_vec();
+            names.push(std::ffi::OsString::from_vec(bytes));
+        }
+        0
+    }
+
+    let mut names = Vec::new();
+    // The callback only copies loader-owned bytes into this live, exclusive
+    // vector. It never invokes Python or mutates the loader's object list.
+    unsafe {
+        libc::dl_iterate_phdr(Some(collect), core::ptr::from_mut(&mut names).cast());
+    }
+    names
+}
+
 pub fn simple_type_size(ty: &str) -> Option<usize> {
     match ty {
         "c" | "b" => Some(core::mem::size_of::<c_schar>()),
@@ -367,10 +397,26 @@ impl RawMemoryView {
     }
 }
 
-// These match the current RustPython _ctypes surface exactly.
+#[cfg(unix)]
+pub use libc::{RTLD_GLOBAL, RTLD_LOCAL};
+
+#[cfg(not(unix))]
 pub const RTLD_LOCAL: i32 = 0;
+#[cfg(not(unix))]
 pub const RTLD_GLOBAL: i32 = 0;
 pub const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
+
+/// `_ctypes` call flags (`_flags_` on a function pointer).
+pub const FUNCFLAG_STDCALL: u32 = 0x0;
+pub const FUNCFLAG_CDECL: u32 = 0x1;
+pub const FUNCFLAG_HRESULT: u32 = 0x2;
+pub const FUNCFLAG_PYTHONAPI: u32 = 0x4;
+pub const FUNCFLAG_USE_ERRNO: u32 = 0x8;
+pub const FUNCFLAG_USE_LASTERROR: u32 = 0x10;
+pub const TYPEFLAG_ISPOINTER: u32 = 0x100;
+pub const TYPEFLAG_HASPOINTER: u32 = 0x200;
+pub const DICTFLAG_FINAL: u32 = 0x1000;
+pub const CTYPES_MAX_ARGCOUNT: usize = 1024;
 
 #[cfg(all(unix, not(target_os = "wasi")))]
 pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
@@ -1067,7 +1113,7 @@ pub fn simple_storage_value_to_bytes_endian(
             }
             _ => vec![0; 2],
         },
-        "P" | "z" | "Z" => match value {
+        "P" | "z" | "Z" | "X" => match value {
             SimpleStorageValue::Pointer(value) => {
                 uint_to_sized_bytes_endian(value as u64, pointer_size(), swapped)
             }
@@ -1814,6 +1860,12 @@ impl<U: 'static> CallbackThunk<U> {
         }
     }
 
+    /// Borrow the userdata owned by this callback closure.
+    pub fn userdata(&self) -> &U {
+        // SAFETY: new stores Box::into_raw here; Drop owns its only reclamation.
+        unsafe { &*self.userdata_ptr }
+    }
+
     pub fn code_ptr(&self) -> CodePtr {
         self.code_ptr
     }
@@ -1995,7 +2047,7 @@ pub enum CallRet<'a> {
     Aggregate(&'a CTypeLayout),
 }
 
-/// Per-call error-swapping options.
+/// Per-call ABI and error-swapping options.
 #[cfg(all(
     any(
         target_os = "linux",
@@ -2007,6 +2059,10 @@ pub enum CallRet<'a> {
 ))]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallOptions {
+    /// Declared argument count for a variadic call. Values must already have
+    /// their promoted C types; libffi rejects explicit narrow ctypes values.
+    /// `None` uses a fixed-arity CIF.
+    pub fixed_arg_count: Option<usize>,
     /// Swap the ctypes-local errno around the raw call (unix; ignored on windows).
     pub use_errno: bool,
     /// Swap the ctypes-local last error around the raw call (windows; ignored
@@ -2050,6 +2106,9 @@ pub enum CallValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallError {
     NullFunctionPointer,
+    InvalidCallInterface {
+        variadic: bool,
+    },
     UnknownTypeCode(String),
     /// An aggregate argument's buffer was shorter than its layout size.
     BufferTooSmall {
@@ -2140,7 +2199,13 @@ pub fn call(
         })
         .collect();
 
-    let cif = Cif::new(ffi_arg_types, ffi_return_type);
+    let cif = match options.fixed_arg_count {
+        Some(fixed) => Cif::try_new_variadic(ffi_arg_types, fixed, ffi_return_type),
+        None => Cif::try_new(ffi_arg_types, ffi_return_type),
+    }
+    .map_err(|_| CallError::InvalidCallInterface {
+        variadic: options.fixed_arg_count.is_some(),
+    })?;
 
     // Allocate the aggregate return buffer outside the error-swap window so no
     // allocation runs between the raw call and the errno/last-error capture.
@@ -2749,6 +2814,78 @@ pub fn open_library(name: impl AsRef<OsStr>) -> Result<usize, libloading::Error>
     libcache().write().open_library(name)
 }
 
+/// `LoadLibraryExW` — the raw module handle `_ctypes.LoadLibrary` stores.
+#[cfg(windows)]
+pub fn load_library_ex_w(
+    name: &widestring::WideCStr,
+    flags: u32,
+) -> std::io::Result<windows_sys::Win32::Foundation::HMODULE> {
+    let module = unsafe {
+        windows_sys::Win32::System::LibraryLoader::LoadLibraryExW(
+            name.as_ptr(),
+            core::ptr::null_mut(),
+            flags,
+        )
+    };
+    if module.is_null() {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(module)
+    }
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn get_proc_address(
+    module: windows_sys::Win32::Foundation::HMODULE,
+    name: &CStr,
+) -> Option<usize> {
+    unsafe {
+        windows_sys::Win32::System::LibraryLoader::GetProcAddress(module, name.as_ptr().cast())
+    }
+    .map(|addr| addr as usize)
+    .filter(|&addr| addr != 0)
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn free_library(module: windows_sys::Win32::Foundation::HMODULE) -> std::io::Result<()> {
+    if unsafe { windows_sys::Win32::Foundation::FreeLibrary(module) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+pub use crate::windows::{co_task_mem_free, sys_alloc_string_len, sys_free_string, sys_string_len};
+
+/// `GetErrorInfo(0)`. `None` when the thread has no error object (`S_FALSE`).
+#[cfg(windows)]
+pub fn get_error_info() -> Option<*mut core::ffi::c_void> {
+    let mut pei = core::ptr::null_mut();
+    if unsafe { windows_sys::Win32::System::Com::GetErrorInfo(0, &mut pei) } != 0 {
+        None
+    } else {
+        Some(pei.cast())
+    }
+}
+
+/// `ProgIDFromCLSID`. The returned pointer is `CoTaskMemFree`'d by the caller.
+#[cfg(windows)]
+pub fn prog_id_from_clsid(guid: &[u8; 16]) -> Option<*mut u16> {
+    let mut progid = core::ptr::null_mut();
+    if unsafe {
+        windows_sys::Win32::System::Com::ProgIDFromCLSID(guid.as_ptr().cast(), &mut progid)
+    } != 0
+        || progid.is_null()
+    {
+        None
+    } else {
+        Some(progid)
+    }
+}
+
 #[cfg(unix)]
 pub fn open_library_with_mode(
     name: impl AsRef<OsStr>,
@@ -2789,10 +2926,16 @@ pub fn lookup_data_symbol_addr(
     symbol_name: &[u8],
 ) -> Result<usize, LookupSymbolError> {
     let cache = libcache().read();
-    cache
-        .get_lib(handle)
-        .ok_or(LookupSymbolError::LibraryNotFound)?
-        .lookup_data_symbol_addr(symbol_name)
+    if let Some(lib) = cache.get_lib(handle) {
+        return lib.lookup_data_symbol_addr(symbol_name);
+    }
+    #[cfg(windows)]
+    {
+        drop(cache);
+        lookup_raw_windows_symbol(handle, symbol_name)
+    }
+    #[cfg(not(windows))]
+    Err(LookupSymbolError::LibraryNotFound)
 }
 
 #[cfg(any(unix, windows))]
@@ -2801,10 +2944,47 @@ pub fn lookup_function_symbol_addr(
     symbol_name: &[u8],
 ) -> Result<usize, LookupSymbolError> {
     let cache = libcache().read();
-    cache
-        .get_lib(handle)
-        .ok_or(LookupSymbolError::LibraryNotFound)?
-        .lookup_function_symbol_addr(symbol_name)
+    if let Some(lib) = cache.get_lib(handle) {
+        return lib.lookup_function_symbol_addr(symbol_name);
+    }
+    #[cfg(windows)]
+    {
+        drop(cache);
+        lookup_raw_windows_symbol(handle, symbol_name)
+    }
+    #[cfg(not(windows))]
+    Err(LookupSymbolError::LibraryNotFound)
+}
+
+#[cfg(windows)]
+fn lookup_raw_windows_symbol(
+    handle: usize,
+    symbol_name: &[u8],
+) -> Result<usize, LookupSymbolError> {
+    let owned;
+    let name = if let Ok(name) = CStr::from_bytes_with_nul(symbol_name) {
+        name
+    } else {
+        owned = alloc::ffi::CString::new(symbol_name)
+            .map_err(|err| LookupSymbolError::Load(err.to_string()))?;
+        owned.as_c_str()
+    };
+    match get_proc_address(handle as _, name) {
+        Some(addr) => Ok(addr),
+        None => {
+            // A valid LoadLibraryExW handle with no such export is a missing
+            // symbol, not a missing library. GetProcAddress sets
+            // ERROR_PROC_NOT_FOUND (127); invalid/unloaded modules typically
+            // set ERROR_INVALID_HANDLE (6) or ERROR_MOD_NOT_FOUND (126).
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(6 | 126) => Err(LookupSymbolError::LibraryNotFound),
+                _ => Err(LookupSymbolError::Load(format!(
+                    "function '{}' not found",
+                    name.to_string_lossy()
+                ))),
+            }
+        }
+    }
 }
 
 #[cfg(all(unix, not(target_os = "wasi")))]
@@ -2862,6 +3042,20 @@ pub fn dlsym_checked(_handle: usize, symbol_name: &CStr) -> Result<*mut c_void, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bstr_storage_preserves_pointer_width() {
+        for address in [0, usize::MAX] {
+            assert_eq!(
+                simple_storage_value_to_bytes_endian(
+                    "X",
+                    SimpleStorageValue::Pointer(address),
+                    false,
+                ),
+                address.to_ne_bytes(),
+            );
+        }
+    }
 
     #[test]
     fn simple_type_is_pointer_classifies_codes() {
@@ -3528,6 +3722,7 @@ mod tests {
                 CallOptions {
                     use_errno: true,
                     use_last_error: false,
+                    ..CallOptions::default()
                 },
             )
             .unwrap();

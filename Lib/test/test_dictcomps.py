@@ -75,7 +75,6 @@ class DictComprehensionTest(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertEqual(v, "Local variable")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_illegal_assignment(self):
         with self.assertRaisesRegex(SyntaxError, "cannot assign"):
             compile("{x: y for y, x in ((1, 2), (3, 4))} = 5", "<test>",
@@ -133,7 +132,7 @@ class DictComprehensionTest(unittest.TestCase):
 
     def test_exception_locations(self):
         # The location of an exception raised from __init__ or
-        # __next__ should should be the iterator expression
+        # __next__ should be the iterator expression
         def init_raises():
             try:
                 {x:x for x in BrokenIter(init_raises=True)}

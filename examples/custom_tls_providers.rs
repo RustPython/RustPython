@@ -5,7 +5,6 @@
 use std::env;
 
 use rustls::crypto::ring;
-use rustpython_pylib::FROZEN_STDLIB;
 use rustpython_stdlib::{ssl::providers::CryptoExt, stdlib_module_defs};
 use rustpython_vm::Interpreter;
 
@@ -30,6 +29,7 @@ fn main() {
         "ring" => {
             let ext = CryptoExt {
                 all_cipher_suites: Some(ring::ALL_CIPHER_SUITES),
+                default_cipher_suites: Some(ring::DEFAULT_CIPHER_SUITES),
                 all_kx_groups: Some(ring::ALL_KX_GROUPS),
                 any_supported_key: Some(ring::sign::any_supported_type),
                 ticketer: ring::Ticketer::new,
@@ -40,6 +40,7 @@ fn main() {
         "graviola" => {
             let ext = CryptoExt {
                 all_cipher_suites: Some(rustls_graviola::suites::ALL_CIPHER_SUITES),
+                default_cipher_suites: None,
                 all_kx_groups: Some(rustls_graviola::kx::ALL_KX_GROUPS),
                 any_supported_key: None,
                 ticketer: rustls_graviola::Ticketer::new,
@@ -54,7 +55,11 @@ fn main() {
     let defs = stdlib_module_defs(&builder.ctx);
     let result = builder
         .add_native_modules(&defs)
-        .add_frozen_modules(FROZEN_STDLIB)
+        .add_frozen_modules_with_resources(
+            rustpython_pylib::FROZEN_STDLIB,
+            rustpython_pylib::FROZEN_STDLIB_RESOURCES,
+        )
+        .expect("validated embedded standard-library resources")
         .build()
         .run(|vm| {
             let scope = vm.new_scope_with_builtins();

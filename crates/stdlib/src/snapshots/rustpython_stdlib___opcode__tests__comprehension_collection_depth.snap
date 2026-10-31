@@ -1,0 +1,110 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(xs, ys):\n    return [x for x in xs for y in ys]\n\nasync def g(xs, ys):\n    return [x async for x in xs for y in ys]\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:38            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:38            MAKE_FUNCTION
+1:0-2:38            STORE_NAME               0 (f)
+
+4:0-5:44            LOAD_CONST               1 (<code object g at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:44            MAKE_FUNCTION
+4:0-5:44            STORE_NAME               1 (g)
+4:0-5:44            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:44            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:23-2:25            LOAD_FAST                0 (xs)
+2:11-2:38            LOAD_FAST_AND_CLEAR      2 (x)
+2:11-2:38            LOAD_FAST_AND_CLEAR      3 (y)
+2:11-2:38            SWAP                     3
+2:11-2:38    L1:     BUILD_LIST               0
+2:11-2:38            SWAP                     2
+2:23-2:25            GET_ITER                 0
+2:23-2:25    L2:     FOR_ITER                13 (to L5)
+2:18-2:19            STORE_FAST_LOAD_FAST    33 (x, ys)
+2:35-2:37            GET_ITER                 0
+2:35-2:37    L3:     FOR_ITER                 4 (to L4)
+2:30-2:31            STORE_FAST_LOAD_FAST    50 (y, x)
+2:12-2:13            LIST_APPEND              5
+2:12-2:13            JUMP_BACKWARD            6 (to L3)
+2:35-2:37    L4:     END_FOR
+2:35-2:37            POP_ITER
+2:12-2:13            JUMP_BACKWARD           15 (to L2)
+2:23-2:25    L5:     END_FOR
+2:23-2:25            POP_ITER
+2:11-2:38    L6:     SWAP                     3
+2:11-2:38            STORE_FAST               3 (y)
+2:11-2:38            STORE_FAST               2 (x)
+2:4-2:38             RETURN_VALUE
+
+  --         L7:     SWAP                     2
+  --                 POP_TOP
+
+2:11-2:38            SWAP                     3
+2:11-2:38            STORE_FAST               3 (y)
+2:11-2:38            STORE_FAST               2 (x)
+2:11-2:38            RERAISE                  0
+ExceptionTable:
+  L1 to L6 -> L7 [3]
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 4>:
+4:?-4:?               RETURN_GENERATOR
+4:?-4:?               POP_TOP
+4:0-4:0       L1:     RESUME                   0
+
+5:29-5:31             LOAD_FAST_BORROW         0 (xs)
+5:11-5:44             LOAD_FAST_AND_CLEAR      2 (x)
+5:11-5:44             LOAD_FAST_AND_CLEAR      3 (y)
+5:11-5:44             SWAP                     3
+5:11-5:44     L2:     BUILD_LIST               0
+5:11-5:44             SWAP                     2
+5:29-5:31             GET_AITER
+5:11-5:44     L3:     GET_ANEXT
+5:11-5:44             PUSH_NULL
+5:11-5:44             LOAD_COMMON_CONSTANT     7 (None)
+5:11-5:44     L4:     SEND                     4 (to L7)
+5:11-5:44     L5:     YIELD_VALUE              1
+5:11-5:44     L6:     RESUME                   3
+5:11-5:44             JUMP_BACKWARD_NO_INTERRUPT 6 (to L4)
+5:11-5:44     L7:     END_SEND
+5:24-5:25     L8:     STORE_FAST_LOAD_FAST    33 (x, ys)
+5:41-5:43             GET_ITER                 0
+5:41-5:43     L9:     FOR_ITER                 4 (to L10)
+5:36-5:37             STORE_FAST_LOAD_FAST    50 (y, x)
+5:12-5:13             LIST_APPEND              4
+5:12-5:13             JUMP_BACKWARD            6 (to L9)
+5:41-5:43    L10:     END_FOR
+5:41-5:43             POP_ITER
+5:12-5:13             JUMP_BACKWARD           23 (to L3)
+5:11-5:44    L11:     CLEANUP_THROW
+5:11-5:44    L12:     JUMP_BACKWARD_NO_INTERRUPT 16 (to L7)
+5:11-5:44    L13:     END_ASYNC_FOR           17 (from L7)
+5:11-5:44    L14:     SWAP                     3
+5:11-5:44             STORE_FAST               3 (y)
+5:11-5:44             STORE_FAST               2 (x)
+5:4-5:44              RETURN_VALUE
+
+  --         L15:     SWAP                     2
+  --                  POP_TOP
+
+5:11-5:44             SWAP                     3
+5:11-5:44             STORE_FAST               3 (y)
+5:11-5:44             STORE_FAST               2 (x)
+5:11-5:44             RERAISE                  0
+
+  --         L16:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L16 [0] lasti
+  L2 to L3 -> L15 [3]
+  L3 to L5 -> L13 [4]
+  L5 to L6 -> L11 [7]
+  L6 to L8 -> L13 [4]
+  L8 to L11 -> L15 [3]
+  L11 to L12 -> L13 [4]
+  L13 to L14 -> L15 [3]
+  L14 to L16 -> L16 [0] lasti

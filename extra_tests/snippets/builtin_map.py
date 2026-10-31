@@ -32,3 +32,16 @@ def mapping(x):
 
 
 assert list(map(mapping, [1, 2, 0, 4, 5])) == [1, 2]
+
+
+# map does not report a length hint, so a chain of them is not walked to
+# answer for one.
+import operator
+
+assert not hasattr(map(lambda x: x, [1, 2, 3]), "__length_hint__")
+assert operator.length_hint(map(lambda x: x, [1, 2, 3])) == 0
+
+it = iter([1, 2, 3])
+for _ in range(10000):
+    it = map(lambda x: x, it)
+assert operator.length_hint(it) == 0

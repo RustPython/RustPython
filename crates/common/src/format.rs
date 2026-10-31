@@ -1,7 +1,6 @@
 // spell-checker:ignore ddfe DTSF
 use core::ops::Deref;
 use core::{cmp, str::FromStr};
-use itertools::{Itertools, PeekingNext};
 use malachite_base::num::basic::floats::PrimitiveFloat;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
@@ -37,19 +36,6 @@ pub enum FormatConversion {
     Str = b's',
     Repr = b'r',
     Ascii = b'b',
-    Bytes = b'a',
-}
-
-impl FormatParse for FormatConversion {
-    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
-        let Some(conversion) = Self::from_string(text) else {
-            return (None, text);
-        };
-        let mut chars = text.code_points();
-        chars.next(); // Consume the bang
-        chars.next(); // Consume one r,s,a char
-        (Some(conversion), chars.as_wtf8())
-    }
 }
 
 impl FormatConversion {
@@ -59,18 +45,8 @@ impl FormatConversion {
             's' => Some(Self::Str),
             'r' => Some(Self::Repr),
             'a' => Some(Self::Ascii),
-            'b' => Some(Self::Bytes),
             _ => None,
         }
-    }
-
-    fn from_string(text: &Wtf8) -> Option<Self> {
-        let mut chars = text.code_points();
-        if chars.next()? != '!' {
-            return None;
-        }
-
-        Self::from_char(chars.next()?)
     }
 }
 
@@ -224,7 +200,6 @@ impl FormatParse for FormatType {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatSpec {
-    conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
     align: Option<FormatAlign>,
     align_specified: bool,
@@ -353,8 +328,6 @@ impl FormatSpec {
     }
 
     fn _parse(text: &Wtf8) -> Result<Self, FormatSpecError> {
-        // get_integer in CPython
-        let (conversion, text) = FormatConversion::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
         let align_specified = align.is_some();
         let (sign, text) = FormatSign::parse(text);
@@ -383,7 +356,6 @@ impl FormatSpec {
         }
 
         Ok(Self {
-            conversion,
             fill,
             align,
             align_specified,
@@ -493,14 +465,18 @@ impl FormatSpec {
                 | FormatType::Binary
                 | FormatType::Octal
                 | FormatType::Hex(_)
-                | FormatType::Number(_),
+                | FormatType::Number(_)
+                | FormatType::Unknown(_),
             ) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnspecifiedFormat(',', ch))
             }
             (
                 Some(FormatGrouping::Underscore),
-                FormatType::String | FormatType::Character | FormatType::Number(_),
+                FormatType::String
+                | FormatType::Character
+                | FormatType::Number(_)
+                | FormatType::Unknown(_),
             ) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnspecifiedFormat('_', ch))
@@ -829,7 +805,37 @@ impl FormatSpec {
         Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
+    /// Whether the spec carries nothing at all, which is what `format(value, "")`
+    /// parses to. Written as a destructure so a new field cannot be forgotten here.
+    fn is_empty(&self) -> bool {
+        let Self {
+            fill,
+            align,
+            align_specified,
+            sign,
+            no_neg_0,
+            alternate_form,
+            width,
+            grouping_option,
+            precision,
+            frac_grouping_option,
+            format_type,
+        } = self;
+        fill.is_none()
+            && align.is_none()
+            && !align_specified
+            && sign.is_none()
+            && !no_neg_0
+            && !alternate_form
+            && width.is_none()
+            && grouping_option.is_none()
+            && precision.is_none()
+            && frac_grouping_option.is_none()
+            && format_type.is_none()
+    }
+
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
+        self.validate_format(FormatType::Decimal)?;
         let x = u8::from(input);
         match &self.format_type {
             Some(
@@ -844,13 +850,11 @@ impl FormatSpec {
             Some(FormatType::Exponent(_) | FormatType::FixedPoint(_) | FormatType::Percentage) => {
                 self.format_float(x as f64)
             }
-            None => {
-                if self.no_neg_0 {
-                    return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
-                }
-                let first_letter = (input.to_string().as_bytes()[0] as char).to_uppercase();
-                Ok(first_letter.collect::<String>() + &input.to_string()[1..])
-            }
+            // Only the empty spec spells the value out. Everything else without a
+            // presentation type, a width or an alignment included, formats `bool`
+            // the way it formats the `int` it is.
+            None if self.is_empty() => Ok(if input { "True" } else { "False" }.to_owned()),
+            None => self.format_int(&BigInt::from_u8(x).unwrap()),
             Some(format_type) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnknownFormatCode(ch, "bool"))
@@ -1034,11 +1038,16 @@ impl FormatSpec {
                     match (self.sign, self.alternate_form) {
                         (Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
                         (_, true) => Err(FormatSpecError::NotAllowed("Alternate form (#)")),
-                        _ => match num.to_u32() {
-                            Some(n) if n <= 0x10ffff => {
-                                Ok(core::char::from_u32(n).unwrap().to_string())
+                        _ => match num
+                            .to_i64()
+                            .filter(|code| core::ffi::c_long::try_from(*code).is_ok())
+                        {
+                            None => Err(FormatSpecError::IntTooLargeForCLong),
+                            Some(n @ 0..=0x10ffff) => {
+                                let ch = core::char::from_u32(n as u32).unwrap().to_string();
+                                return Ok(self.format_sign_and_align(&ch, "", FormatAlign::Right));
                             }
-                            Some(_) | None => Err(FormatSpecError::CodeNotInRange),
+                            Some(_) => Err(FormatSpecError::CodeNotInRange),
                         },
                     }
                 }
@@ -1083,8 +1092,18 @@ impl FormatSpec {
         self.validate_format(FormatType::String)?;
         match self.format_type {
             Some(FormatType::String) | None => {
+                // CPython rejects these four in this order: sign, z, #, then '='.
+                if let Some(sign) = self.sign {
+                    return Err(FormatSpecError::StringSpecNotAllowed(match sign {
+                        FormatSign::MinusOrSpace => "Space",
+                        FormatSign::Plus | FormatSign::Minus => "Sign",
+                    }));
+                }
                 if self.no_neg_0 {
                     return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("string"));
+                }
+                if self.alternate_form {
+                    return Err(FormatSpecError::StringSpecNotAllowed("Alternate form (#)"));
                 }
                 if self.align == Some(FormatAlign::AfterSign) && self.align_specified {
                     return Err(FormatSpecError::StringAlignmentFlag);
@@ -1163,6 +1182,17 @@ impl FormatSpec {
         self.validate_format(FormatType::FixedPoint(Case::Lower))?;
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
+        // A zero precision means one significant digit, and a part of a
+        // complex keeps no fraction of its own the way a bare float does.
+        let general = |case| {
+            float::format_general(
+                if precision == 0 { 1 } else { precision },
+                magnitude,
+                case,
+                self.alternate_form,
+                false,
+            )
+        };
         let magnitude_str = match &self.format_type {
             Some(
                 FormatType::Decimal
@@ -1184,16 +1214,7 @@ impl FormatSpec {
                 *case,
                 self.alternate_form,
             )),
-            Some(FormatType::GeneralFormat(case) | FormatType::Number(case)) => {
-                let precision = if precision == 0 { 1 } else { precision };
-                Ok(float::format_general(
-                    precision,
-                    magnitude,
-                    *case,
-                    self.alternate_form,
-                    false,
-                ))
-            }
+            Some(FormatType::GeneralFormat(case) | FormatType::Number(case)) => Ok(general(*case)),
             Some(FormatType::Exponent(case)) => Ok(float::format_exponent(
                 precision,
                 magnitude,
@@ -1203,22 +1224,9 @@ impl FormatSpec {
             None => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                _ => match self.precision {
-                    Some(precision) => Ok(float::format_general(
-                        precision,
-                        magnitude,
-                        Case::Lower,
-                        self.alternate_form,
-                        true,
-                    )),
-                    None => {
-                        if magnitude.fract() == 0.0 {
-                            Ok(magnitude.trunc().to_string())
-                        } else {
-                            Ok(magnitude.to_string())
-                        }
-                    }
-                },
+                _ if self.precision.is_some() => Ok(general(Case::Lower)),
+                magnitude if magnitude.fract() == 0.0 => Ok(magnitude.trunc().to_string()),
+                magnitude => Ok(magnitude.to_string()),
             },
         }?;
         let magnitude_str = match &self.grouping_option {
@@ -1330,10 +1338,12 @@ pub enum FormatSpecError {
     NotAllowed(&'static str),
     UnableToConvert,
     CodeNotInRange,
+    IntTooLargeForCLong,
     ZeroPadding,
     AlignmentFlag,
     NegativeZeroCoercionNotAllowed(&'static str),
     StringAlignmentFlag,
+    StringSpecNotAllowed(&'static str),
     NotImplemented(char, &'static str),
 }
 
@@ -1343,9 +1353,12 @@ pub enum FormatParseError {
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
     InvalidFormatSpecifier,
-    UnknownConversion,
+    MissingConversion,
+    MissingConversionColon,
+    UnexpectedStartBracket,
     EmptyAttribute,
     MissingRightBracket,
+    MissingRightSquareBracket,
     InvalidCharacterAfterRightBracket,
     TooManyDecimalDigits,
 }
@@ -1364,43 +1377,56 @@ pub enum FieldNamePart {
     StringIndex(Wtf8Buf),
 }
 
-impl FieldNamePart {
-    fn parse_part(
-        chars: &mut impl PeekingNext<Item = CodePoint>,
-    ) -> Result<Option<Self>, FormatParseError> {
-        chars
-            .next()
-            .map(|ch| match ch.to_char_lossy() {
-                '.' => {
-                    let mut attribute = Wtf8Buf::new();
-                    for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
-                        attribute.push(ch);
+/// Lazily parse field suffixes so each lookup can happen before the next parse.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FieldNameParts {
+    text: Wtf8Buf,
+    cursor: usize,
+}
+
+impl Iterator for FieldNameParts {
+    type Item = Result<FieldNamePart, FormatParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ch = self.text[self.cursor..].code_points().next()?;
+        self.cursor += ch.len_wtf8();
+        let start = self.cursor;
+        Some(match ch.to_char_lossy() {
+            '.' => {
+                while let Some(ch) = self.text[self.cursor..].code_points().next() {
+                    if ch == '.' || ch == '[' {
+                        break;
                     }
-                    if attribute.is_empty() {
-                        Err(FormatParseError::EmptyAttribute)
-                    } else {
-                        Ok(Self::Attribute(attribute))
+                    self.cursor += ch.len_wtf8();
+                }
+                if self.cursor == start {
+                    Err(FormatParseError::EmptyAttribute)
+                } else {
+                    Ok(FieldNamePart::Attribute(
+                        self.text[start..self.cursor].to_owned(),
+                    ))
+                }
+            }
+            '[' => {
+                while let Some(ch) = self.text[self.cursor..].code_points().next() {
+                    let end = self.cursor;
+                    self.cursor += ch.len_wtf8();
+                    if ch == ']' {
+                        let index = &self.text[start..end];
+                        return Some(if index.is_empty() {
+                            Err(FormatParseError::EmptyAttribute)
+                        } else {
+                            parse_field_index(index).map(|number| match number {
+                                Some(index) => FieldNamePart::Index(index),
+                                None => FieldNamePart::StringIndex(index.to_owned()),
+                            })
+                        });
                     }
                 }
-                '[' => {
-                    let mut index = Wtf8Buf::new();
-                    for ch in chars {
-                        if ch == ']' {
-                            return if index.is_empty() {
-                                Err(FormatParseError::EmptyAttribute)
-                            } else if let Some(index) = parse_usize(&index) {
-                                Ok(Self::Index(index))
-                            } else {
-                                Ok(Self::StringIndex(index))
-                            };
-                        }
-                        index.push(ch);
-                    }
-                    Err(FormatParseError::MissingRightBracket)
-                }
-                _ => Err(FormatParseError::InvalidCharacterAfterRightBracket),
-            })
-            .transpose()
+                Err(FormatParseError::MissingRightSquareBracket)
+            }
+            _ => Err(FormatParseError::InvalidCharacterAfterRightBracket),
+        })
     }
 }
 
@@ -1421,38 +1447,51 @@ fn parse_usize(s: &Wtf8) -> Option<usize> {
     s.as_str().ok().and_then(|s| s.parse().ok())
 }
 
-impl FieldName {
-    pub fn parse(text: &Wtf8) -> Result<Self, FormatParseError> {
-        let mut chars = text.code_points().peekable();
-        let first: Wtf8Buf = chars
-            .peeking_take_while(|ch| *ch != '.' && *ch != '[')
-            .collect();
+fn parse_field_index(text: &Wtf8) -> Result<Option<usize>, FormatParseError> {
+    if let Some(index) = parse_usize(text) {
+        if index > isize::MAX as usize {
+            return Err(FormatParseError::TooManyDecimalDigits);
+        }
+        Ok(Some(index))
+    } else if text
+        .as_str()
+        .is_ok_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
+    {
+        Err(FormatParseError::TooManyDecimalDigits)
+    } else {
+        Ok(None)
+    }
+}
 
+impl FieldName {
+    pub fn split(text: &Wtf8) -> Result<(FieldType, FieldNameParts), FormatParseError> {
+        let split = text
+            .code_point_indices()
+            .find(|(_, ch)| *ch == '.' || *ch == '[')
+            .map_or(text.len(), |(index, _)| index);
+        let first = &text[..split];
         let field_type = if first.is_empty() {
             FieldType::Auto
-        } else if let Some(index) = parse_usize(&first) {
-            // Match CPython's get_integer: digits-only segment must fit in
-            // Py_ssize_t. Above that, raise ValueError at parse time.
-            if index > isize::MAX as usize {
-                return Err(FormatParseError::TooManyDecimalDigits);
-            }
+        } else if let Some(index) = parse_field_index(first)? {
             FieldType::Index(index)
-        } else if first
-            .as_str()
-            .is_ok_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
-        {
-            // All-digit segment whose value overflows usize itself.
-            return Err(FormatParseError::TooManyDecimalDigits);
         } else {
-            FieldType::Keyword(first)
+            FieldType::Keyword(first.to_owned())
         };
+        Ok((
+            field_type,
+            FieldNameParts {
+                text: text[split..].to_owned(),
+                cursor: 0,
+            },
+        ))
+    }
 
-        let mut parts = Vec::new();
-        while let Some(part) = FieldNamePart::parse_part(&mut chars)? {
-            parts.push(part)
-        }
-
-        Ok(Self { field_type, parts })
+    pub fn parse(text: &Wtf8) -> Result<Self, FormatParseError> {
+        let (field_type, parts) = Self::split(text)?;
+        Ok(Self {
+            field_type,
+            parts: parts.collect::<Result<_, _>>()?,
+        })
     }
 }
 
@@ -1510,106 +1549,75 @@ impl FormatString {
         Ok((FormatPart::Literal(result_string), "".as_ref()))
     }
 
-    fn parse_part_in_brackets(text: &Wtf8) -> Result<FormatPart, FormatParseError> {
-        let mut chars = text.code_points().peekable();
+    fn parse_spec(text: &Wtf8) -> Result<(FormatPart, &Wtf8), FormatParseError> {
+        let mut chars = text.code_point_indices();
+        if chars.next().is_none_or(|(_, ch)| ch != '{') {
+            return Err(FormatParseError::MissingStartBracket);
+        }
+        if text.len() == 1 {
+            return Err(FormatParseError::UnescapedStartBracketInLiteral);
+        }
 
-        let mut left = Wtf8Buf::new();
-        let mut right = Wtf8Buf::new();
-
-        let mut split = false;
-        let mut selected = &mut left;
-        let mut inside_brackets = false;
-
-        while let Some(char) = chars.next() {
-            if char == '[' {
-                inside_brackets = true;
-
-                selected.push(char);
-
-                while let Some(next_char) = chars.next() {
-                    selected.push(next_char);
-
-                    if next_char == ']' {
-                        inside_brackets = false;
-                        break;
-                    }
-                    if chars.peek().is_none() {
+        // Braces, colons and conversion markers inside an item key are data.
+        let (field_end, mut delimiter) = loop {
+            let Some((index, ch)) = chars.next() else {
+                return Err(FormatParseError::UnmatchedBracket);
+            };
+            match ch.to_char_lossy() {
+                '[' => {
+                    if !chars.any(|(_, ch)| ch == ']') {
                         return Err(FormatParseError::MissingRightBracket);
                     }
                 }
-            } else if char == ':' && !split && !inside_brackets {
-                split = true;
-                selected = &mut right;
-            } else {
-                selected.push(char);
+                '{' => return Err(FormatParseError::UnexpectedStartBracket),
+                '!' | ':' | '}' => break (index, ch),
+                _ => {}
             }
+        };
+        let field_name = text[1..field_end].to_owned();
+        let mut delimiter_index = field_end;
+        let mut conversion_spec = None;
+        if delimiter == '!' {
+            conversion_spec = Some(chars.next().ok_or(FormatParseError::MissingConversion)?.1);
+            let Some((index, ch)) = chars.next() else {
+                return Err(FormatParseError::InvalidFormatSpecifier);
+            };
+            if ch != ':' && ch != '}' {
+                return Err(FormatParseError::MissingConversionColon);
+            }
+            delimiter_index = index;
+            delimiter = ch;
         }
 
-        // before the comma is a keyword or arg index, after the comma is maybe a spec.
-        let arg_part: &Wtf8 = &left;
-
-        let format_spec = if split { right } else { Wtf8Buf::new() };
-
-        // left can still be the conversion (!r, !s, !a)
-        let parts: Vec<&Wtf8> = arg_part.splitn(2, "!".as_ref()).collect();
-        // before the bang is a keyword or arg index, after the comma is maybe a conversion spec.
-        let arg_part = parts[0];
-
-        let conversion_spec = parts
-            .get(1)
-            .map(|conversion| {
-                // conversions are only every one character
-                conversion
-                    .code_points()
-                    .exactly_one()
-                    .map_err(|_| FormatParseError::UnknownConversion)
-            })
-            .transpose()?;
-
-        Ok(FormatPart::Field {
-            field_name: arg_part.to_owned(),
-            conversion_spec,
-            format_spec,
-        })
-    }
-
-    fn parse_spec(text: &Wtf8) -> Result<(FormatPart, &Wtf8), FormatParseError> {
-        let mut nested = false;
-        let mut end_bracket_pos = None;
-        let mut left = Wtf8Buf::new();
-
-        // There may be one layer nesting brackets in spec
-        for (idx, c) in text.code_point_indices() {
-            if idx == 0 {
-                if c != '{' {
-                    return Err(FormatParseError::MissingStartBracket);
-                }
-            } else if c == '{' {
-                if nested {
+        let mut format_spec = Wtf8Buf::new();
+        if delimiter == ':' {
+            let spec_start = delimiter_index + 1;
+            let mut depth = 1usize;
+            let spec_end = loop {
+                let Some((index, ch)) = chars.next() else {
                     return Err(FormatParseError::InvalidFormatSpecifier);
+                };
+                if ch == '{' {
+                    depth += 1;
+                } else if ch == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break index;
+                    }
                 }
-                nested = true;
-                left.push(c);
-                continue;
-            } else if c == '}' {
-                if nested {
-                    nested = false;
-                    left.push(c);
-                    continue;
-                }
-                end_bracket_pos = Some(idx);
-                break;
-            } else {
-                left.push(c);
-            }
+            };
+            text[spec_start..spec_end].clone_into(&mut format_spec);
+            delimiter_index = spec_end;
         }
-        if let Some(pos) = end_bracket_pos {
-            let right = &text[pos..];
-            let format_part = Self::parse_part_in_brackets(&left)?;
-            Ok((format_part, &right[1..]))
-        } else {
-            Err(FormatParseError::UnmatchedBracket)
-        }
+
+        Ok((
+            FormatPart::Field {
+                field_name,
+                conversion_spec,
+                format_spec,
+            },
+            &text[delimiter_index + 1..],
+        ))
     }
 }
 
@@ -1679,7 +1687,6 @@ mod tests {
     #[test]
     fn width_only() {
         let expected = Ok(FormatSpec {
-            conversion: None,
             fill: None,
             align: None,
             align_specified: false,
@@ -1698,7 +1705,6 @@ mod tests {
     #[test]
     fn fill_and_width() {
         let expected = Ok(FormatSpec {
-            conversion: None,
             fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
             align_specified: true,
@@ -1717,7 +1723,6 @@ mod tests {
     #[test]
     fn all() {
         let expected = Ok(FormatSpec {
-            conversion: None,
             fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
             align_specified: true,
@@ -1770,6 +1775,34 @@ mod tests {
     }
 
     #[test]
+    fn format_bool_without_a_presentation_type() {
+        // The bare spec is the only one that spells the value out.
+        assert_eq!(format_bool("", true), Ok("True".to_owned()));
+        assert_eq!(format_bool("", false), Ok("False".to_owned()));
+
+        // Anything else formats the integer, the way `int.__format__` would.
+        assert_eq!(format_bool("5", true), Ok("    1".to_owned()));
+        assert_eq!(format_bool("<5", true), Ok("1    ".to_owned()));
+        assert_eq!(format_bool(">5", false), Ok("    0".to_owned()));
+        assert_eq!(format_bool("^5", true), Ok("  1  ".to_owned()));
+        assert_eq!(format_bool("05", true), Ok("00001".to_owned()));
+        assert_eq!(format_bool("+", true), Ok("+1".to_owned()));
+        assert_eq!(format_bool(" ", false), Ok(" 0".to_owned()));
+        assert_eq!(format_bool(",", true), Ok("1".to_owned()));
+        assert_eq!(format_bool("<", true), Ok("1".to_owned()));
+
+        // And it inherits the integer rules, precision included.
+        assert_eq!(
+            format_bool(".2", true),
+            Err(FormatSpecError::PrecisionNotAllowed)
+        );
+        assert_eq!(
+            format_bool("z", true),
+            Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"))
+        );
+    }
+
+    #[test]
     fn format_string_zero_padding_uses_left_alignment() {
         let spec = FormatSpec::parse("08s").unwrap();
         let value = "result".to_owned();
@@ -1786,6 +1819,52 @@ mod tests {
             spec.format_string(&value),
             Err(FormatSpecError::StringAlignmentFlag)
         );
+    }
+
+    #[test]
+    fn format_string_rejects_sign_space_and_alternate_form() {
+        let value = "result".to_owned();
+        let cases = [
+            ("+", "Sign"),
+            ("-", "Sign"),
+            ("+8s", "Sign"),
+            (" ", "Space"),
+            (" 8s", "Space"),
+            ("#", "Alternate form (#)"),
+            ("#8s", "Alternate form (#)"),
+        ];
+
+        for (text, flag) in cases {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(
+                spec.format_string(&value),
+                Err(FormatSpecError::StringSpecNotAllowed(flag)),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_string_reports_the_flag_cpython_reports_first() {
+        let value = "result".to_owned();
+        // Sign beats z, z beats the alternate form, and the alternate form
+        // beats an explicit '=' alignment.
+        let cases = [
+            ("+z#5", FormatSpecError::StringSpecNotAllowed("Sign")),
+            (
+                "x=z#5",
+                FormatSpecError::NegativeZeroCoercionNotAllowed("string"),
+            ),
+            (
+                "x=#5",
+                FormatSpecError::StringSpecNotAllowed("Alternate form (#)"),
+            ),
+        ];
+
+        for (text, expected) in cases {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(spec.format_string(&value), Err(expected), "{text}");
+        }
     }
 
     #[test]
@@ -2257,6 +2336,26 @@ mod tests {
     }
 
     #[test]
+    fn format_parse_lone_start_bracket() {
+        // A brace with nothing after it is a stray brace; one holding a field
+        // that was never closed is not. CPython words the two differently.
+        for lone in ["{", "a{"] {
+            assert_eq!(
+                FormatString::from_str(lone.as_ref()),
+                Err(FormatParseError::UnescapedStartBracketInLiteral),
+                "{lone:?}"
+            );
+        }
+        for unclosed in ["{s", "a{b", "{0"] {
+            assert_eq!(
+                FormatString::from_str(unclosed.as_ref()),
+                Err(FormatParseError::UnmatchedBracket),
+                "{unclosed:?}"
+            );
+        }
+    }
+
+    #[test]
     fn square_brackets_inside_format() {
         assert_eq!(
             FormatString::from_str("{[:123]}".as_ref()),
@@ -2370,7 +2469,10 @@ mod tests {
         );
         assert_eq!(parse("key.."), Err(FormatParseError::EmptyAttribute));
         assert_eq!(parse("key[]"), Err(FormatParseError::EmptyAttribute));
-        assert_eq!(parse("key["), Err(FormatParseError::MissingRightBracket));
+        assert_eq!(
+            parse("key["),
+            Err(FormatParseError::MissingRightSquareBracket)
+        );
         assert_eq!(
             parse("key[0]after"),
             Err(FormatParseError::InvalidCharacterAfterRightBracket)

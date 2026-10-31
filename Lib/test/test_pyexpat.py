@@ -13,11 +13,10 @@ import traceback
 from io import BytesIO
 from test import support
 from test.support import import_helper, os_helper
-
+from test.support import sortdict
+from unittest import mock
 from xml.parsers import expat
 from xml.parsers.expat import errors
-
-from test.support import sortdict
 
 
 class SetAttributeTest(unittest.TestCase):
@@ -435,7 +434,6 @@ class NamespaceSeparatorTest(unittest.TestCase):
 
 
 class InterningTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test(self):
         # Test the interning machinery.
         p = expat.ParserCreate()
@@ -569,6 +567,19 @@ class BufferTextTest(unittest.TestCase):
                           "<!--abc-->", "4", "<!--def-->", "5", "</a>"],
                          "buffered text not properly split")
 
+    def test_change_character_data_handler_in_callback(self):
+        # Test that xmlparse_handler_setter() properly handles
+        # the special case "parser.CharacterDataHandler = None".
+        def handler(*args):
+            parser.CharacterDataHandler = None
+
+        handler_wrapper = mock.Mock(wraps=handler)
+        parser = expat.ParserCreate()
+        parser.CharacterDataHandler = handler_wrapper
+        parser.Parse(b"<a>1<b/>2<c></c>3<!--abc-->4<!--def-->5</a> ", True)
+        handler_wrapper.assert_called_once()
+        self.assertIsNone(parser.CharacterDataHandler)
+
 
 # Test handling of exception from callback:
 class HandlerExceptionTest(unittest.TestCase):
@@ -627,6 +638,34 @@ class HandlerExceptionTest(unittest.TestCase):
             self.assertIn('call_with_frame("StartElement"',
                           entries[1].line)
 
+    def test_invalid_NotStandalone(self):
+        parser = expat.ParserCreate()
+        parser.NotStandaloneHandler = mock.Mock(return_value="bad value")
+        parser.ElementDeclHandler = lambda _1, _2: None
+
+        payload = b"""\
+<!DOCTYPE quotations SYSTEM "quotations.dtd" [<!ELEMENT root ANY>]><root/>
+"""
+        with self.assertRaises(TypeError) as cm:
+            parser.Parse(payload, True)
+        parser.NotStandaloneHandler.assert_called_once()
+
+        notes = ["invalid 'NotStandalone' event handler return value"]
+        self.assertEqual(cm.exception.__notes__, notes)
+
+    def test_invalid_ExternalEntityRefHandler(self):
+        parser = expat.ParserCreate()
+        parser.UseForeignDTD()
+        parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+        parser.ExternalEntityRefHandler = mock.Mock(return_value=None)
+
+        with self.assertRaises(TypeError) as cm:
+            parser.Parse(b"<?xml version='1.0'?><element/>", True)
+        parser.ExternalEntityRefHandler.assert_called_once()
+
+        notes = ["invalid 'ExternalEntityRef' event handler return value"]
+        self.assertEqual(cm.exception.__notes__, notes)
+
 
 # Test Current* members:
 class PositionTest(unittest.TestCase):
@@ -648,6 +687,7 @@ class PositionTest(unittest.TestCase):
                 'Expected position %s, got position %s' %(pos, expected))
         self.upto += 1
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; the xml-rs backend reports a
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler
@@ -734,7 +774,7 @@ class ChardataBufferTest(unittest.TestCase):
     def test_disabling_buffer(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>" + b'a' * 512
         xml2 = b'b' * 1024
-        xml3 = b'c' * 1024 + b'</a>';
+        xml3 = b'c' * 1024 + b'</a>'
         parser = expat.ParserCreate()
         parser.CharacterDataHandler = self.counting_handler
         parser.buffer_text = 1
@@ -812,7 +852,7 @@ class ChardataBufferTest(unittest.TestCase):
     @support.requires_resource('cpu')
     @support.requires_resource('walltime')
     @support.bigmemtest(size=2**31, memuse=4, dry_run=False)
-    def test_large_character_data_does_not_crash(self):
+    def test_large_character_data_does_not_crash(self, size):
         # See https://github.com/python/cpython/issues/148441
         parser = expat.ParserCreate()
         parser.buffer_text = True
@@ -824,7 +864,6 @@ class ChardataBufferTest(unittest.TestCase):
         self.assertEqual(parser.Parse(xml_data, True), 1)
 
 class ElementDeclHandlerTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by Parse
     def test_trigger_leak(self):
         # Unfixed, this test would leak the memory of the so-called
         # "content model" in function ``my_ElementDeclHandler`` of pyexpat.
@@ -842,7 +881,7 @@ class ElementDeclHandlerTest(unittest.TestCase):
         self.assertRaises(TypeError, parser.Parse, data, True)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RecursionError not raised
-    @support.skip_if_unlimited_stack_size
+    @support.skip_if_huge_c_stack(800_000)
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_deeply_nested_content_model(self):
@@ -882,13 +921,11 @@ class MalformedInputTest(unittest.TestCase):
             parser.Parse(xml, True)
 
 class ErrorMessageTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_codes(self):
         # verify mapping of errors.codes and errors.messages
         self.assertEqual(errors.XML_ERROR_SYNTAX,
                          errors.messages[errors.codes[errors.XML_ERROR_SYNTAX]])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expaterror(self):
         xml = b'<'
         parser = expat.ParserCreate()
@@ -904,7 +941,6 @@ class ForeignDTDTests(unittest.TestCase):
     """
     Tests for the UseForeignDTD method of expat parser objects.
     """
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_use_foreign_dtd(self):
         """
         If UseForeignDTD is passed True and a document without an external
@@ -933,7 +969,6 @@ class ForeignDTDTests(unittest.TestCase):
         parser.Parse(b"<?xml version='1.0'?><element/>")
         self.assertEqual(handler_call_args, [(None, None)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ignore_use_foreign_dtd(self):
         """
         If UseForeignDTD is passed True and a document with an external
@@ -962,7 +997,6 @@ class ParentParserLifetimeTest(unittest.TestCase):
     See https://github.com/python/cpython/issues/139400.
     """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__single(self):
         parser = expat.ParserCreate()
         subparser = parser.ExternalEntityParserCreate(None)
@@ -971,7 +1005,6 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while it's still being referenced by a related subparser.
         del parser
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__multiple(self):
         parser = expat.ParserCreate()
         subparser_one = parser.ExternalEntityParserCreate(None)
@@ -981,7 +1014,6 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while it's still being referenced by a related subparser.
         del parser
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__chain(self):
         parser = expat.ParserCreate()
         subparser = parser.ExternalEntityParserCreate(None)
@@ -991,6 +1023,16 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while they are still being referenced by a related subparser.
         del parser
         del subparser
+
+    # gh-155485: GetReparseDeferralEnabled always returns False with Expat <2.6.0.
+    @unittest.skipIf(not expat.ParserCreate().GetReparseDeferralEnabled(),
+                     "requires Python compiled with Expat >= 2.6.0")
+    def test_subparser_inherits_reparse_deferral(self):
+        for enabled in (True, False):
+            parser = expat.ParserCreate()
+            parser.SetReparseDeferralEnabled(enabled)
+            subparser = parser.ExternalEntityParserCreate(None)
+            self.assertEqual(subparser.GetReparseDeferralEnabled(), enabled)
 
 
 class ExternalEntityParserCreateErrorTest(unittest.TestCase):
@@ -1004,8 +1046,7 @@ class ExternalEntityParserCreateErrorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.testcapi = import_helper.import_module('_testcapi')
 
-    @unittest.skipIf(support.Py_TRACE_REFS,
-                     'Py_TRACE_REFS conflicts with testcapi.set_nomemory')
+    @support.nomemtest
     def test_error_path_no_crash(self):
         # When an allocation inside ExternalEntityParserCreate fails,
         # the partially-initialized subparser is deallocated.  This
@@ -1033,7 +1074,6 @@ class ExternalEntityParserCreateErrorTest(unittest.TestCase):
 
 
 class ReparseDeferralTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
     def test_getter_setter_round_trip(self):
         parser = expat.ParserCreate()
         enabled = (expat.version_info >= (2, 6, 0))
@@ -1069,7 +1109,6 @@ class ReparseDeferralTest(unittest.TestCase):
 
         self.assertEqual(started, ['doc'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetReparseDeferralEnabled'
     def test_reparse_deferral_disabled(self):
         started = []
 

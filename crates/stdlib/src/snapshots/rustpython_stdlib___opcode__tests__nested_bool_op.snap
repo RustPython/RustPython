@@ -13,13 +13,13 @@ expression: "dis(r#\"\nx = Test() and False or False\n\"#)"
               POP_JUMP_IF_FALSE       11 (to L1)
               NOT_TAKEN
               POP_TOP
-              LOAD_CONST               0 (False)
+              LOAD_COMMON_CONSTANT    10 (False)
               COPY                     1
               TO_BOOL
               POP_JUMP_IF_TRUE         3 (to L2)
               NOT_TAKEN
       L1:     POP_TOP
-              LOAD_CONST               0 (False)
+              LOAD_COMMON_CONSTANT    10 (False)
       L2:     STORE_NAME               1 (x)
-              LOAD_CONST               1 (None)
+              LOAD_COMMON_CONSTANT     7 (None)
               RETURN_VALUE

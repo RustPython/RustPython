@@ -1,7 +1,9 @@
 import collections
 import types
 import unittest
-from test.support import skip_emscripten_stack_overflow, skip_wasi_stack_overflow, exceeds_recursion_limit
+from test.support import (skip_emscripten_stack_overflow,
+                          skip_wasi_stack_overflow, skip_if_huge_c_stack,
+                          exceeds_recursion_limit)
 
 class TestExceptionGroupTypeHierarchy(unittest.TestCase):
     def test_exception_group_types(self):
@@ -20,7 +22,6 @@ class TestExceptionGroupTypeHierarchy(unittest.TestCase):
 
 
 class BadConstructorArgs(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_EG_construction__too_many_args(self):
         MSG = r'BaseExceptionGroup.__new__\(\) takes exactly 2 arguments'
         with self.assertRaisesRegex(TypeError, MSG):
@@ -194,7 +195,6 @@ class StrAndReprTests(unittest.TestCase):
                       "MyEG('flat', [ValueError(1), TypeError(2)]), "
                       "TypeError(2)])"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Tuples differ: ('test', (ValueError(1), TypeError(2))) != ('test', [])
     def test_exceptions_mutation(self):
         class MyEG(ExceptionGroup):
             pass
@@ -236,7 +236,18 @@ class StrAndReprTests(unittest.TestCase):
             "ExceptionGroup('test', deque([ValueError(1), TypeError(2)]))"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
+    def test_repr_small_size_args(self):
+        eg = ExceptionGroup("msg", [ValueError()])
+        eg.args = ()
+        # repr of the ExceptionGroup with empty args should not crash
+        self.assertEqual(repr(eg), "ExceptionGroup('msg', (ValueError(),))")
+
+        eg.args = (1,)
+        # repr of the ExceptionGroup with 1-size args should not crash
+        self.assertEqual(repr(eg), "ExceptionGroup('msg', (ValueError(),))")
+
+
+
     def test_repr_raises(self):
         class MySeq(collections.abc.Sequence):
             def __init__(self, raises):
@@ -258,7 +269,7 @@ class StrAndReprTests(unittest.TestCase):
         seq = MySeq(None)
         with self.assertRaisesRegex(
             TypeError,
-            r"__repr__ returned non-string \(type NoneType\)"
+            r".*MySeq\.__repr__\(\) must return a str, not NoneType"
         ):
             ExceptionGroup("test", seq)
 
@@ -538,7 +549,7 @@ class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
             e = ExceptionGroup('eg', [e])
         return e
 
-    @unittest.skip("TODO: RUSTPYTHON; Segfault")
+    @skip_if_huge_c_stack()
     @skip_emscripten_stack_overflow()
     @skip_wasi_stack_overflow()
     def test_deep_split(self):
@@ -546,7 +557,7 @@ class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
         with self.assertRaises(RecursionError):
             e.split(TypeError)
 
-    @unittest.skip("TODO: RUSTPYTHON; Segfault")
+    @skip_if_huge_c_stack()
     @skip_emscripten_stack_overflow()
     @skip_wasi_stack_overflow()
     def test_deep_subgroup(self):

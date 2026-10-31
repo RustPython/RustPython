@@ -286,12 +286,16 @@ impl PyCodeLocationInfoKind {
 pub trait Constant: Sized + Clone {
     type Name: AsRef<str>;
 
+    /// Storage of a code object's constants (`co_consts`).
+    type Tuple: Clone + Deref<Target = [Self]> + FromIterator<Self>;
+
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self>;
 }
 
 impl Constant for ConstantData {
     type Name = String;
+    type Tuple = Box<[Self]>;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         match self {
@@ -373,7 +377,17 @@ impl ConstantBag for BasicBag {
 }
 
 #[derive(Clone)]
-pub struct Constants<C: Constant>(Box<[C]>);
+pub struct Constants<C: Constant>(C::Tuple);
+
+impl<C: Constant> Constants<C> {
+    pub const fn new(tuple: C::Tuple) -> Self {
+        Self(tuple)
+    }
+
+    pub const fn as_tuple(&self) -> &C::Tuple {
+        &self.0
+    }
+}
 
 impl<C: Constant> Deref for Constants<C> {
     type Target = [C];
@@ -413,15 +427,40 @@ impl<T> IndexMut<oparg::VarNum> for [T] {
     }
 }
 
-/// Per-slot kind flags for localsplus (co_localspluskinds).
-pub const CO_FAST_ARG_POS: u8 = 0x02;
-pub const CO_FAST_ARG_KW: u8 = 0x04;
-pub const CO_FAST_ARG_VAR: u8 = 0x08;
-pub const CO_FAST_ARG: u8 = CO_FAST_ARG_POS | CO_FAST_ARG_KW | CO_FAST_ARG_VAR;
-pub const CO_FAST_HIDDEN: u8 = 0x10;
-pub const CO_FAST_LOCAL: u8 = 0x20;
-pub const CO_FAST_CELL: u8 = 0x40;
-pub const CO_FAST_FREE: u8 = 0x80;
+bitflagset::bitflag! {
+    /// Per-slot kind flags for localsplus (`co_localspluskinds`).
+    /// Values are bit *positions* (`Local` is bit 5 → mask `0x20`).
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    #[repr(u8)]
+    pub enum CoFastFlag {
+        ArgPos = 1,
+        ArgKw = 2,
+        ArgVar = 3,
+        Hidden = 4,
+        Local = 5,
+        Cell = 6,
+        Free = 7,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct CoFastFlags(u8): CoFastFlag
+}
+
+impl CoFastFlags {
+    pub const ARG: Self =
+        Self::from_slice(&[CoFastFlag::ArgPos, CoFastFlag::ArgKw, CoFastFlag::ArgVar]);
+}
+
+pub const CO_FAST_ARG_POS: u8 = CoFastFlags::from_element(CoFastFlag::ArgPos).bits();
+pub const CO_FAST_ARG_KW: u8 = CoFastFlags::from_element(CoFastFlag::ArgKw).bits();
+pub const CO_FAST_ARG_VAR: u8 = CoFastFlags::from_element(CoFastFlag::ArgVar).bits();
+pub const CO_FAST_ARG: u8 = CoFastFlags::ARG.bits();
+pub const CO_FAST_HIDDEN: u8 = CoFastFlags::from_element(CoFastFlag::Hidden).bits();
+pub const CO_FAST_LOCAL: u8 = CoFastFlags::from_element(CoFastFlag::Local).bits();
+pub const CO_FAST_CELL: u8 = CoFastFlags::from_element(CoFastFlag::Cell).bits();
+pub const CO_FAST_FREE: u8 = CoFastFlags::from_element(CoFastFlag::Free).bits();
 
 /// Primary container of a single code object. Each python function has
 /// a code object. Also a module has a code object.
@@ -483,7 +522,28 @@ bitflags! {
     }
 }
 
-#[repr(C)]
+const _: () = {
+    assert!(core::mem::size_of::<CodeFlags>() == core::mem::size_of::<i32>());
+    assert!(core::mem::align_of::<CodeFlags>() == core::mem::align_of::<i32>());
+};
+
+impl CodeFlags {
+    /// The `__future__` flags that `compile()` accepts and that a compiled code
+    /// object inherits from its caller. Mirrors `PyCF_MASK`.
+    pub const FUTURE_MASK: Self = Self::FUTURE_DIVISION
+        .union(Self::FUTURE_ABSOLUTE_IMPORT)
+        .union(Self::FUTURE_WITH_STATEMENT)
+        .union(Self::FUTURE_PRINT_FUNCTION)
+        .union(Self::FUTURE_UNICODE_LITERALS)
+        .union(Self::FUTURE_BARRY_AS_BDFL)
+        .union(Self::FUTURE_GENERATOR_STOP)
+        .union(Self::FUTURE_ANNOTATIONS);
+}
+
+/// `align(2)` so that the whole unit can be read with one aligned
+/// `AtomicU16` access (see `CodeUnits::read_unit`) without relying on the
+/// allocator to happen to align the instruction array.
+#[repr(C, align(2))]
 #[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
     pub op: Instruction,
@@ -491,6 +551,7 @@ pub struct CodeUnit {
 }
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
+const _: () = assert!(mem::align_of::<CodeUnit>() == 2);
 
 /// Adaptive specialization: number of executions before attempting specialization.
 ///
@@ -675,6 +736,27 @@ impl Deref for CodeUnits {
 }
 
 impl CodeUnits {
+    /// `fixup_getiter` applied to every `GET_ITER` by `_PyCode_Quicken`.
+    ///
+    /// The compiler can't know if `types.coroutine()` will be called, so a
+    /// yield-from `GET_ITER` is resolved when the code object is created.
+    pub fn fixup_get_iter(&mut self, flags: CodeFlags) {
+        let mode = if flags.intersects(CodeFlags::COROUTINE | CodeFlags::ITERABLE_COROUTINE) {
+            oparg::GET_ITER_YIELD_FROM_NO_CHECK
+        } else {
+            oparg::GET_ITER_YIELD_FROM_CORO_CHECK
+        };
+        let mut i = 0;
+        let units = self.units.get_mut();
+        while i < units.len() {
+            let unit = &mut units[i];
+            if matches!(unit.op, Instruction::GetIter { .. }) && u8::from(unit.arg) != 0 {
+                unit.arg = (mode as u8).into();
+            }
+            i += 1 + unit.op.cache_entries();
+        }
+    }
+
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
@@ -727,6 +809,55 @@ impl CodeUnits {
         let byte = unsafe { &*ptr }.load(Ordering::Acquire);
         // SAFETY: Only valid Instruction values are stored via replace_op/compare_exchange_op.
         unsafe { mem::transmute::<u8, Instruction>(byte) }
+    }
+
+    /// Base pointer of the instruction array.
+    ///
+    /// The array is allocated once when the code object is built and is never
+    /// reallocated -- specialization only rewrites units in place -- so the
+    /// pointer stays valid for as long as this `CodeUnits` does and the eval
+    /// loop may hoist it out of the dispatch loop.
+    #[inline(always)]
+    #[must_use]
+    pub fn units_ptr(&self) -> *const CodeUnit {
+        unsafe { &*self.units.get() }.as_ptr()
+    }
+
+    /// `read_unit` from a base pointer previously obtained with `units_ptr`.
+    ///
+    /// # Safety
+    /// `base` must come from `units_ptr` on a live `CodeUnits`, and `index`
+    /// must be within that array (the dispatch loop only ever reads indices
+    /// the code object itself produced).
+    #[inline(always)]
+    #[must_use]
+    pub unsafe fn read_unit_from(base: *const CodeUnit, index: usize) -> CodeUnit {
+        let ptr = base.wrapping_add(index) as *const AtomicU16;
+        let [op, arg] = unsafe { &*ptr }.load(Ordering::Acquire).to_ne_bytes();
+        // SAFETY: only valid Instruction values are ever stored into the
+        // instruction array (see `read_op`).
+        CodeUnit {
+            op: unsafe { mem::transmute::<u8, Instruction>(op) },
+            arg: OpArgByte::from(arg),
+        }
+    }
+
+    /// Atomically read the opcode and its arg byte at `index` as a single
+    /// Acquire-ordered 16-bit load.
+    ///
+    /// Equivalent to `read_op` followed by `read_arg`, but the one access
+    /// keeps the eval loop from re-loading the instruction array pointer
+    /// across the acquire barrier, and it is what the dispatch loop uses.
+    /// Acquire pairs with `replace_op` (Release) exactly as `read_op` does.
+    ///
+    /// `to_ne_bytes` yields the bytes in memory order, so `[0]` is the `op`
+    /// field and `[1]` the `arg` field of the `repr(C)` unit on either
+    /// endianness.
+    #[inline(always)]
+    #[must_use]
+    pub fn read_unit(&self, index: usize) -> CodeUnit {
+        // SAFETY: `index` is in bounds for every caller of this method.
+        unsafe { Self::read_unit_from(self.units_ptr(), index) }
     }
 
     /// Atomically read the arg byte at `index` with Relaxed ordering.
@@ -829,11 +960,20 @@ impl CodeUnits {
     /// (marshal) and `co_code`. Specialized opcodes are mapped back to their
     /// base variants via `deoptimize()` and all CACHE entries are zeroed.
     pub fn original_bytes(&self) -> Vec<u8> {
+        self.original_bytes_with(|_, op| op)
+    }
+
+    /// [`Self::original_bytes`], with `resolve` first replacing the opcode at
+    /// an index, e.g. an instrumentation placeholder by its original opcode.
+    pub fn original_bytes_with(
+        &self,
+        resolve: impl Fn(usize, Instruction) -> Instruction,
+    ) -> Vec<u8> {
         let len = self.len();
         let mut out = Vec::with_capacity(len * 2);
         let mut i = 0;
         while i < len {
-            let op = self.read_op(i).deoptimize();
+            let op = resolve(i, self.read_op(i)).deoptimize();
             let arg = self.read_arg(i);
             let caches = op.cache_entries();
             out.push(u8::from(op));

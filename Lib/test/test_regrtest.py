@@ -166,21 +166,20 @@ class ParseArgsTestCase(unittest.TestCase):
                 ns = self.parse_args([opt])
                 self.assertTrue(ns.randomize)
 
-        with os_helper.EnvironmentVarGuard() as env:
-            # with SOURCE_DATE_EPOCH
-            env['SOURCE_DATE_EPOCH'] = '1697839080'
-            ns = self.parse_args(['--randomize'])
-            regrtest = main.Regrtest(ns)
-            self.assertFalse(regrtest.randomize)
-            self.assertIsInstance(regrtest.random_seed, str)
-            self.assertEqual(regrtest.random_seed, '1697839080')
+    @os_helper.with_source_date_epoch(epoch=1697839080)
+    def test_randomize_with_source_date_epoch(self):
+        ns = self.parse_args(['--randomize'])
+        regrtest = main.Regrtest(ns)
+        self.assertFalse(regrtest.randomize)
+        self.assertIsInstance(regrtest.random_seed, str)
+        self.assertEqual(regrtest.random_seed, '1697839080')
 
-            # without SOURCE_DATE_EPOCH
-            del env['SOURCE_DATE_EPOCH']
-            ns = self.parse_args(['--randomize'])
-            regrtest = main.Regrtest(ns)
-            self.assertTrue(regrtest.randomize)
-            self.assertIsInstance(regrtest.random_seed, int)
+    @os_helper.without_source_date_epoch
+    def test_randomize_without_source_date_epoch(self):
+        ns = self.parse_args(['--randomize'])
+        regrtest = main.Regrtest(ns)
+        self.assertTrue(regrtest.randomize)
+        self.assertIsInstance(regrtest.random_seed, int)
 
     def test_no_randomize(self):
         ns = self.parse_args([])
@@ -571,6 +570,13 @@ class ParseArgsTestCase(unittest.TestCase):
         self.assertEqual(regrtest.num_workers, 0)
         self.assertTrue(regrtest.single_process)
 
+    def test_pythoninfo(self):
+        ns = self.parse_args([])
+        self.assertFalse(ns.pythoninfo)
+
+        ns = self.parse_args(['--pythoninfo'])
+        self.assertTrue(ns.pythoninfo)
+
 
 @dataclasses.dataclass(slots=True)
 class Rerun:
@@ -915,7 +921,6 @@ class ProgramsTestCase(BaseTestCase):
         args = [*self.python_args, script, *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_test(self):
         # -m test
         args = [*self.python_args, '-m', 'test',
@@ -928,14 +933,12 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_autotest(self):
         # -m test.autotest
         args = [*self.python_args, '-m', 'test.autotest',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_from_test_autotest(self):
         # from test import autotest
         code = 'from test import autotest'
@@ -943,7 +946,6 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_script_autotest(self):
         # Lib/test/autotest.py
         script = os.path.join(self.testdir, 'autotest.py')
@@ -1226,7 +1228,6 @@ class ArgsTestCase(BaseTestCase):
                 regex = ('10 slowest tests:\n')
                 self.check_line(output, regex)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^lines +cov% +module +\\(path\\)\\n(?: *[0-9]+ *[0-9]{1,2}\\.[0-9]% *[^ ]+ +\\([^)]+\\)+)+' not found in 'Warning: collecting coverage without -j is imprecise. Configure --with-pydebug and run -m test -T -j for best results.\nUsing random seed: 2780369491\n0:00:00 Run 1 test sequentially in a single process\n0:00:00 [1/1] test_regrtest_coverage\n0:00:00 [1/1] test_regrtest_coverage passed\n\n== Tests result: SUCCESS ==\n\n1 test OK.\n\nTotal duration: 102 ms\nTotal tests: run=1\nTotal test files: run=1/1\nResult: SUCCESS\n'
     def test_coverage(self):
         # test --coverage
         test = self.create_test('coverage')
@@ -2034,7 +2035,6 @@ class ArgsTestCase(BaseTestCase):
         for name in names:
             self.assertFalse(os.path.exists(name), name)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipIf(support.is_wasi,
                      'checking temp files is not implemented on WASI')
     def test_leak_tmp_file(self):
@@ -2147,7 +2147,7 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, [testname],
                                   failed=[testname],
                                   parallel=True,
-                                  stats=TestStats(1, 1, 0))
+                                  stats=TestStats(1, 2, 1))
 
     def _check_random_seed(self, run_workers: bool):
         # gh-109276: When -r/--randomize is used, random.seed() is called
@@ -2186,11 +2186,9 @@ class ArgsTestCase(BaseTestCase):
     def test_random_seed(self):
         self._check_random_seed(run_workers=False)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_random_seed_workers(self):
         self._check_random_seed(run_workers=True)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_python_command(self):
         code = textwrap.dedent(r"""
             import sys
@@ -2289,7 +2287,6 @@ class ArgsTestCase(BaseTestCase):
                               env=support.make_clean_env())
         self.assertEqual(proc.returncode, 0, proc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_add_python_opts(self):
         for opt in ("--fast-ci", "--slow-ci"):
             with self.subTest(opt=opt):
@@ -2435,6 +2432,11 @@ class ArgsTestCase(BaseTestCase):
         tests = output.strip().split()
         self.assertNotIn('test_re', tests)
         self.assertEqual(len(tests), len(pgo_tests) - 1)
+
+    def test_pythoninfo(self):
+        testname = self.create_test()
+        output = self.run_tests('--pythoninfo', testname)
+        self.assertIn("Python build information", output)
 
 
 class TestUtils(unittest.TestCase):

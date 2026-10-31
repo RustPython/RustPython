@@ -22,7 +22,8 @@ use crate::{
     windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned},
 };
 use libc::intptr_t;
-use widestring::WideCString;
+
+use widestring::{WideCStr, WideCString};
 use windows_sys::{
     Win32::{
         Foundation::{
@@ -30,9 +31,10 @@ use windows_sys::{
             ERROR_BAD_PATHNAME, ERROR_CANT_ACCESS_FILE, ERROR_DIRECTORY, ERROR_FILE_NOT_FOUND,
             ERROR_FILENAME_EXCED_RANGE, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FUNCTION,
             ERROR_INVALID_HANDLE, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
-            ERROR_NOT_READY, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION,
-            GENERIC_READ, GENERIC_WRITE, GetHandleInformation, GetLastError, HANDLE,
-            HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, MAX_PATH, SetHandleInformation,
+            ERROR_NO_MORE_FILES, ERROR_NOT_READY, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND,
+            ERROR_SHARING_VIOLATION, FILETIME, GENERIC_READ, GENERIC_WRITE, GetHandleInformation,
+            GetLastError, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, MAX_PATH,
+            SetHandleInformation,
         },
         Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
         Storage::FileSystem::{
@@ -42,13 +44,14 @@ use windows_sys::{
             FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
             FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
             FILE_WRITE_ATTRIBUTES, FileAttributeTagInfo as FileAttributeTagInfoClass,
-            FileBasicInfo, FileIdInfo, FindClose, FindFirstFileW, GetDiskFreeSpaceExW,
-            GetDriveTypeW, GetFileAttributesExW, GetFileAttributesW, GetFileInformationByHandle,
-            GetFileInformationByHandleEx, GetFileType, GetFullPathNameW, GetLogicalDriveStringsW,
-            GetVolumePathNameW, GetVolumePathNamesForVolumeNameW, INVALID_FILE_ATTRIBUTES,
-            OPEN_EXISTING, RemoveDirectoryW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
+            FileBasicInfo, FileIdInfo, FindClose, FindFirstFileW, FindNextFileW,
+            GetDiskFreeSpaceExW, GetDriveTypeW, GetFileAttributesExW, GetFileAttributesW,
+            GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
+            GetFullPathNameW, GetLogicalDriveStringsW, GetVolumePathNameW,
+            GetVolumePathNamesForVolumeNameW, INVALID_FILE_ATTRIBUTES, OPEN_EXISTING,
+            RemoveDirectoryW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
             SYMBOLIC_LINK_FLAG_DIRECTORY, SetFileAttributesW, SetFileInformationByHandle,
-            WIN32_FILE_ATTRIBUTE_DATA, WIN32_FIND_DATAW,
+            SetFileTime, WIN32_FILE_ATTRIBUTE_DATA, WIN32_FIND_DATAW,
         },
         System::{
             Console,
@@ -57,7 +60,6 @@ use windows_sys::{
                 FILE_DEVICE_VIRTUAL_DISK, FSCTL_GET_REPARSE_POINT,
                 FSCTL_QUERY_PERSISTENT_VOLUME_STATE,
             },
-            SystemServices::IO_REPARSE_TAG_MOUNT_POINT,
             Threading,
             WindowsProgramming::{DRIVE_FIXED, GetUserNameW},
         },
@@ -74,6 +76,25 @@ pub use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
 };
 
+pub fn get_blocking(fd: crt_fd::Borrowed<'_>) -> io::Result<bool> {
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    Ok(mode & windows_sys::Win32::System::Pipes::PIPE_NOWAIT == 0)
+}
+
+pub fn set_blocking(fd: crt_fd::Borrowed<'_>, blocking: bool) -> io::Result<()> {
+    use windows_sys::Win32::System::Pipes::PIPE_NOWAIT;
+
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    let mode = if blocking {
+        mode & !PIPE_NOWAIT
+    } else {
+        mode | PIPE_NOWAIT
+    };
+    crate::winapi::set_named_pipe_handle_state(handle.as_raw_handle(), Some(mode), None, None)
+}
+
 pub type Handle = HANDLE;
 pub const MAX_PATH_USIZE: usize = MAX_PATH as usize;
 pub const ERROR_INVALID_HANDLE_I32: i32 = ERROR_INVALID_HANDLE as i32;
@@ -87,6 +108,10 @@ pub const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 =
     windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32;
 pub const LOAD_LIBRARY_SEARCH_USER_DIRS: u32 =
     windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_USER_DIRS;
+
+pub use windows_sys::Win32::System::SystemServices::{
+    IO_REPARSE_TAG_APPEXECLINK, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+};
 
 #[cfg(target_env = "msvc")]
 unsafe extern "C" {
@@ -112,7 +137,6 @@ pub enum TestType {
     RegularReparsePoint,
 }
 
-const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
 const S_IFMT: u16 = libc::S_IFMT as u16;
 const S_IFDIR_MODE: u16 = libc::S_IFDIR as u16;
 const S_IFCHR_MODE: u16 = libc::S_IFCHR as u16;
@@ -125,16 +149,16 @@ struct FileAttributeTagInfo {
     reparse_tag: u32,
 }
 
-const fn win32_large_integer_to_time(li: i64) -> (libc::time_t, i32) {
+const fn win32_large_integer_to_time(li: i64) -> (crate::time::TimeT, i32) {
     let nsec = ((li % 10_000_000) * 100) as i32;
-    let sec = (li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
-const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
+const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (crate::time::TimeT, i32) {
     let ticks = ((ft_high as i64) << 32) | (ft_low as i64);
     let nsec = ((ticks % 10_000_000) * 100) as i32;
-    let sec = (ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
@@ -241,11 +265,8 @@ pub enum ReadConsoleError {
     BufferTooSmall { available: usize, required: usize },
 }
 
-pub fn access(path: &Path, mode: u8) -> bool {
-    let Ok(wide) = WideCString::from_os_str(path.as_os_str()) else {
-        return false;
-    };
-    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
+pub fn access(path: &WideCStr, mode: u8) -> bool {
+    let attr = unsafe { GetFileAttributesW(path.as_ptr()) };
     attr != INVALID_FILE_ATTRIBUTES
         && (mode & 2 == 0
             || attr & FILE_ATTRIBUTE_READONLY == 0
@@ -288,33 +309,58 @@ pub fn supports_virtual_terminal() -> bool {
 }
 
 pub fn symlink(
-    src: &Path,
-    dst: &Path,
+    _src: &Path,
+    _dst: &Path,
     src_wide: &widestring::WideCStr,
     dst_wide: &widestring::WideCStr,
     target_is_directory: bool,
 ) -> io::Result<()> {
     static HAS_UNPRIVILEGED_FLAG: AtomicBool = AtomicBool::new(true);
 
-    fn check_dir(src: &Path, dst: &Path) -> bool {
+    fn check_dir(src: &widestring::WideCStr, dst: &widestring::WideCStr) -> bool {
         use windows_sys::Win32::Storage::FileSystem::GetFileExInfoStandard;
 
-        let Some(dst_parent) = dst.parent() else {
+        // `_check_dirW`: two WCHAR[MAX_PATH] buffers; a join that does not
+        // fit is "not a directory".
+        let src = src.as_slice();
+        let dst = dst.as_slice();
+        let max_path = MAX_PATH_USIZE;
+        if dst.len() >= max_path {
             return false;
-        };
-        let resolved = if src.is_absolute() {
-            src.to_path_buf()
+        }
+        let parent_len = dst
+            .iter()
+            .rposition(|&unit| unit == b'\\' as u16 || unit == b'/' as u16)
+            .unwrap_or(0);
+        let parent = &dst[..parent_len];
+        let absolute = src
+            .first()
+            .is_some_and(|&unit| unit == b'\\' as u16 || unit == b'/' as u16)
+            || (src.first().is_some_and(|&unit| unit != 0) && src.get(1) == Some(&(b':' as u16)));
+
+        let mut resolved = Vec::with_capacity(max_path);
+        if absolute {
+            if src.len() >= max_path {
+                return false;
+            }
+            resolved.extend_from_slice(src);
         } else {
-            dst_parent.join(src)
-        };
-        let wide = match widestring::WideCString::from_os_str(&resolved) {
-            Ok(wide) => wide,
-            Err(_) => return false,
-        };
+            let separator_len = usize::from(!parent.is_empty());
+            if parent.len() + separator_len + src.len() >= max_path {
+                return false;
+            }
+            resolved.extend_from_slice(parent);
+            if !parent.is_empty() {
+                resolved.push(b'\\' as u16);
+            }
+            resolved.extend_from_slice(src);
+        }
+        resolved.push(0);
+
         let mut info: WIN32_FILE_ATTRIBUTE_DATA = unsafe { core::mem::zeroed() };
         let ok = unsafe {
             GetFileAttributesExW(
-                wide.as_ptr(),
+                resolved.as_ptr(),
                 GetFileExInfoStandard,
                 (&mut info as *mut WIN32_FILE_ATTRIBUTE_DATA).cast(),
             )
@@ -326,7 +372,7 @@ pub fn symlink(
     if HAS_UNPRIVILEGED_FLAG.load(Ordering::Relaxed) {
         flags |= SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
     }
-    if target_is_directory || check_dir(src, dst) {
+    if target_is_directory || check_dir(src_wide, dst_wide) {
         flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
     }
 
@@ -346,6 +392,53 @@ pub fn symlink(
         Ok(())
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+/// `time_t_to_FILE_TIME` plus `SetFileTime`. A FILETIME counts 100ns ticks
+/// from 1601-01-01, so the epoch shift makes a second before 1970 an ordinary
+/// positive tick count. The arithmetic wraps: a second this filesystem cannot
+/// hold writes the bits the multiplication leaves.
+pub fn set_file_times(
+    path: &widestring::WideCStr,
+    atime_sec: i64,
+    atime_nsec: i64,
+    mtime_sec: i64,
+    mtime_nsec: i64,
+) -> io::Result<()> {
+    const EPOCH_DIFF: i64 = 11_644_473_600;
+    let to_filetime = |sec: i64, nsec: i64| -> FILETIME {
+        let ticks = sec
+            .wrapping_add(EPOCH_DIFF)
+            .wrapping_mul(10_000_000)
+            .wrapping_add(nsec / 100) as u64;
+        FILETIME {
+            dwLowDateTime: ticks as u32,
+            dwHighDateTime: (ticks >> 32) as u32,
+        }
+    };
+    let atime = to_filetime(atime_sec, atime_nsec);
+    let mtime = to_filetime(mtime_sec, mtime_nsec);
+    let handle = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            FILE_WRITE_ATTRIBUTES,
+            0,
+            core::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            core::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let wrote = unsafe { SetFileTime(handle, core::ptr::null(), &atime, &mtime) };
+    let error = (wrote == 0).then(io::Error::last_os_error);
+    unsafe { CloseHandle(handle) };
+    match error {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }
 
@@ -424,6 +517,228 @@ pub fn find_first_file_name(path: &widestring::WideCStr) -> io::Result<OsString>
         .position(|&c| c == 0)
         .unwrap_or(find_data.cFileName.len());
     Ok(OsString::from_wide(&find_data.cFileName[..len]))
+}
+
+/// `join_path_filenameW`: a separator goes between the directory and the name
+/// unless the directory already ends in one or in a drive's colon. An empty
+/// directory stays empty, so `FindFirstFileW("")` fails the way `os.scandir("")`
+/// reports.
+pub fn join_path_filename(dir: &[u16], name: &[u16]) -> Vec<u16> {
+    let mut joined = dir.to_vec();
+    if let Some(&last) = joined.last() {
+        if last != b'\\' as u16 && last != b'/' as u16 && last != b':' as u16 {
+            joined.push(b'\\' as u16);
+        }
+        joined.extend_from_slice(name);
+    }
+    joined
+}
+
+fn filetime_ticks(ft: FILETIME) -> u64 {
+    ((ft.dwHighDateTime as u64) << 32) | u64::from(ft.dwLowDateTime)
+}
+
+/// One `WIN32_FIND_DATAW` from a directory walk, without the two name buffers.
+#[derive(Clone, Debug)]
+pub struct ScandirEntry {
+    pub name: OsString,
+    pub file_attributes: u32,
+    pub reserved0: u32,
+    pub file_size: u64,
+    pub creation_ticks: u64,
+    pub last_access_ticks: u64,
+    pub last_write_ticks: u64,
+}
+
+impl ScandirEntry {
+    fn from_find_data(data: &WIN32_FIND_DATAW) -> Self {
+        let len = data
+            .cFileName
+            .iter()
+            .position(|&unit| unit == 0)
+            .unwrap_or(data.cFileName.len());
+        Self {
+            name: OsString::from_wide(&data.cFileName[..len]),
+            file_attributes: data.dwFileAttributes,
+            reserved0: data.dwReserved0,
+            file_size: ((data.nFileSizeHigh as u64) << 32) | u64::from(data.nFileSizeLow),
+            creation_ticks: filetime_ticks(data.ftCreationTime),
+            last_access_ticks: filetime_ticks(data.ftLastAccessTime),
+            last_write_ticks: filetime_ticks(data.ftLastWriteTime),
+        }
+    }
+
+    pub fn is_dot_or_dotdot(&self) -> bool {
+        self.name == "." || self.name == ".."
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.file_attributes & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+
+    pub fn is_symlink(&self) -> bool {
+        self.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            && self.reserved0 == IO_REPARSE_TAG_SYMLINK
+    }
+
+    pub fn is_file(&self) -> bool {
+        !self.is_directory() && !self.is_symlink()
+    }
+
+    /// A find record has no link count, file index or volume, so those
+    /// fields are 0.
+    pub fn to_stat_struct(&self) -> crate::fileutils::StatStruct {
+        use crate::fileutils::windows::{S_IFLNK, SECS_BETWEEN_EPOCHS};
+
+        let reparse_tag = if self.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            self.reserved0
+        } else {
+            0
+        };
+        let mut mode = if self.is_directory() {
+            libc::S_IFDIR | 0o111
+        } else {
+            libc::S_IFREG
+        };
+        mode |= if self.file_attributes & FILE_ATTRIBUTE_READONLY != 0 {
+            0o444
+        } else {
+            0o666
+        };
+        if reparse_tag == IO_REPARSE_TAG_SYMLINK {
+            mode = (mode & !libc::S_IFMT) | S_IFLNK;
+        }
+        let to_time = |ticks: u64| -> (crate::time::TimeT, i32) {
+            let ticks = ticks as i64;
+            (
+                ticks / 10_000_000 - SECS_BETWEEN_EPOCHS,
+                ((ticks % 10_000_000) * 100) as i32,
+            )
+        };
+        let (birthtime, birthtime_nsec) = to_time(self.creation_ticks);
+        let (mtime, mtime_nsec) = to_time(self.last_write_ticks);
+        let (atime, atime_nsec) = to_time(self.last_access_ticks);
+        crate::fileutils::StatStruct {
+            st_dev: 0,
+            st_ino: 0,
+            st_mode: mode as libc::c_ushort,
+            st_nlink: 0,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: self.file_size,
+            st_atime: atime,
+            st_atime_nsec: atime_nsec,
+            st_mtime: mtime,
+            st_mtime_nsec: mtime_nsec,
+            st_ctime: birthtime,
+            st_ctime_nsec: birthtime_nsec,
+            st_birthtime: birthtime,
+            st_birthtime_nsec: birthtime_nsec,
+            st_file_attributes: self.file_attributes as libc::c_ulong,
+            st_reparse_tag: reparse_tag,
+            st_ino_high: 0,
+        }
+    }
+}
+
+/// `rposix_scandir` Windows `SCANDIRP`: `FindFirstFileW` / `FindNextFileW`.
+/// `next_entry` does not skip `.` and `..`.
+///
+/// The find handle is stored as `isize` so the walk can sit in a `Sync`
+/// iterator lock. It is only used while `Scandir` is uniquely borrowed.
+pub struct Scandir {
+    handle: isize,
+    pending: Option<WIN32_FIND_DATAW>,
+    dir: Vec<u16>,
+}
+
+impl core::fmt::Debug for Scandir {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Scandir").finish_non_exhaustive()
+    }
+}
+
+/// `rposix_scandir.opendir`: join `*.*` onto the directory and open the walk.
+pub fn scandir(path: &widestring::WideCStr) -> io::Result<Scandir> {
+    let dir = path.as_slice().to_vec();
+    // Normalize before appending the wildcard, as CPython does. Otherwise a
+    // trailing space becomes an interior path component and is not stripped.
+    // Extended paths deliberately retain their literal spelling.
+    let normalized;
+    let search_dir = if !dir.is_empty()
+        && !dir.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
+    {
+        use std::os::windows::ffi::OsStrExt;
+        normalized = getfullpathname(path)?.encode_wide().collect::<Vec<_>>();
+        &normalized
+    } else {
+        &dir
+    };
+    let mut mask = join_path_filename(search_dir, &[b'*' as u16, b'.' as u16, b'*' as u16]);
+    mask.push(0);
+    let mut data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
+    let handle = unsafe { FindFirstFileW(mask.as_ptr(), &mut data) };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(Scandir {
+        handle: handle as isize,
+        pending: Some(data),
+        dir,
+    })
+}
+
+impl Scandir {
+    /// `rposix_scandir.nextentry`. `None` when the walk is exhausted.
+    pub fn next_entry(&mut self) -> io::Result<Option<ScandirEntry>> {
+        if self.handle == INVALID_HANDLE_VALUE as isize {
+            return Ok(None);
+        }
+        let data = if let Some(data) = self.pending.take() {
+            data
+        } else {
+            let mut data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
+            if unsafe { FindNextFileW(self.handle as HANDLE, &mut data) } == 0 {
+                let error = io::Error::last_os_error();
+                self.close();
+                return if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+                    Ok(None)
+                } else {
+                    Err(error)
+                };
+            }
+            data
+        };
+        Ok(Some(ScandirEntry::from_find_data(&data)))
+    }
+
+    pub fn dir_units(&self) -> &[u16] {
+        &self.dir
+    }
+
+    pub fn entry_path(&self, entry: &ScandirEntry) -> OsString {
+        use std::os::windows::ffi::OsStrExt;
+        OsString::from_wide(&join_path_filename(
+            &self.dir,
+            &entry.name.encode_wide().collect::<Vec<_>>(),
+        ))
+    }
+
+    /// `rposix_scandir.closedir`.
+    pub fn close(&mut self) {
+        if self.handle != INVALID_HANDLE_VALUE as isize {
+            unsafe { FindClose(self.handle as HANDLE) };
+            self.handle = INVALID_HANDLE_VALUE as isize;
+        }
+        self.pending = None;
+    }
+}
+
+impl Drop for Scandir {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 pub fn path_isdevdrive(path: &widestring::WideCStr) -> io::Result<bool> {
@@ -1084,7 +1399,7 @@ pub fn pipe() -> io::Result<(i32, i32)> {
 
     let write_fd = match crate::msvcrt::open_osfhandle(
         write_handle.as_raw_handle() as isize,
-        libc::O_WRONLY | O_NOINHERIT,
+        crate::os::O_WRONLY | O_NOINHERIT,
     ) {
         Ok(fd) => {
             let _ = write_handle.into_raw_handle();
@@ -1634,6 +1949,24 @@ pub fn handle_from_fd(fd: i32) -> HANDLE {
     unsafe { crate::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
 }
 
+/// The triple `os._getfileinformation` / `ntpath.samefile` identify a file by.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FileInformation {
+    pub volume_serial_number: u32,
+    pub file_index_high: u32,
+    pub file_index_low: u32,
+}
+
+pub fn get_file_information(handle: HANDLE) -> io::Result<FileInformation> {
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
+    unsafe { GetFileInformationByHandle(handle, &mut info) }.check_win32_bool()?;
+    Ok(FileInformation {
+        volume_serial_number: info.dwVolumeSerialNumber,
+        file_index_high: info.nFileIndexHigh,
+        file_index_low: info.nFileIndexLow,
+    })
+}
+
 pub fn console_type(handle: HANDLE) -> char {
     if is_invalid_handle(handle) {
         return '\0';
@@ -1724,27 +2057,41 @@ fn copy_from_small_buf(buf: &mut [u8; 4], dest: &mut [u8]) -> usize {
     n
 }
 
+/// The length to cut `buf` down to so it ends on a whole UTF-8 sequence:
+/// `_find_last_utf8_boundary` in `Modules/_io/winconsoleio.c`.
+///
+/// Only the last three bytes can begin a sequence the buffer does not also
+/// end, so the scan stops there.  A byte from `0xf8` up starts nothing at all
+/// -- the four-byte sequences end at `0xf7` -- and an invalid byte is left in
+/// place for the decoder to answer with U+FFFD, the same as any other byte
+/// that is not the start of an incomplete sequence.
 fn find_last_utf8_boundary(buf: &[u8], len: usize) -> usize {
     let len = len.min(buf.len());
-    for count in 1..=4.min(len) {
+    for count in 1..=3.min(len) {
         let c = buf[len - count];
         if c < 0x80 {
+            // No starting byte found.
             return len;
         }
         if c >= 0xc0 {
-            let expected = if c < 0xe0 {
-                2
+            let incomplete = if c < 0xe0 {
+                // 2-byte sequence
+                count < 2
             } else if c < 0xf0 {
-                3
+                // 3-byte sequence
+                count < 3
             } else {
-                4
+                // 4-byte sequence, or a byte that starts no sequence.
+                c < 0xf8
             };
-            if count < expected {
+            if incomplete {
                 return len - count;
             }
+            // Either complete or invalid sequence.
             return len;
         }
     }
+    // Either a complete 4-byte sequence or an invalid one.
     len
 }
 
@@ -2053,9 +2400,9 @@ pub fn open_console_path_fd(path: &widestring::WideCStr, writable: bool) -> io::
     }
 
     let osf_flags = if writable {
-        libc::O_WRONLY | libc::O_BINARY | 0x80
+        crate::os::O_WRONLY | crate::os::O_BINARY | 0x80
     } else {
-        libc::O_RDONLY | libc::O_BINARY | 0x80
+        crate::os::O_RDONLY | crate::os::O_BINARY | 0x80
     };
     match crate::msvcrt::open_osfhandle(handle as isize, osf_flags) {
         Ok(fd) => Ok(fd),
@@ -2092,6 +2439,7 @@ pub fn spawnv(
     path: &widestring::WideCStr,
     argv: &[&widestring::WideCStr],
 ) -> io::Result<intptr_t> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let result = unsafe { crate::suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
@@ -2108,6 +2456,7 @@ pub fn spawnve(
     argv: &[&widestring::WideCStr],
     envp: &[&widestring::WideCStr],
 ) -> io::Result<intptr_t> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let envp_ptrs = null_terminated_ptrs(envp);
     let result = unsafe {
@@ -2127,6 +2476,7 @@ pub fn spawnve(
 
 #[cfg(target_env = "msvc")]
 pub fn execv(path: &widestring::WideCStr, argv: &[&widestring::WideCStr]) -> io::Result<()> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let result = unsafe { crate::suppress_iph!(_wexecv(path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
@@ -2142,6 +2492,7 @@ pub fn execve(
     argv: &[&widestring::WideCStr],
     envp: &[&widestring::WideCStr],
 ) -> io::Result<()> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let envp_ptrs = null_terminated_ptrs(envp);
     let result = unsafe {
@@ -2155,5 +2506,62 @@ pub fn execve(
         Err(crate::os::errno_io_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod scandir_tests {
+    use super::*;
+
+    #[test]
+    fn trailing_space_is_normalized_except_in_extended_paths() {
+        let mut path = getfullpathname(widestring::widecstr!(".")).unwrap();
+        path.push(" ");
+        let wide = WideCString::from_os_str(&path).unwrap();
+        assert!(scandir(&wide).is_ok());
+
+        let mut extended = OsString::from("\\\\?\\");
+        extended.push(path);
+        let wide = WideCString::from_os_str(&extended).unwrap();
+        assert!(scandir(&wide).is_err());
+    }
+}
+
+#[cfg(test)]
+mod find_last_utf8_boundary_tests {
+    use super::find_last_utf8_boundary;
+
+    #[test]
+    fn keeps_a_complete_tail() {
+        assert_eq!(find_last_utf8_boundary(b"abc", 3), 3);
+        // 2-, 3- and 4-byte sequences, each ending exactly at `len`.
+        assert_eq!(find_last_utf8_boundary("a\u{a2}".as_bytes(), 3), 3);
+        assert_eq!(find_last_utf8_boundary("a\u{20ac}".as_bytes(), 4), 4);
+        assert_eq!(find_last_utf8_boundary("a\u{10348}".as_bytes(), 5), 5);
+    }
+
+    #[test]
+    fn cuts_an_incomplete_tail() {
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xc2], 2), 1);
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xe2, 0x82], 3), 1);
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xf0, 0x90, 0x8d], 4), 1);
+    }
+
+    #[test]
+    fn leaves_a_byte_that_starts_no_sequence() {
+        // 0xf8..=0xff begin nothing, so the tail is whole as it stands and
+        // the decoder answers each byte with U+FFFD.
+        for c in 0xf8..=0xffu8 {
+            assert_eq!(find_last_utf8_boundary(&[b'a', c], 2), 2, "{c:#04x}");
+            assert_eq!(find_last_utf8_boundary(&[c], 1), 1, "{c:#04x}");
+        }
+        // A continuation byte alone is not a start either.
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0x80, 0x80, 0x80], 4), 4);
+    }
+
+    #[test]
+    fn handles_an_empty_buffer() {
+        assert_eq!(find_last_utf8_boundary(b"", 0), 0);
+        assert_eq!(find_last_utf8_boundary(b"ab", 9), 2);
     }
 }

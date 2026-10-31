@@ -27,7 +27,11 @@ fn interpreter_with_config() {
 
 fn interpreter_with_vm() {
     let interpreter = rustpython_vm::Interpreter::builder(Default::default())
-        .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+        .add_frozen_modules_with_resources(
+            rustpython_pylib::FROZEN_STDLIB,
+            rustpython_pylib::FROZEN_STDLIB_RESOURCES,
+        )
+        .expect("validated embedded standard-library resources")
         .build();
     // Use interpreter.enter to reuse the same interpreter later
     interpreter.run(|vm| run("rustpython_vm::Interpreter::builder", vm));

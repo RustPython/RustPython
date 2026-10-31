@@ -18,8 +18,8 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyUtf8Str,
-        PyUtf8StrRef,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef,
+        PyUtf8Str, PyUtf8StrRef,
     },
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
@@ -44,7 +44,7 @@ pub struct PyCodec(PyTupleRef);
 impl PyCodec {
     #[inline]
     pub fn from_tuple(tuple: PyTupleRef) -> Result<Self, PyTupleRef> {
-        if tuple.len() == 4 {
+        if tuple.as_slice().len() == 4 {
             Ok(Self(tuple))
         } else {
             Err(tuple)
@@ -63,16 +63,16 @@ impl PyCodec {
 
     #[inline]
     pub fn get_encode_func(&self) -> &PyObject {
-        &self.0[0]
+        &self.0.as_slice()[0]
     }
 
     #[inline]
     pub fn get_decode_func(&self) -> &PyObject {
-        &self.0[1]
+        &self.0.as_slice()[1]
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let is_text = vm.get_attribute_opt(self.0.clone().into(), "_is_text_encoding")?;
+        let is_text = vm.get_attribute_opt(self.0.as_object(), "_is_text_encoding")?;
         is_text.map_or(Ok(true), |is_text| is_text.try_to_bool(vm))
     }
 
@@ -90,10 +90,10 @@ impl PyCodec {
         let res = res
             .downcast::<PyTuple>()
             .ok()
-            .filter(|tuple| tuple.len() == 2)
+            .filter(|tuple| tuple.as_slice().len() == 2)
             .ok_or_else(|| vm.new_type_error("encoder must return a tuple (object, integer)"))?;
         // we don't actually care about the integer
-        Ok(res[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn decode(
@@ -110,10 +110,10 @@ impl PyCodec {
         let res = res
             .downcast::<PyTuple>()
             .ok()
-            .filter(|tuple| tuple.len() == 2)
+            .filter(|tuple| tuple.as_slice().len() == 2)
             .ok_or_else(|| vm.new_type_error("decoder must return a tuple (object,integer)"))?;
         // we don't actually care about the integer
-        Ok(res[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn get_incremental_encoder(
@@ -168,15 +168,34 @@ impl CodecsRegistry {
         }
 
         let methods = METHODS.get_or_init(|| {
-            crate::define_methods![
-                "strict_errors" => strict_errors as EMPTY,
-                "ignore_errors" => ignore_errors as EMPTY,
-                "replace_errors" => replace_errors as EMPTY,
-                "xmlcharrefreplace_errors" => xmlcharrefreplace_errors as EMPTY,
-                "backslashreplace_errors" => backslashreplace_errors as EMPTY,
-                "namereplace_errors" => namereplace_errors as EMPTY,
-                "surrogatepass_errors" => surrogatepass_errors as EMPTY,
-                "surrogateescape_errors" => surrogateescape_errors as EMPTY
+            macro_rules! error_handler {
+                ($name:literal, $func:ident) => {{
+                    #[cfg(feature = "doc")]
+                    const DOC: crate::function::ItemDoc =
+                        crate::function::ItemDoc::db(concat!("codecs.", $name));
+                    crate::function::PyMethodDef {
+                        name: $name,
+                        func: crate::function::static_func($func),
+                        flags: crate::function::PyMethodFlags::O,
+                        #[cfg(feature = "doc")]
+                        doc_off: DOC.offset,
+                        #[cfg(feature = "doc")]
+                        doc_len: DOC.len,
+                        #[cfg(feature = "doc")]
+                        doc_body_pending: false,
+                        doc: Some(concat!($name, "($self, object, /)\n--\n\n")),
+                    }
+                }};
+            }
+            vec![
+                error_handler!("strict_errors", strict_errors),
+                error_handler!("ignore_errors", ignore_errors),
+                error_handler!("replace_errors", replace_errors),
+                error_handler!("xmlcharrefreplace_errors", xmlcharrefreplace_errors),
+                error_handler!("backslashreplace_errors", backslashreplace_errors),
+                error_handler!("namereplace_errors", namereplace_errors),
+                error_handler!("surrogatepass_errors", surrogatepass_errors),
+                error_handler!("surrogateescape_errors", surrogateescape_errors),
             ]
             .into_boxed_slice()
         });
@@ -215,34 +234,38 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    pub fn unregister(&self, search_function: PyObjectRef) {
+    pub fn unregister(&self, search_function: &PyObject) {
         let mut inner = self.inner.write();
         // Do nothing if search_path is not created yet or was cleared.
         if inner.search_path.is_empty() {
             return;
         }
 
-        for (i, item) in inner.search_path.iter().enumerate() {
-            if item.get_id() == search_function.get_id() {
-                if !inner.search_cache.is_empty() {
-                    inner.search_cache.clear();
-                }
-                inner.search_path.remove(i);
-                return;
-            }
+        if let Some(i) = inner
+            .search_path
+            .iter()
+            .position(|item| item.get_id() == search_function.get_id())
+        {
+            let cache = core::mem::take(&mut inner.search_cache);
+            let function = inner.search_path.remove(i);
+            drop(inner);
+            drop((cache, function));
         }
     }
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
-        let name = normalize_encoding_name(name);
-        self.inner
+        let name = normalize_registry_name(name);
+        let previous = self
+            .inner
             .write()
             .search_cache
             .insert(name.into_owned(), codec);
+        drop(previous);
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
-        let encoding = normalize_encoding_name(encoding);
+        let original_encoding = encoding;
+        let encoding = normalize_registry_name(encoding);
         let search_path = {
             let inner = self.inner.read();
             if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
@@ -257,17 +280,21 @@ impl CodecsRegistry {
             let res = func.call((encoding.clone(),), vm)?;
             let res: Option<PyCodec> = res.try_into_value(vm)?;
             if let Some(codec) = res {
-                let mut inner = self.inner.write();
-                // someone might have raced us to this, so use theirs
-                let codec = inner
-                    .search_cache
-                    .entry(encoding.as_str().to_owned())
-                    .or_insert(codec);
-                return Ok(codec.clone());
+                let cached = {
+                    let mut inner = self.inner.write();
+                    // someone might have raced us to this, so use theirs
+                    // Keep our tuple alive until the registry lock is released.
+                    inner
+                        .search_cache
+                        .entry(encoding.as_str().to_owned())
+                        .or_insert_with(|| codec.clone())
+                        .clone()
+                };
+                return Ok(cached);
             }
         }
 
-        Err(vm.new_lookup_error(format!("unknown encoding: {encoding}")))
+        Err(vm.new_lookup_error(format!("unknown encoding: {original_encoding}")))
     }
 
     fn _lookup_text_encoding(
@@ -288,7 +315,7 @@ impl CodecsRegistry {
     }
 
     pub fn forget(&self, encoding: &str) -> Option<PyCodec> {
-        let encoding = normalize_encoding_name(encoding);
+        let encoding = normalize_registry_name(encoding);
         self.inner.write().search_cache.remove(encoding.as_ref())
     }
 
@@ -325,6 +352,13 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
+        if let Some(b) =
+            Self::encode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
+                Self::add_codec_note(exc, "encoding", encoding, vm);
+            })?
+        {
+            return Ok(b);
+        }
         let codec = self._lookup_text_encoding(encoding, "codecs.encode()", vm)?;
         codec
             .encode(obj.into(), errors, vm)
@@ -342,6 +376,29 @@ impl CodecsRegistry {
             })
     }
 
+    /// The text an encoded object holds. An object holding nothing decodes to
+    /// the empty string without the encoding ever being looked up.
+    /// = PyUnicode_FromEncodedObject
+    pub fn decode_text_object(
+        &self,
+        obj: PyObjectRef,
+        encoding: &str,
+        errors: Option<PyUtf8StrRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        let empty = if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
+            bytes.as_bytes().is_empty()
+        } else if let Some(bytes) = obj.downcast_ref::<PyByteArray>() {
+            bytes.borrow_buf().is_empty()
+        } else {
+            false
+        };
+        if empty {
+            return Ok(vm.ctx.empty_str.to_owned());
+        }
+        self.decode_text(obj, encoding, errors, vm)
+    }
+
     pub fn decode_text(
         &self,
         obj: PyObjectRef,
@@ -349,6 +406,13 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
+        if let Some(s) =
+            Self::decode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
+                Self::add_codec_note(exc, "decoding", encoding, vm);
+            })?
+        {
+            return Ok(s);
+        }
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
         codec
             .decode(obj, errors, vm)
@@ -364,6 +428,90 @@ impl CodecsRegistry {
                     obj.class().name(),
                 ))
             })
+    }
+
+    /// Fast path for decoding with the "utf-8", "ascii" or "latin-1"
+    /// encodings (and their common aliases), used by `bytes.decode()` /
+    /// `str(bytes, encoding)`.
+    ///
+    /// CPython's `PyUnicode_Decode` special-cases a handful of built-in
+    /// encoding names -- these among them -- and decodes them directly in C
+    /// without ever consulting the codec registry, so a `codecs.register()`
+    /// override does not affect `str(b"...", "utf-8")` there either. This
+    /// mirrors that behavior, skipping the registry lookup, the
+    /// `_is_text_encoding` attribute probe, and the round trip through the
+    /// pure-Python `encodings.*.decode` wrapper and its 2-tuple result.
+    fn decode_fast(
+        obj: &PyObject,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyStrRef>> {
+        let Some(fast) = FastCodec::classify(encoding) else {
+            return Ok(None);
+        };
+        let Ok(data) = ArgBytesLike::try_from_object(vm, obj.to_owned()) else {
+            return Ok(None);
+        };
+        let errors_handler = ErrorsHandler::new(errors, vm);
+        let (decoded, _consumed) = match fast {
+            FastCodec::Utf8 => {
+                let ctx = PyDecodeContext::new(DEFAULT_ENCODING, &data, vm);
+                crate::common::encodings::utf8::decode(ctx, &errors_handler, true)?
+            }
+            FastCodec::Ascii => {
+                let ctx =
+                    PyDecodeContext::new(crate::common::encodings::ascii::ENCODING_NAME, &data, vm);
+                crate::common::encodings::ascii::decode(ctx, &errors_handler)?
+            }
+            FastCodec::Latin1 => {
+                let ctx = PyDecodeContext::new(
+                    crate::common::encodings::latin_1::ENCODING_NAME,
+                    &data,
+                    vm,
+                );
+                crate::common::encodings::latin_1::decode(ctx, &errors_handler)?
+            }
+        };
+        Ok(Some(vm.ctx.new_str(decoded)))
+    }
+
+    /// Fast path for encoding with the "utf-8", "ascii" or "latin-1"
+    /// encodings (and their common aliases), used by `str.encode()` /
+    /// `bytes(s, encoding)`. See [`Self::decode_fast`] for the rationale.
+    fn encode_fast(
+        obj: &Py<PyStr>,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyBytesRef>> {
+        let Some(fast) = FastCodec::classify(encoding) else {
+            return Ok(None);
+        };
+        if fast == FastCodec::Utf8 && obj.is_utf8() {
+            // No surrogates in the string, so encoding is just its existing
+            // (already UTF-8) bytes, whatever the error handler is: it can
+            // never be reached since there's nothing to fail to encode.
+            return Ok(Some(vm.ctx.new_bytes(obj.as_bytes().to_vec())));
+        }
+        let errors_handler = ErrorsHandler::new(errors, vm);
+        let encoded = match fast {
+            FastCodec::Utf8 => {
+                let ctx = PyEncodeContext::new(DEFAULT_ENCODING, obj, vm);
+                crate::common::encodings::utf8::encode(ctx, &errors_handler)?
+            }
+            FastCodec::Ascii => {
+                let ctx =
+                    PyEncodeContext::new(crate::common::encodings::ascii::ENCODING_NAME, obj, vm);
+                crate::common::encodings::ascii::encode(ctx, &errors_handler)?
+            }
+            FastCodec::Latin1 => {
+                let ctx =
+                    PyEncodeContext::new(crate::common::encodings::latin_1::ENCODING_NAME, obj, vm);
+                crate::common::encodings::latin_1::encode(ctx, &errors_handler)?
+            }
+        };
+        Ok(Some(vm.ctx.new_bytes(encoded)))
     }
 
     fn add_codec_note(
@@ -396,7 +544,8 @@ impl CodecsRegistry {
                 "cannot un-register built-in error handler '{name}'"
             )));
         }
-        Ok(self.inner.write().errors.remove(name).is_some())
+        let handler = self.inner.write().errors.remove(name);
+        Ok(handler.is_some())
     }
 
     pub fn lookup_error_opt(&self, name: &str) -> Option<PyObjectRef> {
@@ -407,6 +556,99 @@ impl CodecsRegistry {
         self.lookup_error_opt(name)
             .ok_or_else(|| vm.new_lookup_error(format!("unknown error handler name '{name}'")))
     }
+}
+
+/// Encodings recognized by [`CodecsRegistry::decode_fast`] and
+/// [`CodecsRegistry::encode_fast`], covering the built-in encodings whose
+/// native (de)coders are cheap to call directly, bypassing the codec
+/// registry round trip. Matches the alias sets in `Lib/encodings/aliases.py`.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FastCodec {
+    Utf8,
+    Ascii,
+    Latin1,
+}
+
+impl FastCodec {
+    fn classify(encoding: &str) -> Option<Self> {
+        const UTF8_ALIASES: &[&str] = &[
+            "utf_8",
+            "utf8",
+            "u8",
+            "utf",
+            "utf8_ucs2",
+            "utf8_ucs4",
+            "cp65001",
+        ];
+        const ASCII_ALIASES: &[&str] = &[
+            "ascii",
+            "646",
+            "ansi_x3.4_1968",
+            "ansi_x3_4_1968",
+            "ansi_x3.4_1986",
+            "cp367",
+            "csascii",
+            "ibm367",
+            "iso646_us",
+            "iso_646.irv_1991",
+            "iso_ir_6",
+            "us",
+            "us_ascii",
+        ];
+        const LATIN1_ALIASES: &[&str] = &[
+            "latin_1",
+            "8859",
+            "cp819",
+            "csisolatin1",
+            "ibm819",
+            "iso8859",
+            "iso8859_1",
+            "iso_8859_1",
+            "iso_8859_1_1987",
+            "iso_ir_100",
+            "l1",
+            "latin",
+            "latin1",
+        ];
+        // The spellings used most often, matched before normalizing allocates.
+        match encoding {
+            "utf-8" | "utf8" | "UTF-8" => return Some(Self::Utf8),
+            "ascii" => return Some(Self::Ascii),
+            "latin-1" | "latin1" | "iso-8859-1" => return Some(Self::Latin1),
+            _ => {}
+        }
+        let normalized = normalize_encoding_name(encoding);
+        let normalized = normalized.as_ref();
+        if UTF8_ALIASES.contains(&normalized) {
+            Some(Self::Utf8)
+        } else if ASCII_ALIASES.contains(&normalized) {
+            Some(Self::Ascii)
+        } else if LATIN1_ALIASES.contains(&normalized) {
+            Some(Self::Latin1)
+        } else {
+            None
+        }
+    }
+}
+
+fn normalize_registry_name(encoding: &str) -> Cow<'_, str> {
+    if !encoding
+        .bytes()
+        .any(|b| b.is_ascii_uppercase() || b == b' ')
+    {
+        return encoding.into();
+    }
+    encoding
+        .chars()
+        .map(|c| {
+            if c == ' ' {
+                '-'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect::<String>()
+        .into()
 }
 
 fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
@@ -681,7 +923,7 @@ impl EncodeContext for PyEncodeContext<'_> {
                     let reason = reason.expect(
                         "should only ever pass reason: None if an exception is already set",
                     );
-                    vm.new_unicode_encode_error_real(
+                    vm.new_unicode_encode_error(
                         vm.ctx.new_str(self.encoding),
                         self.data.to_owned(),
                         range.start.chars,
@@ -714,7 +956,7 @@ impl Deref for PyDecodeData<'_> {
     fn deref(&self) -> &Self::Target {
         match self {
             PyDecodeData::Original(data) => data,
-            PyDecodeData::Modified(data) => data,
+            PyDecodeData::Modified(data) => data.as_bytes(),
         }
     }
 }
@@ -1170,7 +1412,7 @@ fn is_translate_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.unicode_translate_error)
 }
 
-fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
+fn bad_err_type(err: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_type_error(format!(
         "don't know how to handle {} in error callback",
         err.class().name()
@@ -1188,7 +1430,7 @@ fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef
         let range = extract_unicode_error_range(&err, vm)?;
         Ok((vm.ctx.new_str(ascii!("")).into(), range.end))
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1204,7 +1446,7 @@ fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRe
         let replace = replacement_char.repeat(range.end - range.start);
         Ok((replace.to_pyobject(vm), range.end))
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1215,7 +1457,7 @@ fn xmlcharrefreplace_errors(
     if is_encode_err(&err, vm) {
         call_native_encode_error(errors::XmlCharRefReplace, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1230,7 +1472,7 @@ fn backslashreplace_errors(
     } else if is_translate_err(&err, vm) {
         call_native_translate_error(errors::BackslashReplace, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1238,7 +1480,7 @@ fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObje
     if is_encode_err(&err, vm) {
         call_native_encode_error(errors::NameReplace, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1248,7 +1490,7 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyOb
     } else if is_decode_err(&err, vm) {
         call_native_decode_error(SurrogatePass, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1258,6 +1500,6 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Py
     } else if is_decode_err(&err, vm) {
         call_native_decode_error(errors::SurrogateEscape, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }

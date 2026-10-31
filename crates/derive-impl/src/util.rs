@@ -1,11 +1,13 @@
+use crate::metadata::{NestedMeta, PunctuatedNestedMeta, nested_meta};
 use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{Attribute, FnArg, Ident, Result, Signature, UseTree, spanned::Spanned};
-use syn_ext::{
-    ext::{AttributeExt as SynAttributeExt, *},
-    types::*,
+use syn::Meta;
+use syn::visit::Visit;
+use syn::visit_mut::VisitMut;
+use syn::{
+    Attribute, FnArg, Ident, Result, Signature, Type, UseTree, ext::IdentExt, spanned::Spanned,
 };
 
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
@@ -129,24 +131,32 @@ impl ItemMetaInner {
     where
         I: core::iter::Iterator<Item = NestedMeta>,
     {
-        let (meta_map, lits) = nested.into_unique_map_and_lits(|path| {
-            if let Some(ident) = path.get_ident() {
-                let name = ident.to_string();
-                if allowed_names.contains(&name.as_str()) {
-                    Ok(Some(name))
-                } else {
-                    Err(err_span!(
-                        ident,
-                        "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
-                        allowed_names.iter().format(", ")
-                    ))
-                }
-            } else {
-                Ok(None)
+        let mut meta_map = HashMap::new();
+        let mut has_literal = false;
+        for (index, nested) in nested.enumerate() {
+            let NestedMeta::Meta(meta) = nested else {
+                has_literal = true;
+                continue;
+            };
+            let Some(ident) = meta.path().get_ident() else {
+                continue;
+            };
+            let name = ident.to_string();
+            if !allowed_names.contains(&name.as_str()) {
+                bail_span!(
+                    ident,
+                    "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
+                    allowed_names.iter().format(", ")
+                );
             }
-        })?;
-
-        if !lits.is_empty() {
+            if let Some((_, previous)) = meta_map.insert(name, (index, meta)) {
+                return Err(syn::Error::new_spanned(
+                    previous,
+                    "this attribute path must be unique in the attribute",
+                ));
+            }
+        }
+        if has_literal {
             bail_span!(meta_ident, "#[{meta_ident}(..)] cannot contain literal")
         }
 
@@ -243,22 +253,16 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub(crate) fn _optional_list(
-        &self,
-        key: &str,
-    ) -> Result<Option<impl core::iter::Iterator<Item = &'_ NestedMeta>>> {
-        let value = if let Some((_, meta)) = self.meta_map.get(key) {
-            let Meta::List(MetaList {
-                path: _, nested, ..
-            }) = meta
-            else {
-                bail_span!(meta, "#[{}({}(...))] must be a list", self.meta_name(), key)
-            };
-            Some(nested.into_iter())
-        } else {
-            None
-        };
-        Ok(value)
+    pub(crate) fn _optional_list(&self, key: &str) -> Result<Option<PunctuatedNestedMeta>> {
+        self.meta_map
+            .get(key)
+            .map(|(_, meta)| {
+                let Meta::List(list) = meta else {
+                    bail_span!(meta, "#[{}({}(...))] must be a list", self.meta_name(), key)
+                };
+                nested_meta(list)
+            })
+            .transpose()
     }
 }
 
@@ -362,6 +366,7 @@ impl ItemMeta for ClassItemMeta {
         "impl",
         "traverse",
         "clear", // tp_clear
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -401,6 +406,10 @@ impl ClassItemMeta {
 
     pub(crate) fn ctx_name(&self) -> Result<Option<String>> {
         self.inner()._optional_str("ctx")
+    }
+
+    pub(crate) fn manual_payload(&self) -> Result<bool> {
+        Ok(self.inner()._optional_str("payload")?.as_deref() == Some("manual"))
     }
 
     pub(crate) fn base(&self) -> Result<Option<syn::Path>> {
@@ -473,6 +482,7 @@ impl ItemMeta for ExceptionItemMeta {
         "ctx",
         "impl",
         "traverse",
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -524,6 +534,15 @@ impl ExceptionItemMeta {
     pub(crate) fn has_impl(&self) -> Result<bool> {
         self.inner()._bool("impl")
     }
+
+    /// `module = "..."` when present. Omitted means a builtin exception.
+    pub(crate) fn optional_module(&self) -> Result<Option<String>> {
+        if self.inner().meta_map.contains_key("module") {
+            self.module()
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl core::ops::Deref for ExceptionItemMeta {
@@ -534,7 +553,7 @@ impl core::ops::Deref for ExceptionItemMeta {
     }
 }
 
-pub(crate) trait AttributeExt: SynAttributeExt {
+pub(crate) trait AttributeExt {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta>;
 
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)>;
@@ -548,70 +567,85 @@ pub(crate) trait AttributeExt: SynAttributeExt {
 
 impl AttributeExt for Attribute {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta> {
-        let list = self.promoted_list().map_err(|mut e| {
-            let name = self.get_ident().unwrap().to_string();
-            e.combine(err_span!(
-                self,
-                r##"#[{name} = "..."] cannot be a name/value, you probably meant \
-                 #[{name}(name = "...")]"##,
-            ));
-            e
-        })?;
-        Ok(list.nested)
+        match &self.meta {
+            Meta::Path(_) => Ok(PunctuatedNestedMeta::new()),
+            Meta::List(list) => nested_meta(list),
+            meta => {
+                let mut error = syn::Error::new_spanned(
+                    meta,
+                    "Only Path can be promoted and List is accepted as non-promoted",
+                );
+                let name = self.path().get_ident().unwrap();
+                error.combine(err_span!(
+                    self,
+                    r##"#[{name} = "..."] cannot be a name/value, you probably meant \
+                     #[{name}(name = "...")]"##
+                ));
+                Err(error)
+            }
+        }
     }
 
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)> {
-        Ok((self.get_ident().unwrap(), self.promoted_nested()?))
+        Ok((self.path().get_ident().unwrap(), self.promoted_nested()?))
     }
 
     fn try_remove_name(&mut self, item_name: &str) -> Result<Option<NestedMeta>> {
-        self.try_meta_mut(|meta| {
-            let nested = match meta {
-                Meta::List(MetaList { nested, .. }) => Ok(nested),
-                other => Err(syn::Error::new(
-                    other.span(),
-                    format!(
-                        "#[{name}(...)] doesn't contain '{item}' to remove",
-                        name = other.get_ident().unwrap(),
-                        item = item_name
-                    ),
-                )),
-            }?;
-
-            let mut found = None;
-            for (i, item) in nested.iter().enumerate() {
-                if item.get_ident().is_none_or(|ident| ident != item_name) {
-                    continue;
+        let Meta::List(list) = &mut self.meta else {
+            bail_span!(
+                self.meta,
+                "#[{name}(...)] doesn't contain '{item}' to remove",
+                name = self.path().get_ident().unwrap(),
+                item = item_name
+            );
+        };
+        let nested = nested_meta(list)?;
+        let mut retained = PunctuatedNestedMeta::new();
+        let mut removed = None;
+        for pair in nested.into_pairs() {
+            if pair
+                .value()
+                .get_ident()
+                .is_some_and(|ident| ident == item_name)
+            {
+                if removed.is_some() {
+                    bail_span!(
+                        pair.value(),
+                        "#[py..({item_name}...)] must be unique but found multiple times"
+                    );
                 }
-
-                if found.is_some() {
-                    return Err(syn::Error::new(
-                        item.span(),
-                        format!("#[py..({item_name}...)] must be unique but found multiple times"),
-                    ));
-                }
-                found = Some(i);
+                removed = Some(pair.into_value());
+            } else {
+                retained.extend([pair]);
             }
-
-            Ok(found.map(|idx| nested.remove(idx).into_value()))
-        })
+        }
+        list.tokens = retained.into_token_stream();
+        Ok(removed)
     }
 
     fn fill_nested_meta<F>(&mut self, name: &str, new_item: F) -> Result<()>
     where
         F: Fn() -> NestedMeta,
     {
-        self.try_meta_mut(|meta| {
-            let list = meta.promote_to_list(Default::default())?;
-            let has_name = list
-                .nested
-                .iter()
-                .any(|nested_meta| nested_meta.get_path().is_some_and(|p| p.is_ident(name)));
-            if !has_name {
-                list.nested.push(new_item())
+        let mut nested = self.promoted_nested()?;
+        if !nested.iter().any(|item| {
+            matches!(item,
+            NestedMeta::Meta(meta) if meta.path().is_ident(name))
+        }) {
+            nested.push(new_item());
+        }
+        match &mut self.meta {
+            Meta::List(list) => list.tokens = nested.into_token_stream(),
+            Meta::Path(path) => {
+                self.meta = Meta::List(syn::MetaList {
+                    path: path.clone(),
+                    delimiter: syn::MacroDelimiter::Paren(Default::default()),
+                    tokens: nested.into_token_stream(),
+                })
             }
-            Ok(())
-        })
+            Meta::NameValue(_) => unreachable!("promoted_nested rejects name-value attributes"),
+        }
+        Ok(())
     }
 }
 
@@ -730,136 +764,259 @@ where
     Ok(())
 }
 
-// Best effort attempt to generate a template from which a
-// __text_signature__ can be created.
-//
-// Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument yet,
-// so there's no module to mark with `$module`.
-pub(crate) fn text_signature(sig: &Signature, name: &str) -> Option<String> {
-    let signature = func_sig(sig)?;
-    // Arguments bind through `FuncArgs::take_positional`, which never consults
-    // the keyword map, so they are positional-only. `*args`/`**kwargs` cannot be
-    // followed by `/`, and an empty parameter list has nothing to mark.
-    let signature = if signature.is_empty() || signature.contains('*') {
-        format!("{name}({signature})")
-    } else {
-        format!("{name}({signature}, /)")
-    };
-    Some(signature)
+enum SigPiece {
+    Marker(String),
+    Arg {
+        name: String,
+        ty: Type,
+    },
+    /// Parameters of the argument a method binds as its receiver.
+    Implicit(Type),
 }
 
-pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
-    // Best-effort mapping of Rust function signatures to CPython-style
-    // METH_* calling convention flags used by CALL specialization.
-    let mut typed_args = Vec::new();
-    for arg in &sig.inputs {
-        let FnArg::Typed(typed) = arg else {
-            continue;
-        };
-        let ty_tokens = &typed.ty;
-        let ty = quote!(#ty_tokens).to_string().replace(' ', "");
-        // `vm: &VirtualMachine` is not a Python-level argument.
-        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
-            continue;
-        }
-        typed_args.push(ty);
-    }
+fn is_vm_or_callee(ty: &Type) -> bool {
+    let ty = quote!(#ty).to_string().replace(' ', "");
+    (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee")
+}
 
-    let mut user_args = typed_args.into_iter();
-    for _ in 0..drop_first_typed {
-        if user_args.next().is_none() {
-            break;
+fn arg_name(pat: &syn::Pat) -> String {
+    match pat {
+        syn::Pat::Ident(pat) => {
+            let ident = pat.ident.unraw().to_string();
+            ident.strip_prefix('_').unwrap_or(&ident).to_owned()
         }
-    }
-
-    let mut has_keywords = false;
-    let mut variable_arity = false;
-    let mut fixed_positional = 0usize;
-
-    for ty in user_args {
-        let is_named = |name: &str| {
-            ty == name
-                || ty.starts_with(&format!("{name}<"))
-                || ty.contains(&format!("::{name}<"))
-                || ty.ends_with(&format!("::{name}"))
-        };
-
-        if is_named("FuncArgs") {
-            has_keywords = true;
-            variable_arity = true;
-            continue;
-        }
-        if is_named("KwArgs") {
-            has_keywords = true;
-            variable_arity = true;
-            continue;
-        }
-        if is_named("PosArgs") || is_named("OptionalArg") || is_named("OptionalOption") {
-            variable_arity = true;
-            continue;
-        }
-        fixed_positional += 1;
-    }
-
-    if has_keywords {
-        quote! {
-            rustpython_vm::function::PyMethodFlags::from_bits_retain(
-                rustpython_vm::function::PyMethodFlags::FASTCALL.bits()
-                    | rustpython_vm::function::PyMethodFlags::KEYWORDS.bits()
-            )
-        }
-    } else if variable_arity {
-        quote! { rustpython_vm::function::PyMethodFlags::FASTCALL }
-    } else {
-        match fixed_positional {
-            0 => quote! { rustpython_vm::function::PyMethodFlags::NOARGS },
-            1 => quote! { rustpython_vm::function::PyMethodFlags::O },
-            _ => quote! { rustpython_vm::function::PyMethodFlags::FASTCALL },
-        }
+        // `Fildes(fd): Fildes` contributes `fd`. One binding only: a wider
+        // pattern has no single parameter name. The name is unused when the
+        // type supplies parameters.
+        syn::Pat::TupleStruct(pat) if pat.elems.len() == 1 => arg_name(&pat.elems[0]),
+        syn::Pat::Reference(pat) => arg_name(&pat.pat),
+        syn::Pat::Paren(pat) => arg_name(&pat.pat),
+        _ => String::new(),
     }
 }
 
-/// Returns None when an argument has no name to report, in which case no
-/// signature can be generated for the function.
-fn func_sig(sig: &Signature) -> Option<String> {
-    let mut params = Vec::new();
-    for arg in &sig.inputs {
-        let arg = match arg {
-            FnArg::Typed(typed) => typed,
-            FnArg::Receiver(_) => {
-                params.push("$self".to_owned());
-                continue;
+fn mentions_self(ty: &Type) -> bool {
+    struct Finder(bool);
+    impl Visit<'_> for Finder {
+        fn visit_ident(&mut self, ident: &Ident) {
+            if ident == "Self" {
+                self.0 = true;
             }
-        };
-        let ty = arg.ty.as_ref();
-        let ty = quote!(#ty).to_string();
-        if ty == "FuncArgs" {
-            params.push("*args, **kwargs".to_owned());
-            continue;
         }
-        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
-            continue;
-        }
-        // An argument bound by a destructuring pattern, e.g.
-        // `fn round(RoundArgs { number, ndigits }: RoundArgs, ..)`, has no name
-        // to report. Stringifying the pattern would emit Rust syntax, which
-        // makes inspect.signature() raise "invalid signature".
-        let syn::Pat::Ident(pat) = arg.pat.as_ref() else {
-            return None;
-        };
-        let ident = pat.ident.to_string();
-        if ident == "zelf" {
-            params.push("$self".to_owned());
-            continue;
-        }
-        if ident == "vm" {
-            unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
-        }
-        params.push(ident);
     }
-    Some(params.join(", "))
+    let mut finder = Finder(false);
+    finder.visit_type(ty);
+    finder.0
 }
 
-pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
-    format!("{sig}\n--\n\n{doc}")
+fn subst_self(ty: &Type, self_ty: Option<&Type>) -> Type {
+    struct Subst<'a>(&'a Type);
+    impl VisitMut for Subst<'_> {
+        fn visit_type_mut(&mut self, ty: &mut Type) {
+            if let Type::Path(path) = ty
+                && path.qself.is_none()
+                && path.path.is_ident("Self")
+            {
+                *ty = self.0.clone();
+                return;
+            }
+            syn::visit_mut::visit_type_mut(self, ty);
+        }
+    }
+    let Some(self_ty) = self_ty else {
+        return ty.clone();
+    };
+    let mut ty = ty.clone();
+    Subst(self_ty).visit_type_mut(&mut ty);
+    ty
+}
+
+fn sig_pieces(
+    sig: &Signature,
+    implicit_self: Option<&str>,
+    self_ty: Option<&Type>,
+    leading_marker: Option<&str>,
+) -> Vec<SigPiece> {
+    let mut pieces = Vec::new();
+    if let Some(marker) = leading_marker {
+        pieces.push(SigPiece::Marker(marker.to_owned()));
+    }
+    let mut implicit_self = implicit_self.map(str::to_owned);
+    for arg in &sig.inputs {
+        match arg {
+            FnArg::Receiver(_) => pieces.push(SigPiece::Marker("$self".to_owned())),
+            FnArg::Typed(typed) => {
+                if is_vm_or_callee(&typed.ty) {
+                    continue;
+                }
+                let name = arg_name(&typed.pat);
+                let ty = subst_self(&typed.ty, self_ty);
+                // References carry a lifetime, so `FromArgs` cannot be named
+                // from a const item. They are leaf positional parameters.
+                let leaf = mentions_self(&ty) || matches!(ty, Type::Reference(_));
+                if let Some(marker) = implicit_self.take() {
+                    // A nested const cannot name `Self`. The receiver is the
+                    // marker; only a type that supplies parameters is kept.
+                    pieces.push(SigPiece::Marker(marker));
+                    if !leaf {
+                        pieces.push(SigPiece::Implicit(ty));
+                    }
+                } else if leaf {
+                    pieces.push(SigPiece::Marker(name));
+                } else {
+                    pieces.push(SigPiece::Arg { name, ty });
+                }
+            }
+        }
+    }
+    pieces
+}
+
+fn sig_arg_tokens(piece: &SigPiece) -> TokenStream {
+    match piece {
+        SigPiece::Marker(name) => quote!(::rustpython_vm::function::SigArg::marker(#name)),
+        SigPiece::Arg { name, ty } => {
+            quote!(::rustpython_vm::function::SigArg::from_arg::<#ty>(#name))
+        }
+        SigPiece::Implicit(ty) => quote!(::rustpython_vm::function::SigArg::implicit::<#ty>()),
+    }
+}
+
+fn args_const(pieces: &[SigPiece]) -> TokenStream {
+    let args = pieces.iter().map(sig_arg_tokens);
+    quote! {
+        const ARGS: &[::rustpython_vm::function::SigArg] = &[#(#args),*];
+    }
+}
+
+/// Expression of type `ItemDoc`.
+/// `doc` is a const `ItemDoc` already chosen by the caller (a Rust doc comment
+/// wins over the stored docstring). A database id keeps only the signature
+/// prefix as static text. A Rust docstring is composed into one literal.
+pub(crate) fn internal_doc_tokens(
+    sig: &Signature,
+    py_name: &str,
+    implicit_self: Option<&str>,
+    doc: TokenStream,
+    self_ty: Option<&Type>,
+    leading_marker: Option<&str>,
+) -> TokenStream {
+    let args_const = args_const(&sig_pieces(sig, implicit_self, self_ty, leading_marker));
+    quote! {
+        {
+            #args_const
+            const BASE: ::rustpython_vm::function::ItemDoc = #doc;
+            if !::rustpython_vm::function::has_signature(ARGS) {
+                if BASE.len == 0 {
+                    match BASE.text {
+                        Some(text) if !text.is_empty() => {
+                            ::rustpython_vm::function::ItemDoc::static_text(text)
+                        }
+                        _ => ::rustpython_vm::function::ItemDoc::NONE,
+                    }
+                } else {
+                    BASE
+                }
+            } else if BASE.len != 0 {
+                const N: usize = ::rustpython_vm::function::signature_prefix_len(#py_name, ARGS);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::signature_prefix_bytes::<N>(#py_name, ARGS);
+                const PREFIX: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                ::rustpython_vm::__cfg_doc!({
+                    ::rustpython_vm::function::ItemDoc {
+                        text: Some(PREFIX),
+                        offset: BASE.offset,
+                        len: BASE.len,
+                    }
+                } else {
+                    ::rustpython_vm::function::ItemDoc::static_text(PREFIX)
+                })
+            } else {
+                const BODY: &str = match BASE.text {
+                    Some(text) => text,
+                    None => "",
+                };
+                const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, BODY);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, BODY);
+                const FULL: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                ::rustpython_vm::function::ItemDoc::static_text(FULL)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    use syn::{parse::Parser, parse_quote};
+
+    fn parse_options(source: &str) -> Result<ItemMetaInner> {
+        let args = PunctuatedNestedMeta::parse_terminated.parse_str(source)?;
+        ItemMetaInner::from_nested(
+            parse_quote!(Example),
+            parse_quote!(pyclass),
+            args.into_iter(),
+            &["name", "impl"],
+        )
+    }
+
+    #[test]
+    fn option_validation_keeps_contextual_diagnostics() {
+        assert_eq!(
+            parse_options("name, name").err().unwrap().to_string(),
+            "this attribute path must be unique in the attribute"
+        );
+        assert_eq!(
+            parse_options("7").err().unwrap().to_string(),
+            "#[pyclass(..)] cannot contain literal"
+        );
+        assert_eq!(
+            parse_options("unknown").err().unwrap().to_string(),
+            "#[pyclass(unknown)] is not one of allowed attributes [name, impl]"
+        );
+        let options = parse_options("impl, name = \"Example\"").unwrap();
+        assert!(options._bool("impl").unwrap());
+        assert_eq!(
+            options._optional_str("name").unwrap().as_deref(),
+            Some("Example")
+        );
+    }
+
+    #[test]
+    fn attribute_edits_preserve_other_options_and_delimiters() {
+        let mut attr: Attribute = parse_quote!(#[pyclass(name, no_attr, module = false,)]);
+        assert!(attr.try_remove_name("no_attr").unwrap().is_some());
+        attr.fill_nested_meta("module", || parse_quote!(module = "replacement"))
+            .unwrap();
+        assert_eq!(
+            quote!(#attr).to_string(),
+            quote!(#[pyclass(name, module = false,)]).to_string()
+        );
+        assert!(attr.try_remove_name("missing").unwrap().is_none());
+        let mut bare: Attribute = parse_quote!(#[pyclass]);
+        bare.fill_nested_meta("name", || parse_quote!(name = "Example"))
+            .unwrap();
+        assert_eq!(
+            quote!(#bare).to_string(),
+            quote!(#[pyclass(name = "Example")]).to_string()
+        );
+    }
+
+    #[test]
+    fn failed_duplicate_removal_does_not_mutate_attribute() {
+        let mut attr: Attribute = parse_quote!(#[pyclass(no_attr, no_attr)]);
+        let original = quote!(#attr).to_string();
+        assert_eq!(
+            attr.try_remove_name("no_attr").err().unwrap().to_string(),
+            "#[py..(no_attr...)] must be unique but found multiple times"
+        );
+        assert_eq!(quote!(#attr).to_string(), original);
+    }
 }

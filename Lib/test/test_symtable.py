@@ -5,6 +5,7 @@ Test the API of the symtable module.
 import re
 import textwrap
 import symtable
+import warnings
 import unittest
 
 from test import support
@@ -254,6 +255,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(sorted(func.get_locals()), expected)
         self.assertEqual(sorted(func.get_globals()), ["bar", "glob", "some_assigned_global_var"])
         self.assertEqual(self.internal.get_frees(), ("x",))
+        self.assertEqual(self.spam.get_cells(), ("some_var", "x",))
 
     def test_globals(self):
         self.assertTrue(self.spam.lookup("glob").is_global())
@@ -283,6 +285,9 @@ class SymtableTest(unittest.TestCase):
     def test_free(self):
         self.assertTrue(self.internal.lookup("x").is_free())
 
+    def test_cells(self):
+        self.assertTrue(self.spam.lookup("x").is_cell())
+
     def test_referenced(self):
         self.assertTrue(self.internal.lookup("x").is_referenced())
         self.assertTrue(self.spam.lookup("internal").is_referenced())
@@ -299,7 +304,6 @@ class SymtableTest(unittest.TestCase):
 
         self.assertRaises(KeyError, self.top.lookup, "not_here")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_namespaces(self):
         self.assertTrue(self.top.lookup("Mine").is_namespace())
         self.assertTrue(self.Mine.lookup("a_method").is_namespace())
@@ -360,7 +364,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.spam.lookup("x").get_name(), "x")
         self.assertEqual(self.Mine.get_name(), "Mine")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Tuples differ: () != ('a_method',)
     def test_class_get_methods(self):
         deprecation_mess = (
             re.escape('symtable.Class.get_methods() is deprecated '
@@ -442,7 +445,6 @@ class SymtableTest(unittest.TestCase):
                         check_body('\n'.join((gen, func)), ('genexpr',))
                         check_body('\n'.join((func, gen)), ('genexpr',))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: name 'x' is parameter and global
     def test_filename_correct(self):
         ### Bug tickler: SyntaxError file name correct whether error raised
         ### while parsing or building symbol table.
@@ -474,7 +476,6 @@ class SymtableTest(unittest.TestCase):
     def test_exec(self):
         symbols = symtable.symtable("def f(x): return x", "?", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_bytes(self):
         top = symtable.symtable(TEST_CODE.encode('utf8'), "?", "exec")
         self.assertIsNotNone(find_block(top, "Mine"))
@@ -531,12 +532,88 @@ class SymtableTest(unittest.TestCase):
         expected = f"<symtable entry top({self.top.get_id()}), line {self.top.get_lineno()}>"
         self.assertEqual(repr(self.top._table), expected)
 
+    def test_lambda(self):
+        st = symtable.symtable("lambda x: x", "?", "exec")
+        self.assertEqual(len(st.get_children()), 1)
+        st = st.get_children()[0]
+        self.assertIs(st.get_type(), symtable.SymbolTableType.FUNCTION)
+        self.assertEqual(st.get_name(), "<lambda>")
+        self.assertFalse(st.is_nested())
+        self.assertEqual(sorted(st.get_identifiers()), ["x"])
+        self.assertEqual(st.get_children(), [])
+
+    def test_nested_lambda(self):
+        st = symtable.symtable("lambda x: lambda y=x: y", "?", "exec")
+        self.assertEqual(len(st.get_children()), 1)
+        st = st.get_children()[0]
+        self.assertIs(st.get_type(), symtable.SymbolTableType.FUNCTION)
+        self.assertEqual(st.get_name(), "<lambda>")
+        self.assertFalse(st.is_nested())
+        self.assertEqual(sorted(st.get_identifiers()), ["x"])
+        self.assertEqual(len(st.get_children()), 1)
+        st = st.get_children()[0]
+        self.assertIs(st.get_type(), symtable.SymbolTableType.FUNCTION)
+        self.assertEqual(st.get_name(), "<lambda>")
+        self.assertTrue(st.is_nested())
+        self.assertEqual(sorted(st.get_identifiers()), ["y"])
+        self.assertEqual(st.get_children(), [])
+
+    def test_genexpr(self):
+        st = symtable.symtable("(x for x in a)", "?", "exec")
+        self.assertEqual(len(st.get_children()), 1)
+        st = st.get_children()[0]
+        self.assertIs(st.get_type(), symtable.SymbolTableType.FUNCTION)
+        self.assertEqual(st.get_name(), "<genexpr>")
+        self.assertFalse(st.is_nested())
+        self.assertEqual(sorted(st.get_identifiers()), [".0", "x"])
+        self.assertEqual(st.get_children(), [])
+
+    def test_nested_genexpr(self):
+        st = symtable.symtable("((y for y in x) for x in a)", "?", "exec")
+        self.assertEqual(len(st.get_children()), 1)
+        st = st.get_children()[0]
+        self.assertIs(st.get_type(), symtable.SymbolTableType.FUNCTION)
+        self.assertEqual(st.get_name(), "<genexpr>")
+        self.assertFalse(st.is_nested())
+        self.assertEqual(sorted(st.get_identifiers()), [".0", "x"])
+        self.assertEqual(len(st.get_children()), 1)
+        st = st.get_children()[0]
+        self.assertIs(st.get_type(), symtable.SymbolTableType.FUNCTION)
+        self.assertEqual(st.get_name(), "<genexpr>")
+        self.assertTrue(st.is_nested())
+        self.assertEqual(sorted(st.get_identifiers()), [".0", "y"])
+        self.assertEqual(st.get_children(), [])
+
     def test__symtable_refleak(self):
         # Regression test for reference leak in PyUnicode_FSDecoder.
         # See https://github.com/python/cpython/issues/139748.
         mortal_str = 'this is a mortal string'
         # check error path when 'compile_type' AC conversion failed
         self.assertRaises(TypeError, symtable.symtable, '', mortal_str, 1)
+
+    def test_filter_syntax_warnings_by_module(self):
+        filename = support.findfile('test_import/data/syntax_warnings.py')
+        with open(filename, 'rb') as f:
+            source = f.read()
+        module_re = r'test\.test_import\.data\.syntax_warnings\z'
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=module_re)
+            symtable.symtable(source, filename, 'exec')
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10])
+        for wm in wlog:
+            self.assertEqual(wm.filename, filename)
+            self.assertIs(wm.category, SyntaxWarning)
+
+        with warnings.catch_warnings(record=True) as wlog:
+            warnings.simplefilter('error')
+            warnings.filterwarnings('always', module=r'package\.module\z')
+            warnings.filterwarnings('error', module=module_re)
+            symtable.symtable(source, filename, 'exec', module='package.module')
+        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10])
+        for wm in wlog:
+            self.assertEqual(wm.filename, filename)
+            self.assertIs(wm.category, SyntaxWarning)
 
 
 class ComprehensionTests(unittest.TestCase):
@@ -563,7 +640,6 @@ class ComprehensionTests(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_file(self):
         filename = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, filename)

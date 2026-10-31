@@ -2,6 +2,7 @@
 # Most tests are executed with environment variables ignored
 # See test_cmd_line_script.py for testing of script execution
 
+import locale
 import os
 import re
 import subprocess
@@ -32,6 +33,17 @@ def _kill_python_and_exit_code(p):
     return data, returncode
 
 
+def presite_func():
+    print("presite func")
+
+class Namespace:
+    pass
+
+presite = Namespace()
+presite.attr = Namespace()
+presite.attr.func = presite_func
+
+
 class CmdLineTest(unittest.TestCase):
     def test_directories(self):
         assert_python_failure('.')
@@ -46,6 +58,7 @@ class CmdLineTest(unittest.TestCase):
         return out
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help(self):
         self.verify_valid_flag('-h')
         self.verify_valid_flag('-?')
@@ -57,6 +70,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertLess(len(lines), 50)
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help_env(self):
         out = self.verify_valid_flag('--help-env')
         self.assertIn(b'PYTHONHOME', out)
@@ -70,6 +84,7 @@ class CmdLineTest(unittest.TestCase):
                              "env vars should be sorted alphabetically")
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help_xoptions(self):
         out = self.verify_valid_flag('--help-xoptions')
         self.assertIn(b'-X dev', out)
@@ -78,6 +93,7 @@ class CmdLineTest(unittest.TestCase):
                          "options should be sorted alphabetically")
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help_all(self):
         out = self.verify_valid_flag('--help-all')
         lines = out.splitlines()
@@ -88,6 +104,25 @@ class CmdLineTest(unittest.TestCase):
         # The first line contains the program name,
         # but the rest should be ASCII-only
         b''.join(lines[1:]).decode('ascii')
+
+    @support.cpython_only
+    @support.force_colorized
+    def test_help_colorized(self):
+        rc, out, err = assert_python_ok("--help", FORCE_COLOR="1")
+        # Check ANSI color codes are present
+        self.assertIn(b"\x1b[", out)
+        # Check that key text elements are still present
+        self.assertIn(b"usage:", out)
+        self.assertIn(b"-h", out)
+        self.assertIn(b"--help-all", out)
+        self.assertIn(b"cmd", out)
+        self.assertIn(b"Arguments:", out)
+
+    @support.cpython_only
+    @support.force_not_colorized
+    def test_help_not_colorized(self):
+        rc, out, err = assert_python_ok("--help")
+        self.assertNotIn(b"\x1b[", out)
 
     def test_optimize(self):
         self.verify_valid_flag('-O')
@@ -259,7 +294,6 @@ class CmdLineTest(unittest.TestCase):
     # command line, but how subprocess does decode bytes to unicode. Python
     # doesn't decode the command line because Windows provides directly the
     # arguments as unicode (using wmain() instead of main()).
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_undecodable_code(self):
@@ -295,7 +329,6 @@ class CmdLineTest(unittest.TestCase):
         if not stdout.startswith(pattern):
             raise AssertionError("%a doesn't start with %a" % (stdout, pattern))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_invalid_utf8_arg(self):
@@ -322,6 +355,10 @@ class CmdLineTest(unittest.TestCase):
             cmd = [sys.executable, '-X', 'utf8', '-c', code, arg]
             return subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
 
+        def run_no_utf8_mode(arg):
+            cmd = [sys.executable, '-X', 'utf8=0', '-c', code, arg]
+            return subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+
         valid_utf8 = 'e:\xe9, euro:\u20ac, non-bmp:\U0010ffff'.encode('utf-8')
         # invalid UTF-8 byte sequences with a valid UTF-8 sequence
         # in the middle.
@@ -334,8 +371,27 @@ class CmdLineTest(unittest.TestCase):
         )
         test_args = [valid_utf8, invalid_utf8]
 
-        for run_cmd in (run_default, run_c_locale, run_utf8_mode):
-            with self.subTest(run_cmd=run_cmd):
+        for run_cmd, encoding in (
+            (run_default, sys.getfilesystemencoding()),
+            (run_c_locale, None),
+            (run_utf8_mode, None),
+            (run_no_utf8_mode, locale.getencoding())
+        ):
+            with self.subTest(run_cmd=run_cmd.__name__):
+                # Arbitrary bytes round-trip through surrogateescape only in
+                # UTF-8 and single-byte encodings, not in a multibyte encoding
+                # such as EUC-JP.
+                if encoding is not None:
+                    try:
+                        lossless = len(bytes(range(256)).decode(
+                            encoding, 'surrogateescape')) == 256
+                    except UnicodeError:
+                        lossless = False
+                else:
+                    lossless = True
+                if not lossless:
+                    self.skipTest(f'{encoding} cannot losslessly '
+                                  f'round-trip arbitrary bytes')
                 for arg in test_args:
                     proc = run_cmd(arg)
                     self.assertEqual(proc.stdout.rstrip(), ascii(arg))
@@ -433,14 +489,12 @@ class CmdLineTest(unittest.TestCase):
             path = ":".join(sys.path)
             path = path.encode("ascii", "backslashreplace")
             sys.stdout.buffer.write(path)"""
-        # TODO: RUSTPYTHON we must unset RUSTPYTHONPATH as well
         rc1, out1, err1 = assert_python_ok('-c', code, PYTHONPATH="", RUSTPYTHONPATH="")
         rc2, out2, err2 = assert_python_ok('-c', code, __isolated=False)
         # regarding to Posix specification, outputs should be equal
         # for empty and unset PYTHONPATH
         self.assertEqual(out1, out2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_displayhook_unencodable(self):
         for encoding in ('ascii', 'latin-1', 'utf-8'):
             env = os.environ.copy()
@@ -509,6 +563,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(b'', out)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @force_not_colorized
     def test_stdout_flush_at_shutdown(self):
         # Issue #5319: if stdout.flush() fails at shutdown, an error should
         # be printed out.
@@ -671,7 +726,6 @@ class CmdLineTest(unittest.TestCase):
                                           cwd=tmpdir)
             self.assertEqual(out.strip(), b"ok")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sys_flags_set(self):
         # Issue 31845: a startup refactoring broke reading flags from env vars
         for value, expected in (("", 0), ("1", 1), ("text", 1), ("2", 2)):
@@ -693,7 +747,6 @@ class CmdLineTest(unittest.TestCase):
             with self.subTest(envar_value=value):
                 assert_python_ok('-c', code, **env_vars)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_pycache_prefix(self):
         # sys.pycache_prefix can be set from either -X pycache_prefix or
         # PYTHONPYCACHEPREFIX env var, with the former taking precedence.
@@ -822,7 +875,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc)
         return proc.stdout.rstrip()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_warnings_filter_precedence(self):
         expected_filters = ("error::BytesWarning "
                             "once::UserWarning "
@@ -901,7 +953,6 @@ class CmdLineTest(unittest.TestCase):
             with self.subTest(env_var=env_var, name=name):
                 self.check_pythonmalloc(env_var, name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pythondevmode_env(self):
         # Test the PYTHONDEVMODE environment variable
         code = "import sys; print(sys.flags.dev_mode)"
@@ -985,7 +1036,6 @@ class CmdLineTest(unittest.TestCase):
                 contents = file.read()
                 self.assertIn('Remaining objects', contents)
 
-    @unittest.expectedFailureIf(sys.platform == "darwin", "TODO: RUSTPYTHON")
     @unittest.skipUnless(sys.platform == 'darwin', 'PYTHONEXECUTABLE only works on macOS')
     def test_python_executable(self):
         code = 'import sys; print(sys.executable)'
@@ -1067,6 +1117,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.stdout.strip(), b'0')
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_parsing_error(self):
         args = [sys.executable, '-I', '--unknown-option']
         proc = subprocess.run(args,
@@ -1192,7 +1243,6 @@ class CmdLineTest(unittest.TestCase):
         code = template.replace('-', '\t').replace('+', ' ')
         assert_python_failure('-c', code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cpu_count(self):
         code = "import os; print(os.cpu_count(), os.process_cpu_count())"
         res = assert_python_ok('-X', 'cpu_count=4321', '-c', code)
@@ -1209,7 +1259,6 @@ class CmdLineTest(unittest.TestCase):
         res = assert_python_ok('-c', code, PYTHON_CPU_COUNT='default')
         self.assertEqual(self.res2int(res), (os.cpu_count(), os.process_cpu_count()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_import_time(self):
         # os is not imported at startup
         code = 'import os; import os'
@@ -1227,6 +1276,24 @@ class CmdLineTest(unittest.TestCase):
 
         assert_python_failure('-X', 'importtime=-1', '-c', code)
         assert_python_failure('-X', 'importtime=3', '-c', code)
+
+    def test_import_time_unencodable_module_name(self):
+        code = textwrap.dedent("""
+            import sys, types
+            name = 'mod\\ud800'
+            sys.modules[name] = types.ModuleType(name)
+            __import__(name)
+            try:
+                __import__('nonexistent\\ud800')
+            except ModuleNotFoundError:
+                pass
+        """)
+        res = assert_python_ok('-X', 'importtime=2', '-c', code)
+        res_err = res.err.decode('utf-8')
+        self.assertRegex(res_err,
+                         r'import time: cached\s* \| cached\s* \| mod\\ud800')
+        self.assertRegex(res_err,
+                         r'import time: \s*\d+ \| \s*\d+ \| \s*nonexistent\\ud800')
 
     def res2int(self, res):
         out = res.out.strip().decode("utf-8")
@@ -1284,6 +1351,28 @@ class CmdLineTest(unittest.TestCase):
         rc, out, err = assert_python_failure(PYTHON_TLBC="2")
         self.assertIn(b"PYTHON_TLBC=N: N is missing or invalid", err)
 
+    @unittest.skipUnless(support.Py_DEBUG,
+                         '-X presite requires a Python debug build')
+    def test_presite(self):
+        entrypoint = "test.test_cmd_line:presite_func"
+        proc = assert_python_ok("-X", f"presite={entrypoint}", "-c", "pass")
+        self.assertEqual(proc.out.rstrip(), b"presite func")
+
+        entrypoint = "test.test_cmd_line:presite.attr.func"
+        proc = assert_python_ok("-X", f"presite={entrypoint}", "-c", "pass")
+        self.assertEqual(proc.out.rstrip(), b"presite func")
+
+    def test_dump_path_config(self):
+        # gh-151253: At the first import (import encodings) during Python
+        # startup, if the import fails, dump the Python path configuration.
+        nonexistent = '/nonexistent-python-path'
+        # Use -X frozen_modules=off to disable frozen encodings module
+        # on release build.
+        cmd = ["-X", "frozen_modules=off", "-c", "pass"]
+        proc = assert_python_failure(*cmd, PYTHONHOME=nonexistent)
+        self.assertIn(b'Python path configuration:', proc.err)
+        self.assertIn(f"PYTHONHOME = '{nonexistent}'".encode(), proc.err)
+
 
 @unittest.skipIf(interpreter_requires_environment(),
                  'Cannot run -I tests when PYTHON env vars are required.')
@@ -1332,11 +1421,9 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertNotEqual(proc.stderr, None)
         self.assertIn(b"\nSyntaxError", proc.stderr)
 
-    @unittest.expectedFailureIf(not support.is_android, "TODO: RUSTPYTHON")
     def test_tokenizer_error_with_stdin(self):
         self.check_string(b"(1+2+3")
 
-    @unittest.expectedFailureIf(not support.is_android, "TODO: RUSTPYTHON")
     def test_decoding_error_at_the_end_of_the_line(self):
         self.check_string(br"'\u1f'")
 

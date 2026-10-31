@@ -3,8 +3,8 @@
 
 use core::slice;
 
-pub const MAX_LEN_UTF8: usize = 4;
-pub const MAX_LEN_UTF16: usize = 2;
+pub(crate) const MAX_LEN_UTF8: usize = 4;
+pub(crate) const MAX_LEN_UTF16: usize = 2;
 
 // UTF-8 ranges and tags for encoding characters
 const TAG_CONT: u8 = 0b1000_0000;
@@ -17,7 +17,7 @@ const MAX_THREE_B: u32 = 0x10000;
 
 #[inline]
 #[must_use]
-pub const fn len_utf8(code: u32) -> usize {
+pub(crate) const fn len_utf8(code: u32) -> usize {
     match code {
         ..MAX_ONE_B => 1,
         ..MAX_TWO_B => 2,
@@ -47,7 +47,7 @@ const fn len_utf16(code: u32) -> usize {
 /// A buffer of length four is large enough to encode any `char`.
 #[doc(hidden)]
 #[inline]
-pub fn encode_utf8_raw(code: u32, dst: &mut [u8]) -> &mut [u8] {
+pub(crate) fn encode_utf8_raw(code: u32, dst: &mut [u8]) -> &mut [u8] {
     let len = len_utf8(code);
     match (len, &mut *dst) {
         (1, [a, ..]) => {
@@ -91,7 +91,7 @@ pub fn encode_utf8_raw(code: u32, dst: &mut [u8]) -> &mut [u8] {
 /// A buffer of length 2 is large enough to encode any `char`.
 #[doc(hidden)]
 #[inline]
-pub fn encode_utf16_raw(mut code: u32, dst: &mut [u16]) -> &mut [u16] {
+pub(crate) fn encode_utf16_raw(mut code: u32, dst: &mut [u16]) -> &mut [u16] {
     let len = len_utf16(code);
     match (len, &mut *dst) {
         (1, [a, ..]) => {

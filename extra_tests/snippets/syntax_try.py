@@ -367,3 +367,104 @@ def generator_return_from_try():
 
 
 assert generator_return_from_try() == [["z"]]
+
+
+# the copy of the finally body is emitted where the try block is left, so its
+# nested scopes must be looked up past the ones the rest of the try block opens
+def scopes_after_the_early_exit():
+    log = []
+
+    def run(data, leave_early):
+        try:
+            if leave_early:
+                return "early"
+            return list(s * 2 for s in data)
+        finally:
+            log.append(sorted(k for k in data))
+
+    assert run([1, 2], True) == "early"
+    assert run([3, 1], False) == [6, 2]
+    return log
+
+
+assert scopes_after_the_early_exit() == [[1, 2], [1, 3]]
+
+
+# a nested function in the try block is a scope too: taking its symbol table
+# for the generator expression below built one without the `.0` argument
+def named_scope_after_the_early_exit():
+    log = []
+
+    def run(data, leave_early):
+        try:
+            if leave_early:
+                return "early"
+
+            def inner():
+                return [x + 1 for x in data]
+
+            return inner()
+        finally:
+            log.append(sorted(k for k in data))
+
+    assert run([2, 1], True) == "early"
+    assert run([2, 1], False) == [3, 2]
+    return log
+
+
+assert named_scope_after_the_early_exit() == [[1, 2], [1, 2]]
+
+
+# scopes that share a name resolve by position, so `inner` must not be found
+# where the try block declares it
+def same_name_scope_after_the_early_exit():
+    log = []
+
+    def run(value, leave_early):
+        try:
+            if leave_early:
+                return "early"
+
+            def inner():
+                return value
+
+            return inner()
+        finally:
+
+            def inner():
+                return log
+
+            assert inner() is log
+            log.append((lambda x: x + value)(1))
+
+    assert run(10, True) == "early"
+    assert run(20, False) == 20
+    return log
+
+
+assert same_name_scope_after_the_early_exit() == [11, 21]
+
+
+# breaking and continuing out of a loop copy the finally body the same way
+def loop_exit_with_scopes_after_it():
+    seen = []
+    for i in range(4):
+        try:
+            if i == 1:
+                continue
+            if i == 3:
+                break
+            seen.append(sorted(t for t in [i]))
+        finally:
+            seen.append(sorted(k for k in [i, i + 1]))
+    return seen
+
+
+assert loop_exit_with_scopes_after_it() == [
+    [0],
+    [0, 1],
+    [1, 2],
+    [2],
+    [2, 3],
+    [3, 4],
+], loop_exit_with_scopes_after_it()

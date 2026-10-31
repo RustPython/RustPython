@@ -26,7 +26,7 @@ else:
 )
 class ListSharedLibraries(unittest.TestCase):
 
-    @unittest.skipIf(not APPLE, "TODO: RUSTPYTHON")
+    @unittest.skipIf(not APPLE and sys.platform != "linux", "TODO: RUSTPYTHON")
     def test_lists_system(self):
         dlls = ctypes.util.dllist()
 

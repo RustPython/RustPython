@@ -8,6 +8,10 @@ repository = { workspace = true }
 license = { workspace = true }
 rust-version = { workspace = true }
 
+[features]
+default = ["ucd_3_2_0"]
+ucd_3_2_0 = []
+
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
@@ -20,6 +24,8 @@ writeable = { workspace = true }
 
 [build-dependencies]
 icu_properties = { workspace = true }
+unicode_names2 = { workspace = true }
+zlib-rs = { workspace = true }
 
 [lints]
 workspace = true

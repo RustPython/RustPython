@@ -51,14 +51,6 @@ class PyPickleTests(AbstractPickleModuleTests, unittest.TestCase):
     Pickler = pickle._Pickler
     Unpickler = pickle._Unpickler
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_dump_load_oob_buffers(self):
-        return super().test_dump_load_oob_buffers()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_dumps_loads_oob_buffers(self):
-        return super().test_dumps_loads_oob_buffers()
-
 
 class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
 
@@ -67,6 +59,8 @@ class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
     truncated_errors = (pickle.UnpicklingError, EOFError,
                         AttributeError, ValueError,
                         struct.error, IndexError, ImportError)
+    truncated_data_error = (EOFError, '')
+    size_overflow_error = (pickle.UnpicklingError, 'exceeds')
 
     def loads(self, buf, **kwds):
         f = io.BytesIO(buf)
@@ -84,18 +78,6 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
         p.dump(arg)
         f.seek(0)
         return bytes(f.read())
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_buffer_callback_error(self):
-        return super().test_buffer_callback_error()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_non_continuous_buffer(self):
-        return super().test_non_continuous_buffer()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_picklebuffer_error(self):
-        return super().test_picklebuffer_error()
 
 
 class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
@@ -116,32 +98,12 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
         return u.load()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_buffers_error(self):
-        return super().test_buffers_error()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bytearray_memoization(self):
-        return super().test_bytearray_memoization()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bytes_memoization(self):
-        return super().test_bytes_memoization()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c_methods(self):
         return super().test_c_methods()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_in_band_buffers(self):
-        return super().test_in_band_buffers()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_oob_buffers(self):
-        return super().test_oob_buffers()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_oob_buffers_writable_to_readonly(self):
-        return super().test_oob_buffers_writable_to_readonly()
+    @unittest.expectedFailureIf(sys.getrecursionlimit() == 256, "TODO: RUSTPYTHON; default debug recursion limit is 256")
+    def test_deep_nested_struct_frozendict(self):
+        return super().test_deep_nested_struct_frozendict()
 
 
 class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
@@ -151,6 +113,8 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     truncated_errors = (pickle.UnpicklingError, EOFError,
                         AttributeError, ValueError,
                         struct.error, IndexError, ImportError)
+    truncated_data_error = ((pickle.UnpicklingError, EOFError), '')
+    size_overflow_error = ((OverflowError, pickle.UnpicklingError), 'exceeds')
 
     def dumps(self, arg, protocol=None, **kwargs):
         return pickle.dumps(arg, protocol, **kwargs)
@@ -163,32 +127,8 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     test_custom_find_class = None
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_buffers_error(self):
-        return super().test_buffers_error()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bytearray_memoization(self):
-        return super().test_bytearray_memoization()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bytes_memoization(self):
-        return super().test_bytes_memoization()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c_methods(self):
         return super().test_c_methods()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_in_band_buffers(self):
-        return super().test_in_band_buffers()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_oob_buffers(self):
-        return super().test_oob_buffers()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_oob_buffers_writable_to_readonly(self):
-        return super().test_oob_buffers_writable_to_readonly()
 
 
 class PersistentPicklerUnpicklerMixin(object):
@@ -451,6 +391,8 @@ if has_c_implementation:
         unpickler = _pickle.Unpickler
         bad_stack_errors = (pickle.UnpicklingError,)
         truncated_errors = (pickle.UnpicklingError,)
+        truncated_data_error = (pickle.UnpicklingError, 'truncated')
+        size_overflow_error = (OverflowError, 'exceeds')
 
     class CPicklingErrorTests(PyPicklingErrorTests):
         pickler = _pickle.Pickler
@@ -458,6 +400,10 @@ if has_c_implementation:
     class CPicklerTests(PyPicklerTests):
         pickler = _pickle.Pickler
         unpickler = _pickle.Unpickler
+
+        @unittest.expectedSuccess  # TODO: RUSTPYTHON; native pickler passes at the default debug recursion limit
+        def test_deep_nested_struct_frozendict(self):
+            return super().test_deep_nested_struct_frozendict()
 
     class CPersPicklerTests(PyPersPicklerTests):
         pickler = _pickle.Pickler
@@ -471,6 +417,10 @@ if has_c_implementation:
     class CDumpPickle_LoadPickle(PyPicklerTests):
         pickler = _pickle.Pickler
         unpickler = pickle._Unpickler
+
+        @unittest.expectedSuccess  # TODO: RUSTPYTHON; native pickler passes at the default debug recursion limit
+        def test_deep_nested_struct_frozendict(self):
+            return super().test_deep_nested_struct_frozendict()
 
     class DumpPickle_CLoadPickle(PyPicklerTests):
         pickler = pickle._Pickler
@@ -594,7 +544,7 @@ if has_c_implementation:
                 0)  # Write buffer is cleared after every dump().
 
         def test_unpickler(self):
-            basesize = support.calcobjsize('2P2n2P 2P2n2i5P 2P3n8P2n3i')
+            basesize = support.calcobjsize('2P2n3P 2P2n2i5P 2P5n8P2n3i')
             unpickler = _pickle.Unpickler
             P = struct.calcsize('P')  # Size of memo table entry.
             n = struct.calcsize('n')  # Size of mark table entry.

@@ -13,6 +13,7 @@ import warnings
 
 from test import support
 from test.support import os_helper
+from test.support import warnings_helper
 
 try:
     import _testlimitedcapi
@@ -1199,7 +1200,6 @@ class EscapeDecodeTest(unittest.TestCase):
         check(br"[\x41]", b"[A]")
         check(br"[\x410]", b"[A0]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_warnings(self):
         decode = codecs.escape_decode
         check = coding_checker(self, decode)
@@ -1622,6 +1622,15 @@ class IDNACodecTest(unittest.TestCase):
         self.assertEqual("python.org.".encode("idna"), b"python.org.")
         self.assertEqual("pyth\xf6n.org".encode("idna"), b"xn--pythn-mua.org")
         self.assertEqual("pyth\xf6n.org.".encode("idna"), b"xn--pythn-mua.org.")
+
+    @support.subTests(['unicode', 'encoded'], [
+        ('\N{CHEROKEE LETTER A}\N{CHEROKEE LETTER A}', b"xn--58da"),
+        ('\N{GEORGIAN CAPITAL LETTER AN}.', b"xn--7md."),
+        ('\N{CYRILLIC LETTER PALOCHKA}.example', b"xn--d5a.example"),
+        ('\N{ROMAN NUMERAL REVERSED ONE HUNDRED}.example.', b"xn--q5g.example."),
+    ])
+    def test_new_unicode_case_folding(self, unicode, encoded):
+        self.assertEqual(unicode.encode("idna"), encoded)
 
     def test_builtin_encode_invalid(self):
         for case, expected in self.invalid_encode_testcases:
@@ -2155,7 +2164,6 @@ broken_unicode_with_stateful = [
 
 
 class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_basics(self):
         s = "abc123"  # all codecs should be able to encode these
         for encoding in all_unicode_encodings:
@@ -2275,7 +2283,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
                         self.assertEqual(decodedresult, s,
                                          "encoding=%r" % encoding)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_seek(self):
         # all codecs should be able to encode these
         s = "%s\n%s\n" % (100*"abc123", 100*"def456")
@@ -2291,7 +2298,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
                 data = reader.read()
                 self.assertEqual(s, data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_bad_decode_args(self):
         for encoding in all_unicode_encodings:
             decoder = codecs.getdecoder(encoding)
@@ -2299,7 +2305,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
             if encoding not in ("idna", "punycode"):
                 self.assertRaises(TypeError, decoder, 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_bad_encode_args(self):
         for encoding in all_unicode_encodings:
             encoder = codecs.getencoder(encoding)
@@ -2311,7 +2316,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
         table_type = type(cp1140.encoding_table)
         self.assertEqual(table_type, table_type)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_decoder_state(self):
         # Check that getstate() and setstate() handle the state properly
         u = "abc123"
@@ -2585,7 +2589,6 @@ class WithStmtTest(unittest.TestCase):
 
 
 class TypesTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_decode_unicode(self):
         # Most decoders don't accept unicode input
         decoders = [
@@ -2687,7 +2690,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         check(br"\u20ac", "\u20ac")
         check(br"\U0001d120", "\U0001d120")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_decode_warnings(self):
         decode = codecs.unicode_escape_decode
         check = coding_checker(self, decode)
@@ -2775,10 +2777,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
                 '\x00\t\n\r\\\xff\uffff\U00010000',
             ]
         )
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: index out of range
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
 
 class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
     encoding = "raw-unicode-escape"
@@ -3366,7 +3364,6 @@ class CodePageTest(unittest.TestCase):
                 self.assertRaises(UnicodeEncodeError,
                     text.encode, f'cp{cp}', errors)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cp932(self):
         self.check_encode(932, (
             ('abc', 'strict', b'abc'),
@@ -3887,38 +3884,38 @@ class Rot13UtilTest(unittest.TestCase):
 class CodecNameNormalizationTest(unittest.TestCase):
     """Test codec name normalization"""
     def test_codecs_lookup(self):
-        FOUND = (1, 2, 3, 4)
-        NOT_FOUND = (None, None, None, None)
         def search_function(encoding):
-            if encoding == "aaa_8":
-                return FOUND
+            if encoding.startswith("test."):
+                return (encoding, 2, 3, 4)
             else:
-                return NOT_FOUND
+                return None
 
         codecs.register(search_function)
         self.addCleanup(codecs.unregister, search_function)
-        self.assertEqual(FOUND, codecs.lookup('aaa_8'))
-        self.assertEqual(FOUND, codecs.lookup('AAA-8'))
-        self.assertEqual(FOUND, codecs.lookup('AAA---8'))
-        self.assertEqual(FOUND, codecs.lookup('AAA   8'))
-        self.assertEqual(FOUND, codecs.lookup('aaa\xe9\u20ac-8'))
-        self.assertEqual(NOT_FOUND, codecs.lookup('AAA.8'))
-        self.assertEqual(NOT_FOUND, codecs.lookup('AAA...8'))
-        self.assertEqual(NOT_FOUND, codecs.lookup('BBB-8'))
-        self.assertEqual(NOT_FOUND, codecs.lookup('BBB.8'))
-        self.assertEqual(NOT_FOUND, codecs.lookup('a\xe9\u20ac-8'))
+        self.assertEqual(codecs.lookup('test.aaa_8'), ('test.aaa_8', 2, 3, 4))
+        self.assertEqual(codecs.lookup('TEST.AAA-8'), ('test.aaa-8', 2, 3, 4))
+        self.assertEqual(codecs.lookup('TEST.AAA 8'), ('test.aaa-8', 2, 3, 4))
+        self.assertEqual(codecs.lookup('TEST.AAA---8'), ('test.aaa---8', 2, 3, 4))
+        self.assertEqual(codecs.lookup('TEST.AAA   8'), ('test.aaa---8', 2, 3, 4))
+        self.assertEqual(codecs.lookup('TEST.AAA.8'), ('test.aaa.8', 2, 3, 4))
+        self.assertEqual(codecs.lookup('TEST.AAA...8'), ('test.aaa...8', 2, 3, 4))
+        with self.assertWarns(DeprecationWarning):
+            self.assertEqual(codecs.lookup('TEST.AAA\xe9\u20ac-8'), ('test.aaa\xe9\u20ac-8', 2, 3, 4))
 
     def test_encodings_normalize_encoding(self):
-        # encodings.normalize_encoding() ignores non-ASCII characters.
         normalize = encodings.normalize_encoding
         self.assertEqual(normalize('utf_8'), 'utf_8')
-        self.assertEqual(normalize('utf\xE9\u20AC\U0010ffff-8'), 'utf_8')
         self.assertEqual(normalize('utf   8'), 'utf_8')
         # encodings.normalize_encoding() doesn't convert
         # characters to lower case.
         self.assertEqual(normalize('UTF 8'), 'UTF_8')
         self.assertEqual(normalize('utf.8'), 'utf.8')
         self.assertEqual(normalize('utf...8'), 'utf...8')
+
+        # Non-ASCII *encoding* is deprecated.
+        msg = "Support for non-ascii encoding names will be removed in 3.17"
+        with warnings_helper.check_warnings((msg, DeprecationWarning)):
+            self.assertEqual(normalize('utf\xE9\u20AC\U0010ffff-8'), 'utf_8')
 
 
 class CodecCacheTest(unittest.TestCase):

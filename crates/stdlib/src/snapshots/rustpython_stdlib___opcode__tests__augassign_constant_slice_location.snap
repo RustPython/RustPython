@@ -1,0 +1,27 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef aug_const(x, y):\n    x[1:2] += y\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:15            LOAD_CONST               0 (<code object aug_const at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:15            MAKE_FUNCTION
+1:0-2:15            STORE_NAME               0 (aug_const)
+1:0-2:15            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:15            RETURN_VALUE
+
+Disassembly of <code object aug_const at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:4-2:5              LOAD_FAST_BORROW         0 (x)
+2:6-2:9              LOAD_CONST               0 (slice(1, 2, None))
+2:4-2:10             COPY                     2
+2:4-2:10             COPY                     2
+2:4-2:10             BINARY_OP               26 ([])
+2:14-2:15            LOAD_FAST_BORROW         1 (y)
+2:4-2:15             BINARY_OP               13 (+=)
+2:4-2:10             SWAP                     3
+2:4-2:10             SWAP                     2
+2:4-2:10             STORE_SUBSCR
+2:4-2:10             LOAD_COMMON_CONSTANT     7 (None)
+2:4-2:10             RETURN_VALUE

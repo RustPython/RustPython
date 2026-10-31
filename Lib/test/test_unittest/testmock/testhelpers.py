@@ -45,7 +45,6 @@ class AnyTest(unittest.TestCase):
         mock.assert_called_with(ANY, foo=ANY)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_any_mock_calls_comparison_order(self):
         mock = Mock()
         class Foo(object):
@@ -929,7 +928,6 @@ class SpecSignatureTest(unittest.TestCase):
         check_data_descriptor(foo.desc)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; time.ctime has an auto-generated __text_signature__, so inspect.signature() succeeds instead of raising ValueError
     def test_autospec_on_bound_builtin_function(self):
         meth = types.MethodType(time.ctime, time.time())
         self.assertIsInstance(meth(), str)

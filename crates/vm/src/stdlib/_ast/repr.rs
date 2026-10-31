@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyList, PyStr, PyTuple},
     class::PyClassImpl,
     recursion::ReprGuard,
@@ -89,7 +89,7 @@ fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) ->
 
 pub(crate) fn repr_ast_node(
     vm: &VirtualMachine,
-    obj: &PyObjectRef,
+    obj: &PyObject,
     depth: usize,
 ) -> PyResult<Wtf8Buf> {
     let cls = obj.class();

@@ -1,0 +1,29 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nf = lambda data: {'x': data}\ng = lambda i: {**i}\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:4-1:28            LOAD_CONST               0 (<code object <lambda> at 0xdeadbeef, file "<?>", line 1>)
+1:4-1:28            MAKE_FUNCTION
+1:0-1:1             STORE_NAME               0 (f)
+
+2:4-2:19            LOAD_CONST               1 (<code object <lambda> at 0xdeadbeef, file "<?>", line 2>)
+2:4-2:19            MAKE_FUNCTION
+2:0-2:1             STORE_NAME               1 (g)
+2:0-2:1             LOAD_COMMON_CONSTANT     7 (None)
+2:0-2:1             RETURN_VALUE
+
+Disassembly of <code object <lambda> at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:18-1:21            LOAD_CONST               0 ('x')
+1:23-1:27            LOAD_FAST_BORROW         0 (data)
+1:17-1:28            BUILD_MAP                1
+1:17-1:28            RETURN_VALUE
+
+Disassembly of <code object <lambda> at 0xdeadbeef, file "<?>", line 2>:
+2:0-2:0              RESUME                   0
+2:14-2:19            BUILD_MAP                0
+2:17-2:18            LOAD_FAST_BORROW         0 (i)
+2:14-2:19            DICT_UPDATE              1
+2:14-2:19            RETURN_VALUE

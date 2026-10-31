@@ -1,3 +1,4 @@
+import ast
 import contextlib
 import copy
 import inspect
@@ -407,6 +408,118 @@ class AsyncBadSyntaxTest(unittest.TestCase):
             with self.subTest(code=code), self.assertRaises(SyntaxError):
                 compile(code, "<test>", "exec")
 
+    def test_async_comprehension_scope(self):
+        # List/set/dict comprehensions with await or async for are allowed
+        # only in async functions, or at module level with top-level await.
+        allowed = [
+            "async def f():\n    [await x for x in y]",
+            "async def f():\n    {await x for x in y}",
+            "async def f():\n    {k: await x for k, x in y}",
+            "async def f():\n    [x async for x in y]",
+            "async def f():\n    {x async for x in y}",
+            "async def f():\n    {k: x async for k, x in y}",
+            "async def f():\n    [[await x for x in y] for y in z]",
+            # Defaults, bases, and genexp iterables are evaluated in the
+            # enclosing scope.
+            "async def outer():\n    async def f(x=[await y for y in z]): pass",
+            "async def f():\n    class C([await x for x in y]): pass",
+            "async def f():\n    (x for x in [await y for y in z])",
+            "async def f():\n    (x for x in [y async for y in z])",
+        ]
+        for code in allowed:
+            with self.subTest(code=code):
+                compile(code, "<test>", "exec")
+
+        # Generator expressions with await are async genexps and may appear
+        # outside async functions. A listcomp nested in a genexp body is also
+        # allowed (the genexp becomes an async generator).
+        for code in [
+            "(await x for x in y)",
+            "def f():\n    (await x for x in y)",
+            "class C:\n    (await x for x in y)",
+            "lambda: (await x for x in y)",
+            "([await x for x in y] for y in z)",
+            "def f():\n    ([await x for x in y] for y in z)",
+            "class C:\n    ([await x for x in y] for y in z)",
+            "async def f():\n    ([await x for x in y] for y in z)",
+        ]:
+            with self.subTest(code=code):
+                compile(code, "<test>", "exec")
+
+        err = "asynchronous comprehension outside of an asynchronous function"
+        invalid = [
+            "[await x for x in y]",
+            "{await x for x in y}",
+            "{k: await x for k, x in y}",
+            "[x async for x in y]",
+            "{x async for x in y}",
+            "{k: x async for k, x in y}",
+            "[[await x for x in y] for y in z]",
+            "[[x async for x in y] for y in z]",
+            "def f():\n    [await x for x in y]",
+            "def f():\n    [x async for x in y]",
+            "async def f():\n    def g():\n        [await x for x in y]",
+            "class C:\n    [await x for x in y]",
+            "class C:\n    {await x for x in y}",
+            "class C:\n    {k: await x for k, x in y}",
+            "class C:\n    [x async for x in y]",
+            "class C:\n    [[await x for x in y] for y in z]",
+            "async def f():\n    class C:\n        x = [await y for y in z]",
+            "async def f():\n    class C:\n        x = [y async for y in z]",
+            # Lambdas are never async, even inside async def.
+            "lambda: [await x for x in y]",
+            "async def f():\n    lambda: [await x for x in y]",
+            "class C:\n    f = lambda: [await x for x in y]",
+            # Defaults, bases, and genexp iterables run in the enclosing scope.
+            "(x for x in [await y for y in z])",
+            "(x for x in [y async for y in z])",
+            "def f():\n    (x for x in [await y for y in z])",
+            "async def f(x=[await y for y in z]): pass",
+            "def f(x=[await y for y in z]): pass",
+            "class C:\n    def f(self, x=[await y for y in z]): pass",
+            "class C([await x for x in y]): pass",
+            # Type aliases and type-parameter scopes.
+            "type T = [await x for x in y]",
+            "type T = [x async for x in y]",
+            "def f[T=[await x for x in y]](): pass",
+            "def f[T: [await x for x in y]](): pass",
+            "async def f[T=[await x for x in y]](): pass",
+            "async def f(x: [await y for y in z]): pass",
+        ]
+        for code in invalid:
+            with self.subTest(code=code):
+                support.check_syntax_error(self, code, err)
+
+        support.check_syntax_error(
+            self, "await x", "'await' outside function")
+        support.check_syntax_error(
+            self, "class C:\n    await x", "'await' outside function")
+        support.check_syntax_error(
+            self, "def f():\n    await x", "'await' outside async function")
+
+        flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+        for code in [
+            "[await x for x in y]",
+            "async def f(x=[await y for y in z]): pass",
+            "class C([await x for x in y]): pass",
+            "f'{[await x for x in y]}'",
+            "(x for x in [await y for y in z])",
+            "(x for x in [y async for y in z])",
+        ]:
+            with self.subTest(code=code, tla=True):
+                compile(code, "<test>", "exec", flags=flags)
+        still_invalid = [
+            "lambda: [await x for x in y]",
+            "def f():\n    (x for x in [await y for y in z])",
+            "class C:\n    def f(self, x=[await y for y in z]): pass",
+            "type T = [await x for x in y]",
+            "async def f[T=[await x for x in y]](): pass",
+        ]
+        for code in still_invalid:
+            with self.subTest(code=code, tla=True):
+                with self.assertRaisesRegex(SyntaxError, err):
+                    compile(code, "<test>", "exec", flags=flags)
+
     def test_badsyntax_2(self):
         samples = [
             """def foo():
@@ -563,7 +676,6 @@ class CoroutineTest(unittest.TestCase):
         self.assertRegex(repr(coro), '^<coroutine object.* at 0x.*>$')
         coro.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: coroutine raised StopIteration
     def test_func_4(self):
         async def foo():
             raise StopIteration
@@ -593,7 +705,6 @@ class CoroutineTest(unittest.TestCase):
 
         coro.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_func_5(self):
         @types.coroutine
         def bar():
@@ -661,7 +772,6 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(run_async(bar()), ([], 'spam'))
         coro.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_func_9(self):
         async def foo():
             pass
@@ -772,7 +882,6 @@ class CoroutineTest(unittest.TestCase):
                                     "coroutine ignored GeneratorExit"):
             c.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; StopIteration
     def test_func_15(self):
         # See http://bugs.python.org/issue25887 for details
 
@@ -790,7 +899,6 @@ class CoroutineTest(unittest.TestCase):
                                     'cannot reuse already awaited coroutine'):
             reader(spammer_coro).send(None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; StopIteration
     def test_func_16(self):
         # See http://bugs.python.org/issue25887 for details
 
@@ -822,7 +930,6 @@ class CoroutineTest(unittest.TestCase):
                                     'cannot reuse already awaited coroutine'):
             reader.throw(Exception('wat'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; StopIteration
     def test_func_17(self):
         # See http://bugs.python.org/issue25887 for details
 
@@ -931,7 +1038,6 @@ class CoroutineTest(unittest.TestCase):
         self.assertIsInstance(result[1], StopIteration)
         self.assertEqual(result[1].value, 10)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_cr_await(self):
         @types.coroutine
         def a():
@@ -962,7 +1068,6 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(inspect.getcoroutinestate(coro_b), inspect.CORO_CLOSED)
         self.assertIsNone(coro_b.cr_await)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: 'NoneType' object is not iterable
     def test_corotype_1(self):
         ct = types.CoroutineType
         if not support.MISSING_C_DOCSTRINGS:
@@ -1016,7 +1121,7 @@ class CoroutineTest(unittest.TestCase):
             return (await Awaitable())
 
         with self.assertRaisesRegex(
-            TypeError, "__await__.*returned non-iterator of type"):
+            TypeError, "__await__.*must return an iterator, not"):
 
             run_async(foo())
 
@@ -1114,7 +1219,7 @@ class CoroutineTest(unittest.TestCase):
             return await Awaitable()
 
         with self.assertRaisesRegex(
-                TypeError, r"__await__\(\) returned a coroutine"):
+                TypeError, r"__await__\(\) must return an iterator, not coroutine"):
             run_async(foo())
 
         c.close()
@@ -1128,7 +1233,7 @@ class CoroutineTest(unittest.TestCase):
             return await Awaitable()
 
         with self.assertRaisesRegex(
-            TypeError, "__await__.*returned non-iterator of type"):
+            TypeError, "__await__.*must return an iterator, not"):
 
             run_async(foo())
 
@@ -1604,7 +1709,6 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(buffer, [i for i in range(1, 21)] +
                                  ['what?', 'end'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: __aiter__
     def test_for_2(self):
         tup = (1, 2, 3)
         refs_before = sys.getrefcount(tup)
@@ -1620,7 +1724,6 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(tup), refs_before)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "that does not implement __anext__" does not match "'async for' requires an iterator with __anext__ method, got I"
     def test_for_3(self):
         class I:
             def __aiter__(self):
@@ -1641,7 +1744,6 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(aiter), refs_before)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "async for' received an invalid object.*__anext__.*tuple" does not match "'tuple' object is not an iterator"
     def test_for_4(self):
         class I:
             def __aiter__(self):
@@ -1789,7 +1891,6 @@ class CoroutineTest(unittest.TestCase):
                 run_async(foo())
         self.assertEqual(CNT, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "an invalid object from __anext__" does not match "'F' object is not an iterator"
     def test_for_11(self):
         class F:
             def __aiter__(self):
@@ -2147,7 +2248,6 @@ class CoroutineTest(unittest.TestCase):
         finally:
             aw.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'err_msg'
     def test_fatal_coro_warning(self):
         # Issue 27811
         async def func(): pass
@@ -2230,7 +2330,6 @@ class CoroutineTest(unittest.TestCase):
             return 'end'
         self.assertEqual(run_async(run_gen()), ([], 'end'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; This would crash the interpreter in 3.11a2
     def test_bpo_45813_1(self):
         'This would crash the interpreter in 3.11a2'
         async def f():
@@ -2239,7 +2338,6 @@ class CoroutineTest(unittest.TestCase):
             frame = f().cr_frame
         frame.clear()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; This would crash the interpreter in 3.11a2
     def test_bpo_45813_2(self):
         'This would crash the interpreter in 3.11a2'
         async def f():
@@ -2280,36 +2378,20 @@ class CoroutineTest(unittest.TestCase):
         # before fixing, visible stack from throw would be shorter than from send.
         self.assertEqual(len_send, len_throw)
 
-    def test_call_aiter_once_in_comprehension(self):
+    def test_call_generator_in_frame_clear(self):
+        # gh-143939: Running a generator while clearing the coroutine's frame
+        # should not be misinterpreted as a yield.
+        class CallGeneratorOnDealloc:
+            def __del__(self):
+                next(x for x in [1])
 
-        class AsyncIterator:
+        async def coro():
+            obj = CallGeneratorOnDealloc()
+            return 42
 
-            def __init__(self):
-                self.val = 0
-
-            async def __anext__(self):
-                if self.val == 2:
-                    raise StopAsyncIteration
-                self.val += 1
-                return self.val
-
-            # No __aiter__ method
-
-        class C:
-
-            def __aiter__(self):
-                return AsyncIterator()
-
-        async def run_listcomp():
-            return [i async for i in C()]
-
-        async def run_asyncgen():
-            ag = (i async for i in C())
-            return [i async for i in ag]
-
-        self.assertEqual(run_async(run_listcomp()), ([], [1, 2]))
-        self.assertEqual(run_async(run_asyncgen()), ([], [1, 2]))
-
+        yielded, result = run_async(coro())
+        self.assertEqual(yielded, [])
+        self.assertEqual(result, 42)
 
 @unittest.skipIf(
     support.is_emscripten or support.is_wasi,
@@ -2362,7 +2444,6 @@ class OriginTrackingTest(unittest.TestCase):
         info = inspect.getframeinfo(inspect.currentframe().f_back)
         return (info.filename, info.lineno)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != (('/home/fanninpm/Documents/GitHub/RustPy[74 chars]g'),)
     def test_origin_tracking(self):
         orig_depth = sys.get_coroutine_origin_tracking_depth()
         try:
@@ -2409,7 +2490,6 @@ class OriginTrackingTest(unittest.TestCase):
         finally:
             sys.set_coroutine_origin_tracking_depth(orig_depth)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_origin_tracking_warning(self):
         async def corofn():
             pass
@@ -2452,7 +2532,6 @@ class OriginTrackingTest(unittest.TestCase):
         finally:
             sys.set_coroutine_origin_tracking_depth(orig_depth)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'err_msg'
     def test_unawaited_warning_when_module_broken(self):
         # Make sure we don't blow up too bad if
         # warnings._warn_unawaited_coroutine is broken somehow (e.g. because
@@ -2538,7 +2617,7 @@ class CAPITest(unittest.TestCase):
             return (await future)
 
         with self.assertRaisesRegex(
-                TypeError, "__await__.*returned non-iterator of type 'int'"):
+                TypeError, "__await__.*must return an iterator, not int"):
             self.assertEqual(foo().send(None), 1)
 
 

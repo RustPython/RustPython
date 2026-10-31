@@ -146,7 +146,6 @@ class AttributesTest(unittest.TestCase):
         self.assertEqual(e.strerror, "File already exists")
         self.assertEqual(e.filename, "foo.txt")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_blockingioerror(self):
         args = ("a", "b", "c", "d", "e")
         for n in range(6):
@@ -181,7 +180,6 @@ class ExplicitSubclassingTest(unittest.TestCase):
         self.assertEqual(e.bar, "baz")
         self.assertEqual(e.args, ("some message",))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_new_overridden(self):
         e = SubOSErrorWithNew("some message", "baz")
         self.assertEqual(e.baz, "baz")

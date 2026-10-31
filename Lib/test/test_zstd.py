@@ -12,7 +12,6 @@ import threading
 from test.support.import_helper import import_module
 from test.support import threading_helper
 from test.support import _1M
-from test.support import Py_GIL_DISABLED
 
 _zstd = import_module("_zstd")
 zstd = import_module("compression.zstd")
@@ -2374,6 +2373,8 @@ class FileTestCase(unittest.TestCase):
                 f.read(100)
             with self.assertRaises(io.UnsupportedOperation):
                 f.seek(100)
+            with self.assertRaises(io.UnsupportedOperation):
+                next(iter(f))
         self.assertEqual(f.closed, True)
         with self.assertRaises(ValueError):
             f.readable()

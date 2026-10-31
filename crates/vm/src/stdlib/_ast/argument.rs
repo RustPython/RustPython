@@ -1,5 +1,5 @@
+use super::AstSourceContext;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
     range: TextRange,
@@ -7,14 +7,14 @@ pub(super) struct PositionalArguments {
 }
 
 enum PositionalArgumentsKind {
-    Args(Box<[ast::Expr]>),
+    Args(thin_vec::ThinVec<ast::Expr>),
     RuntimeValues(Vec<Option<ast::Expr>>),
 }
 
 impl PositionalArguments {
     pub(super) fn ast_from_field(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: &PyObject,
         field: &'static str,
         typ: &str,
@@ -24,7 +24,7 @@ impl PositionalArguments {
         Ok(Self::from_values(TextRange::default(), values))
     }
 
-    fn from_args(range: TextRange, args: Box<[ast::Expr]>) -> Self {
+    fn from_args(range: TextRange, args: thin_vec::ThinVec<ast::Expr>) -> Self {
         Self {
             range,
             kind: PositionalArgumentsKind::Args(args),
@@ -42,14 +42,7 @@ impl PositionalArguments {
         if values.iter().any(Option::is_none) {
             Self::from_runtime_values(range, values)
         } else {
-            Self::from_args(
-                range,
-                values
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            )
+            Self::from_args(range, values.into_iter().flatten().collect())
         }
     }
 
@@ -57,32 +50,33 @@ impl PositionalArguments {
         self.range
     }
 
-    fn into_args_and_runtime_values(self) -> (Box<[ast::Expr]>, Option<Vec<Option<ast::Expr>>>) {
+    fn into_args_and_runtime_values(
+        self,
+    ) -> (thin_vec::ThinVec<ast::Expr>, Option<Vec<Option<ast::Expr>>>) {
         match self.kind {
             PositionalArgumentsKind::Args(args) => (args, None),
-            PositionalArgumentsKind::RuntimeValues(values) => (
-                lower_runtime_expr_list(values.clone()).into_boxed_slice(),
-                Some(values),
-            ),
+            PositionalArgumentsKind::RuntimeValues(values) => {
+                (lower_runtime_expr_list(values.clone()).into(), Some(values))
+            }
         }
     }
 }
 
 impl Node for PositionalArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self.kind {
-            PositionalArgumentsKind::Args(args) => BoxedSlice(args).ast_to_object(vm, source_file),
+            PositionalArgumentsKind::Args(args) => args.ast_to_object(vm, source_file),
             PositionalArgumentsKind::RuntimeValues(values) => values.ast_to_object(vm, source_file),
         }
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
-        Ok(Self::from_args(TextRange::default(), args.0))
+        let args: thin_vec::ThinVec<_> = Node::ast_from_object(vm, source_file, object)?;
+        Ok(Self::from_args(TextRange::default(), args))
     }
 }
 
@@ -94,7 +88,7 @@ pub(super) struct KeywordArguments {
 impl KeywordArguments {
     pub(super) fn ast_from_field(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: &PyObject,
         field: &'static str,
         typ: &str,
@@ -107,7 +101,7 @@ impl KeywordArguments {
 }
 
 impl Node for KeywordArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self { keywords, range: _ } = self;
         // TODO: use range
         BoxedSlice(keywords).ast_to_object(vm, source_file)
@@ -115,7 +109,7 @@ impl Node for KeywordArguments {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
@@ -137,7 +131,7 @@ pub(super) fn merge_function_call_arguments(
         node_index: Default::default(),
         range,
         args,
-        keywords: key_args.keywords,
+        keywords: key_args.keywords.into_vec().into(),
         runtime_args,
         runtime_bases: None,
     }
@@ -173,7 +167,7 @@ pub(super) fn split_function_call_arguments(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords,
+        keywords: keywords.into_iter().collect::<Vec<_>>().into_boxed_slice(),
     };
 
     (positional_arguments, keyword_arguments)
@@ -214,7 +208,7 @@ pub(super) fn split_class_def_args(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords,
+        keywords: keywords.into_iter().collect::<Vec<_>>().into_boxed_slice(),
     };
 
     (Some(positional_arguments), Some(keyword_arguments))
@@ -231,7 +225,7 @@ pub(super) fn merge_class_def_args(
     let (args, runtime_bases) = if let Some(positional_arguments) = positional_arguments {
         positional_arguments.into_args_and_runtime_values()
     } else {
-        (vec![].into_boxed_slice(), None)
+        (thin_vec::ThinVec::new(), None)
     };
     let keywords = if let Some(keyword_arguments) = keyword_arguments {
         keyword_arguments.keywords
@@ -243,7 +237,7 @@ pub(super) fn merge_class_def_args(
         node_index: Default::default(),
         range: Default::default(), // TODO
         args,
-        keywords,
+        keywords: keywords.into_vec().into(),
         runtime_args: None,
         runtime_bases,
     }))

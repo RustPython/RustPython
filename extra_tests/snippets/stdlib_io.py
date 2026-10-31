@@ -3,6 +3,39 @@ from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapp
 
 from testutils import assert_raises
 
+# Overwriting replaces characters, even when their encoded widths differ.
+for initial, replacement in (
+    ("abc", "é"),
+    ("ébc", "a"),
+    ("а😀в", "XY"),
+    ("a\ud800c", "\udfffé"),
+):
+    stream = StringIO("prefix:" + initial)
+    stream.seek(7)
+    assert stream.write(replacement) == len(replacement)
+    assert stream.getvalue() == "prefix:" + replacement + initial[len(replacement) :]
+    assert stream.tell() == 7 + len(replacement)
+    assert stream.read() == initial[len(replacement) :]
+    assert stream.tell() == 7 + len(initial)
+
+# Truncation keeps the character position, then pads in characters on writing.
+stream = StringIO("é😀abc")
+stream.seek(4)
+stream.truncate(1)
+assert stream.tell() == 4
+assert stream.read() == ""
+assert stream.tell() == 4
+assert stream.write("") == 0
+assert stream.getvalue() == "é"
+state = stream.__getstate__()
+stream = StringIO()
+stream.__setstate__(state)
+assert stream.tell() == 4
+stream.write("Ж")
+assert stream.getvalue() == "é\0\0\0Ж"
+assert stream.tell() == 5
+
+
 fi = FileIO("README.md")
 assert fi.seekable()
 bb = BufferedReader(fi)
@@ -166,10 +199,23 @@ expect_value_error(
     "underlying buffer has been detached",
     lambda: setattr(detached_textio, "_CHUNK_SIZE", 16),
 )
-expect_value_error(
-    "underlying buffer has been detached",
-    lambda: delattr(detached_textio, "_CHUNK_SIZE"),
-)
+for wrapper, error_type, message in (
+    (textio, AttributeError, "cannot delete attribute"),
+    (uninitialized_textio, ValueError, "I/O operation on uninitialized object"),
+    (detached_textio, ValueError, "underlying buffer has been detached"),
+):
+    with assert_raises(error_type) as error:
+        del wrapper._CHUNK_SIZE
+    assert str(error.exception) == message
+
+
+for wrapper_name in ("ChunkWrapper", "€" * 34):
+    wrapper_type = type(wrapper_name, (TextIOWrapper,), {})
+    wrapper = wrapper_type(BytesIO())
+    with assert_raises(AttributeError) as error:
+        del wrapper._CHUNK_SIZE
+    assert str(error.exception) == "cannot delete attribute"
+    wrapper.close()
 
 
 long_type_name = "X" * 250
@@ -242,3 +288,37 @@ for _bad in (
     else:
         assert _textio.read(50) is not None
         _textio.tell()
+
+
+# Reinitialization releases arguments after unlocking the stream.
+for _type, _content in ((BytesIO, b"hello"), (StringIO, "hello")):
+    _stream = _type(_content)
+    _stream.close()
+    _stream.__init__(_content)
+    assert not _stream.closed
+    assert _stream.getvalue() == _content
+
+    class ClosingValue(type(_content)):
+        def __del__(self):
+            _stream.close()
+
+    _stream.__init__(ClosingValue(_content))
+    assert _stream.closed
+
+
+_stream = BytesIO(b"old")
+_released_values = []
+
+
+class ClosingBuffer:
+    def __buffer__(self, flags):
+        return memoryview(b"new")
+
+    def __release_buffer__(self, view):
+        _released_values.append(_stream.getvalue())
+        _stream.close()
+
+
+_stream.__init__(ClosingBuffer())
+assert _released_values == [b"new"]
+assert _stream.closed

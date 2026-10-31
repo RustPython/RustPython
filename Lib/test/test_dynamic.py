@@ -135,7 +135,7 @@ class RebindBuiltinsTests(unittest.TestCase):
         self.assertEqual(foo(), 7)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(sys.getrecursionlimit() == 256, "TODO: RUSTPYTHON; default debug recursion limit is 256")
     @skip_wasi_stack_overflow()
     def test_load_global_specialization_failure_keeps_oparg(self):
         # https://github.com/python/cpython/issues/91625

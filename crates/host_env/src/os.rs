@@ -25,11 +25,248 @@ use {
     std::{os::windows::io::AsRawHandle, path::Path},
     windows_sys::Win32::{
         Foundation::FILETIME,
-        Storage::FileSystem::{
-            FILE_FLAG_BACKUP_SEMANTICS, INVALID_SET_FILE_POINTER, SetFilePointer, SetFileTime,
-        },
+        Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, SetFilePointerEx, SetFileTime},
         System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
+};
+
+bitflagset::bitflag! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum AccessFlag {
+        X = 0,
+        W = 1,
+        R = 2,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct AccessMode(u8): AccessFlag
+}
+
+pub const F_OK: u8 = AccessMode::empty().bits();
+pub const X_OK: u8 = AccessMode::from_element(AccessFlag::X).bits();
+pub const W_OK: u8 = AccessMode::from_element(AccessFlag::W).bits();
+pub const R_OK: u8 = AccessMode::from_element(AccessFlag::R).bits();
+
+#[cfg(any(unix, target_os = "wasi"))]
+pub use libc::AT_FDCWD;
+#[cfg(not(any(unix, target_os = "wasi")))]
+pub const AT_FDCWD: i32 = -100;
+
+#[cfg(unix)]
+pub use libc::{AT_REMOVEDIR, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW};
+
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::AT_EACCESS;
+
+/// bionic does not export `AT_EACCESS`; the value is the Linux `fcntl.h` one.
+#[cfg(target_os = "android")]
+pub const AT_EACCESS: i32 = 0x200;
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub use libc::{ST_NOSUID, ST_RDONLY};
+
+/// `open(2)` flags. libc on hosts that bind them; Darwin/BSD numbers on
+/// `wasm32-unknown-unknown`, matching the guest errno table.
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
+
+#[cfg(unix)]
+pub use libc::{O_ACCMODE, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{O_ASYNC, O_NDELAY, O_NOCTTY};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::O_DSYNC;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::O_SYNC;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::O_FSYNC;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub use libc::{O_DIRECT, O_LARGEFILE, O_NOATIME, O_PATH, O_RSYNC, O_TMPFILE};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{O_DIRECT, O_PATH};
+
+#[cfg(target_os = "redox")]
+pub use libc::O_PATH;
+
+#[cfg(target_os = "netbsd")]
+pub use libc::{O_DIRECT, O_RSYNC};
+
+#[cfg(target_os = "dragonfly")]
+pub use libc::O_DIRECT;
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub use libc::{O_EVTONLY, O_EXEC, O_EXLOCK, O_NOFOLLOW_ANY, O_SEARCH, O_SHLOCK, O_SYMLINK};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{O_EXLOCK, O_SHLOCK};
+
+#[cfg(target_os = "redox")]
+pub use libc::O_SYMLINK;
+
+#[cfg(windows)]
+pub use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod wasm_oflag {
+    pub const O_RDONLY: i32 = 0x0000;
+    pub const O_WRONLY: i32 = 0x0001;
+    pub const O_RDWR: i32 = 0x0002;
+    pub const O_ACCMODE: i32 = 0x0003;
+    pub const O_NONBLOCK: i32 = 0x0004;
+    pub const O_APPEND: i32 = 0x0008;
+    pub const O_SYNC: i32 = 0x0080;
+    pub const O_NOFOLLOW: i32 = 0x0100;
+    pub const O_CREAT: i32 = 0x0200;
+    pub const O_TRUNC: i32 = 0x0400;
+    pub const O_EXCL: i32 = 0x0800;
+    pub const O_DIRECTORY: i32 = 0x0010_0000;
+    pub const O_CLOEXEC: i32 = 0x0100_0000;
+    pub const O_NDELAY: i32 = O_NONBLOCK;
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub use wasm_oflag::*;
+
+bitflagset::bitflag! {
+    /// BSD `chflags` bits. Values are bit *positions*; masks are `1 << pos`.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum ChFlag {
+        UfNodump = 0,
+        UfImmutable = 1,
+        UfAppend = 2,
+        UfOpaque = 3,
+        UfNounlink = 4,
+        UfCompressed = 5,
+        UfTracked = 6,
+        UfDatavault = 7,
+        UfHidden = 15,
+        SfArchived = 16,
+        SfImmutable = 17,
+        SfAppend = 18,
+        SfNounlink = 20,
+        SfSnapshot = 21,
+        SfFirmlink = 23,
+        SfDataless = 30,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct ChFlags(u32): ChFlag
+}
+
+impl ChFlags {
+    /// Owner-settable bits, including reserved user-flag positions.
+    pub const UF_SETTABLE: Self = Self::from_bits_retain(0x0000ffff);
+    pub const SF_SETTABLE: Self = Self::from_bits_retain(if cfg!(target_os = "macos") {
+        0x3fff0000
+    } else {
+        0xffff0000
+    });
+    #[cfg(target_os = "macos")]
+    pub const SF_SUPPORTED: Self = Self::from_bits_retain(0x009f0000);
+    #[cfg(target_os = "macos")]
+    pub const SF_SYNTHETIC: Self = Self::from_bits_retain(0xc0000000);
+}
+
+pub const UF_NODUMP: u32 = ChFlags::from_element(ChFlag::UfNodump).bits();
+pub const UF_IMMUTABLE: u32 = ChFlags::from_element(ChFlag::UfImmutable).bits();
+pub const UF_APPEND: u32 = ChFlags::from_element(ChFlag::UfAppend).bits();
+pub const UF_OPAQUE: u32 = ChFlags::from_element(ChFlag::UfOpaque).bits();
+pub const UF_NOUNLINK: u32 = ChFlags::from_element(ChFlag::UfNounlink).bits();
+pub const UF_COMPRESSED: u32 = ChFlags::from_element(ChFlag::UfCompressed).bits();
+pub const UF_TRACKED: u32 = ChFlags::from_element(ChFlag::UfTracked).bits();
+pub const UF_DATAVAULT: u32 = ChFlags::from_element(ChFlag::UfDatavault).bits();
+pub const UF_HIDDEN: u32 = ChFlags::from_element(ChFlag::UfHidden).bits();
+pub const UF_SETTABLE: u32 = ChFlags::UF_SETTABLE.bits();
+pub const SF_ARCHIVED: u32 = ChFlags::from_element(ChFlag::SfArchived).bits();
+pub const SF_IMMUTABLE: u32 = ChFlags::from_element(ChFlag::SfImmutable).bits();
+pub const SF_APPEND: u32 = ChFlags::from_element(ChFlag::SfAppend).bits();
+pub const SF_NOUNLINK: u32 = ChFlags::from_element(ChFlag::SfNounlink).bits();
+pub const SF_SNAPSHOT: u32 = ChFlags::from_element(ChFlag::SfSnapshot).bits();
+pub const SF_FIRMLINK: u32 = ChFlags::from_element(ChFlag::SfFirmlink).bits();
+pub const SF_DATALESS: u32 = ChFlags::from_element(ChFlag::SfDataless).bits();
+pub const SF_SETTABLE: u32 = ChFlags::SF_SETTABLE.bits();
+#[cfg(target_os = "macos")]
+pub const SF_SUPPORTED: u32 = ChFlags::SF_SUPPORTED.bits();
+#[cfg(target_os = "macos")]
+pub const SF_SYNTHETIC: u32 = ChFlags::SF_SYNTHETIC.bits();
+
+const _: () = {
+    assert!(UF_NODUMP == 0x00000001);
+    assert!(UF_IMMUTABLE == 0x00000002);
+    assert!(UF_APPEND == 0x00000004);
+    assert!(UF_OPAQUE == 0x00000008);
+    assert!(UF_NOUNLINK == 0x00000010);
+    assert!(UF_COMPRESSED == 0x00000020);
+    assert!(UF_TRACKED == 0x00000040);
+    assert!(UF_DATAVAULT == 0x00000080);
+    assert!(UF_HIDDEN == 0x00008000);
+    assert!(UF_SETTABLE == 0x0000ffff);
+    assert!(SF_ARCHIVED == 0x00010000);
+    assert!(SF_IMMUTABLE == 0x00020000);
+    assert!(SF_APPEND == 0x00040000);
+    assert!(SF_NOUNLINK == 0x00100000);
+    assert!(SF_SNAPSHOT == 0x00200000);
+    assert!(SF_FIRMLINK == 0x00800000);
+    assert!(SF_DATALESS == 0x40000000);
+};
+
+/// Solaris door/port and BSD whiteout. `_stat` publishes 0 where the
+/// platform has no such file type.
+pub const S_IFDOOR: u32 = 0;
+pub const S_IFPORT: u32 = 0;
+pub const S_IFWHT: u32 = if cfg!(target_os = "macos") {
+    0o160000
+} else {
+    0
 };
 
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
@@ -53,7 +290,6 @@ pub fn rename(
 ///
 /// On Windows, this supports the full u32 range including STATUS_CONTROL_C_EXIT (0xC000013A).
 /// On other platforms, only the lower 8 bits are used.
-#[must_use]
 pub fn exit_code(code: u32) -> ExitCode {
     #[cfg(windows)]
     {
@@ -109,32 +345,76 @@ pub unsafe fn remove_var(key: impl AsRef<OsStr>) {
     unsafe { env::remove_var(key) };
 }
 
+/// Publish the working directory as `=X:` for the drive it is on.
+///
+/// CRT `_wspawnve` / `_wexecve` walk the environment for the first `=X:`
+/// entry with no bound; a process that was not started by cmd.exe has none
+/// and that walk runs off the block. A UNC-like path is on no drive and
+/// publishes nothing.
+#[cfg(windows)]
+pub fn publish_drive_current_directory() -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+
+    let mut cwd_wide: Vec<u16> = env::current_dir()?.as_os_str().encode_wide().collect();
+    let unc_like = cwd_wide.len() >= 2
+        && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
+            || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
+    if unc_like || cwd_wide.is_empty() {
+        return Ok(());
+    }
+    let env_name = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
+    cwd_wide.push(0);
+    let ok = unsafe { SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr()) };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Whether the process environment already has an `=X:` drive-cwd entry.
+#[cfg(windows)]
+pub fn environment_has_drive_current_directory() -> bool {
+    use windows_sys::Win32::System::Environment::{
+        FreeEnvironmentStringsW, GetEnvironmentStringsW,
+    };
+
+    let block = unsafe { GetEnvironmentStringsW() };
+    if block.is_null() {
+        return false;
+    }
+    let mut present = false;
+    let mut entry = block;
+    unsafe {
+        while *entry != 0 {
+            if *entry == b'=' as u16 {
+                present = true;
+                break;
+            }
+            while *entry != 0 {
+                entry = entry.add(1);
+            }
+            entry = entry.add(1);
+        }
+        FreeEnvironmentStringsW(block);
+    }
+    present
+}
+
+/// Publish `=X:` when the process environment has none, so a later
+/// `_wspawnv` / `_wexecv` walk has a first entry.
+#[cfg(windows)]
+pub fn ensure_drive_current_directory() {
+    if !environment_has_drive_current_directory() {
+        let _ = publish_drive_current_directory();
+    }
+}
+
 pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
     env::set_current_dir(&path)?;
-
     #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
-
-        if let Ok(cwd) = env::current_dir() {
-            let cwd_str = cwd.as_os_str();
-            let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
-
-            let is_unc_like_path = cwd_wide.len() >= 2
-                && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
-                    || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
-
-            if !is_unc_like_path {
-                let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
-                cwd_wide.push(0);
-                unsafe {
-                    SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
-                }
-            }
-        }
-    }
-
+    publish_drive_current_directory()?;
     Ok(())
 }
 
@@ -239,8 +519,28 @@ pub fn device_encoding(_fd: i32) -> Option<String> {
     }
 }
 
+/// Terminate the process through the C `exit()`, which runs the C atexit
+/// handlers and flushes C stdio.
 pub fn exit(code: i32) -> ! {
-    std::process::exit(code)
+    cfg_select! {
+        // std::process::exit ends in ExitProcess here, which skips the CRT
+        // atexit handlers and the stdio flush.
+        windows => {
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            unsafe { libc::exit(code) }
+        }
+        _ => std::process::exit(code),
+    }
+}
+
+/// Terminate the process through `_exit()`, without running the C atexit
+/// handlers or flushing C stdio.
+pub fn exit_immediately(code: i32) -> ! {
+    cfg_select! {
+        any(unix, windows, target_os = "wasi") => unsafe { libc::_exit(code) },
+        _ => std::process::exit(code),
+    }
 }
 
 /// Wrapper around the C `abort()` call: terminates the process abnormally.
@@ -292,22 +592,24 @@ pub fn seek_fd(
     position: crt_fd::Offset,
     how: i32,
 ) -> io::Result<crt_fd::Offset> {
+    use crate::windows::CheckWin32Bool;
+
     let handle = crt_fd::as_handle(fd)?;
-    let mut distance_to_move: [i32; 2] = unsafe { core::mem::transmute(position) };
-    let ret = unsafe {
-        SetFilePointer(
+    // `SetFilePointer` returns the low half of the new position and reports
+    // failure with the value a position four gigabytes in also has, so the two
+    // are only told apart through the error code. The `Ex` form answers with
+    // the whole position and a success flag of its own.
+    let mut new_position = 0;
+    unsafe {
+        SetFilePointerEx(
             handle.as_raw_handle(),
-            distance_to_move[0],
-            &mut distance_to_move[1],
+            position,
+            &mut new_position,
             how as _,
         )
-    };
-    if ret == INVALID_SET_FILE_POINTER {
-        Err(io::Error::last_os_error())
-    } else {
-        distance_to_move[0] = ret as _;
-        Ok(unsafe { core::mem::transmute::<[i32; 2], i64>(distance_to_move) })
     }
+    .check_win32_bool()?;
+    Ok(new_position)
 }
 
 #[cfg(any(unix, target_os = "wasi"))]
@@ -317,6 +619,20 @@ pub fn seek_fd(
     how: i32,
 ) -> io::Result<crt_fd::Offset> {
     unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) }.check_libc_neg()
+}
+
+#[cfg(windows)]
+pub type FileTimeSeconds = libc::time64_t;
+#[cfg(any(unix, target_os = "wasi"))]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub type FileTimeSeconds = libc::time_t;
+
+/// Seconds and nanoseconds passed to filesystem timestamp operations.
+#[cfg(any(unix, windows, target_os = "wasi"))]
+#[derive(Clone, Copy)]
+pub struct FileTime {
+    pub seconds: FileTimeSeconds,
+    pub nanoseconds: libc::c_long,
 }
 
 #[cfg(windows)]
@@ -398,13 +714,17 @@ impl core::error::Error for CrtErrno {}
 
 /// Build an [`io::Error`] that preserves a raw C runtime `errno`.
 ///
-/// The [`io::ErrorKind`] is derived from the closest Win32 mapping so callers
-/// matching on `kind()` keep working, while the exact `errno` is preserved for
+/// The [`io::ErrorKind`] preserves would-block semantics and otherwise uses the
+/// closest Win32 mapping. The exact `errno` is preserved for
 /// [`ErrorExt::posix_errno`].
 #[cfg(windows)]
 #[must_use]
 pub fn io_error_from_errno(errno: i32) -> io::Error {
-    let kind = io::Error::from_raw_os_error(errno_to_winerror(errno)).kind();
+    let kind = if errno == libc::EAGAIN {
+        io::ErrorKind::WouldBlock
+    } else {
+        io::Error::from_raw_os_error(errno_to_winerror(errno)).kind()
+    };
     io::Error::new(kind, CrtErrno(errno))
 }
 
@@ -725,5 +1045,18 @@ pub fn winerror_to_errno(winerror: i32) -> i32 {
         | ERROR_INVALID_PARAMETER
         | ERROR_NEGATIVE_SEEK => EINVAL,
         _ => EINVAL,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn o_rdonly_is_zero() {
+        assert_eq!(super::O_RDONLY, 0);
+    }
+
+    #[test]
+    fn o_wronly_is_one() {
+        assert_eq!(super::O_WRONLY, 1);
     }
 }

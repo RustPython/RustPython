@@ -1,0 +1,2 @@
+[BuildListFromArg]
+stack_effect = { pushed = "2", popped = "1" }

@@ -1,15 +1,15 @@
 use super::{
-    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
-    try_bigint_to_f64,
+    PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef,
+    PyUtf8StrRef, try_bigint_to_f64,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
-    class::PyClassImpl,
-    common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
-    convert::{IntoPyException, ToPyObject, ToPyResult},
+    class::{PyClassDef, PyClassImpl},
+    common::{float_ops, hash, wtf8::Wtf8Buf},
+    convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
+        ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -32,6 +32,14 @@ impl PyFloat {
     #[must_use]
     pub const fn to_f64(&self) -> f64 {
         self.value
+    }
+}
+
+impl Py<PyFloat> {
+    #[must_use]
+    #[inline]
+    pub const fn to_f64(&self) -> f64 {
+        self.payload.to_f64()
     }
 }
 
@@ -99,7 +107,7 @@ impl From<f64> for PyFloat {
 
 pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.downcast_ref::<PyFloat>() {
-        Some(float.value)
+        Some(float.to_f64())
     } else if let Some(int) = obj.downcast_ref::<PyInt>() {
         Some(try_bigint_to_f64(int.as_bigint(), vm)?)
     } else {
@@ -156,33 +164,113 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 }
 
 pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
-    if v1.is_zero() && v2.is_sign_negative() {
-        Err(vm.new_zero_division_error("zero to a negative power"))
-    } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
-        let v1 = Complex64::new(v1, 0.);
-        let v2 = Complex64::new(v2, 0.);
-        Ok(super::complex::complex_pow(v1, v2, vm)?.to_pyobject(vm))
-    } else {
-        let ans = v1.powf(v2);
-        if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-            Err(vm.new_overflow_error("math range error"))
+    // Resolve special values before finite negative bases or platform pow.
+    if v2 == 0.0 {
+        return Ok(1.0.to_pyobject(vm));
+    }
+    if v1.is_nan() {
+        return Ok(v1.to_pyobject(vm));
+    }
+    if v2.is_nan() {
+        return Ok(if v1 == 1.0 { 1.0 } else { v2 }.to_pyobject(vm));
+    }
+    if v2.is_infinite() {
+        let magnitude = v1.abs();
+        let result = if magnitude == 1.0 {
+            1.0
+        } else if (v2 > 0.0) == (magnitude > 1.0) {
+            f64::INFINITY
         } else {
-            Ok(ans.to_pyobject(vm))
+            0.0
+        };
+        return Ok(result.to_pyobject(vm));
+    }
+
+    let exponent_is_odd = v2.abs() % 2.0 == 1.0;
+    if v1.is_infinite() {
+        let result = if v2 > 0.0 {
+            if exponent_is_odd { v1 } else { v1.abs() }
+        } else if exponent_is_odd {
+            0.0_f64.copysign(v1)
+        } else {
+            0.0
+        };
+        return Ok(result.to_pyobject(vm));
+    }
+    if v1 == 0.0 {
+        if v2 < 0.0 {
+            return Err(vm.new_zero_division_error("zero to a negative power"));
         }
+        return Ok(if exponent_is_odd { v1 } else { 0.0 }.to_pyobject(vm));
+    }
+
+    let mut magnitude = v1;
+    let negate_result = if v1 < 0.0 {
+        if v2 != v2.floor() {
+            let base = Complex64::new(v1, 0.0);
+            let exponent = Complex64::new(v2, 0.0);
+            return Ok(super::complex::complex_pow(base, exponent, vm)?.to_pyobject(vm));
+        }
+        magnitude = -v1;
+        exponent_is_odd
+    } else {
+        false
+    };
+    if magnitude == 1.0 {
+        return Ok(if negate_result { -1.0 } else { 1.0 }.to_pyobject(vm));
+    }
+
+    let mut result = magnitude.powf(v2);
+    if negate_result {
+        result = -result;
+    }
+    if result.is_infinite() {
+        Err(vm.new_overflow_error("math range error"))
+    } else {
+        Ok(result.to_pyobject(vm))
     }
 }
 
+#[derive(FromArgs)]
+pub struct FloatArgs {
+    // Missing is 0.0 without parsing. Subclass init builds Missing itself.
+    #[pyarg(positional, default, py_default = "0")]
+    x: OptionalArg<PyObjectRef>,
+}
+
 impl Constructor for PyFloat {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = FloatArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let float_type = vm.ctx.types.float_type;
+        let uses_float_init = {
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let float_init = float_type.slots.init.load().map(crate::types::fn_addr);
+            cls_init == float_init
+        };
         // Bind before the fast path so FromArgs::arity decides how many arguments
-        // are acceptable, rather than a count repeated here.
-        let arg: Self::Args = args.bind(vm)?;
+        // are acceptable, rather than a count repeated here. Extra keywords are
+        // accepted only when a subclass has replaced tp_init.
+        let arg: Self::Args = if cls.is(float_type) || uses_float_init {
+            args.bind_for(vm, Self::NAME)?
+        } else {
+            match args.args.as_slice() {
+                [] => Self::Args {
+                    x: OptionalArg::Missing,
+                },
+                [value] => Self::Args {
+                    x: OptionalArg::Present(value.clone()),
+                },
+                slice => {
+                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
+                }
+            }
+        };
+        let arg_value = &arg.x;
 
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
-            && let OptionalArg::Present(first) = &arg
+            && let OptionalArg::Present(first) = arg_value
             && first.class().is(vm.ctx.types.float_type)
         {
             return Ok(first.clone());
@@ -193,13 +281,13 @@ impl Constructor for PyFloat {
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let float_val = match arg {
+        let float_val = match arg.x {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
                 if let Some(f) = val.try_float_opt(vm) {
-                    f?.value
+                    f?.to_f64()
                 } else {
-                    float_from_string(val, vm)?
+                    float_from_string(&val, vm)?
                 }
             }
         };
@@ -207,7 +295,7 @@ impl Constructor for PyFloat {
     }
 }
 
-pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         mapped_string = crate::protocol::numeric_literal_from_str(s);
@@ -217,55 +305,67 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
     } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
         bytearray = buf.borrow_buf();
         &*bytearray
-    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, &val) {
+    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
         buffer = b;
         buffer_lock = buffer.borrow_buf();
         &*buffer_lock
     } else {
         return Err(vm.new_type_error(format!(
-            "float() argument must be a string or a number, not '{}'",
-            val.class().name()
+            "float() argument must be a string or a real number, not '{}'",
+            val.class().slot_name()
         )));
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| {
-        val.repr(vm).map_or_else(
-            |e| e,
-            |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
-        )
-    })
+    crate::literal::float::parse_bytes(b).ok_or_else(|| invalid_float_literal_error(val, vm))
 }
 
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "Needs to comply with a signature"
-)]
+/// Build the existing float-conversion error after native parsing has failed.
+pub fn invalid_float_literal_error(val: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    val.repr(vm).map_or_else(
+        |e| e,
+        |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
+    )
+}
+
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, optional)]
+    ndigits: Option<ArgIndex>,
+}
+
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
-impl PyFloat {
+impl Py<PyFloat> {
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn __format__(
+        zelf: &Self,
+        format_spec: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Wtf8Buf> {
         // Empty format spec: equivalent to str(self)
-        if spec.is_empty() {
+        if format_spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
-        let result = if format_spec.has_locale_format() {
+        let spec = crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?;
+        let result = if spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
-            format_spec.format_float_locale(zelf.value, &locale)
+            spec.format_float_locale(zelf.to_f64(), &locale)
         } else {
-            format_spec.format_float(zelf.value)
+            spec.format_float(zelf.to_f64())
         };
-        result
-            .map(Wtf8Buf::from_string)
-            .map_err(|err| err.into_pyexception(vm))
+        result.map(Wtf8Buf::from_string).map_err(|err| {
+            crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
+        })
     }
 
-    #[pystaticmethod]
-    fn __getformat__(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
-        if !matches!(spec.as_str(), "double" | "float") {
+    #[pyclassmethod]
+    fn __getformat__(
+        _cls: PyTypeRef,
+        typestr: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        if !matches!(typestr.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
             );
@@ -297,10 +397,10 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __round__(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
-        let ndigits = ndigits.flatten();
+    fn __round__(&self, args: RoundArgs, vm: &VirtualMachine) -> PyResult {
+        let ndigits = args.ndigits;
         let value = if let Some(ndigits) = ndigits {
-            let ndigits = ndigits.as_bigint();
+            let ndigits = ndigits.as_ref().as_bigint();
             let ndigits = match ndigits.to_i32() {
                 Some(n) => n,
                 None if ndigits.is_positive() => i32::MAX,
@@ -327,7 +427,7 @@ impl PyFloat {
     }
 
     #[pygetset]
-    const fn real(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn real(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
         zelf
     }
 
@@ -337,7 +437,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    const fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn conjugate(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
         zelf
     }
 
@@ -412,8 +512,8 @@ impl Comparable for PyFloat {
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let ret = if let Some(other) = other.downcast_ref::<Self>() {
-            zelf.value
-                .partial_cmp(&other.value)
+            zelf.to_f64()
+                .partial_cmp(&other.to_f64())
                 .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))
         } else if let Some(other) = other.downcast_ref::<PyInt>() {
             let a = zelf.to_f64();
@@ -470,17 +570,17 @@ impl AsNumber for PyFloat {
                 }
             }),
             negative: Some(|num, vm| {
-                let value = PyFloat::number_downcast(num).value;
+                let value = PyFloat::number_downcast(num).to_f64();
                 (-value).to_pyresult(vm)
             }),
             positive: Some(|num, vm| PyFloat::number_downcast_exact(num, vm).to_pyresult(vm)),
             absolute: Some(|num, vm| {
-                let value = PyFloat::number_downcast(num).value;
+                let value = PyFloat::number_downcast(num).to_f64();
                 value.abs().to_pyresult(vm)
             }),
-            boolean: Some(|num, _vm| Ok(!PyFloat::number_downcast(num).value.is_zero())),
+            boolean: Some(|num, _vm| Ok(!PyFloat::number_downcast(num).to_f64().is_zero())),
             int: Some(|num, vm| {
-                let value = PyFloat::number_downcast(num).value;
+                let value = PyFloat::number_downcast(num).to_f64();
                 try_to_bigint(value, vm).map(|x| PyInt::from(x).into_pyobject(vm))
             }),
             float: Some(|num, vm| Ok(PyFloat::number_downcast_exact(num, vm).into())),
@@ -493,14 +593,14 @@ impl AsNumber for PyFloat {
 
     #[inline]
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        vm.ctx.new_float(zelf.value)
+        vm.ctx.new_float(zelf.to_f64())
     }
 }
 
 impl Representable for PyFloat {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(crate::literal::float::to_string(zelf.value))
+        Ok(crate::literal::float::to_string(zelf.to_f64()))
     }
 }
 
@@ -521,7 +621,7 @@ impl PyFloat {
 // Retrieve inner float value:
 #[cfg(feature = "serde")]
 pub(crate) fn get_value(obj: &PyObject) -> f64 {
-    obj.downcast_ref::<PyFloat>().unwrap().value
+    obj.downcast_ref::<PyFloat>().unwrap().to_f64()
 }
 
 fn vectorcall_float(
@@ -539,5 +639,5 @@ fn vectorcall_float(
 #[rustfmt::skip] // to avoid line splitting
 pub(crate) fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
-    context.types.float_type.slots.vectorcall.store(Some(vectorcall_float));
+    context.types.float_type.slots().constructor_vectorcall.store(Some(vectorcall_float));
 }

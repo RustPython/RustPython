@@ -20,6 +20,11 @@ impl TimeoutSeconds {
     pub fn to_secs_f64(self) -> f64 {
         self.value
     }
+
+    #[must_use]
+    pub const fn py_default(&self) -> super::DefaultRepr {
+        super::DefaultRepr::Float(self.value)
+    }
 }
 
 impl TryFromObject for TimeoutSeconds {

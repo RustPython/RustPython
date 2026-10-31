@@ -5,10 +5,7 @@ pub(crate) use pwd::module_def;
 #[pymodule]
 mod pwd {
     use crate::{
-        PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyUtf8StrRef},
-        convert::IntoPyException,
-        exceptions,
+        PyResult, VirtualMachine, builtins::PyUtf8StrRef, exceptions, function::ArgIndex,
         types::PyStructSequence,
     };
     use core::hint::cold_path;
@@ -68,17 +65,22 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
-        let uid_t = libc::uid_t::try_from(uid.as_bigint()).ok();
-        let user = uid_t
+    fn getpwuid(uidobj: ArgIndex, vm: &VirtualMachine) -> PyResult<PasswdData> {
+        let uidobj = uidobj.into_int_ref();
+        let user = match libc::uid_t::try_from(uidobj.as_bigint())
+            .ok()
             .map(host_pwd::getpwuid)
-            .transpose()
-            .map_err(|err| err.into_pyexception(vm))?
-            .flatten();
+        {
+            Some(Ok(user)) => user,
+            Some(Err(err)) if err.raw_os_error() == Some(libc::ENOMEM) => {
+                return Err(vm.no_memory_error());
+            }
+            _ => None,
+        };
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()))
+                    .new_str(format!("getpwuid(): uid not found: {}", uidobj.as_bigint()))
                     .into(),
             )
         })?;

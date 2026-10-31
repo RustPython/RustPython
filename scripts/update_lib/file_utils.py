@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import filecmp
 import pathlib
+import warnings
 from collections.abc import Callable, Iterator
 
 # === I/O utilities ===
@@ -31,7 +32,10 @@ def safe_read_text(path: pathlib.Path) -> str | None:
 def safe_parse_ast(content: str) -> ast.Module | None:
     """Parse Python content into AST, returning None on syntax error."""
     try:
-        return ast.parse(content)
+        # Test fixtures may deliberately contain syntax that emits warnings.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            return ast.parse(content)
     except SyntaxError:
         return None
 
@@ -218,10 +222,28 @@ def get_cpython_dir(src_path: pathlib.Path) -> pathlib.Path:
 # === Comparison utilities ===
 
 
+def _files_are_same(left: pathlib.Path, right: pathlib.Path) -> bool:
+    # Recheck contents even when size and timestamps match, including after a
+    # previous comparison. filecmp caches results by those metadata alone.
+    with left.open("rb") as left_file, right.open("rb") as right_file:
+        while True:
+            chunk = left_file.read(65536)
+            if chunk != right_file.read(65536):
+                return False
+            if not chunk:
+                return True
+
+
 def _dircmp_is_same(dcmp: filecmp.dircmp) -> bool:
     """Recursively check if two directories are identical."""
-    if dcmp.diff_files or dcmp.left_only or dcmp.right_only:
+    if dcmp.left_only or dcmp.right_only or dcmp.common_funny:
         return False
+
+    for name in dcmp.common_files:
+        if not _files_are_same(
+            pathlib.Path(dcmp.left) / name, pathlib.Path(dcmp.right) / name
+        ):
+            return False
 
     for subdir in dcmp.subdirs.values():
         if not _dircmp_is_same(subdir):
@@ -232,14 +254,17 @@ def _dircmp_is_same(dcmp: filecmp.dircmp) -> bool:
 
 def compare_paths(cpython_path: pathlib.Path, local_path: pathlib.Path) -> bool:
     """Compare a CPython path with a local path (file or directory)."""
-    if not local_path.exists():
+    if not cpython_path.exists() or not local_path.exists():
         return False
 
-    if cpython_path.is_file():
-        return filecmp.cmp(cpython_path, local_path, shallow=False)
-
-    dcmp = filecmp.dircmp(cpython_path, local_path)
-    return _dircmp_is_same(dcmp)
+    try:
+        if cpython_path.is_file():
+            return local_path.is_file() and _files_are_same(cpython_path, local_path)
+        if not cpython_path.is_dir() or not local_path.is_dir():
+            return False
+        return _dircmp_is_same(filecmp.dircmp(cpython_path, local_path))
+    except OSError:
+        return False
 
 
 def compare_file_contents(

@@ -2,6 +2,7 @@
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-derive/")]
 
+extern crate alloc;
 extern crate proc_macro;
 
 #[macro_use]
@@ -9,8 +10,11 @@ mod error;
 #[macro_use]
 mod util;
 
+mod class_docs;
 mod compile_bytecode;
 mod from_args;
+mod item;
+mod metadata;
 mod pyclass;
 mod pymodule;
 mod pypayload;
@@ -18,10 +22,10 @@ mod pystructseq;
 mod pytraverse;
 
 use error::Diagnostic;
+use metadata::PunctuatedNestedMeta;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{DeriveInput, Item};
-use syn_ext::types::PunctuatedNestedMeta;
 
 pub use pymodule::PyModuleArgs;
 

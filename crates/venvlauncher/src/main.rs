@@ -8,18 +8,20 @@
 compile_error!("venvlauncher is only supported on Windows");
 
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(code) => ExitCode::from(code as u8),
+fn main() {
+    let code = match run() {
+        Ok(code) => code,
         Err(e) => {
-            eprintln!("venvlauncher error: {}", e);
-            ExitCode::from(1)
+            eprintln!("venvlauncher error: {e}");
+            1
         }
-    }
+    };
+    // ExitCode::from(u8) would truncate the Windows process status.
+    std::process::exit(code as i32);
 }
 
 fn run() -> Result<u32, Box<dyn core::error::Error>> {
@@ -31,13 +33,13 @@ fn run() -> Result<u32, Box<dyn core::error::Error>> {
         .to_string_lossy();
 
     // 2. Determine target executable name based on launcher name
-    // pythonw.exe / venvwlauncher -> pythonw.exe (GUI, no console)
-    // python.exe / venvlauncher -> python.exe (console)
+    // pythonw.exe / venvwlauncher -> GUI interpreter (no console)
+    // python.exe / venvlauncher -> console interpreter
     let exe_name_lower = exe_name.to_lowercase();
-    let target_exe = if exe_name_lower.contains("pythonw") || exe_name_lower.contains("venvw") {
-        "pythonw.exe"
+    let target_exes = if exe_name_lower.contains("pythonw") || exe_name_lower.contains("venvw") {
+        ["rustpythonw.exe", "pythonw.exe"]
     } else {
-        "python.exe"
+        ["rustpython.exe", "python.exe"]
     };
 
     // 3. Find pyvenv.cfg
@@ -54,10 +56,11 @@ fn run() -> Result<u32, Box<dyn core::error::Error>> {
     let home = read_home(&cfg_path)?;
 
     // 5. Locate python executable in home directory
-    let python_path = PathBuf::from(&home).join(target_exe);
-    if !python_path.exists() {
-        return Err(format!("Python not found: {}", python_path.display()).into());
-    }
+    let python_path = target_exes
+        .iter()
+        .map(|name| PathBuf::from(&home).join(name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| format!("Python not found in: {home}"))?;
 
     // 6. Set __PYVENV_LAUNCHER__ environment variable
     // This tells Python it was launched from a venv
@@ -67,7 +70,7 @@ fn run() -> Result<u32, Box<dyn core::error::Error>> {
     }
 
     // 7. Launch Python with same arguments
-    let args: Vec<String> = env::args().skip(1).collect();
+    let args: Vec<OsString> = env::args_os().skip(1).collect();
     launch_process(&python_path, &args)
 }
 
@@ -95,7 +98,7 @@ fn read_home(cfg_path: &Path) -> Result<String, Box<dyn core::error::Error>> {
 }
 
 /// Launch the Python process and wait for it to complete
-fn launch_process(exe: &Path, args: &[String]) -> Result<u32, Box<dyn core::error::Error>> {
+fn launch_process(exe: &Path, args: &[OsString]) -> Result<u32, Box<dyn core::error::Error>> {
     use std::process::Command;
 
     let status = Command::new(exe).args(args).status()?;

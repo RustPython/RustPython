@@ -252,10 +252,10 @@ mod decl {
     #[cfg(any(unix, windows))]
     fn dump_all_threads(fd: i32, vm: &VirtualMachine) {
         // Get all threads' frame stacks from the shared registry
-        // unix: stop-the-world so every other thread is parked at a safepoint
+        // Stop the world so every other thread is parked at a safepoint
         // and its frame chain is quiescent and alive while we walk it (matches
         // faulthandler.dump_traceback running with the GIL held).
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         {
             use core::sync::atomic::Ordering;
             let current_tid = rustpython_vm::stdlib::_thread::get_ident();
@@ -294,49 +294,6 @@ mod decl {
                     }
                     puts(fd, "\n");
                 }
-            }
-
-            // Now dump current thread from its live frame chain
-            // (includes stack-allocated iframes without FrameObject).
-            write_thread_id(fd, current_tid, true);
-            dump_live_frames(fd);
-        }
-
-        #[cfg(all(not(unix), feature = "threading"))]
-        {
-            let current_tid = rustpython_vm::stdlib::_thread::get_ident();
-            let registry = vm.state.thread_frames.lock();
-
-            // Dump non-current threads using top_iframe, which includes
-            // both FrameObject and stack-allocated frames.
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for (&tid, slot) in registry.iter() {
-                if tid == current_tid {
-                    continue;
-                }
-
-                let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
-                    as *const rustpython_vm::frame::InterpreterFrame;
-                write_thread_id(fd, tid, false);
-                if iframe_ptr.is_null() {
-                    puts(fd, "  <no Python frame>\n");
-                } else {
-                    let mut cur = iframe_ptr;
-                    let mut depth = 0;
-                    while !cur.is_null() && depth < 100 {
-                        let iframe = unsafe { &*cur };
-                        dump_iframe(fd, iframe);
-                        depth += 1;
-                        cur = iframe.previous();
-                    }
-                    if depth >= 100 && !cur.is_null() {
-                        puts(fd, "  ...\n");
-                    }
-                }
-                puts(fd, "\n");
             }
 
             // Now dump current thread from its live frame chain
@@ -451,7 +408,7 @@ mod decl {
         host_faulthandler::signal_default_and_raise(signum);
 
         // Fallback
-        rustpython_host_env::os::exit(1);
+        rustpython_host_env::os::exit_immediately(1);
     }
 
     // Windows vectored exception handler (faulthandler.c:417-480)
@@ -467,16 +424,14 @@ mod decl {
     unsafe extern "system" fn faulthandler_exc_handler(
         exc_info: *mut host_faulthandler::ExceptionPointers,
     ) -> i32 {
-        const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
-
         if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
-            return EXCEPTION_CONTINUE_SEARCH;
+            return host_faulthandler::EXCEPTION_CONTINUE_SEARCH;
         }
 
         let code = unsafe { host_faulthandler::exception_code(exc_info) };
 
         if faulthandler_ignore_exception(code) {
-            return EXCEPTION_CONTINUE_SEARCH;
+            return host_faulthandler::EXCEPTION_CONTINUE_SEARCH;
         }
 
         let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
@@ -498,7 +453,7 @@ mod decl {
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
         faulthandler_dump_traceback(fd, all_threads);
 
-        EXCEPTION_CONTINUE_SEARCH
+        host_faulthandler::EXCEPTION_CONTINUE_SEARCH
     }
 
     // faulthandler_enable
@@ -681,10 +636,9 @@ mod decl {
                             // frames are still alive because the target thread
                             // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
-                                let iframe_ptr = slot
-                                    .top_iframe
-                                    .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                let iframe_ptr =
+                                    slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
                                 write_thread_id(fd, *tid, false);
                                 if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");
@@ -705,10 +659,9 @@ mod decl {
                         }
                         all(not(unix), feature = "threading") => {
                             for (tid, slot) in &thread_frame_slots {
-                                let iframe_ptr = slot
-                                    .top_iframe
-                                    .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                let iframe_ptr =
+                                    slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
                                 write_thread_id(fd, *tid, false);
                                 if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");
@@ -734,7 +687,7 @@ mod decl {
                     }
 
                     if exit {
-                        rustpython_host_env::os::exit(1);
+                        rustpython_host_env::os::exit_immediately(1);
                     }
                 }
             }
@@ -750,11 +703,11 @@ mod decl {
     struct DumpTracebackLaterArgs {
         #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
         timeout: ArgIntoFloat,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         repeat: bool,
         #[pyarg(any, default)]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         exit: bool,
     }
 
@@ -879,7 +832,7 @@ mod decl {
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = true)]
         all_threads: bool,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         chain: bool,
     }
 
@@ -932,7 +885,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct SigsegvArgs {
-        #[pyarg(any, default = false)]
+        #[pyarg(positional, default)]
         release_gil: bool,
     }
 
@@ -1005,30 +958,31 @@ mod decl {
     // Windows-specific constants
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_ACCESS_VIOLATION: u32 = 0xC0000005;
+    const _EXCEPTION_ACCESS_VIOLATION: u32 = host_faulthandler::EXCEPTION_ACCESS_VIOLATION;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_INT_DIVIDE_BY_ZERO: u32 = 0xC0000094;
+    const _EXCEPTION_INT_DIVIDE_BY_ZERO: u32 = host_faulthandler::EXCEPTION_INT_DIVIDE_BY_ZERO;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_STACK_OVERFLOW: u32 = 0xC00000FD;
+    const _EXCEPTION_STACK_OVERFLOW: u32 = host_faulthandler::EXCEPTION_STACK_OVERFLOW;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_NONCONTINUABLE: u32 = 0x00000001;
+    const _EXCEPTION_NONCONTINUABLE: u32 = host_faulthandler::EXCEPTION_NONCONTINUABLE;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_NONCONTINUABLE_EXCEPTION: u32 = 0xC0000025;
+    const _EXCEPTION_NONCONTINUABLE_EXCEPTION: u32 =
+        host_faulthandler::EXCEPTION_NONCONTINUABLE_EXCEPTION;
 
     #[cfg(windows)]
     #[derive(FromArgs)]
     struct RaiseExceptionArgs {
         #[pyarg(positional)]
         code: u32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         flags: u32,
     }
 

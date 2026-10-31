@@ -6,11 +6,12 @@ if sys.platform != "win32":
 
 
 import itertools
+from _colorize import ANSIColors
 from functools import partial
 from test.support import force_not_colorized_test_class
 from typing import Iterable
 from unittest import TestCase
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 from .support import handle_all_events, code_to_events
 from .support import prepare_reader as default_prepare_reader
@@ -30,7 +31,20 @@ except ImportError:
     pass
 
 
+def _mock_console_init(self, f_in=0, f_out=1, term="", encoding="utf-8"):
+    """Mock __init__ to avoid real Windows API calls in headless environments."""
+    super(WindowsConsole, self).__init__(f_in, f_out, term, encoding)
+    self.width = 80
+    self.height = 25
+    self._WindowsConsole__offset = 0
+    self.posxy = (0, 0)
+    self._WindowsConsole__vt_support = False
+    self._WindowsConsole_original_input_mode = 0
+    self.event_queue = wc.EventQueue('utf-8')
+
+
 @force_not_colorized_test_class
+@patch.object(WindowsConsole, '__init__', _mock_console_init)
 class WindowsConsoleTests(TestCase):
     def console(self, events, **kwargs) -> Console:
         console = WindowsConsole()
@@ -293,7 +307,8 @@ class WindowsConsoleTests(TestCase):
                 call(self.move_left(5)),
                 call(self.move_up()),
                 call(b"def f():"),
-                call(self.move_left(3)),
+                call(self.move_left(8)),
+                call(self.move_right(5)),
                 call(self.move_down()),
             ]
         )
@@ -366,7 +381,30 @@ class WindowsConsoleTests(TestCase):
         self.assertEqual(reader.cxy, (2, 3))
         con.restore()
 
+    def test_reset_on_finish(self):
+        # gh-152068: finish() must emit the ANSI reset sequence so any
+        # active color does not leak past the prompt.
+        code = "1"
+        events = code_to_events(code)
+        _, con = self.handle_events(events)
+        con.finish()
+        con.out.write.assert_any_call(ANSIColors.RESET.encode(con.encoding))
+        con.restore()
 
+    def test_reset_on_restore(self):
+        # gh-152068: restore() must emit the ANSI reset sequence when VT
+        # support is enabled.
+        code = "1"
+        events = code_to_events(code)
+        _, con = self.handle_events(events)
+        con._WindowsConsole__vt_support = True
+        con._WindowsConsole__original_input_mode = 0
+        with patch.object(wc, "SetConsoleMode", return_value=1):
+            con.restore()
+        con.out.write.assert_any_call(ANSIColors.RESET.encode(con.encoding))
+
+
+@patch.object(WindowsConsole, '__init__', _mock_console_init)
 class WindowsConsoleGetEventTests(TestCase):
     # Virtual-Key Codes: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
     VK_BACK = 0x08
@@ -442,7 +480,6 @@ class WindowsConsoleGetEventTests(TestCase):
             self.assertEqual(self.get_event([ir]), None)
             self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_enter(self):
         ir = self.get_input_record("\r", self.VK_RETURN)
         self.assertEqual(self.get_event([ir]), Event("key", "\n"))
@@ -454,13 +491,11 @@ class WindowsConsoleGetEventTests(TestCase):
             self.get_event([ir]), Event("key", "backspace"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_m(self):
         ir = self.get_input_record("m", self.VK_M)
         self.assertEqual(self.get_event([ir]), Event("key", "m"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_M(self):
         ir = self.get_input_record("M", self.VK_M, self.SHIFT_PRESSED)
         self.assertEqual(self.get_event([ir]), Event("key", "M"))
@@ -516,7 +551,6 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.get_event([ir]), None)
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_m_LEFT_ALT_PRESSED(self):
         ir = self.get_input_record(
             "m", vcode=self.VK_M, control=self.LEFT_ALT_PRESSED)
@@ -524,7 +558,6 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.console.get_event(), Event("key", "m"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_m_RIGHT_ALT_PRESSED(self):
         ir = self.get_input_record(
             "m", vcode=self.VK_M, control=self.RIGHT_ALT_PRESSED)
@@ -532,7 +565,6 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.console.get_event(), Event("key", "m"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_AltGr_7(self):
         # E.g. on a German keyboard layout, '{' is entered via
         # AltGr + 7, where AltGr is the right Alt key on the keyboard.
@@ -549,7 +581,6 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.get_event([ir]), Event("key", "{"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_AltGr_m(self):
         # E.g. on a German keyboard layout, this yields 'µ'
         # Let's use LEFT_ALT_PRESSED and RIGHT_CTRL_PRESSED this
@@ -559,7 +590,6 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.get_event([ir]), Event("key", "µ"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_umlaut_a_german(self):
         ir = self.get_input_record("ä", self.VK_OEM_7)
         self.assertEqual(self.get_event([ir]), Event("key", "ä"))
@@ -574,21 +604,18 @@ class WindowsConsoleGetEventTests(TestCase):
     # are sufficient to test here, the real tests happen in test_eventqueue
     # and test_keymap.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_enter_vt(self):
         ir = self.get_input_record("\r")
         self.assertEqual(self.get_event([ir], vt_support=True),
                          Event("key", "\n"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_backspace_vt(self):
         ir = self.get_input_record("\x7f")
         self.assertEqual(self.get_event([ir], vt_support=True),
                          Event("key", "backspace", b"\x7f"))
         self.assertEqual(self.mock.call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_up_vt(self):
         irs = [self.get_input_record(x) for x in "\x1b[A"]
         self.assertEqual(self.get_event(irs, vt_support=True),

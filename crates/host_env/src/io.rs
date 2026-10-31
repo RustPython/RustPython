@@ -9,14 +9,29 @@ use rustix::{fs::FileType, io::Errno};
 use crate::fileutils;
 use crate::{crt_fd, os};
 
-bitflags::bitflags! {
+bitflagset::bitflag! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub struct FileMode: u8 {
-        const CREATED   = 0b0001;
-        const READABLE  = 0b0010;
-        const WRITABLE  = 0b0100;
-        const APPENDING = 0b1000;
+    #[repr(u8)]
+    pub enum FileModeFlag {
+        Created = 0,
+        Readable = 1,
+        Writable = 2,
+        Appending = 3,
+        Truncating = 4,
     }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct FileMode(u8): FileModeFlag
+}
+
+impl FileMode {
+    pub const CREATED: Self = Self::from_element(FileModeFlag::Created);
+    pub const READABLE: Self = Self::from_element(FileModeFlag::Readable);
+    pub const WRITABLE: Self = Self::from_element(FileModeFlag::Writable);
+    pub const APPENDING: Self = Self::from_element(FileModeFlag::Appending);
+    pub const TRUNCATING: Self = Self::from_element(FileModeFlag::Truncating);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,21 +60,25 @@ pub struct ParsedFileMode {
 
 impl FileMode {
     pub const fn raw_mode(self) -> &'static str {
-        if self.contains(Self::CREATED) {
-            if self.contains(Self::READABLE) {
+        if self.contains(&FileModeFlag::Created) {
+            if self.contains(&FileModeFlag::Readable) {
                 "xb+"
             } else {
                 "xb"
             }
-        } else if self.contains(Self::APPENDING) {
-            if self.contains(Self::READABLE) {
+        } else if self.contains(&FileModeFlag::Appending) {
+            if self.contains(&FileModeFlag::Readable) {
                 "ab+"
             } else {
                 "ab"
             }
-        } else if self.contains(Self::READABLE) {
-            if self.contains(Self::WRITABLE) {
-                "rb+"
+        } else if self.contains(&FileModeFlag::Readable) {
+            if self.contains(&FileModeFlag::Writable) {
+                if self.contains(&FileModeFlag::Truncating) {
+                    "wb+"
+                } else {
+                    "rb+"
+                }
             } else {
                 "rb"
             }
@@ -81,38 +100,38 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE | FileMode::CREATED);
-                flags |= libc::O_EXCL | libc::O_CREAT;
+                mode |= FileMode::WRITABLE | FileMode::CREATED;
+                flags |= os::O_EXCL | os::O_CREAT;
             }
             b'r' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::READABLE);
+                mode |= FileMode::READABLE;
             }
             b'w' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE);
-                flags |= libc::O_CREAT | libc::O_TRUNC;
+                mode |= FileMode::WRITABLE | FileMode::TRUNCATING;
+                flags |= os::O_CREAT | os::O_TRUNC;
             }
             b'a' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE | FileMode::APPENDING);
-                flags |= libc::O_APPEND | libc::O_CREAT;
+                mode |= FileMode::WRITABLE | FileMode::APPENDING;
+                flags |= os::O_APPEND | os::O_CREAT;
             }
             b'+' => {
                 if plus {
                     return Err(FileModeError::BadRwa);
                 }
                 plus = true;
-                mode.insert(FileMode::READABLE | FileMode::WRITABLE);
+                mode |= FileMode::READABLE | FileMode::WRITABLE;
             }
             b'b' => {}
             _ => return Err(FileModeError::Invalid),
@@ -123,21 +142,21 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
         return Err(FileModeError::BadRwa);
     }
 
-    if mode.contains(FileMode::READABLE | FileMode::WRITABLE) {
-        flags |= libc::O_RDWR;
-    } else if mode.contains(FileMode::READABLE) {
-        flags |= libc::O_RDONLY;
+    if mode.is_superset(&(FileMode::READABLE | FileMode::WRITABLE)) {
+        flags |= os::O_RDWR;
+    } else if mode.contains(&FileModeFlag::Readable) {
+        flags |= os::O_RDONLY;
     } else {
-        flags |= libc::O_WRONLY;
+        flags |= os::O_WRONLY;
     }
 
     #[cfg(windows)]
     {
-        flags |= libc::O_BINARY | libc::O_NOINHERIT;
+        flags |= os::O_BINARY | os::O_NOINHERIT;
     }
     #[cfg(unix)]
     {
-        flags |= libc::O_CLOEXEC;
+        flags |= os::O_CLOEXEC;
     }
 
     Ok(ParsedFileMode { mode, flags })

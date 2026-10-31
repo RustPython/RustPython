@@ -4,23 +4,62 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 use rustpython_unicode::case;
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyIntRef, PyTuple},
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyTuple},
     convert::TryFromBorrowedObject,
-    function::OptionalOption,
+    function::{ArgIndex, PySsize},
 };
+
+pub(crate) fn checked_replace_len(
+    original: usize,
+    old: usize,
+    new: usize,
+    count: usize,
+) -> Option<usize> {
+    let result = if new >= old {
+        original.checked_add(count.checked_mul(new - old)?)?
+    } else {
+        original.checked_sub(count.checked_mul(old - new)?)?
+    };
+    isize::try_from(result).ok().map(|_| result)
+}
+
+pub(crate) fn checked_expandtabs_len(
+    original: usize,
+    chars: impl Iterator<Item = u32>,
+    tabsize: usize,
+) -> Option<usize> {
+    let mut result = original;
+    let mut column = 0;
+    for ch in chars {
+        if ch == u32::from(b'\t') {
+            let spaces = if tabsize == 0 {
+                0
+            } else {
+                tabsize - column % tabsize
+            };
+            result = checked_replace_len(result, 1, spaces, 1)?;
+            column += spaces;
+        } else if ch == u32::from(b'\r') || ch == u32::from(b'\n') {
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+    Some(result)
+}
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
-    maxsplit: isize,
+    maxsplit: PySsize,
 }
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(any, default = false)]
+    #[pyarg(any, default)]
     pub keepends: bool,
 }
 
@@ -41,15 +80,32 @@ pub(crate) struct StartsEndsWithArgs {
     #[pyarg(positional)]
     affix: PyObjectRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<ArgIndex>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<ArgIndex>,
 }
 
 impl StartsEndsWithArgs {
+    pub(crate) fn parts(&self, len: usize) -> (&PyObject, Option<Range<usize>>) {
+        let range = if self.start.is_some() || self.end.is_some() {
+            Some(adjust_indices(
+                self.start.as_ref().map(AsRef::as_ref),
+                self.end.as_ref().map(AsRef::as_ref),
+                len,
+            ))
+        } else {
+            None
+        };
+        (&self.affix, range)
+    }
+
     pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
-            Some(adjust_indices(self.start, self.end, len))
+            Some(adjust_indices(
+                self.start.as_ref().map(AsRef::as_ref),
+                self.end.as_ref().map(AsRef::as_ref),
+                len,
+            ))
         } else {
             None
         };
@@ -75,7 +131,7 @@ impl StartsEndsWithArgs {
     }
 }
 
-fn saturate_to_isize(py_int: PyIntRef) -> isize {
+fn saturate_to_isize(py_int: &Py<PyInt>) -> isize {
     let big = py_int.as_bigint();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
@@ -88,8 +144,8 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
 
 // help get optional string indices
 pub(crate) fn adjust_indices(
-    start: Option<PyIntRef>,
-    end: Option<PyIntRef>,
+    start: Option<&Py<PyInt>>,
+    end: Option<&Py<PyInt>>,
     len: usize,
 ) -> Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
@@ -196,7 +252,9 @@ pub(crate) trait AnyStr {
             if args.maxsplit < 0 {
                 split(self, pattern, vm)
             } else {
-                splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
+                // Widen before adding: `isize::MAX + 1` overflows, and `sys.maxsize`
+                // is a legitimate maxsplit.
+                splitn(self, pattern, args.maxsplit as usize + 1, vm)
             }
         } else {
             split_whitespace(self, args.maxsplit, vm)
@@ -242,7 +300,7 @@ pub(crate) trait AnyStr {
     #[inline]
     fn py_strip<'a, S, FC, FD>(
         &'a self,
-        chars: OptionalOption<S>,
+        chars: Option<S>,
         func_chars: FC,
         func_default: FD,
     ) -> &'a Self
@@ -251,7 +309,6 @@ pub(crate) trait AnyStr {
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
-        let chars = chars.flatten();
         match chars {
             Some(chars) => {
                 if let Some(chars) = chars.as_ref() {
@@ -314,23 +371,6 @@ pub(crate) trait AnyStr {
 
     fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(width - len, 0, fillchar)
-    }
-
-    fn py_join(
-        &self,
-        mut iter: impl core::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
-    ) -> PyResult<Self::Container> {
-        let mut joined = if let Some(elem) = iter.next() {
-            elem?.as_ref().unwrap().to_container()
-        } else {
-            return Ok(Self::Container::new());
-        };
-        for elem in iter {
-            let elem = elem?;
-            joined.push_str(self);
-            joined.push_str(elem.as_ref().unwrap());
-        }
-        Ok(joined)
     }
 
     fn py_partition<'a, F, S>(
@@ -513,4 +553,36 @@ where
         }
     })?;
     (predicate)(single)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{checked_expandtabs_len, checked_replace_len};
+
+    #[test]
+    fn replacement_length_checks_signed_and_unsigned_overflow() {
+        let max = isize::MAX as usize;
+        assert_eq!(checked_replace_len(4, 0, 1, 5), Some(9));
+        assert_eq!(checked_replace_len(6, 1, 0, 4), Some(2));
+        assert_eq!(checked_replace_len(max, 0, 1, 0), Some(max));
+        assert_eq!(checked_replace_len(max, 0, 1, 1), None);
+        assert_eq!(checked_replace_len(1, 0, 2, usize::MAX), None);
+    }
+
+    #[test]
+    fn expanded_tabs_check_the_complete_output_before_allocating() {
+        let max = isize::MAX as usize;
+        assert_eq!(
+            checked_expandtabs_len(1, "\t".chars().map(u32::from), max),
+            Some(max)
+        );
+        assert_eq!(
+            checked_expandtabs_len(3, "\t\n\t".chars().map(u32::from), max),
+            None
+        );
+        assert_eq!(
+            checked_expandtabs_len(3, "a\tb".chars().map(u32::from), 0),
+            Some(2)
+        );
+    }
 }

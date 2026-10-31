@@ -1,9 +1,30 @@
 use crate::bytecode;
 
-pub(crate) const PY_SINGLE_INPUT: i32 = 256;
-pub(crate) const PY_FILE_INPUT: i32 = 257;
-pub(crate) const PY_EVAL_INPUT: i32 = 258;
-pub(crate) const PY_FUNC_TYPE_INPUT: i32 = 345;
+/// `Py_single_input` / `Py_file_input` / `Py_eval_input` / `Py_func_type_input`.
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CompileStart {
+    Single = 256,
+    File = 257,
+    Eval = 258,
+    FuncType = 345,
+}
+
+impl CompileStart {
+    pub(crate) const fn from_i32(v: i32) -> Option<Self> {
+        match v {
+            256 => Some(Self::Single),
+            257 => Some(Self::File),
+            258 => Some(Self::Eval),
+            345 => Some(Self::FuncType),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn as_i32(self) -> i32 {
+        self as i32
+    }
+}
 
 bitflags::bitflags! {
     /// `PyCF_*` compiler flags together with the `__future__` `CO_FUTURE_*`
@@ -67,17 +88,6 @@ pub(crate) const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = CompilerFlags::ALLOW_TOP_LEV
 pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = CompilerFlags::ALLOW_INCOMPLETE_INPUT.bits();
 pub(crate) const PY_CF_OPTIMIZED_AST: i32 = CompilerFlags::OPTIMIZED_AST.bits();
 
-pub(crate) fn compile_future_feature_mask() -> bytecode::CodeFlags {
-    // RustPython accepts barry_as_FLUFL but leaves its parser mode disabled.
-    bytecode::CodeFlags::FUTURE_DIVISION
-        | bytecode::CodeFlags::FUTURE_ABSOLUTE_IMPORT
-        | bytecode::CodeFlags::FUTURE_WITH_STATEMENT
-        | bytecode::CodeFlags::FUTURE_PRINT_FUNCTION
-        | bytecode::CodeFlags::FUTURE_UNICODE_LITERALS
-        | bytecode::CodeFlags::FUTURE_GENERATOR_STOP
-        | bytecode::CodeFlags::FUTURE_ANNOTATIONS
-}
-
 pub(crate) fn compile_future_features_from_flags(flags: i32) -> bytecode::CodeFlags {
-    bytecode::CodeFlags::from_bits_truncate(flags as u32 & compile_future_feature_mask().bits())
+    bytecode::CodeFlags::from_bits_truncate(flags as u32 & bytecode::CodeFlags::FUTURE_MASK.bits())
 }

@@ -1,0 +1,44 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\n\ndef g():\n    def f(x: not (int is int), /): ...\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:38            LOAD_CONST               0 (<code object g at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:38            MAKE_FUNCTION
+1:0-2:38            STORE_NAME               0 (g)
+1:0-2:38            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:38            RETURN_VALUE
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0             RESUME                   0
+
+2:4-2:38            LOAD_CONST               0 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 2>)
+2:4-2:38            MAKE_FUNCTION
+2:4-2:38            LOAD_CONST               1 (<code object f at 0xdeadbeef, file "<?>", line 2>)
+2:4-2:38            MAKE_FUNCTION
+2:4-2:38            SET_FUNCTION_ATTRIBUTE  16 (annotate)
+2:4-2:38            STORE_FAST               0 (f)
+2:4-2:38            LOAD_COMMON_CONSTANT     7 (None)
+2:4-2:38            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 2>:
+2:0-2:0              RESUME                   0
+2:4-2:38             LOAD_FAST_BORROW         0 (format)
+2:4-2:38             LOAD_SMALL_INT           2
+2:4-2:38             COMPARE_OP             132 (>)
+2:4-2:38             POP_JUMP_IF_FALSE        3 (to L1)
+2:4-2:38             NOT_TAKEN
+2:4-2:38             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+2:4-2:38             RAISE_VARARGS            1
+2:4-2:38     L1:     LOAD_CONST               1 ('x')
+2:18-2:21            LOAD_GLOBAL              0 (int)
+2:25-2:28            LOAD_GLOBAL              0 (int)
+2:13-2:29            IS_OP                    1 (is not)
+2:4-2:38             BUILD_MAP                1
+2:4-2:38             RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 2>:
+2:0-2:0              RESUME                   0
+2:35-2:38            LOAD_COMMON_CONSTANT     7 (None)
+2:35-2:38            RETURN_VALUE

@@ -815,6 +815,15 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             class X(int(), C):
                 pass
 
+    @unittest.skipIf(_testcapi is None, 'need the _testcapi module')
+    def test_type_with_null_new_metaclass(self):
+        metaclass = _testcapi.HeapCTypeMetaclassNullNew
+        base = _testcapi.pytype_fromspec_meta(metaclass)
+
+        # Exercise type_new's metaclass selection path, not a direct call.
+        with self.assertRaisesRegex(TypeError, r"cannot create '.*' instances"):
+            type("Derived", (base,), {})
+
     def test_module_subclasses(self):
         # Testing Python subclass of module...
         log = []
@@ -1103,7 +1112,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             frozenset().__class__ = MyFrozenSet
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.thread_unsafe
     def test_slots(self):
         # Testing __slots__...
@@ -1321,6 +1329,18 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, "'X' object has no attribute 'a'"):
             X().a
 
+    def test_slots_after_items(self):
+        class C(tuple):
+            __slots__ = ['a']
+        x = C((1, 2, 3))
+        self.assertNotHasAttr(x, "__dict__")
+        self.assertNotHasAttr(x, "a")
+        x.a = 42
+        self.assertEqual(x.a, 42)
+        del x.a
+        self.assertNotHasAttr(x, "a")
+        self.assertEqual(x, (1, 2, 3))
+
     def test_slots_special(self):
         # Testing __dict__ and __weakref__ in __slots__...
         class D(object):
@@ -1330,18 +1350,17 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertNotHasAttr(a, "__weakref__")
         a.foo = 42
         self.assertEqual(a.__dict__, {"foo": 42})
+        with self.assertRaises(TypeError):
+            weakref.ref(a)
 
         class W(object):
             __slots__ = ["__weakref__"]
         a = W()
         self.assertHasAttr(a, "__weakref__")
         self.assertNotHasAttr(a, "__dict__")
-        try:
+        with self.assertRaises(AttributeError):
             a.foo = 42
-        except AttributeError:
-            pass
-        else:
-            self.fail("shouldn't be allowed to set a.foo")
+        self.assertIs(weakref.ref(a)(), a)
 
         class C1(W, D):
             __slots__ = []
@@ -1350,6 +1369,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertHasAttr(a, "__weakref__")
         a.foo = 42
         self.assertEqual(a.__dict__, {"foo": 42})
+        self.assertIs(weakref.ref(a)(), a)
 
         class C2(D, W):
             __slots__ = []
@@ -1358,8 +1378,81 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertHasAttr(a, "__weakref__")
         a.foo = 42
         self.assertEqual(a.__dict__, {"foo": 42})
+        self.assertIs(weakref.ref(a)(), a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skipIf(_testcapi is None, 'need the _testcapi module')
+    def test_slots_special_before_items(self):
+        class D(_testcapi.HeapCCollection):
+            __slots__ = ["__dict__"]
+        a = D(1, 2, 3)
+        self.assertHasAttr(a, "__dict__")
+        self.assertNotHasAttr(a, "__weakref__")
+        a.foo = 42
+        self.assertEqual(a.__dict__, {"foo": 42})
+        with self.assertRaises(TypeError):
+            weakref.ref(a)
+        del a.__dict__
+        self.assertNotHasAttr(a, "foo")
+        self.assertEqual(a.__dict__, {})
+        self.assertEqual(list(a), [1, 2, 3])
+
+        class W(_testcapi.HeapCCollection):
+            __slots__ = ["__weakref__"]
+        a = W(1, 2, 3)
+        self.assertHasAttr(a, "__weakref__")
+        self.assertNotHasAttr(a, "__dict__")
+        with self.assertRaises(AttributeError):
+            a.foo = 42
+        self.assertIs(weakref.ref(a)(), a)
+
+        with self.assertRaises(TypeError):
+            class X(_testcapi.HeapCCollection):
+                __slots__ = ['x']
+
+        with self.assertRaises(TypeError):
+            class X(_testcapi.HeapCCollection):
+                __slots__ = ['__dict__', 'x']
+
+    @support.subTests(('base', 'arg'), [
+        (tuple, (1, 2, 3)),
+        (int, 9876543210**2),
+        (bytes, b'ab'),
+    ])
+    def test_slots_special_after_items(self, base, arg):
+        class D(base):
+            __slots__ = ["__dict__"]
+        a = D(arg)
+        self.assertHasAttr(a, "__dict__")
+        self.assertNotHasAttr(a, "__weakref__")
+        a.foo = 42
+        self.assertEqual(a.__dict__, {"foo": 42})
+        with self.assertRaises(TypeError):
+            weakref.ref(a)
+        del a.__dict__
+        self.assertNotHasAttr(a, "foo")
+        self.assertEqual(a.__dict__, {})
+        self.assertEqual(a, base(arg))
+
+        class W(base):
+            __slots__ = ["__weakref__"]
+        a = W(arg)
+        self.assertHasAttr(a, "__weakref__")
+        self.assertNotHasAttr(a, "__dict__")
+        with self.assertRaises(AttributeError):
+            a.foo = 42
+        self.assertIs(weakref.ref(a)(), a)
+        self.assertEqual(a, base(arg))
+
+    @support.subTests('base', [int, bytes] +
+                      ([_testcapi.HeapCCollection] if _testcapi else []))
+    def test_unsupported_slots(self, base):
+        with self.assertRaises(TypeError):
+            class X(base):
+                __slots__ = ['x']
+        with self.assertRaises(TypeError):
+            class X(base):
+                __slots__ = ['__dict__', 'x']
+
     def test_slots_special2(self):
         # Testing __qualname__ and __classcell__ in __slots__
         class Meta(type):
@@ -1544,7 +1637,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         else:
             self.fail("finding the most derived metaclass should have failed")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_classmethods(self):
         # Testing class methods...
         class C(object):
@@ -1606,7 +1698,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         del cm.x
         self.assertNotHasAttr(cm, "x")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_classmethod_staticmethod_annotations(self):
         for deco in (classmethod, staticmethod):
             @deco
@@ -1645,6 +1736,18 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                     del method.__annotate__
                     self.assertIs(method.__annotate__, original_annotate)
 
+    def test_classmethod_without_dict_access(self):
+        class Spam:
+            @classmethod
+            def method(cls, x, y):
+                pass
+
+        obj = Spam.__dict__['method']
+        self.assertIsInstance(obj, classmethod)
+        self.assertEqual(obj.__annotations__, {})
+        self.assertEqual(obj.__name__, 'method')
+        self.assertEqual(obj.__module__, __name__)
+
     def test_staticmethod_annotations_without_dict_access(self):
         # gh-125017: this used to crash
         class Spam:
@@ -1655,15 +1758,8 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         obj = Spam.__dict__['__new__']
         self.assertIsInstance(obj, staticmethod)
         self.assertEqual(obj.__annotations__, {})
-
-    @support.refcount_test
-    def test_refleaks_in_classmethod___init__(self):
-        gettotalrefcount = support.get_attribute(sys, 'gettotalrefcount')
-        cm = classmethod(None)
-        refs_before = gettotalrefcount()
-        for i in range(100):
-            cm.__init__(None)
-        self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
+        self.assertEqual(obj.__name__, '__new__')
+        self.assertEqual(obj.__module__, __name__)
 
     @support.impl_detail("the module 'xxsubtype' is internal")
     @unittest.skipIf(xxsubtype is None, "requires xxsubtype module")
@@ -1761,15 +1857,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(sm.__dict__, {"x" : 42, '__doc__': None.__doc__})
         del sm.x
         self.assertNotHasAttr(sm, "x")
-
-    @support.refcount_test
-    def test_refleaks_in_staticmethod___init__(self):
-        gettotalrefcount = support.get_attribute(sys, 'gettotalrefcount')
-        sm = staticmethod(None)
-        refs_before = gettotalrefcount()
-        for i in range(100):
-            sm.__init__(None)
-        self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
 
     @support.impl_detail("the module 'xxsubtype' is internal")
     @unittest.skipIf(xxsubtype is None, "requires xxsubtype module")
@@ -1933,7 +2020,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, B)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_altmro(self):
         # Testing mro() and overriding it...
         class A(object):
@@ -2112,7 +2198,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             set_add.__get__(0)
         self.assertEqual(cm.exception.args[0], expected_errmsg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_special_method_lookup(self):
         # The lookup of special methods bypasses __getattr__ and
         # __getattribute__, but they still can be descriptors.
@@ -2346,7 +2431,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(r(), None)
         del r
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_properties(self):
         # Testing property...
         class C(object):
@@ -2674,7 +2758,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
         dir(C()) # This used to segfault
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_supers(self):
         # Testing super...
 
@@ -2787,7 +2870,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             super(Base, kw=1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basic_inheritance(self):
         # Testing inheritance from basic types...
 
@@ -3320,7 +3402,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                                          eval("x %s y" % op),
                                          "x=%d, y=%d" % (x, y))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_descrdoc(self):
         # Testing descriptor doc strings...
         from _io import FileIO
@@ -3344,7 +3425,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(NewClass.__doc__, 'object=None; type=NewClass')
         self.assertEqual(NewClass().__doc__, 'object=NewClass instance; type=NewClass')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_class(self):
         # Testing __class__ assignment...
         class C(object): pass
@@ -3434,7 +3514,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         l = [A() for x in range(100)]
         del l
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_dict(self):
         # Testing __dict__ assignment...
         class C(object): pass
@@ -3697,7 +3776,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                            encoding='latin1', errors='replace')
         self.assertEqual(ba, b'abc\xbd?')
 
-    @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
+    @support.skip_if_huge_c_stack()
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
     def test_recursive_call(self):
@@ -3818,7 +3897,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         m.foo = 1
         self.assertEqual(m.__dict__, {"foo": 1})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_funny_new(self):
         # Testing __new__ returning something unexpected...
         class C(object):
@@ -3980,7 +4058,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         # it as a leak.
         del C.__del__
 
-    @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_slots_trash(self):
@@ -4074,7 +4151,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             y = x ** 2
         self.assertIn('unsupported operand type(s) for **', str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pow_wrapper_error_messages(self):
         self.assertRaisesRegex(TypeError,
                                'expected 1 or 2 arguments, got 0',
@@ -4117,42 +4193,195 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(e.a, 2)
         self.assertEqual(C2.__subclasses__(), [D])
 
-        try:
+        with self.assertRaisesRegex(TypeError,
+                    "cannot delete '__bases__' attribute of type 'D'"):
             del D.__bases__
-        except (TypeError, AttributeError):
-            pass
-        else:
-            self.fail("shouldn't be able to delete .__bases__")
-
-        try:
+        with self.assertRaisesRegex(TypeError, 'can only assign non-empty tuple'):
             D.__bases__ = ()
-        except TypeError as msg:
-            if str(msg) == "a new-style class can't have only classic bases":
-                self.fail("wrong error message for .__bases__ = ()")
-        else:
-            self.fail("shouldn't be able to set .__bases__ to ()")
-
-        try:
-            D.__bases__ = (D,)
-        except TypeError:
-            pass
-        else:
-            # actually, we'll have crashed by here...
-            self.fail("shouldn't be able to create inheritance cycles")
-
-        try:
+        with self.assertRaisesRegex(TypeError, 'can only assign tuple'):
+            D.__bases__ = [C]
+        with self.assertRaisesRegex(TypeError, 'duplicate base class'):
             D.__bases__ = (C, C)
-        except TypeError:
-            pass
-        else:
-            self.fail("didn't detect repeated base classes")
-
-        try:
+        with self.assertRaisesRegex(TypeError, 'inheritance cycle'):
+            D.__bases__ = (D,)
+        with self.assertRaisesRegex(TypeError, 'inheritance cycle'):
             D.__bases__ = (E,)
-        except TypeError:
+
+        class A:
+            __slots__ = ()
+            def __repr__(self):
+                return '<A>'
+        class A_with_dict:
+            __slots__ = ('__dict__',)
+            def __repr__(self):
+                return '<A_with_dict>'
+        class A_with_dict_weakref:
+            def __repr__(self):
+                return '<A_with_dict_weakref>'
+        class A_with_slots:
+            __slots__ = ('x',)
+            def __repr__(self):
+                return '<A_with_slots>'
+        class A_with_slots_dict:
+            __slots__ = ('x', '__dict__')
+            def __repr__(self):
+                return '<A_with_slots_dict>'
+
+        class B:
+            __slots__ = ()
+        b = B()
+        r = repr(b)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B.__bases__ = (int,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B.__bases__ = (A_with_dict_weakref,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B.__bases__ = (A_with_dict,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B.__bases__ = (A_with_slots,)
+        B.__bases__ = (A,)
+        self.assertNotHasAttr(b, '__dict__')
+        self.assertNotHasAttr(b, '__weakref__')
+        self.assertEqual(repr(b), '<A>')
+        B.__bases__ = (object,)
+        self.assertEqual(repr(b), r)
+
+        class B_with_dict_weakref:
             pass
-        else:
-            self.fail("shouldn't be able to create inheritance cycles")
+        b = B_with_dict_weakref()
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B.__bases__ = (A_with_slots,)
+        B_with_dict_weakref.__bases__ = (A_with_dict_weakref,)
+        self.assertEqual(repr(b), '<A_with_dict_weakref>')
+        B_with_dict_weakref.__bases__ = (A_with_dict,)
+        self.assertEqual(repr(b), '<A_with_dict>')
+        B_with_dict_weakref.__bases__ = (A,)
+        self.assertEqual(repr(b), '<A>')
+        B_with_dict_weakref.__bases__ = (object,)
+
+        class B_with_slots:
+            __slots__ = ('x',)
+        b = B_with_slots()
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_with_slots.__bases__ = (A_with_dict_weakref,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_with_slots.__bases__ = (A_with_dict,)
+        B_with_slots.__bases__ = (A,)
+        self.assertEqual(repr(b), '<A>')
+
+        class B_with_slots_dict:
+            __slots__ = ('x', '__dict__')
+        b = B_with_slots_dict()
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_with_slots_dict.__bases__ = (A_with_dict_weakref,)
+        B_with_slots_dict.__bases__ = (A_with_dict,)
+        self.assertEqual(repr(b), '<A_with_dict>')
+        B_with_slots_dict.__bases__ = (A,)
+        self.assertEqual(repr(b), '<A>')
+
+        class B_with_slots_dict_weakref:
+            __slots__ = ('x', '__dict__', '__weakref__')
+        b = B_with_slots_dict_weakref()
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_with_slots_dict_weakref.__bases__ = (A_with_slots_dict,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_with_slots_dict_weakref.__bases__ = (A_with_slots,)
+        B_with_slots_dict_weakref.__bases__ = (A_with_dict_weakref,)
+        self.assertEqual(repr(b), '<A_with_dict_weakref>')
+        B_with_slots_dict_weakref.__bases__ = (A_with_dict,)
+        self.assertEqual(repr(b), '<A_with_dict>')
+        B_with_slots_dict_weakref.__bases__ = (A,)
+        self.assertEqual(repr(b), '<A>')
+
+        class C_with_slots(A_with_slots):
+            __slots__ = ()
+        c = C_with_slots()
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots.__bases__ = (A_with_slots_dict,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots.__bases__ = (A_with_dict_weakref,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots.__bases__ = (A_with_dict,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots.__bases__ = (A,)
+        C_with_slots.__bases__ = (A_with_slots,)
+        self.assertEqual(repr(c), '<A_with_slots>')
+
+        class C_with_slots_dict(A_with_slots):
+            pass
+        c = C_with_slots_dict()
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots_dict.__bases__ = (A_with_dict_weakref,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots_dict.__bases__ = (A_with_dict,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            C_with_slots_dict.__bases__ = (A,)
+        C_with_slots_dict.__bases__ = (A_with_slots_dict,)
+        self.assertEqual(repr(c), '<A_with_slots_dict>')
+        C_with_slots_dict.__bases__ = (A_with_slots,)
+        self.assertEqual(repr(c), '<A_with_slots>')
+
+        class A_int(int):
+            __slots__ = ()
+            def __repr__(self):
+                return '<A_int>'
+        class B_int(int):
+            __slots__ = ()
+        b = B_int(42)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_int.__bases__ = (object,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_int.__bases__ = (tuple,)
+        with self.assertRaisesRegex(TypeError, 'is not an acceptable base type'):
+            B_int.__bases__ = (bool,)
+        B_int.__bases__ = (A_int,)
+        self.assertEqual(repr(b), '<A_int>')
+        B_int.__bases__ = (int,)
+        self.assertEqual(repr(b), '42')
+
+        class A_tuple(tuple):
+            __slots__ = ()
+            def __repr__(self):
+                return '<A_tuple>'
+        class B_tuple(tuple):
+            __slots__ = ()
+        b = B_tuple((1, 2))
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_tuple.__bases__ = (object,)
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
+            B_tuple.__bases__ = (int,)
+        B_tuple.__bases__ = (A_tuple,)
+        self.assertEqual(repr(b), '<A_tuple>')
+        B_tuple.__bases__ = (tuple,)
+        self.assertEqual(repr(b), '(1, 2)')
+
+    def test_assign_bases_many_subclasses(self):
+        # This is intended to check that typeobject.c:queue_slot_update() can
+        # handle updating many subclasses when a slot method is re-assigned.
+        class A:
+            x = 'hello'
+            def __call__(self):
+                return 123
+            def __getitem__(self, index):
+                return None
+
+        class X:
+            x = 'bye'
+
+        class B(A):
+            pass
+
+        subclasses = []
+        for i in range(1000):
+            sc = type(f'Sub{i}', (B,), {})
+            subclasses.append(sc)
+
+        self.assertEqual(subclasses[0]()(), 123)
+        self.assertEqual(subclasses[0]().x, 'hello')
+        B.__bases__ = (X,)
+        with self.assertRaises(TypeError):
+            subclasses[0]()()
+        self.assertEqual(subclasses[0]().x, 'bye')
 
     def test_builtin_bases(self):
         # Make sure all the builtin types can have their base queried without
@@ -4177,26 +4406,14 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         class D(C):
             pass
 
-        try:
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
             L.__bases__ = (dict,)
-        except TypeError:
-            pass
-        else:
-            self.fail("shouldn't turn list subclass into dict subclass")
 
-        try:
+        with self.assertRaisesRegex(TypeError, 'immutable type'):
             list.__bases__ = (dict,)
-        except TypeError:
-            pass
-        else:
-            self.fail("shouldn't be able to assign to list.__bases__")
 
-        try:
+        with self.assertRaisesRegex(TypeError, 'layout differs'):
             D.__bases__ = (C, list)
-        except TypeError:
-            pass
-        else:
-            self.fail("best_base calculation found wanting")
 
     def test_unsubclassable_types(self):
         with self.assertRaises(TypeError):
@@ -4230,7 +4447,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             X.__bases__ = type(None), O
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mutable_bases_with_failing_mro(self):
         # Testing mutable bases with failing mro...
         class WorkOnce(type):
@@ -4471,7 +4687,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIsInstance(a, C)  # Baseline
         self.assertIsInstance(pa, C) # Test
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_super(self):
         # Testing super() for a proxy object...
         class Proxy(object):
@@ -4495,7 +4710,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         p = Proxy(obj)
         self.assertEqual(C.__dict__["f"](p), "B.f->C.f")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_carloverre(self):
         # Testing prohibition of Carlo Verre's hack...
         try:
@@ -4528,7 +4742,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         except TypeError:
             self.fail("setattr through direct base types should be legal")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_carloverre_multi_inherit_invalid(self):
         class A(type):
             def __setattr__(cls, key, value):
@@ -4567,7 +4780,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         o.whatever = Provoker(o)
         del o
 
-    @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
     @support.requires_resource('cpu')
@@ -4644,7 +4856,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method_wrapper(self):
         # Testing method-wrapper objects...
         # <type 'method-wrapper'> did not support any reflection before 2.5
@@ -4857,7 +5068,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(AttributeError):
             del X.__abstractmethods__
 
-    @unittest.skip("TODO: RUSTPYTHON; crash. \"dict has non-string keys: [PyObject PyInt { value: 1 }]\"")
     def test_gh55664(self):
         # gh-55664: issue a warning when the
         # __dict__ of a class contains non-string keys
@@ -4915,6 +5125,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                 # CALL_METHOD_DESCRIPTOR_O
                 deque.append(thing, thing)
 
+    @support.skip_if_huge_c_stack()
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_repr_as_str(self):
@@ -4968,10 +5179,9 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
         with self.assertRaises(TypeError) as cm:
             type(X).__dict__["__doc__"].__delete__(X)
-        self.assertIn("cannot delete '__doc__' attribute of immutable type 'X'", str(cm.exception))
+        self.assertIn("cannot delete '__doc__' attribute of type 'X'", str(cm.exception))
         self.assertEqual(X.__doc__, "banana")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_qualname(self):
         descriptors = [str.lower, complex.real, float.real, int.__add__]
         types = ['method', 'member', 'getset', 'wrapper']
@@ -5186,25 +5396,30 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "BAR"):
             B().foo
 
-    def test_staticmethod_new(self):
-        class MyStaticMethod(staticmethod):
-            def __init__(self, func):
-                pass
-        def func(): pass
-        sm = MyStaticMethod(func)
-        self.assertEqual(repr(sm), '<staticmethod(None)>')
-        self.assertIsNone(sm.__func__)
-        self.assertIsNone(sm.__wrapped__)
+    def test_gh146587(self):
+        # See https://github.com/python/cpython/issues/146587
 
-    def test_classmethod_new(self):
-        class MyClassMethod(classmethod):
-            def __init__(self, func):
-                pass
-        def func(): pass
-        cm = MyClassMethod(func)
-        self.assertEqual(repr(cm), '<classmethod(None)>')
-        self.assertIsNone(cm.__func__)
-        self.assertIsNone(cm.__wrapped__)
+        class A:
+            def __radd__(self, other): ...
+
+        class B(tuple): ...
+
+        self.assertIsNone(() + A())
+        self.assertIsNone(B() + A())
+
+        from typing import NamedTuple
+
+        class T(NamedTuple):
+            x: int
+
+        class A:
+            def __init__(self, *args):
+                self.lst = list(args)
+            def __radd__(self, other):
+                return A(*self.lst, other)
+
+        self.assertEqual(((1,)+A()).lst, [(1,)])
+        self.assertEqual((T(x=1)+A()).lst, [T(x=1)])
 
 
 class DictProxyTests(unittest.TestCase):
@@ -5297,7 +5512,6 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON; rustpython panicked at 'dict has non-string keys: [PyObject PyBaseObject]'")
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if
@@ -5756,7 +5970,6 @@ class PicklingTests(unittest.TestCase):
                     objcopy2 = deepcopy(objcopy)
                     self._assert_is_copy(obj, objcopy2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_issue24097(self):
         # Slot name is freed inside __getattr__ and is later used.
         class S(str):  # Not interned
@@ -5897,7 +6110,6 @@ class MroTest(unittest.TestCase):
         class C(B):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_reent_set_bases_tp_base_cycle(self):
         """
         type_set_bases must check for an inheritance cycle not only through
@@ -5934,7 +6146,6 @@ class MroTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             B1.__bases__ += ()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tp_subclasses_cycle_in_update_slots(self):
         """
         type_set_bases must check for reentrancy upon finishing its job
@@ -5971,7 +6182,6 @@ class MroTest(unittest.TestCase):
         self.assertEqual(B1.__bases__, (C,))
         self.assertEqual(C.__subclasses__(), [B1])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tp_subclasses_cycle_error_return_path(self):
         """
         The same as test_tp_subclasses_cycle_in_update_slots, but tests
@@ -6040,7 +6250,6 @@ class MroTest(unittest.TestCase):
         class A(metaclass=M):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disappearing_custom_mro(self):
         """
         gh-92112: A custom mro() returning a result conflicting with
@@ -6057,6 +6266,70 @@ class MroTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             class A(metaclass=M):
                 pass
+
+
+class TestGenericDescriptors(unittest.TestCase):
+    def test___dict__(self):
+        class CustomClass:
+            pass
+        class SlotClass:
+            __slots__ = ['foo']
+        class SlotSubClass(SlotClass):
+            pass
+        class IntSubclass(int):
+            pass
+
+        dict_descriptor = CustomClass.__dict__['__dict__']
+        self.assertEqual(dict_descriptor.__objclass__, object)
+
+        for cls in CustomClass, SlotSubClass, IntSubclass:
+            with self.subTest(cls=cls):
+                self.assertIs(cls.__dict__['__dict__'], dict_descriptor)
+                instance = cls()
+                instance.attr = 123
+                self.assertEqual(
+                    dict_descriptor.__get__(instance, cls),
+                    {'attr': 123},
+                )
+        with self.assertRaises(AttributeError):
+            print(dict_descriptor.__get__(True, bool))
+        with self.assertRaises(AttributeError):
+            print(dict_descriptor.__get__(SlotClass(), SlotClass))
+
+        # delegation to type.__dict__
+        self.assertIsInstance(
+            dict_descriptor.__get__(type, type),
+            types.MappingProxyType,
+        )
+
+    def test___weakref__(self):
+        class CustomClass:
+            pass
+        class SlotClass:
+            __slots__ = ['foo']
+        class SlotSubClass(SlotClass):
+            pass
+        class IntSubclass(int):
+            pass
+
+        weakref_descriptor = CustomClass.__dict__['__weakref__']
+        self.assertEqual(weakref_descriptor.__objclass__, object)
+
+        for cls in CustomClass, SlotSubClass:
+            with self.subTest(cls=cls):
+                self.assertIs(cls.__dict__['__weakref__'], weakref_descriptor)
+                instance = cls()
+                instance.attr = 123
+                self.assertEqual(
+                    weakref_descriptor.__get__(instance, cls),
+                    None,
+                )
+        with self.assertRaises(AttributeError):
+            weakref_descriptor.__get__(True, bool)
+        with self.assertRaises(AttributeError):
+            weakref_descriptor.__get__(SlotClass(), SlotClass)
+        with self.assertRaises(AttributeError):
+            weakref_descriptor.__get__(IntSubclass(), IntSubclass)
 
 
 if __name__ == "__main__":

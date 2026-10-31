@@ -83,7 +83,10 @@ impl PyObject {
         if mapping.check() {
             Ok(mapping)
         } else {
-            Err(vm.new_type_error(format!("{} is not a mapping object", self.class())))
+            Err(vm.new_type_error(format!(
+                "{} is not a mapping object",
+                self.class().slot_name()
+            )))
         }
     }
 }
@@ -110,7 +113,7 @@ impl PyMapping<'_> {
     #[inline]
     #[must_use]
     pub fn slots(&self) -> &PyMappingSlots {
-        &self.obj.class().slots.as_mapping
+        &self.obj.class().slots().as_mapping
     }
 
     #[inline]
@@ -123,12 +126,24 @@ impl PyMapping<'_> {
         self.slots().length.load().map(|f| f(self, vm))
     }
 
+    // Py_ssize_t PyMapping_Size(PyObject *o)
     pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
         self.length_opt(vm).ok_or_else(|| {
-            vm.new_type_error(format!(
-                "object of type '{}' has no len() or not a mapping",
-                self.obj.class()
-            ))
+            let name = self.obj.class().slot_name();
+            // Something that measures itself as a sequence is no mapping at all.
+            let msg = if self
+                .obj
+                .sequence_unchecked()
+                .slots()
+                .length
+                .load()
+                .is_some()
+            {
+                format!("{name} is not a mapping")
+            } else {
+                format!("object of type '{name}' has no len()")
+            };
+            vm.new_type_error(msg)
         })?
     }
 
@@ -146,10 +161,9 @@ impl PyMapping<'_> {
     }
 
     fn _subscript(self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let f =
-            self.slots().subscript.load().ok_or_else(|| {
-                vm.new_type_error(format!("{} is not a mapping", self.obj.class()))
-            })?;
+        let f = self.slots().subscript.load().ok_or_else(|| {
+            vm.new_type_error(format!("{} is not a mapping", self.obj.class().slot_name()))
+        })?;
         f(self, needle, vm)
     }
 
@@ -162,7 +176,7 @@ impl PyMapping<'_> {
         let f = self.slots().ass_subscript.load().ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object does not support item assignment",
-                self.obj.class()
+                self.obj.class().slot_name()
             ))
         })?;
         f(self, needle, value, vm)
@@ -170,7 +184,7 @@ impl PyMapping<'_> {
 
     pub fn keys(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictKeys::new(dict.to_owned()).to_pyresult(vm)
+            PyDictKeys::new(dict.to_owned().into()).to_pyresult(vm)
         } else {
             self.method_output_as_list(identifier!(vm, keys), vm)
         }
@@ -178,7 +192,7 @@ impl PyMapping<'_> {
 
     pub fn values(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictValues::new(dict.to_owned()).to_pyresult(vm)
+            PyDictValues::new(dict.to_owned().into()).to_pyresult(vm)
         } else {
             self.method_output_as_list(identifier!(vm, values), vm)
         }
@@ -186,7 +200,7 @@ impl PyMapping<'_> {
 
     pub fn items(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictItems::new(dict.to_owned()).to_pyresult(vm)
+            PyDictItems::new(dict.to_owned().into()).to_pyresult(vm)
         } else {
             self.method_output_as_list(identifier!(vm, items), vm)
         }
@@ -198,21 +212,35 @@ impl PyMapping<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         let meth_output = vm.call_method(self.obj, method_name.as_str(), ())?;
-        if meth_output.is(vm.ctx.types.list_type) {
+        self.collect_method_output(method_name, meth_output, vm)
+    }
+
+    pub(crate) fn collect_method_output(
+        self,
+        method_name: &'static PyStrInterned,
+        meth_output: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if meth_output.class().is(vm.ctx.types.list_type) {
             return Ok(meth_output);
         }
 
-        let iter = meth_output.get_iter(vm).map_err(|_| {
-            vm.new_type_error(format!(
-                "{}.{}() returned a non-iterable (type {})",
-                self.obj.class(),
-                method_name.as_str(),
-                meth_output.class()
-            ))
-        })?;
+        let iter = match meth_output.get_iter(vm) {
+            Ok(iter) => iter,
+            Err(error) if error.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                return Err(vm.new_type_error(format!(
+                    "{}.{}() must return an iterable, not {}",
+                    self.obj.class().fully_qualified_name(vm)?,
+                    method_name.as_str(),
+                    meth_output.class().fully_qualified_name(vm)?
+                )));
+            }
+            Err(error) => return Err(error),
+        };
 
-        // TODO
-        // PySequence::from(&iter).list(vm).map(|x| x.into())
-        vm.ctx.new_list(iter.try_to_value(vm)?).to_pyresult(vm)
+        drop(meth_output);
+        let result = vm.ctx.new_list(Vec::new());
+        result.extend(iter.into(), vm)?;
+        Ok(result.into())
     }
 }

@@ -4,12 +4,54 @@ use std::{io, path::Path};
 
 use rustix::{
     fd::AsFd,
-    fs::{self, AtFlags},
+    fs::{self, Access, AtFlags},
 };
 
 pub use rustix::fs::RawMode;
 
 use crate::{crt_fd, fileutils::StatStruct};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccessError {
+    InvalidMode,
+    Os(i32),
+}
+
+impl From<io::Error> for AccessError {
+    fn from(value: io::Error) -> Self {
+        Self::Os(value.raw_os_error().unwrap_or(0))
+    }
+}
+
+/// https://www.man7.org/linux/man-pages/man2/faccessat.2.html
+#[cfg(not(any(target_os = "espidf", target_os = "horizon", target_os = "vita")))]
+pub fn check_access(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: impl AsRef<Path>,
+    access: u8,
+    #[cfg_attr(target_os = "android", expect(unused))] effective_ids: bool,
+    follow_symlinks: bool,
+) -> bool {
+    let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
+    let access = Access::from_bits_retain(access as _);
+
+    #[cfg(not(target_os = "android"))]
+    let flags = if effective_ids {
+        AtFlags::EACCESS
+    } else {
+        AtFlags::empty()
+    };
+    #[cfg(target_os = "android")]
+    let flags = AtFlags::empty();
+    let flags = flags.union(if !follow_symlinks {
+        AtFlags::SYMLINK_NOFOLLOW
+    } else {
+        AtFlags::empty()
+    });
+
+    // CPython returns false for all error codes.
+    fs::accessat(dir_fd, path.as_ref(), access, flags).is_ok()
+}
 
 /// https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html
 pub fn make_dir(
@@ -49,6 +91,14 @@ pub fn replace(
     rename(from, from_fd, to, to_fd)
 }
 
+pub fn remove_dir_at(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: impl AsRef<Path>,
+) -> io::Result<()> {
+    let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
+    fs::unlinkat(dir_fd, path.as_ref(), AtFlags::REMOVEDIR).map_err(Into::into)
+}
+
 pub fn stat_path(
     path: impl AsRef<Path>,
     dir_fd: Option<crt_fd::Borrowed<'_>>,
@@ -63,4 +113,9 @@ pub fn stat_path(
     fs::statat(dir_fd, path.as_ref(), flags)
         .map(Option::Some)
         .map_err(Into::into)
+}
+
+pub fn unlinkat(dir_fd: Option<crt_fd::Borrowed<'_>>, path: impl AsRef<Path>) -> io::Result<()> {
+    let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
+    fs::unlinkat(dir_fd, path.as_ref(), AtFlags::empty()).map_err(Into::into)
 }

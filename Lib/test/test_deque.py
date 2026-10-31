@@ -742,7 +742,6 @@ class TestBasic(unittest.TestCase):
             d.append(1)
             gc.collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : Cycle was not collected
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for deque iterator objects
         class C(object):
@@ -857,7 +856,6 @@ class TestSubclass(unittest.TestCase):
                     self.assertEqual(e.z, d.z)
                     self.assertNotHasAttr(e, 'y')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'Deque' object has no attribute 'x'
     def test_pickle_recursive(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for d in Deque('abc'), Deque('abc', 3):

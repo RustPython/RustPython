@@ -1,4 +1,5 @@
 import types
+import warnings
 
 from testutils import assert_raises
 
@@ -238,6 +239,25 @@ class C(B, BB):
 
 
 assert C.mro() == [C, B, A, BB, AA, object]
+
+
+# Direct base order must also constrain ancestors shared with an earlier base.
+class D(B, AA, A):
+    pass
+
+
+assert D.mro() == [D, B, AA, A, object]
+
+
+class E(AA, A):
+    pass
+
+
+class F(D, E):
+    pass
+
+
+assert F.mro() == [F, D, B, E, AA, A, object]
 
 
 class TypeA:
@@ -653,7 +673,12 @@ assert repr(my_repr_func).startswith("<function my_repr_func at 0x")
 
 
 # https://github.com/RustPython/RustPython/issues/3100
+assert types.BuiltinMethodType is types.BuiltinFunctionType
 assert issubclass(types.BuiltinMethodType, types.BuiltinFunctionType)
+assert type(len) is types.BuiltinFunctionType
+assert type([].append) is types.BuiltinFunctionType
+assert type([].append).__name__ == "builtin_function_or_method"
+assert type(len).__name__ == "builtin_function_or_method"
 
 assert type.__dict__["__dict__"].__objclass__ is type
 assert (
@@ -717,3 +742,78 @@ for owner in (NarrowSlots(), NoSlots()):
             owner.borrowed = 1
         with assert_raises(TypeError):
             del owner.borrowed
+
+
+# A str subclass names an attribute the same way a str does, and interning the
+# key is what makes it reachable at all.
+class StrKey(str):
+    pass
+
+
+subclass_key = type("SubclassKey", (), {StrKey("attr"): 7})
+assert subclass_key.attr == 7
+
+# A key that is not a string at all cannot become an attribute. CPython keeps it
+# in the class dict and warns once; the class is built either way.
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    non_string_key = type("NonStringKey", (), {"kept": 1, 2: 3, 4: 5})
+
+assert non_string_key.kept == 1
+assert [w.category for w in caught] == [RuntimeWarning], [w.category for w in caught]
+assert "NonStringKey" in str(caught[0].message), str(caught[0].message)
+
+with warnings.catch_warnings():
+    warnings.simplefilter("error")
+    with assert_raises(RuntimeWarning):
+        type("NonStringKeyRaises", (), {6: 7})
+
+
+class Left:
+    __slots__ = ("left",)
+
+
+class Right:
+    __slots__ = ("right",)
+
+
+with assert_raises(TypeError):
+
+    class Conflict(Left, Right):
+        pass
+
+
+with assert_raises(TypeError):
+
+    class ReverseConflict(Right, Left):
+        pass
+
+
+class Empty:
+    __slots__ = ()
+
+
+class Compatible(Left, Empty):
+    pass
+
+
+value = Compatible()
+value.left = 42
+assert value.left == 42
+
+
+class FirstChild(Left):
+    __slots__ = ()
+
+
+class SecondChild(Left):
+    __slots__ = ()
+
+
+class Diamond(FirstChild, SecondChild):
+    pass
+
+
+value = Diamond()
+value.left = 43
+assert value.left == 43

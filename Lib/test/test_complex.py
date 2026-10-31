@@ -1,6 +1,8 @@
+import errno
 import unittest
 import sys
 from test import support
+from test.support import import_helper
 from test.support.testcase import ComplexesAreIdenticalMixin
 from test.support.numbers import (
     VALID_UNDERSCORE_LITERALS,
@@ -9,6 +11,7 @@ from test.support.numbers import (
 
 from random import random
 from math import isnan, copysign
+import cmath
 import operator
 
 INF = float("inf")
@@ -92,7 +95,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         if y:
             self.assertClose(z / y, x)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: floats nan and inf are not identical
     def test_truediv(self):
         simple_real = [float(i) for i in range(-5, 6)]
         simple_complex = [complex(x, y) for x in simple_real for y in simple_real]
@@ -245,7 +247,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertIs(operator.ne(1+1j, 2+2j), True)
         self.assertIs(operator.eq(1+1j, 2.0), False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: True is not False
     def test_richcompare_boundaries(self):
         def check(n, deltas, is_equal, imag = 0.0):
             for delta in deltas:
@@ -289,7 +290,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(TypeError, operator.sub, 1j, None)
         self.assertRaises(TypeError, operator.sub, None, 1j)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mul(self):
         self.assertEqual(1j * int(20), complex(0, 20))
         self.assertEqual(1j * int(-1), complex(0, -1))
@@ -458,7 +458,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
     def test_conjugate(self):
         self.assertEqual(complex(5.3, 9.8).conjugate(), 5.3-9.8j)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     def test_constructor(self):
         def check(z, x, y):
             self.assertIs(type(z), complex)
@@ -508,17 +507,25 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         with self.assertWarnsRegex(DeprecationWarning,
                 "argument 'imag' must be a real number, not complex"):
             check(complex(0.0, 4.25j), -4.25, 0.0)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(4.25+0j, 0j), 4.25, 0.0)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(4.25j, 0j), 0.0, 4.25)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(0j, 4.25+0j), 0.0, 4.25)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(0j, 4.25j), -4.25, 0.0)
 
         check(complex(real=4.25), 4.25, 0.0)
@@ -785,7 +792,29 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         for num in nums:
             self.assertAlmostEqual((num.real**2 + num.imag**2)  ** 0.5, abs(num))
 
+        for x in 0.0, -0.0, INF, -INF, NAN:
+            for y in 0.0, -0.0, INF, -INF, NAN:
+                with self.subTest(x=x, y=y):
+                    z = complex(x, y)
+                    r = abs(z)
+                    if cmath.isfinite(z):
+                        self.assertFloatsAreIdentical(r, 0.0)
+                    elif cmath.isinf(z):
+                        self.assertEqual(r, INF)
+                    else:
+                        self.assertTrue(cmath.isnan(z))
+                        self.assertTrue(isnan(r))
+
         self.assertRaises(OverflowError, abs, complex(DBL_MAX, DBL_MAX))
+
+    def test_abs_errno_handling(self):
+        _testcapi = import_helper.import_module('_testcapi')
+        z = complex('nan')
+        _testcapi.set_errno(errno.ERANGE)
+        try:
+            self.assertTrue(isnan(abs(z)))
+        finally:
+            _testcapi.set_errno(0)
 
     def test_repr_str(self):
         def test(v, expected, test_fn=self.assertEqual):

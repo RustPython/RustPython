@@ -1,40 +1,305 @@
 use super::{
-    IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set, set::PySetInner,
+    IterStatus, PositionIterInternal, PyBaseExceptionRef, PyFrozenSet, PyGenericAlias,
+    PyMappingProxy, PySet, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set,
+    set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
-    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromObject, atomic_func,
     builtins::{PyList, PyTuple, iter::builtins_iter, type_::PyAttributes},
     class::{PyClassDef, PyClassImpl},
-    common::{ascii, hash::PyHash},
+    common::{
+        ascii,
+        hash::{self, PyHash},
+    },
     dict_inner::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
-    iter::PyExactSizeIterator,
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
-        Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+        Hashable, Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
     },
     vm::VirtualMachine,
 };
 use alloc::fmt;
+use core::borrow::Borrow;
 use core::cell::Cell;
 use core::ptr::NonNull;
+use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
 
 pub(crate) type DictContentType = dict_inner::Dict;
 
+pub(crate) fn key_hash<K: DictKey + ?Sized>(
+    key: &K,
+    mapping_name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<PyHash> {
+    match key.key_hash(vm) {
+        // Exact TypeError only: exception subclasses retain their identity.
+        Err(exc) if exc.class().is(vm.ctx.exceptions.type_error) => {
+            let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
+            // Match BaseException_str without the diagnostic formatter's
+            // fallback: argument __str__/__repr__ failures must propagate.
+            let args = exc.args();
+            let message = match args.as_slice() {
+                [] => vm.ctx.empty_str.to_owned(),
+                [arg] => arg.str(vm)?,
+                _ => args.as_object().str(vm)?,
+            };
+            Err(vm.new_type_error(format!(
+                "cannot use '{name}' as a {mapping_name} key ({message})"
+            )))
+        }
+        result => result,
+    }
+}
+
 #[pyclass(module = false, name = "dict", unhashable = true, traverse = "manual")]
 #[derive(Default)]
+// OrderedDict contains eight-byte-aligned fields on 32-bit targets too.
+#[repr(align(8))]
 pub struct PyDict {
-    entries: DictContentType,
+    pub(crate) entries: DictContentType,
 }
 pub type PyDictRef = PyRef<PyDict>;
+
+/// A borrowed view of a dict or frozendict, including subclasses.
+///
+/// This is an erased header view, not a shared payload layout. Every payload
+/// access downcasts to the actual alternative, preserving its mutability.
+#[repr(transparent)]
+pub struct PyAnyDict {
+    object: PyObject,
+}
+
+// SAFETY: this owner contributes exactly one strong reference to the object.
+unsafe impl Traverse for PyRef<PyAnyDict> {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        tracer(self.as_object());
+    }
+}
+
+impl crate::convert::ToPyObject for PyRef<PyAnyDict> {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.into_object()
+    }
+}
+
+impl Borrow<PyObject> for PyAnyDict {
+    fn borrow(&self) -> &PyObject {
+        &self.object
+    }
+}
+
+impl Borrow<PyAnyDict> for PyRef<PyAnyDict> {
+    fn borrow(&self) -> &PyAnyDict {
+        self
+    }
+}
+
+impl ToOwned for PyAnyDict {
+    type Owned = PyRef<Self>;
+
+    fn to_owned(&self) -> PyRef<Self> {
+        // SAFETY: this borrowed view already guarantees a dictionary payload.
+        unsafe { PyRef::<Self>::from_object_unchecked(self.object.to_owned()) }
+    }
+}
+
+impl From<PyDictRef> for PyRef<PyAnyDict> {
+    fn from(dict: PyDictRef) -> Self {
+        // SAFETY: the typed owner guarantees the dict alternative.
+        unsafe { Self::from_object_unchecked(dict.into()) }
+    }
+}
+
+impl From<PyRef<PyFrozenDict>> for PyRef<PyAnyDict> {
+    fn from(dict: PyRef<PyFrozenDict>) -> Self {
+        // SAFETY: the typed owner guarantees the frozendict alternative.
+        unsafe { Self::from_object_unchecked(dict.into()) }
+    }
+}
+
+impl From<PyRef<PyAnyDict>> for PyObjectRef {
+    fn from(dict: PyRef<PyAnyDict>) -> Self {
+        dict.into_object()
+    }
+}
+
+// SAFETY: the transparent PyRef owner has the same layout as PyObjectRef.
+// A successful check proves the actual dict or frozendict payload invariant.
+unsafe impl crate::convert::TransmuteFromObject for PyRef<PyAnyDict> {
+    fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
+        if PyAnyDict::from_object(obj).is_some() {
+            Ok(())
+        } else {
+            Err(vm.new_type_error(format!(
+                "expected dict or frozendict, got {}",
+                obj.class().name()
+            )))
+        }
+    }
+}
+
+impl TryFromObject for PyRef<PyAnyDict> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        <Self as crate::convert::TransmuteFromObject>::check(vm, &obj)?;
+        // SAFETY: the shared checker proved the union view's payload invariant.
+        Ok(unsafe { Self::from_object_unchecked(obj) })
+    }
+}
+
+impl PyAnyDict {
+    pub fn from_object(obj: &PyObject) -> Option<&Self> {
+        if obj.downcast_ref::<PyDict>().is_some() || obj.downcast_ref::<PyFrozenDict>().is_some() {
+            // SAFETY: PyAnyDict is transparent over PyObject and the payload was checked.
+            Some(unsafe { &*(obj as *const PyObject).cast::<Self>() })
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_mutable(&self) -> Option<&Py<PyDict>> {
+        self.object.downcast_ref()
+    }
+
+    pub(crate) fn is_frozen(&self) -> bool {
+        self.object.downcastable::<PyFrozenDict>()
+    }
+
+    // The raw payload is private: callers outside the VM cannot use it to mutate a frozendict.
+    pub(crate) fn as_dict(&self) -> &PyDict {
+        if let Some(dict) = self.as_mutable() {
+            dict
+        } else {
+            &self.object.downcast_ref::<PyFrozenDict>().unwrap().dict
+        }
+    }
+
+    pub(crate) fn uses_builtin_iter(&self, vm: &VirtualMachine) -> bool {
+        let base = if self.is_frozen() {
+            vm.ctx.types.frozendict_type
+        } else {
+            vm.ctx.types.dict_type
+        };
+        self.as_object()
+            .class()
+            .slots
+            .iter
+            .load()
+            .map(crate::types::fn_addr)
+            == base.slots.iter.load().map(crate::types::fn_addr)
+    }
+
+    #[must_use]
+    pub fn __len__(&self) -> usize {
+        self.as_dict().__len__()
+    }
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.as_dict().is_empty()
+    }
+    pub fn copy_as_dict(&self, vm: &VirtualMachine) -> PyResult<PyDict> {
+        if self.is_empty() || self.uses_builtin_iter(vm) {
+            return Ok(self.as_dict().copy());
+        }
+        let copied = PyDict::default();
+        copied.merge_object(self.as_object().to_owned(), vm)?;
+        Ok(copied)
+    }
+
+    #[must_use]
+    pub fn keys_vec(&self) -> Vec<PyObjectRef> {
+        self.as_dict().keys_vec()
+    }
+    #[must_use]
+    pub fn values_vec(&self) -> Vec<PyObjectRef> {
+        self.as_dict().values_vec()
+    }
+    #[must_use]
+    pub fn items_vec(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+        self.as_dict().items_vec()
+    }
+    #[must_use]
+    pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef, PyObjectRef)> {
+        self.as_dict().next_entry(position)
+    }
+    pub(crate) fn size(&self) -> crate::dict_inner::DictSize {
+        self.as_dict().size()
+    }
+    pub fn inner_getitem_opt<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if let Some(dict) = self.as_mutable() {
+            dict.inner_getitem_opt(key, vm)
+        } else {
+            self.object
+                .downcast_ref::<PyFrozenDict>()
+                .unwrap()
+                .inner_getitem_opt(key, vm)
+        }
+    }
+    pub fn get_item_opt<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if let Some(dict) = self.as_mutable() {
+            return dict.get_item_opt(key, vm);
+        }
+        if self.object.class().is(vm.ctx.types.frozendict_type) {
+            return self.inner_getitem_opt(key, vm);
+        }
+        match self.object.get_item(key, vm) {
+            Ok(value) => Ok(Some(value)),
+            Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
+            Err(exc) => Err(exc),
+        }
+    }
+    pub fn get_item<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult {
+        if let Some(dict) = self.as_mutable() {
+            dict.get_item(key, vm)
+        } else {
+            self.object.get_item(key, vm)
+        }
+    }
+    pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
+        self.inner_getitem_opt(key, vm)
+            .is_ok_and(|value| value.is_some())
+    }
+    pub fn set_item<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match self.as_mutable() {
+            Some(dict) => dict.set_item(key, value, vm),
+            None => Err(vm.new_type_error("frozendict object does not support item assignment")),
+        }
+    }
+    pub fn del_item<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult<()> {
+        match self.as_mutable() {
+            Some(dict) => dict.del_item(key, vm),
+            None => Err(vm.new_type_error("frozendict object does not support item deletion")),
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a PyAnyDict {
+    type Item = (PyObjectRef, PyObjectRef);
+    type IntoIter = DictIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        DictIter::new(self.as_dict())
+    }
+}
 
 // SAFETY: Traverse properly visits all owned PyObjectRefs
 unsafe impl Traverse for PyDict {
@@ -132,50 +397,60 @@ impl PyDict {
         self.entries.items()
     }
 
-    fn merge_object_with_override(
+    pub(crate) fn items_with_hashes_vec(&self) -> Vec<(PyObjectRef, PyObjectRef, PyHash)> {
+        self.entries.items_with_hashes()
+    }
+
+    /// `dict_update_arg`. `mapping_name` names the target type in the
+    /// unhashable key error, as `dict_unhashable_type` does.
+    pub(crate) fn update_arg(
         &self,
         other: PyObjectRef,
         override_existing: bool,
+        mapping_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
-        let other = match casted {
-            Ok(dict_other) => {
-                return self.merge_dict(dict_other.into_pyref(), override_existing, vm);
-            }
-            Err(other) => other,
-        };
+        if let Some(other_dict) = PyAnyDict::from_object(&other)
+            && other_dict.uses_builtin_iter(vm)
+        {
+            return self.merge_dict(other_dict.as_dict(), override_existing, vm);
+        }
         let dict = &self.entries;
         // Use get_attr to properly invoke __getattribute__ for proxy objects
-        let keys_result = other.get_attr(vm.ctx.intern_str("keys"), vm);
-        let has_keys = match keys_result {
-            Ok(keys_method) => {
-                let keys = keys_method.call((), vm)?.get_iter(vm)?;
-                while let PyIterReturn::Return(key) = keys.next(vm)? {
-                    if !override_existing && dict.contains(vm, &*key)? {
-                        continue;
-                    }
-                    let val = other.get_item(&*key, vm)?;
-                    dict.insert(vm, &*key, val)?;
-                }
-                true
+        let keys_method = match other.get_attr(vm.ctx.intern_str("keys"), vm) {
+            Ok(keys_method) => keys_method,
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                return self.merge_seq2(&other, override_existing, mapping_name, vm);
             }
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => false,
             Err(e) => return Err(e),
         };
-        if !has_keys {
-            return self.merge_from_seq2(other, override_existing, vm);
+        let keys = other.mapping_unchecked().collect_method_output(
+            vm.ctx.intern_str("keys"),
+            keys_method.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
+        while let PyIterReturn::Return(key) = keys.next(vm)? {
+            if !override_existing {
+                let hash = key_hash(&*key, mapping_name, vm)?;
+                if dict.contains(vm, &*key, hash)? {
+                    continue;
+                }
+            }
+            let value = other.get_item(&*key, vm)?;
+            let hash = key_hash(&*key, mapping_name, vm)?;
+            dict.insert(vm, &*key, hash, value)?;
         }
         Ok(())
     }
 
     // Used in update and ior.
     pub fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.merge_object_with_override(other, true, vm)
+        self.update_arg(other, true, "dict", vm)
     }
 
     pub fn merge_object_if_missing(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.merge_object_with_override(other, false, vm)
+        self.update_arg(other, false, "dict", vm)
     }
 
     fn add_update_sequence_note(
@@ -192,7 +467,7 @@ impl PyDict {
         match vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),)) {
             Ok(_) => exc,
             Err(note_err) => {
-                note_err.set___context__(Some(exc));
+                note_err.set_context(Some(exc));
                 note_err
             }
         }
@@ -212,7 +487,7 @@ impl PyDict {
         Ok((key.clone(), value.clone()))
     }
 
-    fn update_sequence_pair(
+    pub(crate) fn update_sequence_pair(
         element: PyObjectRef,
         index: usize,
         vm: &VirtualMachine,
@@ -232,7 +507,7 @@ impl PyDict {
         };
 
         let elements = (|| {
-            let elem_iter = element.get_iter(vm).map_err(|exc| {
+            let elem_iter = PyIter::try_from_object(vm, element).map_err(|exc| {
                 if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
                     vm.new_type_error("object is not iterable")
                 } else {
@@ -240,7 +515,7 @@ impl PyDict {
                 }
             })?;
             elem_iter
-                .into_iter::<PyObjectRef>(vm)?
+                .into_iter::<PyObjectRef>(vm)
                 .collect::<PyResult<Vec<_>>>()
         })()
         .map_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
@@ -250,37 +525,52 @@ impl PyDict {
 
     pub fn merge_from_seq2(
         &self,
-        seq2: PyObjectRef,
+        seq2: &PyObject,
         override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.merge_seq2(seq2, override_existing, "dict", vm)
+    }
+
+    /// `dict_merge_from_seq2`
+    fn merge_seq2(
+        &self,
+        seq2: &PyObject,
+        override_existing: bool,
+        mapping_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let iter = seq2.get_iter(vm)?;
         let dict = &self.entries;
 
-        for (index, element) in iter.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+        for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
-            if !override_existing && dict.contains(vm, &*key)? {
+            let hash = key_hash(&*key, mapping_name, vm)?;
+            if !override_existing && dict.contains(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert(vm, &*key, value)?;
+            dict.insert(vm, &*key, hash, value)?;
         }
         Ok(())
     }
 
-    fn merge_dict(
+    pub(crate) fn merge_dict(
         &self,
-        dict_other: PyDictRef,
+        dict_other: &Self,
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let dict = &self.entries;
         let dict_size = &dict_other.size();
-        for (key, value) in &dict_other {
-            if !override_existing && dict.contains(vm, &*key)? {
+        let mut position = 0;
+        while let Some((next, key, value, hash)) = dict_other.entries.next_entry_with_hash(position)
+        {
+            position = next;
+            if !override_existing && dict.contains(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert(vm, &*key, value)?;
+            dict.insert(vm, &*key, hash, value)?;
         }
         if dict_other.entries.has_changed_size(dict_size) {
             return Err(vm.new_runtime_error("dict mutated during update"));
@@ -292,6 +582,21 @@ impl PyDict {
         self.entries.len() == 0
     }
 
+    /// Hash `key`, turning a hashing failure into the dict-specific
+    /// "cannot use 'X' as a dict key (...)" wording.
+    ///
+    /// The returned hash is passed into the inner map, so the key is hashed
+    /// exactly once. A `TypeError` from key comparison (e.g. a colliding key's
+    /// `__eq__`) is raised by the operation itself and must propagate unchanged.
+    /// Hashing up front also means a `__hash__` that fails only intermittently
+    /// is still reported.
+    pub(crate) fn hash_or_unhashable<K: DictKey + ?Sized>(
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyHash> {
+        key_hash(key, "dict", vm)
+    }
+
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
     pub fn inner_setitem<K: DictKey + ?Sized>(
@@ -300,7 +605,8 @@ impl PyDict {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.insert(vm, key, value)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.insert(vm, key, hash, value)
     }
 
     pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
@@ -308,30 +614,38 @@ impl PyDict {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.delete(vm, key)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        if self.entries.delete_if_exists(vm, key, hash)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(key.to_pyobject(vm)))
+        }
     }
 
     pub fn get_or_insert(
         &self,
         vm: &VirtualMachine,
-        key: PyObjectRef,
+        key: &PyObject,
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
-        self.entries.setdefault(vm, &*key, default)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.setdefault(vm, key, hash, default)
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
         let entries = DictContentType::default();
 
         for (key, value) in attrs {
-            entries.insert(vm, key, value)?;
+            let hash = key.key_hash(vm)?;
+            entries.insert(vm, key, hash, value)?;
         }
 
         Ok(Self { entries })
     }
 
     pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
-        self.entries.contains(vm, key).unwrap()
+        let hash = key.key_hash(vm).unwrap();
+        self.entries.contains(vm, key, hash).unwrap()
     }
 
     pub fn size(&self) -> dict_inner::DictSize {
@@ -347,7 +661,8 @@ impl PyDict {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        self.entries.get(vm, key)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.get(vm, key, hash)
     }
 
     /// Keys of `obj` with their stored hashes, or `None` if it must be iterated
@@ -359,13 +674,123 @@ impl PyDict {
     ) -> Option<Vec<(PyObjectRef, PyHash)>> {
         if let Some(dict) = obj.downcast_ref_if_exact::<Self>(vm) {
             Some(dict.entries.keys_with_hashes())
+        } else if let Some(frozen) = obj.downcast_ref_if_exact::<PyFrozenDict>(vm) {
+            Some(frozen.dict.entries.keys_with_hashes())
         } else {
             set::exact_set_keys_with_hashes(obj, vm)
         }
     }
 }
 
+#[derive(FromArgs)]
+struct DictGetArgs {
+    #[pyarg(positional)]
+    key: PyObjectRef,
+    #[pyarg(positional, optional)]
+    default: Option<PyObjectRef>,
+}
+
+#[derive(FromArgs)]
+struct FromKeysArgs {
+    #[pyarg(positional)]
+    iterable: PyObjectRef,
+    #[pyarg(positional, optional)]
+    value: Option<PyObjectRef>,
+}
+
 // Python dict methods:
+impl PyDict {
+    pub(crate) fn compare_entries(
+        &self,
+        other: &Self,
+        op: PyComparisonOp,
+        item: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if op == PyComparisonOp::Ne {
+            return Self::compare_entries(self, other, PyComparisonOp::Eq, item, vm)
+                .map(|x| x.map(|eq| !eq));
+        }
+        if !op.eval_ord(self.__len__().cmp(&other.__len__())) {
+            return Ok(PyArithmeticValue::Implemented(false));
+        }
+        let mut position = 0;
+        while let Some((next, k, v1, hash)) = self.entries.next_entry_with_hash(position) {
+            position = next;
+            let found = other.entries.get(vm, &*k, hash)?;
+            match found {
+                Some(v2) => {
+                    if v1.is(&v2) {
+                        continue;
+                    }
+                    if item && !vm.bool_eq(&v1, &v2)? {
+                        return Ok(PyArithmeticValue::Implemented(false));
+                    }
+                }
+                None => {
+                    return Ok(PyArithmeticValue::Implemented(false));
+                }
+            }
+        }
+        Ok(PyArithmeticValue::Implemented(true))
+    }
+
+    pub fn __len__(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.contains(vm, key, hash)
+    }
+
+    fn __delitem__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner_delitem(key, vm)
+    }
+
+    fn __setitem__(&self, key: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner_setitem(key, value, vm)
+    }
+
+    pub(crate) fn setdefault(
+        &self,
+        key: PyObjectRef,
+        default: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        self.entries.setdefault(vm, &*key, hash, || default)
+    }
+
+    pub(crate) fn __sizeof__(&self) -> usize {
+        core::mem::size_of::<Self>() + self.entries.sizeof()
+    }
+    pub fn clear(&self) {
+        self.entries.clear()
+    }
+    #[must_use]
+    pub fn copy(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+        }
+    }
+    pub(crate) fn update(
+        &self,
+        dict_obj: OptionalArg<PyObjectRef>,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let OptionalArg::Present(dict_obj) = dict_obj {
+            self.merge_object(dict_obj, vm)?;
+        }
+        for (key, value) in kwargs {
+            let hash = Self::hash_or_unhashable(&key, vm)?;
+            self.entries.insert(vm, &key, hash, value)?;
+        }
+        Ok(())
+    }
+}
+
 #[pyclass(
     with(
         Py,
@@ -379,103 +804,55 @@ impl PyDict {
         AsMapping,
         Representable
     ),
-    flags(BASETYPE, MAPPING, _MATCH_SELF)
+    flags(BASETYPE, MAPPING, _MATCH_SELF, DICT_SUBCLASS)
 )]
-impl PyDict {
-    #[pyclassmethod]
-    fn fromkeys(
-        class: PyTypeRef,
-        iterable: ArgIterable,
-        value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let value = value.unwrap_or_none(vm);
-        let d = PyType::call(&class, ().into(), vm)?;
-        match d.downcast_exact::<Self>(vm) {
-            Ok(pydict) => {
-                if let Some(keys) = Self::fromkeys_known_hashes(iterable.as_object(), vm) {
-                    for (key, hash) in keys {
-                        pydict
-                            .entries
-                            .insert_known_hash(vm, &*key, hash, value.clone())?;
-                    }
-                } else {
-                    for key in iterable.iter(vm)? {
-                        pydict.__setitem__(key?, value.clone(), vm)?;
-                    }
-                }
-                Ok(pydict.into_pyref().into())
-            }
-            Err(pyobj) => {
-                for key in iterable.iter(vm)? {
-                    pyobj.set_item(&*key?, value.clone(), vm)?;
-                }
-                Ok(pyobj)
-            }
-        }
+impl PyDict {}
+
+#[pyclass]
+impl Py<PyDict> {
+    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
+    #[pymethod(coexist)]
+    fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner_getitem(&*key, vm)
     }
 
-    pub fn __len__(&self) -> usize {
-        self.entries.len()
+    #[pyclassmethod]
+    fn fromkeys(class: PyTypeRef, args: FromKeysArgs, vm: &VirtualMachine) -> PyResult {
+        dict_fromkeys(
+            class,
+            args.iterable,
+            args.value.unwrap_or_else(|| vm.ctx.none()),
+            vm,
+        )
     }
 
     #[pymethod]
-    fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>() + self.entries.sizeof()
-    }
-
-    fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.entries.contains(vm, &*key)
-    }
-
-    fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner_delitem(&*key, vm)
+    pub(crate) fn __sizeof__(&self) -> usize {
+        self.payload.__sizeof__()
     }
 
     #[pymethod]
     pub fn clear(&self) {
-        self.entries.clear()
-    }
-
-    fn __setitem__(
-        &self,
-        key: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.inner_setitem(&*key, value, vm)
+        self.payload.clear()
     }
 
     #[pymethod]
-    fn get(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(self
-            .entries
-            .get(vm, &*key)?
-            .unwrap_or_else(|| default.unwrap_or_none(vm)))
+    fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
+        let hash = PyDict::hash_or_unhashable(&*args.key, vm)?;
+        let found = self.entries.get(vm, &*args.key, hash)?;
+        Ok(found.unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
-    #[pymethod]
-    pub(crate) fn setdefault(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        self.entries
-            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+    #[pymethod(name = "setdefault")]
+    fn setdefault_py(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
+        let default = args.default.unwrap_or_else(|| vm.ctx.none());
+        self.setdefault(args.key, default, vm)
     }
 
     #[pymethod]
     #[must_use]
-    pub fn copy(&self) -> Self {
-        Self {
-            entries: self.entries.clone(),
-        }
+    pub fn copy(&self) -> PyDict {
+        self.payload.copy()
     }
 
     #[pymethod]
@@ -485,23 +862,7 @@ impl PyDict {
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let OptionalArg::Present(dict_obj) = dict_obj {
-            self.merge_object(dict_obj, vm)?;
-        }
-        for (key, value) in kwargs {
-            self.entries.insert(vm, &key, value)?;
-        }
-        Ok(())
-    }
-
-    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<PyDictRef, _> = other.downcast();
-        if let Ok(other) = other_dict {
-            let self_cp = self.copy();
-            self_cp.merge_dict(other, true, vm)?;
-            return Ok(self_cp.into_pyobject(vm));
-        }
-        Ok(vm.ctx.not_implemented())
+        self.payload.update(dict_obj, kwargs, vm)
     }
 
     #[pymethod]
@@ -511,7 +872,8 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.pop(vm, &*key)? {
+        let hash = PyDict::hash_or_unhashable(&*key, vm)?;
+        match self.entries.pop(vm, &*key, hash)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
         }
@@ -532,93 +894,38 @@ impl PyDict {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
-}
-
-#[pyclass]
-impl Py<PyDict> {
-    fn inner_cmp(
-        &self,
-        other: &Self,
-        op: PyComparisonOp,
-        item: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        if op == PyComparisonOp::Ne {
-            return Self::inner_cmp(self, other, PyComparisonOp::Eq, item, vm)
-                .map(|x| x.map(|eq| !eq));
-        }
-        if !op.eval_ord(self.__len__().cmp(&other.__len__())) {
-            return Ok(PyArithmeticValue::Implemented(false));
-        }
-        let (superset, subset) = if self.__len__() < other.__len__() {
-            (other, self)
-        } else {
-            (self, other)
-        };
-        for (k, v1) in subset {
-            match superset.get_item_opt(&*k, vm)? {
-                Some(v2) => {
-                    if v1.is(&v2) {
-                        continue;
-                    }
-                    if item && !vm.bool_eq(&v1, &v2)? {
-                        return Ok(PyArithmeticValue::Implemented(false));
-                    }
-                }
-                None => {
-                    return Ok(PyArithmeticValue::Implemented(false));
-                }
-            }
-        }
-        Ok(PyArithmeticValue::Implemented(true))
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
-    fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner_getitem(&*key, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
 #[pyclass]
 impl PyRef<PyDict> {
     #[pymethod]
-    const fn keys(self) -> PyDictKeys {
-        PyDictKeys::new(self)
+    fn keys(self) -> PyDictKeys {
+        PyDictKeys::new(self.into())
     }
 
     #[pymethod]
-    const fn values(self) -> PyDictValues {
-        PyDictValues::new(self)
+    fn values(self) -> PyDictValues {
+        PyDictValues::new(self.into())
     }
 
     #[pymethod]
-    const fn items(self) -> PyDictItems {
-        PyDictItems::new(self)
+    fn items(self) -> PyDictItems {
+        PyDictItems::new(self.into())
     }
 
     #[pymethod]
     fn __reversed__(self) -> PyDictReverseKeyIterator {
-        PyDictReverseKeyIterator::new(self)
+        PyDictReverseKeyIterator::new(self.into())
     }
 
     fn __ior__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         self.merge_object(other, vm)?;
         Ok(self)
-    }
-
-    fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<Self, _> = other.downcast();
-        if let Ok(other) = other_dict {
-            let other_cp = other.copy();
-            other_cp.merge_dict(self, true, vm)?;
-            return Ok(other_cp.into_pyobject(vm));
-        }
-        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -627,11 +934,7 @@ impl DefaultConstructor for PyDict {}
 impl Initializer for PyDict {
     type Args = (OptionalArg<PyObjectRef>, KwArgs);
 
-    fn init(
-        zelf: PyRef<Self>,
-        (dict_obj, kwargs): Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, (dict_obj, kwargs): Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.update(dict_obj, kwargs, vm)
     }
 }
@@ -646,7 +949,11 @@ impl AsMapping for PyDict {
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyDict::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    zelf.inner_setitem(needle, value, vm)
+                    zelf.inner_setitem(needle, value, vm)?;
+                    if zelf.as_object().is(vm.builtins.dict().as_object()) {
+                        crate::stdlib::_testinternalcapi::note_builtin_dict();
+                    }
+                    Ok(())
                 } else {
                     zelf.inner_delitem(needle, vm)
                 }
@@ -659,9 +966,12 @@ impl AsMapping for PyDict {
 impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
-                .entries
-                .contains(vm, target)),
+            contains: atomic_func!(|seq, target, vm| {
+                let hash = PyDict::hash_or_unhashable(target, vm)?;
+                PyDict::sequence_downcast(seq)
+                    .entries
+                    .contains(vm, target, hash)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
@@ -671,13 +981,7 @@ impl AsSequence for PyDict {
 impl AsNumber for PyDict {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PyDict>() {
-                    PyDict::__or__(a, b.to_pyobject(vm), vm)
-                } else {
-                    Ok(vm.ctx.not_implemented())
-                }
-            }),
+            or: Some(dict_or),
             inplace_or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyDict>() {
                     a.to_owned()
@@ -700,16 +1004,19 @@ impl Comparable for PyDict {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| {
-            let other = class_or_notimplemented!(Self, other);
-            zelf.inner_cmp(other, PyComparisonOp::Eq, true, vm)
+        op.eq_only(|| match PyAnyDict::from_object(other) {
+            Some(other) => {
+                zelf.payload
+                    .compare_entries(other.as_dict(), PyComparisonOp::Eq, true, vm)
+            }
+            None => Ok(PyComparisonValue::NotImplemented),
         })
     }
 }
 
 impl Iterable for PyDict {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(PyDictKeyIterator::new(zelf).into_pyobject(vm))
+        Ok(PyDictKeyIterator::new(zelf.into()).into_pyobject(vm))
     }
 }
 
@@ -764,7 +1071,9 @@ impl Py<PyDict> {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        if let Some(value) = self.entries.get(vm, key)? {
+        let hash = PyDict::hash_or_unhashable(key, vm)?;
+        let found = self.entries.get(vm, key, hash)?;
+        if let Some(value) = found {
             Ok(value)
         } else if let Some(value) = self.missing_opt(key, vm)? {
             Ok(value)
@@ -774,13 +1083,79 @@ impl Py<PyDict> {
     }
 
     /// Take a python dictionary and convert it to attributes.
-    pub fn to_attributes(&self, vm: &VirtualMachine) -> PyAttributes {
+    ///
+    /// `PyAttributes` is keyed by interned strings, so a key that is not a
+    /// string has nowhere to go. Those keys are left out, and `on_non_string`
+    /// is called once, the first time one turns up, so the caller can decide
+    /// whether that deserves an error or a warning.
+    pub fn to_attributes(
+        &self,
+        vm: &VirtualMachine,
+        on_non_string: impl FnOnce(&VirtualMachine) -> PyResult<()>,
+    ) -> PyResult<PyAttributes> {
         let mut attrs = PyAttributes::default();
+        let mut on_non_string = Some(on_non_string);
         for (key, value) in self {
-            let key: PyRefExact<PyStr> = key.downcast_exact(vm).expect("dict has non-string keys");
-            attrs.insert(vm.ctx.intern_str(key), value);
+            let key = match key.downcast_exact::<PyStr>(vm) {
+                Ok(key) => vm.ctx.intern_str(key),
+                // `PyStr`, not the exact type: a `str` subclass names an
+                // attribute just as well, the same way it does as a keyword
+                // argument. Interning drops the subclass, which nothing but
+                // the key object itself can observe.
+                Err(key) => match key.downcast_ref::<PyStr>() {
+                    Some(key) => vm.ctx.intern_str(key.as_wtf8()),
+                    None => {
+                        if let Some(on_non_string) = on_non_string.take() {
+                            on_non_string(vm)?;
+                        }
+                        continue;
+                    }
+                },
+            };
+            attrs.insert(key, value);
         }
-        attrs
+        Ok(attrs)
+    }
+
+    pub(crate) fn get_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.get(vm, key, hash)
+    }
+
+    pub(crate) fn set_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.insert(vm, key, hash, value)
+    }
+
+    pub(crate) fn del_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.entries.delete_if_exists(vm, key, hash)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(key.to_owned()))
+        }
+    }
+
+    pub(crate) fn contains_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.entries.contains(vm, key, hash)
     }
 
     pub fn get_item_opt<K: DictKey + ?Sized>(
@@ -789,7 +1164,8 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            self.entries.get(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.get(vm, key, hash)
             // Match CPython's exact-dict fast path: __missing__ only participates
             // for dict subclasses through the generic mapping lookup path below.
         } else {
@@ -810,7 +1186,8 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<u16>> {
         if self.exact_dict(vm) {
-            self.entries.hint_for_key(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.hint_for_key(vm, key, hash)
         } else {
             Ok(None)
         }
@@ -841,10 +1218,23 @@ impl Py<PyDict> {
             if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
                 return Ok(Some((value, None)));
             }
-            self.entries.get_with_hint(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.get_with_hint(vm, key, hash)
         } else {
             Ok(self.get_item_opt(key, vm)?.map(|value| (value, None)))
         }
+    }
+
+    pub(crate) fn replace_if_identity(
+        &self,
+        name: &Py<PyStr>,
+        expected: &PyObject,
+        replacement: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let hash = PyDict::hash_or_unhashable(name, vm)?;
+        self.entries
+            .replace_if(vm, name, hash, replacement, |current| current.is(expected))
     }
 
     /// Store using a cached entry index hint for the value-replace fast path.
@@ -859,8 +1249,9 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<u16>> {
         if self.exact_dict(vm) {
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
             self.entries
-                .insert_with_hint(vm, key, usize::from(hint), value)
+                .insert_with_hint(vm, key, hash, usize::from(hint), value)
         } else {
             self.as_object().set_item(key, value, vm)?;
             Ok(None)
@@ -870,6 +1261,32 @@ impl Py<PyDict> {
     /// Current keys-version stamp of the underlying storage (0 if unset).
     pub(crate) fn keys_version(&self) -> u32 {
         self.entries.keys_version()
+    }
+
+    pub(crate) fn module_attr_cache(
+        &self,
+        name: &super::PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> Option<(u32, u16)> {
+        self.exact_dict(vm)
+            .then(|| self.entries.module_attr_cache(name, vm))
+            .flatten()
+    }
+
+    #[inline]
+    pub(crate) fn get_cached_module_attr(
+        &self,
+        name: &super::PyStrInterned,
+        version: usize,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> Option<PyObjectRef> {
+        self.exact_dict(vm)
+            .then(|| {
+                self.entries
+                    .get_cached_module_attr(name, version, index, vm)
+            })
+            .flatten()
     }
 
     /// Current keys-version stamp, assigning one if none is set.
@@ -899,7 +1316,11 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if self.exact_dict(vm) {
-            self.inner_setitem(key, value, vm)
+            self.inner_setitem(key, value, vm)?;
+            if self.as_object().is(vm.builtins.dict().as_object()) {
+                crate::stdlib::_testinternalcapi::note_builtin_dict();
+            }
+            Ok(())
         } else {
             self.as_object().set_item(key, value, vm)
         }
@@ -919,7 +1340,8 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            self.entries.remove_if_exists(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.remove_if_exists(vm, key, hash)
         } else {
             let value = self.as_object().get_item(key, vm)?;
             self.as_object().del_item(key, vm)?;
@@ -949,6 +1371,17 @@ impl Py<PyDict> {
 }
 
 impl PyExact<PyDict> {
+    pub(crate) fn move_to_end(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let hash = PyDict::hash_or_unhashable(&*key, vm)?;
+        self.entries
+            .move_to_end(vm, &*key, hash)?
+            .ok_or_else(|| vm.new_key_error(key))
+    }
+
     /// Look up `key` in `self`, falling back to `other`.
     /// Both dicts must be exact `dict` types (enforced by `PyExact`).
     pub(crate) fn get_chain_exact<K: DictKey + ?Sized>(
@@ -959,7 +1392,294 @@ impl PyExact<PyDict> {
     ) -> PyResult<Option<PyObjectRef>> {
         debug_assert!(self.class().is(vm.ctx.types.dict_type));
         debug_assert!(other.class().is(vm.ctx.types.dict_type));
-        self.entries.get_chain(&other.entries, vm, key)
+        let hash = PyDict::hash_or_unhashable(key, vm)?;
+        self.entries.get_chain(&other.entries, vm, key, hash)
+    }
+}
+
+#[pyclass(module = false, name = "frozendict", traverse = "manual")]
+#[derive(Debug)]
+pub struct PyFrozenDict {
+    // Own the table directly, never a mutable Python dict visible through gc or a view.
+    pub(crate) dict: PyDict,
+    hash: PyAtomic<PyHash>,
+}
+
+unsafe impl Traverse for PyFrozenDict {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.dict.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear(&mut self.dict, out);
+    }
+}
+
+impl PyPayload for PyFrozenDict {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.frozendict_type
+    }
+}
+
+impl PyFrozenDict {
+    pub(crate) fn from_dict(dict: PyDict) -> Self {
+        Self {
+            dict,
+            hash: Radium::new(hash::SENTINEL),
+        }
+    }
+
+    /// Hash a dictionary key, adding the frozendict context to an exact TypeError.
+    pub fn key_hash<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
+        key_hash(key, "frozendict", vm)
+    }
+
+    pub fn inner_getitem_opt<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let hash = Self::key_hash(key, vm)?;
+        self.dict.entries.get(vm, key, hash)
+    }
+}
+
+impl Constructor for PyFrozenDict {
+    type Args = (OptionalArg<PyObjectRef>, KwArgs);
+    fn py_new(
+        _cls: &Py<PyType>,
+        (input, kwargs): Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        // The table is built before the frozendict is published, as
+        // frozendict_new_untracked keeps it away from the GC.
+        let dict = PyDict::default();
+        if let OptionalArg::Present(input) = input {
+            dict.update_arg(input, true, "frozendict", vm)?;
+        }
+        for (key, value) in kwargs {
+            dict.inner_setitem(&key, value, vm)?;
+        }
+        Ok(Self::from_dict(dict))
+    }
+}
+
+#[pyclass(
+    with(
+        Py,
+        PyRef,
+        Constructor,
+        Hashable,
+        Comparable,
+        Iterable,
+        AsMapping,
+        AsSequence,
+        AsNumber,
+        Representable
+    ),
+    flags(BASETYPE, MAPPING, _MATCH_SELF)
+)]
+impl PyFrozenDict {
+    fn __len__(&self) -> usize {
+        self.dict.__len__()
+    }
+
+    #[pymethod]
+    fn get(
+        zelf: &Py<Self>,
+        key: PyObjectRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(zelf
+            .inner_getitem_opt(&*key, vm)?
+            .unwrap_or_else(|| default.unwrap_or_else(|| vm.ctx.none())))
+    }
+
+    #[pymethod]
+    fn __sizeof__(zelf: &Py<Self>) -> usize {
+        zelf.dict.__sizeof__() + core::mem::size_of::<PyAtomic<PyHash>>()
+    }
+
+    #[pyclassmethod]
+    fn fromkeys(
+        cls: PyTypeRef,
+        iterable: PyObjectRef,
+        value: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        dict_fromkeys(cls, iterable, value.unwrap_or_else(|| vm.ctx.none()), vm)
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
+    }
+}
+
+#[pyclass]
+impl Py<PyFrozenDict> {
+    #[pymethod(coexist)]
+    fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(value) = self.inner_getitem_opt(&*key, vm)? {
+            return Ok(value);
+        }
+        if !self.class().is(vm.ctx.types.frozendict_type)
+            && let Some(method) =
+                vm.get_method(self.to_owned().into(), identifier!(vm, __missing__))
+        {
+            return method?.call((key,), vm);
+        }
+        Err(vm.new_key_error(key))
+    }
+
+    #[pymethod]
+    fn copy(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFrozenDict>> {
+        if self.class().is(vm.ctx.types.frozendict_type) {
+            Ok(self.to_owned())
+        } else {
+            let dict = PyDict::default();
+            if !self.dict.is_empty() {
+                dict.update_arg(self.to_owned().into(), true, "frozendict", vm)?;
+            }
+            Ok(PyFrozenDict::from_dict(dict).into_ref(&vm.ctx))
+        }
+    }
+
+    #[pymethod]
+    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let dict = vm
+            .ctx
+            .types
+            .dict_type
+            .as_object()
+            .call((self.to_owned(),), vm)?;
+        Ok(vm.new_tuple((dict,)))
+    }
+}
+
+#[pyclass]
+impl PyRef<PyFrozenDict> {
+    #[pymethod]
+    fn keys(self) -> PyDictKeys {
+        PyDictKeys::new(self.into())
+    }
+    #[pymethod]
+    fn values(self) -> PyDictValues {
+        PyDictValues::new(self.into())
+    }
+    #[pymethod]
+    fn items(self) -> PyDictItems {
+        PyDictItems::new(self.into())
+    }
+    #[pymethod]
+    fn __reversed__(self) -> PyDictReverseKeyIterator {
+        PyDictReverseKeyIterator::new(self.into())
+    }
+}
+
+impl AsMapping for PyFrozenDict {
+    fn as_mapping() -> &'static PyMappingMethods {
+        static METHODS: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|obj, _vm| Ok(PyFrozenDict::mapping_downcast(obj).__len__())),
+            subscript: atomic_func!(
+                |obj, key, vm| PyFrozenDict::mapping_downcast(obj).__getitem__(key.to_owned(), vm)
+            ),
+            ass_subscript: None,
+        };
+        &METHODS
+    }
+}
+impl AsSequence for PyFrozenDict {
+    fn as_sequence() -> &'static PySequenceMethods {
+        static METHODS: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
+            contains: atomic_func!(|obj, key, vm| Ok(PyFrozenDict::sequence_downcast(obj)
+                .inner_getitem_opt(key, vm)?
+                .is_some())),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        });
+        &METHODS
+    }
+}
+impl AsNumber for PyFrozenDict {
+    fn as_number() -> &'static PyNumberMethods {
+        static METHODS: PyNumberMethods = PyNumberMethods {
+            or: Some(frozendict_or),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &METHODS
+    }
+}
+impl Iterable for PyFrozenDict {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyDictKeyIterator::new(zelf.into()).into_pyobject(vm))
+    }
+}
+impl Comparable for PyFrozenDict {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        op.eq_only(|| match PyAnyDict::from_object(other) {
+            Some(other) => zelf
+                .dict
+                .compare_entries(other.as_dict(), PyComparisonOp::Eq, true, vm),
+            None => Ok(PyComparisonValue::NotImplemented),
+        })
+    }
+}
+impl Hashable for PyFrozenDict {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        let cached = zelf.hash.load(Ordering::Relaxed);
+        if cached != hash::SENTINEL {
+            return Ok(cached);
+        }
+        let mut hasher = hash::FrozenSetHash::new(zelf.__len__());
+        let mut position = 0;
+        while let Some((next, _key, value, key_hash)) =
+            zelf.dict.entries.next_entry_with_hash(position)
+        {
+            position = next;
+            // next_entry releases the table lock before invoking arbitrary Python __hash__.
+            let pair_hash = hash::hash_tuple([Ok(key_hash), value.hash(vm)])?;
+            hasher.add(pair_hash);
+        }
+        let result = hasher.finish();
+        zelf.hash.store(result, Ordering::Relaxed);
+        Ok(result)
+    }
+}
+impl Representable for PyFrozenDict {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let name = zelf.class().name();
+        if zelf.dict.is_empty() {
+            return Ok(vm.ctx.new_str(format!("{name}()")));
+        }
+        let mut result = Wtf8Buf::from(format!("{name}("));
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            result.push_str("{");
+            for (index, (key, value)) in DictIter::new(&zelf.dict).enumerate() {
+                if index != 0 {
+                    result.push_str(", ");
+                }
+                result.push_wtf8(key.repr(vm)?.as_wtf8());
+                result.push_str(": ");
+                result.push_wtf8(value.repr(vm)?.as_wtf8());
+            }
+            result.push_str("}");
+        } else {
+            result.push_str("{...}");
+        }
+        result.push_str(")");
+        Ok(vm.ctx.new_str(result))
+    }
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 
@@ -983,15 +1703,6 @@ impl<'a> IntoIterator for &'a PyDictRef {
 }
 
 impl<'a> IntoIterator for &'a Py<PyDict> {
-    type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self)
-    }
-}
-
-impl<'a> IntoIterator for &'a PyDict {
     type Item = (PyObjectRef, PyObjectRef);
     type IntoIter = DictIter<'a>;
 
@@ -1068,15 +1779,14 @@ impl ExactSizeIterator for DictIter<'_> {
 trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     type ReverseIter: PyPayload + core::fmt::Debug;
 
-    fn dict(&self) -> &Py<PyDict>;
-    fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
+    fn dict(&self) -> &PyAnyDict;
 
     fn __len__(&self) -> usize {
         self.dict().__len__()
     }
 
     #[pymethod]
-    fn __reversed__(&self) -> Self::ReverseIter;
+    fn __reversed__(zelf: &Py<Self>) -> Self::ReverseIter;
 }
 
 macro_rules! dict_view {
@@ -1090,17 +1800,18 @@ macro_rules! dict_view {
         $class_name: literal,
         $iter_class_name: literal,
         $reverse_iter_class_name: literal,
+        $unhashable: literal,
         $project_fn: expr,
         $result_fn: expr
     ) => {
-        #[pyclass(module = false, name = $class_name)]
+        #[pyclass(module = false, name = $class_name, unhashable = $unhashable, traverse)]
         #[derive(Debug)]
         pub(crate) struct $name {
-            pub(crate) dict: PyDictRef,
+            pub(crate) dict: PyRef<PyAnyDict>,
         }
 
         impl $name {
-            pub(crate) const fn new(dict: PyDictRef) -> Self {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
                 $name { dict }
             }
         }
@@ -1108,16 +1819,12 @@ macro_rules! dict_view {
         impl DictView for $name {
             type ReverseIter = $reverse_iter_name;
 
-            fn dict(&self) -> &Py<PyDict> {
+            fn dict(&self) -> &PyAnyDict {
                 &self.dict
             }
 
-            fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
-                $result_fn(vm, $project_fn(&key, &value))
-            }
-
-            fn __reversed__(&self) -> Self::ReverseIter {
-                $reverse_iter_name::new(self.dict.clone())
+            fn __reversed__(zelf: &Py<Self>) -> Self::ReverseIter {
+                $reverse_iter_name::new(zelf.dict.clone())
             }
         }
 
@@ -1137,19 +1844,21 @@ macro_rules! dict_view {
             #[inline]
             fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                    let mut result = Wtf8Buf::from(format!("{}([", Self::NAME));
-                    let mut first = true;
-                    for (key, value) in zelf.dict().clone() {
-                        if !first {
-                            result.push_str(", ");
-                        }
-                        first = false;
-                        result.push_wtf8(Self::item(vm, key, value).repr(vm)?.as_wtf8());
-                    }
-                    result.push_str("])");
+                    // CPython snapshots through the view's actual iterator before
+                    // calling element representations, including for OrderedDict subclasses.
+                    let items = ArgIterable::<PyObjectRef>::try_from_object(
+                        vm,
+                        zelf.as_object().to_owned(),
+                    )?
+                    .iter(vm)?
+                    .collect::<PyResult<Vec<_>>>()?;
+                    let list_repr = vm.ctx.new_list(items).as_object().repr(vm)?;
+                    let mut result = Wtf8Buf::from(format!("{}(", zelf.class().slot_name()));
+                    result.push_wtf8(list_repr.as_wtf8());
+                    result.push_str(")");
                     vm.ctx.new_str(result)
                 } else {
-                    vm.ctx.intern_str("{...}").to_owned()
+                    vm.ctx.intern_str("...").to_owned()
                 };
                 Ok(s)
             }
@@ -1160,11 +1869,18 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(module = false, name = $iter_class_name)]
+        #[pyclass(module = false, name = $iter_class_name, traverse)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
+            #[pytraverse(skip)]
             pub(crate) size: dict_inner::DictSize,
-            pub(crate) internal: PyMutex<PositionIterInternal<PyDictRef>>,
+            /// Whether the dict was found to have changed, which
+            /// `dictiter_iternextkey()` records by writing a size no dict can
+            /// have. Sticky: what it makes the iterator answer, it answers
+            /// from then on.
+            #[pytraverse(skip)]
+            changed: PyAtomic<bool>,
+            pub(crate) internal: PyMutex<PositionIterInternal<PyRef<PyAnyDict>>>,
         }
 
         impl PyPayload for $iter_name {
@@ -1174,30 +1890,45 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
         impl $iter_name {
-            fn new(dict: PyDictRef) -> Self {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
                 $iter_name {
                     size: dict.size(),
+                    changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, 0)),
                 }
             }
+        }
 
+        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
+        impl Py<$iter_name> {
             #[pymethod]
             fn __length_hint__(&self) -> usize {
-                self.internal.lock().length_hint(|_| self.size.entries_size)
+                // `dictiter_len()` answers for a dict it can no longer walk
+                // with nothing, comparing the size it captured against the
+                // dict's own every time it is asked.
+                if self.changed.load(Ordering::Relaxed) {
+                    return 0;
+                }
+                self.internal.lock().length_hint(|dict| {
+                    if dict.size() == self.size {
+                        self.size.entries_size
+                    } else {
+                        0
+                    }
+                })
             }
 
             #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_iter(vm);
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                let iter = builtins_iter(vm)?;
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => {
                         let mut position = internal.position;
                         let mut entries = Vec::new();
                         while let Some((next_position, key, value)) =
-                            dict.entries.next_entry(position)
+                            dict.as_dict().entries.next_entry(position)
                         {
                             entries.push(($result_fn)(vm, ($project_fn)(&key, &value)));
                             position = next_position;
@@ -1206,7 +1937,7 @@ macro_rules! dict_view {
                     }
                     IterStatus::Exhausted => vec![],
                 };
-                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
+                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
             }
         }
 
@@ -1214,40 +1945,49 @@ macro_rules! dict_view {
 
         impl IterNext for $iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    match dict.entries.next_entry_checked(
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let mutated =
+                        || vm.new_runtime_error("dictionary changed size during iteration");
+                    if zelf.changed.load(Ordering::Relaxed) {
+                        // The dict is not looked at again once it has been
+                        // found to change: an iterator that has raised keeps
+                        // raising.
+                        return (Err(mutated()), None);
+                    }
+                    let entry = dict.as_dict().entries.next_entry_checked(
                         internal.position,
                         &zelf.size,
                         $project_fn,
-                    ) {
+                    );
+                    match entry {
                         Err(dict_inner::DictChanged) => {
-                            internal.status = IterStatus::Exhausted;
-                            return Err(
-                                vm.new_runtime_error("dictionary changed size during iteration")
-                            );
+                            zelf.changed.store(true, Ordering::Relaxed);
+                            (Err(mutated()), None)
                         }
                         Ok(Some((position, item))) => {
                             internal.position = position;
-                            PyIterReturn::Return(($result_fn)(vm, item))
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
-                        Ok(None) => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
 
-        #[pyclass(module = false, name = $reverse_iter_class_name)]
+        #[pyclass(module = false, name = $reverse_iter_class_name, traverse)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
+            #[pytraverse(skip)]
             pub(crate) size: dict_inner::DictSize,
-            internal: PyMutex<PositionIterInternal<PyDictRef>>,
+            /// As in `$iter_name`.
+            #[pytraverse(skip)]
+            changed: PyAtomic<bool>,
+            #[pytraverse(skip)]
+            remaining: PyAtomic<usize>,
+            internal: PyMutex<PositionIterInternal<PyRef<PyAnyDict>>>,
         }
 
         impl PyPayload for $reverse_iter_name {
@@ -1257,27 +1997,32 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
         impl $reverse_iter_name {
-            fn new(dict: PyDictRef) -> Self {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
                 let size = dict.size();
-                let position = size.entries_size.saturating_sub(1);
+                // usize::MAX represents the position before the first entry.
+                let position = size.entries_size.wrapping_sub(1);
                 $reverse_iter_name {
+                    remaining: Radium::new(size.used),
                     size,
+                    changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
             }
+        }
 
+        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
+        impl Py<$reverse_iter_name> {
             #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_iter(vm);
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                let iter = builtins_iter(vm)?;
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => {
                         let mut position = internal.position;
                         let mut entries = Vec::new();
                         while let Some((found_index, key, value)) =
-                            dict.entries.prev_entry(position)
+                            dict.as_dict().entries.prev_entry(position)
                         {
                             entries.push(($result_fn)(vm, ($project_fn)(&key, &value)));
                             if found_index == 0 {
@@ -1289,14 +2034,24 @@ macro_rules! dict_view {
                     }
                     IterStatus::Exhausted => vec![],
                 };
-                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
+                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
             }
 
             #[pymethod]
             fn __length_hint__(&self) -> usize {
-                self.internal
-                    .lock()
-                    .rev_length_hint(|_| self.size.entries_size)
+                // As in `$iter_name`.
+                if self.changed.load(Ordering::Relaxed) {
+                    return 0;
+                }
+                let internal = self.internal.lock();
+                match &internal.status {
+                    IterStatus::Active(dict)
+                        if dict.size().has_same_used_and_relocations(&self.size) =>
+                    {
+                        self.remaining.load(Ordering::Relaxed)
+                    }
+                    _ => 0,
+                }
             }
         }
 
@@ -1304,36 +2059,41 @@ macro_rules! dict_view {
 
         impl IterNext for $reverse_iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    match dict.entries.prev_entry_checked(
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let mutated =
+                        || vm.new_runtime_error("dictionary changed size during iteration");
+                    if zelf.changed.load(Ordering::Relaxed) {
+                        // The dict is not looked at again once it has been
+                        // found to change: an iterator that has raised keeps
+                        // raising.
+                        return (Err(mutated()), None);
+                    }
+                    let remaining = zelf.remaining.load(Ordering::Relaxed);
+                    let entry = dict.as_dict().entries.prev_entry_checked(
                         internal.position,
                         &zelf.size,
-                        $project_fn,
-                    ) {
+                        |key, value| (remaining != 0).then(|| ($project_fn)(key, value)),
+                    );
+                    match entry {
                         Err(dict_inner::DictChanged) => {
-                            internal.status = IterStatus::Exhausted;
-                            return Err(
-                                vm.new_runtime_error("dictionary changed size during iteration")
-                            );
+                            zelf.changed.store(true, Ordering::Relaxed);
+                            (Err(mutated()), None)
                         }
-                        Ok(Some((found_index, item))) => {
-                            if found_index == 0 {
-                                internal.status = IterStatus::Exhausted;
-                            } else {
-                                internal.position = found_index - 1;
-                            }
-                            PyIterReturn::Return(($result_fn)(vm, item))
+                        Ok(Some((_, None))) => (
+                            Err(vm.new_runtime_error("dictionary keys changed during iteration")),
+                            internal.exhaust(),
+                        ),
+                        Ok(Some((found_index, Some(item)))) => {
+                            zelf.remaining.store(remaining - 1, Ordering::Relaxed);
+                            internal.position = found_index.wrapping_sub(1);
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
-                        Ok(None) => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
     };
@@ -1349,7 +2109,8 @@ dict_view! {
     "dict_keys",
     "dict_keyiterator",
     "dict_reversekeyiterator",
-    |key: &PyObjectRef, _value: &PyObjectRef| key.clone(),
+    true,
+    |key: &PyObject, _value| key.to_owned(),
     |_vm: &VirtualMachine, key: PyObjectRef| key
 }
 
@@ -1363,7 +2124,8 @@ dict_view! {
     "dict_values",
     "dict_valueiterator",
     "dict_reversevalueiterator",
-    |_key: &PyObjectRef, value: &PyObjectRef| value.clone(),
+    false,
+    |_key: &PyObject, value: &PyObjectRef| value.clone(),
     |_vm: &VirtualMachine, value: PyObjectRef| value
 }
 
@@ -1377,92 +2139,78 @@ dict_view! {
     "dict_items",
     "dict_itemiterator",
     "dict_reverseitemiterator",
-    |key: &PyObjectRef, value: &PyObjectRef| (key.clone(), value.clone()),
+    true,
+    |key: &PyObject, value: &PyObjectRef| (key.to_owned(), value.clone()),
     // Builds a tuple, so it runs after the dict's read guard is released.
     |vm: &VirtualMachine, (key, value): (PyObjectRef, PyObjectRef)|
         vm.new_tuple((key, value)).into()
 }
 
+fn is_set_or_dict_view(obj: &PyObject) -> bool {
+    obj.downcast_ref::<PySet>().is_some()
+        || obj.downcast_ref::<PyFrozenSet>().is_some()
+        || obj.downcast_ref::<PyDictKeys>().is_some()
+        || obj.downcast_ref::<PyDictItems>().is_some()
+}
+
 // Set operations defined on set-like views of the dictionary.
 #[pyclass]
 trait ViewSetOps: DictView {
-    fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let len = zelf.dict().__len__();
-        let zelf: PyObjectRef = Self::iter(zelf, vm)?;
-        let iter = PyIterIter::new(vm, zelf, Some(len));
-        PySetInner::from_iter(iter, vm)
-    }
-
-    fn __xor__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.symmetric_difference(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __and__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.intersection(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __or__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.union(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __sub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.difference(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __rsub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
-        let right = ArgIterable::try_from_object(vm, Self::iter(zelf, vm)?)?;
-        let inner = left.difference(right, vm)?;
-        Ok(PySet { inner })
-    }
-
     fn cmp(
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        match_class!(match other {
-            ref dictview @ Self => {
-                return zelf.dict().inner_cmp(
-                    dictview.dict(),
-                    op,
-                    !zelf.class().is(vm.ctx.types.dict_keys_type),
-                    vm,
-                );
+        if !is_set_or_dict_view(other) {
+            return Ok(PyComparisonValue::NotImplemented);
+        }
+        if op == PyComparisonOp::Ne {
+            return ViewSetOps::cmp(zelf, other, PyComparisonOp::Eq, vm)
+                .map(|result| result.map(|equal| !equal));
+        }
+        if !op.eval_ord(zelf.__len__().cmp(&other.length(vm)?)) {
+            return Ok(PyComparisonValue::Implemented(false));
+        }
+        let (subset, superset) = if matches!(op, PyComparisonOp::Gt | PyComparisonOp::Ge) {
+            (other, zelf.as_object())
+        } else {
+            (zelf.as_object(), other)
+        };
+        let subset = ArgIterable::<PyObjectRef>::try_from_object(vm, subset.to_owned())?;
+        for item in subset.iter(vm)? {
+            let item = item?;
+            if !superset.sequence_unchecked().contains(&item, vm)? {
+                return Ok(PyComparisonValue::Implemented(false));
             }
-            ref _set @ PySet => {
-                let inner = Self::to_set(zelf.to_owned(), vm)?;
-                let zelf_set = PySet { inner }.into_pyobject(vm);
-                return PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm);
-            }
-            ref _dictitems @ PyDictItems => {}
-            ref _dictkeys @ PyDictKeys => {}
-            _ => {
-                return Ok(PyArithmeticValue::NotImplemented);
-            }
-        });
-        let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
-        let rhs: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
-        lhs.iter()
-            .richcompare(rhs.iter(), op, vm)
-            .map(PyComparisonValue::Implemented)
+        }
+        Ok(PyComparisonValue::Implemented(true))
     }
 
     #[pymethod]
-    fn isdisjoint(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: to_set is an expensive operation. After merging #3316 rewrite implementation using PySequence_Contains.
-        let zelf = Self::to_set(zelf, vm)?;
-        let result = zelf.isdisjoint(other, vm)?;
-        Ok(result)
+    fn isdisjoint(zelf: PyRef<Self>, object: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        if zelf.is(object.as_object()) {
+            return Ok(zelf.__len__() == 0);
+        }
+        let other_is_larger = if is_set_or_dict_view(object.as_object()) {
+            let len = zelf.__len__();
+            object.as_object().length(vm)? > len
+        } else {
+            false
+        };
+        let (container, iterable) = if other_is_larger {
+            (object.as_object(), zelf.as_object())
+        } else {
+            (zelf.as_object(), object.as_object())
+        };
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable.to_owned())?;
+        for item in iterable.iter(vm)? {
+            let item = item?;
+            if container.sequence_unchecked().contains(&item, vm)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -1481,13 +2229,13 @@ impl ViewSetOps for PyDictKeys {}
     )
 )]
 impl PyDictKeys {
-    fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.sequence_unchecked().contains(&key, vm)
+    fn __contains__(zelf: &PyObject, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.sequence_unchecked().contains(key, vm)
     }
 
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf.dict().to_owned())
+        PyMappingProxy::from_any_dict(zelf.dict().to_owned())
     }
 }
 
@@ -1507,10 +2255,10 @@ impl AsSequence for PyDictKeys {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).__len__())),
             contains: atomic_func!(|seq, target, vm| {
-                PyDictKeys::sequence_downcast(seq)
+                Ok(PyDictKeys::sequence_downcast(seq)
                     .dict
-                    .entries
-                    .contains(vm, target)
+                    .inner_getitem_opt(target, vm)?
+                    .is_some())
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -1545,12 +2293,12 @@ impl ViewSetOps for PyDictItems {}
     )
 )]
 impl PyDictItems {
-    fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.sequence_unchecked().contains(&needle, vm)
+    fn __contains__(zelf: &PyObject, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.sequence_unchecked().contains(needle, vm)
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf.dict().to_owned())
+        PyMappingProxy::from_any_dict(zelf.dict().to_owned())
     }
 }
 
@@ -1574,17 +2322,16 @@ impl AsSequence for PyDictItems {
                     Some(needle) => needle,
                     None => return Ok(false),
                 };
-                if needle.len() != 2 {
+                if needle.as_slice().len() != 2 {
                     return Ok(false);
                 }
 
                 let zelf = PyDictItems::sequence_downcast(seq);
-                let key = &needle[0];
-                if !zelf.dict.__contains__(key.to_owned(), vm)? {
+                let key = &needle.as_slice()[0];
+                let Some(found) = zelf.dict().inner_getitem_opt(&**key, vm)? else {
                     return Ok(false);
-                }
-                let value = &needle[1];
-                let found = zelf.dict().__getitem__(key.to_owned(), vm)?;
+                };
+                let value = &needle.as_slice()[1];
                 vm.identical_or_equal(&found, value)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
@@ -1598,7 +2345,7 @@ impl AsNumber for PyDictItems {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(set_inner_number_subtract),
             and: Some(set_inner_number_and),
-            xor: Some(set_inner_number_xor),
+            xor: Some(dict_item_view_number_xor),
             or: Some(set_inner_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -1613,7 +2360,7 @@ impl AsNumber for PyDictItems {
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf.dict().to_owned())
+        PyMappingProxy::from_any_dict(zelf.dict().to_owned())
     }
 }
 
@@ -1639,20 +2386,176 @@ where
     Ok(PySet { inner: f(a, b)? }.into_pyobject(vm))
 }
 
-fn set_inner_number_subtract(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_inner_number_subtract(
+    a: &PyObject,
+    b: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.difference(b, vm), vm)
 }
 
-fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    set_inner_number_op(a, b, |a, b| a.intersection(b, vm), vm)
+pub(crate) fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let a_is_view =
+        a.downcast_ref::<PyDictKeys>().is_some() || a.downcast_ref::<PyDictItems>().is_some();
+    let (view, other) = if a_is_view { (a, b) } else { (b, a) };
+    set_view_number_and(view, other, vm)
 }
 
-fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_view_number_and(
+    view: &PyObject,
+    other: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let other = ArgIterable::<PyObjectRef>::try_from_object(vm, other.to_owned())?;
+    let result = PySet::default();
+    for item in other.iter(vm)? {
+        let item = item?;
+        if view.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    Ok(result.into_pyobject(vm))
+}
+
+pub(crate) fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.symmetric_difference(b, vm), vm)
 }
 
-fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_item_view_number_xor(
+    a: &PyObject,
+    b: &PyObject,
+    both_are_item_views: bool,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if !both_are_item_views {
+        return set_inner_number_xor(a, b, vm);
+    }
+    let result = PySet::default();
+    let a_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, a.to_owned())?;
+    for item in a_iterable.iter(vm)? {
+        let item = item?;
+        if !b.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    let b_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, b.to_owned())?;
+    for item in b_iterable.iter(vm)? {
+        let item = item?;
+        if !a.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    Ok(result.into_pyobject(vm))
+}
+
+fn dict_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let is_native_item_view = |obj: &PyObject| obj.downcast_ref::<PyDictItems>().is_some();
+    set_item_view_number_xor(a, b, is_native_item_view(a) && is_native_item_view(b), vm)
+}
+
+pub(crate) fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
+}
+
+/// `_PyDict_Or`
+fn dict_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let (Some(left), Some(_)) = (PyAnyDict::from_object(a), PyAnyDict::from_object(b)) else {
+        return Ok(vm.ctx.not_implemented());
+    };
+    // anydict_copy_untracked converts any frozendict to an exact frozendict.
+    let frozen = left.is_frozen();
+    let mapping_name = if frozen { "frozendict" } else { "dict" };
+    let dict = PyDict::default();
+    if !left.is_empty() {
+        dict.update_arg(a.to_owned(), true, mapping_name, vm)?;
+    }
+    dict.update_arg(b.to_owned(), true, mapping_name, vm)?;
+    Ok(if frozen {
+        PyFrozenDict::from_dict(dict).into_pyobject(vm)
+    } else {
+        dict.into_pyobject(vm)
+    })
+}
+
+fn frozendict_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    if a.class().is(vm.ctx.types.frozendict_type)
+        && let Some(left) = PyAnyDict::from_object(a)
+        && let Some(right) = PyAnyDict::from_object(b)
+    {
+        // frozendict() | frozendict(...) => frozendict(...)
+        if left.is_empty() && b.class().is(vm.ctx.types.frozendict_type) {
+            return Ok(b.to_owned());
+        }
+        // frozendict(...) | frozendict() => frozendict(...)
+        if right.is_empty()
+            && (b.class().is(vm.ctx.types.dict_type) || b.class().is(vm.ctx.types.frozendict_type))
+        {
+            return Ok(a.to_owned());
+        }
+    }
+    dict_or(a, b, vm)
+}
+
+pub(crate) fn dict_fromkeys(
+    class: PyTypeRef,
+    iterable: PyObjectRef,
+    value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let exact_frozen = class.is(vm.ctx.types.frozendict_type);
+    let created = if exact_frozen {
+        None
+    } else {
+        Some(PyType::call(&class, ().into(), vm)?)
+    };
+    let frozen_source = created
+        .as_ref()
+        .and_then(|obj| obj.downcast_ref::<PyFrozenDict>());
+    if exact_frozen || frozen_source.is_some() {
+        let dict = PyDict::default();
+        if let Some(source) = frozen_source {
+            dict.update_arg(source.to_owned().into(), true, "frozendict", vm)?;
+        }
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)?;
+        if let Some(keys) = PyDict::fromkeys_known_hashes(iterable.as_object(), vm) {
+            for (key, hash) in keys {
+                dict.entries.insert(vm, &*key, hash, value.clone())?;
+            }
+        } else {
+            for key in iterable.iter(vm)? {
+                let key = key?;
+                let hash = PyFrozenDict::key_hash(&*key, vm)?;
+                dict.entries.insert(vm, &*key, hash, value.clone())?;
+            }
+        }
+        let frozen = PyFrozenDict::from_dict(dict).into_ref(&vm.ctx);
+        return if exact_frozen {
+            Ok(frozen.into())
+        } else {
+            class.as_object().call((frozen,), vm)
+        };
+    }
+    let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)?;
+    let created = created.unwrap();
+    if let Some(dict) = created.downcast_ref_if_exact::<PyDict>(vm) {
+        if let Some(keys) = PyDict::fromkeys_known_hashes(iterable.as_object(), vm) {
+            if class.is(vm.ctx.types.dict_type) {
+                dict.entries.reserve_for_empty(keys.len());
+            }
+            for (key, hash) in keys {
+                dict.entries.insert(vm, &*key, hash, value.clone())?;
+            }
+        } else {
+            for key in iterable.iter(vm)? {
+                dict.inner_setitem(&*key?, value.clone(), vm)?;
+            }
+        }
+    } else {
+        for key in iterable.iter(vm)? {
+            created.set_item(&*key?, value.clone(), vm)?;
+        }
+    }
+    Ok(created)
 }
 
 fn vectorcall_dict(
@@ -1665,8 +2568,30 @@ fn vectorcall_dict(
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let obj = PyDict::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PyDict::slot_init(obj.clone().into(), func_args, vm)?;
+    PyDict::slot_init(obj.as_object(), func_args, vm)?;
     Ok(obj.into())
+}
+
+fn vectorcall_frozendict(
+    zelf: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    // frozendict(frozendict) returns the same object unmodified
+    if nargs == 1
+        && kwnames.is_none_or(<[_]>::is_empty)
+        && args[0].class().is(vm.ctx.types.frozendict_type)
+        && zelf.is(vm.ctx.types.frozendict_type)
+    {
+        return Ok(args[0].clone());
+    }
+    PyFrozenDict::slot_new(
+        zelf.downcast_ref::<PyType>().unwrap().to_owned(),
+        FuncArgs::from_vectorcall_owned(args, nargs, kwnames),
+        vm,
+    )
 }
 
 pub(crate) fn init(context: &'static Context) {
@@ -1675,7 +2600,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .dict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_dict));
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);
@@ -1686,4 +2611,86 @@ pub(crate) fn init(context: &'static Context) {
     PyDictItems::extend_class(context, context.types.dict_items_type);
     PyDictItemIterator::extend_class(context, context.types.dict_itemiterator_type);
     PyDictReverseItemIterator::extend_class(context, context.types.dict_reverseitemiterator_type);
+    PyFrozenDict::extend_class(context, context.types.frozendict_type);
+    context
+        .types
+        .frozendict_type
+        .slots
+        .constructor_vectorcall
+        .store(Some(vectorcall_frozendict));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anydict_reference_layout_and_ownership() {
+        static_assertions::assert_not_impl_any!(PyAnyDict: PyPayload);
+        static_assertions::assert_type_eq_all!(
+            <PyAnyDict as crate::object::PyRefTarget>::Target,
+            PyAnyDict
+        );
+        static_assertions::assert_eq_size!(PyRef<PyAnyDict>, PyObjectRef, Option<PyRef<PyAnyDict>>);
+        static_assertions::assert_eq_align!(PyRef<PyAnyDict>, PyObjectRef);
+        static_assertions::assert_eq_size!(PyAnyDict, PyObject);
+        static_assertions::assert_eq_align!(PyAnyDict, PyObject);
+        #[cfg(feature = "threading")]
+        static_assertions::assert_impl_all!(PyRef<PyAnyDict>: Send, Sync);
+        #[cfg(not(feature = "threading"))]
+        static_assertions::assert_not_impl_any!(PyRef<PyAnyDict>: Send, Sync);
+
+        let ctx = Context::genesis();
+        let dict: PyRef<PyAnyDict> = PyDict::default().into_ref(ctx).into();
+        let frozen: PyRef<PyAnyDict> = PyFrozenDict::from_dict(PyDict::default())
+            .into_ref(ctx)
+            .into();
+        for owner in [dict, frozen] {
+            let object = owner.as_object() as *const PyObject;
+            assert_eq!(owner.as_object().strong_count(), 1);
+            let borrowed = PyAnyDict::from_object(owner.as_object()).unwrap();
+            assert!(core::ptr::eq(borrowed.as_object(), object));
+            assert_eq!(owner.as_object().strong_count(), 1);
+            assert_eq!(borrowed.as_mutable().is_none(), borrowed.is_frozen());
+            let copy = borrowed.to_owned();
+            assert_eq!(owner.as_object().strong_count(), 2);
+            let clone = owner.clone();
+            assert_eq!(owner.as_object().strong_count(), 3);
+            let erased = clone.into_object();
+            assert_eq!(erased.strong_count(), 3);
+            assert!(core::ptr::eq(&*erased, object));
+            let mut visited = 0;
+            owner.traverse(&mut |edge| {
+                assert!(core::ptr::eq(edge, object));
+                visited += 1;
+            });
+            assert_eq!(visited, 1);
+            drop(copy);
+            drop(owner);
+            assert_eq!(erased.strong_count(), 1);
+        }
+    }
+
+    #[test]
+    fn anydict_checked_reference_conversion() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = PyDict::default().into_pyobject(vm);
+            let frozen = PyFrozenDict::from_dict(PyDict::default()).into_pyobject(vm);
+            for object in [dict, frozen] {
+                let owner = PyRef::<PyAnyDict>::try_from_object(vm, object.clone()).unwrap();
+                assert_eq!(object.strong_count(), 2);
+                assert!(core::ptr::eq(owner.as_object(), &*object));
+                let erased: PyObjectRef = owner.into();
+                assert_eq!(object.strong_count(), 2);
+                assert!(core::ptr::eq(&*erased, &*object));
+                drop(erased);
+                assert_eq!(object.strong_count(), 1);
+            }
+            let unrelated: PyObjectRef = vm.ctx.new_int(1000).into();
+            assert!(PyAnyDict::from_object(&unrelated).is_none());
+            let error = PyRef::<PyAnyDict>::try_from_object(vm, unrelated.clone()).unwrap_err();
+            assert!(error.fast_isinstance(vm.ctx.exceptions.type_error));
+            assert_eq!(unrelated.strong_count(), 1);
+        });
+    }
 }

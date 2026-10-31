@@ -42,3 +42,26 @@ with assert_raises(NameError):
     __builtins__  # noqa: F821
 
 assert print
+
+
+from types import ModuleType
+
+
+class AnnotationDict(dict):
+    pass
+
+
+module = ModuleType("annotated_module")
+annotations = AnnotationDict(answer=int)
+calls = []
+
+
+def annotate(format):
+    calls.append(format)
+    return annotations
+
+
+module.__annotate__ = annotate
+assert module.__annotations__ is annotations
+assert module.__annotations__ is annotations
+assert calls == [1]

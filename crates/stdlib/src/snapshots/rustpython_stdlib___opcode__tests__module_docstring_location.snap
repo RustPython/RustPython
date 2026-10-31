@@ -1,0 +1,13 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\n\"doc\"\nx = 1\n\"#, true)"
+---
+0:0-1:0            RESUME                   0
+
+1:0-1:5            LOAD_CONST               0 ('doc')
+1:0-1:5            STORE_NAME               0 (__doc__)
+
+2:4-2:5            LOAD_SMALL_INT           1
+2:0-2:1            STORE_NAME               1 (x)
+2:0-2:1            LOAD_COMMON_CONSTANT     7 (None)
+2:0-2:1            RETURN_VALUE

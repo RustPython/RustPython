@@ -1,0 +1,97 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nasync def f(it):\n    for i in it:\n        yield i\n\nasync def run_list():\n    return [i + 1 async for i in f([10, 20])]\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-3:15            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-3:15            MAKE_FUNCTION
+1:0-3:15            STORE_NAME               0 (f)
+
+5:0-6:45            LOAD_CONST               1 (<code object run_list at 0xdeadbeef, file "<?>", line 5>)
+5:0-6:45            MAKE_FUNCTION
+5:0-6:45            STORE_NAME               1 (run_list)
+5:0-6:45            LOAD_COMMON_CONSTANT     7 (None)
+5:0-6:45            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:?-1:?              RETURN_GENERATOR
+1:?-1:?              POP_TOP
+1:0-1:0      L1:     RESUME                   0
+
+2:13-2:15            LOAD_FAST                0 (it)
+2:13-2:15            GET_ITER                 0
+2:13-2:15    L2:     FOR_ITER                 9 (to L3)
+2:8-2:9              STORE_FAST               1 (i)
+
+3:14-3:15            LOAD_FAST_BORROW         1 (i)
+3:8-3:15             CALL_INTRINSIC_1         4 (INTRINSIC_ASYNC_GEN_WRAP)
+3:8-3:15             YIELD_VALUE              0
+3:8-3:15             RESUME                   9
+3:8-3:15             POP_TOP
+3:8-3:15             JUMP_BACKWARD           11 (to L2)
+
+2:13-2:15    L3:     END_FOR
+2:13-2:15            POP_ITER
+2:13-2:15            LOAD_COMMON_CONSTANT     7 (None)
+2:13-2:15            RETURN_VALUE
+
+  --         L4:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L4 -> L4 [0] lasti
+
+Disassembly of <code object run_list at 0xdeadbeef, file "<?>", line 5>:
+5:?-5:?               RETURN_GENERATOR
+5:?-5:?               POP_TOP
+5:0-5:0       L1:     RESUME                   0
+
+6:33-6:34             LOAD_GLOBAL              1 (f + NULL)
+6:36-6:38             LOAD_SMALL_INT          10
+6:40-6:42             LOAD_SMALL_INT          20
+6:35-6:43             BUILD_LIST               2
+6:33-6:44             CALL                     1
+6:11-6:45             LOAD_FAST_AND_CLEAR      0 (i)
+6:11-6:45             SWAP                     2
+6:11-6:45     L2:     BUILD_LIST               0
+6:11-6:45             SWAP                     2
+6:33-6:44             GET_AITER
+6:11-6:45     L3:     GET_ANEXT
+6:11-6:45             PUSH_NULL
+6:11-6:45             LOAD_COMMON_CONSTANT     7 (None)
+6:11-6:45     L4:     SEND                     4 (to L7)
+6:11-6:45     L5:     YIELD_VALUE              1
+6:11-6:45     L6:     RESUME                   3
+6:11-6:45             JUMP_BACKWARD_NO_INTERRUPT 6 (to L4)
+6:11-6:45     L7:     END_SEND
+6:28-6:29     L8:     STORE_FAST_LOAD_FAST     0 (i, i)
+6:16-6:17             LOAD_SMALL_INT           1
+6:12-6:17             BINARY_OP                0 (+)
+6:12-6:17             LIST_APPEND              2
+6:12-6:17             JUMP_BACKWARD           21 (to L3)
+6:11-6:45     L9:     CLEANUP_THROW
+6:11-6:45    L10:     JUMP_BACKWARD_NO_INTERRUPT 14 (to L7)
+6:11-6:45    L11:     END_ASYNC_FOR           15 (from L7)
+6:11-6:45    L12:     SWAP                     2
+6:11-6:45             STORE_FAST               0 (i)
+6:4-6:45              RETURN_VALUE
+
+  --         L13:     SWAP                     2
+  --                  POP_TOP
+
+6:11-6:45             SWAP                     2
+6:11-6:45             STORE_FAST               0 (i)
+6:11-6:45             RERAISE                  0
+
+  --         L14:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L14 [0] lasti
+  L2 to L3 -> L13 [2]
+  L3 to L5 -> L11 [3]
+  L5 to L6 -> L9 [6]
+  L6 to L8 -> L11 [3]
+  L8 to L9 -> L13 [2]
+  L9 to L10 -> L11 [3]
+  L11 to L12 -> L13 [2]
+  L12 to L14 -> L14 [0] lasti

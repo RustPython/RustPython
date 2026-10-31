@@ -114,10 +114,10 @@ class UnicodeNamesTest(unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: got unexpected unicode
     def test_tangut_ideographs(self):
         self.checkletter("TANGUT IDEOGRAPH-17000", "\U00017000")
-        self.checkletter("TANGUT IDEOGRAPH-187F7", "\U000187f7")
+        self.checkletter("TANGUT IDEOGRAPH-187FF", "\U000187ff")
         self.checkletter("TANGUT IDEOGRAPH-18D00", "\U00018D00")
-        self.checkletter("TANGUT IDEOGRAPH-18D08", "\U00018d08")
-        self.checkletter("tangut ideograph-18d08", "\U00018d08")
+        self.checkletter("TANGUT IDEOGRAPH-18D1E", "\U00018d1e")
+        self.checkletter("tangut ideograph-18d1e", "\U00018d1e")
 
     def test_egyptian_hieroglyphs(self):
         self.checkletter("EGYPTIAN HIEROGLYPH-13460", "\U00013460")
@@ -149,7 +149,6 @@ class UnicodeNamesTest(unittest.TestCase):
         self.checkletter("HALFWIDTH KATAKANA SEMI-VOICED SOUND MARK", "\uFF9F")
         self.checkletter("FULLWIDTH LATIN SMALL LETTER A", "\uFF41")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_aliases(self):
         # Check that the aliases defined in the NameAliases.txt file work.
         # This should be updated when new aliases are added or the file
@@ -190,7 +189,6 @@ class UnicodeNamesTest(unittest.TestCase):
                 unicodedata.name(chr(cp))
             self.assertEqual(str(cm.exception), 'no such name')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_named_sequences_sample(self):
         # Check a few named sequences.  See #12753.
         sequences = [
@@ -207,7 +205,6 @@ class UnicodeNamesTest(unittest.TestCase):
             with self.assertRaises(KeyError):
                 unicodedata.ucd_3_2_0.lookup(seqname)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_named_sequences_full(self):
         # Check all the named sequences
         def check_version(testfile):

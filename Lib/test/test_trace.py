@@ -130,7 +130,6 @@ class TestLineCounts(unittest.TestCase):
         self.tracer = Trace(count=1, trace=0, countfuncs=0, countcallers=0)
         self.my_py_filename = fix_ext_py(__file__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  ('crates/pylib/Lib/test/test_trace.py', 48): 1}
     def test_traced_func_linear(self):
         result = self.tracer.runfunc(traced_func_linear, 2, 5)
         self.assertEqual(result, 7)
@@ -143,7 +142,8 @@ class TestLineCounts(unittest.TestCase):
 
         self.assertEqual(self.tracer.results().counts, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  ('crates/pylib/Lib/test/test_trace.py', 54): 1}
+    @unittest.skipIf(os.environ.get('PYTHON_UOPS_OPTIMIZE') == '0',
+                     "Line counts differ when JIT optimizer is disabled")
     def test_traced_func_loop(self):
         self.tracer.runfunc(traced_func_loop, 2, 3)
 
@@ -156,7 +156,6 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  ('crates/pylib/Lib/test/tracedmodules/testmod.py', 3): 1}
     def test_traced_func_importing(self):
         self.tracer.runfunc(traced_func_importing, 2, 5)
 
@@ -169,7 +168,8 @@ class TestLineCounts(unittest.TestCase):
 
         self.assertEqual(self.tracer.results().counts, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  ('crates/pylib/Lib/test/test_trace.py', 76): 10}
+    @unittest.skipIf(os.environ.get('PYTHON_UOPS_OPTIMIZE') == '0',
+                     "Line counts differ when JIT optimizer is disabled")
     def test_trace_func_generator(self):
         self.tracer.runfunc(traced_func_calling_generator)
 
@@ -185,7 +185,6 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  ('crates/pylib/Lib/test/test_trace.py', 87): 1}
     def test_trace_list_comprehension(self):
         self.tracer.runfunc(traced_caller_list_comprehension)
 
@@ -199,7 +198,6 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 996 characters long. Set self.maxDiff to None to see it.
     def test_traced_decorated_function(self):
         self.tracer.runfunc(traced_decorated_function)
 
@@ -219,7 +217,6 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + {('crates/pylib/Lib/test/test_trace.py', 108): 1}
     def test_linear_methods(self):
         # XXX todo: later add 'static_method_linear' and 'class_method_linear'
         # here, once issue1764286 is resolved
@@ -243,7 +240,8 @@ class TestRunExecCounts(unittest.TestCase):
         self.my_py_filename = fix_ext_py(__file__)
         self.addCleanup(sys.settrace, sys.gettrace())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: ('crates/pylib/Lib/test/test_trace.py', 51)
+    @unittest.skipIf(os.environ.get('PYTHON_UOPS_OPTIMIZE') == '0',
+                     "Line counts differ when JIT optimizer is disabled")
     def test_exec_counts(self):
         self.tracer = Trace(count=1, trace=0, countfuncs=0, countcallers=0)
         code = r'''traced_func_loop(2, 5)'''
@@ -383,7 +381,6 @@ class TestCoverage(unittest.TestCase):
         r = tracer.results()
         r.write_results(show_missing=True, summary=True, coverdir=TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'pprint.py' not found in ''
     @requires_resource('cpu')
     def test_coverage(self):
         tracer = trace.Trace(trace=0, count=1)
@@ -408,7 +405,6 @@ class TestCoverage(unittest.TestCase):
             files = os.listdir(TESTFN)
             self.assertEqual(files, ['_importlib.cover'])  # Ignore __import__
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'test.tracedmodules.testmod' not found in {}
     def test_issue9936(self):
         tracer = trace.Trace(trace=0, count=1)
         modname = 'test.tracedmodules.testmod'
@@ -473,7 +469,6 @@ class TestCoverageCommandLineOutput(unittest.TestCase):
         unlink(self.codefile)
         unlink(self.coverfile)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ---
     def test_cover_files_written_no_highlight(self):
         # Test also that the cover file for the trace module is not created
         # (issue #34171).
@@ -494,7 +489,6 @@ class TestCoverageCommandLineOutput(unittest.TestCase):
                 "           print('unreachable')\n"
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ---
     def test_cover_files_written_with_highlight(self):
         argv = '-m trace --count --missing'.split() + [self.codefile]
         status, stdout, stderr = assert_python_ok(*argv)
@@ -545,7 +539,6 @@ class TestCommandLine(unittest.TestCase):
                                                         PYTHONIOENCODING='utf-8')
         self.assertIn(direct_stdout.strip(), trace_stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'lines   cov%   module   (path)' not found in ''
     def test_count_and_summary(self):
         filename = f'{TESTFN}.py'
         coverfilename = f'{TESTFN}.cover'
@@ -581,7 +574,6 @@ class TestTrace(unittest.TestCase):
         self.tracer = Trace(count=0, trace=1)
         self.filemod = my_file_and_modname()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: list index out of range
     def test_no_source_file(self):
         filename = "<unknown>"
         co = traced_func_linear.__code__

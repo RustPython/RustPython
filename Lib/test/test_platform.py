@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from test import support
-from test.support import os_helper
+from test.support import os_helper, warnings_helper
 
 try:
     # Some of the iOS tests need ctypes to operate.
@@ -132,6 +132,22 @@ class PlatformTest(unittest.TestCase):
         for aliased in (False, True):
             for terse in (False, True):
                 res = platform.platform(aliased, terse)
+
+    def test__platform(self):
+        for src, res in [
+            ('foo bar', 'foo_bar'),
+            (
+                '1/2\\3:4;5"6(7)8(7)6"5;4:3\\2/1',
+                '1-2-3-4-5-6-7-8-7-6-5-4-3-2-1'
+            ),
+            ('--', ''),
+            ('-f', '-f'),
+            ('-foo----', '-foo'),
+            ('--foo---', '-foo'),
+            ('---foo--', '-foo'),
+        ]:
+            with self.subTest(src=src):
+                self.assertEqual(platform._platform(src), res)
 
     def test_system(self):
         res = platform.system()
@@ -383,15 +399,6 @@ class PlatformTest(unittest.TestCase):
                 finally:
                     platform._uname_cache = None
 
-    def test_java_ver(self):
-        import re
-        msg = re.escape(
-            "'java_ver' is deprecated and slated for removal in Python 3.15"
-        )
-        with self.assertWarnsRegex(DeprecationWarning, msg):
-            res = platform.java_ver()
-        self.assertEqual(len(res), 4)
-
     @unittest.skipUnless(support.MS_WINDOWS, 'This test only makes sense on Windows')
     def test_win32_ver(self):
         release1, version1, csd1, ptype1 = 'a', 'b', 'c', 'd'
@@ -458,7 +465,7 @@ class PlatformTest(unittest.TestCase):
             else:
                 self.assertEqual(res[2], 'PowerPC')
 
-
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
         # Issue7895: platform.mac_ver() crashes when using fork without exec
@@ -527,7 +534,7 @@ class PlatformTest(unittest.TestCase):
 
     def test_libc_ver(self):
         if support.is_emscripten:
-            assert platform.libc_ver() == ("emscripten", "4.0.12")
+            assert platform.libc_ver() == ("emscripten", "4.0.19")
             return
         # check that libc_ver(executable) doesn't raise an exception
         if os.path.isdir(sys.executable) and \
@@ -769,13 +776,14 @@ class CommandLineTest(unittest.TestCase):
             platform._main(args=flags)
         return output.getvalue()
 
+    @support.force_not_colorized
     def test_unknown_flag(self):
+        output = io.StringIO()
         with self.assertRaises(SystemExit):
-            output = io.StringIO()
             # suppress argparse error message
             with contextlib.redirect_stderr(output):
                 _ = self.invoke_platform('--unknown')
-            self.assertStartsWith(output, "usage: ")
+        self.assertStartsWith(output.getvalue(), "usage: ")
 
     def test_invocation(self):
         flags = (

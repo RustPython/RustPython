@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr, PyStrRef,
-    PyTuple, PyTupleRef, PyType, object,
+    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -65,8 +65,11 @@ fn format_missing_args(
 #[derive(Debug)]
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
-    pub(crate) globals: PyDictRef,
+    #[pymember(name = "__globals__")]
+    pub(crate) globals: PyRef<PyAnyDict>,
+    #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
+    #[pymember(name = "__closure__")]
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -74,8 +77,10 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     annotations: PyMutex<Option<PyDictRef>>,
     annotate: PyMutex<Option<PyObjectRef>>,
-    module: PyMutex<PyObjectRef>,
-    doc: PyMutex<PyObjectRef>,
+    #[pymember(name = "__module__", writable)]
+    module: PyAtomicRef<Option<PyObject>>,
+    #[pymember(name = "__doc__", writable)]
+    doc: PyAtomicRef<Option<PyObject>>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
@@ -106,8 +111,11 @@ unsafe impl Traverse for PyFunction {
         // Traverse additional fields that may contain references
         self.type_params.lock().traverse(tracer_fn);
         self.annotations.lock().traverse(tracer_fn);
-        self.module.lock().traverse(tracer_fn);
-        self.doc.lock().traverse(tracer_fn);
+        self.annotate.lock().traverse(tracer_fn);
+        self.module.traverse(tracer_fn);
+        self.doc.traverse(tracer_fn);
+        self.name.lock().traverse(tracer_fn);
+        self.qualname.lock().traverse(tracer_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
@@ -139,14 +147,10 @@ unsafe impl Traverse for PyFunction {
         }
 
         // Clear module, doc, and type_params (Py_CLEAR)
-        if let Some(mut guard) = self.module.try_lock() {
-            let old_module =
-                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+        if let Some(old_module) = self.module.store(Some(Context::genesis().none())) {
             out.push(old_module);
         }
-        if let Some(mut guard) = self.doc.try_lock() {
-            let old_doc =
-                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+        if let Some(old_doc) = self.doc.store(Some(Context::genesis().none())) {
             out.push(old_doc);
         }
         if let Some(mut guard) = self.type_params.try_lock() {
@@ -175,15 +179,17 @@ impl PyFunction {
     #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
-        globals: PyDictRef,
+        globals: PyRef<PyAnyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let name = PyMutex::new(code.obj_name.to_owned());
-        let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-        let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
-            // If not in globals, inherit from current execution context
-            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
-        });
+        let name = PyMutex::new(code.co_name.clone());
+        let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
+        let builtins = globals
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .unwrap_or_else(|| {
+                // If not in globals, inherit from current execution context.
+                crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
+            });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
             module.dict().into()
@@ -201,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,
@@ -213,8 +219,8 @@ impl PyFunction {
             type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
             annotations: PyMutex::new(None),
             annotate: PyMutex::new(None),
-            module: PyMutex::new(module),
-            doc: PyMutex::new(doc),
+            module: PyAtomicRef::from(Some(module)),
+            doc: PyAtomicRef::from(Some(doc)),
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
@@ -268,59 +274,28 @@ impl PyFunction {
 
         let mut vararg_offset = total_args;
         // Pack other positional arguments in to *args:
-        if code.flags.contains(bytecode::CodeFlags::VARARGS) {
+        let too_many_positional = if code.flags.contains(bytecode::CodeFlags::VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
             fastlocals[vararg_offset] = Some(vararg_value.into());
             vararg_offset += 1;
+            false
         } else {
-            // Check the number of positional arguments
-            if nargs > n_expected_args {
-                let n_defaults = self
-                    .defaults_and_kwdefaults
-                    .lock()
-                    .0
-                    .as_ref()
-                    .map_or(0, |d| d.len());
-                let n_required = n_expected_args - n_defaults;
-                let takes_msg = if n_defaults > 0 {
-                    format!("from {n_required} to {n_expected_args}")
-                } else {
-                    n_expected_args.to_string()
-                };
+            nargs > n_expected_args
+        };
 
-                // Count keyword-only arguments that were actually provided
-                let kw_only_given = if code.kwonlyarg_count > 0 {
-                    let start = code.arg_count as usize;
-                    let end = start + code.kwonlyarg_count as usize;
-                    code.varnames[start..end]
-                        .iter()
-                        .filter(|name| func_args.kwargs.contains_key(name.as_str()))
-                        .count()
-                } else {
-                    0
-                };
-
-                let given_msg = if kw_only_given > 0 {
-                    format!(
-                        "{} positional argument{} (and {} keyword-only argument{}) were",
-                        nargs,
-                        if nargs == 1 { "" } else { "s" },
-                        kw_only_given,
-                        if kw_only_given == 1 { "" } else { "s" },
-                    )
-                } else {
-                    format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
-                };
-
-                return Err(vm.new_type_error(format!(
-                    "{}() takes {} positional argument{} but {} given",
-                    self.__qualname__(),
-                    takes_msg,
-                    if n_expected_args == 1 { "" } else { "s" },
-                    given_msg,
-                )));
-            }
-        }
+        // The keyword-only parameters the call brought are counted alongside
+        // the positional ones it brought too many of, before the keywords
+        // themselves are taken out of the call.
+        let kw_only_given = if too_many_positional && code.kwonlyarg_count > 0 {
+            let start = code.arg_count as usize;
+            let end = start + code.kwonlyarg_count as usize;
+            code.varnames[start..end]
+                .iter()
+                .filter(|name| func_args.kwargs.contains_key(name.as_str()))
+                .count()
+        } else {
+            0
+        };
 
         // Do we support `**kwargs` ?
         let kwargs = if code.flags.contains(bytecode::CodeFlags::VARKEYWORDS) {
@@ -341,9 +316,9 @@ impl PyFunction {
                 .map(|(p, _)| p)
         };
 
-        let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
-        for (name, value) in func_args.kwargs {
+        let mut kwargs_iter = func_args.kwargs.into_iter();
+        while let Some((name, value)) = kwargs_iter.next() {
             // Parameter names are plain identifiers, so a non-UTF-8 (surrogate) key
             // can never match one and just falls through to **kwargs / the error path.
             let name_str = name.as_str().ok();
@@ -355,30 +330,74 @@ impl PyFunction {
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
                         "{}() got multiple values for argument '{}'",
-                        self.__qualname__(),
+                        self.qualname.lock().clone(),
                         name
                     )));
                 }
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if name_str
-                .is_some_and(|s| arg_pos(0..code.posonlyarg_count as usize, s).is_some())
-            {
-                posonly_passed_as_kwarg.push(name);
             } else {
+                // A name the call cannot place is faulted over the whole of
+                // what it named that only position can give, whether that
+                // came before this name or after it.
+                let is_posonly = |name: &Wtf8Buf| {
+                    name.as_str()
+                        .is_ok_and(|s| arg_pos(0..code.posonlyarg_count as usize, s).is_some())
+                };
+                let mut posonly: Vec<_> = is_posonly(&name)
+                    .then(|| name.clone())
+                    .into_iter()
+                    .collect();
+                posonly.extend(kwargs_iter.map(|(name, _)| name).filter(is_posonly));
+                if !posonly.is_empty() {
+                    return Err(vm.new_type_error(format!(
+                        "{}() got some positional-only arguments passed as keyword arguments: '{}'",
+                        self.qualname.lock().clone(),
+                        posonly.into_iter().format(", "),
+                    )));
+                }
                 return Err(vm.new_type_error(format!(
                     "{}() got an unexpected keyword argument '{}'",
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     name
                 )));
             }
         }
-        if !posonly_passed_as_kwarg.is_empty() {
+        // The count of positional arguments is faulted once the keywords have
+        // all been placed.
+        if too_many_positional {
+            let n_defaults = self
+                .defaults_and_kwdefaults
+                .lock()
+                .0
+                .as_ref()
+                .map_or(0, |d| d.as_slice().len());
+            let n_required = n_expected_args - n_defaults;
+            let (takes_msg, plural) = if n_defaults > 0 {
+                (format!("from {n_required} to {n_expected_args}"), true)
+            } else {
+                (n_expected_args.to_string(), n_expected_args != 1)
+            };
+
+            let given_msg = if kw_only_given > 0 {
+                format!(
+                    "{} positional argument{} (and {} keyword-only argument{}) were",
+                    nargs,
+                    if nargs == 1 { "" } else { "s" },
+                    kw_only_given,
+                    if kw_only_given == 1 { "" } else { "s" },
+                )
+            } else {
+                format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
+            };
+
             return Err(vm.new_type_error(format!(
-                "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                self.__qualname__(),
-                posonly_passed_as_kwarg.into_iter().format(", "),
+                "{}() takes {} positional argument{} but {} given",
+                self.qualname.lock().clone(),
+                takes_msg,
+                if plural { "s" } else { "" },
+                given_msg,
             )));
         }
 
@@ -413,7 +432,7 @@ impl PyFunction {
 
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format_missing_args(
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     "positional",
                     &mut missing,
                 )));
@@ -457,7 +476,7 @@ impl PyFunction {
 
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format_missing_args(
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     "keyword-only",
                     &mut missing,
                 )));
@@ -523,7 +542,8 @@ impl PyFunction {
                     })?
                     .into_pyref();
 
-                self.closure = Some(closure_tuple.try_into_typed::<PyCell>(vm)?);
+                let typed = closure_tuple.try_into_typed::<PyCell>(vm)?;
+                self.closure = Some(typed);
             }
             bytecode::MakeFunctionFlag::TypeParams => {
                 let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
@@ -603,7 +623,7 @@ impl Py<PyFunction> {
             } else if let Some(locals) = locals {
                 Some(locals)
             } else {
-                Some(ArgMapping::from_dict_exact(self.globals.clone()))
+                Some(ArgMapping::from_anydict_exact(self.globals.clone()))
             };
             let use_datastack = !is_gen && !is_coro && !is_async_gen;
             let frame = FrameObject::new_ref(
@@ -617,6 +637,7 @@ impl Py<PyFunction> {
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
+                vm.with_generator_frame(frame.clone(), |f| f.prepare_generator(vm))?;
                 return Ok(self.make_generator_or_coro(frame, vm));
             }
             // Tracing active: use heap frame with full trace support.
@@ -636,22 +657,26 @@ impl Py<PyFunction> {
         } else if let Some(locals) = locals {
             crate::frame::FrameLocals::with_locals(locals)
         } else {
-            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
 
         // Use self.as_object() as raw pointer — no refcount inc/dec.
         // The function is alive on the caller's stack for the call duration.
-        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
-            &self.code,
-            &self.globals,
-            &self.builtins,
-            Some(self.as_object()),
-            locals,
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            vm,
-        );
+        let iframe = unsafe {
+            // SAFETY: `self` is borrowed for this call; its code, globals,
+            // builtins, and the function object outlive `iframe`.
+            crate::frame::InterpreterFrame::new_on_datastack(
+                &self.code,
+                &self.globals,
+                &self.builtins,
+                Some(self.as_object()),
+                locals,
+                self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
         let result = self
             .fill_locals_from_args_iframe(iframe, func_args, vm)
             .and_then(|()| vm.run_frame_fast(iframe));
@@ -675,17 +700,21 @@ impl Py<PyFunction> {
         } else if is_gen {
             PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
         } else {
-            PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
+            let origin = crate::coroutine::compute_cr_origin(vm);
+            PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__(), origin)
+                .into_pyobject(vm)
         };
         debug_assert!(
             !frame.localsplus_is_datastack_backed(),
             "generator frame is data-stack-backed"
         );
-        // SAFETY: the frame is alive (held by `frame`) and untracked.
+        // Both halves are alive (held by `obj` and `frame`), untracked --
+        // generator types and frames both opt out of tracking at allocation --
+        // and enter the GC together.
         unsafe {
-            crate::gc_state::gc_state().track_object(
+            crate::gc_state::track_new_pair(
+                core::ptr::NonNull::from(obj.as_object()),
                 core::ptr::NonNull::from(frame.as_object()),
-                crate::gc_state::current_owner(),
             );
         }
         frame.set_generator(&obj);
@@ -779,7 +808,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         let frame = FrameObject::new_ref(
@@ -802,6 +831,66 @@ impl Py<PyFunction> {
         frame
     }
 
+    /// Build the generator/coroutine a generator-like function returns, with
+    /// the call's positional arguments bound straight into the new frame's
+    /// fastlocals.
+    ///
+    /// The counterpart of `prepare_exact_args_frame` for the one call shape it
+    /// refuses. Same preconditions as `can_specialize_call`: every parameter is
+    /// positional and this call fills each of them exactly once, so none of
+    /// what `fill_locals_from_args_inner` exists for -- varargs packing,
+    /// keyword matching, defaults -- can apply, and the `FuncArgs` those need
+    /// is never built.
+    pub(crate) fn make_generator_exact_args(
+        &self,
+        args: impl ExactSizeIterator<Item = PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let code: PyRef<PyCode> = (*self.code).to_owned();
+
+        debug_assert_eq!(args.len(), code.arg_count as usize);
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+        );
+        debug_assert_eq!(code.kwonlyarg_count, 0);
+        debug_assert!(code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ));
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            None
+        } else {
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
+        };
+
+        // Heap-backed: the frame outlives the call that made it.
+        let frame = FrameObject::new_ref(
+            code,
+            Scope::new(locals, self.globals.clone()),
+            self.builtins.clone(),
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            Some(self.to_owned().into()),
+            false,
+            vm,
+        );
+
+        {
+            // SAFETY: the frame was just created and is not executing.
+            let fastlocals = unsafe { frame.fastlocals_mut() };
+            for (slot, arg) in fastlocals.iter_mut().zip(args) {
+                *slot = Some(arg);
+            }
+        }
+
+        vm.with_generator_frame(frame.clone(), |f| f.prepare_generator(vm))?;
+        Ok(self.make_generator_or_coro(frame, vm))
+    }
+
     pub(crate) fn invoke_prepared_exact_args(
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
@@ -812,20 +901,24 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             crate::frame::FrameLocals::lazy()
         } else {
-            crate::frame::FrameLocals::with_locals(ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
 
-        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
-            code,
-            &self.globals,
-            &self.builtins,
-            Some(self.as_object()),
-            locals,
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            vm,
-        );
+        let iframe = unsafe {
+            // SAFETY: `self` is borrowed for this call; its code, globals,
+            // builtins, and the function object outlive `iframe`.
+            crate::frame::InterpreterFrame::new_on_datastack(
+                code,
+                &self.globals,
+                &self.builtins,
+                Some(self.as_object()),
+                locals,
+                self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
 
         // Fill arguments directly into fastlocals
         {
@@ -852,10 +945,10 @@ impl Py<PyFunction> {
         debug_assert_eq!(args.len(), self.code.arg_count as usize);
 
         // Generator/coroutine code objects are SIMPLE_FUNCTION in call
-        // specialization classification, but their call path must still
-        // go through invoke() to produce generator/coroutine objects.
+        // specialization classification, but calling one produces a
+        // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return self.invoke(FuncArgs::from(args), vm);
+            return self.make_generator_exact_args(args.into_iter(), vm);
         }
         self.invoke_prepared_exact_args(args.into_iter(), vm)
     }
@@ -874,11 +967,10 @@ impl Py<PyFunction> {
             .iter_mut()
             .map(|slot| slot.take().expect("arg slot must be filled"));
         // Generator/coroutine code objects are SIMPLE_FUNCTION in call
-        // specialization classification, but their call path must still
-        // go through invoke() to produce generator/coroutine objects.
+        // specialization classification, but calling one produces a
+        // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            let args: Vec<PyObjectRef> = taken.collect();
-            return self.invoke(FuncArgs::from(args), vm);
+            return self.make_generator_exact_args(taken, vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
     }
@@ -910,7 +1002,7 @@ impl PyPayload for PyFunction {
     with(GetDescriptor, Callable, Representable, Constructor),
     flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
 )]
-impl PyFunction {
+impl Py<PyFunction> {
     #[pygetset]
     fn __code__(&self) -> PyRef<PyCode> {
         (*self.code).to_owned()
@@ -919,7 +1011,7 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
         let n_free = code.freevars.len();
-        let n_closure = self.closure.as_ref().map_or(0, |c| c.len());
+        let n_closure = self.closure.as_ref().map_or(0, |c| c.as_slice().len());
         if n_closure != n_free {
             return Err(vm.new_value_error(format!(
                 "{}() requires a code object with {} free vars, not {}",
@@ -927,6 +1019,21 @@ impl PyFunction {
                 n_closure,
                 n_free,
             )));
+        }
+        let mask = bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR;
+        let old_flags = self.code.flags;
+        let new_flags = code.flags;
+        if (old_flags & mask) != (new_flags & mask) {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "Assigning a code object of non-matching type is deprecated \
+                 (e.g., from a generator to a plain function)"
+                    .to_owned(),
+                1,
+                vm,
+            )?;
         }
         #[cfg(feature = "jit")]
         let mut jit_guard = self.jitted_code.lock();
@@ -936,11 +1043,12 @@ impl PyFunction {
             *jit_guard = None;
         }
         self.func_version.store(0, Relaxed);
+        crate::stdlib::_testinternalcapi::note_func_modification();
         Ok(())
     }
 
     #[pygetset]
-    fn __defaults__(&self) -> Option<PyTupleRef> {
+    pub(crate) fn __defaults__(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
     #[pygetset(setter)]
@@ -950,10 +1058,11 @@ impl PyFunction {
             PySetterValue::Delete => None,
         };
         self.func_version.store(0, Relaxed);
+        crate::stdlib::_testinternalcapi::note_func_modification();
     }
 
     #[pygetset]
-    fn __kwdefaults__(&self) -> Option<PyDictRef> {
+    pub(crate) fn __kwdefaults__(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
     #[pygetset(setter)]
@@ -963,29 +1072,7 @@ impl PyFunction {
             PySetterValue::Delete => None,
         };
         self.func_version.store(0, Relaxed);
-    }
-
-    // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},
-    // {"__doc__",       T_OBJECT,     OFF(func_doc), 0},
-    // {"__globals__",   T_OBJECT,     OFF(func_globals), READONLY},
-    // {"__module__",    T_OBJECT,     OFF(func_module), 0},
-    // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
-    #[pymember]
-    fn __globals__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(zelf.globals.clone().into())
-    }
-
-    #[pymember]
-    fn __closure__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.into())))
-    }
-
-    #[pymember]
-    fn __builtins__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(zelf.builtins.clone())
+        crate::stdlib::_testinternalcapi::note_func_modification();
     }
 
     #[pygetset]
@@ -996,38 +1083,6 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
         *self.name.lock() = name;
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember]
-    fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
-        // When accessed from instance, obj is the PyFunction instance
-        if let Ok(func) = obj.downcast::<Self>() {
-            let doc = func.doc.lock();
-            Ok(doc.clone())
-        } else {
-            // When accessed from class, return None as there's no instance
-            Ok(vm.ctx.none())
-        }
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(setter)]
-    fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let value = value.unwrap_or_none(vm);
-        *zelf.doc.lock() = value;
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __module__(&self) -> PyObjectRef {
-        self.module.lock().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set___module__(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
-        *self.module.lock() = module.unwrap_or_none(vm);
     }
 
     #[pygetset]
@@ -1055,24 +1110,28 @@ impl PyFunction {
         // Release locks before calling __annotate__ to avoid deadlock
         if let Some(annotate_fn) = annotate_fn {
             let one = vm.ctx.new_int(1);
-            let ann_dict = annotate_fn.call((one,), vm)?;
-            let ann_dict = ann_dict
-                .downcast::<crate::builtins::PyDict>()
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "__annotate__ returned non-dict of type '{}'",
-                        obj.class().name()
-                    ))
-                })?;
+            let result = annotate_fn.call((one,), vm);
+            drop(annotate_fn);
+            let ann_dict = match result?.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__() must return a dict, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+            };
 
             // Cache the result
-            *self.annotations.lock() = Some(ann_dict.clone());
+            let old_annotations = self.annotations.lock().replace(ann_dict.clone());
+            drop(old_annotations);
             return Ok(ann_dict);
         }
 
         // No __annotate__ or not callable, create empty dict
         let new_dict = vm.ctx.new_dict();
-        *self.annotations.lock() = Some(new_dict.clone());
+        let old_annotations = self.annotations.lock().replace(new_dict.clone());
+        drop(old_annotations);
         Ok(new_dict)
     }
 
@@ -1082,33 +1141,29 @@ impl PyFunction {
         value: PySetterValue<Option<PyObjectRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match value {
+        let annotations = match value {
             PySetterValue::Assign(Some(value)) => {
                 let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
                     vm.new_type_error("__annotations__ must be set to a dict object")
                 })?;
-                *self.annotations.lock() = Some(annotations);
-                *self.annotate.lock() = None;
+                Some(annotations)
             }
-            PySetterValue::Assign(None) => {
-                *self.annotations.lock() = None;
-                *self.annotate.lock() = None;
-            }
-            PySetterValue::Delete => {
-                // del only clears cached annotations; __annotate__ is preserved
-                *self.annotations.lock() = None;
-            }
-        }
+            PySetterValue::Assign(None) | PySetterValue::Delete => None,
+        };
+        let old_annotations = core::mem::replace(&mut *self.annotations.lock(), annotations);
+        drop(old_annotations);
+        let old_annotate = self.annotate.lock().take();
+        drop(old_annotate);
         Ok(())
     }
 
     #[pygetset]
-    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn __dict__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
         object::object_get_dict(zelf.as_object().to_owned(), vm)
     }
 
     #[pygetset(setter)]
-    fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___dict__(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
     }
 
@@ -1131,8 +1186,6 @@ impl PyFunction {
                 if !value.is_callable() {
                     return Err(vm.new_type_error("__annotate__ must be callable or None"));
                 }
-                // Clear cached __annotations__ when __annotate__ is set
-                *self.annotations.lock() = None;
                 Some(value)
             }
             PySetterValue::Assign(None) => None,
@@ -1140,7 +1193,13 @@ impl PyFunction {
                 return Err(vm.new_type_error("__annotate__ cannot be deleted"));
             }
         };
-        *self.annotate.lock() = annotate;
+        let clear_annotations = annotate.is_some();
+        let old_annotate = core::mem::replace(&mut *self.annotate.lock(), annotate);
+        drop(old_annotate);
+        if clear_annotations {
+            let old_annotations = self.annotations.lock().take();
+            drop(old_annotations);
+        }
         Ok(())
     }
 
@@ -1189,7 +1248,7 @@ impl PyFunction {
 
     #[cfg(feature = "jit")]
     #[pymethod]
-    fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+    fn __jit__(zelf: PyRef<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
         let mut jit_guard = zelf.jitted_code.lock();
         if jit_guard.is_some() {
             return Ok(());
@@ -1206,16 +1265,18 @@ impl PyFunction {
 
 impl GetDescriptor for PyFunction {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (_zelf, obj) = Self::_unwrap(&zelf, obj, vm)?;
-        Ok(if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
-            zelf
+        let (_zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+        Ok(if vm.is_none(obj) && !Self::_cls_is(&cls, obj.class()) {
+            zelf.to_owned()
         } else {
-            PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into()
+            PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into()
         })
     }
 }
@@ -1246,7 +1307,7 @@ pub struct PyFunctionNewArgs {
     #[pyarg(positional)]
     globals: PyDictRef,
     #[pyarg(any, optional, error_msg = "arg 3 (name) must be None or string")]
-    name: OptionalArg<PyStrRef>,
+    name: Option<PyStrRef>,
     #[pyarg(any, optional, error_msg = "arg 4 (defaults) must be None or tuple")]
     argdefs: Option<PyTupleRef>,
     #[pyarg(any, optional, error_msg = "arg 5 (closure) must be None or tuple")]
@@ -1262,12 +1323,12 @@ impl Constructor for PyFunction {
         // Handle closure - must be a tuple of cells
         let closure = if let Some(closure_tuple) = args.closure {
             // Check that closure length matches code's free variables
-            if closure_tuple.len() != args.code.freevars.len() {
+            if closure_tuple.as_slice().len() != args.code.freevars.len() {
                 return Err(vm.new_value_error(format!(
                     "{} requires closure of length {}, not {}",
                     args.code.obj_name,
                     args.code.freevars.len(),
-                    closure_tuple.len()
+                    closure_tuple.as_slice().len()
                 )));
             }
 
@@ -1280,12 +1341,10 @@ impl Constructor for PyFunction {
             None
         };
 
-        let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
+        let mut func = Self::new(args.code.clone(), args.globals.clone().into(), vm)?;
         // Set function name if provided
-        if let Some(name) = args.name.into_option() {
-            *func.name.lock() = name.clone();
-            // Also update qualname to match the name
-            *func.qualname.lock() = name;
+        if let Some(name) = args.name {
+            *func.name.lock() = name;
         }
         // Now set additional attributes directly
         if let Some(closure_tuple) = closure {
@@ -1305,7 +1364,9 @@ impl Constructor for PyFunction {
 #[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
+    #[pymember(name = "__self__")]
     object: PyObjectRef,
+    #[pymember(name = "__func__")]
     function: PyObjectRef,
 }
 
@@ -1357,12 +1418,12 @@ impl GetAttr for PyBoundMethod {
 
 impl GetDescriptor for PyBoundMethod {
     fn descr_get(
-        zelf: PyObjectRef,
-        _obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        _obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         _vm: &VirtualMachine,
     ) -> PyResult {
-        Ok(zelf)
+        Ok(zelf.to_owned())
     }
 }
 
@@ -1399,12 +1460,12 @@ impl PyBoundMethod {
     }
 
     #[inline]
-    pub(crate) const fn function_obj(&self) -> &PyObjectRef {
+    pub(crate) fn function_obj(&self) -> &PyObject {
         &self.function
     }
 
     #[inline]
-    pub(crate) const fn self_obj(&self) -> &PyObjectRef {
+    pub(crate) fn self_obj(&self) -> &PyObject {
         &self.object
     }
 
@@ -1426,31 +1487,40 @@ impl PyBoundMethod {
     ),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
-impl PyBoundMethod {
+impl Py<PyBoundMethod> {
     #[pymethod]
     fn __reduce__(
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         let func_self = self.object.clone();
-        let func_name = self.function.get_attr("__name__", vm)?;
+        let mut func_name = self.function.get_attr("__name__", vm)?;
+        if let Some(name) = func_name.downcast_ref::<PyStr>()
+            && name.as_bytes().starts_with(b"__")
+            && !name.as_bytes().ends_with(b"__")
+            && !name.as_bytes().contains(&b'.')
+        {
+            let class = func_self
+                .downcast_ref::<PyType>()
+                .unwrap_or_else(|| func_self.class());
+            let class_name = class.__name__(vm);
+            let class_name = class_name
+                .as_wtf8()
+                .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+            if !class_name.is_empty() {
+                func_name = vm
+                    .ctx
+                    .new_str(wtf8_concat!("_", class_name, name.as_wtf8()))
+                    .into();
+            }
+        }
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         Ok((builtins_getattr, (func_self, func_name)))
     }
 
     #[pygetset]
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
-    }
-
-    #[pygetset]
-    fn __func__(&self) -> PyObjectRef {
-        self.function.clone()
-    }
-
-    #[pygetset(name = "__self__")]
-    fn get_self(&self) -> PyObjectRef {
-        self.object.clone()
     }
 
     #[pygetset]
@@ -1503,11 +1573,11 @@ impl Representable for PyBoundMethod {
     #[inline]
     fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let func_name = if let Some(qname) =
-            vm.get_attribute_opt(zelf.function.clone(), identifier!(vm, __qualname__))?
+            vm.get_attribute_opt(&zelf.function, identifier!(vm, __qualname__))?
         {
             Some(qname)
         } else {
-            vm.get_attribute_opt(zelf.function.clone(), identifier!(vm, __name__))?
+            vm.get_attribute_opt(&zelf.function, identifier!(vm, __name__))?
         };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         let object_repr = zelf.object.repr(vm)?;
@@ -1547,26 +1617,7 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
 impl PyCell {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
-        else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        // compare cells by contents; empty cells come before anything else
-        match (zelf.get(), other.get()) {
-            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
-            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
-        }
-    }
-
     pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
@@ -1578,7 +1629,34 @@ impl PyCell {
     }
 
     pub(crate) fn set(&self, x: Option<PyObjectRef>) {
-        *self.contents.lock() = x;
+        // What was here is released after the lock, the way `Py_XSETREF` stores
+        // before it decrefs. Releasing it under the lock would let a `__del__`
+        // that reads this cell wait on a lock this call still holds.
+        let replaced = core::mem::replace(&mut *self.contents.lock(), x);
+        drop(replaced);
+    }
+}
+
+#[pyclass(with(Constructor, Representable))]
+impl Py<PyCell> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyCell>(),
+            other.downcast_ref::<PyCell>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        // compare cells by contents; empty cells come before anything else
+        match (zelf.get(), other.get()) {
+            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
+        }
     }
 
     #[pygetset]
@@ -1620,6 +1698,84 @@ impl Representable for PyCell {
     }
 }
 
+/// Largest keyword count the in-place fast path below handles with a
+/// stack-allocated scratch buffer. Calls with more keywords than this simply
+/// fall back to the slow path (extremely rare in practice).
+const MAX_INLINE_KW: usize = 16;
+
+/// Try to resolve every keyword in `kwnames` to a distinct fastlocals slot in
+/// `posonlyarg_count..arg_count` that isn't already filled by a positional
+/// argument, without allocating an `IndexMap`, a `Vec`, or cloning any
+/// keyword name.
+///
+/// On success, `args` is reordered into positional order in place (ready for
+/// [`PyFunction::prepare_exact_args_frame`]) and returned as `Ok`. On any
+/// mismatch (too many keywords, unknown keyword, positional/keyword overlap,
+/// non-str/non-UTF8 name) `args` is hand back completely untouched as `Err`
+/// so the caller can fall back to the slow path, which reproduces CPython's
+/// exact error messages.
+///
+/// Only called when `nargs + kwnames.len() == code.arg_count`, i.e. every
+/// parameter is exactly filled by the call with no defaults needed. That
+/// invariant means the keyword values, initially at `args[nargs..]`, are
+/// exactly the values for slots `nargs..arg_count` in some order — so the
+/// whole reorder happens by draining that suffix into a small on-stack
+/// buffer and pushing it back in the resolved order. `args`'s original
+/// allocation is reused; no new allocation is needed.
+fn try_reorder_simple_kwargs(
+    code: &Py<PyCode>,
+    mut args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: &[PyObjectRef],
+) -> Result<Vec<PyObjectRef>, Vec<PyObjectRef>> {
+    let arg_count = code.arg_count as usize;
+    let posonly = code.posonlyarg_count as usize;
+    let kw_count = kwnames.len();
+    if kw_count > MAX_INLINE_KW {
+        return Err(args);
+    }
+
+    // Resolve target slots (relative to `nargs`) first, without touching
+    // `args`, so a mismatch can bail out leaving `args` untouched.
+    let mut rel_positions = [0usize; MAX_INLINE_KW];
+    for (i, name_obj) in kwnames.iter().enumerate() {
+        let Some(name_str) = name_obj.downcast_ref::<PyStr>().and_then(|s| s.to_str()) else {
+            return Err(args);
+        };
+        let Some(pos) = code.varnames[posonly..arg_count]
+            .iter()
+            .position(|v| v.as_str() == name_str)
+            .map(|p| p + posonly)
+        else {
+            // Unexpected keyword argument; let the slow path report it.
+            return Err(args);
+        };
+        let rel = match pos.checked_sub(nargs) {
+            // Positional/keyword overlap; let the slow path report the
+            // exact "multiple values for argument" error.
+            None => return Err(args),
+            Some(rel) => rel,
+        };
+        if rel_positions[..i].contains(&rel) {
+            // Duplicate keyword landing on the same slot.
+            return Err(args);
+        }
+        rel_positions[i] = rel;
+    }
+
+    // Every keyword maps to a distinct free slot in nargs..arg_count.
+    // Drain the keyword values into a stack buffer ordered by slot, then
+    // push them back — reusing `args`'s own allocation, no heap Vec needed.
+    let mut buf: [Option<PyObjectRef>; MAX_INLINE_KW] = [const { None }; MAX_INLINE_KW];
+    for (i, value) in args.drain(nargs..nargs + kw_count).enumerate() {
+        buf[rel_positions[i]] = Some(value);
+    }
+    for slot in buf.iter_mut().take(kw_count) {
+        args.push(slot.take().unwrap());
+    }
+    Ok(args)
+}
+
 /// Vectorcall implementation for PyFunction (PEP 590).
 /// Takes owned args to avoid cloning when filling fastlocals.
 pub(crate) fn vectorcall_function(
@@ -1643,18 +1799,30 @@ pub(crate) fn vectorcall_function(
         return zelf.invoke(func_args, vm);
     }
 
-    let is_simple = !has_kwargs
-        && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
+    // Positional-only signature that a call can fill exactly, whether or not
+    // the body is a generator: the two differ only in what the frame is for.
+    let positional_only = code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
-        && code.kwonlyarg_count == 0
-        && !code.flags.intersects(
-            bytecode::CodeFlags::GENERATOR
-                | bytecode::CodeFlags::COROUTINE
-                | bytecode::CodeFlags::ASYNC_GENERATOR,
-        );
+        && code.kwonlyarg_count == 0;
+    let is_generator_like = code.flags.intersects(
+        bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR,
+    );
+    let base_simple = positional_only && !is_generator_like;
 
-    if is_simple && nargs == code.arg_count as usize {
+    if !has_kwargs && positional_only && is_generator_like && nargs == code.arg_count as usize {
+        // FAST PATH: generator/coroutine call, exact arg count. Binds the
+        // arguments into the new frame and hands back the generator without
+        // building a `FuncArgs`. This is the shape every generator expression
+        // is called in, and a fresh `MAKE_FUNCTION` each time keeps those out
+        // of the call-site specialization that would otherwise catch it.
+        args.truncate(nargs);
+        return zelf.make_generator_exact_args(args.into_iter(), vm);
+    }
+
+    if !has_kwargs && base_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
         args.truncate(nargs);
@@ -1663,6 +1831,28 @@ pub(crate) fn vectorcall_function(
         let result = vm.run_frame(frame.clone());
         crate::frame::release_datastack_frame(&frame, vm);
         return result;
+    }
+
+    if has_kwargs
+        && base_simple
+        && let Some(kwnames) = kwnames
+        && nargs + kwnames.len() == code.arg_count as usize
+    {
+        // FAST PATH: plain function, no *args/**kwargs/kwonly, every
+        // parameter filled exactly by this call. Reorder into positional
+        // order with no IndexMap/Wtf8Buf allocation; any mismatch falls
+        // through to the slow path below with `args` untouched.
+        match try_reorder_simple_kwargs(code, args, nargs, kwnames) {
+            Ok(ordered) => {
+                let frame = zelf.prepare_exact_args_frame(ordered.into_iter(), vm);
+                let result = vm.run_frame(frame.clone());
+                crate::frame::release_datastack_frame(&frame, vm);
+                return result;
+            }
+            Err(restored) => {
+                args = restored;
+            }
+        }
     }
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
@@ -1701,6 +1891,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_function));
+    context
+        .types
+        .function_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
     context
@@ -1709,6 +1905,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_bound_method));
+    context
+        .types
+        .bound_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyCell::extend_class(context, context.types.cell_type);
 }

@@ -74,6 +74,9 @@ class OrderedDictTests:
         od.update(dict(pairs))
         self.assertEqual(sorted(od.items()), pairs)                                 # dict input
         od = OrderedDict()
+        od.update(frozendict(pairs))
+        self.assertEqual(sorted(od.items()), pairs)                                 # frozendict input
+        od = OrderedDict()
         od.update(**dict(pairs))
         self.assertEqual(sorted(od.items()), pairs)                                 # kwds input
         od = OrderedDict()
@@ -288,9 +291,11 @@ class OrderedDictTests:
         pairs = pairs[2:] + pairs[:2]
         od2 = OrderedDict(pairs)
         self.assertNotEqual(od1, od2)       # different order implies inequality
-        # comparison to regular dict is not order sensitive
+        # comparison to regular (frozen)dict is not order sensitive
         self.assertEqual(od1, dict(od2))
         self.assertEqual(dict(od2), od1)
+        self.assertEqual(od1, frozendict(od2))
+        self.assertEqual(frozendict(od1), od2)
         # different length implied inequality
         self.assertNotEqual(od1, OrderedDict(pairs[:-1]))
 
@@ -698,6 +703,7 @@ class OrderedDictTests:
         d |= list(b.items())
         expected = OrderedDict({0: 0, 1: 1, 2: 2, 3: 3})
         self.assertEqual(a | dict(b), expected)
+        self.assertEqual(a | frozendict(b), expected)
         self.assertEqual(a | b, expected)
         self.assertEqual(c, expected)
         self.assertEqual(d, expected)
@@ -706,12 +712,17 @@ class OrderedDictTests:
         c |= a
         expected = OrderedDict({1: 1, 2: 1, 3: 3, 0: 0})
         self.assertEqual(dict(b) | a, expected)
+        self.assertEqual(frozendict(b) | a, expected)
+        self.assertEqual(a.__ror__(frozendict(b)), expected)
         self.assertEqual(b | a, expected)
         self.assertEqual(c, expected)
 
         self.assertIs(type(a | b), OrderedDict)
         self.assertIs(type(dict(a) | b), OrderedDict)
+        self.assertIs(type(frozendict(a) | b), frozendict)
+        self.assertIs(type(b.__ror__(frozendict(a))), OrderedDict)
         self.assertIs(type(a | dict(b)), OrderedDict)
+        self.assertIs(type(a | frozendict(b)), OrderedDict)
 
         expected = a.copy()
         a |= ()
@@ -805,7 +816,6 @@ class CPythonOrderedDictSideEffects:
         msg = re.escape("OrderedDict mutated during iteration")
         self.assertRaisesRegex(RuntimeError, msg, operator.eq, dict1, dict2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised by eq
     def test_issue119004_change_size_by_clear(self):
         class Key(_TriggerSideEffectOnEqual):
             def side_effect(self):
@@ -818,7 +828,6 @@ class CPythonOrderedDictSideEffects:
         self.assertDictEqual(dict1, {})
         self.assertDictEqual(dict2, dict.fromkeys((0, Key(), 4.2)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'key'
     def test_issue119004_change_size_by_delete_key(self):
         class Key(_TriggerSideEffectOnEqual):
             def side_effect(self):
@@ -832,7 +841,6 @@ class CPythonOrderedDictSideEffects:
         self.assertDictEqual(dict1, dict.fromkeys((0, 4.2)))
         self.assertDictEqual(dict2, dict.fromkeys((0, Key(), 4.2)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised by eq
     def test_issue119004_change_linked_list_by_clear(self):
         class Key(_TriggerSideEffectOnEqual):
             def side_effect(self):
@@ -846,7 +854,6 @@ class CPythonOrderedDictSideEffects:
         self.assertDictEqual(dict1, dict.fromkeys(('a', 'b'), 'c'))
         self.assertDictEqual(dict2, dict.fromkeys((0, Key(), 4.2)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'key'
     def test_issue119004_change_linked_list_by_delete_key(self):
         class Key(_TriggerSideEffectOnEqual):
             def side_effect(self):
@@ -861,7 +868,6 @@ class CPythonOrderedDictSideEffects:
         self.assertDictEqual(dict1, {0: None, 'a': 'c', 4.2: None})
         self.assertDictEqual(dict2, dict.fromkeys((0, Key(), 4.2)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
     def test_issue119004_change_size_by_delete_key_in_dict_eq(self):
         class Key(_TriggerSideEffectOnEqual):
             trigger = 0
@@ -877,6 +883,39 @@ class CPythonOrderedDictSideEffects:
         self.assertEqual(Key.count, 2)
         self.assertDictEqual(dict1, dict.fromkeys((0, 4.2)))
         self.assertDictEqual(dict2, dict.fromkeys((0, Key(), 4.2)))
+
+    def test_issue148660_copy_clear_in_key_eq(self):
+        # gh-148660: od.copy() must not crash when a key's __eq__ clears od
+        # while copy() is inserting into the new dict.
+        armed = False
+        calls = 0
+        class Key:
+            def __hash__(self):
+                return 1
+            def __eq__(self, other):
+                nonlocal calls
+                if armed:
+                    calls += 1
+                    if calls == 2:
+                        od.clear()
+                return self is other
+        od = self.OrderedDict()
+        od[Key()] = "v1"
+        od[Key()] = "v2"
+        armed = True
+        msg = "OrderedDict mutated during iteration"
+        self.assertRaisesRegex(RuntimeError, msg, od.copy)
+
+    def test_issue148660_copy_clear_in_subclass_getitem(self):
+        # gh-148660: od.copy() must not crash when a subclass __getitem__
+        # clears od.
+        class OD(self.OrderedDict):
+            def __getitem__(self, key):
+                od.clear()
+                return "v"
+        od = OD([(1, "v1"), (2, "v2")])
+        msg = "OrderedDict mutated during iteration"
+        self.assertRaisesRegex(RuntimeError, msg, od.copy)
 
 
 @unittest.skipUnless(c_coll, 'requires the C version of the collections module')
@@ -921,7 +960,6 @@ class CPythonOrderedDictTests(OrderedDictTests,
         check(iter(od.items()), itersize)
         check(iter(od.values()), itersize)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_key_change_during_iteration(self):
         OrderedDict = self.OrderedDict
 
@@ -939,7 +977,6 @@ class CPythonOrderedDictTests(OrderedDictTests,
                 del od['c']
         self.assertEqual(list(od), list('bdeaf'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_iterators_pickling(self):
         OrderedDict = self.OrderedDict
         pairs = [('c', 1), ('b', 2), ('a', 3), ('d', 4), ('e', 5), ('f', 6)]

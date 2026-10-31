@@ -90,7 +90,6 @@ class TestSuper(unittest.TestCase):
 
         self.assertEqual(E().f(), 'AE')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_various___class___pathologies(self):
         # See issue #12370
         class X(A):
@@ -188,7 +187,6 @@ class TestSuper(unittest.TestCase):
         B = type("B", (), test_namespace)
         self.assertIs(B.f(), B)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test___class___mro(self):
         # See issue #23722
         test_class = None
@@ -446,7 +444,6 @@ class TestSuper(unittest.TestCase):
 
         self.assertEqual(C().method(), super)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: type 'super' is not an acceptable base type
     def test_super_subclass___class__(self):
         class mysuper(super):
             pass

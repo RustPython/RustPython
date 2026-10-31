@@ -65,4 +65,138 @@ assert collects(lambda c: itertools.combinations(c, 1))
 # tee holds its buffer through a second object, which has to be walked too
 assert collects(lambda c: itertools.tee(c)[0])
 
+
+# A view keeps the object it looks at in a field of its own, and the wrapper a
+# `__buffer__` produces keeps the exporter the same way.
+class Buf(bytearray):
+    pass
+
+
+def collects_view(wrap):
+    """Report whether the collector breaks a cycle that runs through a view."""
+
+    def build():
+        container = Buf(b"abc")
+        node = Node()
+        container.node = node
+        node.held = wrap(container)
+        return weakref.ref(node)
+
+    gc.collect()
+    ref = build()
+    gc.collect()
+    return ref() is None
+
+
+assert collects_view(memoryview)
+assert collects_view(lambda c: memoryview(c)[1:])
+assert collects_view(lambda c: memoryview(c).cast("B"))
+assert collects_view(lambda c: memoryview(memoryview(c)))
+
+
+class Exporter:
+    def __buffer__(self, flags):
+        return memoryview(b"abcdef")
+
+
+def collects_exporter():
+    def build():
+        exporter = Exporter()
+        node = Node()
+        exporter.node = node
+        node.held = memoryview(exporter)
+        return weakref.ref(node)
+
+    gc.collect()
+    ref = build()
+    gc.collect()
+    return ref() is None
+
+
+assert collects_exporter()
+
+
+def collects_function_annotate():
+    from dataclasses import dataclass
+
+    def create():
+        @dataclass
+        class Example:
+            value: int
+
+        return weakref.ref(Example), weakref.ref(Example.__init__)
+
+    class_ref, init_ref = create()
+    for _ in range(3):
+        gc.collect()
+
+    return class_ref() is None and init_ref() is None
+
+
+assert collects_function_annotate()
+
+
+def full_collection_promotes_survivors():
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        older = []
+        gc.collect(0)
+        younger = []
+        gc.collect(2)
+        for value in (older, younger):
+            assert any(obj is value for obj in gc.get_objects(2))
+            assert not any(obj is value for obj in gc.get_objects(0))
+            assert not any(obj is value for obj in gc.get_objects(1))
+    finally:
+        if enabled:
+            gc.enable()
+
+
+full_collection_promotes_survivors()
+
+
+def retained_cycles_are_promoted():
+    enabled = gc.isenabled()
+    debug = gc.get_debug()
+    garbage_length = len(gc.garbage)
+    retained = []
+
+    class Resurrected:
+        def __del__(self):
+            retained.append(self)
+
+    gc.disable()
+    try:
+        for generation in range(3):
+            target = min(generation + 1, 2)
+            gc.set_debug(0)
+            obj = Resurrected()
+            obj.cycle = obj
+            del obj
+            gc.collect(generation)
+            assert len(retained) == 1
+            assert any(obj is retained[0] for obj in gc.get_objects(target))
+            retained[0].cycle = None
+            retained.clear()
+
+            gc.set_debug(gc.DEBUG_SAVEALL)
+            cycle = []
+            cycle.append(cycle)
+            identity = id(cycle)
+            del cycle
+            gc.collect(generation)
+            saved = next(obj for obj in gc.garbage if id(obj) == identity)
+            assert any(obj is saved for obj in gc.get_objects(target))
+            saved.clear()
+            del gc.garbage[garbage_length:]
+    finally:
+        gc.set_debug(debug)
+        del gc.garbage[garbage_length:]
+        if enabled:
+            gc.enable()
+
+
+retained_cycles_are_promoted()
+
 print("ok")

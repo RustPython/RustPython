@@ -5,12 +5,16 @@ use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_wtf8::Wtf8;
 
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MarshalError {
     /// Unexpected End Of File
     Eof,
+    /// Unexpected End Of File where an object was to start
+    EofObject,
+    /// A run of bytes that the data ends in the middle of
+    DataTooShort,
     /// Invalid Bytecode
     InvalidBytecode,
     /// Invalid utf8 in string
@@ -33,6 +37,8 @@ impl core::fmt::Display for MarshalError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Eof => f.write_str("unexpected end of data"),
+            Self::EofObject => f.write_str("unexpected end of data where an object was expected"),
+            Self::DataTooShort => f.write_str("data ends in the middle of a value"),
             Self::InvalidBytecode => f.write_str("invalid bytecode"),
             Self::InvalidUtf8 => f.write_str("invalid utf8"),
             Self::InvalidLocation => f.write_str("invalid source location"),
@@ -78,6 +84,7 @@ enum Type {
     SmallTuple = b')',
     List = b'[',
     Dict = b'{',
+    FrozenDict = b'}',
     Code = b'c',
     Unicode = b'u',
     Set = b'<',
@@ -114,6 +121,7 @@ impl TryFrom<u8> for Type {
             b')' => Self::SmallTuple,
             b'[' => Self::List,
             b'{' => Self::Dict,
+            b'}' => Self::FrozenDict,
             b'c' => Self::Code,
             b'u' => Self::Unicode,
             b'<' => Self::Set,
@@ -144,7 +152,9 @@ pub trait Read {
     }
 
     fn read_u8(&mut self) -> Result<u8> {
-        Ok(u8::from_le_bytes(*self.read_array()?))
+        // A single byte is not a run that got cut short: nothing came at all.
+        let byte = self.read_array().map_err(|_| MarshalError::Eof)?;
+        Ok(u8::from_le_bytes(*byte))
     }
 
     fn read_u16(&mut self) -> Result<u16> {
@@ -181,7 +191,9 @@ impl Read for &[u8] {
     }
 
     fn read_array<const N: usize>(&mut self) -> Result<&[u8; N]> {
-        let (chunk, rest) = self.split_first_chunk::<N>().ok_or(MarshalError::Eof)?;
+        let (chunk, rest) = self
+            .split_first_chunk::<N>()
+            .ok_or(MarshalError::DataTooShort)?;
         *self = rest;
         Ok(chunk)
     }
@@ -189,7 +201,8 @@ impl Read for &[u8] {
 
 impl<'a> ReadBorrowed<'a> for &'a [u8] {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]> {
-        self.split_off(..n as usize).ok_or(MarshalError::Eof)
+        self.split_off(..n as usize)
+            .ok_or(MarshalError::DataTooShort)
     }
 }
 
@@ -201,7 +214,7 @@ pub struct Cursor<B> {
 impl<B: AsRef<[u8]>> Read for Cursor<B> {
     fn read_slice(&mut self, n: u32) -> Result<&[u8]> {
         let data = &self.data.as_ref()[self.position..];
-        let slice = data.get(..n as usize).ok_or(MarshalError::Eof)?;
+        let slice = data.get(..n as usize).ok_or(MarshalError::DataTooShort)?;
         self.position += n as usize;
         Ok(slice)
     }
@@ -543,6 +556,17 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
     Ok(value)
 }
 
+/// Object-valued code fields as read from the stream (`r_object` TYPE_CODE).
+pub struct CodeFields<V> {
+    pub consts: V,
+    pub qualname: V,
+    pub names: V,
+    pub localsplusnames: V,
+    pub localspluskinds: V,
+    pub linetable: V,
+    pub exceptiontable: V,
+}
+
 pub trait MarshalBag: Copy {
     type Value: Clone;
     type ConstantBag: ConstantBag;
@@ -569,22 +593,13 @@ pub trait MarshalBag: Copy {
 
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value;
 
+    /// Construct a code object. `fields` holds the objects read for the
+    /// object-valued fields that `code` was decoded from.
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        fields: CodeFields<Self::Value>,
     ) -> Result<Self::Value>;
-
-    /// Construct a runtime code object while retaining the exact values read
-    /// from ``co_consts``. Compiler bags ignore this second channel; runtime
-    /// bags use it for marshalable values (lists, dicts, sets, recursive
-    /// containers) that their compiler constant representation cannot hold.
-    fn make_code_with_constants(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        _constants: Vec<Self::Value>,
-    ) -> Result<Self::Value> {
-        self.make_code(code)
-    }
 
     /// Decode the public `co_code` byte string into the execution-oriented
     /// instruction storage.
@@ -595,22 +610,6 @@ pub trait MarshalBag: Copy {
     /// default remains the strict compiler representation.
     fn code_units_from_bytes(&self, code_bytes: &[u8]) -> Result<CodeUnits> {
         CodeUnits::try_from(code_bytes)
-    }
-
-    /// Construct a runtime code object while retaining both its exact public
-    /// `co_code` bytes and the exact values read from `co_consts`.
-    ///
-    /// The default ignores the redundant byte spelling because ordinary
-    /// compiler code is represented losslessly by `CodeUnits`.  Runtime bags
-    /// that accepted otherwise unrepresentable opcode bytes in
-    /// [`MarshalBag::code_units_from_bytes`] can preserve them here.
-    fn make_code_with_constants_and_bytes(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        constants: Vec<Self::Value>,
-        _code_bytes: Vec<u8>,
-    ) -> Result<Self::Value> {
-        self.make_code_with_constants(code, constants)
     }
 
     fn make_stop_iter(&self) -> Result<Self::Value>;
@@ -625,6 +624,10 @@ pub trait MarshalBag: Copy {
         &self,
         it: impl Iterator<Item = (Self::Value, Self::Value)>,
     ) -> Result<Self::Value>;
+
+    fn freeze_dict(&self, _dict: Self::Value) -> Result<Self::Value> {
+        Err(MarshalError::BadType)
+    }
 
     /// Install partially-built containers in the marshal reference table
     /// before reading their children, as CPython's `r_object()` does.
@@ -775,6 +778,7 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        _fields: CodeFields<Self::Value>,
     ) -> Result<Self::Value> {
         Ok(self.make_code(code))
     }
@@ -847,6 +851,12 @@ pub fn deserialize_value<R: Read, Bag: MarshalBag>(rdr: &mut R, bag: Bag) -> Res
     deserialize_value_depth(rdr, bag, MAX_MARSHAL_STACK_DEPTH, &mut refs)
 }
 
+/// Read the byte an object starts with. Running out of data here names the
+/// object that never came, rather than a field that was cut short.
+fn read_object_type<R: Read>(rdr: &mut R) -> Result<u8> {
+    rdr.read_u8().map_err(|_| MarshalError::EofObject)
+}
+
 fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     rdr: &mut R,
     bag: Bag,
@@ -856,7 +866,7 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     if depth == 0 {
         return Err(MarshalError::InvalidBytecode);
     }
-    let raw = rdr.read_u8()?;
+    let raw = read_object_type(rdr)?;
     deserialize_value_after_header(rdr, bag, depth, refs, raw)
 }
 
@@ -941,17 +951,20 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         .into_iter()
         .collect();
 
-    let read_strings =
-        |rdr: &mut R, refs: &mut Vec<Option<Bag::Value>>| -> Result<Vec<alloc::string::String>> {
-            let tuple = deserialize_value_depth(rdr, bag, child_depth, refs)?;
-            bag.tuple_elements_from_value(&tuple)
-                .ok_or(MarshalError::BadType)?
-                .iter()
-                .map(|value| bag.str_from_value(value).ok_or(MarshalError::BadType))
-                .collect()
-        };
-    let names_raw = read_strings(rdr, refs)?;
-    let localsplusnames = read_strings(rdr, refs)?;
+    let read_strings = |rdr: &mut R,
+                        refs: &mut Vec<Option<Bag::Value>>|
+     -> Result<(Bag::Value, Vec<alloc::string::String>)> {
+        let tuple = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+        let names = bag
+            .tuple_elements_from_value(&tuple)
+            .ok_or(MarshalError::BadType)?
+            .iter()
+            .map(|value| bag.str_from_value(value).ok_or(MarshalError::BadType))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((tuple, names))
+    };
+    let (names_value, names_raw) = read_strings(rdr, refs)?;
+    let (localsplusnames_value, localsplusnames) = read_strings(rdr, refs)?;
 
     let kinds_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
     let localspluskinds = bag
@@ -965,7 +978,10 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         };
     let source_path_raw = read_string(rdr, refs)?;
     let obj_name_raw = read_string(rdr, refs)?;
-    let qualname_raw = read_string(rdr, refs)?;
+    let qualname_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let qualname_raw = bag
+        .str_from_value(&qualname_value)
+        .ok_or(MarshalError::BadType)?;
 
     let first_line_raw = rdr.read_u32()? as i32;
     let first_line_number = if first_line_raw > 0 {
@@ -1033,7 +1049,18 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         linetable,
         exceptiontable,
     };
-    bag.make_code_with_constants_and_bytes(code, constant_values, code_bytes)
+    bag.make_code(
+        code,
+        CodeFields {
+            consts: consts_value,
+            qualname: qualname_value,
+            names: names_value,
+            localsplusnames: localsplusnames_value,
+            localspluskinds: kinds_value,
+            linetable: linetable_value,
+            exceptiontable: exceptiontable_value,
+        },
+    )
 }
 
 fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
@@ -1180,34 +1207,47 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
             itertools::process_results(it, |it| bag.make_frozenset(it))??
         }
-        Type::Dict => {
+        Type::Dict | Type::FrozenDict => {
             let d = depth - 1;
-            if let Some(index) = slot
+            // Immutable mappings are published only after all entries are read.
+            let frozen = matches!(typ, Type::FrozenDict);
+            if (frozen || slot.is_some())
                 && let Some(dict) = bag.make_dict_placeholder()
             {
-                refs[index] = Some(dict.clone());
+                if !frozen && let Some(index) = slot {
+                    refs[index] = Some(dict.clone());
+                }
                 loop {
-                    let raw = rdr.read_u8()?;
+                    let raw = read_object_type(rdr)?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }
                     let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let raw = read_object_type(rdr)?;
+                    if raw & !FLAG_REF == b'0' {
+                        break;
+                    }
+                    let value = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
                     bag.insert_dict_item(&dict, key, value)?;
                 }
-                dict
+                if frozen { bag.freeze_dict(dict)? } else { dict }
             } else {
                 let mut pairs = Vec::new();
                 loop {
-                    let raw = rdr.read_u8()?;
+                    let raw = read_object_type(rdr)?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }
                     let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let raw = read_object_type(rdr)?;
+                    if raw & !FLAG_REF == b'0' {
+                        break;
+                    }
+                    let value = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
                     pairs.push((key, value));
                 }
-                bag.make_dict(pairs.into_iter())?
+                let dict = bag.make_dict(pairs.into_iter())?;
+                if frozen { bag.freeze_dict(dict)? } else { dict }
             }
         }
         Type::Bytes => {
@@ -1251,6 +1291,7 @@ pub enum DumpableValue<'a, D: Dumpable> {
     Set(&'a [D]),
     Frozenset(&'a [D]),
     Dict(&'a [(D, D)]),
+    Frozendict(&'a [(D, D)]),
     Slice(&'a D, &'a D, &'a D),
 }
 
@@ -1422,8 +1463,13 @@ pub fn serialize_value<W: Write, D: Dumpable>(
                 val.with_dump(|val| serialize_value(buf, val))??
             }
         }
-        DumpableValue::Dict(d) => {
-            buf.write_u8(Type::Dict as u8);
+        DumpableValue::Dict(d) | DumpableValue::Frozendict(d) => {
+            let typ = if matches!(constant, DumpableValue::Frozendict(_)) {
+                Type::FrozenDict
+            } else {
+                Type::Dict
+            };
+            buf.write_u8(typ as u8);
             for (k, v) in d {
                 k.with_dump(|val| serialize_value(buf, val))??;
                 v.with_dump(|val| serialize_value(buf, val))??;
@@ -1599,10 +1645,6 @@ pub fn read_pstring<R: Read>(rdr: &mut R) -> Result<&[u8]> {
     rdr.read_slice(n as u32)
 }
 
-const CO_FAST_LOCAL: u8 = 0x20;
-const CO_FAST_CELL: u8 = 0x40;
-const CO_FAST_FREE: u8 = 0x80;
-
 pub struct LocalsPlusResult<S> {
     pub varnames: Vec<S>,
     pub cellvars: Vec<S>,
@@ -1628,10 +1670,11 @@ pub fn split_localplus<S: Clone>(
 
     // First pass: collect varnames (LOCAL entries) and freevars
     for (name, &kind) in names.iter().zip(kinds.iter()) {
-        if kind & CO_FAST_LOCAL != 0 {
+        let kind = CoFastFlags::from_bits_retain(kind);
+        if kind.contains(&CoFastFlag::Local) {
             varnames.push(name.clone());
         }
-        if kind & CO_FAST_FREE != 0 {
+        if kind.contains(&CoFastFlag::Free) {
             freevars.push(name.clone());
         }
     }
@@ -1642,8 +1685,9 @@ pub fn split_localplus<S: Clone>(
     // This preserves the original ordering from localsplusnames.
     let mut arg_cell_positions = Vec::new(); // (cell_idx, localplus_idx)
     for (i, (name, &kind)) in names.iter().zip(kinds.iter()).enumerate() {
-        let is_local = kind & CO_FAST_LOCAL != 0;
-        let is_cell = kind & CO_FAST_CELL != 0;
+        let kind = CoFastFlags::from_bits_retain(kind);
+        let is_local = kind.contains(&CoFastFlag::Local);
+        let is_cell = kind.contains(&CoFastFlag::Cell);
         if is_cell {
             let cell_idx = cellvars.len();
             cellvars.push(name.clone());
@@ -1684,7 +1728,7 @@ pub fn split_localplus<S: Clone>(
     let mut deref_map = alloc::vec![u32::MAX; names.len()];
     let mut cell_idx = 0u32;
     for (i, &kind) in kinds.iter().enumerate() {
-        if kind & CO_FAST_CELL != 0 {
+        if CoFastFlags::from_bits_retain(kind).contains(&CoFastFlag::Cell) {
             deref_map[i] = cell_idx;
             cell_idx += 1;
         }
@@ -1692,7 +1736,7 @@ pub fn split_localplus<S: Clone>(
     let ncells = cellvars.len();
     let mut free_idx = 0u32;
     for (i, &kind) in kinds.iter().enumerate() {
-        if kind & CO_FAST_FREE != 0 {
+        if CoFastFlags::from_bits_retain(kind).contains(&CoFastFlag::Free) {
             deref_map[i] = ncells as u32 + free_idx;
             free_idx += 1;
         }

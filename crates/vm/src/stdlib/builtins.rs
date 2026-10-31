@@ -8,34 +8,32 @@ pub use builtins::{ascii, print, reversed};
 #[pymodule]
 mod builtins {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{
-            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
-            PyUtf8StrRef,
+            PyAnyDict, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyType, PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
-            int::PyIntRef,
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
+            try_bigint_to_f64,
         },
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike, Either,
+            FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
         stdlib::sys,
         types::PyComparisonOp,
-        vm::compile_mode::{
-            CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
-            compile_future_feature_mask, compile_future_features_from_flags,
-        },
+        vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
     use itertools::Itertools;
+    use num_complex::Complex64;
     use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::CodePoint;
 
@@ -44,8 +42,8 @@ mod builtins {
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
     #[pyfunction]
-    fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._abs(&x)
+    fn abs(number: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._abs(&number)
     }
 
     #[pyfunction]
@@ -74,7 +72,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(number: PyIntRef) -> String {
+    fn bin(integer: ArgIndex) -> String {
+        let number = integer.into_int_ref();
         let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
@@ -89,7 +88,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
+    fn chr(i: ArgIndex, vm: &VirtualMachine) -> PyResult<CodePoint> {
+        let i = i.into_int_ref();
         let value = i
             .as_bigint()
             .to_u32()
@@ -110,17 +110,20 @@ mod builtins {
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the argument conversion used by
         // builtin_compile_impl.
-        #[pyarg(any, optional)]
-        flags: OptionalArg<ArgPrimitiveIndex<i32>>,
-        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
-        // arbitrary objects with `__bool__` are accepted (and any exception
-        // raised inside `__bool__` propagates) — not the strict bool type.
-        #[pyarg(any, optional)]
-        dont_inherit: OptionalArg<ArgIntoBool>,
-        #[pyarg(any, optional)]
-        optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
+        // Any object with __index__ is accepted.
+        #[pyarg(any, default = 0)]
+        flags: i32,
+        // dont_inherit goes through PyObject_IsTrue, so arbitrary objects
+        // with `__bool__` are accepted (and any exception raised inside
+        // `__bool__` propagates) — not the strict bool type.
+        #[pyarg(any, default = false)]
+        dont_inherit: ArgIntoBool,
+        #[pyarg(any, default = -1)]
+        optimize: i32,
         #[pyarg(named, optional)]
-        _feature_version: OptionalArg<i32>,
+        module: Option<PyObjectRef>,
+        #[pyarg(named, default = -1)]
+        _feature_version: i32,
     }
 
     fn merge_compile_future_features(
@@ -130,23 +133,15 @@ mod builtins {
     ) -> bytecode::CodeFlags {
         let mut future_features = compile_future_features_from_flags(flags);
         if !dont_inherit && let Some(code) = crate::frame::current_code() {
-            future_features |= bytecode::CodeFlags::from_bits_truncate(
-                code.flags.bits() & compile_future_feature_mask().bits(),
-            );
+            future_features |= code.flags & bytecode::CodeFlags::FUTURE_MASK;
         }
         future_features
     }
 
     fn audit_compile_source(vm: &VirtualMachine, source: &[u8], filename: &str) -> PyResult<()> {
-        vm.sys_module.get_attr("audit", vm)?.call(
-            (
-                vm.ctx.new_str("compile"),
-                vm.ctx.new_bytes(source.to_vec()),
-                vm.ctx.new_str(filename),
-            ),
-            vm,
-        )?;
-        Ok(())
+        vm.audit("compile", || {
+            (vm.ctx.new_bytes(source.to_vec()), vm.ctx.new_str(filename))
+        })
     }
 
     fn trim_eval_source_bytes(mut source: &[u8]) -> &[u8] {
@@ -201,39 +196,50 @@ mod builtins {
 
             use crate::{class::PyClassImpl, stdlib::_ast};
 
-            let feature_version = args._feature_version.into_option().unwrap_or(-1);
+            let feature_version = args._feature_version;
 
             let mode_str = args.mode.as_str();
-            let flags: i32 = args.flags.map_or(0, |v| v.value);
+            let flags: i32 = args.flags;
             let cf = CompilerFlags::from_bits_retain(flags);
 
             if (flags & !CompilerFlags::ALLOWED_FLAGS.bits()) != 0 {
                 return Err(vm.new_value_error("compile(): unrecognised flags"));
             }
 
-            let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
+            let optimize: i32 = args.optimize;
             let optimize: u8 = match optimize {
                 -1 => vm.state.config.settings.optimize.min(2),
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
-            let dont_inherit = args.dont_inherit.map_or(false, ArgIntoBool::into_bool);
+            let module = args.module.filter(|module| !vm.is_none(module));
+            let module = module
+                .map(|module| {
+                    PyStrRef::try_from_object(vm, module.clone()).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "compile() argument 'module' must be str or None, not {}",
+                            module.class().name()
+                        ))
+                    })
+                })
+                .transpose()?;
+            let dont_inherit = args.dont_inherit.into_bool();
             let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
 
             let start = if mode_str == "exec" {
-                PY_FILE_INPUT
+                CompileStart::File
             } else if mode_str == "eval" {
-                PY_EVAL_INPUT
+                CompileStart::Eval
             } else if mode_str == "single" {
-                PY_SINGLE_INPUT
+                CompileStart::Single
             } else if mode_str == "func_type" {
                 if !is_ast_only {
                     return Err(vm.new_value_error(
                         "compile() mode 'func_type' requires flag PyCF_ONLY_AST",
                     ));
                 }
-                PY_FUNC_TYPE_INPUT
+                CompileStart::FuncType
             } else {
                 let msg = if is_ast_only {
                     "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
@@ -247,14 +253,7 @@ mod builtins {
             if args.source.is_instance(&ast_type, vm)? {
                 let explicit_future_annotations =
                     future_features.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                vm.sys_module.get_attr("audit", vm)?.call(
-                    (
-                        vm.ctx.new_str("compile"),
-                        args.source.clone(),
-                        vm.ctx.none(),
-                    ),
-                    vm,
-                )?;
+                vm.audit("compile", || (args.source.clone(), vm.ctx.none()))?;
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
@@ -313,7 +312,14 @@ mod builtins {
                     opts.optimize = optimize;
                     opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
                     opts.future_features = future_features;
-                    return _ast::compile(vm, args.source, &filename.to_string_lossy(), mode, opts);
+                    return _ast::compile(
+                        vm,
+                        args.source,
+                        &filename.to_string_lossy(),
+                        mode,
+                        opts,
+                        module.as_deref(),
+                    );
                 }
             }
 
@@ -330,13 +336,14 @@ mod builtins {
                 let mut compile_flags = flags | future_features.bits() as i32;
                 #[cfg(feature = "rustpython-compiler")]
                 let compile_source = |source: &[u8], compile_flags: i32| {
-                    vm.compile_string_object_with_flags(
+                    vm.compile_string_object_with_flags_and_module(
                         source,
                         &filename.to_string_lossy(),
-                        start,
+                        start.as_i32(),
                         compile_flags,
                         feature_version,
                         optimize as i32,
+                        module.as_deref(),
                     )
                 };
                 match &source {
@@ -414,10 +421,30 @@ mod builtins {
 
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
+    }
+
+    /// `_PyEval_EnsureBuiltins`
+    fn ensure_builtins(globals: &PyAnyDict, vm: &VirtualMachine) -> PyResult<()> {
+        if globals
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .is_some()
+        {
+            return Ok(());
+        }
+        // PyEval_GetBuiltins
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into());
+        match globals.as_mutable() {
+            Some(dict) => dict.inner_setitem(identifier!(vm, __builtins__), builtins, vm),
+            None => globals
+                .as_object()
+                .set_item(identifier!(vm, __builtins__), builtins, vm)
+                .map_err(|_| vm.new_type_error("cannot assign __builtins__ to frozendict globals")),
+        }
     }
 
     impl ScopeArgs {
@@ -431,21 +458,23 @@ mod builtins {
                 vm: &VirtualMachine,
                 func_name: &'static str,
             ) -> PyResult<()> {
-                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
+                if !globals.fast_isinstance(vm.ctx.types.dict_type)
+                    && !globals.fast_isinstance(vm.ctx.types.frozendict_type)
+                {
                     return Err(match func_name {
                         "eval" => {
                             let is_mapping = globals.mapping_unchecked().check();
                             vm.new_type_error(if is_mapping {
-                                "globals must be a real dict; try eval(expr, {}, mapping)"
+                                "globals must be a real dict or a frozendict; try eval(expr, {}, mapping)"
                             } else {
-                                "globals must be a dict"
+                                "globals must be a dict or a frozendict"
                             })
                         }
                         "exec" => vm.new_type_error(format!(
-                            "exec() globals must be a dict, not {}",
+                            "exec() globals must be a dict or a frozendict, not {}",
                             globals.class().name()
                         )),
-                        _ => vm.new_type_error("globals must be a dict"),
+                        _ => vm.new_type_error("globals must be a dict or a frozendict"),
                     });
                 }
                 Ok(())
@@ -455,15 +484,11 @@ mod builtins {
                 Some(globals) => {
                     validate_globals_dict(&globals, vm, func_name)?;
 
-                    let globals = PyDictRef::try_from_object(vm, globals)?;
-                    if !globals.contains_key(identifier!(vm, __builtins__), vm) {
-                        let builtins_dict = vm.builtins.dict().into();
-                        globals.set_item(identifier!(vm, __builtins__), builtins_dict, vm)?;
-                    }
+                    let globals = PyRef::<PyAnyDict>::try_from_object(vm, globals)?;
                     (
                         globals.clone(),
                         self.locals
-                            .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone())),
+                            .unwrap_or_else(|| ArgMapping::from_anydict_exact(globals.clone())),
                     )
                 }
                 None => (
@@ -476,7 +501,9 @@ mod builtins {
                 ),
             };
 
-            let scope = crate::scope::Scope::with_builtins(Some(locals), globals, vm);
+            ensure_builtins(&globals, vm)?;
+
+            let scope = crate::scope::Scope::new(Some(locals), globals);
             Ok(scope)
         }
     }
@@ -484,17 +511,17 @@ mod builtins {
     #[derive(FromArgs)]
     struct ExecArgs {
         #[pyarg(positional)]
-        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
-        #[pyarg(any, default)]
+        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
         #[pyarg(named, optional)]
-        closure: OptionalOption<PyObjectRef>,
+        closure: Option<PyObjectRef>,
     }
 
     fn exec_closure(
-        code_obj: &PyRef<crate::builtins::PyCode>,
+        code_obj: &Py<crate::builtins::PyCode>,
         closure: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyRef<PyTuple<PyCellRef>>>> {
@@ -520,7 +547,7 @@ mod builtins {
                 ))
             })?
             .into_pyref();
-        if closure_tuple.len() != num_free {
+        if closure_tuple.as_slice().len() != num_free {
             return Err(vm.new_type_error(format!(
                 "code object requires a closure of exactly length {num_free}"
             )));
@@ -538,7 +565,7 @@ mod builtins {
 
     #[pyfunction]
     fn eval(
-        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -546,7 +573,7 @@ mod builtins {
 
         // source as string
         let code = match source {
-            Either::A(either) => {
+            Either::B(either) => {
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
                         let source = source.try_as_utf8(vm)?.as_str();
@@ -573,9 +600,9 @@ mod builtins {
                         decode_eval_exec_source_bytes(vm, source, "eval")?
                     }
                 };
-                Ok(Either::A(vm.ctx.new_utf8_str(source)))
+                Ok(Either::B(vm.ctx.new_utf8_str(source)))
             }
-            Either::B(code) => Ok(Either::B(code)),
+            Either::A(code) => Ok(Either::A(code)),
         }?;
         run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval", None)
     }
@@ -589,9 +616,8 @@ mod builtins {
             closure,
         } = args;
         let scope = ScopeArgs { globals, locals }.make_scope(vm, "exec")?;
-        let closure = closure.flatten();
         let (source, closure) = match source {
-            Either::A(either) => {
+            Either::B(either) => {
                 if closure.is_some() {
                     return Err(
                         vm.new_type_error("closure can only be used when source is a code object")
@@ -621,11 +647,11 @@ mod builtins {
                         decode_eval_exec_source_bytes(vm, source, "exec")?
                     }
                 };
-                (Either::A(vm.ctx.new_utf8_str(source)), None)
+                (Either::B(vm.ctx.new_utf8_str(source)), None)
             }
-            Either::B(code) => {
+            Either::A(code) => {
                 let closure = exec_closure(&code, closure, vm)?;
-                (Either::B(code), closure)
+                (Either::A(code), closure)
             }
         };
         run_code(
@@ -640,34 +666,41 @@ mod builtins {
 
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyUtf8StrRef, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, PyUtf8StrRef>,
         scope: crate::scope::Scope,
         #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
         closure: Option<PyRef<PyTuple<PyCellRef>>>,
     ) -> PyResult {
+        let from_string = matches!(&source, Either::B(_));
         // Determine code object:
         let code_obj = match source {
             #[cfg(feature = "rustpython-compiler")]
-            Either::A(string) => {
+            Either::B(string) => {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
                 if let Some(code) = crate::frame::current_code() {
-                    opts.future_features = bytecode::CodeFlags::from_bits_truncate(
-                        code.flags.bits() & compile_future_feature_mask().bits(),
-                    );
+                    opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
-                vm.compile_with_opts(source, mode, "<string>", opts)
-                    .map_err(|err| err.into_pyexception(vm, Some(source)))?
+                let module = scope
+                    .globals
+                    .inner_getitem_opt(identifier!(vm, __name__), vm)?;
+                vm.compile_with_opts_and_module_object(
+                    source,
+                    mode,
+                    "<string>",
+                    opts,
+                    module.as_deref(),
+                    &[],
+                )
+                .map_err(|err| err.into_pyexception(vm, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
-            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
-            Either::B(code_obj) => code_obj,
+            Either::B(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
+            Either::A(code_obj) => code_obj,
         };
 
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call((vm.ctx.new_str("exec"), code_obj.clone()), vm)?;
+        vm.audit("exec", || (code_obj.clone(),))?;
 
         if closure.is_none() && !code_obj.freevars.is_empty() {
             return Err(vm.new_type_error(format!(
@@ -675,17 +708,40 @@ mod builtins {
             )));
         }
 
+        // run_eval_code_obj: set globals['__builtins__'] if it doesn't exist
+        if from_string
+            && scope
+                .globals
+                .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+                .is_none()
+        {
+            scope
+                .globals
+                .set_item(identifier!(vm, __builtins__), vm.builtins.dict().into(), vm)?;
+        }
+
         // Run the code:
         vm.run_code_obj_with_closure(code_obj, scope, closure)
     }
 
-    #[pyfunction]
-    fn format(
+    #[derive(FromArgs)]
+    struct FormatArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        format_spec: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
+        #[pyarg(positional, default = "")]
+        format_spec: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct InputArgs {
+        // Missing means an empty prompt.
+        #[pyarg(positional, optional, py_default = "''")]
+        prompt: OptionalArg<PyStrRef>,
+    }
+
+    #[pyfunction]
+    fn format(args: FormatArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        vm.format(&args.value, args.format_spec)
     }
 
     #[pyfunction]
@@ -703,14 +759,14 @@ mod builtins {
         })?;
 
         if let OptionalArg::Present(default) = default {
-            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
+            Ok(vm.get_attribute_opt(&obj, attr)?.unwrap_or(default))
         } else {
             obj.get_attr(attr, vm)
         }
     }
 
     #[pyfunction]
-    fn globals(vm: &VirtualMachine) -> PyDictRef {
+    fn globals(vm: &VirtualMachine) -> PyRef<PyAnyDict> {
         vm.current_globals()
     }
 
@@ -722,7 +778,7 @@ mod builtins {
                 name.class().name()
             ))
         })?;
-        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
+        obj.has_attr(attr, vm)
     }
 
     #[pyfunction]
@@ -731,7 +787,15 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn breakpoint(
+        args: PosArgs,
+        kws: KwArgs<PyObjectRef, NameKws>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let args = FuncArgs {
+            args: args.into_vec(),
+            kwargs: kws.into_default(),
+        };
         match vm
             .sys_module
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
@@ -754,7 +818,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+    fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
+        let prompt = args.prompt;
         use std::io::IsTerminal;
 
         let stdin = sys::get_stdin(vm)?;
@@ -769,18 +834,37 @@ mod builtins {
                 .is_ok_and(|fd| fd == expected)
         };
 
-        // Check if we should use rustyline (interactive terminal, not PTY child)
-        let use_rustyline = fd_matches(&stdin, 0)
+        let tty = fd_matches(&stdin, 0)
             && fd_matches(&stdout, 1)
             && std::io::stdin().is_terminal()
-            && !is_pty_child();
+            && std::io::stdout().is_terminal();
 
-        // Disable rustyline if prompt contains surrogates (not valid UTF-8 for terminal)
+        // Encode the prompt with stdout's encoding and reject embedded NULs
+        // (`strlen` on the encoded bytes).
+        if tty && let OptionalArg::Present(prompt) = &prompt {
+            let _ = vm.call_method(&stdout, "flush", ());
+            let encoding = stdout.get_attr("encoding", vm)?;
+            let errors = stdout.get_attr("errors", vm)?;
+            if !vm.is_none(&encoding) {
+                let encoded = vm.call_method(prompt.as_object(), "encode", (encoding, errors))?;
+                let bytes = encoded
+                    .downcast::<PyBytes>()
+                    .map_err(|_| vm.new_type_error("encode() must return bytes".to_owned()))?;
+                if bytes.as_bytes().contains(&0) {
+                    return Err(vm.new_value_error(
+                        "input: prompt string cannot contain null characters".to_owned(),
+                    ));
+                }
+            }
+        }
+
+        // rustyline is the interactive tty reader. Skip it in a PTY child
+        // (`pty.fork` + `setsid`): raw mode hangs there.
         let prompt_str = match &prompt {
             OptionalArg::Present(s) => s.to_str(),
             OptionalArg::Missing => Some(""),
         };
-        let use_rustyline = use_rustyline && prompt_str.is_some();
+        let use_rustyline = tty && !is_pty_child() && prompt_str.is_some();
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();
@@ -851,7 +935,7 @@ mod builtins {
                 .into();
             Ok(PyIter::new(iterator))
         } else {
-            iter_target.get_iter(vm)
+            PyIter::try_from_object(vm, iter_target)
         }
     }
 
@@ -900,32 +984,30 @@ mod builtins {
     fn min_or_max(
         mut args: FuncArgs,
         vm: &VirtualMachine,
-        func_name: &str,
+        func_name: &'static str,
         op: PyComparisonOp,
     ) -> PyResult {
+        // A call with nothing to compare is refused before the keywords are read.
+        if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
+        }
+
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
 
-        if let Some(err) = args.check_kwargs_empty(vm) {
+        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
             return Err(err);
         }
 
-        let candidates = match args.args.len().cmp(&1) {
-            core::cmp::Ordering::Greater => {
-                if default.is_some() {
-                    return Err(vm.new_type_error(format!(
-                        "Cannot specify a default for {func_name}() with multiple positional arguments"
-                    )));
-                }
-                args.args
+        let candidates = if args.args.len() > 1 {
+            if default.is_some() {
+                return Err(vm.new_type_error(format!(
+                    "Cannot specify a default for {func_name}() with multiple positional arguments"
+                )));
             }
-            core::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
-            core::cmp::Ordering::Less => {
-                // zero arguments means type error:
-                return Err(
-                    vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))
-                );
-            }
+            args.args
+        } else {
+            args.args[0].try_to_value(vm)?
         };
 
         let mut candidates_iter = candidates.into_iter();
@@ -977,8 +1059,8 @@ mod builtins {
     ) -> PyResult<PyIterReturn> {
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
-                "{} object is not an iterator",
-                iterator.class().name()
+                "'{}' object is not an iterator",
+                iterator.class().slot_name()
             )));
         }
         PyIter::new(iterator)
@@ -1065,14 +1147,16 @@ mod builtins {
 
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
-        #[pyarg(named, default)]
+        // None means a space; the string is filled in when printing.
+        #[pyarg(named, default, py_default = "' '")]
         sep: Option<PyStrRef>,
-        #[pyarg(named, default)]
+        // None means a newline; the string is filled in when printing.
+        #[pyarg(named, default, py_default = "'\\n'")]
         end: Option<PyStrRef>,
+        #[pyarg(named, optional)]
+        file: Option<PyObjectRef>,
         #[pyarg(named, default = ArgIntoBool::FALSE)]
         flush: ArgIntoBool,
-        #[pyarg(named, default)]
-        file: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1112,15 +1196,17 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
+    pub fn reversed(sequence: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(reversed_method) =
+            vm.get_method(sequence.clone(), identifier!(vm, __reversed__))
+        {
             reversed_method?.call((), vm)
         } else {
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
+            vm.get_method_or_type_error(sequence.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = obj.length(vm)?;
-            let obj_iterator = PyReverseSequenceIterator::new(obj, len);
+            let len = sequence.length(vm)?;
+            let obj_iterator = PyReverseSequenceIterator::new(sequence, len);
             Ok(obj_iterator.into_pyobject(vm))
         }
     }
@@ -1129,7 +1215,7 @@ mod builtins {
     pub(super) struct RoundArgs {
         number: PyObjectRef,
         #[pyarg(any, optional)]
-        ndigits: OptionalOption<PyObjectRef>,
+        ndigits: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1138,15 +1224,14 @@ mod builtins {
             .get_special_method(&number, identifier!(vm, __round__))?
             .ok_or_else(|| {
                 vm.new_type_error(format!(
-                    "type {} doesn't define __round__",
-                    number.class().name()
+                    "type {} doesn't define __round__ method",
+                    number.class().slot_name()
                 ))
             })?;
-        match ndigits.flatten() {
-            Some(obj) => {
-                let ndigits = obj.try_index(vm)?;
-                meth.invoke((ndigits,), vm)
-            }
+        match ndigits {
+            // Like CPython, pass ndigits through as-is; the __round__ implementation
+            // decides what it accepts (float and int apply __index__ themselves).
+            Some(obj) => meth.invoke((obj,), vm),
             None => {
                 // without a parameter, the result type is coerced to int
                 meth.invoke((), vm)
@@ -1175,7 +1260,9 @@ mod builtins {
 
     #[pyfunction]
     fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
-        let items: Vec<_> = iterable.try_to_value(vm)?;
+        // `PySequence_List()`, so the room comes from what the iterable reports
+        // rather than from its iterator.
+        let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
         let lst = PyList::from(items);
         lst.sort(opts, vm)?;
         Ok(lst)
@@ -1185,20 +1272,14 @@ mod builtins {
     pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
-        #[pyarg(any, optional)]
-        start: OptionalArg<PyObjectRef>,
+        // The int object needs the VM, so the default is not a literal.
+        #[pyarg(any, default = 0)]
+        start: PyObjectRef,
     }
 
-    #[expect(
-        clippy::redundant_else,
-        reason = "match_class! macro expansion arms has a `return` inside"
-    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
-        // Start with zero and add at will:
-        let mut sum = start
-            .into_option()
-            .unwrap_or_else(|| vm.ctx.new_int(0).into());
+        let mut sum = start;
 
         match_class!(match sum {
             PyStr =>
@@ -1212,22 +1293,132 @@ mod builtins {
             _ => (),
         });
 
-        for item in iterable.iter(vm)? {
+        let mut items = iterable.iter(vm)?;
+
+        // Fast paths after CPython's builtin_sum_impl: an exact int accumulator
+        // hands over to the float one, which hands over to the complex one.
+        if let Some(mut total) = sum
+            .downcast_ref_if_exact::<PyInt>(vm)
+            .and_then(|int| int.as_bigint().to_isize())
+        {
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                let class = item.class();
+                if (class.is(vm.ctx.types.int_type) || class.is(vm.ctx.types.bool_type))
+                    && let Some(next) = item
+                        .downcast_ref::<PyInt>()
+                        .and_then(|int| int.as_bigint().to_isize())
+                        .and_then(|x| total.checked_add(x))
+                {
+                    total = next;
+                    continue;
+                }
+                break Some(item);
+            };
+            let total = vm.ctx.new_int(total);
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        if let Some(float) = sum.downcast_ref_if_exact::<PyFloat>(vm) {
+            let mut re = CompensatedSum::new(float.to_f64());
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                if let Some(x) = item.downcast_ref_if_exact::<PyFloat>(vm) {
+                    re.add(x.to_f64());
+                } else if let Some(x) = item.downcast_ref::<PyInt>() {
+                    re.add(try_bigint_to_f64(x.as_bigint(), vm)?);
+                } else {
+                    break Some(item);
+                }
+            };
+            let total = vm.ctx.new_float(re.total());
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        if let Some(complex) = sum.downcast_ref_if_exact::<PyComplex>(vm) {
+            let z = complex.to_complex();
+            let (mut re, mut im) = (CompensatedSum::new(z.re), CompensatedSum::new(z.im));
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                if let Some(x) = item.downcast_ref_if_exact::<PyComplex>(vm) {
+                    let z = x.to_complex();
+                    re.add(z.re);
+                    im.add(z.im);
+                } else if let Some(x) = item.downcast_ref::<PyInt>() {
+                    re.add(try_bigint_to_f64(x.as_bigint(), vm)?);
+                } else if let Some(x) = item.downcast_ref::<PyFloat>() {
+                    re.add(x.to_f64());
+                } else {
+                    break Some(item);
+                }
+            };
+            let total = vm.ctx.new_complex(Complex64::new(re.total(), im.total()));
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        for item in items {
             sum = vm._add(&sum, &*item?)?;
         }
         Ok(sum)
     }
 
+    /// Compensated summation, as in CPython's `CompensatedSum`.
+    struct CompensatedSum {
+        hi: f64,
+        lo: f64,
+    }
+
+    impl CompensatedSum {
+        fn new(x: f64) -> Self {
+            Self { hi: x, lo: 0.0 }
+        }
+
+        fn add(&mut self, x: f64) {
+            let t = self.hi + x;
+            self.lo += if self.hi.abs() >= x.abs() {
+                (self.hi - t) + x
+            } else {
+                (x - t) + self.hi
+            };
+            self.hi = t;
+        }
+
+        fn total(&self) -> f64 {
+            // Keep a negative zero's sign, and do not turn an infinite sum into nan.
+            if self.lo != 0.0 && self.lo.is_finite() {
+                self.hi + self.lo
+            } else {
+                self.hi
+            }
+        }
+    }
+
     #[derive(FromArgs)]
     struct ImportArgs {
         #[pyarg(any)]
-        name: PyStrRef,
-        #[pyarg(any, default)]
+        name: PyObjectRef,
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        // Missing means an empty fromlist.
+        #[pyarg(any, default, py_default = "()")]
         fromlist: Option<PyObjectRef>,
         #[pyarg(any, default)]
         level: i32,
@@ -1235,7 +1426,66 @@ mod builtins {
 
     #[pyfunction]
     fn __import__(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
-        crate::import::import_module_level(&args.name, args.globals, args.fromlist, args.level, vm)
+        // The name is faulted for not being a string by the import itself,
+        // ahead of the level beside it. = PyImport_ImportModuleLevelObject
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        crate::import::import_module_level(
+            name,
+            args.globals.as_deref(),
+            args.fromlist,
+            args.level,
+            vm,
+        )
+    }
+
+    #[derive(FromArgs)]
+    struct LazyImportArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, optional)]
+        globals: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        locals: Option<PyObjectRef>,
+        #[pyarg(any, default, py_default = "()")]
+        fromlist: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        level: i32,
+    }
+
+    #[pyfunction]
+    fn __lazy_import__(args: LazyImportArgs, vm: &VirtualMachine) -> PyResult {
+        let globals = args
+            .globals
+            .into_option()
+            .or_else(|| crate::frame::current_globals().map(Into::into))
+            .ok_or_else(|| {
+                vm.new_type_error("__lazy_import__() missing globals when called without a frame")
+            })?;
+        let globals_dict = globals
+            .downcast_ref::<crate::builtins::PyDict>()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "expect dict for globals, got {}",
+                    globals.class().name()
+                ))
+            })?;
+        let builtins = globals_dict
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .ok_or_else(|| vm.new_value_error("unable to get builtins for lazy import"))?;
+        let builtins = if let Some(module) = builtins.downcast_ref::<crate::builtins::PyModule>() {
+            module.dict().into()
+        } else {
+            builtins
+        };
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        let _ = args.locals;
+        crate::lazy_import::create(name, &globals, args.fromlist, args.level, builtins, vm)
     }
 
     #[pyfunction]
@@ -1261,15 +1511,14 @@ mod builtins {
         // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
-        for (i, base) in bases.iter().enumerate() {
+        for (i, base) in bases.as_slice().iter().enumerate() {
             if base.fast_isinstance(vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
                 }
                 continue;
             }
-            let mro_entries =
-                vm.get_attribute_opt(base.clone(), identifier!(vm, __mro_entries__))?;
+            let mro_entries = vm.get_attribute_opt(base, identifier!(vm, __mro_entries__))?;
             let entries = match mro_entries {
                 Some(meth) => meth.call((bases.clone(),), vm)?,
                 None => {
@@ -1282,8 +1531,8 @@ mod builtins {
             let entries: PyTupleRef = entries
                 .downcast()
                 .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple"))?;
-            let new_bases = new_bases.get_or_insert_with(|| bases[..i].to_vec());
-            new_bases.extend_from_slice(&entries);
+            let new_bases = new_bases.get_or_insert_with(|| bases.as_slice()[..i].to_vec());
+            new_bases.extend_from_slice(entries.as_slice());
         }
 
         let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
@@ -1296,10 +1545,10 @@ mod builtins {
         let metaclass = kwargs.pop_kwarg("metaclass").map_or_else(
             || {
                 // if there are no bases, use type; else get the type of the first base
-                Ok(if bases.is_empty() {
+                Ok(if bases.as_slice().is_empty() {
                     vm.ctx.types.type_type.to_owned()
                 } else {
-                    bases.first().unwrap().class().to_owned()
+                    bases.as_slice().first().unwrap().class().to_owned()
                 })
             },
             |metaclass| {
@@ -1311,7 +1560,7 @@ mod builtins {
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in bases.iter() {
+                for base in bases.as_slice() {
                     let base_class = base.class();
                     // if winner is subtype of tmptype, continue (winner is more derived)
                     if metaclass.fast_issubclass(base_class) {
@@ -1338,7 +1587,7 @@ mod builtins {
 
         // Prepare uses full __getattribute__ resolution chain.
         let namespace = vm
-            .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
+            .get_attribute_opt(&metaclass, identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
                 let args = FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone());
                 prepare.call(args, vm)
@@ -1358,7 +1607,7 @@ mod builtins {
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
             && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
-            && !type_params_tuple.is_empty()
+            && !type_params_tuple.as_slice().is_empty()
         {
             // Set .type_params in namespace so the compiler-generated code can use it
             namespace
@@ -1391,7 +1640,7 @@ mod builtins {
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
             && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
-            && !type_params_tuple.is_empty()
+            && !type_params_tuple.as_slice().is_empty()
         {
             class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
             // Also set __parameters__ for compatibility with typing module
@@ -1442,6 +1691,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "dict" => ctx.types.dict_type.to_owned(),
         "enumerate" => ctx.types.enumerate_type.to_owned(),
         "float" => ctx.types.float_type.to_owned(),
+        "frozendict" => ctx.types.frozendict_type.to_owned(),
         "frozenset" => ctx.types.frozenset_type.to_owned(),
         "filter" => ctx.types.filter_type.to_owned(),
         "int" => ctx.types.int_type.to_owned(),
@@ -1451,6 +1701,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "object" => ctx.types.object_type.to_owned(),
         "property" => ctx.types.property_type.to_owned(),
         "range" => ctx.types.range_type.to_owned(),
+        "sentinel" => ctx.types.sentinel_type.to_owned(),
         "set" => ctx.types.set_type.to_owned(),
         "slice" => ctx.types.slice_type.to_owned(),
         "staticmethod" => ctx.types.staticmethod_type.to_owned(),
@@ -1487,6 +1738,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "BufferError" => ctx.exceptions.buffer_error.to_owned(),
         "EOFError" => ctx.exceptions.eof_error.to_owned(),
         "ImportError" => ctx.exceptions.import_error.to_owned(),
+        "ImportCycleError" => ctx.exceptions.import_cycle_error.to_owned(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.to_owned(),
         "LookupError" => ctx.exceptions.lookup_error.to_owned(),
         "IndexError" => ctx.exceptions.index_error.to_owned(),

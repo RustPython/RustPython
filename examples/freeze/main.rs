@@ -4,16 +4,17 @@ fn main() -> vm::PyResult<()> {
     vm::Interpreter::without_stdlib(Default::default()).enter(run)
 }
 
+#[expect(clippy::unnecessary_wraps)]
 fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let scope = vm.new_scope_with_builtins();
 
     // the file parameter is relative to the current file.
     let module = vm::py_compile!(file = "freeze.py");
 
-    let res = vm.run_code_obj(vm.ctx.new_code(module), scope);
+    let res = vm.run_code_obj(vm.new_code(module), scope);
 
     if let Err(exc) = res {
-        vm.print_exception(exc);
+        vm.print_exception(&exc);
     }
 
     Ok(())

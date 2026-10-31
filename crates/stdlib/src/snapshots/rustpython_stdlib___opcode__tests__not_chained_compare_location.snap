@@ -1,0 +1,35 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(c):\n    return not (b\" \" <= c <= b\"~\")\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:34            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:34            MAKE_FUNCTION
+1:0-2:34            STORE_NAME               0 (f)
+1:0-2:34            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:34            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:16-2:20            LOAD_CONST               0 (b' ')
+2:24-2:25            LOAD_FAST                0 (c)
+2:16-2:33            SWAP                     2
+2:16-2:33            COPY                     2
+2:16-2:33            COMPARE_OP              42 (<=)
+2:16-2:33            COPY                     1
+2:16-2:33            TO_BOOL
+2:16-2:33            POP_JUMP_IF_FALSE       11 (to L1)
+2:16-2:33            NOT_TAKEN
+2:16-2:33            POP_TOP
+2:29-2:33            LOAD_CONST               1 (b'~')
+2:16-2:33            COMPARE_OP              42 (<=)
+2:11-2:34            TO_BOOL
+2:11-2:34            UNARY_NOT
+2:4-2:34             RETURN_VALUE
+2:16-2:33    L1:     SWAP                     2
+2:16-2:33            POP_TOP
+2:11-2:34            TO_BOOL
+2:11-2:34            UNARY_NOT
+2:4-2:34             RETURN_VALUE

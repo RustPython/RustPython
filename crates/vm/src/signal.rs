@@ -13,21 +13,39 @@ use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, Virtual
 
 pub(crate) const NSIG: usize = 64;
 
-/// Eval-breaker word: bit flags checked once per bytecode instruction.
+#[cfg(not(feature = "threading"))]
+bitflagset::bitflag! {
+    /// Eval-breaker bits checked once per bytecode instruction.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    enum EvalBreakerFlag {
+        Signal = 0,
+    }
+}
+
+#[cfg(feature = "threading")]
+bitflagset::bitflag! {
+    /// Eval-breaker bits checked once per bytecode instruction.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    enum EvalBreakerFlag {
+        Signal = 0,
+        Qsbr = 1,
+        Stop = 3,
+        Finalizing = 4,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    struct EvalBreakerBits(u8): EvalBreakerFlag
+}
+
+bitflagset::atomic_bitflagset!(struct EvalBreaker(AtomicU8) on EvalBreakerBits);
+
 /// Signal handlers and QSBR set bits with fetch_or (async-signal-safe,
 /// lock-free); consumers clear only their own bit with fetch_and.
-static EVAL_BREAKER: AtomicU8 = AtomicU8::new(0);
-
-/// A signal handler recorded a pending signal.
-const SIGNAL_BIT: u8 = 1 << 0;
-/// QSBR has retired allocations pending reclamation.
-#[cfg(feature = "threading")]
-const QSBR_BIT: u8 = 1 << 1;
-/// An automatic collection was scheduled by `maybe_collect` and must run at
-/// the next bytecode safepoint rather than synchronously inside the
-/// allocation that tripped the threshold.
-#[cfg(feature = "threading")]
-const GC_BIT: u8 = 1 << 2;
+static EVAL_BREAKER: EvalBreaker = EvalBreaker::new();
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -39,6 +57,37 @@ pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
+
+/// `_PyRuntime.signals.unhandled_keyboard_interrupt`
+static UNHANDLED_KEYBOARD_INTERRUPT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn clear_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(false, Ordering::Relaxed);
+}
+
+pub(crate) fn unhandled_keyboard_interrupt() -> bool {
+    UNHANDLED_KEYBOARD_INTERRUPT.load(Ordering::Relaxed)
+}
+
+/// exit_sigint: exit through the default SIGINT handler so that the parent
+/// process sees that a KeyboardInterrupt went unhandled.
+pub(crate) fn exit_sigint() -> u32 {
+    cfg_select! {
+        unix => {
+            if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
+                let _ = crate::host_env::signal::send_sigint_to_self();
+            }
+            libc::SIGINT as u32 + 128
+        }
+        // STATUS_CONTROL_C_EXIT
+        windows => 0xC000013A,
+        _ => 2 + 128,
+    }
+}
 
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
@@ -63,12 +112,12 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     // Read-only check first: avoids cache-line invalidation on every
     // instruction when no signal is pending (the common case).
-    if EVAL_BREAKER.load(Ordering::Relaxed) & SIGNAL_BIT == 0 {
+    if !EVAL_BREAKER.contains(&EvalBreakerFlag::Signal) {
         return Ok(());
     }
 
     // Atomic RMW only when a signal is actually pending.
-    if EVAL_BREAKER.fetch_and(!SIGNAL_BIT, Ordering::Acquire) & SIGNAL_BIT == 0 {
+    if !EVAL_BREAKER.remove(EvalBreakerFlag::Signal) {
         return Ok(());
     }
 
@@ -85,30 +134,66 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
-    let signal_handlers = vm
-        .signal_handlers
-        .get()
-        .expect("should never fail since we check above")
-        .borrow();
+    let can_handle_signals = vm.is_main_thread() && vm.state.is_main_interpreter();
+    if can_handle_signals {
+        let signal_handlers = vm
+            .signal_handlers
+            .get()
+            .expect("should never fail since we check above");
 
-    for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-        let triggered = trigger.swap(false, Ordering::Relaxed);
+        for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
+            let triggered = trigger.swap(false, Ordering::Relaxed);
+            if !triggered {
+                continue;
+            }
 
-        // SAFETY: TRIGGERS has the same length as the signal_handlers
-        let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
+            // SAFETY: TRIGGERS has the same length as the signal_handlers
+            let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
 
-        if triggered
-            && let Some(handler) = &signal_handlers[signum]
-            && let Some(callable) = handler.to_callable()
-        {
-            callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
+            // Read the handler out and drop the borrow before running it. A
+            // handler is free to call signal.signal(), which takes the same cell
+            // mutably, and a live read borrow turns that into a panic.
+            let handler = signal_handlers.borrow()[signum].clone();
+
+            if let Some(handler) = handler
+                && let Some(callable) = handler.to_callable()
+                && let Err(exc) = callable.invoke((signum.as_i32(), vm.ctx.none()), vm)
+            {
+                // On error, re-schedule a call to trigger_signals() for the
+                // remaining signals and the pending wakeup errors.
+                set_triggered();
+                return Err(exc);
+            }
+        }
+    } else {
+        let os_signals_pending = TRIGGERS
+            .iter()
+            .skip(1)
+            .any(|trigger| trigger.load(Ordering::Relaxed));
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        let os_signals_pending =
+            os_signals_pending || crate::stdlib::_signal::_signal::wakeup_errors_pending();
+        if os_signals_pending {
+            // Leave OS signals for the main interpreter's main thread. Re-arm
+            // before running VM-local callbacks, which may raise.
+            set_triggered();
         }
     }
 
     if let Some(signal_rx) = &vm.signal_rx {
         for f in signal_rx.rx.try_iter() {
-            f(vm)?;
+            if let Err(exc) = f(vm) {
+                set_triggered();
+                return Err(exc);
+            }
         }
+    }
+
+    // Wakeup fd errors are pending calls that only the main interpreter's
+    // main thread runs.
+    #[cfg(all(feature = "host_env", any(unix, windows)))]
+    if can_handle_signals {
+        crate::stdlib::_signal::_signal::report_wakeup_errors(vm);
     }
 
     Ok(())
@@ -117,47 +202,76 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 pub(crate) fn set_triggered() {
     // fetch_or (not store) so a signal handler never clobbers the QSBR bit;
     // this compiles to a lock-free RMW, safe to call from a signal handler.
-    EVAL_BREAKER.fetch_or(SIGNAL_BIT, Ordering::Release);
+    EVAL_BREAKER.insert(EvalBreakerFlag::Signal);
 }
 
 /// Any eval-breaker bit pending? One relaxed load; checked per instruction.
 #[inline(always)]
 pub(crate) fn eval_breaker_pending() -> bool {
-    EVAL_BREAKER.load(Ordering::Relaxed) != 0
+    !EVAL_BREAKER.is_empty()
+}
+
+/// Extra eval-breaker bits used only when more than one thread can run.
+#[cfg(feature = "threading")]
+mod mt {
+    use super::{EVAL_BREAKER, EvalBreakerFlag};
+
+    /// QSBR has retired allocations pending reclamation.
+    pub(crate) fn set_qsbr_bit() {
+        EVAL_BREAKER.insert(EvalBreakerFlag::Qsbr);
+    }
+
+    pub(crate) fn clear_qsbr_bit() {
+        EVAL_BREAKER.remove(EvalBreakerFlag::Qsbr);
+    }
+
+    pub(crate) fn qsbr_bit_set() -> bool {
+        EVAL_BREAKER.contains(&EvalBreakerFlag::Qsbr)
+    }
+
+    /// Record that some thread's `stop_requested` flag may be set. Shared by
+    /// every thread rather than being per-thread: the fast path checked once
+    /// per bytecode instruction becomes a single relaxed load of this word.
+    /// Sticky until `start_the_world`/`reset_after_fork` clears it.
+    pub(crate) fn set_stop_bit() {
+        EVAL_BREAKER.insert(EvalBreakerFlag::Stop);
+    }
+
+    /// Clear the shared stop-the-world bit. Only safe to call from
+    /// `start_the_world`/`reset_after_fork`.
+    pub(crate) fn clear_stop_bit() {
+        EVAL_BREAKER.remove(EvalBreakerFlag::Stop);
+    }
+
+    /// Record that finalization has begun (`Interpreter::finalize`). Set once
+    /// and never cleared.
+    pub(crate) fn set_finalizing_bit() {
+        EVAL_BREAKER.insert(EvalBreakerFlag::Finalizing);
+    }
+
+    /// Drop every process-wide eval-breaker bit. Tests that assert a single
+    /// thread's `stop_requested` must not trip `eval_breaker_pending` have to
+    /// start from a clean word: cargo's Windows runner shares the process
+    /// across `#[test]` functions, so a sibling can leave SIGNAL/QSBR/STOP.
+    #[cfg(test)]
+    pub(crate) fn clear_eval_breaker_for_test() {
+        EVAL_BREAKER.clear();
+    }
 }
 
 #[cfg(feature = "threading")]
-pub(crate) fn set_qsbr_bit() {
-    EVAL_BREAKER.fetch_or(QSBR_BIT, Ordering::Release);
-}
+pub(crate) use mt::{
+    clear_qsbr_bit, clear_stop_bit, qsbr_bit_set, set_finalizing_bit, set_qsbr_bit, set_stop_bit,
+};
 
-#[cfg(feature = "threading")]
-pub(crate) fn clear_qsbr_bit() {
-    EVAL_BREAKER.fetch_and(!QSBR_BIT, Ordering::Release);
-}
-
-#[cfg(feature = "threading")]
-pub(crate) fn qsbr_bit_set() -> bool {
-    EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
-}
-
-/// Schedule an automatic collection to run at the next bytecode safepoint.
-#[cfg(feature = "threading")]
-pub(crate) fn schedule_gc() {
-    EVAL_BREAKER.fetch_or(GC_BIT, Ordering::Release);
-}
-
-/// Clear the scheduled-GC bit, returning whether it had been set.
-#[cfg(feature = "threading")]
-pub(crate) fn take_gc_scheduled() -> bool {
-    EVAL_BREAKER.fetch_and(!GC_BIT, Ordering::Acquire) & GC_BIT != 0
-}
+#[cfg(all(test, feature = "threading"))]
+pub(crate) use mt::clear_eval_breaker_for_test;
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
 #[cfg(all(unix, feature = "host_env"))]
 pub(crate) fn clear_after_fork() {
-    EVAL_BREAKER.fetch_and(!SIGNAL_BIT, Ordering::Release);
+    EVAL_BREAKER.remove(EvalBreakerFlag::Signal);
     for trigger in &TRIGGERS {
         trigger.store(false, Ordering::Relaxed);
     }
@@ -179,6 +293,10 @@ impl SignalNum {
     #[cfg(any(unix, windows))]
     #[allow(dead_code, reason = "Not used on all platforms")]
     pub(crate) const SIGINT: Self = Self(libc::SIGINT);
+
+    #[cfg(all(target_os = "wasi", feature = "host_env"))]
+    #[allow(dead_code, reason = "Not used on all platforms")]
+    pub(crate) const SIGINT: Self = Self(rustpython_host_env::signal::SIGINT);
 
     /// Construct [`Self`] without any validation on the signalnum value.
     ///

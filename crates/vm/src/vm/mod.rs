@@ -9,12 +9,17 @@ pub(crate) mod compile_mode;
 #[cfg(feature = "rustpython-compiler")]
 pub use compile::VmCompileError;
 mod context;
+pub mod crossinterp;
 mod interpreter;
 mod method;
 #[cfg(feature = "rustpython-compiler")]
 mod python_run;
+#[cfg(feature = "rustpython-compiler")]
+pub use python_run::InteractiveLine;
 pub mod runtime;
 mod setting;
+#[cfg(feature = "threading")]
+pub(crate) mod stop_the_world;
 pub mod thread;
 mod vm_new;
 mod vm_object;
@@ -23,8 +28,9 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
-        PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
+        self, PyAnyDict, PyBaseExceptionRef, PyBaseObject, PyDict, PyFrozenSet, PyInt, PyList,
+        PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned,
+        PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -33,36 +39,40 @@ use crate::{
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
-    exceptions::types::PyBaseException,
+    exceptions::types::{PyBaseException, PyMemoryError},
     frame::{ExecutionResult, FrameObject, FrameObjectRef},
-    frozen::FrozenModule,
+    frozen_resources::FrozenModuleRegistry,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
-    protocol::PyIterIter,
+    protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
     signal::{self, SignalHandlers},
     stdlib,
+    types::{GetAttr, GetattroFunc, fn_addr},
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
-#[cfg(feature = "threading")]
-use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(feature = "threading")]
+use std::collections::HashMap;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::{OsStr, OsString},
 };
 
 pub use context::Context;
 pub use interpreter::{Interpreter, InterpreterBuilder};
 pub(crate) use method::PyMethod;
-pub use runtime::{InterpreterInfo, InterpreterWhence, MAIN_INTERPRETER_ID};
+pub use runtime::{
+    InterpFeatureFlags, InterpreterConfig, InterpreterGil, InterpreterInfo, InterpreterWhence,
+    MAIN_INTERPRETER_ID,
+};
 pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
 pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
@@ -89,16 +99,23 @@ pub struct VirtualMachine {
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
     pub(crate) importlib: PyObjectRef,
+    pub(crate) import_timing: Cell<import::ImportTimingState>,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    /// Event currently being monitored (`tstate->what_event`).
+    /// `None` when not in a monitoring callback.
+    pub(crate) what_event: Cell<Option<crate::stdlib::sys::monitoring::MonitoringEvent>>,
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
+    pub(crate) lazy_imports_resolving: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
+    pub(crate) import_bootstrap_complete: bool,
+    startup_error: Option<PyBaseExceptionRef>,
     recursion_depth: Cell<usize>,
     /// Depth of native recursion that pushes no Python frame, counted only
     /// where the stack pointer cannot be read. Everywhere else the native
@@ -116,8 +133,9 @@ pub struct VirtualMachine {
     pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
+    /// Active Context stack for this thread and interpreter (PEP 567 / contextvars)
+    pub context_stack: RefCell<Vec<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
-    pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
     /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
@@ -127,6 +145,19 @@ pub struct VirtualMachine {
     /// `SuspendedFrame`. Uses UnsafeCell because the VM is per-thread and this
     /// field is only accessed on the owning thread.
     pending_tailcall_owner: core::cell::UnsafeCell<Option<PyObjectRef>>,
+    /// Side channel for GenResume, the counterpart of `pending_tailcall_*`:
+    /// the bytecode loop parks the generator to resume, the value to send it
+    /// and what to do with its outcome here before returning
+    /// `ExecutionResult::GenResume`.
+    pending_gen_resume: core::cell::UnsafeCell<Option<PendingGenResume>>,
+    /// Reusable backing store for the trampoline's suspended-frame stack.
+    /// Trampoline invocations nest strictly LIFO, so each one owns the region
+    /// above the length it found on entry and truncates back to it on the way
+    /// out; reusing one allocation keeps a trampoline entry free of malloc,
+    /// which matters because a generator body enters one per resume.
+    /// UnsafeCell because the VM is per-thread and no reference into the Vec
+    /// is held across anything that could push to it.
+    trampoline_stack: core::cell::UnsafeCell<Vec<SuspendedFrame>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -155,6 +186,8 @@ unsafe impl Send for FramePtr {}
 
 #[derive(Debug)]
 struct ExceptionStack {
+    /// Pending native C API error, independent of handled `sys.exception()`.
+    raised: Option<PyBaseExceptionRef>,
     /// Linked list of handled-exception slots (`_PyErr_StackItem` chain).
     /// Bottom element is the thread's base slot; generator/coroutine resume
     /// pushes an additional slot.  Normal frame calls do **not** push/pop.
@@ -164,7 +197,72 @@ struct ExceptionStack {
 impl Default for ExceptionStack {
     fn default() -> Self {
         // Thread's base `_PyErr_StackItem` – always present.
-        Self { stack: vec![None] }
+        Self {
+            raised: None,
+            stack: vec![None],
+        }
+    }
+}
+
+/// Serializes complete stop/restart transactions across interpreters.
+/// A collector holds one permit while stopping every interpreter; other callers
+/// transfer their permit to the stopped state until the matching restart.
+#[cfg(feature = "threading")]
+pub(crate) struct StopTheWorldTransaction {
+    _private: (),
+}
+
+#[cfg(feature = "threading")]
+static STW_TRANSACTION: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "threading")]
+static NEXT_STW_REQUESTER: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(feature = "threading")]
+thread_local! {
+    // OS thread IDs can be reused after a requester exits, even while another
+    // thread still owes its matching restart. Logical IDs are never reused.
+    static STW_REQUESTER: u64 = NEXT_STW_REQUESTER
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .expect("stop-the-world requester IDs exhausted");
+}
+
+#[cfg(feature = "threading")]
+impl StopTheWorldTransaction {
+    pub(crate) fn acquire() -> Self {
+        let requester = STW_REQUESTER.with(|id| *id);
+        loop {
+            match STW_TRANSACTION.compare_exchange(
+                0,
+                requester,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Self { _private: () },
+                Err(owner) => assert_ne!(
+                    owner, requester,
+                    "stop-the-world transactions cannot be nested on the same thread"
+                ),
+            }
+            let wait = || {
+                while STW_TRANSACTION.load(Ordering::Acquire) != 0 {
+                    std::thread::yield_now();
+                }
+            };
+            // Wait detached from the CURRENT interpreter, not the interpreter
+            // we intend to stop. Reattach without owning the permit, then retry:
+            // a suspended or shutting-down waiter must not strand ownership.
+            if thread::try_with_current_vm(|vm| vm.allow_threads(wait)).is_none() {
+                wait();
+            }
+        }
+    }
+}
+
+#[cfg(feature = "threading")]
+impl Drop for StopTheWorldTransaction {
+    fn drop(&mut self) {
+        STW_TRANSACTION.store(0, Ordering::Release);
     }
 }
 
@@ -178,10 +276,9 @@ pub struct StopTheWorldState {
     world_stopped: AtomicBool,
     /// Ident of the thread that requested the stop (like `stw->requester`)
     requester: AtomicU64,
-    /// Single exclusion held for the whole stop→start span. Fork and GC are
-    /// both stop-the-world requesters driving this shared state; only one may
-    /// hold it at a time. Acquired before any stop bookkeeping (see
-    /// `acquire_exclusion`) and released by `start_the_world`/`reset_after_fork`.
+    /// Ownership transferred by a successful public stop. GC retains its
+    /// transaction externally and leaves this false. Only a matching restart
+    /// or the forking owner's child reset may release this ownership.
     exclusion: AtomicBool,
     /// Signaled by suspending threads when their state transitions to SUSPENDED
     notify_mutex: std::sync::Mutex<()>,
@@ -277,8 +374,12 @@ impl StopTheWorldState {
         // HEAD_LOCK-guarded stop-the-world bookkeeping.
         self.requested.store(true, Ordering::Release);
         let count = registry
-            .keys()
-            .filter(|&&thread_id| thread_id != requester)
+            .iter()
+            .filter(|(thread_id, slot)| {
+                **thread_id != requester
+                    && slot.state.load(Ordering::Relaxed)
+                        != thread::ThreadState::ShuttingDown as i32
+            })
             .count();
         let count = (count.min(i64::MAX as usize)) as i64;
         self.thread_countdown.store(count, Ordering::Release);
@@ -301,7 +402,7 @@ impl StopTheWorldState {
     /// Try to CAS detached threads directly to SUSPENDED and check whether
     /// stop countdown reached zero after parking detached threads.
     fn park_detached_threads(&self, state: &PyGlobalState) -> bool {
-        use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SUSPENDED};
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
         let mut attached_seen = 0u64;
@@ -317,11 +418,11 @@ impl StopTheWorldState {
             }
 
             let state = slot.state.load(Ordering::Relaxed);
-            if state == THREAD_DETACHED {
+            if state == ThreadState::Detached as i32 {
                 // CAS DETACHED → SUSPENDED (park without thread cooperation)
                 match slot.state.compare_exchange(
-                    THREAD_DETACHED,
-                    THREAD_SUSPENDED,
+                    ThreadState::Detached as i32,
+                    ThreadState::Suspended as i32,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
                 ) {
@@ -329,33 +430,40 @@ impl StopTheWorldState {
                         slot.stop_requested.store(false, Ordering::Release);
                         forced_parks = forced_parks.saturating_add(1);
                     }
-                    Err(THREAD_ATTACHED) => {
-                        // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
-                        slot.stop_requested.store(true, Ordering::Release);
-                        // Raced with a thread re-attaching; it will self-suspend.
-                        attached_seen = attached_seen.saturating_add(1);
-                    }
-                    Err(THREAD_DETACHED) => {
-                        // Extremely unlikely race; next poll will handle it.
-                    }
-                    Err(THREAD_SUSPENDED) => {
-                        slot.stop_requested.store(false, Ordering::Release);
-                        // Another path parked it first.
-                    }
-                    Err(other) => {
-                        debug_assert!(
-                            false,
-                            "unexpected thread state in park_detached_threads: {other}"
-                        );
-                    }
+                    Err(actual) => match ThreadState::from_i32(actual) {
+                        Some(ThreadState::Attached) => {
+                            // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
+                            slot.stop_requested.store(true, Ordering::Release);
+                            crate::signal::set_stop_bit();
+                            // Raced with a thread re-attaching; it will self-suspend.
+                            attached_seen = attached_seen.saturating_add(1);
+                        }
+                        Some(ThreadState::Detached) => {
+                            // Extremely unlikely race; next poll will handle it.
+                        }
+                        Some(ThreadState::Suspended) => {
+                            slot.stop_requested.store(false, Ordering::Release);
+                            // Another path parked it first.
+                        }
+                        Some(ThreadState::ShuttingDown) => {
+                            slot.stop_requested.store(false, Ordering::Release);
+                        }
+                        None => {
+                            debug_assert!(
+                                false,
+                                "unexpected thread state in park_detached_threads: {actual}"
+                            );
+                        }
+                    },
                 }
-            } else if state == THREAD_ATTACHED {
+            } else if state == ThreadState::Attached as i32 {
                 // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                 slot.stop_requested.store(true, Ordering::Release);
+                crate::signal::set_stop_bit();
                 // Thread is in bytecode — it will see `requested` and self-suspend
                 attached_seen = attached_seen.saturating_add(1);
             }
-            // THREAD_SUSPENDED → already parked
+            // Suspended / ShuttingDown → already parked
         }
         if attached_seen != 0 {
             self.stats_attached_seen
@@ -369,50 +477,11 @@ impl StopTheWorldState {
         forced_parks != 0 && self.thread_countdown.load(Ordering::Acquire) == 0
     }
 
-    /// Acquire the single stop-the-world exclusion in a park-friendly way.
-    ///
-    /// Fork and GC both request stop-the-world through the same shared state;
-    /// without this exclusion their `requester`/`requested`/countdown words
-    /// could be clobbered by an interleaving requester, so the completion
-    /// check could never converge and a requester would wait on itself forever.
-    ///
-    /// The acquire must be park-friendly. While another requester's stop is in
-    /// progress it sets this thread's stop bit and waits for it to suspend;
-    /// blocking on a plain lock here would keep this thread from ever reaching
-    /// that safepoint, so the active requester would wait for this thread while
-    /// this thread waits for the lock — a deadlock swap. Instead we poll and
-    /// honor the suspend request between tries. Suspending here is safe as long
-    /// as any lock a spinning requester still holds is never acquired
-    /// attached-blocking by another thread. The fork requester holds IMP_LOCK,
-    /// but its acquisition detaches (`allow_threads`), so no attached thread
-    /// blocks on it; the GC requester holds only the `collecting` mutex, which
-    /// is only ever `try_lock`'d. The active requester therefore force-parks
-    /// this thread, finishes its whole stop→start span, releases the exclusion,
-    /// and only then does this thread resume and acquire it.
-    fn acquire_exclusion(&self, state: &PyGlobalState) {
-        if self
-            .exclusion
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-            .is_ok()
-        {
-            return;
-        }
-        loop {
-            crate::vm::thread::suspend_if_needed(state);
-            std::thread::yield_now();
-            if self
-                .exclusion
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
-                return;
-            }
-        }
-    }
-
-    /// Release the stop-the-world exclusion taken by `acquire_exclusion`.
+    /// Release only a transaction owned by this state, after every wake/clear.
     fn release_exclusion(&self) {
-        self.exclusion.store(false, Ordering::Release);
+        if self.exclusion.swap(false, Ordering::AcqRel) {
+            drop(StopTheWorldTransaction { _private: () });
+        }
     }
 
     /// Stop all non-requester threads (`stop_the_world`).
@@ -422,11 +491,27 @@ impl StopTheWorldState {
     /// 3. Waits (polling with 1 ms condvar timeout) for attached threads
     ///    to self-suspend in `check_signals`.
     ///
-    /// Takes the shared exclusion first so at most one requester (fork or GC)
-    /// drives the stop→start span at a time; it is released by
-    /// `start_the_world`/`reset_after_fork`.
+    /// Public calls own one process-wide transaction until the matching start.
+    /// The caller must finish stop before invoking start, including when those
+    /// calls occur on different threads; concurrent duplicate starts are invalid.
+    /// Transactions are non-reentrant: a nested stop on the requesting thread
+    /// panics before changing any stop state or releasing the outer transaction.
     pub fn stop_the_world(&self, state: &PyGlobalState) {
-        self.acquire_exclusion(state);
+        let transaction = StopTheWorldTransaction::acquire();
+        self.stop_with_transaction(state, &transaction);
+        self.exclusion.store(true, Ordering::Release);
+        core::mem::forget(transaction);
+    }
+
+    /// Stop one state within a transaction retained by the caller (notably GC).
+    pub(crate) fn stop_with_transaction(
+        &self,
+        state: &PyGlobalState,
+        _transaction: &StopTheWorldTransaction,
+    ) {
+        // A partial stop must clear requests and wake parked slots before its
+        // caller releases the transaction or rolls back previously stopped VMs.
+        let rollback = scopeguard::guard((), |_| self.resume_threads(state, false));
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
@@ -440,11 +525,13 @@ impl StopTheWorldState {
         self.park_detached_threads(state);
         if initial_countdown == 0 || self.all_non_requester_suspended(state) {
             self.world_stopped.store(true, Ordering::Release);
+            crate::common::lock::set_world_stopped(true);
             #[cfg(debug_assertions)]
             self.debug_assert_all_non_requester_suspended(state);
             stw_trace(format_args!(
                 "stop end requester={requester_ident} wait_ns=0 polls=0"
             ));
+            scopeguard::ScopeGuard::into_inner(rollback);
             return;
         }
 
@@ -487,16 +574,24 @@ impl StopTheWorldState {
             }
         }
         self.world_stopped.store(true, Ordering::Release);
+        crate::common::lock::set_world_stopped(true);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_suspended(state);
         stw_trace(format_args!(
             "stop end requester={requester_ident} wait_ns={wait_ns} polls={polls}"
         ));
+        scopeguard::ScopeGuard::into_inner(rollback);
     }
 
     /// Resume all suspended threads (`start_the_world`).
     pub fn start_the_world(&self, state: &PyGlobalState) {
-        use thread::{THREAD_DETACHED, THREAD_SUSPENDED};
+        self.resume_threads(state, true);
+        self.release_exclusion();
+    }
+
+    /// Rollback also permits threads that never reached SUSPENDED.
+    fn resume_threads(&self, state: &PyGlobalState, fully_stopped: bool) {
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         stw_trace(format_args!("start begin requester={requester}"));
         let registry = state.thread_frames.lock();
@@ -507,6 +602,7 @@ impl StopTheWorldState {
         // thread-slot initialization.
         self.requested.store(false, Ordering::Release);
         self.world_stopped.store(false, Ordering::Release);
+        crate::common::lock::set_world_stopped(false);
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -519,12 +615,18 @@ impl StopTheWorldState {
 
             slot.stop_requested.store(false, Ordering::Release);
             let state = slot.state.load(Ordering::Relaxed);
+            if state == ThreadState::ShuttingDown as i32 {
+                // `_PyThreadState_RemoveExcept` + SetShuttingDown already
+                // took this thread off the resume path. Leave it hanging.
+                continue;
+            }
             debug_assert!(
-                state == THREAD_SUSPENDED,
+                !fully_stopped || state == ThreadState::Suspended as i32,
                 "non-requester thread not suspended at start-the-world: id={id} state={state}"
             );
-            if state == THREAD_SUSPENDED {
-                slot.state.store(THREAD_DETACHED, Ordering::Release);
+            if state == ThreadState::Suspended as i32 {
+                slot.state
+                    .store(ThreadState::Detached as i32, Ordering::Release);
                 slot.thread.unpark();
             }
         }
@@ -532,11 +634,12 @@ impl StopTheWorldState {
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
+        // Drop the process-wide stop hint. Another interpreter may still
+        // have `stop_requested` threads; those keep parking via the
+        // per-thread check in `eval_breaker_tripped`.
+        crate::signal::clear_stop_bit();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
-        // Release the exclusion last, ending the stop→start span so the next
-        // requester (fork or GC) can proceed.
-        self.release_exclusion();
         stw_trace(format_args!("start end requester={requester}"));
     }
 
@@ -544,10 +647,15 @@ impl StopTheWorldState {
     pub fn reset_after_fork(&self) {
         self.requested.store(false, Ordering::Relaxed);
         self.world_stopped.store(false, Ordering::Relaxed);
+        crate::common::lock::set_world_stopped(false);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
-        // The surviving child thread inherited the exclusion taken by the
-        // pre-fork `stop_the_world`; release it (no start_the_world runs here).
+        // Only one thread survives fork; any stop-the-world bit inherited
+        // from the parent is stale.
+        crate::signal::clear_stop_bit();
+        // A single-state stop owns the transaction through this flag. A fork
+        // group instead retains its shared transaction through child repair;
+        // its member states do not own exclusion and must not release it here.
         self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }
@@ -617,7 +725,7 @@ impl StopTheWorldState {
     /// already SUSPENDED when a new stop counts it neither notifies nor is
     /// force-parked again, so an edge-based countdown could never reach zero.
     fn all_non_requester_suspended(&self, state: &PyGlobalState) -> bool {
-        use thread::THREAD_SUSPENDED;
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -629,7 +737,10 @@ impl StopTheWorldState {
             if id == requester {
                 continue;
             }
-            if slot.state.load(Ordering::Acquire) != THREAD_SUSPENDED {
+            let slot_state = slot.state.load(Ordering::Acquire);
+            if slot_state != ThreadState::Suspended as i32
+                && slot_state != ThreadState::ShuttingDown as i32
+            {
                 return false;
             }
         }
@@ -638,7 +749,7 @@ impl StopTheWorldState {
 
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_suspended(&self, state: &PyGlobalState) {
-        use thread::THREAD_SUSPENDED;
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -653,7 +764,7 @@ impl StopTheWorldState {
 
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
-                state == THREAD_SUSPENDED,
+                state == ThreadState::Suspended as i32 || state == ThreadState::ShuttingDown as i32,
                 "non-requester thread not suspended during stop-the-world: id={id} state={state}"
             );
         }
@@ -661,7 +772,7 @@ impl StopTheWorldState {
 
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_detached(&self, state: &PyGlobalState) {
-        use thread::THREAD_SUSPENDED;
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -676,7 +787,7 @@ impl StopTheWorldState {
 
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
-                state != THREAD_SUSPENDED,
+                state != ThreadState::Suspended as i32,
                 "non-requester thread still suspended after start-the-world: id={id} state={state}"
             );
         }
@@ -752,6 +863,8 @@ pub(crate) struct CallableCache {
 pub struct PyGlobalState {
     /// Unique process-global interpreter id (main is [`MAIN_INTERPRETER_ID`]).
     pub interpreter_id: i64,
+    /// Top-level interpreter whose runtime owns this interpreter.
+    pub runtime_root_id: i64,
     /// How this interpreter was created.
     pub whence: runtime::InterpreterWhence,
     /// True for every top-level (non-sub) interpreter, each of which keeps its
@@ -759,17 +872,41 @@ pub struct PyGlobalState {
     /// becomes *the* process main — see [`runtime::main_interpreter_id`].
     pub is_main: bool,
     pub config: PyConfig,
+    /// `config.inspect`, which `PyConfig_Set` can change at runtime.
+    pub(crate) inspect: AtomicBool,
+    /// `_interactive_src_count`: numbers the code filenames of interactive inputs.
+    pub(crate) interactive_src_count: AtomicUsize,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
-    pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
+    pub frozen: FrozenModuleRegistry,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
-    pub hash_secret: HashSecret,
     /// Registered `atexit` callbacks, newest first. Shared ownership so
     /// `atexit.unregister` can keep the entry it is comparing alive while the
     /// list is unlocked, and still recognize it afterwards by identity.
     pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
+    /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
+    pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub(crate) import_time_header: AtomicBool,
+    pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
+    pub struct_format_cache: crate::buffer::FormatSpecCache,
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    pub(crate) ctypes_buffer_views: alloc::sync::Arc<stdlib::_ctypes::BufferViewRegistry>,
+    /// Placeholder identity shared by all threads and fresh imports in this interpreter.
+    pub(crate) functools_placeholder: crate::common::lock::OnceCell<PyObjectRef>,
     pub finalizing: AtomicBool,
+    /// The thread performing finalization, which need not be the process main thread.
+    #[cfg(feature = "threading")]
+    pub(crate) finalizing_thread_ident: AtomicCell<u64>,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
     pub before_forkers: PyMutex<Vec<PyObjectRef>>,
@@ -783,6 +920,8 @@ pub struct PyGlobalState {
     pub global_profile_func: PyMutex<Option<PyObjectRef>>,
     /// Global type mutation/versioning mutex for CPython-style FT type operations.
     pub type_mutex: PyMutex<()>,
+    /// Object-owned descriptors shared by heap types in this interpreter.
+    pub(crate) common_type_descriptors: builtins::type_::CommonTypeDescriptors,
     /// Main thread identifier (pthread_self on Unix)
     #[cfg(feature = "threading")]
     pub main_thread_ident: AtomicCell<u64>,
@@ -807,6 +946,18 @@ pub struct PyGlobalState {
     pub stop_the_world: StopTheWorldState,
     /// This interpreter's garbage collector policy and results.
     pub gc: crate::gc_state::GcInterpreterState,
+    /// Isolated-interpreter feature flags (PEP 684 / PEP 734 config).
+    pub feature_flags: runtime::InterpFeatureFlags,
+    /// Whether the interpreter was configured with `gil="own"`.
+    pub own_gil: bool,
+    /// `threads.main`: the ident of the thread running `__main__`, if any.
+    pub running_main: AtomicCell<Option<u64>>,
+    /// True after `initialize()` has finished (CPython "ready").
+    pub ready: AtomicBool,
+    /// Optional ID refcount used by `_interpreters.create(reqrefs=True)`.
+    pub id_refcount: AtomicI64,
+    /// When true, dropping the last ID ref destroys the interpreter.
+    pub require_idref: AtomicBool,
 }
 
 impl PyGlobalState {
@@ -815,13 +966,103 @@ impl PyGlobalState {
     pub fn is_main_interpreter(&self) -> bool {
         self.is_main
     }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_fork(&self) -> bool {
+        self.feature_flags.allow_fork
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_exec(&self) -> bool {
+        self.feature_flags.allow_exec
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_threads(&self) -> bool {
+        self.feature_flags.allow_threads
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_daemon_threads(&self) -> bool {
+        self.feature_flags.allow_daemon_threads
+    }
+
+    /// _PyInterpreterState_SetRunningMain
+    ///
+    /// Record the calling thread as the one running `__main__`. Return `false`
+    /// when a thread already does.
+    pub fn set_running_main(&self) -> bool {
+        self.running_main
+            .compare_exchange(None, Some(crate::frame::current_thread_ident()))
+            .is_ok()
+    }
+
+    /// _PyInterpreterState_SetNotRunningMain
+    pub fn set_not_running_main(&self) {
+        debug_assert!(self.thread_is_running_main());
+        self.running_main.store(None);
+    }
+
+    /// _PyInterpreterState_IsRunningMain
+    #[must_use]
+    pub fn is_running_main(&self) -> bool {
+        self.running_main.load().is_some()
+    }
+
+    /// _PyThreadState_IsRunningMain
+    #[must_use]
+    pub fn thread_is_running_main(&self) -> bool {
+        self.running_main.load() == Some(crate::frame::current_thread_ident())
+    }
+
+    /// _PyInterpreterState_ReinitRunningMain
+    ///
+    /// After a fork only the forking thread survives, so `__main__` is no
+    /// longer running unless that thread was running it.
+    #[cfg(all(feature = "host_env", unix))]
+    pub(crate) fn reinit_running_main(&self) {
+        if !self.thread_is_running_main() {
+            self.running_main.store(None);
+        }
+    }
+
+    /// The config this interpreter was created with, rebuilt from the flags it
+    /// kept (`_PyInterpreterConfig_InitFromState`).
+    #[must_use]
+    pub fn config(&self) -> runtime::InterpreterConfig {
+        runtime::InterpreterConfig::from_state(self.feature_flags, self.own_gil)
+    }
 }
 
-pub fn process_hash_secret_seed() -> u32 {
-    use std::sync::OnceLock;
-    static SEED: OnceLock<u32> = OnceLock::new();
-    // os_random is expensive, but this is only ever called once
-    *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
+/// Process-wide `_Py_HashSecret`. The first top-level interpreter sets it;
+/// later calls keep that value.
+static HASH_SECRET: std::sync::OnceLock<HashSecret> = std::sync::OnceLock::new();
+
+/// Set the process-wide hash secret from the first top-level interpreter.
+///
+/// `hash_seed` is used only when the secret is not set yet. `None` draws a
+/// random seed. A later call keeps the existing secret and ignores `hash_seed`.
+pub(crate) fn init_hash_secret(hash_seed: Option<u32>) {
+    let _ = HASH_SECRET.get_or_init(|| {
+        let seed = hash_seed.unwrap_or_else(|| {
+            // os_random is expensive, but this runs only once per process.
+            u32::from_ne_bytes(rustpython_common::rand::os_random())
+        });
+        HashSecret::new(seed)
+    });
+}
+
+/// Process-wide `_Py_HashSecret` used for str/bytes hashing.
+#[inline]
+#[must_use]
+pub(crate) fn hash_secret() -> &'static HashSecret {
+    HASH_SECRET
+        .get()
+        .expect("hash secret is set by the first top-level interpreter")
 }
 
 /// A `NonNull<T>` wrapper that implements `Send + Sync`.
@@ -853,6 +1094,13 @@ impl Clone for PendingFrame {
 unsafe impl Send for PendingFrame {}
 unsafe impl Sync for PendingFrame {}
 
+/// Saved state from `gen_frame_link`, needed by `gen_frame_unlink` to
+/// restore the previous frame chain and the frame's owner.
+pub(crate) struct GenFrameLink {
+    old_chain: *const crate::frame::InterpreterFrame,
+    old_owner: i8,
+}
+
 /// Saved state from `enter_iframe`, needed by `exit_iframe` to restore
 /// the previous frame chain and exception state.
 pub(crate) struct IframeEntryState {
@@ -862,21 +1110,153 @@ pub(crate) struct IframeEntryState {
     pub(crate) save_exc: bool,
 }
 
+/// A generator or coroutine the bytecode loop asked the trampoline to resume.
+struct PendingGenResume {
+    /// The generator or coroutine object; an exact builtin one, neither
+    /// running nor closed when it was parked.
+    jen: PyObjectRef,
+    /// The value its `yield` produces.
+    value: PyObjectRef,
+    /// What the parking frame does with the outcome.
+    cont: crate::frame::GenCont,
+}
+
+/// Where a frame running under the trampoline came from, and therefore what
+/// the trampoline owes it when it finishes.
+///
+/// The trampoline is entered with one frame already running — `Entry` or
+/// `GenEntry` — and pushes one record per frame it enters itself.
+enum FrameKind {
+    /// The frame `run_frame_fast` was called with. Its caller allocated the
+    /// data stack storage and releases it, but the `enter_iframe`
+    /// bookkeeping is the trampoline's to undo.
+    Entry(IframeEntryState),
+    /// The body of a generator or coroutine, entered from `run_gen_frame`.
+    /// `resume_gen_frame` already linked it into the frame chain and will
+    /// unlink it, so the trampoline touches neither the bookkeeping nor the
+    /// storage; a `Yield` out of it is the trampoline's own result.
+    GenEntry,
+    /// A data stack frame the trampoline itself entered for a `TailCall`.
+    Callee(IframeEntryState),
+    /// A generator or coroutine frame the trampoline itself resumed for a
+    /// `GenResume`.
+    Gen(crate::coroutine::FlatResume),
+}
+
+impl FrameKind {
+    /// What a frame of this kind may hand back to the trampoline.
+    #[inline]
+    const fn flatten(&self) -> crate::frame::Flatten {
+        match self {
+            Self::Entry(_) | Self::Callee(_) => crate::frame::Flatten::CallAndGenResume,
+            Self::GenEntry | Self::Gen(_) => crate::frame::Flatten::GenResume,
+        }
+    }
+}
+
+/// Unique right to mutably run an interpreter frame in the trampoline.
+///
+/// Not `Copy`: two handles to the same allocation would let two
+/// `&mut InterpreterFrame` exist at once. `from_mut` consumes an exclusive
+/// borrow; `from_ptr` is `unsafe` and must not alias another live handle.
+/// Pointer validity (datastack LIFO, generator `PyRef` + running claim) is
+/// still a construction contract, not something this type can prove.
+struct TrampolineIFrame {
+    ptr: *mut crate::frame::InterpreterFrame,
+}
+
+impl TrampolineIFrame {
+    fn from_mut(iframe: &mut crate::frame::InterpreterFrame) -> Self {
+        Self { ptr: iframe }
+    }
+
+    /// # Safety
+    /// `ptr` must point to a live frame, and no other `TrampolineIFrame`
+    /// may alias it until this handle is dropped.
+    unsafe fn from_ptr(ptr: *mut crate::frame::InterpreterFrame) -> Self {
+        Self { ptr }
+    }
+
+    fn as_mut(&mut self) -> &mut crate::frame::InterpreterFrame {
+        // SAFETY: unique handle; construction established the pointer.
+        unsafe { &mut *self.ptr }
+    }
+}
+
 /// Caller frame suspended by a TailCall in the trampoline.
 struct SuspendedFrame {
-    iframe: *mut crate::frame::InterpreterFrame,
-    entry_state: IframeEntryState,
+    iframe: TrampolineIFrame,
+    kind: FrameKind,
     /// Function that owns the callee's raw pointers (code, globals, builtins,
     /// closure, and func_obj). Moved from `vm.pending_tailcall_owner` when the
     /// callee's TailCall is consumed.
     /// Dropped as soon as this SuspendedFrame is popped — the callee has
     /// returned or raised and its frame is already released by then.
-    callee_owner: PyObjectRef,
-    /// True for the initial frame passed into the trampoline by the caller.
-    /// The caller owns the datastack allocation for the entry frame, so the
-    /// trampoline must NOT release it — only callee-allocated frames are
-    /// released here.
-    is_entry: bool,
+    callee_owner: Option<PyObjectRef>,
+    /// What this frame does with the outcome of the frame it entered.
+    /// `GenCont::NONE` for an ordinary call, whose return value is simply
+    /// pushed.
+    cont: crate::frame::GenCont,
+}
+
+// SAFETY: the VM is per-thread, and a suspended-frame record is pushed, read
+// and popped only on the thread that created it. The pointers it holds address
+// that thread's data stack or objects it keeps alive, and the shared stack is
+// empty whenever no trampoline is running on the thread — so a VM handed to
+// another thread carries no frame pointers with it.
+unsafe impl Send for SuspendedFrame {}
+// SAFETY: as above; no two threads ever reach the same record.
+unsafe impl Sync for SuspendedFrame {}
+
+/// What a finished frame hands back to the frame that entered it.
+enum Outcome {
+    /// A returned value, to push onto the caller's stack.
+    Value(PyObjectRef),
+    /// A resumed generator came to an end, with the `StopIteration` value it
+    /// ended on.
+    GenStop(Option<PyObjectRef>),
+    /// An exception, to feed into the caller's exception table.
+    Raise(PyBaseExceptionRef),
+}
+
+/// How a trampoline invocation begins.
+enum TrampolineStart {
+    /// The entry frame ran and handed this back.
+    Ran(PyResult<crate::frame::ExecutionResult>),
+    /// The entry frame is parked at a `yield from`; its delegate runs in its
+    /// place, and `cont` says what to do with what the delegate produces.
+    Delegating {
+        delegate: PyObjectRef,
+        value: PyObjectRef,
+        cont: crate::frame::GenCont,
+    },
+}
+
+/// What `trampoline_resume_gen` ended up with.
+enum GenEntered {
+    /// The generator at the bottom of the chain ran and produced `result`;
+    /// `state` and `iframe` are its own.
+    Ran {
+        iframe: TrampolineIFrame,
+        state: crate::coroutine::FlatResume,
+        result: PyResult<crate::frame::ExecutionResult>,
+    },
+    /// Nothing was entered: the generator was exhausted, or the resume itself
+    /// failed. The outcome belongs to the frame that asked for the resume.
+    Failed(Outcome),
+}
+
+/// Whether a sequence being built asks the iterable it was handed how much room
+/// to take. `list_extend()` asks and reserves; `PySequence_Tuple()` and the
+/// rest ask nothing at all.
+#[derive(Clone, Copy)]
+enum LengthHint<'a> {
+    /// Grows as the loop goes, the way `tuple()`, `set()`, `min()` and
+    /// `deque()` do, so an object slow to answer is never asked.
+    Unasked,
+    /// Reserves what the iterable answers, unless it leaves no room for the
+    /// count this returns.
+    Iterable(&'a dyn Fn() -> usize),
 }
 
 impl VirtualMachine {
@@ -943,6 +1323,17 @@ impl VirtualMachine {
         thread::allow_threads(self, f)
     }
 
+    /// Re-attach the current thread for the duration of `f`, then return it to
+    /// where it was. The inverse of [`allow_threads`](Self::allow_threads), for
+    /// a callback that runs Python from inside a call this thread detached for.
+    ///
+    /// Equivalent to `PyGILState_Ensure` / `PyGILState_Release` around such a
+    /// callback.
+    #[inline]
+    pub fn attach_for_callback<R>(&self, f: impl FnOnce() -> R) -> R {
+        thread::attach_for_callback(self, f)
+    }
+
     /// Check whether the current thread is the main thread.
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
@@ -988,16 +1379,21 @@ impl VirtualMachine {
             exceptions: RefCell::default(),
             import_func,
             importlib,
+            import_timing: Cell::default(),
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
             signal_rx: None,
             repr_guards: RefCell::default(),
+            lazy_imports_resolving: RefCell::default(),
             state,
             initialized: false,
+            import_bootstrap_complete: false,
+            startup_error: None,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),
@@ -1006,30 +1402,24 @@ impl VirtualMachine {
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
+            context_stack: RefCell::default(),
             callable_cache: CallableCache::default(),
-            audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
+            pending_gen_resume: core::cell::UnsafeCell::new(None),
+            trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
-
-        if vm.state.hash_secret.hash_str("")
-            != vm
-                .ctx
-                .interned_str("")
-                .expect("empty str must be interned")
-                .hash(&vm)
-        {
-            panic!("Interpreters in same process must share the hash seed");
-        }
 
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
-            Some(vm.ctx.intern_str(stdlib::builtins::DOC.unwrap()).to_owned()),
+            crate::function::plain_doc(stdlib::builtins::DOC)
+                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
             &vm,
         );
         vm.sys_module.init_dict(
             vm.ctx.intern_str("sys"),
-            Some(vm.ctx.intern_str(stdlib::sys::DOC.unwrap()).to_owned()),
+            crate::function::plain_doc(stdlib::sys::DOC)
+                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
             &vm,
         );
         // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();
@@ -1041,6 +1431,9 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
+            if self.state.config.settings.home.is_some() {
+                return import_err;
+            }
             let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
             let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
@@ -1049,7 +1442,7 @@ impl VirtualMachine {
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
-                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::builder()`."
+                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules_with_resources(rustpython_pylib::FROZEN_STDLIB, rustpython_pylib::FROZEN_STDLIB_RESOURCES)` in `rustpython_vm::Interpreter::builder()`."
             } else if !env_set {
                 "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
             } else if path_contains_env {
@@ -1070,7 +1463,7 @@ impl VirtualMachine {
             }
 
             let err = self.new_runtime_error(msg);
-            err.set___cause__(Some(import_err));
+            err.set_cause(Some(import_err));
             err
         })?;
         Ok(())
@@ -1083,13 +1476,13 @@ impl VirtualMachine {
 
         // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
         // otherwise use underscored names (modules come from core_modules/).
-        let (ascii_module_name, utf8_module_name) = if cfg!(feature = "freeze-stdlib") {
-            ("encodings.ascii", "encodings.utf_8")
-        } else {
-            ("encodings_ascii", "encodings_utf_8")
-        };
+        let (ascii_module_name, utf8_module_name, latin1_module_name) =
+            if cfg!(feature = "freeze-stdlib") && self.state.config.settings.use_frozen_modules {
+                ("encodings.ascii", "encodings.utf_8", "encodings.latin_1")
+            } else {
+                ("encodings_ascii", "encodings_utf_8", "encodings_latin_1")
+            };
 
-        // Register ascii encoding
         // __import__("encodings.ascii") returns top-level "encodings", so
         // look up the actual submodule in sys.modules.
         self.import(ascii_module_name, 0)?;
@@ -1115,19 +1508,17 @@ impl VirtualMachine {
             .codec_registry
             .register_manual("utf8", utf8_codec);
 
-        // Register latin-1 / iso8859-1 aliases needed very early for stdio
-        // bootstrap (e.g. PYTHONIOENCODING=latin-1).
-        if cfg!(feature = "freeze-stdlib") {
-            self.import("encodings.latin_1", 0)?;
-            let latin1_module = sys_modules.get_item("encodings.latin_1", self)?;
-            let getregentry = latin1_module.get_attr("getregentry", self)?;
-            let codec_info = getregentry.call((), self)?;
-            let latin1_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
-            for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
-                self.state
-                    .codec_registry
-                    .register_manual(name, latin1_codec.clone());
-            }
+        // latin-1 is a built-in codec (needed very early for stdio bootstrap,
+        // e.g. PYTHONIOENCODING=latin-1).
+        self.import(latin1_module_name, 0)?;
+        let latin1_module = sys_modules.get_item(latin1_module_name, self)?;
+        let getregentry = latin1_module.get_attr("getregentry", self)?;
+        let codec_info = getregentry.call((), self)?;
+        let latin1_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
+        for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
+            self.state
+                .codec_registry
+                .register_manual(name, latin1_codec.clone());
         }
         Ok(())
     }
@@ -1144,7 +1535,17 @@ impl VirtualMachine {
             stdlib::_thread::init_main_thread_ident(self);
         }
 
+        let prewarmed_memory_errors: Vec<_> = (0..PyMemoryError::MAX_FREELIST)
+            .map(|_| self.no_memory_error())
+            .collect();
+        drop(prewarmed_memory_errors);
+
         stdlib::builtins::init_module(self, &self.builtins);
+        // Explicit lazy imports can occur in frozen startup code.
+        let lazy_callback = self.builtins.get_attr("__lazy_import__", self);
+        let lazy_callback =
+            self.expect_pyresult(lazy_callback, "failed to initialize lazy imports");
+        let _ = self.state.lazy_imports.default_callback.set(lazy_callback);
         let callable_cache_init = self.init_callable_cache();
         self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
@@ -1166,6 +1567,25 @@ impl VirtualMachine {
 
             {
                 let io = import::import_builtin(self, "_io")?;
+
+                // CPython normalizes configured stdio encodings to CodecInfo.name.
+                #[cfg(all(feature = "host_env", feature = "stdio"))]
+                let stdio_encoding: Option<PyRef<PyUtf8Str>> = self
+                    .state
+                    .config
+                    .settings
+                    .stdio_encoding
+                    .as_deref()
+                    .map(|encoding| {
+                        self.state
+                            .codec_registry
+                            .lookup(encoding, self)?
+                            .as_tuple()
+                            .as_object()
+                            .get_attr("name", self)?
+                            .try_into_value(self)
+                    })
+                    .transpose()?;
 
                 // Full stdio: FileIO → BufferedWriter → TextIOWrapper
                 #[cfg(all(feature = "host_env", feature = "stdio"))]
@@ -1193,7 +1613,7 @@ impl VirtualMachine {
                     let line_buffering = buffered_stdio && (isatty || fd == 2);
 
                     let newline = if cfg!(windows) { None } else { Some("\n") };
-                    let encoding = self.state.config.settings.stdio_encoding.as_deref();
+                    let encoding = stdio_encoding.clone();
                     // stderr always uses backslashreplace (ignores stdio_errors)
                     let errors = if fd == 2 {
                         Some("backslashreplace")
@@ -1244,9 +1664,7 @@ impl VirtualMachine {
 
                 // No stdio: set to None (embedding use case)
                 #[cfg(not(feature = "stdio"))]
-                let make_stdio = |_name: &str, _fd: i32, _write: bool| {
-                    Ok(crate::builtins::PyNone.into_pyobject(self))
-                };
+                let make_stdio = |_name: &str, _fd: i32, _write: bool| Ok(self.ctx.none());
 
                 let set_stdio = |name, fd, write| {
                     let stdio: PyObjectRef = make_stdio(name, fd, write)?;
@@ -1272,16 +1690,17 @@ impl VirtualMachine {
 
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
+        self.import_bootstrap_complete = true;
 
         #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library
             && cfg!(feature = "rustpython-compiler")
-            && let Err(e) = import::init_importlib_package(self, importlib)
+            && let Err(e) = import::init_importlib_package(self, &importlib)
         {
             eprintln!(
                 "importlib initialization failed. This is critical for many complicated packages."
             );
-            self.print_exception(e);
+            self.print_exception(&e);
         }
 
         #[cfg(not(feature = "host_env"))]
@@ -1293,10 +1712,14 @@ impl VirtualMachine {
         #[cfg(feature = "encodings")]
         if _expect_stdlib {
             if let Err(e) = self.import_encodings() {
-                eprintln!(
-                    "encodings initialization failed. Only utf-8 encoding will be supported."
-                );
-                self.print_exception(e);
+                if self.state.config.settings.home.is_some() {
+                    self.startup_error = Some(e);
+                } else {
+                    eprintln!(
+                        "encodings initialization failed. Only utf-8 encoding will be supported."
+                    );
+                    self.print_exception(&e);
+                }
             }
         } else {
             // Here may not be the best place to give general `path_list` advice,
@@ -1309,6 +1732,54 @@ impl VirtualMachine {
         }
 
         self.initialized = true;
+    }
+
+    /// Report an invalid explicit standard-library configuration to a command-line
+    /// host. Embedding applications may continue using the bootstrap codecs without calling this.
+    pub fn check_stdlib_initialization(&self) -> PyResult<()> {
+        let Some(error) = &self.startup_error else {
+            return Ok(());
+        };
+        let settings = &self.state.config.settings;
+        let paths = &self.state.config.paths;
+        let repr = |value: &str| {
+            self.ctx
+                .new_str(value)
+                .repr(self)
+                .unwrap_or_else(|_| "?".to_owned())
+        };
+        eprintln!("Python path configuration:");
+        eprintln!(
+            "  PYTHONHOME = {}",
+            settings
+                .home
+                .as_deref()
+                .map_or_else(|| "(not set)".to_owned(), repr)
+        );
+        eprintln!("  isolated = {}", u8::from(settings.isolated));
+        eprintln!("  environment = {}", u8::from(!settings.ignore_environment));
+        eprintln!("  sys.executable = {}", repr(&paths.executable));
+        eprintln!("  sys.prefix = {}", repr(&paths.prefix));
+        eprintln!("  sys.exec_prefix = {}", repr(&paths.exec_prefix));
+        eprintln!("  sys.path = [");
+        for path in &paths.module_search_paths {
+            eprintln!("    {},", repr(path));
+        }
+        eprintln!("  ]");
+        // A startup import failure is fatal even if the imported module raised
+        // SystemExit(0) or SystemExit(None). Keep its exception as the cause,
+        // without passing its exit code to ordinary user-code finalization.
+        let startup_error = self.new_runtime_error("Failed to import encodings module");
+        startup_error.set_cause(Some(error.clone()));
+        Err(startup_error)
+    }
+
+    /// Apply configured global lazy imports after startup imports, including site.
+    /// Hosts that perform their own main-module setup can call this at that boundary.
+    pub fn apply_startup_lazy_imports(&self) {
+        if self.state.config.settings.lazy_imports == 1 {
+            self.state.lazy_imports.all.store(true, Ordering::Release);
+        }
     }
 
     /// Set the custom signal channel for the interpreter
@@ -1339,7 +1810,7 @@ impl VirtualMachine {
     /// ```no_run
     /// use rustpython_vm::Interpreter;
     /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
-    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-314.pyc").unwrap();
+    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-315.pyc").unwrap();
     ///     let main_scope = vm.new_scope_with_main().unwrap();
     ///     vm.run_pyc_bytes(&bytes, main_scope);
     /// });
@@ -1366,46 +1837,76 @@ impl VirtualMachine {
 
         // Create a function object for module code, similar to PyEval_EvalCode
         let mut func = PyFunction::new(code, scope.globals.clone(), self)?;
-        func.closure = closure;
+        if let Some(closure) = closure {
+            func.closure = Some(closure);
+        }
         let func = func.into_ref(&self.ctx);
         func.invoke_with_locals(FuncArgs::default(), scope.locals, self)
     }
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        // During interpreter finalization, sys.unraisablehook may not be available,
-        // but we still need to report exceptions (especially from atexit callbacks).
-        // Write directly to stderr like PyErr_FormatUnraisable.
-        if self.state.finalizing.load(Ordering::Acquire) {
+        self.run_unraisable_with_message(e, msg.map(|msg| self.ctx.new_str(msg)), object);
+    }
+
+    #[cold]
+    pub(crate) fn run_unraisable_with_message(
+        &self,
+        e: PyBaseExceptionRef,
+        msg: Option<PyStrRef>,
+        object: PyObjectRef,
+    ) {
+        let write_original = || {
+            let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
+        };
+        // During finalization the hook may no longer exist.
+        if self.state.finalizing.load(Ordering::Acquire) {
+            write_original();
             return;
         }
-
-        let sys_module = self.import("sys", 0).unwrap();
-        let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
-
-        let exc_type = e.class().to_owned();
-        let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
-        let exc_value = e.into();
-        let args = stdlib::sys::UnraisableHookArgsData {
-            exc_type,
-            exc_value,
-            exc_traceback,
-            err_msg: self.new_pyobj(msg),
-            object,
+        let Some(unraisablehook) = self.sys_module.get_attr("unraisablehook", self).ok() else {
+            write_original();
+            return;
         };
-        if let Err(e) = unraisablehook.call((args,), self) {
-            println!("{}", e.as_object().repr(self).unwrap());
+        let args = stdlib::sys::UnraisableHookArgsData {
+            exc_type: e.class().to_owned(),
+            exc_value: e.clone().into(),
+            exc_traceback: e.traceback().to_pyobject(self),
+            err_msg: msg.clone().to_pyobject(self),
+            object: object.clone(),
+        }
+        .to_pyobject(self);
+        if let Err(error) = self.audit("sys.unraisablehook", || {
+            (unraisablehook.clone(), args.clone())
+        }) {
+            self.write_unraisable_to_stderr(
+                &error,
+                Some("Exception ignored in audit hook"),
+                &self.ctx.none(),
+            );
+            return;
+        }
+        if self.is_none(&unraisablehook) {
+            write_original();
+            return;
+        }
+        if let Err(error) = unraisablehook.call((args,), self) {
+            self.write_unraisable_to_stderr(
+                &error,
+                Some("Exception ignored in sys.unraisablehook"),
+                &unraisablehook,
+            );
         }
     }
 
-    /// Write unraisable exception to stderr during finalization.
+    /// Write an unraisable exception when its hook cannot be used.
     /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
     fn write_unraisable_to_stderr(
         &self,
-        e: &PyBaseExceptionRef,
+        e: &Py<PyBaseException>,
         msg: Option<&str>,
-        object: &PyObjectRef,
+        object: &PyObject,
     ) {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();
@@ -1437,15 +1938,29 @@ impl VirtualMachine {
             write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
         }
 
-        // Write exception type and message
-        let exc_type_name = e.class().name();
-        let msg = match e.as_object().str(self) {
-            Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
-                format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
+        // Print the existing traceback without importing Python modules;
+        // this path must also work while the interpreter is finalizing.
+        if let Some(traceback) = e.traceback() {
+            if let Some(stderr) = &stderr {
+                let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+            } else {
+                let mut writer = crate::py_io::IoWriter(std::io::stderr());
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
             }
-            _ => format!("{exc_type_name}\n"),
+        }
+        let exc_type_name = e
+            .class()
+            .fully_qualified_name(self)
+            .unwrap_or_else(|_| e.class().name().to_string());
+        let message = match e.as_object().str(self) {
+            Ok(value) if !value.as_wtf8().is_empty() => {
+                format!("{exc_type_name}: {}\n", value.as_wtf8())
+            }
+            Ok(_) => format!("{exc_type_name}\n"),
+            Err(_) => format!("{exc_type_name}: <exception str() failed>\n"),
         };
-        write_to_stderr(&msg, &stderr, self);
+        write_to_stderr(&message, &stderr, self);
 
         // Flush stderr to ensure output is visible
         if let Some(ref stderr) = stderr {
@@ -1479,6 +1994,60 @@ impl VirtualMachine {
             .expect("TailCall without pending owner")
     }
 
+    /// Park a generator for the trampoline to resume, along with the value
+    /// to send it and what this frame does with the outcome. The bytecode
+    /// loop then returns `ExecutionResult::GenResume`.
+    #[inline]
+    pub(crate) fn set_pending_gen_resume(
+        &self,
+        jen: PyObjectRef,
+        value: PyObjectRef,
+        cont: crate::frame::GenCont,
+    ) {
+        // SAFETY: per-thread VM; the slot is written here and taken by the
+        // trampoline before anything else can run.
+        let slot = unsafe { &mut *self.pending_gen_resume.get() };
+        debug_assert!(slot.is_none(), "pending GenResume was not consumed");
+        *slot = Some(PendingGenResume { jen, value, cont });
+    }
+
+    /// Take the parked generator resume, resetting the side channel.
+    #[inline]
+    fn take_pending_gen_resume(&self) -> PendingGenResume {
+        // SAFETY: per-thread VM; see `set_pending_gen_resume`.
+        unsafe { &mut *self.pending_gen_resume.get() }
+            .take()
+            .expect("GenResume without a parked generator")
+    }
+
+    /// Suspend a frame on the trampoline's shared stack.
+    #[inline]
+    fn trampoline_push(&self, frame: SuspendedFrame) {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        unsafe { (*self.trampoline_stack.get()).push(frame) }
+    }
+
+    /// Take back the innermost frame this trampoline invocation suspended, or
+    /// `None` once it has taken back all of them.
+    #[inline]
+    fn trampoline_pop(&self, base: usize) -> Option<SuspendedFrame> {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        let stack = unsafe { &mut *self.trampoline_stack.get() };
+        if stack.len() > base {
+            stack.pop()
+        } else {
+            None
+        }
+    }
+
+    /// How many frames the trampoline's shared stack holds; the base a nested
+    /// invocation must not pop below.
+    #[inline]
+    fn trampoline_depth(&self) -> usize {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        unsafe { (*self.trampoline_stack.get()).len() }
+    }
+
     /// Take the pending tailcall frame pointer, resetting the side channel.
     #[inline(always)]
     fn take_pending_tailcall(&self) -> *mut crate::frame::InterpreterFrame {
@@ -1489,23 +2058,33 @@ impl VirtualMachine {
             .as_ptr()
     }
 
-    #[inline(always)]
     /// Run a stack-allocated InterpreterFrame without heap allocation.
     /// Uses a trampoline loop to flatten Python-to-Python calls: when the
     /// bytecode loop returns `TailCall`, the trampoline swaps to the new
     /// frame without adding a Rust stack frame.
+    #[inline(always)]
     pub fn run_frame_fast(&self, iframe: &mut crate::frame::InterpreterFrame) -> PyResult {
         use crate::frame::ExecutionResult;
 
         let entry_state = self.enter_iframe(iframe)?;
-        let result = crate::frame::run_iframe(iframe, self);
+        let result =
+            crate::frame::run_iframe(iframe, crate::frame::Flatten::CallAndGenResume, self);
 
         match result {
             Ok(ExecutionResult::Return(value)) => {
                 self.exit_iframe(entry_state);
                 Ok(value)
             }
-            Ok(ExecutionResult::TailCall) => self.run_frame_fast_trampoline(iframe, entry_state),
+            Ok(first @ (ExecutionResult::TailCall | ExecutionResult::GenResume)) => {
+                match self.run_trampoline(
+                    iframe,
+                    FrameKind::Entry(entry_state),
+                    TrampolineStart::Ran(Ok(first)),
+                )? {
+                    ExecutionResult::Return(value) => Ok(value),
+                    _ => panic!("non-return result from a plain call frame"),
+                }
+            }
             Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
             Err(exc) => {
                 self.exit_iframe(entry_state);
@@ -1514,250 +2093,379 @@ impl VirtualMachine {
         }
     }
 
-    /// Cold path: at least one TailCall was issued. Run the trampoline.
+    /// Run the body of a generator or coroutine whose frame is already linked
+    /// into the frame chain (see `resume_gen_frame`), flattening the ordinary
+    /// Python calls it makes through the same trampoline `run_frame_fast`
+    /// uses.
+    ///
+    /// The frame is heap-resident and its resume bookkeeping belongs to the
+    /// caller, so the trampoline neither enters nor exits it and hands back
+    /// its `Yield` unchanged.
+    #[inline(always)]
+    pub(crate) fn run_gen_frame(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+    ) -> PyResult<ExecutionResult> {
+        match crate::frame::run_iframe(iframe, crate::frame::Flatten::GenResume, self) {
+            Ok(first @ (ExecutionResult::TailCall | ExecutionResult::GenResume)) => {
+                self.run_trampoline(iframe, FrameKind::GenEntry, TrampolineStart::Ran(Ok(first)))
+            }
+            result => result,
+        }
+    }
+
+    /// Resume a generator body that is itself parked at a `yield from`, by
+    /// running its delegate in its place — the same collapse the trampoline
+    /// applies to the levels below, extended to the outermost one, which is
+    /// where every `Coro::send` from Rust (asyncio's task step, `next()`)
+    /// enters a chain.
+    #[inline(always)]
+    pub(crate) fn run_gen_frame_delegating(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        delegate: PyObjectRef,
+        value: PyObjectRef,
+        cont: crate::frame::GenCont,
+    ) -> PyResult<ExecutionResult> {
+        self.run_trampoline(
+            iframe,
+            FrameKind::GenEntry,
+            TrampolineStart::Delegating {
+                delegate,
+                value,
+                cont,
+            },
+        )
+    }
+
+    /// Run a frame under the trampoline the way its kind calls for: an
+    /// ordinary frame may tail-call, a generator body may not.
+    #[inline(always)]
+    fn trampoline_run(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        kind: &FrameKind,
+    ) -> PyResult<ExecutionResult> {
+        crate::frame::run_iframe(iframe, kind.flatten(), self)
+    }
+
+    /// Free a callee frame's data stack storage, if it still owns any.
+    #[inline]
+    fn release_trampoline_callee(&self, mut iframe: TrampolineIFrame) {
+        // SAFETY: the callee has finished; its storage is the top of this
+        // thread's data stack because frames are released in LIFO order.
+        unsafe {
+            if let Some((base, size)) = iframe.as_mut().release_datastack_frame() {
+                self.datastack_pop_frame(base, size);
+            }
+        }
+    }
+
+    /// Resume a generator parked for the trampoline, walking straight down a
+    /// `yield from` / `await` chain: every frame it finds suspended at a
+    /// `yield from` whose delegate can be resumed is parked without running an
+    /// instruction of its own, and the value is handed a level further down.
+    ///
+    /// Each level is still claimed, linked and (later) unlinked exactly as a
+    /// recursive `Coro::send` would, so `gi_running`, `f_back`, `gi_frame`,
+    /// tracebacks and `sys._getframe` see the same chain; only the frames'
+    /// `SEND`/`YIELD_VALUE`/`RESUME`/`JUMP_BACKWARD` dispatch is skipped,
+    /// which is what [`crate::frame::yield_from_delegate`] proves redundant.
+    fn trampoline_resume_gen(&self, jen: PyObjectRef, value: PyObjectRef) -> GenEntered {
+        use crate::coroutine::FlatEnter;
+
+        let mut jen = jen;
+        let mut value = value;
+        loop {
+            let (state, sent) = match crate::coroutine::flat_resume_enter(jen, value, self) {
+                Ok(FlatEnter::Entered { state, value }) => (state, value),
+                Ok(FlatEnter::Exhausted) => {
+                    return GenEntered::Failed(Outcome::GenStop(None));
+                }
+                Err(exc) => return GenEntered::Failed(Outcome::Raise(exc)),
+            };
+            // SAFETY: the frame is linked and claimed, so this thread is its
+            // only executor for as long as the handle below lives.
+            let mut iframe = unsafe { TrampolineIFrame::from_ptr(state.iframe_ptr()) };
+            if let Some(sent) = sent {
+                if let Some((delegate, cont)) =
+                    crate::frame::yield_from_delegate(iframe.as_mut(), self)
+                    && crate::frame::gen_collapse_allowed(self)
+                {
+                    crate::frame::park_at_send(iframe.as_mut(), cont);
+                    self.trampoline_push(SuspendedFrame {
+                        iframe,
+                        kind: FrameKind::Gen(state),
+                        callee_owner: None,
+                        cont,
+                    });
+                    jen = delegate;
+                    value = sent;
+                    continue;
+                }
+                iframe.as_mut().localsplus.push_stack(sent);
+            }
+            let result =
+                crate::frame::run_iframe(iframe.as_mut(), crate::frame::Flatten::GenResume, self);
+            return GenEntered::Ran {
+                iframe,
+                state,
+                result,
+            };
+        }
+    }
+
+    /// Unlink a generator frame that has finished a resume and turn what it
+    /// produced into the outcome its caller is waiting for.
+    fn trampoline_finish_gen(
+        &self,
+        state: crate::coroutine::FlatResume,
+        result: PyResult<ExecutionResult>,
+    ) -> Outcome {
+        match crate::coroutine::flat_resume_exit(state, result, self) {
+            Ok(PyIterReturn::Return(value)) => Outcome::Value(value),
+            Ok(PyIterReturn::StopIteration(value)) => Outcome::GenStop(value),
+            Err(exc) => Outcome::Raise(exc),
+        }
+    }
+
+    /// Cold path: the entry frame handed something to the trampoline. Run it.
     /// All frame dispatch happens in this single loop — no mutual recursion
     /// between helper functions, so C stack depth is bounded.
     #[cold]
     #[inline(never)]
-    fn run_frame_fast_trampoline(
+    fn run_trampoline(
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
-        entry_state: IframeEntryState,
-    ) -> PyResult {
+        kind: FrameKind,
+        start: TrampolineStart,
+    ) -> PyResult<ExecutionResult> {
         use crate::frame::ExecutionResult;
 
-        let mut frame_stack: Vec<SuspendedFrame> = Vec::with_capacity(8);
+        let iframe = TrampolineIFrame::from_mut(iframe);
 
-        // What we need to do next.
+        /// What the loop does next. Deliberately small, and holding no frame
+        /// state: every ordinary Python-to-Python call passes through here.
         enum Action {
-            /// Enter and run a new callee frame (pointer from pending_tailcall_frame).
-            EnterCallee(*mut crate::frame::InterpreterFrame),
-            /// Push a return value onto the next caller and re-enter it.
-            ReturnValue(PyObjectRef),
-            /// Propagate an exception through suspended callers.
-            Unwind(PyBaseExceptionRef),
+            /// Enter and run the data stack frame a `TailCall` prepared.
+            EnterCallee(TrampolineIFrame),
+            /// Resume the generator a `GenResume` parked, walking down its
+            /// `yield from` chain.
+            ResumeGen {
+                jen: PyObjectRef,
+                value: PyObjectRef,
+            },
+            /// Hand an outcome to the frame on top of the trampoline's stack.
+            Deliver(Outcome),
         }
 
-        let initial_ptr = self.take_pending_tailcall();
-        let initial_owner = self.take_pending_tailcall_owner();
-        frame_stack.push(SuspendedFrame {
-            iframe: iframe as *mut crate::frame::InterpreterFrame,
-            entry_state,
-            callee_owner: initial_owner,
-            is_entry: true,
-        });
-        let mut action = Action::EnterCallee(initial_ptr);
+        // Frames this invocation suspends live above `base` on the VM's
+        // shared trampoline stack, reused across invocations so that entering
+        // the trampoline — which a generator body does on every resume —
+        // costs no allocation. Every exit below has already popped them.
+        let base = self.trampoline_depth();
 
-        loop {
-            match action {
-                Action::EnterCallee(callee_ptr) => {
-                    let callee = unsafe { &mut *callee_ptr };
-                    let callee_entry = match self.enter_iframe_unchecked(callee) {
-                        Ok(state) => state,
-                        Err(exc) => {
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                            continue;
-                        }
-                    };
-
-                    let result = crate::frame::run_iframe(callee, self);
-                    match result {
-                        Ok(ExecutionResult::TailCall) => {
-                            let callee_owner = self.take_pending_tailcall_owner();
-                            frame_stack.push(SuspendedFrame {
-                                iframe: callee_ptr,
-                                entry_state: callee_entry,
-                                callee_owner,
-                                is_entry: false,
-                            });
-                            action = Action::EnterCallee(self.take_pending_tailcall());
-                        }
-                        Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(callee_entry);
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::ReturnValue(value);
-                        }
-                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
-                        Err(exc) => {
-                            self.exit_iframe(callee_entry);
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                        }
+        // Turn what a frame produced into the next `Action`, suspending the
+        // frame if it wants to enter another and unlinking it if it is done.
+        // A finished entry frame returns out of the trampoline.
+        macro_rules! dispatch {
+            ($iframe:expr, $kind:expr, $result:expr) => {{
+                let iframe = $iframe;
+                let kind = $kind;
+                match $result {
+                    Ok(ExecutionResult::TailCall) => {
+                        let callee_owner = self.take_pending_tailcall_owner();
+                        // SAFETY: the callee was just allocated on this
+                        // thread's data stack; this is the first handle.
+                        let callee =
+                            unsafe { TrampolineIFrame::from_ptr(self.take_pending_tailcall()) };
+                        self.trampoline_push(SuspendedFrame {
+                            iframe,
+                            kind,
+                            callee_owner: Some(callee_owner),
+                            cont: crate::frame::GenCont::NONE,
+                        });
+                        Action::EnterCallee(callee)
                     }
-                }
-
-                Action::ReturnValue(value) => {
-                    let Some(caller) = frame_stack.pop() else {
-                        // All frames consumed — this is the final return.
-                        return Ok(value);
-                    };
-                    let SuspendedFrame {
-                        iframe: caller_iframe_ptr,
-                        entry_state: caller_entry,
-                        callee_owner,
-                        is_entry: caller_is_entry,
-                    } = caller;
-                    // The callee's frame was released before this action was
-                    // formed, and a materialized frame object holds its own
-                    // references, so nothing borrows the callee's function any
-                    // more. Release it here, at the callee's return, rather than
-                    // holding it across the caller's next stretch of bytecode.
-                    drop(callee_owner);
-                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
-                    caller_iframe.localsplus.push_stack(value);
-
-                    let result = crate::frame::run_iframe(caller_iframe, self);
-                    match result {
-                        Ok(ExecutionResult::TailCall) => {
-                            let next_callee_owner = self.take_pending_tailcall_owner();
-                            frame_stack.push(SuspendedFrame {
-                                iframe: caller_iframe_ptr,
-                                entry_state: caller_entry,
-                                callee_owner: next_callee_owner,
-                                is_entry: caller_is_entry,
-                            });
-                            action = Action::EnterCallee(self.take_pending_tailcall());
-                        }
-                        Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::ReturnValue(value);
-                        }
-                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
-                        Err(exc) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                        }
+                    Ok(ExecutionResult::GenResume) => {
+                        let PendingGenResume { jen, value, cont } = self.take_pending_gen_resume();
+                        // The generator owns its own frame and everything the
+                        // frame borrows, so this record needs no callee owner.
+                        self.trampoline_push(SuspendedFrame {
+                            iframe,
+                            kind,
+                            callee_owner: None,
+                            cont,
+                        });
+                        Action::ResumeGen { jen, value }
                     }
-                }
-
-                Action::Unwind(exc) => {
-                    let Some(caller) = frame_stack.pop() else {
-                        return Err(exc);
-                    };
-                    let SuspendedFrame {
-                        iframe: caller_iframe_ptr,
-                        entry_state: caller_entry,
-                        callee_owner,
-                        is_entry: caller_is_entry,
-                    } = caller;
-                    // Released at the callee's return, for the same reason as
-                    // in `ReturnValue`: the exception carries owned references
-                    // through its traceback, not borrows into the callee frame.
-                    drop(callee_owner);
-                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
-
-                    let handled =
-                        crate::frame::trampoline_handle_exception(caller_iframe, &exc, self);
-
-                    match handled {
-                        Ok(None) => {
-                            // Handler found — resume the caller's dispatch loop.
-                            let result = crate::frame::run_iframe(caller_iframe, self);
+                    // The frame is done; undo the entry bookkeeping its kind
+                    // calls for and hand its outcome on.
+                    result => match kind {
+                        FrameKind::GenEntry => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            return result;
+                        }
+                        FrameKind::Entry(state) => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            self.exit_iframe(state);
+                            return match result {
+                                Ok(ExecutionResult::Yield(_)) => {
+                                    panic!("Yield in non-generator frame")
+                                }
+                                result => result,
+                            };
+                        }
+                        FrameKind::Callee(state) => {
+                            self.exit_iframe(state);
+                            self.release_trampoline_callee(iframe);
                             match result {
-                                Ok(ExecutionResult::TailCall) => {
-                                    let next_callee_owner = self.take_pending_tailcall_owner();
-                                    frame_stack.push(SuspendedFrame {
-                                        iframe: caller_iframe_ptr,
-                                        entry_state: caller_entry,
-                                        callee_owner: next_callee_owner,
-                                        is_entry: caller_is_entry,
-                                    });
-                                    action = Action::EnterCallee(self.take_pending_tailcall());
-                                }
                                 Ok(ExecutionResult::Return(value)) => {
-                                    self.exit_iframe(caller_entry);
-                                    if !caller_is_entry {
-                                        unsafe {
-                                            if let Some((base, size)) =
-                                                caller_iframe.release_datastack_frame()
-                                            {
-                                                self.datastack_pop_frame(base, size);
-                                            }
-                                        }
-                                    }
-                                    action = Action::ReturnValue(value);
+                                    Action::Deliver(Outcome::Value(value))
                                 }
                                 Ok(ExecutionResult::Yield(_)) => {
                                     panic!("Yield in non-generator frame")
                                 }
-                                Err(new_exc) => {
-                                    self.exit_iframe(caller_entry);
-                                    if !caller_is_entry {
-                                        unsafe {
-                                            if let Some((base, size)) =
-                                                caller_iframe.release_datastack_frame()
-                                            {
-                                                self.datastack_pop_frame(base, size);
-                                            }
-                                        }
-                                    }
-                                    action = Action::Unwind(new_exc);
-                                }
+                                Ok(_) => unreachable!("unfinished frame result"),
+                                Err(exc) => Action::Deliver(Outcome::Raise(exc)),
                             }
                         }
-                        Ok(Some(ExecutionResult::Return(value))) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::ReturnValue(value);
+                        FrameKind::Gen(state) => {
+                            Action::Deliver(self.trampoline_finish_gen(state, result))
                         }
-                        Ok(Some(_)) => {
-                            panic!("Unexpected execution result in trampoline unwind")
+                    },
+                }
+            }};
+        }
+
+        let mut action = match start {
+            TrampolineStart::Ran(result) => dispatch!(iframe, kind, result),
+            TrampolineStart::Delegating {
+                delegate,
+                value,
+                cont,
+            } => {
+                self.trampoline_push(SuspendedFrame {
+                    iframe,
+                    kind,
+                    callee_owner: None,
+                    cont,
+                });
+                Action::ResumeGen {
+                    jen: delegate,
+                    value,
+                }
+            }
+        };
+
+        loop {
+            action = match action {
+                Action::EnterCallee(mut callee) => {
+                    match self.enter_iframe_unchecked(callee.as_mut()) {
+                        Ok(state) => {
+                            let result = crate::frame::run_iframe(
+                                callee.as_mut(),
+                                crate::frame::Flatten::CallAndGenResume,
+                                self,
+                            );
+                            dispatch!(callee, FrameKind::Callee(state), result)
                         }
-                        Err(new_exc) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::Unwind(new_exc);
+                        Err(exc) => {
+                            self.release_trampoline_callee(callee);
+                            Action::Deliver(Outcome::Raise(exc))
                         }
                     }
                 }
-            }
+
+                Action::ResumeGen { jen, value } => match self.trampoline_resume_gen(jen, value) {
+                    GenEntered::Ran {
+                        iframe,
+                        state,
+                        result,
+                    } => dispatch!(iframe, FrameKind::Gen(state), result),
+                    GenEntered::Failed(outcome) => Action::Deliver(outcome),
+                },
+
+                Action::Deliver(outcome) => {
+                    // Every frame the trampoline enters is entered from a
+                    // frame it has already suspended, so an outcome always has
+                    // a caller waiting for it.
+                    let SuspendedFrame {
+                        mut iframe,
+                        kind,
+                        callee_owner,
+                        cont,
+                    } = self
+                        .trampoline_pop(base)
+                        .expect("trampoline outcome with no frame to deliver it to");
+                    // The callee's frame was released before this outcome was
+                    // formed, and a materialized frame object holds its own
+                    // references, so nothing borrows the callee's function any
+                    // more. Release it here, at the callee's return, rather
+                    // than holding it across the caller's next stretch of
+                    // bytecode.
+                    drop(callee_owner);
+                    match outcome {
+                        // A frame parked mid `yield from` re-yields what its
+                        // delegate produced, running no instruction of its own.
+                        Outcome::Value(value)
+                            if cont.is_some() && crate::frame::gen_collapse_allowed(self) =>
+                        {
+                            crate::frame::park_after_yield_from(iframe.as_mut(), cont.resumed_at);
+                            match kind {
+                                FrameKind::Gen(state) => {
+                                    Action::Deliver(self.trampoline_finish_gen(
+                                        state,
+                                        Ok(ExecutionResult::Yield(value)),
+                                    ))
+                                }
+                                // The entry frame re-yields the same way, which
+                                // ends this invocation: its resume bookkeeping
+                                // is its caller's, not the trampoline's.
+                                kind => {
+                                    debug_assert!(matches!(kind, FrameKind::GenEntry));
+                                    debug_assert_eq!(self.trampoline_depth(), base);
+                                    return Ok(ExecutionResult::Yield(value));
+                                }
+                            }
+                        }
+                        Outcome::Value(value) => {
+                            iframe.as_mut().localsplus.push_stack(value);
+                            let result = self.trampoline_run(iframe.as_mut(), &kind);
+                            dispatch!(iframe, kind, result)
+                        }
+                        Outcome::GenStop(value) => {
+                            debug_assert!(
+                                cont.is_some(),
+                                "a generator finished with no continuation to apply"
+                            );
+                            let result = match crate::frame::trampoline_gen_stop(
+                                iframe.as_mut(),
+                                value,
+                                cont,
+                                self,
+                            ) {
+                                Ok(()) => self.trampoline_run(iframe.as_mut(), &kind),
+                                Err(exc) => Err(exc),
+                            };
+                            dispatch!(iframe, kind, result)
+                        }
+                        Outcome::Raise(exc) => {
+                            let result = match crate::frame::trampoline_handle_exception(
+                                iframe.as_mut(),
+                                &exc,
+                                self,
+                            ) {
+                                // Handler found — resume the caller's loop.
+                                Ok(None) => self.trampoline_run(iframe.as_mut(), &kind),
+                                Ok(Some(result)) => Ok(result),
+                                Err(exc) => Err(exc),
+                            };
+                            dispatch!(iframe, kind, result)
+                        }
+                    }
+                }
+            };
         }
     }
 
@@ -1783,9 +2491,7 @@ impl VirtualMachine {
         path: &str,
         run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
     ) -> PyResult<()> {
-        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
-        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
-        let module_dict = main_module.dict().expect("main module must have __dict__");
+        let module_dict = self.add_main_module()?.dict();
 
         // Track whether we set __file__ (for cleanup)
         let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
@@ -1795,17 +2501,15 @@ impl VirtualMachine {
                 self.ctx.new_str(path).into(),
                 self,
             )?;
-            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
         }
 
         let result = run(&module_dict);
 
         self.flush_io();
 
-        // Cleanup __file__ and __cached__ after execution
+        // Cleanup __file__ after execution
         if set_file_name {
             let _ = module_dict.del_item(identifier!(self, __file__), self);
-            let _ = module_dict.del_item(identifier!(self, __cached__), self);
         }
 
         result
@@ -2011,7 +2715,7 @@ impl VirtualMachine {
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     // 2× CPython's _PY_STACK_MARGIN_BYTES to account for both heavy and
     // light frame native stack usage per recursion step.
-    const STACK_MARGIN_BYTES: usize =
+    pub(crate) const STACK_MARGIN_BYTES: usize =
         (if cfg!(debug_assertions) { 16384 } else { 4096 }) * core::mem::size_of::<usize>();
 
     /// How deep native recursion may go where the stack cannot be measured
@@ -2120,6 +2824,31 @@ impl VirtualMachine {
         false
     }
 
+    /// Enter a native-recursion section equivalent to `Py_EnterRecursiveCall`.
+    pub fn enter_recursive_call(&self, _where: &str) -> PyResult<()> {
+        #[cfg(any(miri, target_env = "musl"))]
+        let counted_too_deep =
+            self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
+        #[cfg(not(any(miri, target_env = "musl")))]
+        let counted_too_deep = false;
+
+        if counted_too_deep || self.check_c_stack_overflow() {
+            return Err(self.new_recursion_depth_error(_where));
+        }
+
+        #[cfg(any(miri, target_env = "musl"))]
+        self.native_recursion_depth.update(|d| d + 1);
+
+        Ok(())
+    }
+
+    /// Leave a native-recursion section equivalent to
+    /// `Py_LeaveRecursiveCall`.
+    pub fn leave_recursive_call(&self) {
+        #[cfg(any(miri, target_env = "musl"))]
+        self.native_recursion_depth.update(|d| d.saturating_sub(1));
+    }
+
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
@@ -2138,9 +2867,7 @@ impl VirtualMachine {
         let counted_too_deep = false;
 
         if counted_too_deep || self.check_c_stack_overflow() {
-            return Err(
-                self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
-            );
+            return Err(self.new_recursion_depth_error(_where));
         }
 
         #[cfg(any(miri, target_env = "musl"))]
@@ -2159,16 +2886,34 @@ impl VirtualMachine {
         frame: FrameObjectRef,
         f: F,
     ) -> PyResult<R> {
+        self.with_frame_impl::<true, R, F>(frame, f)
+    }
+
+    /// Run the incomplete frame of a generator being created. Its caller link
+    /// must not escape, as RETURN_GENERATOR copies the frame with
+    /// `previous = NULL`.
+    pub(crate) fn with_generator_frame<R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
+        &self,
+        frame: FrameObjectRef,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl::<false, R, F>(frame, f)
+    }
+
+    fn with_frame_impl<const RETAIN_BACK: bool, R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
+        &self,
+        frame: FrameObjectRef,
+        f: F,
+    ) -> PyResult<R> {
         self.check_recursive_call("")?;
 
-        // Check the native C stack periodically.  The sampling interval
-        // (every 8th call) balances overhead against the risk of missing
-        // an overflow between checks, especially when light and heavy
-        // frames alternate (each recursion step uses different native
-        // stack amounts).
-        let depth = self.recursion_depth.get();
-        if depth & 7 == 0 && self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
+        // Every entry, not every eighth. The margin only has to cover what a
+        // single frame takes if the check runs each time; sampling asks it to
+        // cover eight, and a recursion whose steps re-enter through native
+        // code -- an `__add__` chain, a sort key that sorts -- takes more than
+        // the margin in that many.
+        if self.check_c_stack_overflow() {
+            return Err(self.new_recursion_depth_error(""));
         }
 
         self.recursion_depth.update(|d| d + 1);
@@ -2205,7 +2950,7 @@ impl VirtualMachine {
 
         // Capture f_back before clearing previous so code holding a
         // reference to this FrameObject can walk the chain after return.
-        if !old_chain.is_null() {
+        if RETAIN_BACK && !old_chain.is_null() {
             let strong = frame.as_object().strong_count();
             // Only set retained_back if someone else holds a reference (escaped)
             // AND the caller already has a FrameObject. Materializing the caller
@@ -2216,8 +2961,11 @@ impl VirtualMachine {
             if strong > 1 {
                 let mut guard = frame.iframe().cold().retained_back.lock();
                 if guard.is_none() {
-                    let prev_iframe = unsafe { &*old_chain };
-                    if let Some(fo) = prev_iframe.frame_obj() {
+                    // SAFETY: old_chain remains live until this synchronous entry exits.
+                    let visible = unsafe { crate::frame::first_complete_iframe(old_chain) };
+                    if let Some(prev_iframe) = unsafe { visible.as_ref() }
+                        && let Some(fo) = prev_iframe.frame_obj()
+                    {
                         *guard = Some(fo.to_owned());
                     }
                 }
@@ -2261,11 +3009,7 @@ impl VirtualMachine {
     ) -> PyResult<IframeEntryState> {
         self.check_recursive_call("")?;
 
-        let depth = self.recursion_depth.get();
-        if depth & 7 == 0 && self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
-        }
-
+        // The C stack is checked by `enter_iframe_unchecked` below.
         self.enter_iframe_unchecked(iframe)
     }
 
@@ -2278,9 +3022,8 @@ impl VirtualMachine {
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
     ) -> PyResult<IframeEntryState> {
-        let depth = self.recursion_depth.get();
-        if depth & 7 == 0 && self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
+        if self.check_c_stack_overflow() {
+            return Err(self.new_recursion_depth_error(""));
         }
 
         self.recursion_depth.update(|d| d + 1);
@@ -2348,8 +3091,9 @@ impl VirtualMachine {
                 // The slots above are the last write this thread makes into
                 // the frame object, so it is now readable from anywhere.
                 fo.iframe().detach();
-                if !old_chain.is_null() {
-                    let prev_iframe = unsafe { &*old_chain };
+                // SAFETY: old_chain belongs to this still-active thread chain.
+                let visible = unsafe { crate::frame::first_complete_iframe(old_chain) };
+                if let Some(prev_iframe) = unsafe { visible.as_ref() } {
                     let back_fo = prev_iframe.materialize_chain(self);
                     *fo.iframe().cold().retained_back.lock() = Some(back_fo);
                 }
@@ -2398,24 +3142,37 @@ impl VirtualMachine {
         }
     }
 
-    /// FrameObject execution for generator/coroutine resume.
-    /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
-    /// linking the generator's saved handled-exception.
-    pub fn resume_gen_frame<R, F: FnOnce(&Py<FrameObject>) -> PyResult<R>>(
+    /// Push a generator or coroutine frame onto this thread's frame chain,
+    /// the half of a resume that runs before the frame does.
+    ///
+    /// In order: the recursion and C-stack checks, the thread-frames entry,
+    /// the current-frame and `previous` links, an extra handled-exception
+    /// slot (`gi_exc_state`) holding `exc`, and the owner swap to `Thread`.
+    /// `gen_frame_unlink` undoes exactly these, in reverse.
+    ///
+    /// Two callers drive this pair: `resume_gen_frame`, which brackets a
+    /// recursive `ExecutingFrame::run`, and the trampoline, which resumes a
+    /// generator inside the delegating frame's own eval loop and so calls the
+    /// halves one step apart (see `coroutine::flat_resume_enter`). Anything
+    /// added here has to hold for both, so keep the two calls balanced and
+    /// leave the rest of a resume — the running claim, the sent value, the
+    /// closed flag — to `Coro`, which is where it is shared.
+    #[inline(always)]
+    pub(crate) fn gen_frame_link(
         &self,
-        frame: &FrameObjectRef,
+        frame: &Py<FrameObject>,
         exc: Option<PyBaseExceptionRef>,
-        f: F,
-    ) -> PyResult<R> {
+    ) -> PyResult<GenFrameLink> {
         self.check_recursive_call("")?;
         if self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
+            return Err(self.new_recursion_depth_error(""));
         }
         self.recursion_depth.update(|d| d + 1);
 
-        // SAFETY: frame (&FrameObjectRef) stays alive for the duration, so NonNull is valid until pop.
+        // SAFETY: the caller holds the frame alive for as long as it is
+        // linked, so NonNull is valid until the matching unlink pops it.
         #[cfg(all(not(unix), feature = "threading"))]
-        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
+        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(frame)));
         let iframe = frame.iframe() as *const crate::frame::InterpreterFrame;
         let old_chain = crate::vm::thread::set_current_frame(iframe);
         {
@@ -2432,27 +3189,66 @@ impl VirtualMachine {
             crate::frame::FrameOwner::Thread as i8,
             core::sync::atomic::Ordering::AcqRel,
         );
+        Ok(GenFrameLink {
+            old_chain,
+            old_owner,
+        })
+    }
 
-        // Ensure cleanup on panic: restore owner, pop exc_info slot, frame chain,
-        // frames Vec, and recursion depth.
-        scopeguard::defer! {
-            frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
-            self.pop_exception();
-            // Clear previous before popping — it may point to a stack-allocated
-            // iframe that will be freed when the caller releases its frame.
-            {
-                #[allow(unused_imports)]
-                use rustpython_common::atomic::Radium;
-                frame.iframe().previous.store(0, core::sync::atomic::Ordering::Relaxed);
-            }
-            let _ = crate::vm::thread::set_current_frame(old_chain);
-            #[cfg(all(not(unix), feature = "threading"))]
-            crate::vm::thread::pop_thread_frame();
-
-            self.recursion_depth.update(|d| d - 1);
+    /// Pop a generator or coroutine frame off this thread's frame chain,
+    /// undoing `gen_frame_link` step for step.
+    #[inline(always)]
+    pub(crate) fn gen_frame_unlink(&self, frame: &Py<FrameObject>, link: GenFrameLink) {
+        frame
+            .iframe()
+            .owner
+            .store(link.old_owner, core::sync::atomic::Ordering::Release);
+        self.pop_exception();
+        // Clear previous before popping — it may point to a stack-allocated
+        // iframe that will be freed when the caller releases its frame.
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .iframe()
+                .previous
+                .store(0, core::sync::atomic::Ordering::Relaxed);
         }
+        let _ = crate::vm::thread::set_current_frame(link.old_chain);
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::pop_thread_frame();
+        self.recursion_depth.update(|d| d - 1);
+    }
 
-        self.dispatch_traced_frame(frame, |frame| f(frame))
+    /// FrameObject execution for generator/coroutine resume.
+    /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
+    /// linking the generator's saved handled-exception.
+    pub fn resume_gen_frame<R, F: FnOnce(&Py<FrameObject>) -> PyResult<R>>(
+        &self,
+        frame: &FrameObjectRef,
+        exc: Option<PyBaseExceptionRef>,
+        f: F,
+    ) -> PyResult<R> {
+        let link = self.gen_frame_link(frame, exc)?;
+        // Guard only the recursion-depth decrement against a panic unwinding
+        // through Python code (matches `with_frame`); the state restored
+        // below (owner/previous/exc slot/current-frame) is not similarly
+        // guarded there either, since a panic in this codebase is a bug, not
+        // a control-flow path any Python-level construct can observe or
+        // resume from.
+        let _depth_guard = scopeguard::guard((), |()| {
+            self.recursion_depth.update(|d| d.saturating_sub(1))
+        });
+
+        let result = self.dispatch_traced_frame(frame, |frame| f(frame));
+
+        // Restore owner, pop exc_info slot, frame chain and frames Vec on
+        // every normal exit (Ok or Err) — captured above rather than
+        // propagated with `?`, so this always runs.
+        scopeguard::ScopeGuard::into_inner(_depth_guard);
+        self.gen_frame_unlink(frame, link);
+
+        result
     }
 
     /// Fire trace/profile 'call' and 'return' events around a frame body.
@@ -2471,25 +3267,37 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         use crate::protocol::TraceEvent;
 
-        // Fire 'call' trace event. current_frame() now returns the callee.
-        let trace_result = self.trace_event(TraceEvent::Call, None)?;
-        if let Some(local_trace) = trace_result {
-            *frame.iframe().cold().trace.lock() = Some(local_trace);
-        }
+        // 'call' is PY_START / PY_RESUME, fired from RESUME once lasti is
+        // the resume unit. Wrapping the body would report lasti=0 (and
+        // trace RETURN_GENERATOR on async-def construction).
 
         let result = f(frame);
 
-        // Fire 'return' event if frame is being traced or profiled.
-        // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
-        // both Ok and Err, matching `call_trace_protected` behavior.
-        if self.use_tracing.get()
+        // PY_RETURN / PY_YIELD are fired from RETURN_VALUE / YIELD_VALUE.
+        // PY_UNWIND fires PyTrace_RETURN with arg=None when the exception
+        // leaves this frame.
+        if result.is_err()
+            && self.use_tracing.get()
             && (!self.is_none(&self.profile_func.borrow())
-                || frame
-                    .iframe()
-                    .cold_opt()
-                    .is_some_and(|c| c.trace.lock().is_some()))
+                || if frame.iframe().is_incomplete() {
+                    crate::frame::current_complete_frame_for_trace(self).is_some_and(|visible| {
+                        visible
+                            .iframe()
+                            .cold_opt()
+                            .is_some_and(|c| c.trace.lock().is_some())
+                    })
+                } else {
+                    frame
+                        .iframe()
+                        .cold_opt()
+                        .is_some_and(|c| c.trace.lock().is_some())
+                })
         {
-            let ret_result = self.trace_event(TraceEvent::Return, None);
+            let ret_result = self.trace_event_what(
+                TraceEvent::Return,
+                crate::stdlib::sys::monitoring::MonitoringEvent::PyUnwind,
+                None,
+            );
             // call_trace_protected: if trace function raises, its error
             // replaces the original exception.
             ret_result?;
@@ -2510,7 +3318,23 @@ impl VirtualMachine {
             future_features: crate::bytecode::CodeFlags::empty(),
             dont_imply_dedent: false,
             recursion_limit: self.recursion_limit.get(),
+            build_list_from_arg: false,
         }
+    }
+
+    /// `PySys_Audit`: raise audit `event` to the registered hooks. `args` is only built when a hook
+    /// is registered.
+    pub fn audit<A: crate::function::IntoFuncArgs>(
+        &self,
+        event: &str,
+        args: impl FnOnce() -> A,
+    ) -> PyResult<()> {
+        if self.state.audit_hooks.lock().is_empty() {
+            return Ok(());
+        }
+        let event = self.ctx.new_str(event);
+        let args = self.ctx.new_tuple(args().into_args(self).args);
+        crate::stdlib::sys::sys::run_audit_hooks(&event, args.as_object(), self)
     }
 
     #[inline]
@@ -2530,10 +3354,25 @@ impl VirtualMachine {
         self.tracing_depth.get() != 0
     }
 
+    /// `where_` is empty, or a suffix that already includes the leading space.
+    #[cold]
+    fn new_recursion_depth_error(&self, where_: &str) -> PyBaseExceptionRef {
+        debug_assert!(
+            where_.is_empty() || where_.starts_with(' '),
+            "recursion where-clause must be empty or start with a space: {where_:?}"
+        );
+        let msg = if where_.is_empty() {
+            "maximum recursion depth exceeded".to_string()
+        } else {
+            format!("maximum recursion depth exceeded{where_}")
+        };
+        self.new_recursion_error(msg)
+    }
+
     // To be called right before raising the recursion depth.
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
         if self.recursion_depth.get() >= self.recursion_limit.get() {
-            Err(self.new_recursion_error(format!("maximum recursion depth exceeded {_where}")))
+            Err(self.new_recursion_depth_error(_where))
         } else {
             Ok(())
         }
@@ -2550,7 +3389,7 @@ impl VirtualMachine {
             .locals(self)
     }
 
-    pub fn current_globals(&self) -> PyDictRef {
+    pub fn current_globals(&self) -> PyRef<PyAnyDict> {
         let ptr = crate::vm::thread::get_current_frame();
         if !ptr.is_null() {
             return unsafe { (*ptr).globals().to_owned() };
@@ -2586,8 +3425,7 @@ impl VirtualMachine {
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        let from_list = self.ctx.empty_tuple_typed();
-        self.import_inner(module_name, from_list, level)
+        self.import_inner(module_name, self.ctx.none(), level)
     }
 
     /// Call Python __import__ function caller with from_list.
@@ -2596,45 +3434,183 @@ impl VirtualMachine {
     pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: &Py<PyTuple<PyStrRef>>,
+        from_list: impl Into<PyObjectRef>,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        self.import_inner(module_name, from_list, level)
+        self.import_inner(module_name, from_list.into(), level)
     }
 
-    fn import_inner(
-        &self,
-        module: &Py<PyStr>,
-        from_list: &Py<PyTuple<PyStrRef>>,
-        level: usize,
-    ) -> PyResult {
-        let import_func = self
-            .builtins
-            .get_attr(identifier!(self, __import__), self)
-            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
+    /// Look up `name` in the current frame's builtins (`_PyEval_GetBuiltin`).
+    /// A missing key becomes AttributeError with that name.
+    pub fn eval_get_builtin(&self, name: &'static PyStrInterned) -> PyResult {
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
+        if let Some(dict) = builtins.downcast_ref_if_exact::<PyDict>(self) {
+            match dict.get_item_opt(name, self)? {
+                Some(value) => Ok(value),
+                None => Err(self.new_attribute_error(name.to_string())),
+            }
+        } else {
+            match builtins.get_item(name, self) {
+                Ok(value) => Ok(value),
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
+                    Err(self.new_attribute_error(name.to_string()))
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
+
+    fn import_inner(&self, module: &Py<PyStr>, from_list: PyObjectRef, level: usize) -> PyResult {
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
+        // The module-cache fast path assumes interpreter builtins. A frame
+        // whose f_builtins is a custom mapping (eval/exec) must go through
+        // that mapping's __import__. None and an empty tuple are both an
+        // empty from-list (`import name`).
+        let fromlist_empty = self.is_none(&from_list)
+            || from_list
+                .downcast_ref::<PyTuple>()
+                .is_some_and(|tuple| tuple.as_slice().is_empty());
+        if level == 0
+            && fromlist_empty
+            && builtins.is(self.builtins.dict().as_object())
+            && let Some(cached) = self.try_import_cached(module)?
+        {
+            import::report_cached_import(module, self);
+            return Ok(cached);
+        }
+
+        let import_func = if let Some(dict) = builtins.downcast_ref::<PyDict>() {
+            match dict.get_item_opt(identifier!(self, __import__), self)? {
+                Some(func) => func,
+                None => {
+                    return Err(self.new_import_error("__import__ not found", module.to_owned()));
+                }
+            }
+        } else {
+            match builtins.get_item(identifier!(self, __import__), self) {
+                Ok(func) => func,
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
+                    return Err(self.new_import_error("__import__ not found", module.to_owned()));
+                }
+                Err(e) => return Err(e),
+            }
+        };
 
         let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
             // Locals fallback: use the heavy frame if available, otherwise
             // use globals as locals (light frame locals are on the data stack).
             let locals_mapping = self.current_frame().map_or_else(
-                || ArgMapping::from_dict_exact(globals.clone()),
+                || ArgMapping::from_anydict_exact(globals.clone()),
                 |f| f.iframe().locals.clone_mapping(self),
             );
             (Some(locals_mapping), Some(globals))
         } else {
             (None, None)
         };
-        let from_list: PyObjectRef = from_list.to_owned().into();
         import_func
             .call((module.to_owned(), globals, locals, from_list, level), self)
             .inspect_err(|exc| import::remove_importlib_frames(self, exc))
+    }
+
+    /// Fast path equivalent to CPython's `PyImport_ImportModuleLevelObject`
+    /// cache hit: for a plain absolute import with no from-list, if
+    /// `builtins.__import__` is still the original import function (i.e.
+    /// nobody has monkey-patched it) and the module -- or, for a dotted
+    /// name, its top-level package -- is already present and fully
+    /// initialized in `sys.modules`, hand it back directly instead of going
+    /// through `__import__`'s `FuncArgs`/`ImportArgs::from_args` dispatch
+    /// and `import_module_level`. Returns `Ok(None)` whenever the slow path
+    /// needs to run instead (uncached, initializing, or `__import__`
+    /// overridden), never an error for those cases.
+    fn try_import_cached(&self, module: &Py<PyStr>) -> PyResult<Option<PyObjectRef>> {
+        let current_import = self
+            .builtins
+            .get_attr(identifier!(self, __import__), self)
+            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
+        if !current_import.is(&self.import_func) {
+            // `builtins.__import__` was replaced by user code; must go
+            // through it so overrides (test_import, test_importlib,
+            // test_builtin) still take effect.
+            return Ok(None);
+        }
+
+        // Surrogate-containing names can't be looked up as a `&str`; let the
+        // slow path (which keys `sys.modules` with the `PyStr` itself) handle it.
+        let Some(name_str) = module.to_str() else {
+            return Ok(None);
+        };
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let Ok(found) = sys_modules.get_item(name_str, self) else {
+            return Ok(None);
+        };
+        if self.is_none(&found) || import::is_module_initializing(&found, self)? {
+            return Ok(None);
+        }
+        crate::lazy_import::clear_submodule(module, true, self)?;
+
+        let Some(dot) = name_str.find('.') else {
+            return Ok(Some(found));
+        };
+        // Dotted name with an empty from-list: like CPython, the top-level
+        // package is what gets returned (and bound by `import a.b.c`), not
+        // the submodule itself.
+        let top_name = &name_str[..dot];
+        match sys_modules.get_item(top_name, self) {
+            Ok(top) if !self.is_none(&top) => Ok(Some(top)),
+            _ => Ok(None),
+        }
     }
 
     pub fn extract_elements_with<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
+        self.extract_elements_inner(value, LengthHint::Unasked, func)
+    }
+
+    /// [`Self::extract_elements_with`] for a caller that asks the iterable
+    /// itself how much room to take, the way `list_extend()` does. `held`
+    /// answers how many elements the caller already has, and is read after the
+    /// iterable has been asked, since asking runs its code.
+    pub fn extract_elements_sized<T, F>(
+        &self,
+        value: &PyObject,
+        held: &dyn Fn() -> usize,
+        func: F,
+    ) -> PyResult<Vec<T>>
+    where
+        F: Fn(PyObjectRef) -> PyResult<T>,
+    {
+        self.extract_elements_inner(value, LengthHint::Iterable(held), func)
+    }
+
+    fn extract_elements_inner<T, F>(
+        &self,
+        value: &PyObject,
+        hint: LengthHint<'_>,
+        func: F,
+    ) -> PyResult<Vec<T>>
+    where
+        F: Fn(PyObjectRef) -> PyResult<T>,
+    {
+        // A count known up front is taken in one go. Collecting into a
+        // `Result` instead would drop it: the adapter that carries the error
+        // may stop early, so it reports no lower bound and the vector grows a
+        // step at a time.
+        fn map_known_len<T, R>(
+            items: impl ExactSizeIterator<Item = T>,
+            func: impl Fn(T) -> PyResult<R>,
+        ) -> PyResult<Vec<R>> {
+            let mut results = Vec::with_capacity(items.len());
+            for item in items {
+                results.push(func(item)?);
+            }
+            Ok(results)
+        }
+
         // Type-specific fast paths corresponding to _list_extend() in CPython
         // Objects/listobject.c. Each branch takes an atomic snapshot to avoid
         // race conditions from concurrent mutation (no GIL).
@@ -2644,9 +3620,11 @@ impl VirtualMachine {
         } else if cls.is(self.ctx.types.list_type) {
             // The list is re-read on every step, the way map_iterable_object()
             // does it: func() runs Python, which can mutate or even clear the
-            // same list, and a borrow held across that call deadlocks it.
+            // same list, and a borrow held across that call deadlocks it. Its
+            // length at the start is only how much room to take, not how far
+            // the loop runs.
             let list = value.downcast_ref::<PyList>().unwrap();
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(list.borrow_vec().len());
             let mut i = 0;
             loop {
                 let elem = {
@@ -2661,36 +3639,66 @@ impl VirtualMachine {
                 i += 1;
             }
             return Ok(results);
+        } else if cls.is(self.ctx.types.set_type) {
+            let keys = value.downcast_ref::<PySet>().unwrap().elements();
+            return map_known_len(keys.into_iter(), func);
+        } else if cls.is(self.ctx.types.frozenset_type) {
+            let keys = value.downcast_ref::<PyFrozenSet>().unwrap().elements();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_type) {
             let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
-            return keys.into_iter().map(func).collect();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_keys_type) {
             let keys = value.downcast_ref::<PyDictKeys>().unwrap().dict.keys_vec();
-            return keys.into_iter().map(func).collect();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_values_type) {
             let values = value
                 .downcast_ref::<PyDictValues>()
                 .unwrap()
                 .dict
                 .values_vec();
-            return values.into_iter().map(func).collect();
+            return map_known_len(values.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_items_type) {
             let items = value
                 .downcast_ref::<PyDictItems>()
                 .unwrap()
                 .dict
                 .items_vec();
-            return items
-                .into_iter()
-                .map(|(k, v)| func(self.ctx.new_tuple(vec![k, v]).into()))
-                .collect();
+            return map_known_len(items.into_iter(), |(k, v)| {
+                func(self.ctx.new_tuple(vec![k, v]).into())
+            });
         } else {
-            return self.map_py_iter(value, func);
+            return self.map_py_iter(value, hint, func);
         };
-        slice.iter().map(|obj| func(obj.clone())).collect()
+        map_known_len(slice.iter(), |obj| func(obj.clone()))
     }
 
-    pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>
+    /// [`Self::map_iterable_object`] for a caller that asks the object it was
+    /// handed how long it is.
+    pub fn map_iterable_object_sized<F, R>(
+        &self,
+        obj: &PyObject,
+        f: F,
+    ) -> PyResult<PyResult<Vec<R>>>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
+    {
+        self.map_iterable_object_inner(obj, LengthHint::Iterable(&|| 0), f)
+    }
+
+    pub fn map_iterable_object<F, R>(&self, obj: &PyObject, f: F) -> PyResult<PyResult<Vec<R>>>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
+    {
+        self.map_iterable_object_inner(obj, LengthHint::Unasked, f)
+    }
+
+    fn map_iterable_object_inner<F, R>(
+        &self,
+        obj: &PyObject,
+        hint: LengthHint<'_>,
+        mut f: F,
+    ) -> PyResult<PyResult<Vec<R>>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
@@ -2716,48 +3724,80 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                Ok(self.map_py_iter(obj, f))
+                Ok(self.map_py_iter(obj, hint, f))
             }
         })
     }
 
-    fn map_py_iter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
+    fn map_py_iter<F, R>(
+        &self,
+        value: &PyObject,
+        hint: LengthHint<'_>,
+        mut f: F,
+    ) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         let iter = value.to_owned().get_iter(self)?;
-        let cap = match self.length_hint_opt(value.to_owned()) {
-            Err(e) if e.class().is(self.ctx.exceptions.runtime_error) => return Err(e),
-            Ok(Some(value)) => Some(value),
-            // Use a power of 2 as a default capacity.
-            _ => None,
-        };
-        // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
-        // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
-        if let Some(cap) = cap
-            && cap >= isize::MAX as usize
-        {
-            return Ok(Vec::new());
-        }
 
-        let mut results = PyIterIter::new(self, iter.as_ref(), cap)
-            .map(|element| f(element?))
-            .collect::<PyResult<Vec<_>>>()?;
+        // Take the room the iterable asks for up front, for the callers that
+        // do. Collecting into a `Result` drops the iterator's lower bound --
+        // the adapter may stop early -- so without this the vector grows a step
+        // at a time and an iterable claiming more elements than can be held is
+        // found out by running out of memory rather than by saying so. An error
+        // the ask answers with is the iterable's own and belongs to the caller
+        // that made it; `length_hint_opt` already answers `None` for the
+        // iterable that declines to guess.
+        //
+        // Nobody else asks, so what an object would have answered -- slowly, or
+        // by raising -- costs the rest nothing.
+        //
+        // A hint that does not leave room for what is already held is one the
+        // iterable cannot be telling the truth about, so it is passed over
+        // rather than refused: if it was honest the loop runs out of memory on
+        // its own, and if it lied there was nothing wrong to report. What is
+        // held is counted now rather than before, since asking for the hint
+        // runs code that can add to it or take from it.
+        let mut results: Vec<R> = Vec::new();
+        let mut cap = None;
+        if let LengthHint::Iterable(held) = hint {
+            cap = self.length_hint_opt(value.to_owned())?;
+            if let Some(cap) = cap
+                && held() <= (isize::MAX as usize) - cap
+            {
+                results
+                    .try_reserve_exact(cap)
+                    .map_err(|_| self.new_memory_error(""))?;
+            }
+        }
+        for element in PyIterIter::new(self, iter.as_ref(), cap) {
+            results.push(f(element?)?);
+        }
         results.shrink_to_fit();
         Ok(results)
     }
 
     pub fn get_attribute_opt<'a>(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         attr_name: impl AsPyStr<'a>,
     ) -> PyResult<Option<PyObjectRef>> {
         let attr_name = attr_name.as_pystr(&self.ctx);
-        match obj.get_attr_inner(attr_name, self) {
-            Ok(attr) => Ok(Some(attr)),
+        let getattro = obj.class().slots().getattro.load().unwrap();
+        let result = if fn_addr(getattro) == fn_addr(PyBaseObject::getattro as GetattroFunc) {
+            obj.generic_getattr_opt(attr_name, None, self)
+        } else if fn_addr(getattro) == fn_addr(PyModule::slot_getattro as GetattroFunc)
+            && let Some(module) = obj.downcast_ref::<PyModule>()
+        {
+            module.getattr_inner(attr_name, true, self).map(Some)
+        } else {
+            obj.get_attr_inner(attr_name, self).map(Some)
+        };
+        match result {
+            Ok(attr) => Ok(attr),
             Err(e) if e.fast_isinstance(self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
         }
@@ -2814,26 +3854,28 @@ impl VirtualMachine {
         self.get_method(obj, method_name)
     }
 
+    /// Fast path for the bytecode loop: pending signals, QSBR, scheduled GC,
+    /// finalization, and stop-the-world.
+    ///
+    /// `STOP_BIT` is a process-wide hint set when any interpreter asks a
+    /// thread to park. Each interpreter's `start_the_world` clears that hint,
+    /// even if another interpreter still has `stop_requested` threads, so the
+    /// per-thread flag is checked first. Missing it lets a worker skip
+    /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
         #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Relaxed) && !self.is_main_thread() {
+        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
             return true;
         }
-
-        #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() {
-            return true;
-        }
-
-        // Signal and QSBR bits share one word: a single relaxed load per
-        // instruction covers both.
         #[cfg(not(target_arch = "wasm32"))]
-        if crate::signal::eval_breaker_pending() {
-            return true;
+        {
+            crate::signal::eval_breaker_pending()
         }
-
-        false
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
     }
 
     #[inline]
@@ -2841,10 +3883,14 @@ impl VirtualMachine {
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
-            // once finalization starts,
-            // non-main Python threads should stop running bytecode.
-            return Err(self.new_system_exit(vec![].into()));
+        if self.state.finalizing.load(Ordering::Acquire)
+            && stdlib::_thread::get_ident() != self.state.finalizing_thread_ident.load()
+        {
+            // `_PyThreadState_MustExit` → `_PyThreadState_HangThread`.
+            // Do not return SystemExit: that would mark the handle done and
+            // make `Thread.is_alive()` false for a daemon still forced off
+            // during finalize.
+            thread::hang_current_thread(&self.state);
         }
 
         // Suspend this thread if stop-the-world is in progress
@@ -2870,19 +3916,34 @@ impl VirtualMachine {
     /// against a thread blocked on a lock this thread would otherwise hold.
     #[cfg(feature = "threading")]
     pub(crate) fn run_scheduled_gc(&self) {
-        if crate::signal::take_gc_scheduled() {
+        if self.state.gc.collection_ready() {
             self.state.gc.collect(0);
         }
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
+    ///
+    /// `topmost_exception()` skips `None` slots when searching for the
+    /// visible exception, so pushing `None` can never change what it
+    /// returns -- the thread-local mirror update (TLS lookup + atomic ref
+    /// swap) is safe to skip in that common case (e.g. resuming a
+    /// generator with no saved exception state).
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        #[cfg(feature = "threading")]
+        let may_change_top = exc.is_some();
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
-        thread::update_thread_exception(self.topmost_exception());
+        if may_change_top {
+            thread::update_thread_exception(self.topmost_exception());
+        }
     }
 
     /// Pop the topmost exc_info slot (generator/coroutine yield/return).
+    ///
+    /// Symmetric with `push_exception`: popping a `None` slot cannot change
+    /// what `topmost_exception()` reports (it was already skipped while
+    /// searching down the stack), so the thread-local mirror update is
+    /// skipped in that case.
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let exc = self
             .exceptions
@@ -2891,7 +3952,9 @@ impl VirtualMachine {
             .pop()
             .expect("pop_exception() without nested exc stack");
         #[cfg(feature = "threading")]
-        thread::update_thread_exception(self.topmost_exception());
+        if exc.is_some() {
+            thread::update_thread_exception(self.topmost_exception());
+        }
         exc
     }
 
@@ -2938,16 +4001,35 @@ impl VirtualMachine {
         }
     }
 
+    /// Keep teardown callbacks from observing or replacing a pending C error.
+    /// Create this guard before callback-owned locals so they drop before restoration.
+    #[must_use]
+    pub(crate) fn preserve_raised_exception(&self) -> impl Drop + '_ {
+        scopeguard::guard(self.take_raised_exception(), |saved| {
+            self.set_raised_exception(saved);
+        })
+    }
+
+    pub fn raised_exception(&self) -> Option<PyBaseExceptionRef> {
+        self.exceptions.borrow().raised.clone()
+    }
+
+    pub fn set_raised_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        let previous = core::mem::replace(&mut self.exceptions.borrow_mut().raised, exc);
+        // Release the RefCell borrow before dropping a potentially final reference.
+        drop(previous);
+    }
+
     pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
-        let mut excs = self.exceptions.borrow_mut();
-        if let Some(top) = excs.stack.last_mut() {
-            let exc = top.take();
-            drop(excs);
-            #[cfg(feature = "threading")]
-            thread::update_thread_exception(self.topmost_exception());
-            exc
-        } else {
-            None
+        self.exceptions.borrow_mut().raised.take()
+    }
+
+    /// `_PyErr_ChainStackItem`: if the current `exc_info` slot is occupied,
+    /// set that handled exception as `__context__` of `exception`. A vacant
+    /// current slot must not walk to an outer frame's exception.
+    pub(crate) fn chain_stack_item(&self, exception: &Py<PyBaseException>) {
+        if self.current_exception().is_some() {
+            self.contextualize_exception(exception);
         }
     }
 
@@ -2962,7 +4044,7 @@ impl VirtualMachine {
             let mut slow_update_toggle = false;
             while let Some(context) = o.__context__() {
                 if context.is(exception) {
-                    o.set___context__(None);
+                    o.set_context(None);
                     break;
                 }
                 o = context;
@@ -2975,7 +4057,7 @@ impl VirtualMachine {
                 }
                 slow_update_toggle = !slow_update_toggle;
             }
-            exception.set___context__(Some(context_exc))
+            exception.set_context(Some(context_exc))
         }
     }
 
@@ -2984,58 +4066,77 @@ impl VirtualMachine {
         excs.stack.iter().rev().find_map(|e| e.clone())
     }
 
-    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
-        if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
-            let code = exc
-                .as_object()
-                .get_attr("code", self)
-                .unwrap_or_else(|_| exc.as_object().to_owned());
-            let msg = match_class!(match code {
-                ref i @ PyInt => {
-                    use num_traits::cast::ToPrimitive;
-                    // Try u32 first, then i32 (for negative values), else -1 for overflow
-                    let code = i
-                        .as_bigint()
-                        .to_u32()
-                        .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
-                        .unwrap_or(-1i32 as u32);
-                    return code;
-                }
-                code => {
-                    if self.is_none(&code) {
-                        return 0;
-                    }
-                    code.str(self).ok()
-                }
-            });
-            if let Some(msg) = msg {
-                // Write using Python's write() to use stderr's error handler (backslashreplace)
-                if let Ok(stderr) = stdlib::sys::get_stderr(self) {
-                    let _ = self.call_method(&stderr, "write", (msg,));
-                    let _ = self.call_method(&stderr, "write", ("\n",));
-                }
-            }
-            1
-        } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            self.print_exception(exc);
-            cfg_select! {
-                unix => {
-                    if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
-                        self.flush_std();
-                        crate::host_env::signal::send_sigint_to_self()
-                            .expect("Expect to be killed.");
-                    }
+    /// The current `config.inspect`.
+    pub fn config_inspect(&self) -> bool {
+        self.state.inspect.load(Ordering::Relaxed)
+    }
 
-                    (libc::SIGINT as u32) + 128
-                }
-                // STATUS_CONTROL_C_EXIT - same as CPython
-                windows => 0xC000013A,
-                _ => 1,
-            }
-        } else {
-            self.print_exception(exc);
-            1
+    /// `PyConfig_Set("inspect", value)`: update the config and `sys.flags.inspect`.
+    pub fn config_set_inspect(&self, inspect: bool) -> PyResult<()> {
+        let value: PyObjectRef = self.ctx.new_int(u8::from(inspect)).into();
+        self.audit("cpython.PyConfig_Set", || ("inspect", value.clone()))?;
+        self.state.inspect.store(inspect, Ordering::Relaxed);
+        stdlib::sys::sys::set_flag_obj(self, "inspect", value)
+    }
+
+    /// pymain_exit_err_print
+    ///
+    /// Report an exception that reached the top level and return the exit code.
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
+        if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(&exc) {
+            return exit_code;
         }
+        self.print_uncaught_exception(&exc);
+        1
+    }
+
+    /// _Py_HandleSystemExitAndKeyboardInterrupt
+    ///
+    /// Return the exit code of a `SystemExit` that should end the process.
+    /// A `KeyboardInterrupt` is remembered so that the process exits through SIGINT.
+    pub fn handle_system_exit_and_keyboard_interrupt(
+        &self,
+        exc: &Py<PyBaseException>,
+    ) -> Option<u32> {
+        if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
+            crate::signal::set_unhandled_keyboard_interrupt();
+            return None;
+        }
+        // Don't exit if -i flag was given. This flag is set to 0
+        // when entering interactive mode for inspecting.
+        if self.config_inspect() || !exc.fast_isinstance(self.ctx.exceptions.system_exit) {
+            return None;
+        }
+        let code = exc
+            .as_object()
+            .get_attr("code", self)
+            .unwrap_or_else(|_| exc.as_object().to_owned());
+        let msg = match_class!(match code {
+            ref i @ PyInt => {
+                use num_traits::cast::ToPrimitive;
+                // Try u32 first, then i32 (for negative values), else -1 for overflow
+                let code = i
+                    .as_bigint()
+                    .to_u32()
+                    .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
+                    .unwrap_or(-1i32 as u32);
+                return Some(code);
+            }
+            code => {
+                if self.is_none(&code) {
+                    return Some(0);
+                }
+                code.str(self).ok()
+            }
+        });
+        if let Some(msg) = msg {
+            // Write using Python's write() to use stderr's error handler (backslashreplace)
+            if let Ok(stderr) = stdlib::sys::get_stderr(self) {
+                let _ = self.call_method(&stderr, "write", (msg,));
+                let _ = self.call_method(&stderr, "write", ("\n",));
+            }
+        }
+        Some(1)
     }
 
     #[doc(hidden)]
@@ -3105,6 +4206,7 @@ impl VirtualMachine {
             .state
             .codec_registry
             .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
+            .as_bytes()
             .to_vec();
         // XXX: this is sketchy on windows; it's not guaranteed that the
         //      OsStr encoding will always be compatible with WTF-8.
@@ -3128,6 +4230,7 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
         "_frozen_importlib_external" => "importlib._bootstrap_external",
         "encodings_ascii" => "encodings.ascii",
         "encodings_utf_8" => "encodings.utf_8",
+        "encodings_latin_1" => "encodings.latin_1",
         "__hello_alias__" | "__phello_alias__" | "__phello_alias__.spam" => "__hello__",
         "__phello__.__init__" => "<__phello__",
         "__phello__.ham.__init__" => "<__phello__.ham",
@@ -3139,6 +4242,56 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raised_error_guards_preserve_storage_on_unwind() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let handled = vm.new_type_error("handled");
+                let outer = vm.new_type_error("outer");
+                let inner = vm.new_type_error("inner");
+                vm.set_exception(Some(handled.clone()));
+                vm.set_raised_exception(Some(outer.clone()));
+                let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+                    let _outer_guard = vm.preserve_raised_exception();
+                    assert!(vm.raised_exception().is_none());
+                    vm.set_raised_exception(Some(inner.clone()));
+                    {
+                        let _inner_guard = vm.preserve_raised_exception();
+                        assert!(vm.raised_exception().is_none());
+                        assert!(vm.current_exception().unwrap().is(&handled));
+                    }
+                    assert!(vm.raised_exception().unwrap().is(&inner));
+                    panic!("exercise raised-error guard unwinding");
+                }));
+                assert!(result.is_err());
+                assert!(vm.take_raised_exception().unwrap().is(&outer));
+                assert!(vm.raised_exception().is_none());
+                assert!(vm.current_exception().unwrap().is(&handled));
+                vm.set_exception(None);
+            });
+    }
+
+    #[cfg(not(feature = "stdio"))]
+    #[test]
+    fn no_stdio_streams_are_none_singleton() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                for name in [
+                    "stdin",
+                    "stdout",
+                    "stderr",
+                    "__stdin__",
+                    "__stdout__",
+                    "__stderr__",
+                ] {
+                    let stream = vm.sys_module.get_attr(name, vm).unwrap();
+                    assert!(vm.is_none(&stream), "sys.{name} must be the None singleton");
+                }
+            });
+    }
 
     #[test]
     fn nested_frozen() {
@@ -3159,7 +4312,7 @@ mod tests {
                     .unwrap();
 
                 if let Err(e) = vm.run_code_obj(code_obj, scope) {
-                    vm.print_exception(e);
+                    vm.print_exception(&e);
                     panic!();
                 }
             })

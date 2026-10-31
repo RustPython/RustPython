@@ -300,9 +300,8 @@ class GeneratorTest(unittest.TestCase):
             def __iter__(self):
                 return Iterator()
 
-        self.assertEqual([1, 2], list(i for i in C()))
+        self.assertEqual([1,2], list(i for i in C()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_close_clears_frame(self):
         # gh-142766: Test that closing a generator clears its frame
         class DetectDelete:
@@ -358,26 +357,25 @@ class ModifyUnderlyingIterableTest(unittest.TestCase):
                 yield x
         return gen(range(10))
 
-    def process_tests(self, get_generator, is_expr):
-        err_iterator = "'.*' object is not an iterator"
-        err_iterable = "'.*' object is not iterable"
-        for obj in self.iterables:
-            g_obj = get_generator(obj)
-            with self.subTest(g_obj=g_obj, obj=obj):
-                if is_expr:
-                    self.assertRaisesRegex(TypeError, err_iterator, list, g_obj)
-                else:
+    def process_tests(self, get_generator, changes_iterable):
+        if changes_iterable:
+            for obj in self.iterables:
+                g_obj = get_generator(obj)
+                with self.subTest(g_obj=g_obj, obj=obj):
                     self.assertListEqual(list(g_obj), list(obj))
 
-            g_iter = get_generator(iter(obj))
-            with self.subTest(g_iter=g_iter, obj=obj):
-                self.assertListEqual(list(g_iter), list(obj))
+                g_iter = get_generator(iter(obj))
+                with self.subTest(g_iter=g_iter, obj=obj):
+                    self.assertListEqual(list(g_iter), list(obj))
 
+        err_regex = "'.*' object is not iterable"
         for obj in self.non_iterables:
             g_obj = get_generator(obj)
             with self.subTest(g_obj=g_obj):
-                err = err_iterator if is_expr else err_iterable
-                self.assertRaisesRegex(TypeError, err, list, g_obj)
+                if changes_iterable:
+                    self.assertRaisesRegex(TypeError, err_regex, list, g_obj)
+                else:
+                    next(g_obj)
 
     def test_modify_f_locals(self):
         def modify_f_locals(g, local, obj):
@@ -390,22 +388,22 @@ class ModifyUnderlyingIterableTest(unittest.TestCase):
         def get_generator_genfunc(obj):
             return modify_f_locals(self.genfunc(), 'it', obj)
 
-        self.process_tests(get_generator_genexpr, True)
-        self.process_tests(get_generator_genfunc, False)
+        self.process_tests(get_generator_genexpr, False)
+        self.process_tests(get_generator_genfunc, True)
 
     def test_new_gen_from_gi_code(self):
         def new_gen_from_gi_code(g, obj):
             generator_func = types.FunctionType(g.gi_code, {})
             return generator_func(obj)
 
-        def get_generator_genexpr(obj):
-            return new_gen_from_gi_code(self.genexpr(), obj)
+        for obj in self.non_iterables:
+            with self.assertRaises(TypeError):
+                new_gen_from_gi_code(self.genexpr(), obj)
 
         def get_generator_genfunc(obj):
             return new_gen_from_gi_code(self.genfunc(), obj)
 
-        self.process_tests(get_generator_genexpr, True)
-        self.process_tests(get_generator_genfunc, False)
+        self.process_tests(get_generator_genfunc, True)
 
 
 class ExceptionTest(unittest.TestCase):
@@ -721,7 +719,6 @@ class GeneratorCloseTest(unittest.TestCase):
 
 # See https://github.com/python/cpython/issues/125723
 class GeneratorDeallocTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame uses shared Arc, no ownership transfer
     def test_frame_outlives_generator(self):
         def g1():
             a = 42
@@ -1369,9 +1366,9 @@ From the Iterators list, about the types of these things.
 >>> type(i)
 <class 'generator'>
 >>> [s for s in dir(i) if not s.startswith('_')]
-['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_suspended', 'gi_yieldfrom', 'send', 'throw']
+['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_state', 'gi_suspended', 'gi_yieldfrom', 'send', 'throw']
 >>> from test.support import HAVE_DOCSTRINGS
->>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
 Implement next(self).
 >>> iter(i) is i
 True
@@ -2528,12 +2525,12 @@ Traceback (most recent call last):
   ...
 SyntaxError: assignment to yield expression not possible
 
->>> def f(): (yield bar) = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): (yield bar) = y
 Traceback (most recent call last):
   ...
 SyntaxError: cannot assign to yield expression here. Maybe you meant '==' instead of '='?
 
->>> def f(): (yield bar) += y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): (yield bar) += y
 Traceback (most recent call last):
   ...
 SyntaxError: 'yield expression' is an illegal expression for augmented assignment
@@ -2729,7 +2726,7 @@ RuntimeError: generator ignored GeneratorExit
 
 Our ill-behaved code should be invoked during GC:
 
->>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> with support.catch_unraisable_exception() as cm:
 ...     g = f()
 ...     next(g)
 ...     gen_repr = repr(g)
@@ -2847,7 +2844,7 @@ to test.
 ...             raise RuntimeError(message)
 ...         invoke("del failed")
 ...
->>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> with support.catch_unraisable_exception() as cm:
 ...     leaker = Leaker()
 ...     del_repr = repr(type(leaker).__del__)
 ...     del leaker
@@ -2880,8 +2877,7 @@ __test__ = {"tut":      tutorial_tests,
             }
 
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
-    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite())
     return tests
 
 

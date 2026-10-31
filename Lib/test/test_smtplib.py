@@ -1185,9 +1185,9 @@ class SMTPSimTests(unittest.TestCase):
         self.assertEqual(resp, (235, b'Authentication Succeeded'))
         smtp.close()
 
-    @mock.patch("hmac.HMAC")
+    @hashlib_helper.block_algorithm('md5')
     @mock.patch("smtplib._have_cram_md5_support", False)
-    def testAUTH_CRAM_MD5_blocked(self, hmac_constructor):
+    def testAUTH_CRAM_MD5_blocked(self):
         # CRAM-MD5 is the only "known" method by the server,
         # but it is not supported by the client. In particular,
         # no challenge will ever be sent.
@@ -1198,8 +1198,8 @@ class SMTPSimTests(unittest.TestCase):
         msg = re.escape("No suitable authentication method found.")
         with self.assertRaisesRegex(smtplib.SMTPException, msg):
             smtp.login(sim_auth[0], sim_auth[1])
-        hmac_constructor.assert_not_called()  # call has been bypassed
 
+    @hashlib_helper.block_algorithm('md5')
     @mock.patch("smtplib._have_cram_md5_support", False)
     def testAUTH_CRAM_MD5_blocked_and_fallback(self):
         # Test that PLAIN is tried after CRAM-MD5 failed
@@ -1215,7 +1215,7 @@ class SMTPSimTests(unittest.TestCase):
         ):
             resp = smtp.login(sim_auth[0], sim_auth[1])
         smtp_auth_plain.assert_called_once()
-        smtp_auth_cram_md5.assert_not_called()  # no call to HMAC constructor
+        smtp_auth_cram_md5.assert_not_called()
         self.assertEqual(resp, (235, b'Authentication Succeeded'))
 
     @hashlib_helper.requires_hashdigest('md5', openssl=True)

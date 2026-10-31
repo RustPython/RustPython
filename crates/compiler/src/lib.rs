@@ -1,3 +1,6 @@
+extern crate alloc;
+
+use alloc::borrow::Cow;
 pub use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::ParseErrorType;
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
@@ -32,6 +35,78 @@ pub struct ParseError {
     pub source_path: String,
     /// Set when the error is an unclosed bracket (converted from EOF).
     pub is_unclosed_bracket: bool,
+    /// Set when a string is still open at EOF and more input could close it.
+    pub is_unclosed_string: bool,
+    /// Set when the parser failed on a token made up at the end of the input.
+    pub eof_token: Option<Box<EofToken>>,
+}
+
+/// The tokenizer state at the end of the input, where it makes up the
+/// NEWLINE, DEDENT and ENDMARKER tokens that close it. Those tokens have no
+/// column, so an error on one of them is placed where the tokenizer stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EofToken {
+    /// `tok->lineno`: the number of lines read, 0 for empty input.
+    pub lineno: usize,
+    /// The last line read, which the tokenizer stopped at the end of.
+    pub line: String,
+    /// Where the error on the token is raised from.
+    pub raised_at: EofErrorLocation,
+}
+
+/// Where an error on a token made up at the end of the input is placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EofErrorLocation {
+    /// Where the tokenizer stopped, as `_PyPegen_raise_error` places an error
+    /// on a token without a column.
+    Tokenizer,
+    /// At the token itself, as the generic syntax error and a missing forced
+    /// token are, so its columns are 0.
+    Token,
+    /// From the token to where the tokenizer stopped, as
+    /// `RAISE_SYNTAX_ERROR_STARTING_FROM` places it.
+    StartingFromToken,
+}
+
+impl EofToken {
+    fn new(source: &str, mode: Mode, raised_at: EofErrorLocation) -> Self {
+        let lineno = source.split_inclusive('\n').count();
+        let mut line = source
+            .split_inclusive('\n')
+            .next_back()
+            .unwrap_or_default()
+            .to_owned();
+        // translate_newlines: exec input that does not end with a newline
+        // gets one.
+        if matches!(mode, Mode::Exec | Mode::BlockExpr) && !line.is_empty() && !line.ends_with('\n')
+        {
+            line.push('\n');
+        }
+        Self {
+            lineno,
+            line,
+            raised_at,
+        }
+    }
+
+    /// `SyntaxError.offset`
+    #[must_use]
+    pub fn offset(&self) -> usize {
+        match self.raised_at {
+            EofErrorLocation::Tokenizer => self.line.chars().count(),
+            EofErrorLocation::Token | EofErrorLocation::StartingFromToken => 0,
+        }
+    }
+
+    /// `SyntaxError.end_offset`
+    #[must_use]
+    pub fn end_offset(&self) -> isize {
+        match self.raised_at {
+            EofErrorLocation::Tokenizer => -1,
+            EofErrorLocation::Token => 0,
+            EofErrorLocation::StartingFromToken => self.line.chars().count() as isize,
+        }
+    }
 }
 
 impl ::core::fmt::Display for ParseError {
@@ -56,11 +131,34 @@ impl CompileError {
         mode: Mode,
     ) -> Self {
         let raw_location = error.location;
+        let at_eof_token = fails_at_eof_token(&error, source_file.source_text(), mode);
         let diagnostic = match cpython_parse_diagnostic_override(&error, source_file, mode) {
             Some(diagnostic) => diagnostic,
-            None => default_parse_diagnostic(error, source_file),
+            None => {
+                let is_unclosed_bracket = matches!(
+                    error.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::UnclosedBracket {
+                        incomplete: true,
+                        ..
+                    })
+                );
+                let is_unclosed_string =
+                    unclosed_string_is_continuable(&error, source_file.source_text(), mode);
+                let mut diagnostic = default_parse_diagnostic(error, source_file);
+                diagnostic.is_unclosed_bracket = is_unclosed_bracket;
+                diagnostic.is_unclosed_string = is_unclosed_string;
+                diagnostic
+            }
         };
 
+        let eof_token = at_eof_token.then(|| {
+            let source = source_file.source_text();
+            Box::new(EofToken::new(
+                source,
+                mode,
+                eof_error_location(&diagnostic.error),
+            ))
+        });
         Self::Parse(ParseError {
             error: diagnostic.error,
             raw_location,
@@ -68,25 +166,26 @@ impl CompileError {
             end_location: diagnostic.end_location,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: diagnostic.is_unclosed_bracket,
+            is_unclosed_string: diagnostic.is_unclosed_string,
+            eof_token,
         })
     }
 
-    fn from_source_error(
-        source_file: &SourceFile,
-        message: String,
-        start: usize,
-        end: usize,
-    ) -> Self {
-        let start = TextSize::new(start as u32);
-        let end = TextSize::new(end as u32);
-        let (location, end_location) = source_locations(source_file, start, end);
+    fn from_source_error(source_file: &SourceFile, diagnostic: CpythonDiagnostic) -> Self {
+        let (location, end_location) = source_locations(
+            source_file,
+            diagnostic.range.start(),
+            diagnostic.range.end(),
+        );
         Self::Parse(ParseError {
-            error: parser::ParseErrorType::OtherError(message),
-            raw_location: ruff_text_size::TextRange::new(start, end),
+            error: parser::ParseErrorType::OtherError(diagnostic.message),
+            raw_location: diagnostic.range,
             location,
             end_location,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
+            eof_token: None,
         })
     }
 
@@ -99,8 +198,14 @@ impl CompileError {
     }
 
     #[must_use]
-    pub const fn python_location(&self) -> (usize, usize) {
-        if let Some(location) = self.location() {
+    pub fn python_location(&self) -> (usize, usize) {
+        if let Self::Parse(ParseError {
+            eof_token: Some(eof_token),
+            ..
+        }) = self
+        {
+            (eof_token.lineno, eof_token.offset())
+        } else if let Some(location) = self.location() {
             (location.line.get(), location.character_offset.get())
         } else {
             (0, 0)
@@ -110,7 +215,9 @@ impl CompileError {
     #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
-            Self::Codegen(_) => None,
+            Self::Codegen(codegen_error) => codegen_error
+                .end_location
+                .map(|end| (end.line.get(), end.character_offset.get())),
             Self::Parse(parse_error) => Some((
                 parse_error.end_location.line.get(),
                 parse_error.end_location.character_offset.get(),
@@ -127,17 +234,19 @@ impl CompileError {
     }
 }
 
+// A syntax error the parser reports counts its columns in characters rather
+// than in the bytes the range is measured in. An offset that lands inside a
+// character walks back to where that character starts, the way decoding the
+// line up to a truncated offset would.
 fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    let text = source_file.source_text();
+    let mut index = offset.to_usize().min(text.len());
+    while !text.is_char_boundary(index) {
+        index -= 1;
+    }
     source_file
         .to_source_code()
-        .source_location(offset, PositionEncoding::Utf8)
-}
-
-// Call only with UTF-8 character boundaries for Python-facing offsets.
-fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
-    source_file
-        .to_source_code()
-        .source_location(offset, PositionEncoding::Utf32)
+        .source_location(TextSize::new(index as u32), PositionEncoding::Utf32)
 }
 
 fn source_locations(
@@ -145,10 +254,9 @@ fn source_locations(
     start: TextSize,
     end: TextSize,
 ) -> (SourceLocation, SourceLocation) {
-    let source_code = source_file.to_source_code();
     (
-        source_code.source_location(start, PositionEncoding::Utf8),
-        source_code.source_location(end, PositionEncoding::Utf8),
+        source_location(source_file, start),
+        source_location(source_file, end),
     )
 }
 
@@ -157,6 +265,7 @@ struct NormalizedParseDiagnostic {
     location: SourceLocation,
     end_location: SourceLocation,
     is_unclosed_bracket: bool,
+    is_unclosed_string: bool,
 }
 
 impl NormalizedParseDiagnostic {
@@ -170,40 +279,39 @@ impl NormalizedParseDiagnostic {
             location,
             end_location,
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
-    }
-
-    fn other(source_file: &SourceFile, message: String, start: usize, end: usize) -> Self {
-        let (location, end_location) = source_locations(
-            source_file,
-            TextSize::new(start as u32),
-            TextSize::new(end as u32),
-        );
-        Self::new(
-            parser::ParseErrorType::OtherError(message),
-            location,
-            end_location,
-        )
-    }
-
-    fn other_in_code_points(
-        source_file: &SourceFile,
-        message: String,
-        start: usize,
-        end: usize,
-    ) -> Self {
-        let start = TextSize::new(start as u32);
-        let end = TextSize::new(end as u32);
-        Self::new(
-            parser::ParseErrorType::OtherError(message),
-            source_location_in_code_points(source_file, start),
-            source_location_in_code_points(source_file, end),
-        )
     }
 
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
         self.is_unclosed_bracket = is_unclosed_bracket;
         self
+    }
+}
+
+/// What CPython would have reported for a piece of source, before it is resolved to a line and
+/// column. These are reconstructed by re-scanning after ruff's parse has already failed, so they
+/// carry CPython's wording rather than a translation of ruff's own error, and they never reach
+/// ruff — `NormalizedParseDiagnostic` and `CompileError` are the only things that consume one.
+#[derive(Clone)]
+struct CpythonDiagnostic {
+    message: String,
+    range: ruff_text_size::TextRange,
+}
+
+impl CpythonDiagnostic {
+    /// The `u32` cast is ruff's invariant rather than one this adds: its `Lexer::new` asserts
+    /// that the source fits in a `u32` ("Lexer only supports files with a size up to 4GB") and
+    /// relies on that for its own offset arithmetic, and nothing here runs until that lexer has
+    /// read the source and the parse built on it has failed.
+    fn new(message: String, start: usize, end: usize) -> Self {
+        Self {
+            message,
+            range: ruff_text_size::TextRange::new(
+                TextSize::new(start as u32),
+                TextSize::new(end as u32),
+            ),
+        }
     }
 }
 
@@ -214,47 +322,42 @@ fn cpython_parse_diagnostic_override(
 ) -> Option<NormalizedParseDiagnostic> {
     let source_text = source_file.source_text();
 
-    macro_rules! source_error {
-        ($expr:expr) => {
-            if let Some((message, start, end)) = $expr {
-                return Some(NormalizedParseDiagnostic::other(
-                    source_file,
-                    message,
-                    start,
-                    end,
-                ));
-            }
-        };
-    }
-
-    if let Some((message, offset)) = invalid_number_literal_error(source_text) {
-        return Some(NormalizedParseDiagnostic::other(
-            source_file,
-            message,
-            offset,
-            offset,
-        ));
-    }
-    source_error!(invalid_legacy_statement_error(source_text));
-    source_error!(non_printable_character_error(source_text));
-    source_error!(invalid_interpolated_string_error(source_text));
-
-    if let Some((message, start, end, unclosed)) = bracket_syntax_error(source_text) {
-        return Some(
-            NormalizedParseDiagnostic::other(source_file, message, start, end)
-                .with_unclosed_bracket(unclosed),
-        );
-    }
-
-    if matches!(
+    let tokenizer_error = matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(lexical) if lexical.is_tokenizer_error()
+    );
+    let line_continuation = matches!(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
-    ) {
-        // Only a backslash at the end of the source is an EOF error.
-        let terminal_backslash = source_text.len().checked_sub(1);
-        if !matches!(mode, Mode::Eval)
-            && terminal_backslash == Some(error.location.start().to_usize())
-        {
+    );
+    if line_continuation {
+        // exec input gets an implicit trailing newline, so a final `\` is a
+        // continuation that then hits EOF (`E_EOF`). single/eval see `\` at
+        // EOF as `E_LINECONT` instead.
+        if matches!(mode, Mode::Exec) && error.location.start().to_usize() == source_text.len() {
+            let source_with_newline = format!("{source_text}\n");
+            let parsed = parser::parse_unchecked(
+                &source_with_newline,
+                parser::ParseOptions::from(parser::Mode::Module),
+            );
+            if let Some(unclosed) = parsed.errors().first().filter(|first| {
+                matches!(
+                    first.error,
+                    parser::ParseErrorType::Lexical(
+                        parser::LexicalErrorType::UnclosedBracket { .. }
+                    )
+                )
+            }) {
+                let mut diagnostic = default_parse_diagnostic(unclosed.clone(), source_file);
+                diagnostic.is_unclosed_bracket = matches!(
+                    unclosed.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::UnclosedBracket {
+                        incomplete: true,
+                        ..
+                    })
+                );
+                return Some(diagnostic);
+            }
             let loc = source_line_end_location(source_file, error.location.start());
             return Some(NormalizedParseDiagnostic::new(
                 parser::ParseErrorType::OtherError("unexpected EOF while parsing".to_owned()),
@@ -262,24 +365,8 @@ fn cpython_parse_diagnostic_override(
                 loc,
             ));
         }
-        let loc = source_location(source_file, error.location.start() + TextSize::from(1));
-        return Some(NormalizedParseDiagnostic::new(
-            error.error.clone(),
-            loc,
-            loc,
-        ));
+        return None;
     }
-
-    if let Some((message, start, end)) = unterminated_string_error(source_text) {
-        // The scanner reports quote positions, which are UTF-8 character boundaries.
-        return Some(NormalizedParseDiagnostic::other_in_code_points(
-            source_file,
-            message,
-            start,
-            end,
-        ));
-    }
-    source_error!(expected_indented_block_error(error, source_text));
 
     if matches!(
         &error.error,
@@ -287,92 +374,24 @@ fn cpython_parse_diagnostic_override(
     ) {
         return Some(eof_parse_diagnostic(error, source_file));
     }
-
-    source_error!(invalid_type_param_error(source_text));
-    source_error!(invalid_comprehension_error(source_text));
-    source_error!(invalid_parameter_star_annotation_error(source_text));
-    source_error!(invalid_parameter_list_error(source_text));
-    source_error!(invalid_call_argument_error(source_text));
-
-    if is_missing_comma_between_literals(error) {
-        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-        let msg = "invalid syntax. Perhaps you forgot a comma?".into();
-        return Some(NormalizedParseDiagnostic::new(
-            parser::ParseErrorType::OtherError(msg),
-            loc,
-            end_loc,
-        ));
+    if tokenizer_error
+        || matches!(
+            &error.error,
+            parser::ParseErrorType::ExpectedIndentedBlock { .. }
+        )
+    {
+        return None;
     }
-
-    source_error!(invalid_dict_error(source_text));
-    source_error!(invalid_collection_assignment_error(source_text));
-    source_error!(invalid_group_error(source_text));
-    source_error!(invalid_def_type_params_error(source_text));
-    source_error!(invalid_expression_error(source_text));
-    source_error!(invalid_named_expression_error(source_text));
-    source_error!(invalid_plain_assignment_error(source_text));
-    source_error!(expression_assignment_error(source_text));
-    source_error!(invalid_annotation_target_error(source_text));
-    source_error!(invalid_assignment_target_error(source_text));
-    source_error!(invalid_augassign_target_error(source_text));
-    source_error!(invalid_for_target_error(source_text));
-    source_error!(invalid_with_target_error(source_text));
-    source_error!(invalid_delete_target_error(source_text));
-    source_error!(invalid_standalone_except_error(source_text));
-    source_error!(invalid_import_statement_error(source_text));
-    source_error!(invalid_import_target_error(source_text));
-    source_error!(invalid_except_as_target_error(source_text));
-    source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
-    source_error!(invalid_match_as_target_error(source_text));
-    source_error!(invalid_for_if_clause_error(source_text));
-    source_error!(invalid_if_expression_statement_error(source_text));
-    source_error!(invalid_else_elif_error(source_text));
-    source_error!(mixed_except_handlers_error(source_text));
-
-    if matches!(
-        &error.error,
-        parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
-    ) {
-        let end_loc = source_line_end_location(source_file, error.location.start());
-        return Some(NormalizedParseDiagnostic::new(
-            error.error.clone(),
-            end_loc,
-            end_loc,
-        ));
-    }
-
-    if matches!(
-        &error.error,
-        parser::ParseErrorType::InvalidAssignmentTarget
-    ) {
-        return Some(invalid_assignment_target_diagnostic(error, source_file));
-    }
-
-    if matches!(
-        &error.error,
-        parser::ParseErrorType::InvalidNamedAssignmentTarget
-    ) {
-        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-        let target = source_file.source_text().slice(error.location);
-        let msg = format!("cannot use assignment expressions with {target}");
-        return Some(NormalizedParseDiagnostic::new(
-            parser::ParseErrorType::OtherError(msg),
-            loc,
-            end_loc,
-        ));
-    }
-
-    // `2 <> 3` outside Barry mode: ruff lexes `<` then an unexpected `>` and
-    // reports `ExpectedExpression` starting at the `>`. CPython's tokenizer
-    // treats `<>` as a single obsolete token and points at its start (the
-    // `<`) instead, so shift the reported location back over it.
-    source_error!(barry_flufl_obsolete_operator_error(error, source_text));
 
     // CPython's PEG parser collapses a bare "expected an expression" failure
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
     // vm dependency, so mirror it here.
-    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::ExpectedExpression
+            | parser::ParseErrorType::UnexpectedExpressionToken
+    ) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
         return Some(NormalizedParseDiagnostic::new(
             parser::ParseErrorType::OtherError("invalid syntax".into()),
@@ -384,21 +403,69 @@ fn cpython_parse_diagnostic_override(
     None
 }
 
-fn barry_flufl_obsolete_operator_error(
-    error: &parser::ParseError,
-    source: &str,
-) -> Option<(String, usize, usize)> {
-    if !matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
-        return None;
-    }
+/// Whether the parser fails on a token made up at the end of the input.
+fn fails_at_eof_token(error: &parser::ParseError, source: &str, mode: Mode) -> bool {
     let start = error.location.start().to_usize();
-    if start == 0 || source.as_bytes().get(start - 1) != Some(&b'<') {
-        return None;
+    match &error.error {
+        parser::ParseErrorType::Lexical(_) => false,
+        // `NEWLINE !INDENT` fails on the token after the newline, and the
+        // error is reported at the newline when only blank lines and comments
+        // follow it.
+        parser::ParseErrorType::ExpectedIndentedBlock { .. } => {
+            let end = error.location.end().to_usize();
+            source
+                .get(start..end)
+                .is_some_and(|text| text.chars().all(|c| c.is_ascii_whitespace()))
+                && source.get(end..).is_some_and(is_blank_python_source)
+        }
+        _ if start < source.len() => false,
+        // Exec input gets a newline appended, which is a real NEWLINE token,
+        // so the error is at the end only when it stays there once the
+        // newline is added.
+        _ if matches!(mode, Mode::Exec | Mode::BlockExpr)
+            && !source.is_empty()
+            && !source.ends_with('\n') =>
+        {
+            let source = format!("{source}\n");
+            let parsed =
+                parser::parse_unchecked(&source, parser::ParseOptions::from(parser::Mode::Module));
+            parsed
+                .errors()
+                .first()
+                .is_none_or(|error| error.location.start().to_usize() >= source.len())
+        }
+        _ => true,
     }
-    if source.as_bytes().get(start) != Some(&b'>') {
-        return None;
+}
+
+/// Where the error is placed when the parser fails on a token made up at the
+/// end of the input.
+fn eof_error_location(error: &parser::ParseErrorType) -> EofErrorLocation {
+    match error {
+        // A `:` that is not forced is reported missing before the newline by an
+        // `invalid_*` rule.
+        parser::ParseErrorType::ExpectedToken {
+            expected: TokenKind::Colon,
+            found: TokenKind::Newline,
+        } => EofErrorLocation::Tokenizer,
+        parser::ParseErrorType::ExpectedToken { .. }
+        | parser::ParseErrorType::ExpectedForcedToken { .. }
+        | parser::ParseErrorType::ExpectedExpression
+        | parser::ParseErrorType::ExpectedIdentifier
+        | parser::ParseErrorType::UnexpectedExpressionToken
+        | parser::ParseErrorType::UnexpectedTokenAfterAsync(_)
+        | parser::ParseErrorType::EmptyDeleteTargets
+        | parser::ParseErrorType::EmptyGlobalNames
+        | parser::ParseErrorType::EmptyNonlocalNames
+        | parser::ParseErrorType::SimpleStatementsOnSameLine
+        | parser::ParseErrorType::SimpleAndCompoundStatementOnSameLine
+        | parser::ParseErrorType::InvalidStarredExpressionUsage => EofErrorLocation::Token,
+        parser::ParseErrorType::EmptyImportNames => EofErrorLocation::StartingFromToken,
+        parser::ParseErrorType::OtherError(message) if message == "invalid syntax" => {
+            EofErrorLocation::Token
+        }
+        _ => EofErrorLocation::Tokenizer,
     }
-    Some(("invalid syntax".to_string(), start - 1, start + 1))
 }
 
 fn eof_parse_diagnostic(
@@ -421,44 +488,64 @@ fn eof_parse_diagnostic(
     }
 }
 
-fn invalid_assignment_target_diagnostic(
-    error: &parser::ParseError,
-    source_file: &SourceFile,
-) -> NormalizedParseDiagnostic {
-    let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-    let expr_str = source_file.source_text().slice(error.location);
+/// Returns whether more input could still terminate the string that `error` reports as
+/// unterminated.
+///
+/// A string that reached the end of the source can continue, except a single-quoted f/t-string,
+/// a single-quoted string in exec input whose implicit final newline ends it, and a string after
+/// an assignment in eval input.
+fn unclosed_string_is_continuable(error: &parser::ParseError, source: &str, mode: Mode) -> bool {
+    use parser::{InterpolatedStringErrorType, LexicalErrorType};
 
-    let msg = parser::parse_expression(expr_str).map_or_else(
-        |_| match expr_str {
-            "yield" => "assignment to yield expression not possible".into(),
-            _ => format!("cannot assign to {expr_str}"),
-        },
-        |parsed| match *parsed.syntax().body {
-            ast::Expr::Call(_) => "cannot assign to function call".into(),
-            ast::Expr::BinOp(_) => "cannot assign to expression".into(),
-            ast::Expr::If(_) => "cannot assign to conditional expression".into(),
-            ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
-            ast::Expr::FString(_) => "invalid syntax".into(),
-            ast::Expr::StringLiteral(_)
-            | ast::Expr::BytesLiteral(_)
-            | ast::Expr::NumberLiteral(_) => {
-                "cannot assign to literal here. Maybe you meant '==' instead of '='?".into()
-            }
-            ast::Expr::EllipsisLiteral(_) => {
-                "cannot assign to ellipsis here. Maybe you meant '==' instead of '='?".into()
-            }
-            _ => format!("cannot assign to {expr_str}"),
-        },
-    );
+    let parser::ParseErrorType::Lexical(lexical) = &error.error else {
+        return false;
+    };
+    let start = error.location.start().to_usize();
+    let at_eof = match lexical {
+        LexicalErrorType::UnclosedStringError {
+            triple_quoted: true,
+            ..
+        }
+        | LexicalErrorType::FStringError(
+            InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+        )
+        | LexicalErrorType::TStringError(
+            InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+        ) => true,
+        LexicalErrorType::UnclosedStringError { .. } => {
+            // Exec mode appends a newline, which only a final `\` can escape.
+            let rest = &source[start..];
+            !has_unescaped_newline(rest) && (!matches!(mode, Mode::Exec) || rest.ends_with('\\'))
+        }
+        _ => false,
+    };
+    at_eof && !(matches!(mode, Mode::Eval) && eval_has_assignment_before(source.as_bytes(), start))
+}
 
-    NormalizedParseDiagnostic::new(parser::ParseErrorType::OtherError(msg), loc, end_loc)
+fn has_unescaped_newline(text: &str) -> bool {
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next();
+            }
+            '\n' | '\r' => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn default_parse_diagnostic(
     error: parser::ParseError,
     source_file: &SourceFile,
 ) -> NormalizedParseDiagnostic {
-    let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+    let (loc, end_loc) = if matches!(error.error, parser::ParseErrorType::EmptyImportNames) {
+        // RAISE_SYNTAX_ERROR_STARTING_FROM the newline ends where it starts.
+        source_locations(source_file, error.location.start(), error.location.end())
+    } else {
+        adjusted_error_locations(source_file, error.location)
+    };
     NormalizedParseDiagnostic::new(error.error, loc, end_loc)
 }
 
@@ -469,6 +556,10 @@ fn adjusted_error_locations(
     let mut locations = source_locations(source_file, range.start(), range.end());
     if locations.1.character_offset.get() == 1 && locations.1.line > locations.0.line {
         locations.1 = source_location(source_file, range.end() - TextSize::from(1));
+        locations.1.character_offset = locations.1.character_offset.saturating_add(1);
+    } else if range.is_empty() {
+        // The parser blames a token, and the narrowest token still covers a
+        // character, so an error reported between two of them spans one.
         locations.1.character_offset = locations.1.character_offset.saturating_add(1);
     }
     locations
@@ -490,303 +581,39 @@ fn source_line_end_location(source_file: &SourceFile, offset: TextSize) -> Sourc
     }
 }
 
-fn is_missing_comma_between_literals(error: &parser::ParseError) -> bool {
-    matches!(
-        &error.error,
-        parser::ParseErrorType::ExpectedToken { expected, found }
-            if matches!((expected, found), (TokenKind::Comma, TokenKind::Int))
-    )
-}
-
 fn is_ascii_identifier_char(byte: u8) -> bool {
     byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
-fn numeric_keyword_suffix(rest: &[u8]) -> bool {
-    rest.starts_with(b"and")
-        || rest.starts_with(b"else")
-        || rest.starts_with(b"for")
-        || rest.starts_with(b"if")
-        || rest.starts_with(b"in")
-        || rest.starts_with(b"is")
-        || rest.starts_with(b"or")
-        || rest.starts_with(b"not")
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return is_ascii_identifier_char(bytes[index - 1]);
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
 }
 
-fn consume_decimal_digits(bytes: &[u8], mut index: usize) -> usize {
-    while index < bytes.len() {
-        match bytes[index] {
-            b'0'..=b'9' => index += 1,
-            b'_' if bytes
-                .get(index + 1)
-                .is_some_and(|byte| byte.is_ascii_digit()) =>
-            {
-                index += 2;
-            }
-            _ => break,
-        }
-    }
-    index
-}
-
-fn consume_radix_digits(bytes: &[u8], mut index: usize, is_digit: impl Fn(u8) -> bool) -> usize {
-    while index < bytes.len() {
-        if is_digit(bytes[index]) {
-            index += 1;
-        } else if bytes.get(index) == Some(&b'_')
-            && bytes.get(index + 1).is_some_and(|&byte| is_digit(byte))
-        {
-            index += 2;
-        } else {
-            break;
-        }
-    }
-    index
-}
-
-fn invalid_radix_literal_error(
-    bytes: &[u8],
-    start: usize,
-    kind: &'static str,
-    is_digit: impl Fn(u8) -> bool,
-) -> Option<(String, usize)> {
-    let mut index = start + 2;
-    let mut has_digit = false;
-    loop {
-        let Some(&byte) = bytes.get(index) else {
-            return Some((format!("invalid {kind} literal"), start + 1));
-        };
-        if byte == b'_' {
-            let Some(&next) = bytes.get(index + 1) else {
-                return Some((format!("invalid {kind} literal"), index));
-            };
-            if is_digit(next) {
-                has_digit = true;
-                index += 2;
-                continue;
-            }
-            if next.is_ascii_digit() && matches!(kind, "binary" | "octal") {
-                return Some((
-                    format!("invalid digit '{}' in {kind} literal", next as char),
-                    index + 1,
-                ));
-            }
-            return Some((format!("invalid {kind} literal"), index));
-        }
-        if is_digit(byte) {
-            has_digit = true;
-            index += 1;
-            continue;
-        }
-        if byte.is_ascii_digit() && matches!(kind, "binary" | "octal") {
-            return Some((
-                format!("invalid digit '{}' in {kind} literal", byte as char),
-                index,
-            ));
-        }
-        if has_digit {
-            return None;
-        }
-        return Some((format!("invalid {kind} literal"), start + 1));
-    }
-}
-
-fn decimal_tail_error(bytes: &[u8], mut index: usize) -> Option<usize> {
-    loop {
-        while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            index += 1;
-        }
-        if bytes.get(index) != Some(&b'_') {
-            return None;
-        }
-        let underscore = index;
-        index += 1;
-        if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            return Some(underscore);
-        }
-    }
-}
-
-fn decimal_tail_end(bytes: &[u8], mut index: usize) -> usize {
-    loop {
-        while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            index += 1;
-        }
-        if bytes.get(index) == Some(&b'_')
-            && bytes
-                .get(index + 1)
-                .is_some_and(|byte| byte.is_ascii_digit())
-        {
-            index += 2;
-        } else {
-            return index;
-        }
-    }
-}
-
-fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
-    if bytes.get(start) == Some(&b'.') {
-        return None;
-    }
-    let message = "invalid decimal literal".to_owned();
-    if let Some(offset) = decimal_tail_error(bytes, start) {
-        return Some((message, offset));
-    }
-
-    let mut index = decimal_tail_end(bytes, start);
-    if bytes.get(index) == Some(&b'.') {
-        if bytes.get(index + 1) == Some(&b'_') {
-            return Some((message, index));
-        }
-        if let Some(offset) = decimal_tail_error(bytes, index + 1) {
-            return Some((message, offset));
-        }
-        index = decimal_tail_end(bytes, index + 1);
-    }
-    if matches!(bytes.get(index), Some(b'e' | b'E')) {
-        let exponent = index;
-        index += 1;
-        let sign = if matches!(bytes.get(index), Some(b'+' | b'-')) {
-            let sign = index;
-            index += 1;
-            Some(sign)
-        } else {
-            None
-        };
-        if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            return Some((message, sign.unwrap_or(exponent)));
-        }
-        if let Some(offset) = decimal_tail_error(bytes, index) {
-            return Some((message, offset));
-        }
-    }
-    None
-}
-
-fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
-    if bytes.get(start) != Some(&b'0') {
-        return None;
-    }
-    let mut index = start;
-    loop {
-        match bytes.get(index) {
-            Some(b'0') => index += 1,
-            Some(b'_')
-                if bytes
-                    .get(index + 1)
-                    .is_some_and(|byte| byte.is_ascii_digit()) =>
-            {
-                index += 1;
-            }
-            _ => break,
-        }
-    }
-    if bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-        let after_digits = decimal_tail_end(bytes, index);
-        if !matches!(
-            bytes.get(after_digits),
-            Some(b'.' | b'e' | b'E' | b'j' | b'J')
-        ) {
-            return Some((
-                "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers".to_owned(),
-                start,
-            ));
-        }
-    }
-    None
-}
-
-fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
-    if bytes.get(start) == Some(&b'0') {
-        match bytes.get(start + 1) {
-            Some(b'x' | b'X') => {
-                return invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
-                    byte.is_ascii_hexdigit()
-                });
-            }
-            Some(b'o' | b'O') => {
-                return invalid_radix_literal_error(bytes, start, "octal", |byte| {
-                    matches!(byte, b'0'..=b'7')
-                });
-            }
-            Some(b'b' | b'B') => {
-                return invalid_radix_literal_error(bytes, start, "binary", |byte| {
-                    matches!(byte, b'0' | b'1')
-                });
-            }
-            _ => {}
-        }
-        if let Some(err) = leading_zero_decimal_literal_error(bytes, start) {
-            return Some(err);
-        }
-    }
-    invalid_decimal_literal_error(bytes, start)
-}
-
-fn consume_exponent(bytes: &[u8], index: usize) -> usize {
-    if !matches!(bytes.get(index), Some(b'e' | b'E')) {
-        return index;
-    }
-    let mut cursor = index + 1;
-    if matches!(bytes.get(cursor), Some(b'+' | b'-')) {
-        cursor += 1;
-    }
-    if bytes.get(cursor).is_some_and(|byte| byte.is_ascii_digit()) {
-        consume_decimal_digits(bytes, cursor)
+fn quoted_string_is_closed(bytes: &[u8], start: usize) -> bool {
+    let quote = bytes[start];
+    let triple = bytes.get(start + 1) == Some(&quote) && bytes.get(start + 2) == Some(&quote);
+    let end = skip_quoted_string(bytes, start);
+    if triple {
+        end >= start + 6
+            && bytes[end - 3] == quote
+            && bytes[end - 2] == quote
+            && bytes[end - 1] == quote
     } else {
-        index
+        end > start + 1 && bytes[end - 1] == quote
     }
-}
-
-fn number_literal_end(bytes: &[u8], start: usize) -> Option<(&'static str, usize)> {
-    if bytes.get(start) == Some(&b'.') {
-        if !bytes
-            .get(start + 1)
-            .is_some_and(|byte| byte.is_ascii_digit())
-        {
-            return None;
-        }
-        let mut index = consume_decimal_digits(bytes, start + 1);
-        index = consume_exponent(bytes, index);
-        if matches!(bytes.get(index), Some(b'j' | b'J')) {
-            return Some(("imaginary", index + 1));
-        }
-        return Some(("decimal", index));
-    }
-
-    if !bytes.get(start).is_some_and(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-
-    if bytes.get(start) == Some(&b'0') {
-        match bytes.get(start + 1) {
-            Some(b'x' | b'X') => {
-                let end = consume_radix_digits(bytes, start + 2, |byte| byte.is_ascii_hexdigit());
-                return Some(("hexadecimal", end));
-            }
-            Some(b'o' | b'O') => {
-                let end =
-                    consume_radix_digits(bytes, start + 2, |byte| matches!(byte, b'0'..=b'7'));
-                return Some(("octal", end));
-            }
-            Some(b'b' | b'B') => {
-                let end =
-                    consume_radix_digits(bytes, start + 2, |byte| matches!(byte, b'0' | b'1'));
-                return Some(("binary", end));
-            }
-            _ => {}
-        }
-    }
-
-    let mut index = consume_decimal_digits(bytes, start);
-    if bytes.get(index) == Some(&b'.') {
-        index = consume_decimal_digits(bytes, index + 1);
-    }
-    index = consume_exponent(bytes, index);
-    if matches!(bytes.get(index), Some(b'j' | b'J')) {
-        return Some(("imaginary", index + 1));
-    }
-    Some(("decimal", index))
 }
 
 fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
@@ -812,164 +639,6 @@ fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
     index
 }
 
-fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            byte if byte >= 0x80 || byte == b'_' || byte.is_ascii_alphabetic() => {
-                index += 1;
-                while index < bytes.len()
-                    && (bytes[index] >= 0x80 || is_ascii_identifier_char(bytes[index]))
-                {
-                    index += 1;
-                }
-            }
-            b'.' | b'0'..=b'9' => {
-                if let Some(err) = invalid_numeric_literal_error(bytes, index) {
-                    return Some(err);
-                }
-                let Some((kind, end)) = number_literal_end(bytes, index) else {
-                    index += 1;
-                    continue;
-                };
-                if end > index {
-                    if source[end..].starts_with('⁄') {
-                        return Some(("invalid character '⁄' (U+2044)".to_owned(), end));
-                    }
-                    if bytes
-                        .get(end)
-                        .is_some_and(|byte| *byte < 128 && is_ascii_identifier_char(*byte))
-                        && !numeric_keyword_suffix(&bytes[end..])
-                    {
-                        return Some((format!("invalid {kind} literal"), end.saturating_sub(1)));
-                    }
-                }
-                index = end.max(index + 1);
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn cpython_indented_block_clause(message: &str) -> Option<&'static str> {
-    let clause = message.strip_prefix("Expected an indented block after ")?;
-    Some(match clause {
-        "`if` statement" => "'if' statement",
-        "`elif` clause" => "'elif' statement",
-        "`else` clause" => "'else' statement",
-        "`for` statement" => "'for' statement",
-        "`with` statement" => "'with' statement",
-        "`while` statement" => "'while' statement",
-        "`try` statement" => "'try' statement",
-        "`except` clause" => "'except' statement",
-        "`finally` clause" => "'finally' statement",
-        "`match` statement" => "'match' statement",
-        "`case` block" => "'case' statement",
-        "`class` definition" => "class definition",
-        "function definition" => "function definition",
-        _ => return None,
-    })
-}
-
-fn previous_non_empty_line_number(source: &str, offset: usize) -> Option<usize> {
-    let bytes = source.as_bytes();
-    let mut index = offset.min(bytes.len());
-    while index > 0 {
-        let line_end = index;
-        while index > 0 && bytes[index - 1] != b'\n' {
-            index -= 1;
-        }
-        let line_start = index;
-        let content_start = skip_horizontal_whitespace(bytes, line_start);
-        let mut content_end = line_end;
-        while content_end > content_start
-            && matches!(
-                bytes.get(content_end - 1),
-                Some(b' ' | b'\t' | b'\r' | b'\x0c')
-            )
-        {
-            content_end -= 1;
-        }
-        if content_start < content_end {
-            return Some(
-                source[..line_start]
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count()
-                    + 1,
-            );
-        }
-        index = line_start.saturating_sub(1);
-    }
-    None
-}
-
-fn expected_indented_block_error(
-    error: &parser::ParseError,
-    source: &str,
-) -> Option<(String, usize, usize)> {
-    let parser::ParseErrorType::OtherError(message) = &error.error else {
-        return None;
-    };
-    let mut clause = cpython_indented_block_clause(message)?;
-    let start = error.location.start().to_usize();
-    let end = error.location.end().to_usize();
-    let line = previous_non_empty_line_number(source, start)?;
-    if clause == "'except' statement"
-        && let Some(previous_line) = previous_non_empty_line(source, start)
-        && matches!(
-            previous_line.trim_start(),
-            line if line.starts_with("except*") || line.starts_with("except *")
-        )
-    {
-        clause = "'except*' statement";
-    }
-    Some((
-        format!("expected an indented block after {clause} on line {line}"),
-        start,
-        end,
-    ))
-}
-
-fn previous_non_empty_line(source: &str, offset: usize) -> Option<&str> {
-    let bytes = source.as_bytes();
-    let mut index = offset.min(bytes.len());
-    while index > 0 {
-        let line_end = index;
-        while index > 0 && bytes[index - 1] != b'\n' {
-            index -= 1;
-        }
-        let line_start = index;
-        let mut content_start = line_start;
-        while content_start < line_end
-            && matches!(bytes[content_start], b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
-        {
-            content_start += 1;
-        }
-        let mut content_end = line_end;
-        while content_end > content_start
-            && matches!(bytes[content_end - 1], b' ' | b'\t' | b'\r' | b'\x0c')
-        {
-            content_end -= 1;
-        }
-        if content_start < content_end {
-            return source.get(line_start..line_end);
-        }
-        index = line_start.saturating_sub(1);
-    }
-    None
-}
-
 fn starts_identifier(bytes: &[u8], index: usize, word: &[u8]) -> bool {
     bytes.get(index..index + word.len()) == Some(word)
         && index
@@ -981,3003 +650,48 @@ fn starts_identifier(bytes: &[u8], index: usize, word: &[u8]) -> bool {
             .is_none_or(|byte| !is_ascii_identifier_char(*byte))
 }
 
-fn is_plain_assignment_operator(bytes: &[u8], index: usize) -> bool {
-    bytes.get(index) == Some(&b'=')
-        && bytes.get(index + 1) != Some(&b'=')
-        && !matches!(
-            index.checked_sub(1).and_then(|before| bytes.get(before)),
-            Some(b'=' | b'!' | b'<' | b'>' | b':')
-        )
-}
-
-fn is_simple_keyword_name(bytes: &[u8], mut start: usize, mut end: usize) -> bool {
-    while matches!(
-        bytes.get(start),
-        Some(b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
-    ) {
-        start += 1;
-    }
-    while end > start
-        && matches!(
-            bytes.get(end - 1),
-            Some(b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
-        )
-    {
-        end -= 1;
-    }
-    let Some(&first) = bytes.get(start) else {
-        return false;
-    };
-    if !(first == b'_' || first.is_ascii_alphabetic() || first >= 0x80) {
-        return false;
-    }
-    let mut index = start + 1;
-    while index < end {
-        if bytes[index] < 0x80 && !is_ascii_identifier_char(bytes[index]) {
-            return false;
-        }
-        index += 1;
-    }
-    true
-}
-
-fn is_function_parameter_list(bytes: &[u8], paren: usize) -> bool {
-    let mut cursor = paren;
-    while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor -= 1;
-    }
-    if cursor > 0 && bytes.get(cursor - 1) == Some(&b']') {
-        let mut bracket = cursor;
-        let mut level = 0usize;
-        while bracket > 0 {
-            bracket -= 1;
-            match bytes[bracket] {
-                b']' => level += 1,
-                b'[' => {
-                    level = level.saturating_sub(1);
-                    if level == 0 {
-                        cursor = bracket;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
-            cursor -= 1;
-        }
-    }
-    while cursor > 0
-        && bytes
-            .get(cursor - 1)
-            .is_some_and(|byte| *byte >= 0x80 || is_ascii_identifier_char(*byte))
-    {
-        cursor -= 1;
-    }
-    while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor -= 1;
-    }
-    cursor >= 3
-        && starts_identifier(bytes, cursor - 3, b"def")
-        && cursor
-            .checked_sub(4)
-            .and_then(|before| bytes.get(before))
-            .is_none_or(|byte| !is_ascii_identifier_char(*byte))
-}
-
-#[derive(Clone, Copy)]
-enum ParameterListKind {
-    Function,
-    Lambda,
-}
-
-fn matching_delimiter(bytes: &[u8], open: usize, close: u8) -> Option<usize> {
-    let mut index = open;
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            byte if byte == close => {
-                level = level.saturating_sub(1);
-                if level == 0 {
-                    return Some(index);
-                }
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn find_lambda_parameter_end(bytes: &[u8], mut index: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if level == 0 => return None,
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b':' if level == 0 => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn top_level_byte(bytes: &[u8], mut index: usize, end: usize, needle: u8) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            byte if level == 0 && byte == needle => return Some(index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn identifier_end(bytes: &[u8], mut index: usize, end: usize) -> usize {
-    if !bytes
-        .get(index)
-        .is_some_and(|byte| *byte >= 0x80 || *byte == b'_' || byte.is_ascii_alphabetic())
-    {
-        return index;
-    }
-    index += 1;
-    while index < end
-        && bytes
-            .get(index)
-            .is_some_and(|byte| *byte >= 0x80 || is_ascii_identifier_char(*byte))
-    {
-        index += 1;
-    }
-    index
-}
-
-fn expression_slice_is_tuple(source: &str, start: usize, end: usize) -> bool {
-    let bytes = source.as_bytes();
-    let (start, end) = trim_target_range(bytes, start, end);
-    if start >= end {
-        return false;
-    }
-    let Ok(parsed) = parser::parse(&source[start..end], parser::Mode::Expression.into()) else {
-        return false;
-    };
-    matches!(parsed.into_syntax(), ast::Mod::Expression(expression) if matches!(*expression.body, ast::Expr::Tuple(_)))
-}
-
-fn type_param_list_open(bytes: &[u8], open: usize) -> bool {
-    let mut cursor = open;
-    while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor -= 1;
-    }
-    while cursor > 0
-        && bytes
-            .get(cursor - 1)
-            .is_some_and(|byte| *byte >= 0x80 || is_ascii_identifier_char(*byte))
-    {
-        cursor -= 1;
-    }
-    while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor -= 1;
-    }
-    (cursor >= 3 && starts_identifier(bytes, cursor - 3, b"def"))
-        || (cursor >= 5 && starts_identifier(bytes, cursor - 5, b"class"))
-        || (cursor >= 4 && starts_identifier(bytes, cursor - 4, b"type"))
-}
-
-fn invalid_type_param_item_error(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (start, end) = trim_target_range(bytes, start, end);
-    if start >= end || bytes.get(start) != Some(&b'*') {
-        return None;
-    }
-    let is_param_spec = bytes.get(start + 1) == Some(&b'*');
-    let name_start = start + if is_param_spec { 2 } else { 1 };
-    let name_end = identifier_end(bytes, name_start, end);
-    if name_start == name_end {
-        return None;
-    }
-    let colon = next_non_horizontal_whitespace(bytes, name_end);
-    if colon >= end || bytes.get(colon) != Some(&b':') {
-        return None;
-    }
-    let has_constraints = expression_slice_is_tuple(source, colon + 1, end);
-    let message = match (is_param_spec, has_constraints) {
-        (false, false) => "cannot use bound with TypeVarTuple",
-        (false, true) => "cannot use constraints with TypeVarTuple",
-        (true, false) => "cannot use bound with ParamSpec",
-        (true, true) => "cannot use constraints with ParamSpec",
-    };
-    Some((message.to_owned(), colon, colon + 1))
-}
-
-fn invalid_type_param_list_error(
-    source: &str,
-    open: usize,
-    close: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut item_start = open + 1;
-    let mut index = item_start;
-    let mut level = 0usize;
-    while index <= close {
-        if index == close || (level == 0 && bytes.get(index) == Some(&b',')) {
-            if let Some(error) = invalid_type_param_item_error(source, item_start, index) {
-                return Some(error);
-            }
-            item_start = index + 1;
-            index += 1;
-            continue;
-        }
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_type_param_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'[' if type_param_list_open(bytes, index) => {
-                let Some(close) = matching_delimiter(bytes, index, b']') else {
-                    index += 1;
-                    continue;
-                };
-                if let Some(error) = invalid_type_param_list_error(source, index, close) {
-                    return Some(error);
-                }
-                index = close + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_comprehension_in_slice(
-    bytes: &[u8],
-    open: usize,
-    close: usize,
-) -> Option<(String, usize, usize)> {
-    let for_index = find_keyword_at_level(bytes, open + 1, close, b"for")?;
-    let item_start = next_non_horizontal_whitespace(bytes, open + 1);
-    if item_start >= for_index {
-        return None;
-    }
-    if bytes.get(item_start..item_start + 2) == Some(b"**") && bytes.get(open) == Some(&b'{') {
-        return Some((
-            "dict unpacking cannot be used in dict comprehension".to_owned(),
-            item_start,
-            item_start + 2,
-        ));
-    }
-    if bytes.get(item_start..item_start + 2) == Some(b"**") && bytes.get(open) == Some(&b'(') {
-        return Some(("invalid syntax".to_owned(), for_index, for_index + 3));
-    }
-    if bytes.get(item_start) == Some(&b'*') {
-        return Some((
-            "iterable unpacking cannot be used in comprehension".to_owned(),
-            item_start,
-            item_start + 1,
-        ));
-    }
-    if !matches!(bytes.get(open), Some(b'[' | b'{')) {
-        return None;
-    }
-    if top_level_colon(bytes, open + 1, for_index).is_none()
-        && let Some(comma) = top_level_byte(bytes, open + 1, for_index, b',')
-    {
-        let (start, _) = trim_target_range(bytes, open + 1, comma);
-        return Some((
-            "did you forget parentheses around the comprehension target?".to_owned(),
-            start,
-            comma + 1,
-        ));
-    }
-    None
-}
-
-fn invalid_comprehension_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                let close_byte = match bytes[index] {
-                    b'(' => b')',
-                    b'[' => b']',
-                    _ => b'}',
-                };
-                let Some(close) = matching_delimiter(bytes, index, close_byte) else {
-                    index += 1;
-                    continue;
-                };
-                if let Some(error) = invalid_comprehension_in_slice(bytes, index, close) {
-                    return Some(error);
-                }
-                index = close + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_group_in_slice(
-    bytes: &[u8],
-    open: usize,
-    close: usize,
-) -> Option<(String, usize, usize)> {
-    let (item_start, item_end) = trim_target_range(bytes, open + 1, close);
-    if item_start >= item_end
-        || top_level_byte(bytes, item_start, item_end, b',').is_some()
-        || top_level_colon(bytes, item_start, item_end).is_some()
-        || find_keyword_at_level(bytes, item_start, item_end, b"for").is_some()
-    {
-        return None;
-    }
-    if bytes.get(item_start..item_start + 2) == Some(b"**") {
-        return Some((
-            "cannot use double starred expression here".to_owned(),
-            item_start,
-            item_start + 2,
-        ));
-    }
-    if bytes.get(item_start) == Some(&b'*') {
-        return Some((
-            "cannot use starred expression here".to_owned(),
-            item_start,
-            item_start + 1,
-        ));
-    }
-    None
-}
-
-fn invalid_group_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' => {
-                let Some(close) = matching_delimiter(bytes, index, b')') else {
-                    index += 1;
-                    continue;
-                };
-                if let Some(error) = invalid_group_in_slice(bytes, index, close) {
-                    return Some(error);
-                }
-                index = close + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_parameter_star_annotation_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' => {
-                let Some(close) = matching_delimiter(bytes, index, b')') else {
-                    index += 1;
-                    continue;
-                };
-                let mut param_start = index + 1;
-                while param_start < close {
-                    let param_end =
-                        find_byte_at_level(bytes, param_start, close, b',').unwrap_or(close);
-                    if let Some(colon) = top_level_colon(bytes, param_start, param_end) {
-                        let value_start = next_non_horizontal_whitespace(bytes, colon + 1);
-                        if bytes.get(value_start) == Some(&b'*') {
-                            return Some((
-                                "invalid syntax".to_owned(),
-                                value_start,
-                                value_start + 1,
-                            ));
-                        }
-                    }
-                    param_start = param_end.saturating_add(1);
-                }
-                index = close + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_def_type_params_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
+fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
     let mut index = 0;
-    while index < bytes.len() {
+    let mut level = 0usize;
+    let mut in_lambda_params = false;
+    while index < end {
         match bytes[index] {
             b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
+                while index < end && bytes[index] != b'\n' {
                     index += 1;
                 }
             }
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            _ if starts_identifier(bytes, index, b"def") => {
-                let name_start = skip_horizontal_whitespace(bytes, index + 3);
-                let name_end = identifier_end(bytes, name_start, bytes.len());
-                let bracket = skip_horizontal_whitespace(bytes, name_end);
-                if bytes.get(bracket) == Some(&b'[') {
-                    let Some(close) = matching_delimiter(bytes, bracket, b']') else {
-                        index = bracket + 1;
-                        continue;
-                    };
-                    let after_close = skip_horizontal_whitespace(bytes, close + 1);
-                    if bytes.get(after_close) == Some(&b'(')
-                        && type_param_list_is_malformed(bytes, bracket + 1, close)
-                    {
-                        return Some(("expected '('".to_owned(), bracket, bracket + 1));
-                    }
-                }
-                index = name_end.max(index + 3);
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
             }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn type_param_list_is_malformed(bytes: &[u8], start: usize, end: usize) -> bool {
-    let mut index = start;
-    let mut expect_item = true;
-    while index < end {
-        index = skip_horizontal_whitespace(bytes, index);
-        if index >= end {
-            break;
-        }
-        if bytes[index] == b',' {
-            if expect_item {
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            b':' if level == 0 => {
+                in_lambda_params = false;
+                index += 1;
+            }
+            b'=' if level == 0
+                && !in_lambda_params
+                && bytes.get(index + 1) != Some(&b'=')
+                && !matches!(
+                    bytes.get(index.saturating_sub(1)),
+                    Some(b':' | b'!' | b'<' | b'>')
+                ) =>
+            {
                 return true;
             }
-            expect_item = true;
-            index += 1;
-            continue;
-        }
-        if !expect_item {
-            return true;
-        }
-        if bytes.get(index..index + 2) == Some(b"**") {
-            index += 2;
-        } else if bytes.get(index) == Some(&b'*') {
-            index += 1;
-        }
-        let item_start = skip_horizontal_whitespace(bytes, index);
-        let item_end = identifier_end(bytes, item_start, end);
-        if item_end == item_start {
-            return true;
-        }
-        index = item_end;
-        if bytes.get(skip_horizontal_whitespace(bytes, index)) == Some(&b':') {
-            index = skip_horizontal_whitespace(bytes, index) + 1;
-            while index < end && bytes[index] != b',' {
-                index = match bytes[index] {
-                    b'\'' | b'"' => skip_quoted_string(bytes, index),
-                    _ => index + 1,
-                };
-            }
-        }
-        expect_item = false;
-    }
-    false
-}
-
-fn invalid_parameter_list_slice_error(
-    source: &str,
-    start: usize,
-    end: usize,
-    kind: ParameterListKind,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = start;
-    let mut level = 0usize;
-    let mut default_seen = false;
-    let mut keyword_only = false;
-    let mut slash_seen = false;
-    let mut var_keyword_seen = false;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            _ if level == 0
-                && var_keyword_seen
-                && bytes.get(index).is_some_and(|byte| {
-                    *byte >= 0x80 || *byte == b'_' || byte.is_ascii_alphabetic()
-                }) =>
-            {
-                let name_end = identifier_end(bytes, index, end);
-                return Some((
-                    "arguments cannot follow var-keyword argument".to_owned(),
-                    index,
-                    name_end,
-                ));
-            }
-            _ if level == 0
-                && !keyword_only
-                && bytes.get(index).is_some_and(|byte| {
-                    *byte >= 0x80 || *byte == b'_' || byte.is_ascii_alphabetic()
-                }) =>
-            {
-                let param_end = find_byte_at_level(bytes, index, end, b',')
-                    .or_else(|| top_level_byte(bytes, index, end, b')'))
-                    .or_else(|| {
-                        matches!(kind, ParameterListKind::Lambda)
-                            .then(|| top_level_byte(bytes, index, end, b':'))
-                            .flatten()
-                    })
-                    .unwrap_or(end);
-                let name_end = identifier_end(bytes, index, param_end);
-                if top_level_byte(bytes, index, param_end, b'=').is_some() {
-                    default_seen = true;
-                } else if default_seen {
-                    return Some((
-                        "parameter without a default follows parameter with a default".to_owned(),
-                        index,
-                        name_end,
-                    ));
-                }
-                index = name_end;
-            }
-            b'(' if level == 0 => {
-                let close = matching_delimiter(bytes, index, b')')
-                    .filter(|close| *close <= end)
-                    .unwrap_or(index + 1);
-                let message = match kind {
-                    ParameterListKind::Function => "Function parameters cannot be parenthesized",
-                    ParameterListKind::Lambda => {
-                        "Lambda expression parameters cannot be parenthesized"
-                    }
-                };
-                return Some((message.to_owned(), index, close + 1));
-            }
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b'/' if level == 0 => {
-                if var_keyword_seen {
-                    return Some((
-                        "arguments cannot follow var-keyword argument".to_owned(),
-                        index,
-                        index + 1,
-                    ));
-                }
-                if slash_seen {
-                    return Some(("/ may appear only once".to_owned(), index, index + 1));
-                }
-                slash_seen = true;
-                let next = next_non_horizontal_whitespace(bytes, index + 1);
-                if bytes.get(next) == Some(&b'*') {
-                    return Some(("expected comma between / and *".to_owned(), next, next + 1));
-                }
-                index += 1;
-            }
-            b'*' if level == 0 => {
-                if var_keyword_seen {
-                    return Some((
-                        "arguments cannot follow var-keyword argument".to_owned(),
-                        index,
-                        index + 1,
-                    ));
-                }
-                keyword_only = true;
-                let stars = usize::from(bytes.get(index + 1) == Some(&b'*')) + 1;
-                let name_start = next_non_horizontal_whitespace(bytes, index + stars);
-                for keyword in [b"True".as_slice(), b"False".as_slice(), b"None".as_slice()] {
-                    if starts_identifier(bytes, name_start, keyword) {
-                        return Some((
-                            "invalid syntax".to_owned(),
-                            name_start,
-                            name_start + keyword.len(),
-                        ));
-                    }
-                }
-                let param_end = find_byte_at_level(bytes, name_start, end, b',')
-                    .or_else(|| top_level_byte(bytes, name_start, end, b')'))
-                    .or_else(|| {
-                        matches!(kind, ParameterListKind::Lambda)
-                            .then(|| top_level_byte(bytes, name_start, end, b':'))
-                            .flatten()
-                    })
-                    .unwrap_or(end);
-                if stars == 1 && matches!(bytes.get(name_start), Some(b')' | b',' | b':')) {
-                    return Some((
-                        "named arguments must follow bare *".to_owned(),
-                        index,
-                        index + 1,
-                    ));
-                }
-                if stars == 1 && top_level_byte(bytes, name_start, param_end, b'=').is_some() {
-                    return Some((
-                        "var-positional argument cannot have default value".to_owned(),
-                        index,
-                        index + 1,
-                    ));
-                }
-                if stars == 2 && top_level_byte(bytes, name_start, param_end, b'=').is_some() {
-                    return Some((
-                        "var-keyword argument cannot have default value".to_owned(),
-                        index,
-                        index + 2,
-                    ));
-                }
-                if stars == 2 {
-                    var_keyword_seen = true;
-                    index = param_end;
-                    continue;
-                }
-                index += stars;
-            }
-            b'=' if level == 0 => {
-                let value_start = next_non_horizontal_whitespace(bytes, index + 1);
-                if value_start >= end || matches!(bytes.get(value_start), Some(b',' | b')' | b':'))
-                {
-                    if matches!(kind, ParameterListKind::Lambda)
-                        && matches!(bytes.get(value_start), Some(b':'))
-                    {
-                        return Some(("invalid syntax".to_owned(), index, index + 1));
-                    }
-                    return Some((
-                        "expected default value expression".to_owned(),
-                        index,
-                        index + 1,
-                    ));
-                }
-                index += 1;
+            _ if level == 0 && starts_identifier(bytes, index, b"lambda") => {
+                in_lambda_params = true;
+                index += b"lambda".len();
             }
             _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_parameter_list_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            _ if starts_identifier(bytes, index, b"def") => {
-                let Some(paren) = top_level_byte(bytes, index + 3, bytes.len(), b'(') else {
-                    index += 3;
-                    continue;
-                };
-                let Some(close) = matching_delimiter(bytes, paren, b')') else {
-                    index = paren + 1;
-                    continue;
-                };
-                if let Some(error) = invalid_parameter_list_slice_error(
-                    source,
-                    paren + 1,
-                    close,
-                    ParameterListKind::Function,
-                ) {
-                    return Some(error);
-                }
-                index = close + 1;
-            }
-            _ if starts_identifier(bytes, index, b"lambda") => {
-                let params_start = index + 6;
-                let Some(params_end) = find_lambda_parameter_end(bytes, params_start) else {
-                    index = params_start;
-                    continue;
-                };
-                if let Some(error) = invalid_parameter_list_slice_error(
-                    source,
-                    params_start,
-                    params_end,
-                    ParameterListKind::Lambda,
-                ) {
-                    return Some(error);
-                }
-                index = params_end + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-#[derive(Clone, Copy)]
-struct CallArgFrame {
-    level: usize,
-    arg_start: Option<usize>,
-    in_call: bool,
-}
-
-fn next_non_horizontal_whitespace(bytes: &[u8], mut index: usize) -> usize {
-    while matches!(bytes.get(index), Some(b' ' | b'\t' | b'\x0c')) {
-        index += 1;
-    }
-    index
-}
-
-fn invalid_call_argument_assignment_error(
-    source: &str,
-    arg_start: usize,
-    equal: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let start = bytes[arg_start..equal]
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(arg_start, |newline| arg_start + newline + 1);
-    let (target_start, target_end) = trim_target_range(bytes, start, equal);
-    if target_start >= target_end {
-        return None;
-    }
-    let value_start = next_non_horizontal_whitespace(bytes, equal + 1);
-    if matches!(bytes.get(value_start), None | Some(b',' | b')')) {
-        return Some((
-            "expected argument value expression".to_owned(),
-            target_start,
-            equal + 1,
-        ));
-    }
-    if bytes.get(target_start..target_start + 2) == Some(b"**") {
-        return Some((
-            "cannot assign to keyword argument unpacking".to_owned(),
-            target_start,
-            value_start,
-        ));
-    }
-    if bytes.get(target_start) == Some(&b'*') {
-        return Some((
-            "cannot assign to iterable argument unpacking".to_owned(),
-            target_start,
-            value_start,
-        ));
-    }
-    for keyword in [b"True".as_slice(), b"False".as_slice(), b"None".as_slice()] {
-        if bytes.get(target_start..target_end) == Some(keyword) {
-            let keyword = ::core::str::from_utf8(keyword).ok()?;
-            return Some((
-                format!("cannot assign to {keyword}"),
-                target_start,
-                target_end,
-            ));
-        }
-    }
-    if is_simple_keyword_name(bytes, target_start, target_end) {
-        return None;
-    }
-    Some((
-        "expression cannot contain assignment, perhaps you meant \"==\"?".to_owned(),
-        target_start,
-        equal,
-    ))
-}
-
-fn invalid_call_star_expression_error(
-    bytes: &[u8],
-    arg_start: usize,
-    index: usize,
-) -> Option<(String, usize, usize)> {
-    let start = next_non_horizontal_whitespace(bytes, arg_start);
-    if start != index || bytes.get(index) != Some(&b'*') {
-        return None;
-    }
-    let after_star = next_non_horizontal_whitespace(bytes, index + 1);
-    if matches!(bytes.get(after_star), None | Some(b',' | b')' | b':')) {
-        return Some((
-            "Invalid star expression".to_owned(),
-            index,
-            (index + 1).min(bytes.len()),
-        ));
-    }
-    None
-}
-
-fn invalid_call_argument_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    let mut level = 0usize;
-    let mut frames: Vec<CallArgFrame> = Vec::new();
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            _ if starts_identifier(bytes, index, b"lambda") => {
-                let params_start = index + 6;
-                if let Some(params_end) = find_lambda_parameter_end(bytes, params_start) {
-                    index = params_end + 1;
-                } else {
-                    index = params_start;
-                }
-            }
-            b'(' => {
-                level += 1;
-                let in_call = opening_paren_is_call(bytes, index)
-                    || frames.last().is_some_and(|frame| frame.in_call);
-                frames.push(CallArgFrame {
-                    level,
-                    arg_start: (in_call && !is_function_parameter_list(bytes, index))
-                        .then_some(index + 1),
-                    in_call,
-                });
-                index += 1;
-            }
-            b')' => {
-                if matches!(frames.last(), Some(frame) if frame.level == level) {
-                    frames.pop();
-                }
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b',' => {
-                if let Some(frame) = frames.last_mut()
-                    && frame.level == level
-                    && frame.arg_start.is_some()
-                {
-                    frame.arg_start = Some(index + 1);
-                }
-                index += 1;
-            }
-            b'*' => {
-                if let Some(CallArgFrame {
-                    level: frame_level,
-                    arg_start: Some(arg_start),
-                    in_call: true,
-                }) = frames.last().copied()
-                    && frame_level == level
-                    && let Some(error) = invalid_call_star_expression_error(bytes, arg_start, index)
-                {
-                    return Some(error);
-                }
-                index += 1;
-            }
-            b'=' if is_plain_assignment_operator(bytes, index) => {
-                if let Some(CallArgFrame {
-                    level: frame_level,
-                    arg_start: Some(arg_start),
-                    in_call: true,
-                }) = frames.last().copied()
-                    && frame_level == level
-                    && let Some(error) =
-                        invalid_call_argument_assignment_error(source, arg_start, index)
-                {
-                    return Some(error);
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn top_level_colon(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b':' if level == 0 => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn expression_slice_is_valid(source: &str, start: usize, end: usize) -> bool {
-    let bytes = source.as_bytes();
-    let (start, end) = trim_target_range(bytes, start, end);
-    start < end
-        && parser::parse(&source[start..end], parser::Mode::Expression.into())
-            .is_ok_and(|parsed| matches!(parsed.into_syntax(), ast::Mod::Expression(_)))
-}
-
-fn invalid_dict_entry_error(
-    source: &str,
-    item_start: usize,
-    item_end: usize,
-    colon: Option<usize>,
-    saw_dict_item: bool,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (item_start, item_end) = trim_target_range(bytes, item_start, item_end);
-    if item_start >= item_end {
-        return None;
-    }
-    if let Some(colon) = colon {
-        let value_start = next_non_horizontal_whitespace(bytes, colon + 1);
-        if value_start >= item_end {
-            return Some((
-                "expression expected after dictionary key and ':'".to_owned(),
-                colon,
-                colon + 1,
-            ));
-        }
-        if bytes.get(value_start) == Some(&b'*') {
-            return Some((
-                "cannot use a starred expression in a dictionary value".to_owned(),
-                value_start,
-                value_start + 1,
-            ));
-        }
-        if !expression_slice_is_valid(source, value_start, item_end) {
-            return Some(("invalid syntax".to_owned(), value_start, value_start));
-        }
-    } else if saw_dict_item {
-        return Some((
-            "':' expected after dictionary key".to_owned(),
-            item_end.saturating_sub(1),
-            item_end,
-        ));
-    }
-    None
-}
-
-fn invalid_dict_literal_error(
-    source: &str,
-    open: usize,
-    close: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut item_start = open + 1;
-    let mut index = item_start;
-    let mut level = 0usize;
-    let mut saw_dict_item = false;
-    let mut item_colon = None;
-    while index <= close {
-        if index == close || (level == 0 && bytes.get(index) == Some(&b',')) {
-            if let Some(error) =
-                invalid_dict_entry_error(source, item_start, index, item_colon, saw_dict_item)
-            {
-                return Some(error);
-            }
-            saw_dict_item |= item_colon.is_some();
-            item_start = index + 1;
-            item_colon = None;
-            index += 1;
-            continue;
-        }
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b':' if level == 0 && item_colon.is_none() => {
-                item_colon = Some(index);
-                saw_dict_item = true;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_dict_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'{' => {
-                let Some(close) = matching_delimiter(bytes, index, b'}') else {
-                    index += 1;
-                    continue;
-                };
-                if top_level_colon(bytes, index + 1, close).is_some()
-                    && let Some(error) = invalid_dict_literal_error(source, index, close)
-                {
-                    return Some(error);
-                }
-                index = close + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn collection_open_is_call(bytes: &[u8], open: usize) -> bool {
-    if bytes.get(open) != Some(&b'(') {
-        return false;
-    }
-    let mut cursor = open;
-    while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor -= 1;
-    }
-    matches!(
-        cursor.checked_sub(1).and_then(|before| bytes.get(before)),
-        Some(b')' | b']' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | 0x80..=0xff)
-    )
-}
-
-fn invalid_collection_assignment_in_slice(
-    source: &str,
-    bytes: &[u8],
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    let mut item_start = start;
-    let mut index = start;
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b',' if level == 0 => {
-                item_start = index + 1;
-                index += 1;
-            }
-            b'=' if level == 0 && is_plain_assignment_operator(bytes, index) => {
-                if top_level_colon(bytes, item_start, index).is_none() {
-                    let start = next_non_horizontal_whitespace(bytes, item_start);
-                    let target_end = trim_end_horizontal_whitespace(bytes, start, index);
-                    if start < target_end
-                        && let Some((expr_name, expr_start, expr_end, _)) =
-                            expression_name_and_range(&source[start..target_end])
-                    {
-                        if matches!(expr_name, "list" | "tuple") {
-                            return None;
-                        }
-                        if matches!(expr_name, "expression" | "attribute" | "subscript") {
-                            return Some((
-                                format!(
-                                    "cannot assign to {expr_name} here. Maybe you meant '==' instead of '='?"
-                                ),
-                                start + expr_start,
-                                start + expr_end,
-                            ));
-                        }
-                    }
-                    return Some((
-                        "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
-                        start,
-                        index + 1,
-                    ));
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_collection_assignment_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                let close_byte = match bytes[index] {
-                    b'(' => b')',
-                    b'[' => b']',
-                    _ => b'}',
-                };
-                let Some(close) = matching_delimiter(bytes, index, close_byte) else {
-                    index += 1;
-                    continue;
-                };
-                if !collection_open_is_call(bytes, index)
-                    && let Some(error) =
-                        invalid_collection_assignment_in_slice(source, bytes, index + 1, close)
-                {
-                    return Some(error);
-                }
-                index = close + 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn expression_assignment_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    let mut paren_arg_starts: Vec<(Option<usize>, bool)> = Vec::new();
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            _ if starts_identifier(bytes, index, b"lambda") => {
-                let params_start = index + 6;
-                if let Some(params_end) = find_lambda_parameter_end(bytes, params_start) {
-                    index = params_end + 1;
-                } else {
-                    index = params_start;
-                }
-            }
-            b'(' => {
-                let in_call_context = opening_paren_is_call(bytes, index)
-                    || paren_arg_starts.last().is_some_and(|(_, in_call)| *in_call);
-                paren_arg_starts.push((
-                    (!is_function_parameter_list(bytes, index)).then_some(index + 1),
-                    in_call_context,
-                ));
-                index += 1;
-            }
-            b')' => {
-                paren_arg_starts.pop();
-                index += 1;
-            }
-            b',' => {
-                if let Some((start, _)) = paren_arg_starts.last_mut()
-                    && start.is_some()
-                {
-                    *start = Some(index + 1);
-                }
-                index += 1;
-            }
-            b'=' if is_plain_assignment_operator(bytes, index) => {
-                if let Some((Some(start), true)) = paren_arg_starts.last().copied()
-                    && !is_simple_keyword_name(bytes, start, index)
-                {
-                    let mut expr_start = start;
-                    while matches!(bytes.get(expr_start), Some(b' ' | b'\t' | b'\x0c')) {
-                        expr_start += 1;
-                    }
-                    return Some((
-                        "expression cannot contain assignment, perhaps you meant \"==\"?"
-                            .to_owned(),
-                        expr_start,
-                        index,
-                    ));
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_named_expression_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index + 1 < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b':' if bytes.get(index + 1) == Some(&b'=') => {
-                let target_start = named_expression_target_start(bytes, index);
-                let target_end = trim_end_horizontal_whitespace(bytes, target_start, index);
-                if target_start < target_end
-                    && let Some((expr_name, start, end, is_name)) =
-                        expression_name_and_range(&source[target_start..target_end])
-                    && !is_name
-                {
-                    return Some((
-                        format!("cannot use assignment expressions with {expr_name}"),
-                        target_start + start,
-                        target_start + end,
-                    ));
-                }
-                index += 2;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-#[derive(Clone, Copy)]
-struct AssignmentContext {
-    start: usize,
-    call: bool,
-}
-
-fn invalid_plain_assignment_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut stack: Vec<AssignmentContext> = Vec::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                stack.push(AssignmentContext {
-                    start: index + 1,
-                    call: bytes[index] == b'(' && opening_paren_is_call(bytes, index),
-                });
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                stack.pop();
-                index += 1;
-            }
-            b',' => {
-                if let Some(context) = stack.last_mut()
-                    && !context.call
-                {
-                    context.start = index + 1;
-                }
-                index += 1;
-            }
-            b'=' if is_plain_assignment_operator(bytes, index) => {
-                if let Some(context) = stack.last().copied()
-                    && !context.call
-                {
-                    let target_start = skip_horizontal_whitespace(bytes, context.start);
-                    let target_end = trim_end_horizontal_whitespace(bytes, target_start, index);
-                    if target_start < target_end
-                        && let Some((expr_name, start, end, _)) =
-                            expression_name_and_range(&source[target_start..target_end])
-                        && matches!(expr_name, "expression" | "attribute" | "subscript")
-                    {
-                        return Some((
-                            format!(
-                                "cannot assign to {expr_name} here. Maybe you meant '==' instead of '='?"
-                            ),
-                            target_start + start,
-                            target_start + end,
-                        ));
-                    }
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn opening_paren_is_call(bytes: &[u8], paren: usize) -> bool {
-    let mut cursor = paren;
-    while cursor > 0 && matches!(bytes[cursor - 1], b' ' | b'\t' | b'\x0c') {
-        cursor -= 1;
-    }
-    cursor > 0
-        && (bytes[cursor - 1] >= 0x80
-            || is_ascii_identifier_char(bytes[cursor - 1])
-            || matches!(bytes[cursor - 1], b')' | b']'))
-}
-
-fn named_expression_target_start(bytes: &[u8], walrus: usize) -> usize {
-    let mut index = walrus;
-    let mut level = 0usize;
-    while index > 0 {
-        index -= 1;
-        match bytes[index] {
-            b')' | b']' | b'}' => level += 1,
-            b'(' | b'[' | b'{' if level > 0 => level -= 1,
-            b'(' | b'[' | b'{' if level == 0 => return index + 1,
-            b',' | b'\n' | b';' if level == 0 => return index + 1,
-            _ => {}
-        }
-    }
-    0
-}
-
-fn trim_end_horizontal_whitespace(bytes: &[u8], start: usize, mut end: usize) -> usize {
-    while end > start && matches!(bytes[end - 1], b' ' | b'\t' | b'\x0c') {
-        end -= 1;
-    }
-    end
-}
-
-fn annotation_target_error_for_slice(
-    source: &str,
-    start: usize,
-    colon: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, colon);
-    if target_start >= target_end {
-        return None;
-    }
-    let target_text = &source[target_start..target_end];
-    let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
-        return None;
-    };
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    match expression.body.as_ref() {
-        ast::Expr::Name(_) | ast::Expr::Attribute(_) | ast::Expr::Subscript(_) => None,
-        ast::Expr::List(_) => Some((
-            "only single target (not list) can be annotated".to_owned(),
-            target_start,
-            target_end,
-        )),
-        ast::Expr::Tuple(_) => Some((
-            "only single target (not tuple) can be annotated".to_owned(),
-            target_start,
-            target_end,
-        )),
-        _ => Some((
-            "illegal target for annotation".to_owned(),
-            target_start,
-            target_end,
-        )),
-    }
-}
-
-fn invalid_annotation_line_start(bytes: &[u8], line_start: usize) -> bool {
-    let column = skip_horizontal_whitespace(bytes, line_start);
-    for keyword in [
-        b"async".as_slice(),
-        b"case",
-        b"class",
-        b"def",
-        b"elif",
-        b"else",
-        b"except",
-        b"finally",
-        b"for",
-        b"if",
-        b"match",
-        b"try",
-        b"while",
-        b"with",
-    ] {
-        if starts_identifier(bytes, column, keyword) {
-            return false;
-        }
-    }
-    true
-}
-
-fn invalid_annotation_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        if invalid_annotation_line_start(bytes, line_start)
-            && let Some(colon) = find_byte_at_level(bytes, line_start, line_end, b':')
-            && bytes.get(colon + 1) != Some(&b'=')
-            && colon.checked_sub(1).and_then(|before| bytes.get(before)) != Some(&b':')
-            && let Some(error) = annotation_target_error_for_slice(source, line_start, colon)
-        {
-            return Some(error);
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn statement_target_end(bytes: &[u8], mut index: usize) -> usize {
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if level == 0 => return index,
-            b'\n' | b';' if level == 0 => return index,
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    index
-}
-
-fn invalid_assignment_target(expression: &ast::Expr) -> Option<&ast::Expr> {
-    match expression {
-        ast::Expr::List(ast::ExprList { elts, .. })
-        | ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-            elts.iter().find_map(invalid_assignment_target)
-        }
-        ast::Expr::Starred(ast::ExprStarred { value, .. }) => invalid_assignment_target(value),
-        ast::Expr::Name(_) | ast::Expr::Subscript(_) | ast::Expr::Attribute(_) => None,
-        _ => Some(expression),
-    }
-}
-
-fn invalid_for_target(expression: &ast::Expr) -> Option<&ast::Expr> {
-    match expression {
-        ast::Expr::List(ast::ExprList { elts, .. })
-        | ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => elts.iter().find_map(invalid_for_target),
-        ast::Expr::Starred(ast::ExprStarred { value, .. }) => invalid_for_target(value),
-        ast::Expr::Compare(ast::ExprCompare { left, ops, .. }) => {
-            if matches!(ops.first(), Some(ast::CmpOp::In)) {
-                invalid_for_target(left)
-            } else {
-                None
-            }
-        }
-        ast::Expr::Name(_) | ast::Expr::Subscript(_) | ast::Expr::Attribute(_) => None,
-        _ => Some(expression),
-    }
-}
-
-fn invalid_delete_target(expression: &ast::Expr) -> Option<&ast::Expr> {
-    match expression {
-        ast::Expr::List(ast::ExprList { elts, .. })
-        | ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-            elts.iter().find_map(invalid_delete_target)
-        }
-        ast::Expr::Name(_) | ast::Expr::Subscript(_) | ast::Expr::Attribute(_) => None,
-        ast::Expr::Starred(_) => Some(expression),
-        ast::Expr::Compare(_) => Some(expression),
-        _ => Some(expression),
-    }
-}
-
-fn delete_target_expr_name(expression: &ast::Expr) -> &'static str {
-    match expression {
-        ast::Expr::Attribute(_) => "attribute",
-        ast::Expr::Subscript(_) => "subscript",
-        ast::Expr::Starred(_) => "starred",
-        ast::Expr::Name(_) => "name",
-        ast::Expr::List(_) => "list",
-        ast::Expr::Tuple(_) => "tuple",
-        ast::Expr::Lambda(_) => "lambda",
-        ast::Expr::Call(_) => "function call",
-        ast::Expr::BoolOp(_) | ast::Expr::BinOp(_) | ast::Expr::UnaryOp(_) => "expression",
-        ast::Expr::Generator(_) => "generator expression",
-        ast::Expr::Yield(_) | ast::Expr::YieldFrom(_) => "yield expression",
-        ast::Expr::Await(_) => "await expression",
-        ast::Expr::ListComp(_) => "list comprehension",
-        ast::Expr::SetComp(_) => "set comprehension",
-        ast::Expr::DictComp(_) => "dict comprehension",
-        ast::Expr::Dict(_) => "dict literal",
-        ast::Expr::Set(_) => "set display",
-        ast::Expr::FString(_) => "f-string expression",
-        ast::Expr::TString(_) => "t-string expression",
-        ast::Expr::NumberLiteral(_) | ast::Expr::StringLiteral(_) | ast::Expr::BytesLiteral(_) => {
-            "literal"
-        }
-        ast::Expr::Constant(expr) => match &expr.value {
-            ast::ConstantValue::None => "None",
-            ast::ConstantValue::Boolean(true) => "True",
-            ast::ConstantValue::Boolean(false) => "False",
-            ast::ConstantValue::Ellipsis => "ellipsis",
-            ast::ConstantValue::Tuple(_) => "tuple",
-            ast::ConstantValue::Frozenset(_) => "literal",
-            ast::ConstantValue::Str(_)
-            | ast::ConstantValue::Bytes(_)
-            | ast::ConstantValue::Integer(_)
-            | ast::ConstantValue::Float(_)
-            | ast::ConstantValue::Complex { .. } => "literal",
-        },
-        ast::Expr::BooleanLiteral(boolean) => {
-            if boolean.value {
-                "True"
-            } else {
-                "False"
-            }
-        }
-        ast::Expr::NoneLiteral(_) => "None",
-        ast::Expr::EllipsisLiteral(_) => "ellipsis",
-        ast::Expr::Compare(_) => "comparison",
-        ast::Expr::If(_) => "conditional expression",
-        ast::Expr::Named(_) => "named expression",
-        ast::Expr::Slice(_) | ast::Expr::IpyEscapeCommand(_) => "expression",
-    }
-}
-
-fn parenthesized_single_starred_delete_target(bytes: &[u8], start: usize, end: usize) -> bool {
-    let mut cursor = start;
-    while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor += 1;
-    }
-    if bytes.get(cursor) != Some(&b'(') {
-        return false;
-    }
-    cursor += 1;
-    while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\x0c')) {
-        cursor += 1;
-    }
-    if bytes.get(cursor) != Some(&b'*') {
-        return false;
-    }
-    let mut level = 1usize;
-    cursor += 1;
-    while cursor < end {
-        match bytes[cursor] {
-            b'\'' | b'"' => {
-                cursor = skip_quoted_string(bytes, cursor);
-            }
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                cursor += 1;
-            }
-            b')' => {
-                level = level.saturating_sub(1);
-                if level == 0 {
-                    cursor += 1;
-                    while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\x0c')) {
-                        cursor += 1;
-                    }
-                    return cursor == end;
-                }
-                cursor += 1;
-            }
-            b',' if level == 1 => return false,
-            b']' | b'}' => {
-                level = level.saturating_sub(1);
-                cursor += 1;
-            }
-            _ => cursor += 1,
         }
     }
     false
-}
-
-fn trim_target_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
-    while start < end
-        && matches!(
-            bytes.get(start),
-            Some(b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
-        )
-    {
-        start += 1;
-    }
-    while end > start
-        && matches!(
-            bytes.get(end - 1),
-            Some(b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
-        )
-    {
-        end -= 1;
-    }
-    (start, end)
-}
-
-fn invalid_assignment_message(name: &'static str, top_level_bitwise: bool) -> String {
-    if top_level_bitwise {
-        format!("cannot assign to {name} here. Maybe you meant '==' instead of '='?")
-    } else {
-        format!("cannot assign to {name}")
-    }
-}
-
-fn assignment_target_error_for_slice(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end {
-        return None;
-    }
-    if starts_identifier(bytes, target_start, b"yield") {
-        return Some((
-            "assignment to yield expression not possible".to_owned(),
-            target_start,
-            target_start + 5,
-        ));
-    }
-    let target_text = &source[target_start..target_end];
-    let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
-        return None;
-    };
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    let invalid_target = invalid_assignment_target(&expression.body)?;
-    let invalid_start = target_start + invalid_target.range().start().to_usize();
-    let invalid_end = target_start + invalid_target.range().end().to_usize();
-    if matches!(invalid_target, ast::Expr::FString(_)) {
-        return Some(("invalid syntax".to_owned(), invalid_start, invalid_end));
-    }
-    let name = delete_target_expr_name(invalid_target);
-    let top_level = invalid_target.range() == expression.body.range();
-    let bitwise_like = matches!(
-        invalid_target,
-        ast::Expr::Call(_)
-            | ast::Expr::BoolOp(_)
-            | ast::Expr::BinOp(_)
-            | ast::Expr::UnaryOp(_)
-            | ast::Expr::NumberLiteral(_)
-            | ast::Expr::StringLiteral(_)
-            | ast::Expr::BytesLiteral(_)
-            | ast::Expr::EllipsisLiteral(_)
-    );
-    Some((
-        invalid_assignment_message(name, top_level && bitwise_like),
-        invalid_start,
-        invalid_end,
-    ))
-}
-
-fn star_target_error_for_slice(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    invalid_target_error_for_slice(source, start, end, invalid_assignment_target)
-}
-
-fn for_target_error_for_slice(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    invalid_target_error_for_slice(source, start, end, invalid_for_target)
-}
-
-fn invalid_target_error_for_slice(
-    source: &str,
-    start: usize,
-    end: usize,
-    invalid_target: for<'a> fn(&'a ast::Expr) -> Option<&'a ast::Expr>,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end {
-        return None;
-    }
-    let target_text = &source[target_start..target_end];
-    let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
-        return None;
-    };
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    let invalid_target = invalid_target(&expression.body)?;
-    let name = delete_target_expr_name(invalid_target);
-    let invalid_start = target_start + invalid_target.range().start().to_usize();
-    let invalid_end = target_start + invalid_target.range().end().to_usize();
-    Some((
-        format!("cannot assign to {name}"),
-        invalid_start,
-        invalid_end,
-    ))
-}
-
-fn first_compare_operator_at_level(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b'<' | b'>' if level == 0 => return Some(index),
-            b'=' if level == 0 && bytes.get(index + 1) == Some(&b'=') => return Some(index),
-            b'!' if level == 0 && bytes.get(index + 1) == Some(&b'=') => return Some(index),
-            _ if level == 0 && starts_identifier(bytes, index, b"is") => return Some(index),
-            _ if level == 0 && starts_identifier(bytes, index, b"not") => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn non_in_compare_for_target_error(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end {
-        return None;
-    }
-    let target_text = &source[target_start..target_end];
-    let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
-        return None;
-    };
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    let ast::Expr::Compare(ast::ExprCompare { ops, .. }) = expression.body.as_ref() else {
-        return None;
-    };
-    if matches!(ops.first(), Some(ast::CmpOp::In)) {
-        return None;
-    }
-    let operator = first_compare_operator_at_level(bytes, target_start, target_end)?;
-    Some((
-        "invalid syntax".to_owned(),
-        operator,
-        (operator + 1).min(target_end),
-    ))
-}
-
-fn top_level_plain_assignment_offsets(bytes: &[u8]) -> Vec<usize> {
-    let mut offsets = Vec::new();
-    let mut index = 0usize;
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if level == 0 => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b'=' if level == 0 && is_plain_assignment_operator(bytes, index) => {
-                offsets.push(index);
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    offsets
-}
-
-fn invalid_assignment_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let offsets = top_level_plain_assignment_offsets(bytes);
-    if offsets.is_empty() {
-        return None;
-    }
-    let mut start = 0usize;
-    for offset in offsets {
-        if let Some(error) = assignment_target_error_for_slice(source, start, offset) {
-            return Some(error);
-        }
-        start = offset + 1;
-    }
-    None
-}
-
-fn top_level_augassign_offset(bytes: &[u8]) -> Option<(usize, usize)> {
-    let mut index = 0usize;
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if level == 0 => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b'+' | b'-' | b'*' | b'@' | b'/' | b'%' | b'&' | b'|' | b'^'
-                if level == 0 && bytes.get(index + 1) == Some(&b'=') =>
-            {
-                return Some((index, 2));
-            }
-            b'<' | b'>'
-                if level == 0
-                    && bytes.get(index + 1) == Some(&bytes[index])
-                    && bytes.get(index + 2) == Some(&b'=') =>
-            {
-                return Some((index, 3));
-            }
-            b'*' if level == 0
-                && bytes.get(index + 1) == Some(&b'*')
-                && bytes.get(index + 2) == Some(&b'=') =>
-            {
-                return Some((index, 3));
-            }
-            b'/' if level == 0
-                && bytes.get(index + 1) == Some(&b'/')
-                && bytes.get(index + 2) == Some(&b'=') =>
-            {
-                return Some((index, 3));
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_augassign_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (operator, _) = top_level_augassign_offset(bytes)?;
-    let (target_start, target_end) = trim_target_range(bytes, 0, operator);
-    if target_start >= target_end {
-        return None;
-    }
-    let target_text = &source[target_start..target_end];
-    let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
-        return None;
-    };
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    let name = delete_target_expr_name(&expression.body);
-    Some((
-        format!("'{name}' is an illegal expression for augmented assignment"),
-        target_start,
-        target_end,
-    ))
-}
-
-fn find_for_target_delimiter(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'#' if level == 0 => return None,
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ if level == 0 && starts_identifier(bytes, index, b"in") => return Some(index),
-            b':' if level == 0 => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_for_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            _ if starts_identifier(bytes, index, b"for") => {
-                let target_start = skip_horizontal_whitespace(bytes, index + 3);
-                let line_end = source[index..]
-                    .find('\n')
-                    .map_or(bytes.len(), |newline| index + newline);
-                if let Some(target_end) = find_for_target_delimiter(bytes, target_start, line_end) {
-                    if let Some(error) =
-                        for_target_error_for_slice(source, target_start, target_end)
-                    {
-                        return Some(error);
-                    }
-                    if let Some(error) =
-                        non_in_compare_for_target_error(source, target_start, target_end)
-                    {
-                        return Some(error);
-                    }
-                }
-                index = target_start.max(index + 3);
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn find_with_target_delimiter(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'#' if level == 0 => return None,
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' if level == 0 => return Some(index),
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b',' | b':' if level == 0 => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_with_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let mut column = skip_horizontal_whitespace(bytes, line_start);
-        if starts_identifier(bytes, column, b"async") {
-            column = skip_horizontal_whitespace(bytes, column + 5);
-        }
-        if !starts_identifier(bytes, column, b"with") {
-            line_start = line_end;
-            continue;
-        }
-        let mut index = column + 4;
-        while let Some(as_index) = find_keyword_at_level(bytes, index, line_end, b"as") {
-            let target_start = skip_horizontal_whitespace(bytes, as_index + 2);
-            if let Some(target_end) = find_with_target_delimiter(bytes, target_start, line_end) {
-                if let Some(error) = star_target_error_for_slice(source, target_start, target_end) {
-                    return Some(error);
-                }
-                index = target_end.saturating_add(1);
-            } else {
-                break;
-            }
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn find_missing_in_if_keyword(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'#' if level == 0 => return None,
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' if level == 0 => return None,
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ if level == 0 && starts_identifier(bytes, index, b"in") => return None,
-            _ if level == 0 && starts_identifier(bytes, index, b"if") => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_for_if_clause_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if level == 0 => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ if level > 0 && starts_identifier(bytes, index, b"for") => {
-                let target_start = skip_horizontal_whitespace(bytes, index + 3);
-                let line_end = source[index..]
-                    .find('\n')
-                    .map_or(bytes.len(), |newline| index + newline);
-                if let Some(if_index) = find_missing_in_if_keyword(bytes, target_start, line_end) {
-                    return Some((
-                        "'in' expected after for-loop variables".to_owned(),
-                        if_index,
-                        (if_index + 2).min(line_end),
-                    ));
-                }
-                index = target_start.max(index + 3);
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_delete_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'd' if starts_identifier(bytes, index, b"del") => {
-                let mut target_start = index + 3;
-                if !matches!(bytes.get(target_start), Some(b' ' | b'\t' | b'\x0c')) {
-                    index += 3;
-                    continue;
-                }
-                while matches!(bytes.get(target_start), Some(b' ' | b'\t' | b'\x0c')) {
-                    target_start += 1;
-                }
-                let mut target_end = statement_target_end(bytes, target_start);
-                while target_end > target_start
-                    && matches!(bytes.get(target_end - 1), Some(b' ' | b'\t' | b'\x0c'))
-                {
-                    target_end -= 1;
-                }
-                if target_start >= target_end {
-                    index = target_end.max(index + 3);
-                    continue;
-                }
-                if parenthesized_single_starred_delete_target(bytes, target_start, target_end) {
-                    return Some((
-                        "cannot use starred expression here".to_owned(),
-                        target_start,
-                        target_end,
-                    ));
-                }
-                if bytes.get(target_start) == Some(&b'*') {
-                    return Some((
-                        "cannot delete starred".to_owned(),
-                        target_start,
-                        (target_start + 1).min(target_end),
-                    ));
-                }
-                let target_text = &source[target_start..target_end];
-                let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
-                    index = target_end;
-                    continue;
-                };
-                let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-                    index = target_end;
-                    continue;
-                };
-                let Some(invalid_target) = invalid_delete_target(&expression.body) else {
-                    index = target_end;
-                    continue;
-                };
-                let start = target_start + invalid_target.range().start().to_usize();
-                let end = target_start + invalid_target.range().end().to_usize();
-                if matches!(invalid_target, ast::Expr::FString(_)) {
-                    return Some(("invalid syntax".to_owned(), start, end));
-                }
-                let name = delete_target_expr_name(invalid_target);
-                return Some((format!("cannot delete {name}"), start, end));
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn skip_horizontal_whitespace(bytes: &[u8], mut index: usize) -> usize {
-    while matches!(bytes.get(index), Some(b' ' | b'\t' | b'\x0c')) {
-        index += 1;
-    }
-    index
-}
-
-fn find_keyword_at_level(
-    bytes: &[u8],
-    mut index: usize,
-    end: usize,
-    keyword: &[u8],
-) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'#' if level == 0 => return None,
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ if level == 0 && starts_identifier(bytes, index, keyword) => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn find_byte_at_level(bytes: &[u8], mut index: usize, end: usize, needle: u8) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'#' if level == 0 => return None,
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            byte if level == 0 && byte == needle => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn expression_name_and_range(source: &str) -> Option<(&'static str, usize, usize, bool)> {
-    let parsed = parser::parse(source, parser::Mode::Expression.into()).ok()?;
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    let is_name = matches!(expression.body.as_ref(), ast::Expr::Name(_));
-    Some((
-        delete_target_expr_name(&expression.body),
-        expression.body.range().start().to_usize(),
-        expression.body.range().end().to_usize(),
-        is_name,
-    ))
-}
-
-fn invalid_standalone_except_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    let mut seen_try = false;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let column = skip_horizontal_whitespace(bytes, line_start);
-        if column >= line_end {
-            line_start = line_end;
-            continue;
-        }
-        if starts_identifier(bytes, column, b"try") {
-            seen_try = true;
-        } else if (bytes.get(column..column + 7) == Some(b"except*")
-            || starts_identifier(bytes, column, b"except"))
-            && !seen_try
-        {
-            let end = if bytes.get(column..column + 7) == Some(b"except*") {
-                column + 7
-            } else {
-                column + 6
-            };
-            return Some(("invalid syntax".to_owned(), column, end));
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn invalid_import_statement_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let column = skip_horizontal_whitespace(bytes, line_start);
-        if column < line_end
-            && starts_identifier(bytes, column, b"import")
-            && find_keyword_at_level(bytes, column + 6, line_end, b"from").is_some()
-        {
-            return Some((
-                "Did you mean to use 'from ... import ...' instead?".to_owned(),
-                column,
-                column + 6,
-            ));
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn import_as_target_end(bytes: &[u8], mut index: usize) -> usize {
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if level == 0 => return index,
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' if level == 0 => return index,
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            b',' | b';' | b'\n' if level == 0 => return index,
-            _ => index += 1,
-        }
-    }
-    index
-}
-
-fn valid_import_alias_name(bytes: &[u8], mut start: usize, end: usize) -> bool {
-    start = skip_horizontal_whitespace(bytes, start);
-    let Some(&first) = bytes.get(start) else {
-        return false;
-    };
-    if !(first == b'_' || first.is_ascii_alphabetic() || first >= 0x80) {
-        return false;
-    }
-    let mut index = start + 1;
-    while index < end {
-        match bytes[index] {
-            b' ' | b'\t' | b'\x0c' => break,
-            byte if byte >= 0x80 || is_ascii_identifier_char(byte) => index += 1,
-            _ => return false,
-        }
-    }
-    let index = skip_horizontal_whitespace(bytes, index);
-    matches!(
-        bytes.get(index),
-        None | Some(b',' | b')' | b';' | b'\n' | b'\r')
-    )
-}
-
-fn import_target_error_for_slice(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end || valid_import_alias_name(bytes, target_start, target_end) {
-        return None;
-    }
-    let parsed = parser::parse(
-        &source[target_start..target_end],
-        parser::Mode::Expression.into(),
-    )
-    .ok()?;
-    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
-        return None;
-    };
-    let name = delete_target_expr_name(&expression.body);
-    let start = target_start + expression.body.range().start().to_usize();
-    let end = target_start + expression.body.range().end().to_usize();
-    Some((format!("cannot use {name} as import target"), start, end))
-}
-
-fn statement_starts_import(bytes: &[u8], line_start: usize, line_end: usize) -> bool {
-    let column = skip_horizontal_whitespace(bytes, line_start);
-    if starts_identifier(bytes, column, b"import") {
-        return true;
-    }
-    starts_identifier(bytes, column, b"from")
-        && find_keyword_at_level(bytes, column + 4, line_end, b"import").is_some()
-}
-
-fn invalid_import_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    let mut in_parenthesized_from_import = false;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let starts_import = statement_starts_import(bytes, line_start, line_end);
-        if starts_import && bytes[line_start..line_end].contains(&b'(') {
-            in_parenthesized_from_import = true;
-        }
-        if starts_import || in_parenthesized_from_import {
-            let mut index = line_start;
-            while index < line_end {
-                if starts_identifier(bytes, index, b"as") {
-                    let target_start = skip_horizontal_whitespace(bytes, index + 2);
-                    let target_end = import_as_target_end(bytes, target_start);
-                    if let Some(error) =
-                        import_target_error_for_slice(source, target_start, target_end)
-                    {
-                        return Some(error);
-                    }
-                    index = target_end.max(index + 2);
-                } else {
-                    index += 1;
-                }
-            }
-        }
-        if in_parenthesized_from_import && bytes[line_start..line_end].contains(&b')') {
-            in_parenthesized_from_import = false;
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn invalid_except_as_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    let mut seen_try = false;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let mut column = skip_horizontal_whitespace(bytes, line_start);
-        if column >= line_end {
-            line_start = line_end;
-            continue;
-        }
-        if starts_identifier(bytes, column, b"try") {
-            seen_try = true;
-            line_start = line_end;
-            continue;
-        }
-        let (keyword_len, starred) = if bytes.get(column..column + 7) == Some(b"except*") {
-            (7, true)
-        } else if starts_identifier(bytes, column, b"except") {
-            (6, false)
-        } else {
-            line_start = line_end;
-            continue;
-        };
-        if !seen_try {
-            line_start = line_end;
-            continue;
-        }
-        column += keyword_len;
-        let Some(as_index) = find_keyword_at_level(bytes, column, line_end, b"as") else {
-            line_start = line_end;
-            continue;
-        };
-        let target_start = skip_horizontal_whitespace(bytes, as_index + 2);
-        let Some(delimiter) = find_byte_at_level(bytes, target_start, line_end, b':')
-            .into_iter()
-            .chain(find_byte_at_level(bytes, target_start, line_end, b','))
-            .min()
-        else {
-            line_start = line_end;
-            continue;
-        };
-        let mut target_end = delimiter;
-        while target_end > target_start
-            && matches!(bytes.get(target_end - 1), Some(b' ' | b'\t' | b'\x0c'))
-        {
-            target_end -= 1;
-        }
-        let Some((expr_name, start, end, is_name)) =
-            expression_name_and_range(&source[target_start..target_end])
-        else {
-            line_start = line_end;
-            continue;
-        };
-        if !is_name {
-            let statement = if starred { "except*" } else { "except" };
-            return Some((
-                format!("cannot use {statement} statement with {expr_name}"),
-                target_start + start,
-                target_start + end,
-            ));
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let quoted_ranges = quoted_string_ranges(bytes);
-    let mut quoted_range = 0usize;
-    let mut line_start = 0usize;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let mut column = skip_horizontal_whitespace(bytes, line_start);
-        if column >= line_end
-            || offset_in_ranges(&quoted_ranges, &mut quoted_range, column)
-            || !starts_identifier(bytes, column, b"case")
-        {
-            line_start = line_end;
-            continue;
-        }
-        column += 4;
-        let Some(as_index) = find_keyword_at_level(bytes, column, line_end, b"as") else {
-            line_start = line_end;
-            continue;
-        };
-        let target_start = skip_horizontal_whitespace(bytes, as_index + 2);
-        let Some(delimiter) = find_byte_at_level(bytes, target_start, line_end, b':')
-            .into_iter()
-            .chain(find_byte_at_level(bytes, target_start, line_end, b','))
-            .min()
-        else {
-            line_start = line_end;
-            continue;
-        };
-        let mut target_end = delimiter;
-        while target_end > target_start
-            && matches!(bytes.get(target_end - 1), Some(b' ' | b'\t' | b'\x0c'))
-        {
-            target_end -= 1;
-        }
-        if source[target_start..target_end].trim() == "_" {
-            return Some((
-                "cannot use '_' as a target".to_owned(),
-                target_start,
-                target_end,
-            ));
-        }
-        let Some((expr_name, start, end, is_name)) =
-            expression_name_and_range(&source[target_start..target_end])
-        else {
-            line_start = line_end;
-            continue;
-        };
-        if !is_name {
-            if matches!(expr_name, "expression" | "subscript") {
-                line_start = line_end;
-                continue;
-            }
-            return Some((
-                format!("cannot use {expr_name} as pattern target"),
-                target_start + start,
-                target_start + end,
-            ));
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn quoted_string_ranges(bytes: &[u8]) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    let mut index = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                let end = skip_quoted_string(bytes, index);
-                ranges.push((index, end));
-                index = end;
-            }
-            _ => index += 1,
-        }
-    }
-    ranges
-}
-
-fn offset_in_ranges(ranges: &[(usize, usize)], range_index: &mut usize, offset: usize) -> bool {
-    while ranges
-        .get(*range_index)
-        .is_some_and(|(_, end)| *end <= offset)
-    {
-        *range_index += 1;
-    }
-    ranges
-        .get(*range_index)
-        .is_some_and(|(start, end)| *start <= offset && offset < *end)
-}
-
-fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let next_line_end = |line_start: usize| {
-        line_start
-            + bytes[line_start..]
-                .iter()
-                .position(|byte| *byte == b'\n')
-                .unwrap_or(bytes.len() - line_start)
-    };
-    let mut index = 0usize;
-    let mut line_start = 0usize;
-    let mut line_end = next_line_end(line_start);
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'\n' => {
-                index += 1;
-                line_start = index;
-                line_end = next_line_end(line_start);
-            }
-            _ => {
-                let column = skip_horizontal_whitespace(bytes, line_start);
-                if index != column
-                    || column >= line_end
-                    || !starts_identifier(bytes, column, b"case")
-                {
-                    index += 1;
-                    continue;
-                }
-                let mut cursor = column + 4;
-                while cursor < line_end {
-                    match bytes[cursor] {
-                        b'#' => break,
-                        b'\'' | b'"' => cursor = skip_quoted_string(bytes, cursor),
-                        b'{' => {
-                            let rest = next_non_horizontal_whitespace(bytes, cursor + 1);
-                            if bytes.get(rest..rest + 2) == Some(b"**") {
-                                let name_start = next_non_horizontal_whitespace(bytes, rest + 2);
-                                let name_end = identifier_end(bytes, name_start, line_end);
-                                if source.get(name_start..name_end) == Some("_") {
-                                    return Some((
-                                        "invalid syntax".to_owned(),
-                                        name_start,
-                                        name_end,
-                                    ));
-                                }
-                            }
-                            cursor += 1;
-                        }
-                        _ => cursor += 1,
-                    }
-                }
-                index = line_end;
-            }
-        }
-    }
-    None
-}
-
-fn invalid_if_expression_statement_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        if let Some(if_index) = find_keyword_at_level(bytes, line_start, line_end, b"if")
-            && let Some((start, end)) = statement_before_if_expression(bytes, line_start, if_index)
-            && find_keyword_at_level(bytes, if_index + 2, line_end, b"else").is_some()
-        {
-            return Some((
-                "expected expression before 'if', but statement is given".to_owned(),
-                start,
-                end,
-            ));
-        }
-        if let Some(else_index) = find_keyword_at_level(bytes, line_start, line_end, b"else")
-            && find_keyword_at_level(bytes, line_start, else_index, b"if").is_some()
-            && let Some((start, end)) =
-                statement_after_else_expression(bytes, else_index + 4, line_end)
-        {
-            return Some((
-                "expected expression after 'else', but statement is given".to_owned(),
-                start,
-                end,
-            ));
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn statement_before_if_expression(
-    bytes: &[u8],
-    line_start: usize,
-    if_index: usize,
-) -> Option<(usize, usize)> {
-    let mut start = if_index;
-    while start > line_start && matches!(bytes.get(start - 1), Some(b' ' | b'\t' | b'\x0c')) {
-        start -= 1;
-    }
-    while start > line_start
-        && !matches!(
-            bytes.get(start - 1),
-            Some(b'=' | b':' | b',' | b'(' | b'[' | b'{')
-        )
-    {
-        start -= 1;
-    }
-    start = skip_horizontal_whitespace(bytes, start);
-    for keyword in [b"pass".as_slice(), b"break", b"continue"] {
-        if starts_identifier(bytes, start, keyword) {
-            return Some((start, start + keyword.len()));
-        }
-    }
-    None
-}
-
-fn statement_after_else_expression(
-    bytes: &[u8],
-    else_end: usize,
-    line_end: usize,
-) -> Option<(usize, usize)> {
-    let start = skip_horizontal_whitespace(bytes, else_end);
-    for keyword in [
-        b"pass".as_slice(),
-        b"return",
-        b"raise",
-        b"del",
-        b"yield",
-        b"assert",
-        b"break",
-        b"continue",
-        b"import",
-        b"from",
-    ] {
-        if starts_identifier(bytes, start, keyword) {
-            let end = statement_target_end(bytes, start).min(line_end);
-            return Some((start, end.max(start + keyword.len())));
-        }
-    }
-    None
-}
-
-fn invalid_else_elif_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut line_start = 0usize;
-    let mut else_indents: Vec<usize> = Vec::new();
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
-        let column = skip_horizontal_whitespace(bytes, line_start);
-        let line_column = column.saturating_sub(line_start);
-        if column >= line_end {
-            line_start = line_end;
-            continue;
-        }
-        while else_indents
-            .last()
-            .is_some_and(|indent| line_column < *indent)
-        {
-            else_indents.pop();
-        }
-        if starts_identifier(bytes, column, b"else")
-            && find_byte_at_level(bytes, column + 4, line_end, b':').is_some()
-        {
-            else_indents.push(line_column);
-        } else if starts_identifier(bytes, column, b"elif") && else_indents.contains(&line_column) {
-            return Some((
-                "'elif' block follows an 'else' block".to_owned(),
-                column,
-                column + 4,
-            ));
-        }
-        line_start = line_end;
-    }
-    None
-}
-
-fn mixed_except_handlers_error(source: &str) -> Option<(String, usize, usize)> {
-    let message = "cannot have both 'except' and 'except*' on the same 'try'".to_owned();
-    let mut seen_except = false;
-    let mut seen_except_star = false;
-    let mut line_start = 0usize;
-    for line in source.split_inclusive('\n') {
-        let bytes = line.as_bytes();
-        let mut column = 0usize;
-        while matches!(bytes.get(column), Some(b' ' | b'\t' | b'\x0c')) {
-            column += 1;
-        }
-        let token_start = line_start + column;
-        if bytes.get(column..column + 7) == Some(b"except*") {
-            if seen_except {
-                return Some((message, token_start, token_start + 7));
-            }
-            seen_except_star = true;
-        } else if starts_identifier(bytes, column, b"except") {
-            if seen_except_star {
-                return Some((message, token_start, token_start + 6));
-            }
-            seen_except = true;
-        }
-        line_start += line.len();
-    }
-    None
-}
-
-fn non_printable_character_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            byte if byte.is_ascii_control() && !matches!(byte, b'\t' | b'\n' | b'\r' | b'\x0c') => {
-                return Some((
-                    format!("invalid non-printable character U+{byte:04X}"),
-                    index,
-                    index + 1,
-                ));
-            }
-            byte if byte >= 0x80 => {
-                let ch = source[index..].chars().next()?;
-                if ch.is_control() {
-                    return Some((
-                        format!("invalid non-printable character U+{:04X}", ch as u32),
-                        index,
-                        index + ch.len_utf8(),
-                    ));
-                }
-                index += ch.len_utf8();
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    let mut line = 1usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\n' => {
-                line += 1;
-                index += 1;
-            }
-            quote @ (b'\'' | b'"') => {
-                let start = index;
-                let start_line = line;
-                let quote_size = if bytes.get(index + 1) == Some(&quote)
-                    && bytes.get(index + 2) == Some(&quote)
-                {
-                    3
-                } else {
-                    1
-                };
-                index += quote_size;
-                let mut has_escaped_quote = false;
-                let mut closed = false;
-                while index < bytes.len() {
-                    let c = bytes[index];
-                    if c == b'\n' {
-                        if quote_size == 1 {
-                            return Some((
-                                unterminated_string_message(line, false, has_escaped_quote),
-                                start,
-                                start + 1,
-                            ));
-                        }
-                        line += 1;
-                        index += 1;
-                    } else if c == quote {
-                        if quote_size == 3 {
-                            if bytes.get(index + 1) == Some(&quote)
-                                && bytes.get(index + 2) == Some(&quote)
-                            {
-                                index += 3;
-                                closed = true;
-                                break;
-                            }
-                            index += 1;
-                        } else {
-                            index += 1;
-                            closed = true;
-                            break;
-                        }
-                    } else if c == b'\\' {
-                        if bytes.get(index + 1) == Some(&quote) {
-                            has_escaped_quote = true;
-                        }
-                        index = (index + 2).min(bytes.len());
-                    } else {
-                        index += 1;
-                    }
-                }
-                if !closed {
-                    let detected_line = if quote_size == 3 { line } else { start_line };
-                    return Some((
-                        unterminated_string_message(
-                            detected_line,
-                            quote_size == 3,
-                            has_escaped_quote,
-                        ),
-                        start,
-                        start + 1,
-                    ));
-                }
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_interpolated_string_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            quote @ (b'\'' | b'"') => {
-                let Some(prefix) = interpolated_string_prefix(bytes, index) else {
-                    index = skip_quoted_string(bytes, index);
-                    continue;
-                };
-                if let Some(error) =
-                    single_quoted_format_spec_newline_error(bytes, index, quote, prefix)
-                {
-                    return Some(error);
-                }
-                let Some((content_start, content_end)) =
-                    quoted_string_content_range(bytes, index, quote)
-                else {
-                    index = skip_quoted_string(bytes, index);
-                    continue;
-                };
-                if let Some(error) =
-                    invalid_replacement_field_error(bytes, content_start, content_end, prefix)
-                {
-                    return Some(error);
-                }
-                index = skip_quoted_string(bytes, index);
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn single_quoted_format_spec_newline_error(
-    bytes: &[u8],
-    quote_index: usize,
-    quote: u8,
-    prefix: &str,
-) -> Option<(String, usize, usize)> {
-    if bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote) {
-        return None;
-    }
-
-    let (content_start, content_end) = quoted_string_content_range(bytes, quote_index, quote)?;
-    let mut index = content_start;
-    while index < content_end {
-        match bytes[index] {
-            b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
-            b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
-            b'{' => {
-                let expr_start = skip_ascii_whitespace(bytes, index + 1, content_end);
-                if let Some(separator) = replacement_field_separator(bytes, expr_start, content_end)
-                    && bytes[separator] == b':'
-                {
-                    let format_end =
-                        replacement_field_closing_brace(bytes, separator + 1, content_end)
-                            .unwrap_or(content_end);
-                    if bytes[separator + 1..format_end].contains(&b'\n') {
-                        return Some((
-                            format!(
-                                "{prefix}: newlines are not allowed in format specifiers for single quoted {prefix}s"
-                            ),
-                            quote_index,
-                            quote_index + 1,
-                        ));
-                    }
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
 }
 
 fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str> {
@@ -3998,7 +712,7 @@ fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str
         return None;
     };
 
-    if prefix_start > 0 && is_ascii_identifier_char(bytes[prefix_start - 1]) {
+    if prefix_start > 0 && identifier_continue_before(bytes, prefix_start) {
         return None;
     }
 
@@ -4009,502 +723,76 @@ fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str
     })
 }
 
-fn quoted_string_content_range(
-    bytes: &[u8],
-    quote_index: usize,
-    quote: u8,
-) -> Option<(usize, usize)> {
+const MAXFSTRINGLEVEL: usize = 150;
+
+fn skip_string_token(bytes: &[u8], quote_index: usize) -> usize {
+    if interpolated_string_prefix(bytes, quote_index).is_some() {
+        interpolated_string_end(bytes, quote_index).unwrap_or(bytes.len())
+    } else {
+        skip_quoted_string(bytes, quote_index)
+    }
+}
+
+fn interpolated_string_end(bytes: &[u8], quote_index: usize) -> Option<usize> {
+    let quote = bytes[quote_index];
     let triple =
         bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote);
     let quote_len = if triple { 3 } else { 1 };
-    let content_start = quote_index + quote_len;
-    let mut index = content_start;
+    let mut index = quote_index + quote_len;
+    let mut brace_depth = 0usize;
     while index < bytes.len() {
-        if bytes[index] == b'\\' {
-            index = (index + 2).min(bytes.len());
-        } else if (triple
-            && bytes.get(index) == Some(&quote)
-            && bytes.get(index + 1) == Some(&quote)
-            && bytes.get(index + 2) == Some(&quote))
-            || (!triple && bytes[index] == quote)
-        {
-            return Some((content_start, index));
-        } else {
-            index += 1;
-        }
-    }
-    None
-}
-
-fn invalid_replacement_field_error(
-    bytes: &[u8],
-    start: usize,
-    end: usize,
-    prefix: &str,
-) -> Option<(String, usize, usize)> {
-    let mut index = start;
-    while index < end {
-        match bytes[index] {
-            b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
-            b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
-            b'{' => {
-                if let Some(error) = replacement_field_error(bytes, index, end, prefix) {
-                    return Some(error);
-                }
-                index += 1;
+        if brace_depth == 0 {
+            if bytes[index] == b'\\' {
+                index = (index + 2).min(bytes.len());
+                continue;
             }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn replacement_field_error(
-    bytes: &[u8],
-    open: usize,
-    end: usize,
-    prefix: &str,
-) -> Option<(String, usize, usize)> {
-    let expr_start = skip_ascii_whitespace(bytes, open + 1, end);
-    if let Some(backslash) = replacement_field_line_continuation(bytes, expr_start, end) {
-        return Some((
-            "unexpected character after line continuation character".to_owned(),
-            backslash + 1,
-            (backslash + 2).min(end),
-        ));
-    }
-    if let Some(quote) = unterminated_string_in_replacement_field(bytes, expr_start, end) {
-        return Some((
-            unterminated_string_message(1, false, false),
-            quote,
-            quote + 1,
-        ));
-    }
-    match bytes.get(expr_start).copied() {
-        Some(marker @ (b'=' | b'!' | b':' | b'}')) => {
-            return Some((
-                format!(
-                    "{prefix}: valid expression required before '{}'",
-                    marker as char
-                ),
-                expr_start,
-                expr_start + 1,
-            ));
-        }
-        Some(_) => {}
-        None => {
-            return Some((
-                format!("{prefix}: expecting a valid expression after '{{'"),
-                open,
-                open + 1,
-            ));
-        }
-    }
-
-    if starts_identifier(bytes, expr_start, b"lambda") {
-        return Some((
-            format!("{prefix}: lambda expressions are not allowed without parentheses"),
-            expr_start,
-            expr_start + b"lambda".len(),
-        ));
-    }
-
-    if invalid_replacement_expression_start(bytes, expr_start, end) {
-        return Some((
-            format!("{prefix}: expecting a valid expression after '{{'"),
-            open,
-            open + 1,
-        ));
-    }
-
-    let Some(separator) = replacement_field_separator(bytes, expr_start, end) else {
-        return Some((format!("{prefix}: expecting '}}'"), open, open + 1));
-    };
-
-    if bytes[separator] == b':'
-        && replacement_expression_has_parse_error(bytes, expr_start, separator)
-    {
-        return Some(("invalid syntax".to_owned(), expr_start, separator));
-    }
-
-    match bytes[separator] {
-        b'=' => invalid_debug_expression_error(bytes, separator, end, prefix),
-        b'!' => invalid_conversion_error(bytes, separator, end, prefix),
-        b':' => invalid_format_spec_error(bytes, separator, end, prefix),
-        b'}' => None,
-        _ => unreachable!(),
-    }
-}
-
-fn replacement_field_line_continuation(
-    bytes: &[u8],
-    mut index: usize,
-    end: usize,
-) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'\\' => return Some(index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' if level > 0 => {
-                level -= 1;
-                index += 1;
-            }
-            b'=' | b'!' | b':' | b'}' if level == 0 => return None,
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn unterminated_string_in_replacement_field(
-    bytes: &[u8],
-    mut index: usize,
-    end: usize,
-) -> Option<usize> {
-    while index < end {
-        match bytes[index] {
-            quote @ (b'\'' | b'"') => {
-                let string_end = skip_quoted_string(bytes, index);
-                if string_end >= end && !bytes[index + 1..end].contains(&quote) {
-                    return Some(index);
-                }
-                index = string_end;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn replacement_expression_has_parse_error(bytes: &[u8], start: usize, end: usize) -> bool {
-    let Ok(expression) = ::core::str::from_utf8(&bytes[start..end]) else {
-        return false;
-    };
-    parser::parse_expression(expression).is_err()
-}
-
-fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) -> bool {
-    if index >= end {
-        return true;
-    }
-
-    if matches!(
-        bytes[index],
-        b'.' | b',' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>' | b'@'
-    ) {
-        return true;
-    }
-
-    if matches!(bytes[index], b'+' | b'-' | b'~') {
-        let operand = skip_ascii_whitespace(bytes, index + 1, end);
-        return !bytes.get(operand).is_some_and(|byte| {
-            *byte >= 0x80
-                || *byte == b'_'
-                || byte.is_ascii_alphabetic()
-                || byte.is_ascii_digit()
-                || matches!(*byte, b'\'' | b'"' | b'(' | b'[' | b'{')
-        });
-    }
-
-    [
-        b"and".as_slice(),
-        b"as".as_slice(),
-        b"else".as_slice(),
-        b"for".as_slice(),
-        b"if".as_slice(),
-        b"in".as_slice(),
-        b"is".as_slice(),
-        b"or".as_slice(),
-    ]
-    .iter()
-    .any(|keyword| starts_identifier(bytes, index, keyword))
-}
-
-fn replacement_field_separator(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' if level > 0 => {
-                level -= 1;
-                index += 1;
-            }
-            b'=' | b'!' | b':' | b'}' if level == 0 => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn invalid_debug_expression_error(
-    bytes: &[u8],
-    equals: usize,
-    end: usize,
-    prefix: &str,
-) -> Option<(String, usize, usize)> {
-    let next = equals + 1;
-    if next >= end || matches!(bytes[next], b'!' | b':' | b'}') {
-        return None;
-    }
-    Some((
-        format!("{prefix}: expecting '!', or ':', or '}}'"),
-        next,
-        next.saturating_add(1).min(end),
-    ))
-}
-
-fn invalid_conversion_error(
-    bytes: &[u8],
-    bang: usize,
-    end: usize,
-    prefix: &str,
-) -> Option<(String, usize, usize)> {
-    let next = bang + 1;
-    if next >= end {
-        return Some((format!("{prefix}: expecting '}}'"), bang, bang + 1));
-    }
-
-    if bytes[next].is_ascii_whitespace() {
-        let following = skip_ascii_whitespace(bytes, next, end);
-        let message = if bytes
-            .get(following)
-            .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
-        {
-            "conversion type must come right after the exclamation mark"
-        } else {
-            "missing conversion character"
-        };
-        return Some((format!("{prefix}: {message}"), next, next + 1));
-    }
-
-    if matches!(bytes[next], b':' | b'}') {
-        return Some((
-            format!("{prefix}: missing conversion character"),
-            next,
-            next + 1,
-        ));
-    }
-
-    if !bytes[next].is_ascii_alphabetic() && bytes[next] != b'_' {
-        return Some((
-            format!("{prefix}: invalid conversion character"),
-            next,
-            next + 1,
-        ));
-    }
-
-    let conversion_end = identifier_end(bytes, next, end);
-    let conversion = &bytes[next..conversion_end];
-    if !matches!(conversion, b"s" | b"r" | b"a") {
-        let conversion = ::core::str::from_utf8(conversion).unwrap_or("");
-        return Some((
-            format!(
-                "{prefix}: invalid conversion character '{conversion}': expected 's', 'r', or 'a'"
-            ),
-            next,
-            conversion_end,
-        ));
-    }
-
-    if conversion_end >= end || matches!(bytes[conversion_end], b':' | b'}') {
-        return None;
-    }
-
-    Some((
-        format!("{prefix}: expecting ':' or '}}'"),
-        conversion_end,
-        conversion_end + 1,
-    ))
-}
-
-fn invalid_format_spec_error(
-    bytes: &[u8],
-    colon: usize,
-    end: usize,
-    prefix: &str,
-) -> Option<(String, usize, usize)> {
-    if replacement_field_closing_brace(bytes, colon + 1, end).is_some() {
-        return None;
-    }
-    Some((
-        format!("{prefix}: expecting '}}', or format specs"),
-        colon,
-        colon + 1,
-    ))
-}
-
-fn replacement_field_closing_brace(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
-    let mut level = 0usize;
-    while index < end {
-        match bytes[index] {
-            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b'}' if level > 0 => {
-                level -= 1;
-                index += 1;
-            }
-            b'}' => return Some(index),
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn skip_ascii_whitespace(bytes: &[u8], mut index: usize, end: usize) -> usize {
-    while index < end && matches!(bytes[index], b' ' | b'\t' | b'\r' | b'\n' | 0x0c) {
-        index += 1;
-    }
-    index
-}
-
-fn string_literal_end_at(bytes: &[u8], index: usize) -> Option<usize> {
-    match bytes.get(index).copied()? {
-        b'\'' | b'"' => Some(skip_quoted_string(bytes, index)),
-        first if first.is_ascii_alphabetic() => {
-            if matches!(bytes.get(index + 1), Some(b'\'' | b'"')) {
-                return string_literal_prefix(bytes, index, index + 1)
-                    .then(|| skip_quoted_string(bytes, index + 1));
-            }
-            if matches!(bytes.get(index + 2), Some(b'\'' | b'"')) {
-                return string_literal_prefix(bytes, index, index + 2)
-                    .then(|| skip_quoted_string(bytes, index + 2));
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn string_literal_prefix(bytes: &[u8], start: usize, quote: usize) -> bool {
-    let prefix = &bytes[start..quote];
-    let valid = matches!(
-        prefix,
-        b"b" | b"B"
-            | b"r"
-            | b"R"
-            | b"u"
-            | b"U"
-            | b"f"
-            | b"F"
-            | b"t"
-            | b"T"
-            | b"br"
-            | b"bR"
-            | b"Br"
-            | b"BR"
-            | b"rb"
-            | b"rB"
-            | b"Rb"
-            | b"RB"
-            | b"fr"
-            | b"fR"
-            | b"Fr"
-            | b"FR"
-            | b"rf"
-            | b"rF"
-            | b"Rf"
-            | b"RF"
-            | b"tr"
-            | b"tR"
-            | b"Tr"
-            | b"TR"
-            | b"rt"
-            | b"rT"
-            | b"Rt"
-            | b"RT"
-    );
-    valid && (start == 0 || !is_ascii_identifier_char(bytes[start - 1]))
-}
-
-fn invalid_expression_error(source: &str) -> Option<(String, usize, usize)> {
-    invalid_string_expression_error(source).or_else(|| missing_comma_expression_error(source))
-}
-
-fn invalid_string_expression_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if let Some(first_string_end) = string_literal_end_at(bytes, index) {
-            let expr_start = skip_ascii_whitespace(bytes, first_string_end, bytes.len());
-            if expression_atom_start(bytes, expr_start)
-                && let Some(expr_end) = adjacent_atom_end(bytes, expr_start)
+            if triple
+                && bytes.get(index) == Some(&quote)
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
             {
-                let next = skip_ascii_whitespace(bytes, expr_end, bytes.len());
-                if string_literal_end_at(bytes, next).is_some() {
-                    return Some((
-                        "invalid syntax. Is this intended to be part of the string?".to_owned(),
-                        expr_start,
-                        expr_end,
-                    ));
-                }
+                return Some(index + 3);
             }
-            index = first_string_end;
-        } else {
-            index += 1;
-        }
-    }
-    None
-}
-
-fn missing_comma_expression_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut stack: Vec<u8> = Vec::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'#' {
-            while index < bytes.len() && bytes[index] != b'\n' {
+            if !triple && bytes[index] == quote {
+                return Some(index + 1);
+            }
+            if bytes[index] == b'{' {
+                if bytes.get(index + 1) == Some(&b'{') {
+                    index += 2;
+                } else {
+                    brace_depth = 1;
+                    index += 1;
+                }
+            } else if bytes[index] == b'}' && bytes.get(index + 1) == Some(&b'}') {
+                index += 2;
+            } else {
                 index += 1;
             }
-        } else if let Some(string_end) = string_literal_end_at(bytes, index) {
-            index = string_end;
         } else {
             match bytes[index] {
-                b'(' | b'[' | b'{' => {
-                    if bytes[index] == b'[' && opening_bracket_is_class_type_params(bytes, index) {
-                        let Some(close) = matching_delimiter(bytes, index, b']') else {
-                            index += 1;
-                            continue;
-                        };
-                        index = close + 1;
-                        continue;
+                quote_ch @ (b'\'' | b'"') => {
+                    if quoted_string_is_closed(bytes, index) {
+                        index = skip_string_token(bytes, index).max(index + 1);
+                    } else if !triple && quote_ch == quote {
+                        return Some(index + 1);
+                    } else {
+                        index = skip_string_token(bytes, index).max(index + 1);
                     }
-                    stack.push(bytes[index]);
+                }
+                b'#' => {
+                    while index < bytes.len() && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'{' => {
+                    brace_depth += 1;
                     index += 1;
                 }
-                b')' | b']' | b'}' => {
-                    stack.pop();
+                b'}' => {
+                    brace_depth -= 1;
                     index += 1;
                 }
-                _ if !stack.is_empty() && expression_continuation_keyword(bytes, index) => {
-                    index = identifier_end(bytes, index, bytes.len());
-                }
-                byte if !stack.is_empty() && expression_atom_start_byte(byte) => {
-                    let atom_end = adjacent_atom_end(bytes, index).unwrap_or(index + 1);
-                    let next = skip_ascii_whitespace(bytes, atom_end, bytes.len());
-                    if next > atom_end
-                        && expression_atom_start(bytes, next)
-                        && !expression_continuation_keyword(bytes, next)
-                    {
-                        return Some((
-                            "invalid syntax. Perhaps you forgot a comma?".to_owned(),
-                            index,
-                            next + 1,
-                        ));
-                    }
-                    index = atom_end;
-                }
+                b'\\' => index = (index + 2).min(bytes.len()),
                 _ => index += 1,
             }
         }
@@ -4512,327 +800,19 @@ fn missing_comma_expression_error(source: &str) -> Option<(String, usize, usize)
     None
 }
 
-fn opening_bracket_is_class_type_params(bytes: &[u8], bracket: usize) -> bool {
-    let mut cursor = bracket;
-    while cursor > 0 && matches!(bytes[cursor - 1], b' ' | b'\t' | b'\x0c') {
-        cursor -= 1;
-    }
-    while cursor > 0
-        && bytes
-            .get(cursor - 1)
-            .is_some_and(|byte| *byte >= 0x80 || is_ascii_identifier_char(*byte))
-    {
-        cursor -= 1;
-    }
-    while cursor > 0 && matches!(bytes[cursor - 1], b' ' | b'\t' | b'\x0c') {
-        cursor -= 1;
-    }
-    cursor >= 5 && starts_identifier(bytes, cursor - 5, b"class")
-}
-
-fn expression_continuation_keyword(bytes: &[u8], index: usize) -> bool {
-    [
-        b"and".as_slice(),
-        b"else".as_slice(),
-        b"for".as_slice(),
-        b"if".as_slice(),
-        b"in".as_slice(),
-        b"is".as_slice(),
-        b"not".as_slice(),
-        b"or".as_slice(),
-    ]
-    .iter()
-    .any(|keyword| starts_identifier(bytes, index, keyword))
-}
-
-fn expression_atom_start(bytes: &[u8], index: usize) -> bool {
-    bytes
-        .get(index)
-        .is_some_and(|byte| expression_atom_start_byte(*byte))
-        || string_literal_end_at(bytes, index).is_some()
-}
-
-fn expression_atom_start_byte(byte: u8) -> bool {
-    byte >= 0x80
-        || byte == b'_'
-        || byte.is_ascii_alphabetic()
-        || byte.is_ascii_digit()
-        || matches!(byte, b'\'' | b'"' | b'(' | b'[' | b'{')
-}
-
-fn adjacent_atom_end(bytes: &[u8], index: usize) -> Option<usize> {
-    if let Some(string_end) = string_literal_end_at(bytes, index) {
-        return Some(string_end);
-    }
-    match bytes.get(index).copied()? {
-        byte if byte >= 0x80 || byte == b'_' || byte.is_ascii_alphabetic() => {
-            Some(identifier_end(bytes, index, bytes.len()))
-        }
-        byte if byte.is_ascii_digit() => {
-            let mut end = index + 1;
-            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
-                end += 1;
-            }
-            Some(end)
-        }
-        b'(' | b'[' | b'{' => Some(index + 1),
-        _ => None,
-    }
-}
-
-fn unterminated_string_message(
-    detected_line: usize,
-    triple: bool,
-    has_escaped_quote: bool,
-) -> String {
-    if triple {
-        format!("unterminated triple-quoted string literal (detected at line {detected_line})")
-    } else if has_escaped_quote {
-        format!(
-            "unterminated string literal (detected at line {detected_line}); perhaps you escaped the end quote?"
-        )
+fn quote_len_at(bytes: &[u8], quote_index: usize) -> usize {
+    let quote = bytes[quote_index];
+    if bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote) {
+        3
     } else {
-        format!("unterminated string literal (detected at line {detected_line})")
+        1
     }
 }
 
-fn expected_opening_bracket(closing: char) -> char {
-    match closing {
-        ')' => '(',
-        ']' => '[',
-        '}' => '{',
-        _ => unreachable!(),
-    }
-}
-
-fn bracket_syntax_error(source: &str) -> Option<(String, usize, usize, bool)> {
-    let mut stack: Vec<(char, usize, usize)> = Vec::new();
-    let mut in_string = false;
-    let mut string_quote = '\0';
-    let mut triple_quote = false;
-    let mut escape_next = false;
-    let mut is_raw_string = false;
-    let mut line = 1usize;
-
-    let chars: Vec<(usize, char)> = source.char_indices().collect();
-    let mut index = 0;
-    while index < chars.len() {
-        let (byte_offset, ch) = chars[index];
-
-        if ch == '\n' {
-            line += 1;
-        }
-
-        if escape_next {
-            escape_next = false;
-            index += 1;
-            continue;
-        }
-
-        if in_string {
-            if ch == '\\' && !is_raw_string {
-                escape_next = true;
-            } else if triple_quote {
-                if ch == string_quote
-                    && index + 2 < chars.len()
-                    && chars[index + 1].1 == string_quote
-                    && chars[index + 2].1 == string_quote
-                {
-                    in_string = false;
-                    index += 3;
-                    continue;
-                }
-            } else if ch == string_quote {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if ch == '#' {
-            while index < chars.len() && chars[index].1 != '\n' {
-                index += 1;
-            }
-            continue;
-        }
-
-        if ch == '\'' || ch == '"' {
-            is_raw_string = false;
-            for look_back in 1..=2.min(index) {
-                let prev = chars[index - look_back].1;
-                if matches!(prev, 'r' | 'R') {
-                    is_raw_string = true;
-                    break;
-                }
-                if !matches!(prev, 'b' | 'B' | 'f' | 'F' | 'u' | 'U') {
-                    break;
-                }
-            }
-            string_quote = ch;
-            if index + 2 < chars.len() && chars[index + 1].1 == ch && chars[index + 2].1 == ch {
-                triple_quote = true;
-                in_string = true;
-                index += 3;
-                continue;
-            }
-            triple_quote = false;
-            in_string = true;
-            index += 1;
-            continue;
-        }
-
-        match ch {
-            '(' | '[' | '{' => stack.push((ch, byte_offset, line)),
-            ')' | ']' | '}' => {
-                let expected = expected_opening_bracket(ch);
-                let Some(&(opening, _, opening_line)) = stack.last() else {
-                    return Some((format!("unmatched '{ch}'"), byte_offset, byte_offset, false));
-                };
-                if opening == expected {
-                    stack.pop();
-                } else {
-                    let suffix = if opening_line != line {
-                        format!(" on line {opening_line}")
-                    } else {
-                        String::new()
-                    };
-                    return Some((
-                        format!(
-                            "closing parenthesis '{ch}' does not match opening parenthesis '{opening}'{suffix}"
-                        ),
-                        byte_offset,
-                        byte_offset,
-                        false,
-                    ));
-                }
-            }
-            _ => {}
-        }
-
-        index += 1;
-    }
-
-    stack.last().map(|(opening, byte_offset, _)| {
-        (
-            format!("'{opening}' was never closed"),
-            *byte_offset,
-            *byte_offset,
-            true,
-        )
-    })
-}
-
-fn is_legacy_statement_expression_start(byte: u8) -> bool {
-    byte >= 0x80
-        || byte == b'_'
-        || byte.is_ascii_alphabetic()
-        || byte.is_ascii_digit()
-        || matches!(byte, b'\'' | b'"' | b'{' | b'[')
-}
-
-fn legacy_statement_container_has_invalid_attribute(bytes: &[u8], start: usize) -> bool {
-    let Some(&opening) = bytes.get(start) else {
-        return false;
-    };
-    if !matches!(opening, b'{' | b'[') {
-        return false;
-    }
-
-    let mut index = start;
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\n' | b';' if level == 0 => return false,
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'(' | b'[' | b'{' => {
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-                if level == 0 {
-                    return false;
-                }
-            }
-            b'.' => {
-                let mut cursor = index + 1;
-                while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\x0c')) {
-                    cursor += 1;
-                }
-                if matches!(bytes.get(cursor), Some(b')' | b']' | b'}')) {
-                    return true;
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    false
-}
-
-fn invalid_legacy_statement_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'p' | b'e' => {
-                let keyword = if starts_identifier(bytes, index, b"print") {
-                    Some("print")
-                } else if starts_identifier(bytes, index, b"exec") {
-                    Some("exec")
-                } else {
-                    None
-                };
-                let Some(keyword) = keyword else {
-                    index += 1;
-                    continue;
-                };
-                let after_keyword = index + keyword.len();
-                if !matches!(bytes.get(after_keyword), Some(b' ' | b'\t' | b'\x0c')) {
-                    index = after_keyword;
-                    continue;
-                }
-                let mut cursor = after_keyword;
-                while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\x0c')) {
-                    cursor += 1;
-                }
-                if legacy_statement_container_has_invalid_attribute(bytes, cursor) {
-                    index = after_keyword;
-                    continue;
-                }
-                if bytes.get(cursor).is_some_and(|byte| {
-                    *byte != b'(' && is_legacy_statement_expression_start(*byte)
-                }) {
-                    return Some((
-                        format!(
-                            "Missing parentheses in call to '{keyword}'. Did you mean {keyword}(...)?"
-                        ),
-                        index,
-                        after_keyword,
-                    ));
-                }
-                index = after_keyword;
-            }
-            _ => index += 1,
-        }
-    }
-    None
+fn interpolated_string_content_range(bytes: &[u8], quote_index: usize) -> Option<(usize, usize)> {
+    let end = interpolated_string_end(bytes, quote_index)?;
+    let quote_len = quote_len_at(bytes, quote_index);
+    Some((quote_index + quote_len, end - quote_len))
 }
 
 /// Return the syntax error for a decimal integer literal exceeding the configured limit.
@@ -4864,55 +844,52 @@ pub fn long_decimal_integer_literal_error(
         let digits = literal.bytes().filter(u8::is_ascii_digit).count();
         (digits > max_str_digits).then(|| {
             let start = token.range().start().to_usize();
-            CompileError::from_source_error(
-                source_file,
-                format!(
+            CompileError::from_source_error(source_file, CpythonDiagnostic::new(format!(
                     "Exceeds the limit ({max_str_digits} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."
-                ),
-                start,
-                start,
-            )
+                ), start, start))
         })
     })
 }
 
-fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
+fn too_many_nested_interpolated_strings(source: &str) -> Option<CpythonDiagnostic> {
+    too_many_nested_interpolated_strings_in(source.as_bytes(), 0, source.len(), 0)
+}
+
+fn too_many_nested_interpolated_strings_in(
+    bytes: &[u8],
+    mut index: usize,
+    end: usize,
+    depth: usize,
+) -> Option<CpythonDiagnostic> {
+    while index < end {
         match bytes[index] {
             b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
+                while index < end && bytes[index] != b'\n' {
                     index += 1;
                 }
             }
             b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'f' if starts_identifier(bytes, index, b"from") => {
-                let mut cursor = index + 4;
-                while cursor < bytes.len() && !matches!(bytes[cursor], b'\n' | b';') {
-                    if starts_identifier(bytes, cursor, b"import") {
-                        cursor += 6;
-                        while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\r')) {
-                            cursor += 1;
-                        }
-                        if bytes.get(cursor) == Some(&b'(') {
-                            cursor += 1;
-                            while cursor < bytes.len()
-                                && !matches!(bytes[cursor], b')' | b'\n' | b';')
-                            {
-                                if bytes[cursor] == b'*' {
-                                    return Some(("invalid syntax".to_owned(), cursor, cursor + 1));
-                                }
-                                cursor += 1;
-                            }
-                        }
-                        break;
+                if interpolated_string_prefix(bytes, index).is_some() {
+                    if depth + 1 >= MAXFSTRINGLEVEL {
+                        return Some(CpythonDiagnostic::new(
+                            "too many nested f-strings or t-strings".to_owned(),
+                            index,
+                            index + 1,
+                        ));
                     }
-                    cursor += 1;
+                    if let Some((content_start, content_end)) =
+                        interpolated_string_content_range(bytes, index)
+                        && let Some(error) = too_many_nested_interpolated_strings_in(
+                            bytes,
+                            content_start,
+                            content_end,
+                            depth + 1,
+                        )
+                    {
+                        return Some(error);
+                    }
                 }
-                index = cursor;
+                index = skip_string_token(bytes, index).max(index + 1);
             }
             _ => index += 1,
         }
@@ -4920,7 +897,66 @@ fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usiz
     None
 }
 
-fn too_many_nested_parentheses_error(source: &str) -> Option<(String, usize, usize)> {
+/// Horizontal and vertical space the tokenizer skips, not `str::trim()`.
+const fn is_ascii_tokenizer_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c')
+}
+
+/// True when every line is empty or a comment after tokenizer whitespace.
+#[doc(hidden)]
+#[must_use]
+pub fn is_blank_python_source(source: &str) -> bool {
+    source.lines().all(|line| {
+        let trimmed = line.trim_matches(is_ascii_tokenizer_whitespace);
+        trimmed.is_empty() || trimmed.starts_with('#')
+    })
+}
+
+fn single_mode_blank_source_error(source_file: &SourceFile) -> Option<CompileError> {
+    let source = source_file.source_text();
+    if !is_blank_python_source(source) {
+        return None;
+    }
+    let has_indent_only_line = source.lines().any(|line| {
+        line.trim_matches(is_ascii_tokenizer_whitespace).is_empty()
+            && line.chars().any(|c| matches!(c, ' ' | '\t'))
+    });
+    if has_indent_only_line {
+        let (location, end_location) =
+            source_locations(source_file, TextSize::new(0), TextSize::new(0));
+        return Some(CompileError::Parse(ParseError {
+            error: parser::ParseErrorType::UnexpectedIndentation,
+            raw_location: ruff_text_size::TextRange::new(TextSize::new(0), TextSize::new(0)),
+            location,
+            end_location,
+            source_path: source_file.name().to_owned(),
+            is_unclosed_bracket: false,
+            is_unclosed_string: false,
+            eof_token: None,
+        }));
+    }
+    Some(CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new("invalid syntax".to_owned(), 0, 0),
+    ))
+}
+
+/// The byte-order mark is only stripped while decoding source bytes, so one
+/// that survives into the text is just a non-printable character. The tokenizer
+/// rejects it everywhere except at the very start of the text, which is where
+/// this covers.
+#[doc(hidden)]
+#[must_use]
+pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<CompileError> {
+    source_file.source_text().starts_with('\u{feff}').then(|| {
+        CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new("invalid non-printable character U+FEFF".to_owned(), 0, 0),
+        )
+    })
+}
+
+fn too_many_nested_parentheses_error(source: &str) -> Option<CpythonDiagnostic> {
     const MAXLEVEL: usize = 200;
 
     let bytes = source.as_bytes();
@@ -4938,7 +974,11 @@ fn too_many_nested_parentheses_error(source: &str) -> Option<(String, usize, usi
             }
             b'(' | b'[' | b'{' => {
                 if level >= MAXLEVEL {
-                    return Some(("too many nested parentheses".to_owned(), index, index + 1));
+                    return Some(CpythonDiagnostic::new(
+                        "too many nested parentheses".to_owned(),
+                        index,
+                        index,
+                    ));
                 }
                 level += 1;
                 index += 1;
@@ -4953,33 +993,15 @@ fn too_many_nested_parentheses_error(source: &str) -> Option<(String, usize, usi
     None
 }
 
-fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(String, usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b',' => {
-                let mut cursor = index + 1;
-                while matches!(bytes.get(cursor), Some(b' ' | b'\t' | b'\x0c')) {
-                    cursor += 1;
-                }
-                if starts_identifier(bytes, cursor, b"yield") {
-                    return Some(("invalid syntax".to_owned(), cursor, cursor + 5));
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
+/// Source-level errors raised before parsing, as CPython's tokenizer does.
+///
+/// Checking after the parse would build the tree first, and one nested that
+/// deep exhausts the native stack when it is dropped.
+pub fn pre_parse_source_error(source_file: &SourceFile) -> Result<(), CompileError> {
+    match too_many_nested_parentheses_error(source_file.source_text()) {
+        Some(error) => Err(CompileError::from_source_error(source_file, error)),
+        None => Ok(()),
     }
-    None
 }
 
 fn post_parse_source_error(
@@ -4987,29 +1009,13 @@ fn post_parse_source_error(
     tokens: &Tokens,
     opts: &CompileOpts,
 ) -> Option<CompileError> {
-    if let Some((message, start, end)) =
-        too_many_nested_parentheses_error(source_file.source_text())
-    {
-        return Some(CompileError::from_source_error(
-            source_file,
-            message,
-            start,
-            end,
-        ));
-    }
-    if let Some(error) =
-        long_decimal_integer_literal_error(source_file, tokens, opts.int_max_str_digits)
-    {
+    if let Some(error) = leading_byte_order_mark_error(source_file) {
         return Some(error);
     }
-    invalid_call_argument_error(source_file.source_text())
-        .or_else(|| invalid_match_mapping_rest_wildcard_error(source_file.source_text()))
-        .or_else(|| invalid_match_as_target_error(source_file.source_text()))
-        .or_else(|| invalid_unparenthesized_yield_after_comma_error(source_file.source_text()))
-        .or_else(|| invalid_parenthesized_import_star_error(source_file.source_text()))
-        .map(|(message, start, end)| {
-            CompileError::from_source_error(source_file, message, start, end)
-        })
+    if let Some(error) = too_many_nested_interpolated_strings(source_file.source_text()) {
+        return Some(CompileError::from_source_error(source_file, error));
+    }
+    long_decimal_integer_literal_error(source_file, tokens, opts.int_max_str_digits)
 }
 
 fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
@@ -5026,25 +1032,215 @@ fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
     )
 }
 
+/// Rejects an AST nested deeper than `limit`.
+///
+/// The parser grows its own stack, so it returns trees deeper than the passes
+/// after it can walk, and each of those recurses without a limit of its own.
+/// The symbol table applies the same limit, but `compile(..., PyCF_ONLY_AST)`
+/// returns before reaching it.
+pub fn too_deeply_nested_error(
+    ast: &ast::Mod,
+    source_file: &SourceFile,
+    limit: usize,
+) -> Result<(), CompileError> {
+    use ast::visitor::Visitor;
+
+    struct DepthChecker {
+        depth: usize,
+        limit: usize,
+        too_deep: Option<ruff_text_size::TextRange>,
+    }
+
+    impl DepthChecker {
+        fn descend(&mut self, range: ruff_text_size::TextRange, walk: impl FnOnce(&mut Self)) {
+            if self.too_deep.is_some() {
+                return;
+            }
+            if self.depth >= self.limit {
+                self.too_deep = Some(range);
+                return;
+            }
+            self.depth += 1;
+            walk(self);
+            self.depth -= 1;
+        }
+    }
+
+    impl<'a> Visitor<'a> for DepthChecker {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            self.descend(stmt.range(), |checker| {
+                ast::visitor::walk_stmt(checker, stmt);
+            });
+        }
+
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            self.descend(expr.range(), |checker| {
+                ast::visitor::walk_expr(checker, expr);
+            });
+        }
+
+        fn visit_pattern(&mut self, pattern: &'a ast::Pattern) {
+            self.descend(pattern.range(), |checker| {
+                ast::visitor::walk_pattern(checker, pattern);
+            });
+        }
+    }
+
+    let mut checker = DepthChecker {
+        depth: 0,
+        limit,
+        too_deep: None,
+    };
+    match ast {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+
+    let Some(range) = checker.too_deep else {
+        return Ok(());
+    };
+    let (location, end_location) = source_locations(source_file, range.start(), range.end());
+    Err(CompileError::Codegen(codegen::error::CodegenError {
+        location: Some(location),
+        end_location: Some(end_location),
+        error: codegen::error::CodegenErrorType::RecursionError,
+        source_path: source_file.name().to_owned(),
+    }))
+}
+
+/// Syntax the reference grammar has no rule for, but that this parser accepts.
+///
+/// A bare generator expression is one: `f(x for x in y)` is the `primary
+/// genexp` alternative of a call, and a class header only takes `arguments`,
+/// which has no such alternative. A format spec nested more than two deep is
+/// the other; the tokenizer runs out of nesting levels for it. A lazy
+/// `__future__` import is rejected by the `checked_from_import` action.
+#[doc(hidden)]
+#[must_use]
+pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
+    use ast::visitor::Visitor;
+
+    /// The deepest chain of format specs one string literal may hold.
+    const MAX_FORMAT_SPEC_DEPTH: usize = 2;
+
+    struct Checker<'a> {
+        source_file: &'a SourceFile,
+        error: Option<CompileError>,
+    }
+
+    impl Checker<'_> {
+        fn fail(&mut self, message: &str, range: ruff_text_size::TextRange) {
+            self.error = Some(CompileError::from_source_error(
+                self.source_file,
+                CpythonDiagnostic::new(
+                    message.to_owned(),
+                    range.start().to_usize(),
+                    range.end().to_usize(),
+                ),
+            ));
+        }
+
+        fn check_format_specs(
+            &mut self,
+            kind: &str,
+            elements: &ast::InterpolatedStringElements,
+            depth: usize,
+        ) {
+            for element in elements.interpolations() {
+                let Some(format_spec) = &element.format_spec else {
+                    continue;
+                };
+                if depth == MAX_FORMAT_SPEC_DEPTH {
+                    self.fail(
+                        &alloc::format!("{kind}: expressions nested too deeply"),
+                        format_spec.range,
+                    );
+                    return;
+                }
+                self.check_format_specs(kind, &format_spec.elements, depth + 1);
+                if self.error.is_some() {
+                    return;
+                }
+            }
+        }
+    }
+
+    impl<'a> Visitor<'a> for Checker<'_> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if self.error.is_some() {
+                return;
+            }
+            if let ast::Stmt::ImportFrom(import) = stmt
+                && import.is_lazy
+                && import.level == 0
+                && import
+                    .module
+                    .as_ref()
+                    .is_some_and(|module| module.as_str() == "__future__")
+            {
+                let lazy = ruff_text_size::TextRange::at(import.range.start(), 4.into());
+                self.fail("lazy from __future__ import is not allowed", lazy);
+                return;
+            }
+            if let ast::Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+                && let [ast::Expr::Generator(generator)] = &arguments.args[..]
+                && !generator.parenthesized
+            {
+                let range = generator
+                    .generators
+                    .first()
+                    .map_or(generator.range, |comprehension| comprehension.range);
+                self.fail("invalid syntax", range);
+                return;
+            }
+            ast::visitor::walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.error.is_some() {
+                return;
+            }
+            // Each literal counts its own nesting: one written inside a format
+            // spec starts over.
+            match expr {
+                ast::Expr::FString(fstring) => {
+                    for part in &fstring.value {
+                        if let ast::FStringPartRef::FString(part) = part {
+                            self.check_format_specs("f-string", &part.elements, 0);
+                        }
+                    }
+                }
+                ast::Expr::TString(tstring) => {
+                    for part in &tstring.value {
+                        self.check_format_specs("t-string", &part.elements, 0);
+                    }
+                }
+                _ => {}
+            }
+            if self.error.is_some() {
+                return;
+            }
+            ast::visitor::walk_expr(self, expr);
+        }
+    }
+
+    let mut checker = Checker {
+        source_file,
+        error: None,
+    };
+    match ast {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+    checker.error
+}
+
 fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Option<CompileError> {
     let first = body.first()?;
     let source_code = source_file.to_source_code();
     let first_start = source_code.source_location(first.range().start(), PositionEncoding::Utf8);
     let first_end = source_code.source_location(first.range().end(), PositionEncoding::Utf8);
-
-    if body.iter().skip(1).any(|stmt| {
-        source_code
-            .source_location(stmt.range().start(), PositionEncoding::Utf8)
-            .line
-            > first_start.line
-    }) {
-        return Some(CompileError::from_source_error(
-            source_file,
-            "multiple statements found while compiling a single statement".to_owned(),
-            first.range().end().to_usize(),
-            first.range().end().to_usize(),
-        ));
-    }
 
     if is_compound_stmt(first)
         && first_start.line == first_end.line
@@ -5052,12 +1248,684 @@ fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Optio
     {
         return Some(CompileError::from_source_error(
             source_file,
-            "invalid syntax".to_owned(),
-            first.range().start().to_usize(),
-            first.range().start().to_usize(),
+            CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                first.range().start().to_usize(),
+                first.range().start().to_usize(),
+            ),
         ));
     }
     None
+}
+
+/// Converts the first parse error. A tokenizer error that follows an earlier syntax error is
+/// only found by the pass over the rest of the source, so it never asks for more input.
+fn first_parse_error(
+    parsed: parser::Parsed<ast::Mod>,
+    source_file: &SourceFile,
+    mode: Mode,
+    prepared_source: &str,
+    parser_options: &parser::ParseOptions,
+) -> Result<parser::Parsed<ast::Mod>, CompileError> {
+    let Some((first, rest)) = parsed.errors().split_first() else {
+        return Ok(parsed);
+    };
+    let after_syntax_error = rest.iter().any(|error| {
+        !matches!(error.error, ParseErrorType::Lexical(_))
+            && error.location.start() < first.location.start()
+    });
+    let normalized = unpacking_parse_diagnostic(
+        first,
+        rest,
+        parsed.tokens(),
+        parsed.syntax(),
+        parsed.unsupported_syntax_errors().is_empty(),
+    )
+    .or_else(|| call_argument_unpacking_diagnostic(&parsed, prepared_source, parser_options))
+    .or_else(|| unfinished_dict_comprehension_diagnostic(&parsed, parser_options))
+    .map_or_else(
+        || first.clone(),
+        |diagnostic| parser::ParseError {
+            error: ParseErrorType::OtherError(diagnostic.message),
+            location: diagnostic.range,
+        },
+    );
+    let mut error = CompileError::from_ruff_parse_error(normalized, source_file, mode);
+    if after_syntax_error && let CompileError::Parse(error) = &mut error {
+        error.is_unclosed_string = false;
+    }
+    Err(error)
+}
+
+// A recovered call never parsed its comprehension clauses. For a narrowly owned
+// whole-input argument list, ask the same parser to validate that exact slice once.
+fn call_argument_unpacking_diagnostic(
+    parsed: &parser::Parsed<ast::Mod>,
+    prepared_source: &str,
+    options: &parser::ParseOptions,
+) -> Option<CpythonDiagnostic> {
+    let first = parsed.errors().first()?;
+    if !matches!(
+        first.error,
+        ParseErrorType::ExpectedToken {
+            expected: TokenKind::Rpar,
+            found: TokenKind::For
+        }
+    ) || !parsed.unsupported_syntax_errors().is_empty()
+        || parsed
+            .errors()
+            .iter()
+            .any(|error| error.location.start() < first.location.start())
+    {
+        return None;
+    }
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let ast::Stmt::Expr(statement) = module.body.first()? else {
+        return None;
+    };
+    let ast::Expr::Call(call) = statement.value.as_ref() else {
+        return None;
+    };
+    let [keyword] = call.arguments.keywords.as_slice() else {
+        return None;
+    };
+    if !call.arguments.args.is_empty()
+        || keyword.arg.is_some()
+        || keyword.end() != call.arguments.end()
+        || call.end() != keyword.end()
+    {
+        return None;
+    }
+    let tokens: Vec<_> = parsed
+        .tokens()
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token.kind(),
+                TokenKind::Comment
+                    | TokenKind::NonLogicalNewline
+                    | TokenKind::Newline
+                    | TokenKind::EndOfFile
+            )
+        })
+        .collect();
+    if tokens.first()?.start() != call.start() {
+        return None;
+    }
+    let opening_index = tokens
+        .iter()
+        .position(|token| token.start() == call.arguments.start())?;
+    let opening = tokens.get(opening_index)?;
+    let operator = tokens.get(opening_index.checked_add(1)?)?;
+    let closing = tokens.last()?;
+    let clause = tokens.iter().find(|token| token.start() >= keyword.end())?;
+    if opening.kind() != TokenKind::Lpar
+        || operator.kind() != TokenKind::DoubleStar
+        || operator.start() != keyword.start()
+        || closing.kind() != TokenKind::Rpar
+        || clause.range() != first.location
+        || clause.kind() != TokenKind::For
+    {
+        return None;
+    }
+    let slice = prepared_source.get(usize::from(opening.start())..usize::from(closing.end()))?;
+    let reparsed = parser::parse_unchecked(
+        slice,
+        parser::ParseOptions::from(parser::Mode::Expression)
+            .with_target_version(options.target_version()),
+    );
+    let [error] = reparsed.errors() else {
+        return None;
+    };
+    if !matches!(error.error, ParseErrorType::ExpectedExpression)
+        || !reparsed.unsupported_syntax_errors().is_empty()
+        || opening.start().checked_add(error.location.start())? != operator.start()
+        || opening.start().checked_add(error.location.end())? != operator.end()
+    {
+        return None;
+    }
+    let ast::Mod::Expression(expression) = reparsed.syntax() else {
+        return None;
+    };
+    let ast::Expr::Generator(generator) = expression.body.as_ref() else {
+        return None;
+    };
+    let ast::Expr::BinOp(binary) = generator.elt.as_ref() else {
+        return None;
+    };
+    if !generator.parenthesized
+        || generator.start() != TextSize::new(0)
+        || usize::from(generator.end()) != slice.len()
+        || binary.end() != binary.right.end()
+    {
+        return None;
+    }
+    // Both parses must retain the same unpacked operand, not just its operator.
+    if opening.start().checked_add(generator.elt.start())? != keyword.start()
+        || opening.start().checked_add(generator.elt.end())? != keyword.end()
+        || opening.start().checked_add(binary.right.start())? != keyword.value.start()
+        || opening.start().checked_add(binary.right.end())? != keyword.value.end()
+    {
+        return None;
+    }
+    let diagnostic = owned_unpacking_diagnostic(error, reparsed.tokens(), reparsed.syntax())?;
+    if usize::from(diagnostic.range.end()) > slice.len() {
+        return None;
+    }
+    // Module recovery forgets the call's opening delimiter before reaching its
+    // closing token. Only the complete, balanced generator reparse above can
+    // justify treating this exact unmatched-closing error as a recovery shadow.
+    if parsed.errors().iter().any(|error| match &error.error {
+        ParseErrorType::Lexical(parser::LexicalErrorType::UnmatchedBracket { closing: ')' }) => {
+            !error.location.is_empty() || error.location.start() != closing.start()
+        }
+        ParseErrorType::Lexical(_) => true,
+        _ => false,
+    }) {
+        return None;
+    }
+    Some(CpythonDiagnostic {
+        message: diagnostic.message,
+        range: ruff_text_size::TextRange::new(
+            opening.start().checked_add(diagnostic.range.start())?,
+            opening.start().checked_add(diagnostic.range.end())?,
+        ),
+    })
+}
+
+// An unfinished unpacking comprehension can recover as an annotated assignment.
+// Recognize only the complete, owned recovery cascade, not arbitrary later errors.
+fn unfinished_dict_comprehension_diagnostic(
+    parsed: &parser::Parsed<ast::Mod>,
+    options: &parser::ParseOptions,
+) -> Option<CpythonDiagnostic> {
+    let first = parsed.errors().first()?;
+    if !matches!(
+        first.error,
+        ParseErrorType::ExpectedToken {
+            expected: TokenKind::Rbrace,
+            found: TokenKind::Colon
+        }
+    ) {
+        return None;
+    }
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let [ast::Stmt::AnnAssign(statement)] = module.body.as_slice() else {
+        return None;
+    };
+    let ast::Expr::DictComp(dict) = statement.target.as_ref() else {
+        return None;
+    };
+    if dict.key.is_some()
+        || dict.end() != dict.generators.last()?.end()
+        || statement.start() != dict.start()
+        || statement.value.is_some()
+        || statement.annotation.range().is_empty()
+        || statement.annotation.start() < first.location.end()
+        || statement.annotation.end() != statement.end()
+    {
+        return None;
+    }
+    let tokens: Vec<_> = parsed
+        .tokens()
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token.kind(),
+                TokenKind::Comment | TokenKind::NonLogicalNewline | TokenKind::EndOfFile
+            )
+        })
+        .collect();
+    let opening = tokens.first()?;
+    let operator = tokens.get(1)?;
+    if opening.kind() != TokenKind::Lbrace
+        || opening.start() != dict.start()
+        || operator.kind() != TokenKind::DoubleStar
+        || operator.end() > dict.value.start()
+    {
+        return None;
+    }
+    let colon = tokens.iter().find(|token| token.start() >= dict.end())?;
+    if colon.kind() != TokenKind::Colon || colon.range() != first.location {
+        return None;
+    }
+    let closing_index = tokens
+        .iter()
+        .position(|token| token.start() >= statement.end())?;
+    let closing = tokens.get(closing_index)?;
+    if closing.kind() != TokenKind::Rbrace {
+        return None;
+    }
+    let newline = match tokens.get(closing_index.checked_add(1)?..)? {
+        [] => None,
+        [newline] if newline.kind() == TokenKind::Newline => Some(*newline),
+        _ => return None,
+    };
+    let [unsupported] = parsed.unsupported_syntax_errors() else {
+        return None;
+    };
+    // The payload enum is not exported. This exact DictComp/operator range owns
+    // the parser's DictInDict producer, excluding other comprehension features.
+    if !matches!(
+        unsupported.kind,
+        parser::UnsupportedSyntaxErrorKind::UnpackingInComprehension(_)
+    ) || unsupported.range != ruff_text_size::TextRange::new(operator.start(), dict.value.end())
+        || unsupported.target_version != options.target_version()
+    {
+        return None;
+    }
+    let errors = parsed.errors();
+    if errors.len() != 3 + usize::from(newline.is_some())
+        || !matches!(
+            errors.get(1)?.error,
+            ParseErrorType::InvalidAnnotatedAssignmentTarget
+        )
+        || errors.get(1)?.location != dict.range()
+    {
+        return None;
+    }
+    let is_shadow = |error: &parser::ParseError, range| {
+        matches!(&error.error, ParseErrorType::OtherError(message) if message == "invalid syntax")
+            && error.location == range
+    };
+    if !is_shadow(errors.get(2)?, closing.range())
+        || newline.is_some_and(|newline| !is_shadow(&errors[3], newline.range()))
+    {
+        return None;
+    }
+    Some(CpythonDiagnostic {
+        message: "cannot use dict unpacking here".to_owned(),
+        range: operator.range(),
+    })
+}
+
+/// Refine unpacking errors whose grammar context and operand range the parser already
+/// identified. Tokens only distinguish the unpacking operator; they do not reparse the input.
+fn unpacking_parse_diagnostic(
+    error: &parser::ParseError,
+    following_errors: &[parser::ParseError],
+    tokens: &Tokens,
+    syntax: &ast::Mod,
+    no_unsupported_errors: bool,
+) -> Option<CpythonDiagnostic> {
+    if matches!(
+        error.error,
+        ParseErrorType::InvalidStarredExpressionUsage | ParseErrorType::ExpectedExpression
+    ) && following_errors.is_empty()
+        && no_unsupported_errors
+    {
+        return owned_unpacking_diagnostic(error, tokens, syntax);
+    }
+    let ParseErrorType::OtherError(message) = &error.error else {
+        return None;
+    };
+    let mut range = error.location;
+    let message = match message.as_str() {
+        "cannot use double starred expression here" if following_errors.is_empty() => {
+            let mut operand = tokens.iter().filter(|token| {
+                token.start() >= range.end()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            // The parser consumed a complete parenthesized operand. Lambda and
+            // `not` do not start the bitwise-or prefix required by CPython.
+            if matches!(operand.next()?.kind(), TokenKind::Lambda | TokenKind::Not) {
+                return None;
+            }
+            "cannot use dict unpacking here".to_owned()
+        }
+        "pattern cannot follow a double star pattern" => {
+            // A later recovery error can change which invalid production CPython
+            // selects. Leave those inputs to the existing diagnostic conversion.
+            if !following_errors.is_empty() {
+                return None;
+            }
+            let mut preceding = tokens.iter().rev().filter(|token| {
+                token.end() <= range.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            // The parser has already recognized a mapping entry after its rest
+            // capture. CPython points at that capture, not the following entry.
+            if preceding.next()?.kind() != TokenKind::Comma {
+                return None;
+            }
+            let capture = preceding.next()?;
+            if capture.kind() != TokenKind::Identifier
+                || preceding.next()?.kind() != TokenKind::DoubleStar
+            {
+                return None;
+            }
+            range = capture.range();
+            "double star pattern must be the last (right-most) subpattern in the mapping pattern"
+                .to_owned()
+        }
+        "conditional expression cannot be used here" => {
+            let mut preceding = tokens.iter().rev().filter(|token| {
+                token.end() <= range.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            let operator = preceding.next()?;
+            let kind = match operator.kind() {
+                TokenKind::Star => "starred",
+                // Only the first dictionary spread uses this invalid production.
+                // Dictionary values and later spreads have different error priority.
+                TokenKind::DoubleStar
+                    if preceding
+                        .next()
+                        .is_some_and(|token| token.kind() == TokenKind::Lbrace) =>
+                {
+                    "double starred"
+                }
+                _ => return None,
+            };
+            range = ruff_text_size::TextRange::new(operator.start(), range.end());
+            // Do not replace the operand error when the parser also rejected the
+            // enclosing unpacking operation, for example in a dictionary value.
+            if following_errors.iter().any(|error| {
+                error.location == range
+                    && (matches!(error.error, ParseErrorType::InvalidStarredExpressionUsage)
+                        || matches!(&error.error, ParseErrorType::OtherError(message)
+                            if message == "cannot use a starred expression in a dictionary value"))
+            }) {
+                return None;
+            }
+            format!(
+                "invalid {kind} expression. Did you forget to wrap the conditional expression in parentheses?"
+            )
+        }
+        "expected expression after 'else', but statement is given" => {
+            let operator = tokens.iter().find(|token| token.range() == range)?;
+            match operator.kind() {
+                TokenKind::Star => "cannot unpack only part of a conditional expression",
+                TokenKind::DoubleStar => {
+                    "cannot use dict unpacking on only part of a conditional expression"
+                }
+                _ => return None,
+            }
+            .to_owned()
+        }
+        _ => return None,
+    };
+    Some(CpythonDiagnostic { message, range })
+}
+
+fn owned_unpacking_diagnostic(
+    error: &parser::ParseError,
+    tokens: &Tokens,
+    syntax: &ast::Mod,
+) -> Option<CpythonDiagnostic> {
+    use ast::visitor::Visitor;
+
+    struct Checker<'a> {
+        range: ruff_text_size::TextRange,
+        tokens: &'a Tokens,
+        comprehension: bool,
+        message: Option<&'static str>,
+    }
+
+    impl Checker<'_> {
+        fn is_double_starred_operand(&self, operand: &ast::Expr) -> bool {
+            self.tokens
+                .iter()
+                .rev()
+                .find(|token| {
+                    token.end() <= operand.start()
+                        && !matches!(
+                            token.kind(),
+                            TokenKind::Comment | TokenKind::NonLogicalNewline
+                        )
+                })
+                .is_some_and(|token| {
+                    token.kind() == TokenKind::DoubleStar && token.start() == self.range.start()
+                })
+        }
+
+        fn check_comprehension(
+            &mut self,
+            element: &ast::Expr,
+            generators: &[ast::Comprehension],
+            delimiter: TokenKind,
+            container_start: TextSize,
+            message: &'static str,
+        ) {
+            let ast::Expr::BinOp(binary) = element else {
+                return;
+            };
+            let ast::Expr::Name(missing) = binary.left.as_ref() else {
+                return;
+            };
+            if binary.op != ast::Operator::Pow
+                || !missing.id.is_empty()
+                || missing.ctx != ast::ExprContext::Invalid
+                || !missing.range.is_empty()
+                || element.start() != self.range.start()
+                || generators.is_empty()
+            {
+                return;
+            }
+            let Some(operator) = self.tokens.iter().find(|token| token.range() == self.range)
+            else {
+                return;
+            };
+            let preceding = self.tokens.iter().rev().find(|token| {
+                token.end() <= operator.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            if operator.kind() == TokenKind::DoubleStar
+                && preceding.is_some_and(|token| {
+                    token.kind() == delimiter && token.start() == container_start
+                })
+            {
+                self.range = ruff_text_size::TextRange::new(operator.start(), element.end());
+                self.message = Some(message);
+            }
+        }
+
+        fn check_item(&mut self, key: Option<&ast::Expr>, value: &ast::Expr) {
+            let Some(key) = key else { return };
+            // The parser reports InvalidStarredExpressionUsage at just the first
+            // byte of the operator. Recover the operand end from its retained role.
+            if self.range.len() != TextSize::new(1) {
+                return;
+            }
+            let (message, end) = if matches!(key, ast::Expr::Starred(_))
+                && key.start() == self.range.start()
+                && self
+                    .tokens
+                    .iter()
+                    .any(|token| token.kind() == TokenKind::Star && token.range() == self.range)
+            {
+                (
+                    "cannot use a starred expression in a dictionary key",
+                    key.end(),
+                )
+            } else if self.is_double_starred_operand(key) {
+                ("cannot use dict unpacking in a dictionary key", key.end())
+            } else if self.is_double_starred_operand(value) {
+                (
+                    "cannot use dict unpacking in a dictionary value",
+                    value.end(),
+                )
+            } else {
+                return;
+            };
+            self.range = ruff_text_size::TextRange::new(self.range.start(), end);
+            self.message = Some(message);
+        }
+    }
+
+    impl<'a> Visitor<'a> for Checker<'_> {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.message.is_some() || !expr.range().contains_range(self.range) {
+                return;
+            }
+            // Retained nodes establish the operand role; the parser reported
+            // no other errors. Dictionary errors here only have first-item producers.
+            match expr {
+                ast::Expr::ListComp(comp) if self.comprehension => self.check_comprehension(
+                    &comp.elt,
+                    &comp.generators,
+                    TokenKind::Lsqb,
+                    comp.start(),
+                    "cannot use dict unpacking in list comprehension",
+                ),
+                ast::Expr::Generator(comp) if self.comprehension && comp.parenthesized => self
+                    .check_comprehension(
+                        &comp.elt,
+                        &comp.generators,
+                        TokenKind::Lpar,
+                        comp.start(),
+                        "cannot use dict unpacking in generator expression",
+                    ),
+                ast::Expr::Dict(dict) if !self.comprehension => {
+                    if let Some(item) = dict.items.first() {
+                        self.check_item(item.key.as_ref(), &item.value);
+                    }
+                }
+                ast::Expr::DictComp(dict) if !self.comprehension => {
+                    self.check_item(dict.key.as_deref(), &dict.value)
+                }
+                _ => {}
+            }
+            if self.message.is_none() {
+                ast::visitor::walk_expr(self, expr);
+            }
+        }
+    }
+
+    let mut checker = Checker {
+        range: error.location,
+        tokens,
+        comprehension: matches!(error.error, ParseErrorType::ExpectedExpression),
+        message: None,
+    };
+    match syntax {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+    checker.message.map(|message| CpythonDiagnostic {
+        message: message.to_owned(),
+        range: checker.range,
+    })
+}
+
+/// The first logical input accepted by the single-input grammar.
+#[derive(Clone, Copy)]
+pub enum SingleModeStatementBoundary {
+    Simple { newline_index: usize, end: TextSize },
+    Compound { end: TextSize },
+}
+
+/// Classify a logical input without changing parser diagnostics or recovery.
+#[must_use]
+pub fn single_mode_statement_boundary(
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<SingleModeStatementBoundary> {
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let first = module.body.first()?;
+    if is_compound_stmt(first) {
+        return Some(SingleModeStatementBoundary::Compound { end: first.end() });
+    }
+    let newline_index = parsed
+        .tokens()
+        .iter()
+        .position(|token| token.kind() == TokenKind::Newline)?;
+    Some(SingleModeStatementBoundary::Simple {
+        newline_index,
+        end: parsed.tokens()[newline_index].end(),
+    })
+}
+
+/// Single mode reads only the first statement when it is a simple statement, so any code after
+/// its line is reported as multiple statements, ahead of errors the rest of the source has.
+#[must_use]
+pub fn single_mode_multiple_statements_error(
+    source_file: &SourceFile,
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<CompileError> {
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let boundary = single_mode_statement_boundary(parsed)?;
+    if matches!(boundary, SingleModeStatementBoundary::Compound { .. }) {
+        // The interactive grammar ends a compound statement with a NEWLINE,
+        // so the first token of a following statement is invalid syntax.
+        let next = module.body.get(1)?;
+        if parsed
+            .errors()
+            .iter()
+            .any(|error| error.location.start() <= next.start())
+        {
+            return None;
+        }
+        let token = parsed
+            .tokens()
+            .iter()
+            .find(|token| token.start() >= next.start() && !token.range().is_empty())?;
+        return Some(CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                token.start().to_usize(),
+                token.end().to_usize(),
+            ),
+        ));
+    }
+    let tokens = parsed.tokens();
+    let SingleModeStatementBoundary::Simple { newline_index, .. } = boundary else {
+        unreachable!()
+    };
+    let newline = &tokens[newline_index];
+    if parsed
+        .errors()
+        .iter()
+        .any(|error| error.location.start() < newline.end())
+    {
+        return None;
+    }
+    let mut rest = &source_file.source_text()[newline.end().to_usize()..];
+    loop {
+        rest = rest.trim_start_matches([' ', '\t', '\n', '\r', '\x0c']);
+        match rest.strip_prefix('#') {
+            Some(comment) => rest = comment.find('\n').map_or("", |end| &comment[end..]),
+            None if rest.is_empty() => return None,
+            None => break,
+        }
+    }
+    // The error is at the newline token, which starts at a trailing comment.
+    let position = match newline_index.checked_sub(1).map(|index| &tokens[index]) {
+        Some(comment) if comment.kind() == TokenKind::Comment => comment.start(),
+        _ => newline.start(),
+    };
+    // Include the comment and one logical newline character. Using the token's
+    // full end would count both bytes of CRLF; position + 1 truncates comments.
+    Some(CompileError::from_ruff_parse_error(
+        parser::ParseError {
+            error: parser::ParseErrorType::OtherError(
+                "multiple statements found while compiling a single statement".to_owned(),
+            ),
+            location: ruff_text_size::TextRange::new(position, newline.start() + TextSize::new(1)),
+        },
+        source_file,
+        Mode::Single,
+    ))
 }
 
 fn single_mode_source_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
@@ -5097,9 +1965,7 @@ pub fn dont_imply_dedent_source_error(source_file: &SourceFile) -> Option<Compil
     let eof = source.len();
     Some(CompileError::from_source_error(
         source_file,
-        "incomplete input".to_owned(),
-        eof,
-        eof,
+        CpythonDiagnostic::new("incomplete input".to_owned(), eof, eof),
     ))
 }
 
@@ -5258,8 +2124,34 @@ fn _compile_with_syntax_warning_handler<'a>(
         Mode::Single | Mode::BlockExpr => parser::Mode::Module,
     };
     let parser_options = parser::ParseOptions::from(parser_mode);
-    let parsed = parser::parse(source_file.source_text(), parser_options)
-        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
+    let barry_source = prepare_barry_as_flufl_source(
+        source_file.source_text(),
+        parser_options.clone(),
+        opts.future_features
+            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    pre_parse_source_error(&source_file)?;
+    let parsed = parser::parse_unchecked(barry_source.source(), parser_options.clone());
+    if matches!(mode, Mode::Single)
+        && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
+    {
+        return Err(error);
+    }
+    if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
+        return Err(error);
+    }
+    let parsed = first_parse_error(
+        parsed,
+        &source_file,
+        mode,
+        barry_source.source(),
+        &parser_options,
+    )?;
+    if matches!(mode, Mode::Single)
+        && let Some(error) = single_mode_blank_source_error(&source_file)
+    {
+        return Err(error);
+    }
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
@@ -5270,6 +2162,10 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     let ast = parsed.into_syntax();
+    too_deeply_nested_error(&ast, &source_file, opts.recursion_limit)?;
+    if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+        return Err(error);
+    }
     let single_mode_error = matches!(mode, Mode::Single)
         .then(|| single_mode_source_error(&ast, &source_file))
         .flatten();
@@ -5285,6 +2181,229 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     Ok(code)
+}
+
+#[doc(hidden)]
+pub struct BarrySource<'a> {
+    source: Cow<'a, str>,
+    not_equal: Option<ruff_text_size::TextRange>,
+    legacy_not_equal: Vec<ruff_text_size::TextRange>,
+}
+
+impl BarrySource<'_> {
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    #[must_use]
+    pub fn not_equal_before(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+    ) -> Option<ruff_text_size::TextRange> {
+        self.not_equal.filter(|range| {
+            parse_error.is_none_or(|error| {
+                let diagnostic_start = if matches!(
+                    &error.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
+                ) {
+                    find_unclosed_bracket(&self.source).map_or_else(
+                        || error.location.start(),
+                        |(_, offset)| TextSize::new(offset as u32),
+                    )
+                } else {
+                    error.location.start()
+                };
+                range.start() <= diagnostic_start
+            })
+        })
+    }
+
+    /// The `<>` operator the parse error points at, if any. In Barry mode the
+    /// operator was rewritten to `!=`, so the error lands on its start, and the
+    /// whole operator is one token to the tokenizer, so report it as one.
+    #[must_use]
+    pub fn invalid_legacy_operator(
+        &self,
+        parse_error: &parser::ParseError,
+    ) -> Option<ruff_text_size::TextRange> {
+        let location = parse_error.location.start();
+        self.legacy_not_equal
+            .iter()
+            .copied()
+            .find(|range| range.contains(location) || range.start() == location)
+            .filter(|range| self.outranks_unclosed_bracket(*range))
+    }
+
+    /// Whether `range` outranks an unclosed bracket. The bracket is reported
+    /// at itself, so it wins over anything that starts after it.
+    fn outranks_unclosed_bracket(&self, range: ruff_text_size::TextRange) -> bool {
+        find_unclosed_bracket(&self.source)
+            .is_none_or(|(_, offset)| range.start() <= TextSize::new(offset as u32))
+    }
+
+    /// The Barry mode diagnostic for this source, if any: a `<>` the parse
+    /// error points at, or the first `!=`. A `<>` takes precedence over a `!=`
+    /// reported later in the source.
+    #[must_use]
+    pub fn diagnostic(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+        source_file: &SourceFile,
+    ) -> Option<CompileError> {
+        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+            return Some(barry_as_flufl_invalid_legacy_operator_error(
+                source_file,
+                range,
+            ));
+        }
+        self.not_equal_before(parse_error)
+            .map(|range| barry_as_flufl_not_equal_error(source_file, range))
+    }
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_not_equal_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new(
+            "with Barry as BDFL, use '<>' instead of '!='".to_owned(),
+            range.start().to_usize(),
+            range.end().to_usize(),
+        ),
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_invalid_legacy_operator_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new(
+            "invalid syntax".to_owned(),
+            range.start().to_usize(),
+            range.end().to_usize(),
+        ),
+    )
+}
+
+#[doc(hidden)]
+pub fn prepare_barry_as_flufl_source(
+    source: &str,
+    parser_options: parser::ParseOptions,
+    inherited: bool,
+) -> BarrySource<'_> {
+    let scanned = (inherited || source.contains("barry_as_FLUFL"))
+        .then(|| parser::parse_unchecked(source, parser_options));
+    let enabled = scanned.as_ref().is_some_and(|scanned| {
+        inherited
+            || codegen::preprocess::future_features(scanned.syntax())
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+    });
+    let Some(scanned) = scanned.filter(|_| enabled) else {
+        return BarrySource {
+            source: Cow::Borrowed(source),
+            not_equal: None,
+            legacy_not_equal: Vec::new(),
+        };
+    };
+
+    let not_equal = scanned
+        .tokens()
+        .iter()
+        .find(|token| token.kind() == TokenKind::NotEqual)
+        .map(Ranged::range);
+    let replacements = scanned
+        .tokens()
+        .windows(2)
+        .filter_map(|tokens| {
+            let [less, greater] = tokens else {
+                return None;
+            };
+            (less.kind() == TokenKind::Less
+                && greater.kind() == TokenKind::Greater
+                && less.end() == greater.start())
+            .then(|| ruff_text_size::TextRange::new(less.start(), greater.end()))
+        })
+        .collect::<Vec<_>>();
+
+    let source = if replacements.is_empty() {
+        Cow::Borrowed(source)
+    } else {
+        let mut rewritten = source.to_owned();
+        for range in replacements.iter().rev() {
+            rewritten.replace_range(range.start().to_usize()..range.end().to_usize(), "!=");
+        }
+        Cow::Owned(rewritten)
+    };
+    BarrySource {
+        source,
+        not_equal,
+        legacy_not_equal: replacements,
+    }
+}
+
+/// Parse-only state for a native interactive record. This never runs codegen,
+/// emits Python warnings, or changes the caller's future flags.
+pub struct InteractiveInput {
+    pub future_features: core::bytecode::CodeFlags,
+    pub empty: bool,
+}
+
+/// The native interactive grammar terminates compound statements with an empty
+/// physical line (or EOF), unlike the module grammar used by the Ruff parser.
+/// Use the parsed statement shape rather than a second ad-hoc source lexer.
+pub fn interactive_input(
+    source: &str,
+    source_path: &str,
+    future_features: core::bytecode::CodeFlags,
+    terminated: bool,
+) -> Result<Option<InteractiveInput>, CompileError> {
+    let source_file = SourceFileBuilder::new(source_path, source).finish();
+    pre_parse_source_error(&source_file)?;
+    let options = parser::ParseOptions::from(parser::Mode::Module);
+    let prepared = prepare_barry_as_flufl_source(
+        source,
+        options.clone(),
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse_unchecked(prepared.source(), options.clone());
+    if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
+        return Err(error);
+    }
+    if let Some(error) = prepared.diagnostic(parsed.errors().first(), &source_file) {
+        return Err(error);
+    }
+    let parsed = first_parse_error(
+        parsed,
+        &source_file,
+        Mode::Single,
+        prepared.source(),
+        &options,
+    )?;
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        unreachable!()
+    };
+    // A compound statement ends with an empty line or EOF.
+    if !terminated && module.body.first().is_some_and(is_compound_stmt) {
+        return Ok(None);
+    }
+    if let Some(error) = unsupported_grammar_error(parsed.syntax(), &source_file) {
+        return Err(error);
+    }
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, &source_file))?;
+    Ok(Some(InteractiveInput {
+        future_features,
+        empty: module.body.is_empty(),
+    }))
 }
 
 pub fn compile_with_syntax_warning_handler<'a>(
@@ -5311,42 +2430,123 @@ pub fn compile_symtable(
     _compile_symtable(source_file, mode)
 }
 
+/// Bring a module into the shape the symbol table is built from.
+fn symtable_preprocess_module(
+    module: &mut ast::ModModule,
+    source_file: &SourceFile,
+) -> Result<(), CompileError> {
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, source_file))?;
+    let future_annotations =
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+    // Constant folding is left out; the symbol table is built from the parsed
+    // program as written.
+    codegen::preprocess::preprocess_statements(&mut module.body, 0, future_annotations, true);
+    Ok(())
+}
+
+fn future_feature_error(
+    error: codegen::preprocess::FutureFeatureError,
+    source_file: &SourceFile,
+) -> CompileError {
+    let source_code = source_file.to_source_code();
+    let location = source_code.source_location(error.range.start(), PositionEncoding::Utf8);
+    let end_location = source_code.source_location(error.range.end(), PositionEncoding::Utf8);
+    let error = match error.kind {
+        codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
+            codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
+        }
+        codegen::preprocess::FutureFeatureErrorKind::InvalidBraces => {
+            codegen::error::CodegenErrorType::InvalidFutureBraces
+        }
+    };
+    codegen::error::CodegenError {
+        location: Some(location),
+        end_location: Some(end_location),
+        error,
+        source_path: source_file.name().to_owned(),
+    }
+    .into()
+}
+
 pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let parser_mode = match mode {
+        Mode::Exec | Mode::Single | Mode::BlockExpr => parser::Mode::Module,
+        Mode::Eval => parser::Mode::Expression,
+    };
+    let parser_options = parser::ParseOptions::from(parser_mode);
+    let barry_source =
+        prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            let ast = ruff_python_parser::parse_module(source_file.source_text())
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            pre_parse_source_error(&source_file)?;
+            let parsed =
+                ruff_python_parser::parse_unchecked(barry_source.source(), parser_options.clone());
+            if matches!(mode, Mode::Single)
+                && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
+            {
+                return Err(error);
+            }
+            if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
+                return Err(error);
+            }
+            let ast = first_parse_error(
+                parsed,
+                &source_file,
+                mode,
+                barry_source.source(),
+                &parser_options,
+            )?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
                 return Err(error);
             }
             let ast = ast.into_syntax();
+            too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)?;
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let ast = ast.expect_module();
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_body_error(&ast.body, &source_file)
             {
                 return Err(error);
             }
+            let mut ast = ast;
+            symtable_preprocess_module(&mut ast, &source_file)?;
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
-            let ast = ruff_python_parser::parse(
-                source_file.source_text(),
-                parser::Mode::Expression.into(),
-            )
-            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            pre_parse_source_error(&source_file)?;
+            let parsed =
+                ruff_python_parser::parse_unchecked(barry_source.source(), parser_options.clone());
+            if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
+                return Err(error);
+            }
+            let ast = first_parse_error(
+                parsed,
+                &source_file,
+                mode,
+                barry_source.source(),
+                &parser_options,
+            )?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
                 return Err(error);
             }
-            symboltable::SymbolTable::scan_expr(
-                &ast.into_syntax().expect_expression(),
-                source_file.clone(),
-            )
+            let ast = ast.into_syntax();
+            too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)?;
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let mut ast = ast;
+            codegen::preprocess::preprocess_mod(&mut ast, 0, false, true);
+            symboltable::SymbolTable::scan_expr(&ast.expect_expression(), source_file.clone())
         }
     };
     res.map_err(|e| e.into_codegen_error(source_file.name().to_owned()).into())
@@ -5364,6 +2564,411 @@ mod tests {
     }
 
     #[test]
+    fn empty_parameter_default_is_reported_before_later_params() {
+        let err = compile(
+            "def foo(a=1,d=,c):\n    pass\n",
+            Mode::Exec,
+            "<params>",
+            CompileOpts::default(),
+        )
+        .expect_err("empty default should fail");
+        assert!(
+            err.to_string()
+                .contains("expected default value expression"),
+            "got {err}"
+        );
+    }
+
+    #[test]
+    fn too_many_nested_fstrings_match_tokenizer_limit() {
+        fn nested(n: usize) -> String {
+            if n == 0 {
+                return "1+1".to_owned();
+            }
+            format!("f\"{{{}}}\"", nested(n - 1))
+        }
+
+        compile(&nested(149), Mode::Eval, "<nest>", CompileOpts::default())
+            .expect("149 nested f-strings should compile");
+        let err = compile(&nested(150), Mode::Eval, "<nest>", CompileOpts::default())
+            .expect_err("150 nested f-strings should fail");
+        assert!(
+            err.to_string()
+                .contains("too many nested f-strings or t-strings"),
+            "got {err}"
+        );
+    }
+
+    #[test]
+    fn interpolated_string_diagnostics_match_cpython() {
+        for (source, expected) in [
+            ("f'{'", "f-string: expecting '}'"),
+            ("t'{'", "t-string: expecting '}'"),
+            (
+                "f'{1=}{;'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "t'{x;y}'",
+                "t-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            ("t'{x!s:'", "t-string: expecting '}', or format specs"),
+            ("t'{x=!}'", "t-string: missing conversion character"),
+            (
+                "t'{x:{;}}'",
+                "t-string: expecting a valid expression after '{'",
+            ),
+            ("f'{1#}'", "'{' was never closed"),
+            ("t'{", "'{' was never closed"),
+            // A field is only "never closed" while the tokenizer is reading its expression.
+            // Past the field's own `:` it emits literal text again, so the quote is what is
+            // missing — and a `:` in a slice, a display or a lambda is not the field's own.
+            ("f'{a", "'{' was never closed"),
+            ("f'{a!r", "'{' was never closed"),
+            ("f'{a=", "'{' was never closed"),
+            ("f'{ {1:2}", "'{' was never closed"),
+            ("f'{d[1:2]", "'{' was never closed"),
+            ("f'{(lambda x: x)", "'{' was never closed"),
+            ("f'{a:{b:{c", "'{' was never closed"),
+            ("f'{a:", "unterminated f-string literal"),
+            ("f'{a:>5", "unterminated f-string literal"),
+            ("f'{a!r:", "unterminated f-string literal"),
+            ("f'{a}{b:", "unterminated f-string literal"),
+            ("f'{a:{b}c", "unterminated f-string literal"),
+            ("t'{a:>5", "unterminated t-string literal"),
+            ("f'''{a:>5", "unterminated triple-quoted f-string literal"),
+            // CPython names the innermost unclosed delimiter, not the field around it.
+            ("f'{a[", "'[' was never closed"),
+            ("f'{(a", "'(' was never closed"),
+            ("f'{)#}'", "f-string: unmatched ')'"),
+            (
+                "f'{a[4)}'",
+                "closing parenthesis ')' does not match opening parenthesis '['",
+            ),
+            ("t'", "unterminated t-string literal (detected at line 1)"),
+            (
+                "t'''",
+                "unterminated triple-quoted t-string literal (detected at line 1)",
+            ),
+            (
+                "t\"x\" b\"y\"",
+                "cannot mix t-string literals with string or bytes literals",
+            ),
+            (
+                "b\"x\" t\"y\"",
+                "cannot mix t-string literals with string or bytes literals",
+            ),
+            // The literals ahead of the first t-string already mix, so CPython's first pass
+            // raises from `_PyPegen_concatenate_strings` before the t-string rule is reached.
+            (
+                "\"a\" b\"b\" t\"c\"",
+                "cannot mix bytes and nonbytes literals",
+            ),
+            // A dangling operator ends the expression before a separator could follow.
+            (
+                "f'{a==}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a and}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a is not}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a.b.}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            ("t'{a~}'", "t-string: expecting '=', or '!', or ':', or '}'"),
+            // A doubled `=` or `!` opens no debug specifier and no conversion, so the field has
+            // no expression at all rather than an empty one before a marker.
+            (
+                "f'{==a}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "f'{!=a}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "t'{==a}'",
+                "t-string: expecting a valid expression after '{'",
+            ),
+            ("f'{=a}'", "f-string: valid expression required before '='"),
+            ("f'{!}'", "f-string: valid expression required before '!'"),
+            (
+                "f'{lambda x:x}'",
+                "f-string: lambda expressions are not allowed without parentheses",
+            ),
+            (
+                "f'{1, lambda:x}'",
+                "f-string: lambda expressions are not allowed without parentheses",
+            ),
+            (
+                "f'{+ lambda:None}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            ("fu''", "'u' and 'f' prefixes are incompatible"),
+            ("fb''", "'b' and 'f' prefixes are incompatible"),
+            ("ufr''", "'u' and 'r' prefixes are incompatible"),
+            (
+                "(]\nbu'x'",
+                "closing parenthesis ']' does not match opening parenthesis '('",
+            ),
+            ("0x\nbu'x'", "invalid hexadecimal literal"),
+            ("(0x", "invalid hexadecimal literal"),
+            ("print x; 0x", "invalid hexadecimal literal"),
+            ("exec x; 0x", "invalid hexadecimal literal"),
+            (
+                "print x; 0x1",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                "print x; (",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("print x; )", "unmatched ')'"),
+            (
+                "( '\\N'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
+            ),
+            ("(print x", "'(' was never closed"),
+            (
+                "(print x; '\\N'",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("f'{x'; 0x", "f-string: expecting '}'"),
+            (
+                "print x; f'{x'; 0x",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                concat!("f'{1:", "d\n}'"),
+                "f-string: newlines are not allowed in format specifiers",
+            ),
+            ("f'{\n}'", "f-string: valid expression required before '}'"),
+            (
+                "f'''\n{\n# only a comment\n}'''",
+                "f-string: valid expression required before '}'",
+            ),
+            ("{\\'a\\'}", "unexpected character after line continuation"),
+            (
+                "\"\\\n\"(1 for c in I,\\\n\\",
+                "unexpected character after line continuation character",
+            ),
+            (
+                r"'\N'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
+            ),
+            (
+                r"f'\N{'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: malformed \\N character escape",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<interp>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_indent_outranks_print_missing_parentheses() {
+        for (source, expected) in [
+            (
+                "if True:\nprint \"No indent\"",
+                "expected an indented block after 'if' statement on line 1",
+            ),
+            (
+                "print \"old style\"",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+        ] {
+            let err = compile(source, Mode::Exec, "<fragment>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn unclosed_fstring_field_keeps_the_unclosed_bracket_flag() {
+        let err = compile("f'{", Mode::Eval, "<interp>", CompileOpts::default())
+            .expect_err("should not compile");
+        let crate::CompileError::Parse(parse) = err else {
+            panic!("expected a parse error, got {err}");
+        };
+        assert!(
+            parse.is_unclosed_bracket,
+            "unclosed f-string field must stay incomplete, got {parse}"
+        );
+        assert!(
+            parse.to_string().contains("'{' was never closed"),
+            "got {parse}"
+        );
+    }
+
+    #[test]
+    fn interpolated_literals_do_not_take_the_escaped_quote_hint() {
+        // Parser/lexer/lexer.c offers "perhaps you escaped the end quote?" from its plain-string
+        // branch only; the interpolated branch has just the triple-quoted and plain forms. The
+        // assertion has to be exact: the hint is a suffix, so `contains` would pass either way.
+        for (source, expected) in [
+            (
+                r"f'\'",
+                "unterminated f-string literal (detected at line 1)",
+            ),
+            (
+                r"t'\'",
+                "unterminated t-string literal (detected at line 1)",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<escaped>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert_eq!(err.to_string(), expected, "{source:?}");
+        }
+        // A literal without a prefix still gets it.
+        let err = compile(r"'\'", Mode::Eval, "<escaped>", CompileOpts::default())
+            .expect_err("should not compile");
+        assert_eq!(
+            err.to_string(),
+            "unterminated string literal (detected at line 1); perhaps you escaped the end quote?"
+        );
+    }
+
+    #[test]
+    fn a_field_bracket_mismatch_names_the_opening_line() {
+        // CPython compares `parenlinenostack[level]` against the current `lineno`, so it names
+        // the opening line only when the two brackets are not on the same one.
+        for (source, expected) in [
+            (
+                "x = f\"\"\"{a[\n4)}\"\"\"\n",
+                "closing parenthesis ')' does not match opening parenthesis '[' on line 1",
+            ),
+            (
+                "x = f\"\"\"{a(\n\n4]}\"\"\"\n",
+                "closing parenthesis ']' does not match opening parenthesis '(' on line 1",
+            ),
+            (
+                "x = f\"{a[4)}\"\n",
+                "closing parenthesis ')' does not match opening parenthesis '['",
+            ),
+        ] {
+            let err = compile(source, Mode::Exec, "<paren>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert_eq!(err.to_string(), expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_dangling_operator_needs_the_field_to_close() {
+        // A stray character is a finished token, so CPython's grammar rejects it on lookahead
+        // and names the separators even when the field never closes. A dangling operator makes
+        // the parser ask for one more token, and producing it hits the closing quote, where
+        // lexer.c answers "expecting '}'" from the tokenizer instead.
+        for (source, expected) in [
+            ("f'{a;'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a$'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a?'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a and'", "f-string: expecting '}'"),
+            ("f'{a+'", "f-string: expecting '}'"),
+            ("f'{a=='", "f-string: expecting '}'"),
+            ("f'{a.b.'", "f-string: expecting '}'"),
+            ("f'{a is not'", "f-string: expecting '}'"),
+            ("t'{a and'", "t-string: expecting '}'"),
+            // With the field closed, the operator is what gets named.
+            (
+                "f'{a and}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a==}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<dangling>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn deeply_nested_format_specs_stay_linear() {
+        // Each enclosing spec used to re-scan every field nested inside it, which made this
+        // O(2^depth): a 110-byte source took six seconds. The scan now resumes past a nested
+        // field once it has checked it, so this has to finish immediately.
+        for depth in [32usize, 200] {
+            let source = format!("x = f\"{}{}\"\n$", "{1:".repeat(depth), "}".repeat(depth));
+            compile(&source, Mode::Exec, "<nested>", CompileOpts::default())
+                .expect_err("the trailing `$` is a syntax error");
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::literal_string_with_formatting_args,
+        reason = "these are Python format specs, not Rust format args"
+    )]
+    fn valid_interpolated_literals_do_not_shadow_a_later_syntax_error() {
+        // A format spec is text rather than code, and a `#` in a replacement field starts a
+        // comment. Mistaking either for expression syntax would blame a perfectly good literal
+        // for the `$` further down, so the reported line must stay on the `$`.
+        for source in [
+            "x = f\"{1:(}\"\n$",
+            "x = f\"{1:[}\"\n$",
+            "x = f\"{1:#x}\"\n$",
+            "x = f\"{1!r:#>5}\"\n$",
+            "x = t\"{1:(}\"\n$",
+            "x = f\"\"\"{1 # (\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # {\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # ]\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # a\\ b\n}\"\"\"\n$",
+            // A comment tail is not the end of the expression, whatever it looks like.
+            "x = f\"\"\"{a # +\n}\"\"\"\n$",
+            "x = f\"\"\"{a # and\n}\"\"\"\n$",
+            "x = f\"\"\"{a # ==\n}\"\"\"\n$",
+            "x = t\"\"\"{a # .\n}\"\"\"\n$",
+            "x = f\"\"\"{1:{a # +\n}}\"\"\"\n$",
+            "x = f\"\"\"{a # +\n + b}\"\"\"\n$",
+            // A signed leading-dot float is an operand.
+            "x = f\"{-.5}\"\n$",
+            "x = f\"{+.5}\"\n$",
+            // Ellipsis and a leading-dot float start real expressions.
+            "x = f\"{...}\"\n$",
+            "x = f\"{.5}\"\n$",
+            "x = t\"{...}\"\n$",
+            // A dangling operator is reported, but a complete one is not.
+            "x = f\"{a+b}\"\n$",
+            "x = f\"{a.b.c}\"\n$",
+            "x = f\"{1.}\"\n$",
+            // A comparison operator is not a debug or conversion marker.
+            "x = f\"{a==b}\"\n$",
+            "x = f\"{a!=b}\"\n$",
+            "x = f\"{a<=b}\"\n$",
+            "x = f\"{a>=b}\"\n$",
+            "x = t\"{a==b}\"\n$",
+            "x = f\"{a:{b==c}}\"\n$",
+        ] {
+            let err = compile(source, Mode::Exec, "<interp>", CompileOpts::default())
+                .expect_err("the trailing `$` is a syntax error");
+            assert_eq!(
+                err.python_location().0,
+                source.lines().count(),
+                "{source:?} reported the wrong line: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn dont_imply_dedent_requires_terminating_newline() {
         let code = "if True:\n    pass";
 
@@ -5376,6 +2981,349 @@ mod tests {
 
         compile("if True:\n    pass\n", Mode::Single, "<>", opts).expect("compile error");
         compile(code, Mode::Single, "<>", CompileOpts::default()).expect("compile error");
+    }
+
+    #[test]
+    fn barry_as_flufl_rewrites_legacy_not_equal_after_future_import() {
+        let code = compile(
+            "from __future__ import barry_as_FLUFL\nresult = 2 <> 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry comparison should compile");
+        assert!(
+            code.flags
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+        );
+    }
+
+    #[test]
+    fn inherited_barry_as_flufl_rewrites_legacy_not_equal() {
+        let opts = CompileOpts {
+            future_features: core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL,
+            ..CompileOpts::default()
+        };
+        compile("2 <> 3", Mode::Single, "<barry>", opts)
+            .expect("inherited Barry comparison should compile");
+    }
+
+    #[test]
+    fn barry_as_flufl_rejects_modern_not_equal() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("Barry mode should reject !=");
+        assert_eq!(
+            err.to_string(),
+            "with Barry as BDFL, use '<>' instead of '!='"
+        );
+        assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn fstring_adjacent_atoms_are_a_missing_comma() {
+        let err = compile("f'{6 0}'", Mode::Exec, "<fragment>", CompileOpts::default())
+            .expect_err("adjacent atoms in an f-string field are a syntax error");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Perhaps you forgot a comma?"
+        );
+        assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 7)));
+
+        compile(
+            "f'{not x}'",
+            Mode::Exec,
+            "<fragment>",
+            CompileOpts::default(),
+        )
+        .expect("unary not is a prefix, not two atoms");
+        let err = compile(
+            "f'{a and}'",
+            Mode::Exec,
+            "<fragment>",
+            CompileOpts::default(),
+        )
+        .expect_err("a dangling 'and' is an f-string separator error");
+        assert_eq!(
+            err.to_string(),
+            "f-string: expecting '=', or '!', or ':', or '}'"
+        );
+    }
+
+    #[test]
+    fn missing_comma_diagnostic_spans_the_whole_second_atom() {
+        // `(start, end)` reported as one-based character columns, matching
+        // `SyntaxError.offset` / `.end_offset`.
+        let span = |source: &str| {
+            let err = compile(source, Mode::Eval, "<comma>", CompileOpts::default())
+                .expect_err("two adjacent atoms are a syntax error");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Perhaps you forgot a comma?"
+            );
+            (
+                err.python_location().1,
+                err.python_end_location().unwrap().1,
+            )
+        };
+
+        // A one-character second atom is the case that already worked.
+        assert_eq!(span("(a b)"), (2, 5));
+        // A longer one ends where it ends, not one byte in.
+        assert_eq!(span("(a bb)"), (2, 6));
+        assert_eq!(span("(a bbb)"), (2, 7));
+        assert_eq!(span("(1 22)"), (2, 6));
+        // A non-ASCII atom is one character but several bytes, so counting
+        // bytes here used to stop inside it and round back off the boundary.
+        assert_eq!(span("(a \u{3b2})"), (2, 5));
+        assert_eq!(span("(a \u{3b2}\u{3b2})"), (2, 6));
+        assert_eq!(span("(\u{3b1}\u{3b1} \u{3b2})"), (2, 6));
+        // The first atom's width was never the problem; pin it anyway.
+        assert_eq!(span("(\u{3b1} b)"), (2, 5));
+        // Other bracket kinds take the same path.
+        assert_eq!(span("[\u{3b1} \u{3b2}]"), (2, 5));
+    }
+
+    #[test]
+    fn parenthesized_yield_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield bar) = y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_augassign_uses_illegal_expression_message() {
+        let err = compile(
+            "def f(): (yield bar) += y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an augmented assignment target");
+        assert_eq!(
+            err.to_string(),
+            "'yield expression' is an illegal expression for augmented assignment"
+        );
+    }
+
+    #[test]
+    fn kwarg_unparenthesized_genexp_uses_eq_or_walrus_message() {
+        let err = compile(
+            "dict(a = i for i in range(10))\n",
+            Mode::Exec,
+            "<kwarg>",
+            CompileOpts::default(),
+        )
+        .expect_err("unparenthesized genexp after '=' is invalid");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn eval_fstring_assignment_keeps_invalid_syntax() {
+        for source in ["f'' = 3", "f'{0}' = x", "f'{x}' = x"] {
+            let err = compile(source, Mode::Eval, "<eval>", CompileOpts::default())
+                .expect_err("assignment is invalid in eval");
+            assert_eq!(err.to_string(), "invalid syntax", "{source}");
+        }
+        let err = compile("f'' = 3", Mode::Exec, "<exec>", CompileOpts::default())
+            .expect_err("f-string is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to f-string expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn if_assignment_uses_eq_or_walrus_message() {
+        let err = compile(
+            "if x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("assignment in if condition is invalid");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_if_assignment_uses_eq_or_walrus_message() {
+        for source in [
+            "if (x = 3): pass\n",
+            "if ((x = 3)): pass\n",
+            "if (x = 3) and y: pass\n",
+        ] {
+            let err = compile(source, Mode::Exec, "<if>", CompileOpts::default())
+                .expect_err("parenthesized assignment in if condition is invalid");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+            );
+        }
+    }
+
+    #[test]
+    fn earlier_syntax_error_is_not_replaced_by_later_condition() {
+        let err = compile(
+            "@@@\nif x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("the first invalid token is the syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location().0, 1);
+    }
+
+    #[test]
+    fn if_attribute_assignment_uses_invalid_target_hint() {
+        let err = compile(
+            "if x.a = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("attribute assignment in if condition is invalid");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to attribute here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_from_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield from value) = target\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield from is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn set_display_assignment_uses_invalid_target_hint() {
+        let err = compile(
+            "{1, 2, 3} = 42\n",
+            Mode::Exec,
+            "<set>",
+            CompileOpts::default(),
+        )
+        .expect_err("set display is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to set display here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
+        let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<>' outside Barry mode is a syntax error");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax.  Maybe you meant '!=' instead of '<>'?"
+        );
+        assert_eq!(err.python_location(), (1, 3));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // Only `<>` spans two characters; any other token that cannot start an
+        // expression keeps its own location.
+        let err = compile("2 <;\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<;' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // A `<>` that starts a statement is not a comparison, so only the `<`
+        // is reported.
+        let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("a bare '<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 1));
+        assert_eq!(err.python_end_location(), Some((1, 2)));
+
+        // `<<>` is a left shift followed by `>`.
+        let err = compile(
+            "2 <<> 3\n",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("'<<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 5));
+        assert_eq!(err.python_end_location(), Some((1, 6)));
+
+        // A bracket left open earlier in the source outranks the operator.
+        let err = compile(
+            "(\n2 <> 3",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("the bracket is never closed");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (1, 1));
+    }
+
+    #[test]
+    fn barry_as_flufl_does_not_rewrite_strings_or_comments() {
+        compile(
+            "from __future__ import barry_as_FLUFL\nx = '<>'\n# <>\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry markers in strings and comments should stay untouched");
+    }
+
+    #[test]
+    fn syntax_error_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n<>\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier invalid comparison should fail");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (2, 1));
+    }
+
+    #[test]
+    fn unclosed_bracket_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n(\n2 != 3",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier unclosed bracket should fail");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (2, 1));
     }
 
     #[test]

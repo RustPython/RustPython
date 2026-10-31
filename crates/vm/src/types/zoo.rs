@@ -4,8 +4,8 @@ use crate::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, frame_locals_proxy, function,
         generator, genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory,
-        module, namespace, object, property, pystr, range, set, singletons, slice, staticmethod,
-        super_, template, traceback, tuple,
+        module, namespace, object, property, pystr, range, sentinel, set, singletons, slice,
+        staticmethod, super_, template, traceback, tuple,
         type_::{self, PyType},
         union_, weakproxy, weakref, zip,
     },
@@ -40,12 +40,14 @@ pub struct TypeZoo {
     pub float_type: &'static Py<PyType>,
     pub frame_type: &'static Py<PyType>,
     pub frame_locals_proxy_type: &'static Py<PyType>,
+    pub frozendict_type: &'static Py<PyType>,
     pub frozenset_type: &'static Py<PyType>,
     pub generator_type: &'static Py<PyType>,
     pub int_type: &'static Py<PyType>,
     pub iter_type: &'static Py<PyType>,
     pub reverse_iter_type: &'static Py<PyType>,
     pub complex_type: &'static Py<PyType>,
+    pub lazy_import_type: &'static Py<PyType>,
     pub list_type: &'static Py<PyType>,
     pub list_iterator_type: &'static Py<PyType>,
     pub list_reverseiterator_type: &'static Py<PyType>,
@@ -64,6 +66,7 @@ pub struct TypeZoo {
     pub memoryviewiterator_type: &'static Py<PyType>,
     pub tuple_type: &'static Py<PyType>,
     pub tuple_iterator_type: &'static Py<PyType>,
+    pub sentinel_type: &'static Py<PyType>,
     pub set_type: &'static Py<PyType>,
     pub set_iterator_type: &'static Py<PyType>,
     pub staticmethod_type: &'static Py<PyType>,
@@ -79,6 +82,7 @@ pub struct TypeZoo {
     pub builtin_function_or_method_type: &'static Py<PyType>,
     pub builtin_method_type: &'static Py<PyType>,
     pub method_descriptor_type: &'static Py<PyType>,
+    pub classmethod_descriptor_type: &'static Py<PyType>,
     pub property_type: &'static Py<PyType>,
     pub getset_type: &'static Py<PyType>,
     pub module_type: &'static Py<PyType>,
@@ -86,6 +90,7 @@ pub struct TypeZoo {
     pub bound_method_type: &'static Py<PyType>,
     pub weakref_type: &'static Py<PyType>,
     pub weakproxy_type: &'static Py<PyType>,
+    pub weakcallableproxy_type: &'static Py<PyType>,
     pub mappingproxy_type: &'static Py<PyType>,
     pub traceback_type: &'static Py<PyType>,
     pub object_type: &'static Py<PyType>,
@@ -109,18 +114,19 @@ pub struct TypeZoo {
 
 impl TypeZoo {
     #[cold]
-    pub(crate) fn init() -> Self {
-        let (type_type, object_type, weakref_type) = crate::object::init_type_hierarchy();
-        // the order matters for type, object, weakref, and int - must be initialized first
-        let type_type = type_::PyType::init_manually(type_type);
-        let object_type = object::PyBaseObject::init_manually(object_type);
-        let weakref_type = weakref::PyWeak::init_manually(weakref_type);
+    pub(crate) fn init() -> (Self, crate::builtins::PyTupleRef) {
+        let hierarchy = crate::object::init_type_hierarchy();
+        // These core types must be published before any other static type is created.
+        let type_type = type_::PyType::init_manually(hierarchy.type_type);
+        let object_type = object::PyBaseObject::init_manually(hierarchy.object_type);
+        let tuple_type = tuple::PyTuple::init_manually(hierarchy.tuple_type);
+        let weakref_type = weakref::PyWeak::init_manually(hierarchy.weakref_type);
         let int_type = int::PyInt::init_builtin_type();
 
-        // builtin_function_or_method and builtin_method share the same type (CPython behavior)
+        // `builtin_method` is a subclass and is initialized once this base exists.
         let builtin_function_or_method_type = builtin_func::PyNativeFunction::init_builtin_type();
 
-        Self {
+        let types = Self {
             type_type,
             object_type,
             weakref_type,
@@ -135,19 +141,22 @@ impl TypeZoo {
             dict_type: dict::PyDict::init_builtin_type(),
             enumerate_type: enumerate::PyEnumerate::init_builtin_type(),
             float_type: float::PyFloat::init_builtin_type(),
+            frozendict_type: dict::PyFrozenDict::init_builtin_type(),
             frozenset_type: set::PyFrozenSet::init_builtin_type(),
             filter_type: filter::PyFilter::init_builtin_type(),
+            lazy_import_type: crate::lazy_import::PyLazyImport::init_builtin_type(),
             list_type: list::PyList::init_builtin_type(),
             map_type: map::PyMap::init_builtin_type(),
             memoryview_type: memory::PyMemoryView::init_builtin_type(),
             property_type: property::PyProperty::init_builtin_type(),
             range_type: range::PyRange::init_builtin_type(),
+            sentinel_type: sentinel::PySentinel::init_builtin_type(),
             set_type: set::PySet::init_builtin_type(),
             slice_type: slice::PySlice::init_builtin_type(),
             staticmethod_type: staticmethod::PyStaticMethod::init_builtin_type(),
             str_type: pystr::PyStr::init_builtin_type(),
             super_type: super_::PySuper::init_builtin_type(),
-            tuple_type: tuple::PyTuple::init_builtin_type(),
+            tuple_type,
             zip_type: zip::PyZip::init_builtin_type(),
 
             // hidden internal types. is this really need to be cached here?
@@ -159,7 +168,7 @@ impl TypeZoo {
             anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
             builtin_function_or_method_type,
-            builtin_method_type: builtin_function_or_method_type,
+            builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
             callable_iterator: iter::PyCallableIterator::init_builtin_type(),
@@ -198,7 +207,9 @@ impl TypeZoo {
             traceback_type: traceback::PyTraceback::init_builtin_type(),
             tuple_iterator_type: tuple::PyTupleIterator::init_builtin_type(),
             weakproxy_type: weakproxy::PyWeakProxy::init_builtin_type(),
+            weakcallableproxy_type: weakproxy::PyWeakCallableProxy::init_builtin_type(),
             method_descriptor_type: descriptor::PyMethodDescriptor::init_builtin_type(),
+            classmethod_descriptor_type: descriptor::PyClassMethodDescriptor::init_builtin_type(),
             none_type: singletons::PyNone::init_builtin_type(),
             typing_no_default_type: crate::stdlib::_typing::NoDefault::init_builtin_type(),
             not_implemented_type: singletons::PyNotImplemented::init_builtin_type(),
@@ -213,7 +224,8 @@ impl TypeZoo {
             method_wrapper_type: descriptor::PyMethodWrapper::init_builtin_type(),
 
             method_def: crate::function::HeapMethodDef::init_builtin_type(),
-        }
+        };
+        (types, hierarchy.empty_tuple)
     }
 
     /// Fill attributes of builtin types.
@@ -227,6 +239,7 @@ impl TypeZoo {
         set::init(context);
         tuple::init(context);
         dict::init(context);
+        crate::lazy_import::init_type(context);
         builtin_func::init(context);
         function::init(context);
         staticmethod::init(context);
@@ -259,6 +272,7 @@ impl TypeZoo {
         weakref::init(context);
         weakproxy::init(context);
         singletons::init(context);
+        sentinel::init(context);
         module::init(context);
         namespace::init(context);
         mappingproxy::init(context);

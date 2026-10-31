@@ -291,6 +291,25 @@ assert x["c"] is None
 assert {1: None, "b": None} == dict.fromkeys([1, "b"])
 assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
 
+for source in ({i: -1 for i in range(128)}, set(range(128)), frozenset(range(128))):
+    shared_value = []
+    result = dict.fromkeys(source, shared_value)
+    assert list(result) == list(source)
+    assert all(value is shared_value for value in result.values())
+
+
+class UnsizedFromKeys:
+    def __iter__(self):
+        return iter((1, 1, 2))
+
+    def __len__(self):
+        raise AssertionError("fromkeys must not request a length hint")
+
+    __length_hint__ = __len__
+
+
+assert dict.fromkeys(UnsizedFromKeys()) == {1: None, 2: None}
+
 x = {"a": 1, "b": 1, "c": 1}
 y = {"b": 2, "c": 2, "d": 2}
 z = {"c": 3, "d": 3, "e": 3}
@@ -359,6 +378,25 @@ assert it.__length_hint__() == 0
 assert_raises(StopIteration, next, it)
 assert it.__length_hint__() == 0
 
+# Reverse hints count live entries, including when storage has deleted slots.
+for reverse_iter in (
+    reversed,
+    lambda d: reversed(d.keys()),
+    lambda d: reversed(d.values()),
+    lambda d: reversed(d.items()),
+):
+    d = {0: 0, 1: 1, 2: 2, 3: 3}
+    del d[1]
+    it = reverse_iter(d)
+    for remaining in (3, 2, 1):
+        assert it.__length_hint__() == remaining
+        next(it)
+    assert it.__length_hint__() == 0
+    # Exhaustion is observed by next(), rather than the final successful yield.
+    d[4] = 4
+    assert_raises(RuntimeError, next, it)
+    assert it.__length_hint__() == 0
+
 # Test dictionary unpacking with non-mapping objects
 # This should raise TypeError for non-mapping objects
 with assert_raises(TypeError) as cm:
@@ -408,3 +446,724 @@ expected_keys = ["x", "y", "w", "z"]
 assert list(result.keys()) == expected_keys, (
     f"Expected {expected_keys}, got {list(result.keys())}"
 )
+
+
+def check_view_comparisons(view, other, expected):
+    assert (
+        view == other,
+        view != other,
+        view < other,
+        view <= other,
+        view > other,
+        view >= other,
+    ) == expected
+    assert (
+        other == view,
+        other != view,
+        other > view,
+        other >= view,
+        other < view,
+        other <= view,
+    ) == expected
+
+
+# Dictionary views support the same comparisons with mutable and frozen sets.
+config = {"host": "localhost", "port": 8080}
+for view in (config.keys(), config.items()):
+    for set_type in (set, frozenset):
+        schema = set_type(view)
+        check_view_comparisons(view, schema, (True, False, False, True, False, True))
+        smaller_schema = schema - {next(iter(schema))}
+        check_view_comparisons(
+            view, smaller_schema, (False, True, False, False, True, True)
+        )
+        larger_schema = schema | {("extra",)}
+        check_view_comparisons(
+            view, larger_schema, (False, True, True, True, False, False)
+        )
+        check_view_comparisons(
+            view, set_type({("other",)}), (False, True, False, False, False, False)
+        )
+
+# Mixed keys/items views compare their members regardless of insertion order.
+indexed_settings = {("port", 8080): None, ("host", "localhost"): None}
+check_view_comparisons(
+    config.items(), indexed_settings.keys(), (True, False, False, True, False, True)
+)
+del indexed_settings[("port", 8080)]
+check_view_comparisons(
+    config.items(), indexed_settings.keys(), (False, True, False, False, True, True)
+)
+
+# Testing for common settings does not require hashable values.
+left_settings = {"ports": [80, 443], "hosts": ["localhost"]}
+right_settings = {"ports": [80, 443], "timeout": 30}
+assert not left_settings.items().isdisjoint(right_settings.items())
+assert not right_settings.items().isdisjoint(left_settings.items())
+assert not left_settings.items().isdisjoint([("ports", [80, 443])])
+assert left_settings.items().isdisjoint({"ports": [8080]}.items())
+assert left_settings.items().isdisjoint(())
+assert left_settings.items().isdisjoint({"timeout": 30}.items())
+assert left_settings.items() != frozenset()
+assert left_settings.items() >= frozenset()
+assert not left_settings.items() <= frozenset()
+settings_view = left_settings.items()
+assert not settings_view.isdisjoint(settings_view)
+assert {}.items().isdisjoint({}.items())
+
+
+def settings_then_error(setting):
+    yield setting
+    raise ValueError("remaining settings unavailable")
+
+
+# A match stops consumption, while an error before a match still propagates.
+assert not config.keys().isdisjoint(settings_then_error("host"))
+assert not left_settings.items().isdisjoint(settings_then_error(("ports", [80, 443])))
+with assert_raises(ValueError):
+    config.keys().isdisjoint(settings_then_error("missing"))
+with assert_raises(TypeError):
+    config.keys().isdisjoint(42)
+
+
+class ViewMembershipKey:
+    hash_calls = 0
+
+    def __hash__(self):
+        self.hash_calls += 1
+        return 42
+
+
+# Successful item membership needs one dictionary lookup.
+membership_key = ViewMembershipKey()
+membership_dict = {membership_key: [1, 2]}
+membership_key.hash_calls = 0
+assert (membership_key, [1, 2]) in membership_dict.items()
+assert membership_key.hash_calls == 1
+
+for set_type in (set, frozenset):
+
+    class ViewSetSubclass(set_type):
+        events = []
+
+        def __iter__(self):
+            self.events.append("iter")
+            return super().__iter__()
+
+        def __contains__(self, item):
+            self.events.append("contains")
+            return super().__contains__(item)
+
+    # View operations preserve a set subclass's iteration and membership hooks.
+    schema = ViewSetSubclass({"host", "port"})
+    schema.events.clear()
+    assert config.keys() == schema
+    assert schema.events == ["contains", "contains"]
+    schema.events.clear()
+    assert config.keys() >= schema
+    assert schema.events == ["iter"]
+    schema.events.clear()
+    assert not config.keys().isdisjoint(schema)
+    assert schema.events == ["iter"]
+    larger_schema = ViewSetSubclass({"host", "port", "timeout"})
+    schema.events.clear()
+    assert not config.keys().isdisjoint(larger_schema)
+    assert schema.events == ["contains"]
+
+# An empty view must still consume arbitrary iterables and validate their keys.
+with assert_raises(TypeError):
+    {}.keys().isdisjoint([[]])
+with assert_raises(ValueError):
+    {}.keys().isdisjoint(settings_then_error("missing"))
+
+for set_type in (set, frozenset):
+
+    class ClearingLengthSet(set_type):
+        def __len__(self):
+            changing_config.clear()
+            return 1
+
+        def __iter__(self):
+            raise ValueError("settings unavailable")
+
+    # The view's size is captured before calling the other operand's __len__.
+    changing_config = {"host": "localhost", "port": 8080}
+    with assert_raises(ValueError):
+        changing_config.keys().isdisjoint(ClearingLengthSet({"host"}))
+    assert changing_config == {}
+
+
+class ItemLookupDict(dict):
+    def __getitem__(self, key):
+        raise AssertionError("item membership called __getitem__")
+
+    def __missing__(self, key):
+        raise AssertionError("item membership called __missing__")
+
+
+# Item views inspect dictionary storage without invoking subclass lookup hooks.
+lookup_items = ItemLookupDict(ports=[80, 443]).items()
+assert ("ports", [80, 443]) in lookup_items
+assert ("ports", [8080]) not in lookup_items
+assert ("missing", []) not in lookup_items
+
+
+class LookupOrderKey:
+    calls = []
+
+    def __init__(self, name, equal):
+        self.name = name
+        self.equal = equal
+
+    def __hash__(self):
+        return 17
+
+    def __eq__(self, other):
+        self.calls.append(self.name)
+        return self.equal
+
+
+stored = LookupOrderKey("stored", True)
+lookup = LookupOrderKey("lookup", False)
+mapping = {stored: 1}
+assert mapping[lookup] == 1
+mapping[lookup] = 2
+assert len(mapping) == 1
+assert next(iter(mapping)) is stored
+del mapping[lookup]
+assert not mapping
+assert LookupOrderKey.calls == ["stored", "stored", "stored"]
+
+LookupOrderKey.calls.clear()
+stored = LookupOrderKey("stored", NotImplemented)
+lookup = LookupOrderKey("lookup", True)
+assert {stored: 1}[lookup] == 1
+assert LookupOrderKey.calls == ["stored", "lookup"]
+
+
+class LookupOrderSubclass(LookupOrderKey):
+    __hash__ = LookupOrderKey.__hash__
+
+    def __eq__(self, other):
+        return super().__eq__(other)
+
+
+LookupOrderKey.calls.clear()
+stored = LookupOrderKey("stored", False)
+lookup = LookupOrderSubclass("lookup", True)
+assert {stored: 1}[lookup] == 1
+assert LookupOrderKey.calls == ["lookup"]
+
+
+class MergeHashKey:
+    hash_disabled = False
+
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        assert not self.hash_disabled, "dictionary merge rehashed a stored key"
+        return 42
+
+    def __eq__(self, other):
+        if not isinstance(other, MergeHashKey):
+            return NotImplemented
+        return self.value == other.value
+
+
+def merge_with_update(source):
+    result = {}
+    result.update(source)
+    return result
+
+
+def merge_with_ior(source):
+    result = {}
+    result |= source
+    return result
+
+
+# Exact dictionary merges reuse hashes, including colliding keys and holes.
+merge_keys = [MergeHashKey(i) for i in range(3)]
+merge_source = dict(zip(merge_keys, ("first", "removed", "last")))
+del merge_source[merge_keys[1]]
+existing_merge_key = MergeHashKey(2)
+merge_target = {existing_merge_key: "old"}
+MergeHashKey.hash_disabled = True
+for merge in (
+    dict,
+    merge_with_update,
+    merge_with_ior,
+    lambda source: {} | source,
+    lambda source: dict.__ror__(source, {}),
+    lambda source: {**source},
+):
+    assert list(merge(merge_source).items()) == list(merge_source.items())
+
+# Overwriting a matching key keeps its identity and position.
+merge_target.update(merge_source)
+assert next(iter(merge_target)) is existing_merge_key
+assert list(merge_target.values()) == ["last", "first"]
+merge_source.update(merge_source)
+merge_source |= merge_source
+assert list(merge_source.values()) == ["first", "last"]
+MergeHashKey.hash_disabled = False
+
+
+# Compact copies preserve order, key identity and stored hashes after deletions.
+copy_keys = [MergeHashKey(i) for i in range(32)]
+copy_source = {key: key.value for key in copy_keys}
+for key in copy_keys[:-3]:
+    del copy_source[key]
+MergeHashKey.hash_disabled = True
+copy_result = copy_source.copy()
+assert list(copy_result.values()) == [29, 30, 31]
+assert all(actual is expected for actual, expected in zip(copy_result, copy_keys[-3:]))
+copy_result.clear()
+assert len(copy_source) == 3
+MergeHashKey.hash_disabled = False
+
+
+class MergeMapping(dict):
+    def __iter__(self):
+        return iter(("virtual",))
+
+    def keys(self):
+        return ["virtual"]
+
+    def __getitem__(self, key):
+        assert key == "virtual"
+        return 42
+
+
+# Generic mappings retain their lookup hooks instead of exposing dict storage.
+for merge in (dict, merge_with_update, merge_with_ior):
+    assert merge(MergeMapping(stored=0)) == {"virtual": 42}
+
+# Test hashability of dict and OrderedDict views
+import collections.abc
+
+d = {"a": 1, "b": 2}
+assert type(d.keys()).__hash__ is None
+assert type(d.items()).__hash__ is None
+assert type(d.values()).__hash__ is not None
+assert not isinstance(d.keys(), collections.abc.Hashable)
+assert not isinstance(d.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(d.keys())
+with assert_raises(TypeError):
+    hash(d.items())
+
+od = collections.OrderedDict([("a", 1)])
+assert type(od.keys()).__hash__ is None
+assert type(od.items()).__hash__ is None
+assert type(od.values()).__hash__ is not None
+assert not isinstance(od.keys(), collections.abc.Hashable)
+assert not isinstance(od.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(od.keys())
+with assert_raises(TypeError):
+    hash(od.items())
+
+
+# A TypeError raised while *comparing* keys (e.g. from a colliding key's
+# __eq__) must propagate unchanged, not be rewritten as an unhashable-key
+# error. Only genuine hashing failures get the dict-specific "unhashable"
+# wording.
+class BadEq:
+    def __hash__(self):
+        return 42  # fixed hash forces a collision
+
+    def __eq__(self, other):
+        raise TypeError("nope")
+
+
+bad = {}
+bad[BadEq()] = 1
+with assert_raises(TypeError) as cm:
+    bad[BadEq()]  # hashes fine (42), then compares against the colliding key
+assert "nope" in str(cm.exception), str(cm.exception)
+assert "dict key" not in str(cm.exception), (
+    f"comparison error mislabeled as unhashable: {cm.exception}"
+)
+
+# A genuinely unhashable key still reports the dict-specific message.
+with assert_raises(TypeError) as cm:
+    {}[[]]
+assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+# The message reaches every insertion path, not just __setitem__: the
+# constructor, update() and |= all go through the same wrapping.
+for make in (
+    lambda: dict([([], 1)]),
+    lambda: {}.update([([], 1)]),
+    lambda: {}.__ior__([([], 1)]),
+):
+    with assert_raises(TypeError) as cm:
+        make()
+    assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+
+# The key is hashed once up front, so a __hash__ that fails only on its first
+# call is still reported (a re-hash on the error path would let it escape).
+class FlakyHash:
+    _calls = 0
+
+    def __hash__(self):
+        FlakyHash._calls += 1
+        if FlakyHash._calls == 1:
+            raise TypeError("first call fails")
+        return 0
+
+
+with assert_raises(TypeError) as cm:
+    {}[FlakyHash()]
+assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+
+# The type name is the fully qualified one, like CPython's %T.
+def _make_nested():
+    class Nested:
+        __hash__ = None
+
+    return Nested
+
+
+with assert_raises(TypeError) as cm:
+    {}[_make_nested()()]
+assert "_make_nested.<locals>.Nested" in str(cm.exception), str(cm.exception)
+
+
+# A __hash__ raising a *subclass* of TypeError is left unchanged (CPython
+# checks the exact type), so `except MySubclass` still catches it.
+class MyTypeError(TypeError):
+    pass
+
+
+class SubclassHash:
+    def __hash__(self):
+        raise MyTypeError("custom")
+
+
+with assert_raises(MyTypeError) as cm:
+    {}[SubclassHash()]
+assert "as a dict key" not in str(cm.exception), str(cm.exception)
+
+
+# Every operation hashes the key exactly once (the hash is threaded into the
+# inner map), so a __hash__ that would fail on a second call is never called
+# twice. setdefault() and pop() went through their own lookup before.
+class CountingHash:
+    calls = 0
+
+    def __hash__(self):
+        CountingHash.calls += 1
+        if CountingHash.calls >= 2:
+            raise TypeError("must not hash twice")
+        return 7
+
+
+CountingHash.calls = 0
+{}.setdefault(CountingHash(), 1)
+assert CountingHash.calls == 1, CountingHash.calls
+
+CountingHash.calls = 0
+with assert_raises(KeyError):
+    # A non-empty dict so the lookup must hash the key (CPython skips hashing
+    # entirely when popping from an empty dict).
+    {1: 1}.pop(CountingHash())
+assert CountingHash.calls == 1, CountingHash.calls
+
+
+# frozendict as a namespace, beyond what CPython's own tests cover.
+import builtins
+import gc
+import sys
+import types
+import unittest
+
+
+class FrozenDictDescriptorTests(unittest.TestCase):
+    def test_unrelated_descriptors_cannot_mutate_or_access(self):
+        frozen = frozendict(protected=23)
+        for method, args in (
+            (dict.__init__, ({"replacement": 8},)),
+            (dict.__setitem__, ("protected", 99)),
+            (dict.__delitem__, ("protected",)),
+            (dict.update, ({"replacement": 8},)),
+            (dict.clear, ()),
+            (dict.get, ("protected",)),
+        ):
+            with self.subTest(method=method), self.assertRaises(TypeError):
+                method(frozen, *args)
+        with self.assertRaises(TypeError):
+            frozendict.get({"protected": 23}, "protected")
+        self.assertEqual(frozen, {"protected": 23})
+        for name in (
+            "clear",
+            "update",
+            "pop",
+            "popitem",
+            "setdefault",
+            "__setitem__",
+            "__delitem__",
+            "__ior__",
+        ):
+            self.assertFalse(hasattr(frozen, name), name)
+
+
+class FrozenGlobalsTests(unittest.TestCase):
+    def setUp(self):
+        self.ns = frozendict(
+            __builtins__=builtins.__dict__,
+            __name__="frozen_test",
+            answer=42,
+            sys=sys,
+        )
+
+    def test_eval_and_implicit_scope(self):
+        self.assertIs(eval("globals()", self.ns), self.ns)
+        self.assertIs(eval("locals()", self.ns), self.ns)
+        self.assertEqual(eval("eval('answer')", self.ns), 42)
+        self.assertEqual(eval("(lambda: answer)()", self.ns), 42)
+
+    def test_function_and_materialized_frame(self):
+        local = {}
+        exec("def f():\n return sys._getframe(), globals(), answer\n", self.ns, local)
+        f = local["f"]
+        self.assertIs(f.__globals__, self.ns)
+        self.assertEqual(f.__module__, "frozen_test")
+        for _ in range(300):
+            frame, ns, answer = f()
+            self.assertIs(frame.f_globals, self.ns)
+            self.assertIs(ns, self.ns)
+            self.assertEqual(answer, 42)
+        gc.collect()
+        self.assertIs(frame.f_globals, self.ns)
+
+    def test_generator_frames(self):
+        local = {}
+        exec(
+            "def gen():\n yield sys._getframe(), globals(), answer\n yield answer\n",
+            self.ns,
+            local,
+        )
+        gen = local["gen"]()
+        self.assertIs(gen.gi_frame.f_globals, self.ns)
+        frame, ns, answer = next(gen)
+        self.assertIs(frame.f_globals, self.ns)
+        self.assertIs(ns, self.ns)
+        self.assertEqual(answer, 42)
+        self.assertEqual(next(gen), 42)
+        with self.assertRaises(StopIteration):
+            next(gen)
+        gc.collect()
+        self.assertIs(frame.f_globals, self.ns)
+
+    def test_coroutine_frames(self):
+        local = {}
+        exec(
+            "async def coro():\n return sys._getframe(), globals(), answer\n",
+            self.ns,
+            local,
+        )
+        coro = local["coro"]()
+        self.assertIs(coro.cr_frame.f_globals, self.ns)
+        with self.assertRaises(StopIteration) as stopped:
+            coro.send(None)
+        frame, ns, answer = stopped.exception.value
+        self.assertIs(frame.f_globals, self.ns)
+        self.assertIs(ns, self.ns)
+        self.assertEqual(answer, 42)
+
+    def test_async_generator_frames(self):
+        local = {}
+        exec(
+            "async def agen():\n yield sys._getframe(), globals(), answer\n",
+            self.ns,
+            local,
+        )
+        agen = local["agen"]()
+        self.assertIs(agen.ag_frame.f_globals, self.ns)
+        with self.assertRaises(StopIteration) as stopped:
+            agen.asend(None).send(None)
+        frame, ns, answer = stopped.exception.value
+        self.assertIs(frame.f_globals, self.ns)
+        self.assertIs(ns, self.ns)
+        self.assertEqual(answer, 42)
+        with self.assertRaises(StopIteration):
+            agen.aclose().send(None)
+
+    def test_local_namespace_and_imports(self):
+        local = {}
+        exec(
+            "import math\nclass C:\n value = answer\ndef f():\n import math\n return math.sqrt(answer)\n",
+            self.ns,
+            local,
+        )
+        self.assertEqual(local["C"].value, 42)
+        self.assertEqual(local["C"].__module__, "frozen_test")
+        self.assertEqual(local["f"](), local["math"].sqrt(42))
+        self.assertNotIn("math", self.ns)
+
+    def test_missing_builtins(self):
+        for func, source in [(eval, ""), (exec, "")]:
+            with self.assertRaises(TypeError) as caught:
+                func(source, frozendict())
+            self.assertEqual(
+                str(caught.exception),
+                "cannot assign __builtins__ to frozendict globals",
+            )
+
+    def test_writes_and_deletes(self):
+        for source, error in [
+            ("answer = 0", "'frozendict' object does not support item assignment"),
+            (
+                "global answer; answer = 0",
+                "frozendict object does not support item assignment",
+            ),
+            (
+                "global answer; del answer",
+                "frozendict object does not support item deletion",
+            ),
+            (
+                "global missing; del missing",
+                "frozendict object does not support item deletion",
+            ),
+        ]:
+            with self.assertRaises(TypeError) as caught:
+                exec(source, self.ns)
+            self.assertEqual(str(caught.exception), error)
+        self.assertEqual(self.ns["answer"], 42)
+        with self.assertRaises(NameError):
+            exec("del answer", self.ns)
+
+    def test_explicit_function_constructor_stays_dict_only(self):
+        with self.assertRaises(TypeError):
+            types.FunctionType((lambda: 42).__code__, self.ns)
+
+    def test_subclass_name_and_global_lookup(self):
+        class F(frozendict):
+            def __getitem__(self, key):
+                if key == "answer":
+                    return 81
+                return super().__getitem__(key)
+
+        ns = F(self.ns)
+        self.assertEqual(eval("answer", ns), 81)
+        self.assertEqual(eval("(lambda: answer)()", ns), 81)
+        self.assertEqual(eval("answer", ns, {}), 42)
+
+    def test_subclass_function_metadata_reads_storage(self):
+        class F(frozendict):
+            def __getitem__(self, key):
+                if key == "__name__":
+                    return "wrong_name"
+                if key == "__builtins__":
+                    return {"len": lambda x: 99}
+                return super().__getitem__(key)
+
+        ns = F(self.ns)
+        f = eval("lambda: len([])", ns)
+        self.assertEqual(f.__module__, "frozen_test")
+        self.assertIs(f.__globals__, ns)
+        self.assertEqual(f(), 0)
+
+    def test_subclass_builtins_assignment_hook(self):
+        calls = []
+
+        class F(frozendict):
+            def __setitem__(self, key, value):
+                calls.append((key, value))
+
+        for operation, source, mode, expected in (
+            (eval, "1", "eval", 1),
+            (exec, "pass", "exec", None),
+        ):
+            namespace = F()
+            calls.clear()
+            self.assertEqual(
+                operation(compile(source, "<frozen-globals>", mode), namespace),
+                expected,
+            )
+            self.assertEqual(calls, [("__builtins__", builtins.__dict__)])
+            self.assertNotIn("__builtins__", namespace)
+            calls.clear()
+            with self.assertRaisesRegex(
+                TypeError, "frozendict object does not support item assignment"
+            ):
+                operation(source, namespace)
+            self.assertEqual(calls, [("__builtins__", builtins.__dict__)])
+
+    def test_implicit_frozen_builtins_namespace_counts(self):
+        import _testinternalcapi
+
+        function = eval(
+            "lambda: len(())",
+            frozendict(__builtins__=frozendict(len=len)),
+        )
+        counts = _testinternalcapi.get_code_var_counts(function)
+        self.assertEqual(
+            counts["unbound"]["globals"],
+            {"total": 1, "numglobal": 0, "numbuiltin": 1, "numunknown": 0},
+        )
+        for argument in ("globalsns", "builtinsns"):
+            with self.assertRaises(TypeError):
+                _testinternalcapi.get_code_var_counts(
+                    function, **{argument: frozendict()}
+                )
+
+    def test_warning_context_reads_frozen_storage(self):
+        import warnings
+
+        class F(frozendict):
+            def __getitem__(self, key):
+                if key in ("__warningregistry__", "__name__"):
+                    raise AssertionError("warning context must read stored entries")
+                return super().__getitem__(key)
+
+        for has_registry in (False, True):
+            entries = dict(self.ns, warn=warnings.warn)
+            if has_registry:
+                entries["__warningregistry__"] = {}
+            function = eval("lambda: warn('probe')", F(entries))
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                if has_registry:
+                    function()
+                    self.assertEqual(len(caught), 1)
+                    self.assertEqual(str(caught[0].message), "probe")
+                else:
+                    with self.assertRaisesRegex(
+                        TypeError,
+                        "frozendict object does not support item assignment",
+                    ):
+                        function()
+                    self.assertEqual(caught, [])
+
+    def test_frozen_builtins(self):
+        ns = frozendict(__builtins__=frozendict({"len": len}))
+        self.assertEqual(eval("(lambda: len([1, 2]))()", ns), 2)
+
+    def test_shared_code_does_not_keep_mutable_global_specialization(self):
+        code = compile("lambda: answer", "<globals-probe>", "eval")
+        mutable = {"__builtins__": builtins.__dict__, "answer": 19}
+        f = eval(code, mutable)
+        for _ in range(300):
+            self.assertEqual(f(), 19)
+        frozen_f = eval(code, self.ns)
+        for _ in range(300):
+            self.assertEqual(frozen_f(), 42)
+            self.assertEqual(f(), 19)
+        mutable["answer"] = 23
+        self.assertEqual(f(), 23)
+        self.assertEqual(frozen_f(), 42)
+
+
+frozen_suite = unittest.TestSuite(
+    unittest.defaultTestLoader.loadTestsFromTestCase(case)
+    for case in (FrozenDictDescriptorTests, FrozenGlobalsTests)
+)
+frozen_result = unittest.TextTestRunner(verbosity=2).run(frozen_suite)
+assert frozen_result.wasSuccessful()
+assert not frozen_result.skipped

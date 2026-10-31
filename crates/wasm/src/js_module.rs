@@ -13,7 +13,7 @@ mod _js {
         Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyType, PyTypeRef},
         convert::{IntoObject, ToPyObject},
-        function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
+        function::{ArgCallable, OptionalArg, PosArgs},
         protocol::PyIterReturn,
         types::{IterNext, Representable, SelfIter},
     };
@@ -106,37 +106,49 @@ mod _js {
         }
 
         #[pymethod]
-        fn null(&self) -> Self {
+        fn null(_zelf: &Py<Self>) -> Self {
             Self::new(JsValue::NULL)
         }
 
         #[pymethod]
-        fn undefined(&self) -> Self {
+        fn undefined(_zelf: &Py<Self>) -> Self {
             Self::new(JsValue::UNDEFINED)
         }
 
         #[pymethod]
-        fn new_from_str(&self, s: PyStrRef) -> Self {
+        fn new_from_str(_zelf: &Py<Self>, s: PyStrRef) -> Self {
             Self::new(s.expect_str())
         }
 
         #[pymethod]
-        fn new_from_float(&self, n: PyRef<PyFloat>) -> Self {
+        fn new_from_float(_zelf: &Py<Self>, n: PyRef<PyFloat>) -> Self {
             Self::new(n.to_f64())
         }
 
         #[pymethod]
-        fn new_closure(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<JsClosure> {
+        fn new_closure(
+            _zelf: &Py<Self>,
+            obj: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<JsClosure> {
             JsClosure::new(obj, false, vm)
         }
 
         #[pymethod]
-        fn new_closure_once(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<JsClosure> {
+        fn new_closure_once(
+            _zelf: &Py<Self>,
+            obj: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<JsClosure> {
             JsClosure::new(obj, true, vm)
         }
 
         #[pymethod]
-        fn new_object(&self, opts: NewObjectOptions, vm: &VirtualMachine) -> PyResult<Self> {
+        fn new_object(
+            _zelf: &Py<Self>,
+            opts: NewObjectOptions,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             let value = if let Some(proto) = opts.prototype {
                 if let Some(proto) = proto.value.dyn_ref::<Object>() {
                     Object::create(proto)
@@ -153,15 +165,15 @@ mod _js {
         }
 
         #[pymethod]
-        fn has_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<bool> {
-            has_prop(&self.value, &name.into_js_value()).map_err(|err| new_js_error(vm, err))
+        fn has_prop(zelf: &Py<Self>, name: JsProperty, vm: &VirtualMachine) -> PyResult<bool> {
+            has_prop(&zelf.value, &name.into_js_value()).map_err(|err| new_js_error(vm, err))
         }
 
         #[pymethod]
-        fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<Self> {
+        fn get_prop(zelf: &Py<Self>, name: JsProperty, vm: &VirtualMachine) -> PyResult<Self> {
             let name = &name.into_js_value();
-            if has_prop(&self.value, name).map_err(|err| new_js_error(vm, err))? {
-                get_prop(&self.value, name)
+            if has_prop(&zelf.value, name).map_err(|err| new_js_error(vm, err))? {
+                get_prop(&zelf.value, name)
                     .map(Self::new)
                     .map_err(|err| new_js_error(vm, err))
             } else {
@@ -171,23 +183,23 @@ mod _js {
 
         #[pymethod]
         fn set_prop(
-            &self,
+            zelf: &Py<Self>,
             name: JsProperty,
             value: PyJsValueRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            set_prop(&self.value, &name.into_js_value(), &value.value)
+            set_prop(&zelf.value, &name.into_js_value(), &value.value)
                 .map_err(|err| new_js_error(vm, err))
         }
 
         #[pymethod]
         fn call(
-            &self,
+            zelf: &Py<Self>,
             args: PosArgs<PyJsValueRef>,
             opts: CallOptions,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let func = self
+            let func = zelf
                 .value
                 .dyn_ref::<js_sys::Function>()
                 .ok_or_else(|| vm.new_type_error("JS value is not callable"))?;
@@ -201,25 +213,25 @@ mod _js {
 
         #[pymethod]
         fn call_method(
-            &self,
+            zelf: &Py<Self>,
             name: JsProperty,
             args: PosArgs<PyJsValueRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
-            call_method(&self.value, &name.into_js_value(), &js_args)
+            call_method(&zelf.value, &name.into_js_value(), &js_args)
                 .map(Self::new)
                 .map_err(|err| new_js_error(vm, err))
         }
 
         #[pymethod]
         fn construct(
-            &self,
+            zelf: &Py<Self>,
             args: PosArgs<PyJsValueRef>,
             opts: NewObjectOptions,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let ctor = self
+            let ctor = zelf
                 .value
                 .dyn_ref::<js_sys::Function>()
                 .ok_or_else(|| vm.new_type_error("JS value is not callable"))?;
@@ -240,35 +252,35 @@ mod _js {
         }
 
         #[pymethod]
-        fn as_str(&self) -> Option<String> {
-            self.value.as_string()
+        fn as_str(zelf: &Py<Self>) -> Option<String> {
+            zelf.value.as_string()
         }
 
         #[pymethod]
-        fn as_float(&self) -> Option<f64> {
-            self.value.as_f64()
+        fn as_float(zelf: &Py<Self>) -> Option<f64> {
+            zelf.value.as_f64()
         }
 
         #[pymethod]
-        fn as_bool(&self) -> Option<bool> {
-            self.value.as_bool()
+        fn as_bool(zelf: &Py<Self>) -> Option<bool> {
+            zelf.value.as_bool()
         }
 
         #[pymethod(name = "typeof")]
-        fn type_of(&self) -> String {
-            type_of(&self.value)
+        fn type_of(zelf: &Py<Self>) -> String {
+            type_of(&zelf.value)
         }
 
-        /// Checks that `typeof self == "object" && self !== null`. Use instead
-        /// of `value.typeof() == "object"`
+        // Checks that `typeof self == "object" && self !== null`. Use instead
+        // of `value.typeof() == "object"`
         #[pymethod]
-        fn is_object(&self) -> bool {
-            self.value.is_object()
+        fn is_object(zelf: &Py<Self>) -> bool {
+            zelf.value.is_object()
         }
 
         #[pymethod]
-        fn instanceof(&self, rhs: PyJsValueRef, vm: &VirtualMachine) -> PyResult<bool> {
-            instance_of(&self.value, &rhs.value).map_err(|err| new_js_error(vm, err))
+        fn instanceof(zelf: &Py<Self>, rhs: PyJsValueRef, vm: &VirtualMachine) -> PyResult<bool> {
+            instance_of(&zelf.value, &rhs.value).map_err(|err| new_js_error(vm, err))
         }
     }
 
@@ -349,40 +361,40 @@ mod _js {
         }
 
         #[pygetset]
-        fn value(&self) -> Option<PyJsValueRef> {
-            self.closure
+        fn value(zelf: &Py<Self>) -> Option<PyJsValueRef> {
+            zelf.closure
                 .borrow()
                 .as_ref()
                 .map(|(_, js_val)| js_val.clone())
         }
 
         #[pygetset]
-        fn destroyed(&self) -> bool {
-            self.destroyed.get()
+        fn destroyed(zelf: &Py<Self>) -> bool {
+            zelf.destroyed.get()
         }
 
         #[pygetset]
-        fn detached(&self) -> bool {
-            self.detached.get()
+        fn detached(zelf: &Py<Self>) -> bool {
+            zelf.detached.get()
         }
 
         #[pymethod]
-        fn destroy(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let (closure, _) = self.closure.replace(None).ok_or_else(|| {
+        fn destroy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let (closure, _) = zelf.closure.replace(None).ok_or_else(|| {
                 vm.new_value_error("can't destroy closure has already been destroyed or detached")
             })?;
             drop(closure);
-            self.destroyed.set(true);
+            zelf.destroyed.set(true);
             Ok(())
         }
 
         #[pymethod]
-        fn detach(&self, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
-            let (closure, js_val) = self.closure.replace(None).ok_or_else(|| {
+        fn detach(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
+            let (closure, js_val) = zelf.closure.replace(None).ok_or_else(|| {
                 vm.new_value_error("can't detach closure has already been detached or destroyed")
             })?;
             closure.forget();
-            self.detached.set(true);
+            zelf.detached.set(true);
             Ok(js_val)
         }
     }
@@ -400,6 +412,20 @@ mod _js {
         PyProm { then: PyObjectRef },
         PyResolved(PyObjectRef),
         PyRejected(PyBaseExceptionRef),
+    }
+
+    #[derive(FromArgs)]
+    struct ThenArgs {
+        #[pyarg(positional, optional)]
+        on_fulfill: Option<ArgCallable>,
+        #[pyarg(positional, optional)]
+        on_reject: Option<ArgCallable>,
+    }
+
+    #[derive(FromArgs)]
+    struct CatchArgs {
+        #[pyarg(positional, optional)]
+        on_reject: Option<ArgCallable>,
     }
 
     #[pyclass]
@@ -446,7 +472,7 @@ mod _js {
         }
 
         fn cast(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            let then = vm.get_attribute_opt(obj.clone(), "then")?;
+            let then = vm.get_attribute_opt(&obj, "then")?;
             let value = if let Some(then) = then.filter(|obj| obj.is_callable()) {
                 PromiseKind::PyProm { then }
             } else {
@@ -482,17 +508,15 @@ mod _js {
         }
 
         #[pymethod]
-        fn then(
-            &self,
-            on_fulfill: OptionalOption<ArgCallable>,
-            on_reject: OptionalOption<ArgCallable>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
-            let (on_fulfill, on_reject) = (on_fulfill.flatten(), on_reject.flatten());
+        fn then(zelf: &Py<Self>, args: ThenArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let ThenArgs {
+                on_fulfill,
+                on_reject,
+            } = args;
             if on_fulfill.is_none() && on_reject.is_none() {
-                return Ok(self.clone());
+                return Ok(<Self as Clone>::clone(zelf));
             }
-            match &self.value {
+            match &zelf.value {
                 PromiseKind::Js(prom) => {
                     let weak_vm = weak_vm(vm);
                     let prom = JsFuture::from(prom.clone());
@@ -536,22 +560,25 @@ mod _js {
                 ),
                 PromiseKind::PyResolved(res) => match on_fulfill {
                     Some(resolve) => Self::cast_result(resolve.invoke((res.clone(),), vm), vm),
-                    None => Ok(self.clone()),
+                    None => Ok(<Self as Clone>::clone(zelf)),
                 },
                 PromiseKind::PyRejected(err) => match on_reject {
                     Some(reject) => Self::cast_result(reject.invoke((err.clone(),), vm), vm),
-                    None => Ok(self.clone()),
+                    None => Ok(<Self as Clone>::clone(zelf)),
                 },
             }
         }
 
         #[pymethod]
-        fn catch(
-            &self,
-            on_reject: OptionalOption<ArgCallable>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
-            self.then(OptionalArg::Present(None), on_reject, vm)
+        fn catch(zelf: &Py<Self>, args: CatchArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            Self::then(
+                zelf,
+                ThenArgs {
+                    on_fulfill: None,
+                    on_reject: args.on_reject,
+                },
+                vm,
+            )
         }
 
         #[pymethod(name = "__await__")]
@@ -577,8 +604,12 @@ mod _js {
     #[pyclass(with(IterNext))]
     impl AwaitPromise {
         #[pymethod]
-        fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            match self.obj.take() {
+        fn send(
+            zelf: &Py<Self>,
+            val: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyIterReturn> {
+            match zelf.obj.take() {
                 Some(prom) => {
                     if val.is_some() {
                         Err(vm.new_type_error("can't send non-None value to an AwaitPromise"))
@@ -592,7 +623,7 @@ mod _js {
 
         #[pymethod]
         fn throw(
-            &self,
+            _zelf: &Py<Self>,
             exc_type: PyObjectRef,
             exc_val: OptionalArg,
             exc_tb: OptionalArg,
@@ -611,7 +642,7 @@ mod _js {
 
     impl IterNext for AwaitPromise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            zelf.send(None, vm)
+            Self::send(zelf, None, vm)
         }
     }
 

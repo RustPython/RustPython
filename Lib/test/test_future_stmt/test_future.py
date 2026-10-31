@@ -111,7 +111,6 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, lineno=3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_future_import_with_extra_string(self):
         code = """
             '''Docstring'''
@@ -260,7 +259,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "t'{a + b}'" != "t'{a    +  b}'"
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
@@ -351,6 +349,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq("(i ** 2 + j for i in (1, 2, 3) for j in (1, 2, 3))")
         eq("{i: 0 for i in (1, 2, 3)}")
         eq("{i: j for i, j in ((1, 'a'), (2, 'b'), (3, 'c'))}")
+        eq("{**x for x in ()}")
+        eq("[*x for x in ()]")
         eq("[(x, y) for x, y in (a, b)]")
         eq("[(x,) for x, in (a,)]")
         eq("Python3 > Python2 > COBOL")

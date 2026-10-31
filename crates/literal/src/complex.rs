@@ -33,6 +33,7 @@ fn component_to_string(value: f64) -> String {
 }
 
 /// Convert a complex number to a string.
+#[must_use]
 pub fn to_string(re: f64, im: f64) -> String {
     let mut im_part = component_to_string(im);
     im_part.push('j');
@@ -41,9 +42,8 @@ pub fn to_string(re: f64, im: f64) -> String {
     let re_part = if re == 0.0 {
         if re.is_sign_positive() {
             return im_part;
-        } else {
-            "-0".to_owned()
         }
+        "-0".to_owned()
     } else {
         component_to_string(re)
     };
