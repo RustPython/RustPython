@@ -1,0 +1,101 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/assign_stmt_yield_target.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..26,
+        body: [
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 0..11,
+                    targets: [
+                        Yield(
+                            ExprYield {
+                                node_index: NodeIndex(None),
+                                range: 0..7,
+                                value: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 6..7,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                            },
+                        ),
+                    ],
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 10..11,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 12..25,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 12..13,
+                                id: Name("y"),
+                                ctx: Store,
+                            },
+                        ),
+                        Yield(
+                            ExprYield {
+                                node_index: NodeIndex(None),
+                                range: 16..21,
+                                value: None,
+                            },
+                        ),
+                    ],
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 24..25,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | yield x = 1
+  | ^^^^^^^ Syntax Error: assignment to yield expression not possible
+2 | y = yield = 1
+  |
+
+
+  |
+1 | yield x = 1
+2 | y = yield = 1
+  |     ^^^^^ Syntax Error: assignment to yield expression not possible

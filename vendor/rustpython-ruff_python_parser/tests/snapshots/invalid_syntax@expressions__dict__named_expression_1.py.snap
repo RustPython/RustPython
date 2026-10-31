@@ -1,0 +1,203 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/dict/named_expression_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..86,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 57..79,
+                    value: Dict(
+                        ExprDict {
+                            node_index: NodeIndex(None),
+                            range: 57..79,
+                            items: [
+                                DictItem {
+                                    key: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 58..59,
+                                                id: Name("x"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 61..62,
+                                            id: Name("y"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 66..67,
+                                                value: Int(
+                                                    1,
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 67..67,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 69..70,
+                                                id: Name("z"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 72..73,
+                                            id: Name("a"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 77..78,
+                                                value: Int(
+                                                    2,
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 78..78,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                },
+                            ],
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 81..86,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 81..86,
+                            left: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 81..82,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            op: Add,
+                            right: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 85..86,
+                                    id: Name("y"),
+                                    ctx: Load,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | # Unparenthesized named expression not allowed in value
+2 |
+3 | {x: y := 1, z: a := 2}
+  |       ^^ Syntax Error: invalid syntax
+4 |
+5 | x + y
+  |
+
+
+  |
+1 | # Unparenthesized named expression not allowed in value
+2 |
+3 | {x: y := 1, z: a := 2}
+  |          ^ Syntax Error: ':' expected after dictionary key
+4 |
+5 | x + y
+  |
+
+
+  |
+1 | # Unparenthesized named expression not allowed in value
+2 |
+3 | {x: y := 1, z: a := 2}
+  |           ^ Syntax Error: invalid syntax
+4 |
+5 | x + y
+  |
+
+
+  |
+1 | # Unparenthesized named expression not allowed in value
+2 |
+3 | {x: y := 1, z: a := 2}
+  |                  ^^ Syntax Error: invalid syntax
+4 |
+5 | x + y
+  |
+
+
+  |
+1 | # Unparenthesized named expression not allowed in value
+2 |
+3 | {x: y := 1, z: a := 2}
+  |                     ^ Syntax Error: ':' expected after dictionary key
+4 |
+5 | x + y
+  |
+
+
+  |
+1 | # Unparenthesized named expression not allowed in value
+2 |
+3 | {x: y := 1, z: a := 2}
+  |                      ^ Syntax Error: invalid syntax
+4 |
+5 | x + y
+  |

@@ -1,0 +1,139 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/statement_before_if_expression.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..41,
+        body: [
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 0..20,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 0..1,
+                                id: Name("x"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: If(
+                        ExprIf {
+                            node_index: NodeIndex(None),
+                            range: 4..20,
+                            test: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 12..13,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            body: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 4..8,
+                                    id: Name("pass"),
+                                    ctx: Load,
+                                },
+                            ),
+                            orelse: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 19..20,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Pass(
+                StmtPass {
+                    node_index: NodeIndex(None),
+                    range: 21..25,
+                },
+            ),
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 26..40,
+                    test: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 29..30,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                    body: [],
+                    elif_else_clauses: [
+                        ElifElseClause {
+                            range: 31..40,
+                            node_index: NodeIndex(None),
+                            test: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 36..40,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                            runtime_orelse: None,
+                        },
+                    ],
+                    runtime_body: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | x = pass if 1 else 1
+  |     ^^^^ Syntax Error: expected expression before 'if', but statement is given
+2 | pass if 1 else pass
+  |
+
+
+  |
+1 | x = pass if 1 else 1
+2 | pass if 1 else pass
+  | ^^^^ Syntax Error: expected expression before 'if', but statement is given
+
+
+  |
+1 | x = pass if 1 else 1
+2 | pass if 1 else pass
+  |      ^^ Syntax Error: invalid syntax
+
+
+  |
+1 | x = pass if 1 else 1
+2 | pass if 1 else pass
+  |           ^^^^ Syntax Error: invalid syntax
+
+
+  |
+1 | x = pass if 1 else 1
+2 | pass if 1 else pass
+  |                ^^^^ Syntax Error: expected ':'

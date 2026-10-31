@@ -1,0 +1,161 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/re_lexing/triple_quoted_fstring_3.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..262,
+        body: [
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 231..262,
+                    test: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 234..258,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 234..238,
+                                    id: Name("call"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 238..258,
+                                node_index: NodeIndex(None),
+                                args: [
+                                    FString(
+                                        ExprFString {
+                                            node_index: NodeIndex(None),
+                                            range: 239..253,
+                                            value: FStringValue {
+                                                inner: Single(
+                                                    FString {
+                                                        range: 239..253,
+                                                        node_index: NodeIndex(None),
+                                                        elements: [
+                                                            Interpolation(
+                                                                InterpolatedElement {
+                                                                    range: 243..250,
+                                                                    node_index: NodeIndex(None),
+                                                                    expression: Name(
+                                                                        ExprName {
+                                                                            node_index: NodeIndex(None),
+                                                                            range: 244..245,
+                                                                            id: Name("x"),
+                                                                            ctx: Load,
+                                                                        },
+                                                                    ),
+                                                                    debug_text: None,
+                                                                    conversion: None,
+                                                                    format_spec: Some(
+                                                                        InterpolatedStringFormatSpec {
+                                                                            range: 246..250,
+                                                                            node_index: NodeIndex(None),
+                                                                            elements: [
+                                                                                Literal(
+                                                                                    InterpolatedStringLiteralElement {
+                                                                                        range: 246..250,
+                                                                                        node_index: NodeIndex(None),
+                                                                                        value: ".3f\n",
+                                                                                    },
+                                                                                ),
+                                                                            ],
+                                                                        },
+                                                                    ),
+                                                                    runtime_str: None,
+                                                                    runtime_interpolation_format_spec: None,
+                                                                    runtime_formatted_value_format_spec: None,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        flags: FStringFlags {
+                                                            quote_style: Single,
+                                                            prefix: Regular,
+                                                            triple_quoted: true,
+                                                            unclosed: false,
+                                                        },
+                                                    },
+                                                ),
+                                            },
+                                            runtime_joined_str: None,
+                                            runtime_values: None,
+                                        },
+                                    ),
+                                ],
+                                keywords: [],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 258..262,
+                            },
+                        ),
+                    ],
+                    elif_else_clauses: [],
+                    runtime_body: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+3 | # within an f-string but the lexer shouldn't go back.
+4 |
+5 | if call(f'''{x:.3f
+  |        ^ Syntax Error: '(' was never closed
+6 | '''
+7 |     pass
+  |
+
+
+  |
+5 | if call(f'''{x:.3f
+6 | '''
+  | ^^^ Syntax Error: f-string: expecting '}', or format specs
+7 |     pass
+  |
+
+
+  |
+5 | if call(f'''{x:.3f
+6 | '''
+  |    ^ Syntax Error: invalid syntax
+7 |     pass
+  |
+
+
+  |
+5 | if call(f'''{x:.3f
+6 | '''
+7 |     pass
+  | ^^^^ Syntax Error: invalid syntax
+
+
+  |
+5 | if call(f'''{x:.3f
+6 | '''
+7 |     pass
+  |     ^^^^ Syntax Error: invalid syntax
+
+
+  |
+5 | if call(f'''{x:.3f
+6 | '''
+7 |     pass
+  |         ^ Syntax Error: invalid syntax

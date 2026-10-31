@@ -1,0 +1,53 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/raise_stmt_missing_cause.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..13,
+        body: [
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 0..12,
+                    exc: Some(
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 6..7,
+                                id: Name("x"),
+                                ctx: Load,
+                            },
+                        ),
+                    ),
+                    cause: Some(
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 12..12,
+                                id: Name(""),
+                                ctx: Invalid,
+                            },
+                        ),
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | raise x from
+  |         ^^^^ Syntax Error: did you forget an expression after 'from'?
+
+
+  |
+1 | raise x from
+  |             ^ Syntax Error: invalid syntax

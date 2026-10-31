@@ -1,0 +1,89 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/import_alias_invalid_asname.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..41,
+        body: [
+            Import(
+                StmtImport {
+                    node_index: NodeIndex(None),
+                    range: 0..15,
+                    names: [
+                        Alias {
+                            range: 7..15,
+                            node_index: NodeIndex(None),
+                            name: Identifier {
+                                id: Name("x"),
+                                range: 7..8,
+                                node_index: NodeIndex(None),
+                            },
+                            asname: Some(
+                                Identifier {
+                                    id: Name(""),
+                                    range: 12..15,
+                                    node_index: NodeIndex(None),
+                                },
+                            ),
+                        },
+                    ],
+                    is_lazy: false,
+                },
+            ),
+            ImportFrom(
+                StmtImportFrom {
+                    node_index: NodeIndex(None),
+                    range: 16..40,
+                    module: Some(
+                        Identifier {
+                            id: Name("x"),
+                            range: 21..22,
+                            node_index: NodeIndex(None),
+                        },
+                    ),
+                    names: [
+                        Alias {
+                            range: 31..39,
+                            node_index: NodeIndex(None),
+                            name: Identifier {
+                                id: Name("y"),
+                                range: 31..32,
+                                node_index: NodeIndex(None),
+                            },
+                            asname: Some(
+                                Identifier {
+                                    id: Name(""),
+                                    range: 36..39,
+                                    node_index: NodeIndex(None),
+                                },
+                            ),
+                        },
+                    ],
+                    level: 0,
+                    is_lazy: false,
+                    runtime_level: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | import x as y.z
+  |             ^^^ Syntax Error: cannot use attribute as import target
+2 | from x import (y as z())
+  |
+
+
+  |
+1 | import x as y.z
+2 | from x import (y as z())
+  |                     ^^^ Syntax Error: cannot use function call as import target

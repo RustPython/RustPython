@@ -1,0 +1,467 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/statements/match/unary_add_usage.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..246,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 51..245,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 57..64,
+                            id: Name("subject"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 70..91,
+                            node_index: NodeIndex(None),
+                            pattern: MatchValue(
+                                PatternMatchValue {
+                                    node_index: NodeIndex(None),
+                                    range: 75..77,
+                                    value: UnaryOp(
+                                        ExprUnaryOp {
+                                            node_index: NodeIndex(None),
+                                            range: 75..77,
+                                            op: UAdd,
+                                            operand: NumberLiteral(
+                                                ExprNumberLiteral {
+                                                    node_index: NodeIndex(None),
+                                                    range: 76..77,
+                                                    value: Int(
+                                                        1,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 87..91,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                        MatchCase {
+                            range: 96..126,
+                            node_index: NodeIndex(None),
+                            pattern: MatchOr(
+                                PatternMatchOr {
+                                    node_index: NodeIndex(None),
+                                    range: 101..112,
+                                    patterns: [
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 101..102,
+                                                value: NumberLiteral(
+                                                    ExprNumberLiteral {
+                                                        node_index: NodeIndex(None),
+                                                        range: 101..102,
+                                                        value: Int(
+                                                            1,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 105..107,
+                                                value: UnaryOp(
+                                                    ExprUnaryOp {
+                                                        node_index: NodeIndex(None),
+                                                        range: 105..107,
+                                                        op: UAdd,
+                                                        operand: NumberLiteral(
+                                                            ExprNumberLiteral {
+                                                                node_index: NodeIndex(None),
+                                                                range: 106..107,
+                                                                value: Int(
+                                                                    2,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 110..112,
+                                                value: UnaryOp(
+                                                    ExprUnaryOp {
+                                                        node_index: NodeIndex(None),
+                                                        range: 110..112,
+                                                        op: USub,
+                                                        operand: NumberLiteral(
+                                                            ExprNumberLiteral {
+                                                                node_index: NodeIndex(None),
+                                                                range: 111..112,
+                                                                value: Int(
+                                                                    3,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                    runtime_patterns: None,
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 122..126,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                        MatchCase {
+                            range: 131..161,
+                            node_index: NodeIndex(None),
+                            pattern: MatchSequence(
+                                PatternMatchSequence {
+                                    node_index: NodeIndex(None),
+                                    range: 136..147,
+                                    patterns: [
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 137..138,
+                                                value: NumberLiteral(
+                                                    ExprNumberLiteral {
+                                                        node_index: NodeIndex(None),
+                                                        range: 137..138,
+                                                        value: Int(
+                                                            1,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 140..142,
+                                                value: UnaryOp(
+                                                    ExprUnaryOp {
+                                                        node_index: NodeIndex(None),
+                                                        range: 140..142,
+                                                        op: UAdd,
+                                                        operand: NumberLiteral(
+                                                            ExprNumberLiteral {
+                                                                node_index: NodeIndex(None),
+                                                                range: 141..142,
+                                                                value: Int(
+                                                                    2,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 144..146,
+                                                value: UnaryOp(
+                                                    ExprUnaryOp {
+                                                        node_index: NodeIndex(None),
+                                                        range: 144..146,
+                                                        op: USub,
+                                                        operand: NumberLiteral(
+                                                            ExprNumberLiteral {
+                                                                node_index: NodeIndex(None),
+                                                                range: 145..146,
+                                                                value: Int(
+                                                                    3,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                    runtime_patterns: None,
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 157..161,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                        MatchCase {
+                            range: 166..200,
+                            node_index: NodeIndex(None),
+                            pattern: MatchClass(
+                                PatternMatchClass {
+                                    node_index: NodeIndex(None),
+                                    range: 171..186,
+                                    cls: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 171..174,
+                                            id: Name("Foo"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    arguments: PatternArguments {
+                                        range: 174..186,
+                                        node_index: NodeIndex(None),
+                                        patterns: [],
+                                        keywords: [
+                                            PatternKeyword {
+                                                range: 175..179,
+                                                node_index: NodeIndex(None),
+                                                attr: Identifier {
+                                                    id: Name("x"),
+                                                    range: 175..176,
+                                                    node_index: NodeIndex(None),
+                                                },
+                                                pattern: MatchValue(
+                                                    PatternMatchValue {
+                                                        node_index: NodeIndex(None),
+                                                        range: 177..179,
+                                                        value: UnaryOp(
+                                                            ExprUnaryOp {
+                                                                node_index: NodeIndex(None),
+                                                                range: 177..179,
+                                                                op: UAdd,
+                                                                operand: NumberLiteral(
+                                                                    ExprNumberLiteral {
+                                                                        node_index: NodeIndex(None),
+                                                                        range: 178..179,
+                                                                        value: Int(
+                                                                            1,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            PatternKeyword {
+                                                range: 181..185,
+                                                node_index: NodeIndex(None),
+                                                attr: Identifier {
+                                                    id: Name("y"),
+                                                    range: 181..182,
+                                                    node_index: NodeIndex(None),
+                                                },
+                                                pattern: MatchValue(
+                                                    PatternMatchValue {
+                                                        node_index: NodeIndex(None),
+                                                        range: 183..185,
+                                                        value: UnaryOp(
+                                                            ExprUnaryOp {
+                                                                node_index: NodeIndex(None),
+                                                                range: 183..185,
+                                                                op: USub,
+                                                                operand: NumberLiteral(
+                                                                    ExprNumberLiteral {
+                                                                        node_index: NodeIndex(None),
+                                                                        range: 184..185,
+                                                                        value: Int(
+                                                                            2,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ],
+                                    },
+                                    runtime_patterns: None,
+                                    runtime_kwd_attrs: None,
+                                    runtime_kwd_patterns: None,
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 196..200,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                        MatchCase {
+                            range: 205..245,
+                            node_index: NodeIndex(None),
+                            pattern: MatchMapping(
+                                PatternMatchMapping {
+                                    node_index: NodeIndex(None),
+                                    range: 210..231,
+                                    keys: [
+                                        BooleanLiteral(
+                                            ExprBooleanLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 211..215,
+                                                value: true,
+                                            },
+                                        ),
+                                        BooleanLiteral(
+                                            ExprBooleanLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 221..226,
+                                                value: false,
+                                            },
+                                        ),
+                                    ],
+                                    patterns: [
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 217..219,
+                                                value: UnaryOp(
+                                                    ExprUnaryOp {
+                                                        node_index: NodeIndex(None),
+                                                        range: 217..219,
+                                                        op: UAdd,
+                                                        operand: NumberLiteral(
+                                                            ExprNumberLiteral {
+                                                                node_index: NodeIndex(None),
+                                                                range: 218..219,
+                                                                value: Int(
+                                                                    1,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 228..230,
+                                                value: UnaryOp(
+                                                    ExprUnaryOp {
+                                                        node_index: NodeIndex(None),
+                                                        range: 228..230,
+                                                        op: USub,
+                                                        operand: NumberLiteral(
+                                                            ExprNumberLiteral {
+                                                                node_index: NodeIndex(None),
+                                                                range: 229..230,
+                                                                value: Int(
+                                                                    2,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                    rest: None,
+                                    runtime_keys: None,
+                                    runtime_patterns: None,
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 241..245,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Unsupported Syntax Errors
+
+  |
+1 | # Unary addition isn't allowed before Python 3.15.
+2 | match subject:
+3 |     case +1:
+  |          ^^ Syntax Error: unary '+' is not allowed in a literal pattern on Python 3.14 (syntax was added in Python 3.15)
+4 |         pass
+5 |     case 1 | +2 | -3:
+  |
+
+
+  |
+3 |     case +1:
+4 |         pass
+5 |     case 1 | +2 | -3:
+  |              ^^ Syntax Error: unary '+' is not allowed in a literal pattern on Python 3.14 (syntax was added in Python 3.15)
+6 |         pass
+7 |     case [1, +2, -3]:
+  |
+
+
+  |
+5 |     case 1 | +2 | -3:
+6 |         pass
+7 |     case [1, +2, -3]:
+  |              ^^ Syntax Error: unary '+' is not allowed in a literal pattern on Python 3.14 (syntax was added in Python 3.15)
+8 |         pass
+9 |     case Foo(x=+1, y=-2):
+  |
+
+
+   |
+ 7 |     case [1, +2, -3]:
+ 8 |         pass
+ 9 |     case Foo(x=+1, y=-2):
+   |                ^^ Syntax Error: unary '+' is not allowed in a literal pattern on Python 3.14 (syntax was added in Python 3.15)
+10 |         pass
+11 |     case {True: +1, False: -2}:
+   |
+
+
+   |
+ 9 |     case Foo(x=+1, y=-2):
+10 |         pass
+11 |     case {True: +1, False: -2}:
+   |                 ^^ Syntax Error: unary '+' is not allowed in a literal pattern on Python 3.14 (syntax was added in Python 3.15)
+12 |         pass
+   |

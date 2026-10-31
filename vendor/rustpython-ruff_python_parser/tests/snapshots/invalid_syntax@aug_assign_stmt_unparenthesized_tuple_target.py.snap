@@ -1,0 +1,65 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/aug_assign_stmt_unparenthesized_tuple_target.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..10,
+        body: [
+            AugAssign(
+                StmtAugAssign {
+                    node_index: NodeIndex(None),
+                    range: 0..9,
+                    target: Tuple(
+                        ExprTuple {
+                            node_index: NodeIndex(None),
+                            range: 0..4,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 0..1,
+                                        id: Name("a"),
+                                        ctx: Store,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 3..4,
+                                        id: Name("b"),
+                                        ctx: Store,
+                                    },
+                                ),
+                            ],
+                            ctx: Store,
+                            parenthesized: false,
+                            runtime_elts: None,
+                        },
+                    ),
+                    op: Add,
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 8..9,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | a, b += 1
+  | ^^^^ Syntax Error: 'tuple' is an illegal expression for augmented assignment

@@ -1,0 +1,168 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/class_def_missing_name.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..53,
+        body: [
+            ClassDef(
+                StmtClassDef {
+                    node_index: NodeIndex(None),
+                    range: 0..11,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name(""),
+                        range: 5..5,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: None,
+                    arguments: None,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 8..11,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 8..11,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_body: None,
+                },
+            ),
+            ClassDef(
+                StmtClassDef {
+                    node_index: NodeIndex(None),
+                    range: 12..25,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name(""),
+                        range: 17..17,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: None,
+                    arguments: Some(
+                        Arguments {
+                            range: 18..20,
+                            node_index: NodeIndex(None),
+                            args: [],
+                            keywords: [],
+                            runtime_args: None,
+                            runtime_bases: None,
+                        },
+                    ),
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 22..25,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 22..25,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_body: None,
+                },
+            ),
+            ClassDef(
+                StmtClassDef {
+                    node_index: NodeIndex(None),
+                    range: 26..52,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name(""),
+                        range: 31..31,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: None,
+                    arguments: Some(
+                        Arguments {
+                            range: 32..47,
+                            node_index: NodeIndex(None),
+                            args: [],
+                            keywords: [
+                                Keyword {
+                                    range: 33..46,
+                                    node_index: NodeIndex(None),
+                                    arg: Some(
+                                        Identifier {
+                                            id: Name("metaclass"),
+                                            range: 33..42,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 43..46,
+                                            id: Name("ABC"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ],
+                            runtime_args: None,
+                            runtime_bases: None,
+                        },
+                    ),
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 49..52,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 49..52,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_body: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | class : ...
+  |       ^ Syntax Error: invalid syntax
+2 | class (): ...
+3 | class (metaclass=ABC): ...
+  |
+
+
+  |
+1 | class : ...
+2 | class (): ...
+  |       ^ Syntax Error: invalid syntax
+3 | class (metaclass=ABC): ...
+  |
+
+
+  |
+1 | class : ...
+2 | class (): ...
+3 | class (metaclass=ABC): ...
+  |       ^ Syntax Error: invalid syntax

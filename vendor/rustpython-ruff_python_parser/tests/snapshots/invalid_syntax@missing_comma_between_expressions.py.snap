@@ -1,0 +1,624 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/missing_comma_between_expressions.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..108,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 1..2,
+                                        id: Name("a"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 3..4,
+                                        id: Name("b"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 6..17,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 6..17,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 6..7,
+                                    id: Name("f"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 7..17,
+                                node_index: NodeIndex(None),
+                                args: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 8..9,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Attribute(
+                                        ExprAttribute {
+                                            node_index: NodeIndex(None),
+                                            range: 11..14,
+                                            value: Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 11..12,
+                                                    id: Name("a"),
+                                                    ctx: Load,
+                                                },
+                                            ),
+                                            attr: Identifier {
+                                                id: Name("b"),
+                                                range: 13..14,
+                                                node_index: NodeIndex(None),
+                                            },
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 15..16,
+                                            id: Name("c"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ],
+                                keywords: [],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 18..28,
+                    value: Subscript(
+                        ExprSubscript {
+                            node_index: NodeIndex(None),
+                            range: 18..28,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 18..19,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            slice: Slice(
+                                ExprSlice {
+                                    node_index: NodeIndex(None),
+                                    range: 20..27,
+                                    lower: Some(
+                                        BinOp(
+                                            ExprBinOp {
+                                                node_index: NodeIndex(None),
+                                                range: 20..25,
+                                                left: NumberLiteral(
+                                                    ExprNumberLiteral {
+                                                        node_index: NodeIndex(None),
+                                                        range: 20..21,
+                                                        value: Int(
+                                                            1,
+                                                        ),
+                                                    },
+                                                ),
+                                                op: Add,
+                                                right: NumberLiteral(
+                                                    ExprNumberLiteral {
+                                                        node_index: NodeIndex(None),
+                                                        range: 24..25,
+                                                        value: Int(
+                                                            2,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    upper: Some(
+                                        NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 26..27,
+                                                value: Int(
+                                                    3,
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    step: None,
+                                },
+                            ),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 29..33,
+                    value: FString(
+                        ExprFString {
+                            node_index: NodeIndex(None),
+                            range: 29..33,
+                            value: FStringValue {
+                                inner: Single(
+                                    FString {
+                                        range: 29..33,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 31..33,
+                                                    node_index: NodeIndex(None),
+                                                    expression: Name(
+                                                        ExprName {
+                                                            node_index: NodeIndex(None),
+                                                            range: 32..33,
+                                                            id: Name("a"),
+                                                            ctx: Load,
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                        ],
+                                        flags: FStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: true,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_joined_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 34..35,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 34..35,
+                            id: Name("b"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 38..39,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 38..39,
+                            id: Name("A"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 40..49,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 40..49,
+                            id: Name("tokenizer"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 50..61,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 50..61,
+                            ops: [
+                                In,
+                            ],
+                            operands: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 50..55,
+                                        id: Name("error"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 59..61,
+                                        id: Name("or"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 62..67,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 62..67,
+                            id: Name("right"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 68..73,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 68..73,
+                            id: Name("after"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 74..77,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 74..77,
+                            id: Name("the"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 78..83,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 78..83,
+                            id: Name("first"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 84..94,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 84..94,
+                            id: Name("expression"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 95..100,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 95..100,
+                            id: Name("comes"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 101..107,
+                    value: Attribute(
+                        ExprAttribute {
+                            node_index: NodeIndex(None),
+                            range: 101..107,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 101..106,
+                                    id: Name("first"),
+                                    ctx: Load,
+                                },
+                            ),
+                            attr: Identifier {
+                                id: Name(""),
+                                range: 107..107,
+                                node_index: NodeIndex(None),
+                            },
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | [a b]
+  |  ^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+  |
+
+
+  |
+1 | [a b]
+  |    ^ Syntax Error: invalid syntax
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+  |
+
+
+  |
+1 | [a b]
+2 | f(x, a.b c)
+  |      ^^^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |
+
+
+  |
+1 | [a b]
+2 | f(x, a.b c)
+  |          ^ Syntax Error: invalid syntax
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |
+
+
+  |
+1 | [a b]
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+  |   ^^^^^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+1 | [a b]
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+  |         ^ Syntax Error: invalid syntax
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |    ^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |      ^ Syntax Error: f-string: expecting '}'
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  | ^^^^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |      ^ Syntax Error: invalid syntax
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |       ^ Syntax Error: f-string: single '}' is not allowed
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |        ^ Syntax Error: invalid syntax
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+2 | f(x, a.b c)
+3 | x[1 + 2 3]
+4 | f"{a b}"
+  |         ^ Syntax Error: invalid syntax
+5 | A tokenizer error in or right after the first expression comes first.
+  |
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  | ^^^^^^^^^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |   ^^^^^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |             ^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                      ^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |             ^^^^^^^^^^^^^^^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                         ^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                               ^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                                     ^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                                         ^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                                               ^^^^^^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                                                          ^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                                                                ^^^^^ Syntax Error: invalid syntax
+
+
+  |
+3 | x[1 + 2 3]
+4 | f"{a b}"
+5 | A tokenizer error in or right after the first expression comes first.
+  |                                                                      ^ Syntax Error: invalid syntax
