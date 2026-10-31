@@ -174,7 +174,6 @@ mod termios;
     not(any(
         target_os = "android",
         target_os = "ios",
-        target_os = "windows",
         target_arch = "wasm32",
         target_os = "redox",
     ))
@@ -318,7 +317,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(any(
                 target_os = "android",
                 target_os = "ios",
-                target_os = "windows",
                 target_arch = "wasm32",
                 target_os = "redox"
             ))
