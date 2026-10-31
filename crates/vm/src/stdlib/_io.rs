@@ -4864,7 +4864,7 @@ mod _io {
     struct StringIONewArgs {
         // None means an empty buffer.
         #[pyarg(any, optional, py_default = "''")]
-        initial_value: Option<PyStrRef>,
+        initial_value: Option<PyObjectRef>,
 
         // Omitted newline is \n. None selects universal newlines.
         #[pyarg(any, default, py_default = "'\\n'")]
@@ -4894,13 +4894,24 @@ mod _io {
                 initial_value,
                 newline,
             }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<()> {
             let newline = match newline {
                 OptionalArg::Missing => Newlines::Lf,
                 OptionalArg::Present(None) => Newlines::Universal,
                 OptionalArg::Present(Some(newline)) => newline,
             };
+            // Checked here rather than while binding, so a bad newline is reported first.
+            let initial_value = initial_value
+                .map(|value| {
+                    value.downcast::<PyStr>().map_err(|value| {
+                        vm.new_type_error(format!(
+                            "initial_value must be str or None, not {}",
+                            value.class().slot_name()
+                        ))
+                    })
+                })
+                .transpose()?;
             let raw_bytes = initial_value.as_ref().map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
