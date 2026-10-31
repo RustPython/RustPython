@@ -58,6 +58,49 @@ mod _testinternalcapi {
     #[pyattr]
     const SPECIALIZATION_THRESHOLD: usize = 2;
 
+    #[pyattr]
+    #[pyclass(name, module = "_testcapi")]
+    #[derive(Debug, PyPayload)]
+    struct SelfInterruptingContextManager {
+        within: core::sync::atomic::AtomicBool,
+    }
+
+    impl Constructor for SelfInterruptingContextManager {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                within: core::sync::atomic::AtomicBool::new(false),
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
+    impl SelfInterruptingContextManager {
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            zelf.within.store(true, Ordering::Relaxed);
+            let Some(old) = vm.replace_async_exception(Some(
+                vm.ctx.exceptions.keyboard_interrupt.to_owned().into(),
+            )) else {
+                return Err(vm.new_runtime_error("the current thread state is being cleared"));
+            };
+            vm.notify_async_exception();
+            drop(old);
+            Ok(zelf)
+        }
+
+        #[pymethod]
+        fn within(zelf: &Py<Self>) -> bool {
+            zelf.within.load(Ordering::Relaxed)
+        }
+
+        #[pymethod]
+        fn __exit__(zelf: &Py<Self>, _args: crate::function::PosArgs<PyObjectRef>) {
+            zelf.within.store(false, Ordering::Relaxed);
+        }
+    }
+
     // ADAPTIVE_COOLDOWN_VALUE + 1
     #[pyattr]
     const SPECIALIZATION_COOLDOWN: usize = 53;
