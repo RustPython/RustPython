@@ -11,6 +11,7 @@ mod _tokenize {
             function::ArgCallable,
             protocol::PyIterReturn,
             types::{Constructor, IterNext, Iterable, SelfIter},
+            vm::thread::PyOperation,
         },
     };
     use alloc::sync::Arc;
@@ -36,6 +37,7 @@ mod _tokenize {
         readline: ArgCallable,
         extra_tokens: bool,
         encoding: Option<String>,
+        operation: PyOperation,
         state: PyRwLock<TokenizerState>,
     }
 
@@ -83,7 +85,7 @@ mod _tokenize {
     impl Constructor for PyTokenizerIter {
         type Args = PyTokenizerIterArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let Self::Args {
                 readline,
                 extra_tokens,
@@ -94,6 +96,7 @@ mod _tokenize {
                 readline,
                 extra_tokens,
                 encoding: encoding.map(|s| s.to_string()),
+                operation: PyOperation::new(vm),
                 state: PyRwLock::new(TokenizerState {
                     phase: TokenizerPhase::Reading {
                         source: String::new(),
@@ -107,45 +110,66 @@ mod _tokenize {
 
     impl IterNext for PyTokenizerIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let mut state = zelf.state.read().clone();
-
-            loop {
-                match &mut state.phase {
-                    TokenizerPhase::Reading { source } => {
+            zelf.operation.with(vm, || {
+                loop {
+                    // No payload borrow survives readline, codec callbacks, or Python
+                    // object construction. The operation can suspend or be reentered.
+                    let reading = matches!(zelf.state.read().phase, TokenizerPhase::Reading { .. });
+                    if reading {
                         let line = zelf.readline(vm)?;
-                        if line.is_empty() {
-                            let accumulated = core::mem::take(source);
-                            let parsed = parse_unchecked_source(&accumulated, PySourceType::Python);
-                            let tokens: Vec<Token> = parsed.tokens().iter().copied().collect();
-                            let errors: Vec<ParseError> = parsed.errors().to_vec();
-                            let line_index = LineIndex::from_source_text(&accumulated);
-                            let implicit_nl = !accumulated.ends_with('\n');
-                            state.phase = TokenizerPhase::Yielding {
-                                data: Arc::new(TokenizedSource {
-                                    source: accumulated,
-                                    tokens,
-                                    errors,
-                                    line_index,
-                                }),
-                                index: 0,
-                                need_implicit_nl: implicit_nl,
-                                pending_fstring_parts: None,
-                                pending_empty_fstring_middle: None,
-                            };
-                        } else {
-                            source.push_str(&line);
+                        let mut state = zelf.state.write();
+                        // Another next() may have completed input while readline ran.
+                        // Keep its frozen token snapshot and cursor; EOF is sticky.
+                        // This remains an eager tokenizer, not CPython's streaming
+                        // buffer/line-metadata model for reentrant callbacks.
+                        if let TokenizerPhase::Reading { source } = &mut state.phase {
+                            if line.is_empty() {
+                                let accumulated = core::mem::take(source);
+                                let parsed =
+                                    parse_unchecked_source(&accumulated, PySourceType::Python);
+                                let tokens = parsed.tokens().iter().copied().collect();
+                                let errors = parsed.errors().to_vec();
+                                let line_index = LineIndex::from_source_text(&accumulated);
+                                let implicit_nl = !accumulated.ends_with('\n');
+                                state.phase = TokenizerPhase::Yielding {
+                                    data: Arc::new(TokenizedSource {
+                                        source: accumulated,
+                                        tokens,
+                                        errors,
+                                        line_index,
+                                    }),
+                                    index: 0,
+                                    need_implicit_nl: implicit_nl,
+                                    pending_fstring_parts: None,
+                                    pending_empty_fstring_middle: None,
+                                };
+                            } else {
+                                source.push_str(&line);
+                            }
                         }
+                        continue;
                     }
-                    TokenizerPhase::Yielding { .. } => {
-                        let result = emit_next_token(&mut state, zelf.extra_tokens, vm)?;
-                        *zelf.state.write() = state;
-                        return Ok(result);
-                    }
-                    TokenizerPhase::Done => {
-                        return Ok(PyIterReturn::StopIteration(None));
-                    }
+                    let result = {
+                        let mut shared = zelf.state.write();
+                        match shared.phase {
+                            TokenizerPhase::Reading { .. } => continue,
+                            TokenizerPhase::Done => return Ok(PyIterReturn::StopIteration(None)),
+                            TokenizerPhase::Yielding { .. } => {}
+                        }
+                        // This native-only transaction never crosses a callback.
+                        // Preserve the existing cursor on lexical errors.
+                        let mut next = shared.clone();
+                        let result = emit_next_token(&mut next, zelf.extra_tokens);
+                        if result.is_ok() {
+                            *shared = next;
+                        }
+                        result
+                    };
+                    return result
+                        .map(|token| PyIterReturn::Return(token.into_object(vm)))
+                        .map_err(|error| error.into_exception(vm));
                 }
-            }
+            })
         }
     }
 
@@ -153,8 +177,7 @@ mod _tokenize {
     fn emit_next_token(
         state: &mut TokenizerState,
         extra_tokens: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyIterReturn> {
+    ) -> Result<TokenData, TokenError> {
         let TokenizerPhase::Yielding {
             data,
             index,
@@ -176,8 +199,7 @@ mod _tokenize {
         if let Some((mid_type, mid_line, mid_col, mid_line_str)) =
             pending_empty_fstring_middle.take()
         {
-            return Ok(PyIterReturn::Return(make_token_tuple(
-                vm,
+            return Ok(TokenData::new(
                 mid_type,
                 "",
                 mid_line,
@@ -185,15 +207,14 @@ mod _tokenize {
                 mid_line,
                 mid_col as isize,
                 &mid_line_str,
-            )));
+            ));
         }
 
         // Emit any pending fstring sub-tokens first
         if let Some(pending) = pending_fstring_parts {
             let (tok_type, tok_str, sl, sc, el, ec) = &pending.parts[pending.index];
             let full_line = source.full_line_str(line_index.line_starts()[sl - 1]);
-            let token = make_token_tuple(
-                vm,
+            let token = TokenData::new(
                 *tok_type,
                 tok_str,
                 *sl,
@@ -206,7 +227,7 @@ mod _tokenize {
             if pending.index == pending.parts.len() {
                 *pending_fstring_parts = None;
             }
-            return Ok(PyIterReturn::Return(token));
+            return Ok(token);
         }
 
         let source_len = TextSize::from(source.len() as u32);
@@ -230,8 +251,7 @@ mod _tokenize {
                 let end_lc = line_index.line_column(source_len, source);
                 let line = end_lc.line.get();
                 let column = end_lc.column.to_zero_indexed() as isize;
-                return Ok(PyIterReturn::Return(make_token_tuple(
-                    vm,
+                return Ok(TokenData::new(
                     TOKEN_NL,
                     "",
                     line,
@@ -239,7 +259,7 @@ mod _tokenize {
                     line,
                     column + 1,
                     final_line,
-                )));
+                ));
             }
         }
 
@@ -256,9 +276,7 @@ mod _tokenize {
                 last_non_dedent_token(tokens).filter(|t| t.kind() == TokenKind::Comment)
         {
             *need_implicit_nl = false;
-            return Ok(PyIterReturn::Return(implicit_comment_newline(
-                vm, comment, source, line_index,
-            )));
+            return Ok(implicit_comment_newline(comment, source, line_index));
         }
 
         while *index < tokens.len() {
@@ -282,7 +300,10 @@ mod _tokenize {
                         )
                 })
             {
-                return Err(raise_indentation_error(vm, err, source, line_index));
+                return Err(TokenError::Indentation {
+                    error: err.clone(),
+                    data: Arc::clone(data),
+                });
             }
 
             // Ruff emits an empty Unknown and a synthetic tail when recovering
@@ -316,8 +337,7 @@ mod _tokenize {
                     let end = line_index.line_column(source_len, source);
                     let line = end.line.get();
                     let column = end.column.to_zero_indexed() as isize;
-                    return Ok(PyIterReturn::Return(make_token_tuple(
-                        vm,
+                    return Ok(TokenData::new(
                         TOKEN_NL,
                         "",
                         line,
@@ -325,7 +345,7 @@ mod _tokenize {
                         line,
                         column + 1,
                         last_physical_line(source),
-                    )));
+                    ));
                 }
                 break;
             }
@@ -443,8 +463,7 @@ mod _tokenize {
                     parts: rest.into(),
                     index: 0,
                 });
-                return Ok(PyIterReturn::Return(make_token_tuple(
-                    vm,
+                return Ok(TokenData::new(
                     tt,
                     &ts,
                     sl,
@@ -452,7 +471,7 @@ mod _tokenize {
                     el,
                     ec as isize,
                     line_str,
-                )));
+                ));
             }
 
             // After emitting a Rbrace inside an fstring, check if the
@@ -476,9 +495,9 @@ mod _tokenize {
                     (token_str, start_col as isize, end_col as isize)
                 };
 
-            return Ok(PyIterReturn::Return(make_token_tuple(
-                vm, token_type, token_str, start_line, start_col, end_line, end_col, line_str,
-            )));
+            return Ok(TokenData::new(
+                token_type, token_str, start_line, start_col, end_line, end_col, line_str,
+            ));
         }
 
         // Emit implicit NL before ENDMARKER if source
@@ -489,9 +508,7 @@ mod _tokenize {
                 .rev()
                 .find(|t| t.kind() != TokenKind::EndOfFile);
             if let Some(last) = last_tok.filter(|t| t.kind() == TokenKind::Comment) {
-                return Ok(PyIterReturn::Return(implicit_comment_newline(
-                    vm, last, source, line_index,
-                )));
+                return Ok(implicit_comment_newline(last, source, line_index));
             }
         }
 
@@ -500,12 +517,7 @@ mod _tokenize {
         {
             if has_unclosed_brackets(tokens, source) {
                 let last_line = source.lines().count();
-                let exc =
-                    raise_syntax_error(vm, "unexpected EOF in multi-line statement", last_line, 0);
-                // PyErr_SyntaxLocationObject sets the end line to the current line.
-                exc.as_object()
-                    .set_attr("end_lineno", vm.ctx.new_int(last_line), vm)?;
-                return Err(exc);
+                return Err(TokenError::UnclosedBrackets { line: last_line });
             }
         }
 
@@ -521,8 +533,7 @@ mod _tokenize {
             )
         };
 
-        let result = make_token_tuple(
-            vm,
+        let result = TokenData::new(
             TOKEN_ENDMARKER,
             "",
             em_line,
@@ -532,7 +543,7 @@ mod _tokenize {
             em_line_str,
         );
         state.phase = TokenizerPhase::Done;
-        Ok(PyIterReturn::Return(result))
+        Ok(result)
     }
 
     fn has_unclosed_brackets(tokens: &[Token], source: &str) -> bool {
@@ -617,16 +628,14 @@ mod _tokenize {
     }
 
     fn implicit_comment_newline(
-        vm: &VirtualMachine,
         comment: &Token,
         source: &str,
         line_index: &LineIndex,
-    ) -> PyObjectRef {
+    ) -> TokenData {
         let end_lc = line_index.line_column(comment.range().end(), source);
         let line = end_lc.line.get();
         let column = end_lc.column.to_zero_indexed() as isize;
-        make_token_tuple(
-            vm,
+        TokenData::new(
             TOKEN_NL,
             "",
             line,
@@ -795,30 +804,87 @@ mod _tokenize {
         parts
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn make_token_tuple(
-        vm: &VirtualMachine,
+    struct TokenData {
         token_type: u8,
-        string: &str,
-        start_line: usize,
-        start_col: isize,
-        end_line: usize,
-        end_col: isize,
-        line: &str,
-    ) -> PyObjectRef {
-        vm.ctx
-            .new_tuple(vec![
-                token_type.to_pyobject(vm),
-                vm.ctx.new_str(string).into(),
-                vm.ctx
-                    .new_tuple(vec![start_line.to_pyobject(vm), start_col.to_pyobject(vm)])
-                    .into(),
-                vm.ctx
-                    .new_tuple(vec![end_line.to_pyobject(vm), end_col.to_pyobject(vm)])
-                    .into(),
-                vm.ctx.new_str(line).into(),
-            ])
-            .into()
+        string: String,
+        start: (usize, isize),
+        end: (usize, isize),
+        line: String,
+    }
+
+    impl TokenData {
+        #[allow(clippy::too_many_arguments)]
+        fn new(
+            token_type: u8,
+            string: &str,
+            start_line: usize,
+            start_col: isize,
+            end_line: usize,
+            end_col: isize,
+            line: &str,
+        ) -> Self {
+            Self {
+                token_type,
+                string: string.to_owned(),
+                start: (start_line, start_col),
+                end: (end_line, end_col),
+                line: line.to_owned(),
+            }
+        }
+
+        fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx
+                .new_tuple(vec![
+                    self.token_type.to_pyobject(vm),
+                    vm.ctx.new_str(self.string).into(),
+                    vm.ctx
+                        .new_tuple(vec![
+                            self.start.0.to_pyobject(vm),
+                            self.start.1.to_pyobject(vm),
+                        ])
+                        .into(),
+                    vm.ctx
+                        .new_tuple(vec![self.end.0.to_pyobject(vm), self.end.1.to_pyobject(vm)])
+                        .into(),
+                    vm.ctx.new_str(self.line).into(),
+                ])
+                .into()
+        }
+    }
+
+    enum TokenError {
+        Indentation {
+            error: ParseError,
+            data: Arc<TokenizedSource>,
+        },
+        UnclosedBrackets {
+            line: usize,
+        },
+    }
+
+    impl TokenError {
+        fn into_exception(
+            self,
+            vm: &VirtualMachine,
+        ) -> rustpython_vm::builtins::PyBaseExceptionRef {
+            match self {
+                Self::Indentation { error, data } => {
+                    raise_indentation_error(vm, &error, &data.source, &data.line_index)
+                }
+                Self::UnclosedBrackets { line } => {
+                    let exc =
+                        raise_syntax_error(vm, "unexpected EOF in multi-line statement", line, 0);
+                    // PyErr_SyntaxLocationObject sets the end line to the current line.
+                    if let Err(error) =
+                        exc.as_object()
+                            .set_attr("end_lineno", vm.ctx.new_int(line), vm)
+                    {
+                        return error;
+                    }
+                    exc
+                }
+            }
+        }
     }
 
     #[derive(FromArgs)]
