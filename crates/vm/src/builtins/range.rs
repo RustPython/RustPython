@@ -79,6 +79,7 @@ thread_local! {
 impl PyPayload for PyRange {
     const MAX_FREELIST: usize = 6;
     const HAS_FREELIST: bool = true;
+    const FREELIST_HAS_PAYLOAD: bool = false;
 
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -91,7 +92,7 @@ impl PyPayload for PyRange {
             .try_with(|fl| {
                 let mut list = fl.take();
                 let stored = if list.len() < Self::MAX_FREELIST {
-                    list.push(obj);
+                    unsafe { list.push(obj) };
                     true
                 } else {
                     false
