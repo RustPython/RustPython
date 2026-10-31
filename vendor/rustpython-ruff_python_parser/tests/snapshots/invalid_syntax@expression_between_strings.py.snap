@@ -1,0 +1,317 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/expression_between_strings.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..42,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..3,
+                    value: StringLiteral(
+                        ExprStringLiteral {
+                            node_index: NodeIndex(None),
+                            range: 0..3,
+                            value: StringLiteralValue {
+                                inner: Single(
+                                    StringLiteral {
+                                        range: 0..3,
+                                        node_index: NodeIndex(None),
+                                        value: "a",
+                                        flags: StringLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Empty,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 4..5,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 4..5,
+                            id: Name("b"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 6..9,
+                    value: StringLiteral(
+                        ExprStringLiteral {
+                            node_index: NodeIndex(None),
+                            range: 6..9,
+                            value: StringLiteralValue {
+                                inner: Single(
+                                    StringLiteral {
+                                        range: 6..9,
+                                        node_index: NodeIndex(None),
+                                        value: "c",
+                                        flags: StringLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Empty,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 10..17,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 10..11,
+                                id: Name("x"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: StringLiteral(
+                        ExprStringLiteral {
+                            node_index: NodeIndex(None),
+                            range: 14..17,
+                            value: StringLiteralValue {
+                                inner: Single(
+                                    StringLiteral {
+                                        range: 14..17,
+                                        node_index: NodeIndex(None),
+                                        value: "a",
+                                        flags: StringLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Empty,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 18..23,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 18..23,
+                            left: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 18..19,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            op: Add,
+                            right: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 22..23,
+                                    value: Int(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 24..25,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 24..25,
+                            id: Name("c"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 26..29,
+                    value: StringLiteral(
+                        ExprStringLiteral {
+                            node_index: NodeIndex(None),
+                            range: 26..29,
+                            value: StringLiteralValue {
+                                inner: Single(
+                                    StringLiteral {
+                                        range: 26..29,
+                                        node_index: NodeIndex(None),
+                                        value: "d",
+                                        flags: StringLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Empty,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 30..41,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 30..41,
+                            elts: [
+                                StringLiteral(
+                                    ExprStringLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 31..34,
+                                        value: StringLiteralValue {
+                                            inner: Single(
+                                                StringLiteral {
+                                                    range: 31..34,
+                                                    node_index: NodeIndex(None),
+                                                    value: "a",
+                                                    flags: StringLiteralFlags {
+                                                        quote_style: Double,
+                                                        prefix: Empty,
+                                                        triple_quoted: false,
+                                                        unclosed: false,
+                                                    },
+                                                },
+                                            ),
+                                        },
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 35..36,
+                                        id: Name("b"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                StringLiteral(
+                                    ExprStringLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 37..40,
+                                        value: StringLiteralValue {
+                                            inner: Single(
+                                                StringLiteral {
+                                                    range: 37..40,
+                                                    node_index: NodeIndex(None),
+                                                    value: "c",
+                                                    flags: StringLiteralFlags {
+                                                        quote_style: Double,
+                                                        prefix: Empty,
+                                                        triple_quoted: false,
+                                                        unclosed: false,
+                                                    },
+                                                },
+                                            ),
+                                        },
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | "a" b "c"
+  |     ^ Syntax Error: invalid syntax. Is this intended to be part of the string?
+2 | x = "a" 1 + 2 c "d"
+3 | ["a" b "c"]
+  |
+
+
+  |
+1 | "a" b "c"
+  |       ^^^ Syntax Error: invalid syntax
+2 | x = "a" 1 + 2 c "d"
+3 | ["a" b "c"]
+  |
+
+
+  |
+1 | "a" b "c"
+2 | x = "a" 1 + 2 c "d"
+  |         ^^^^^^^ Syntax Error: invalid syntax. Is this intended to be part of the string?
+3 | ["a" b "c"]
+  |
+
+
+  |
+1 | "a" b "c"
+2 | x = "a" 1 + 2 c "d"
+  |               ^ Syntax Error: invalid syntax
+3 | ["a" b "c"]
+  |
+
+
+  |
+1 | "a" b "c"
+2 | x = "a" 1 + 2 c "d"
+  |                 ^^^ Syntax Error: invalid syntax
+3 | ["a" b "c"]
+  |
+
+
+  |
+1 | "a" b "c"
+2 | x = "a" 1 + 2 c "d"
+3 | ["a" b "c"]
+  |      ^ Syntax Error: invalid syntax. Is this intended to be part of the string?
+
+
+  |
+1 | "a" b "c"
+2 | x = "a" 1 + 2 c "d"
+3 | ["a" b "c"]
+  |        ^^^ Syntax Error: invalid syntax

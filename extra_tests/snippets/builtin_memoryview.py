@@ -517,7 +517,7 @@ test_fortran_contiguity()
 
 
 def test_cast_arguments():
-    # cast() takes a native single character format, optionally '@'-prefixed;
+    # cast() takes a native format, optionally '@'-prefixed;
     # a zero-size format used to reach a division by zero.
     assert memoryview(b"abcd").cast("@i").itemsize == 4
     for fmt in ("0s", "4s", "<i", "", "ss"):

@@ -1,0 +1,304 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/params_parenthesized.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..59,
+        body: [
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 0..17,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("foo"),
+                        range: 4..7,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: None,
+                    parameters: Parameters {
+                        range: 7..17,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [
+                            ParameterWithDefault {
+                                range: 8..9,
+                                node_index: NodeIndex(None),
+                                parameter: Parameter {
+                                    range: 8..9,
+                                    node_index: NodeIndex(None),
+                                    name: Identifier {
+                                        id: Name("a"),
+                                        range: 8..9,
+                                        node_index: NodeIndex(None),
+                                    },
+                                    annotation: None,
+                                    runtime_type_comment: None,
+                                    runtime_type_comment_bytes: None,
+                                },
+                                default: None,
+                            },
+                            ParameterWithDefault {
+                                range: 12..13,
+                                node_index: NodeIndex(None),
+                                parameter: Parameter {
+                                    range: 12..13,
+                                    node_index: NodeIndex(None),
+                                    name: Identifier {
+                                        id: Name("b"),
+                                        range: 12..13,
+                                        node_index: NodeIndex(None),
+                                    },
+                                    annotation: None,
+                                    runtime_type_comment: None,
+                                    runtime_type_comment_bytes: None,
+                                },
+                                default: None,
+                            },
+                            ParameterWithDefault {
+                                range: 15..16,
+                                node_index: NodeIndex(None),
+                                parameter: Parameter {
+                                    range: 15..16,
+                                    node_index: NodeIndex(None),
+                                    name: Identifier {
+                                        id: Name("c"),
+                                        range: 15..16,
+                                        node_index: NodeIndex(None),
+                                    },
+                                    annotation: None,
+                                    runtime_type_comment: None,
+                                    runtime_type_comment_bytes: None,
+                                },
+                                default: None,
+                            },
+                        ],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 20..23,
+                    value: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 20..23,
+                        },
+                    ),
+                },
+            ),
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 24..35,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("foo"),
+                        range: 28..31,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: None,
+                    parameters: Parameters {
+                        range: 31..35,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [
+                            ParameterWithDefault {
+                                range: 33..34,
+                                node_index: NodeIndex(None),
+                                parameter: Parameter {
+                                    range: 33..34,
+                                    node_index: NodeIndex(None),
+                                    name: Identifier {
+                                        id: Name("a"),
+                                        range: 33..34,
+                                        node_index: NodeIndex(None),
+                                    },
+                                    annotation: None,
+                                    runtime_type_comment: None,
+                                    runtime_type_comment_bytes: None,
+                                },
+                                default: None,
+                            },
+                        ],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 38..41,
+                    value: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 38..41,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 42..58,
+                    value: Lambda(
+                        ExprLambda {
+                            node_index: NodeIndex(None),
+                            range: 42..58,
+                            parameters: Some(
+                                Parameters {
+                                    range: 49..53,
+                                    node_index: NodeIndex(None),
+                                    posonlyargs: [],
+                                    args: [
+                                        ParameterWithDefault {
+                                            range: 50..51,
+                                            node_index: NodeIndex(None),
+                                            parameter: Parameter {
+                                                range: 50..51,
+                                                node_index: NodeIndex(None),
+                                                name: Identifier {
+                                                    id: Name("a"),
+                                                    range: 50..51,
+                                                    node_index: NodeIndex(None),
+                                                },
+                                                annotation: None,
+                                                runtime_type_comment: None,
+                                                runtime_type_comment_bytes: None,
+                                            },
+                                            default: None,
+                                        },
+                                    ],
+                                    vararg: None,
+                                    kwonlyargs: [],
+                                    kwarg: None,
+                                    runtime_defaults: None,
+                                },
+                            ),
+                            body: EllipsisLiteral(
+                                ExprEllipsisLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 55..58,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | def foo(a, (b, c)): ...
+  |            ^^^^^^ Syntax Error: Function parameters cannot be parenthesized
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+  |             ^ Syntax Error: invalid syntax
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+  |                  ^ Syntax Error: expected ':'
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+  |                   ^ Syntax Error: invalid syntax
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+  |         ^^^ Syntax Error: Function parameters cannot be parenthesized
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+  |          ^ Syntax Error: invalid syntax
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+  |            ^ Syntax Error: expected ':'
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+  |             ^ Syntax Error: invalid syntax
+3 | lambda (a,): ...
+  |
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |        ^^^^ Syntax Error: Lambda expression parameters cannot be parenthesized
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |         ^ Syntax Error: invalid syntax
+
+
+  |
+1 | def foo(a, (b, c)): ...
+2 | def foo((a)): ...
+3 | lambda (a,): ...
+  |           ^ Syntax Error: invalid syntax

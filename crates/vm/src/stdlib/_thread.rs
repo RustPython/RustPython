@@ -5,6 +5,9 @@ pub(crate) use _thread::after_fork_child;
 
 pub use _thread::get_ident;
 
+#[cfg(feature = "capi")]
+pub(crate) use _thread::apply_thread_stack_size;
+
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
     CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
@@ -864,7 +867,7 @@ pub(crate) mod _thread {
     /// thousand, so a size that holds a Python call chain in release holds
     /// three of its frames here — starting a thread at all needs six. The
     /// value `threading.stack_size()` reports is untouched.
-    fn apply_thread_stack_size(
+    pub(crate) fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {

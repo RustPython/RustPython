@@ -1,0 +1,156 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/match_as_pattern_invalid_target.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..55,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 0..54,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 6..7,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 13..31,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 18..26,
+                                    pattern: Some(
+                                        MatchAs(
+                                            PatternMatchAs {
+                                                node_index: NodeIndex(None),
+                                                range: 18..19,
+                                                pattern: None,
+                                                name: Some(
+                                                    Identifier {
+                                                        id: Name("y"),
+                                                        range: 18..19,
+                                                        node_index: NodeIndex(None),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    name: Some(
+                                        Identifier {
+                                            id: Name(""),
+                                            range: 23..26,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Expr(
+                                    StmtExpr {
+                                        node_index: NodeIndex(None),
+                                        range: 28..31,
+                                        value: EllipsisLiteral(
+                                            ExprEllipsisLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 28..31,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                        MatchCase {
+                            range: 36..54,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 41..49,
+                                    pattern: Some(
+                                        MatchAs(
+                                            PatternMatchAs {
+                                                node_index: NodeIndex(None),
+                                                range: 41..42,
+                                                pattern: None,
+                                                name: Some(
+                                                    Identifier {
+                                                        id: Name("y"),
+                                                        range: 41..42,
+                                                        node_index: NodeIndex(None),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    name: Some(
+                                        Identifier {
+                                            id: Name(""),
+                                            range: 46..49,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Expr(
+                                    StmtExpr {
+                                        node_index: NodeIndex(None),
+                                        range: 51..54,
+                                        value: EllipsisLiteral(
+                                            ExprEllipsisLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 51..54,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | match x:
+2 |     case y as z.w: ...
+  |               ^^^ Syntax Error: cannot use attribute as pattern target
+3 |     case y as f(): ...
+  |
+
+
+  |
+1 | match x:
+2 |     case y as z.w: ...
+3 |     case y as f(): ...
+  |               ^^^ Syntax Error: cannot use function call as pattern target
+
+
+## Semantic Syntax Errors
+
+  |
+1 | match x:
+2 |     case y as z.w: ...
+  |          ^ Syntax Error: name capture `y` makes remaining patterns unreachable
+3 |     case y as f(): ...
+  |

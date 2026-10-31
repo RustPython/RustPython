@@ -1,0 +1,59 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/named/missing_expression_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..33,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 28..33,
+                    value: Named(
+                        ExprNamed {
+                            node_index: NodeIndex(None),
+                            range: 29..33,
+                            target: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 29..30,
+                                    id: Name("x"),
+                                    ctx: Store,
+                                },
+                            ),
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 33..33,
+                                    id: Name(""),
+                                    ctx: Invalid,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | # EOF after the `:=` token
+2 |
+3 | (x :=
+  | ^ Syntax Error: '(' was never closed
+
+
+  |
+1 | # EOF after the `:=` token
+2 |
+3 | (x :=
+  |      ^ Syntax Error: invalid syntax

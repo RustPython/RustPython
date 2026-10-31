@@ -1,0 +1,144 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/except_stmt_invalid_as_name.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..68,
+        body: [
+            Try(
+                StmtTry {
+                    node_index: NodeIndex(None),
+                    range: 0..67,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 5..8,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 5..8,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    handlers: [
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 9..37,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 16..25,
+                                            id: Name("Exception"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                                name: Some(
+                                    Identifier {
+                                        id: Name(""),
+                                        range: 29..32,
+                                        node_index: NodeIndex(None),
+                                    },
+                                ),
+                                body: [
+                                    Expr(
+                                        StmtExpr {
+                                            node_index: NodeIndex(None),
+                                            range: 34..37,
+                                            value: EllipsisLiteral(
+                                                ExprEllipsisLiteral {
+                                                    node_index: NodeIndex(None),
+                                                    range: 34..37,
+                                                },
+                                            ),
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 38..67,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 46..55,
+                                            id: Name("Exception"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                                name: Some(
+                                    Identifier {
+                                        id: Name(""),
+                                        range: 59..62,
+                                        node_index: NodeIndex(None),
+                                    },
+                                ),
+                                body: [
+                                    Expr(
+                                        StmtExpr {
+                                            node_index: NodeIndex(None),
+                                            range: 64..67,
+                                            value: EllipsisLiteral(
+                                                ExprEllipsisLiteral {
+                                                    node_index: NodeIndex(None),
+                                                    range: 64..67,
+                                                },
+                                            ),
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    finalbody: [],
+                    is_star: false,
+                    runtime_body: None,
+                    runtime_handlers: None,
+                    runtime_orelse: None,
+                    runtime_finalbody: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | try: ...
+2 | except Exception as x.y: ...
+  |                     ^^^ Syntax Error: cannot use except statement with attribute
+3 | except* Exception as f(): ...
+  |
+
+
+  |
+1 | try: ...
+2 | except Exception as x.y: ...
+3 | except* Exception as f(): ...
+  |                      ^^^ Syntax Error: cannot use except* statement with function call
+
+
+  |
+1 | try: ...
+2 | except Exception as x.y: ...
+3 | except* Exception as f(): ...
+  | ^^^^^^^ Syntax Error: cannot have both 'except' and 'except*' on the same 'try'

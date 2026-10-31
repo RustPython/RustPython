@@ -1,0 +1,113 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/if_stmt_missing_colon.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..25,
+        body: [
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 0..4,
+                    test: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 3..4,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    elif_else_clauses: [],
+                    runtime_body: None,
+                },
+            ),
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 5..18,
+                    test: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 8..9,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 14..18,
+                            },
+                        ),
+                    ],
+                    elif_else_clauses: [],
+                    runtime_body: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 19..24,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 19..20,
+                                id: Name("a"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 23..24,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | if x
+  |     ^ Syntax Error: expected ':'
+2 | if x
+3 |     pass
+4 | a = 1
+  |
+
+
+  |
+1 | if x
+2 | if x
+  | ^^ Syntax Error: expected an indented block after 'if' statement on line 1
+3 |     pass
+4 | a = 1
+  |
+
+
+  |
+1 | if x
+2 | if x
+  |     ^ Syntax Error: expected ':'
+3 |     pass
+4 | a = 1
+  |

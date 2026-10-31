@@ -41,3 +41,5 @@ rustpythonw
 struc
 unscanned
 zelf
+embedders
+nocapture

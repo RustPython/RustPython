@@ -1,0 +1,168 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/obsolete_not_equal.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..23,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..6,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 0..6,
+                            ops: [
+                                Lt,
+                            ],
+                            operands: [
+                                NumberLiteral(
+                                    ExprNumberLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 0..1,
+                                        value: Int(
+                                            2,
+                                        ),
+                                    },
+                                ),
+                                NumberLiteral(
+                                    ExprNumberLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 5..6,
+                                        value: Int(
+                                            3,
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 7..14,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 7..14,
+                            ops: [
+                                Lt,
+                                Gt,
+                            ],
+                            operands: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 7..8,
+                                        id: Name("a"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 10..10,
+                                        id: Name(""),
+                                        ctx: Invalid,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 13..14,
+                                        id: Name("b"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 15..22,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 15..22,
+                            ops: [
+                                Gt,
+                            ],
+                            operands: [
+                                BinOp(
+                                    ExprBinOp {
+                                        node_index: NodeIndex(None),
+                                        range: 15..19,
+                                        left: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 15..16,
+                                                id: Name("a"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        op: LShift,
+                                        right: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 19..19,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 21..22,
+                                        id: Name("b"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | 2 <> 3
+  |   ^^ Syntax Error: invalid syntax.  Maybe you meant '!=' instead of '<>'?
+2 | a < > b
+3 | a <<> b
+  |
+
+
+  |
+1 | 2 <> 3
+2 | a < > b
+  |     ^ Syntax Error: invalid syntax
+3 | a <<> b
+  |
+
+
+  |
+1 | 2 <> 3
+2 | a < > b
+3 | a <<> b
+  |     ^ Syntax Error: invalid syntax

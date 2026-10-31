@@ -396,9 +396,7 @@ impl VirtualMachine {
                 flags.contains(CodeFlags::FUTURE_BARRY_AS_BDFL),
                 &mut warnings,
             )
-            .map_err(|error| {
-                super::compile::VmCompileError::Warning(error).into_pyexception(self, Some(&source))
-            })?;
+            .map_err(|error| error.into_pyexception(self, Some(&source)))?;
             let parsed = match compiler::interactive_input(&source, "<stdin>", flags, terminated) {
                 Ok(Some(parsed)) => parsed,
                 Ok(None) => continue,
