@@ -8,6 +8,7 @@ pub(crate) mod _signal {
 
     use crate::{
         Py, PyObjectRef, PyResult, VirtualMachine,
+        convert::PySetOf,
         signal::{self, SignalHandlers, SignalNum},
     };
     use core::sync::atomic::{self, Ordering};
@@ -463,40 +464,21 @@ pub(crate) mod _signal {
     }
 
     #[pyfunction]
-    #[cfg_attr(
-        not(any(unix, windows)),
-        expect(
-            clippy::unnecessary_wraps,
-            reason = "WASI does not support signals yet"
-        )
-    )]
-    fn valid_signals(vm: &VirtualMachine) -> PyResult {
-        use crate::PyPayload;
-        use crate::builtins::PySet;
-        let set = PySet::default().into_ref(&vm.ctx);
-
-        // Empty set for platforms without signal support (e.g., WASM)
+    fn valid_signals(vm: &VirtualMachine) -> PyResult<PySetOf<i32>> {
         #[cfg(any(unix, windows))]
-        for signum in host_signal::valid_signals(signal::NSIG)
-            .map_err(|_| vm.new_os_error("sigfillset failed"))?
-        {
-            set.add(vm.ctx.new_int(signum).into(), vm)?;
-        }
-
-        Ok(set.into())
+        let signals = host_signal::valid_signals(signal::NSIG)
+            .map_err(|_| vm.new_os_error("sigfillset failed"))?;
+        // Empty set for platforms without signal support (e.g., WASM)
+        #[cfg(not(any(unix, windows)))]
+        let signals = core::iter::empty();
+        PySetOf::try_new(signals, vm)
     }
 
     #[cfg(unix)]
     fn sigset_to_pyset(mask: libc::sigset_t, vm: &VirtualMachine) -> PyResult {
-        use crate::PyPayload;
-        use crate::builtins::PySet;
-        let set = PySet::default().into_ref(&vm.ctx);
-        for signum in SignalNum::VALID_RANGE {
-            if host_signal::sigset_contains(mask, signum) {
-                set.add(vm.ctx.new_int(signum).into(), vm)?;
-            }
-        }
-        Ok(set.into())
+        let signals =
+            SignalNum::VALID_RANGE.filter(|&signum| host_signal::sigset_contains(mask, signum));
+        Ok(PySetOf::try_new(signals, vm)?.into())
     }
 
     #[cfg(unix)]
