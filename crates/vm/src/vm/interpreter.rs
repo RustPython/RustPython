@@ -81,7 +81,7 @@ where
     use crate::codecs::CodecsRegistry;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -210,7 +210,6 @@ where
         shutdown_handles: parking_lot::Mutex::new(Vec::new()),
         monitoring: PyMutex::default(),
         monitoring_events: AtomicCell::new(0),
-        instrumentation_version: AtomicU64::new(0),
         #[cfg(feature = "threading")]
         stop_the_world: StopTheWorldState::new(),
         feature_flags,
