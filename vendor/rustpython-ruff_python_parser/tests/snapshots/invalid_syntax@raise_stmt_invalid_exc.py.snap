@@ -1,0 +1,121 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/raise_stmt_invalid_exc.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..36,
+        body: [
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 0..8,
+                    exc: Some(
+                        Starred(
+                            ExprStarred {
+                                node_index: NodeIndex(None),
+                                range: 6..8,
+                                value: Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 7..8,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                ctx: Load,
+                            },
+                        ),
+                    ),
+                    cause: None,
+                },
+            ),
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 9..22,
+                    exc: Some(
+                        Yield(
+                            ExprYield {
+                                node_index: NodeIndex(None),
+                                range: 15..22,
+                                value: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 21..22,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                            },
+                        ),
+                    ),
+                    cause: None,
+                },
+            ),
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 23..30,
+                    exc: Some(
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 29..30,
+                                id: Name("x"),
+                                ctx: Load,
+                            },
+                        ),
+                    ),
+                    cause: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 34..35,
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 34..35,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | raise *x
+  |       ^ Syntax Error: invalid syntax
+2 | raise yield x
+3 | raise x := 1
+  |
+
+
+  |
+1 | raise *x
+2 | raise yield x
+  |       ^^^^^^^ Syntax Error: yield expression cannot be used here
+3 | raise x := 1
+  |
+
+
+  |
+1 | raise *x
+2 | raise yield x
+3 | raise x := 1
+  |         ^^ Syntax Error: invalid syntax

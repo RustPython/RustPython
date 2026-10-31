@@ -2,7 +2,7 @@
 //!
 //! Mirrors CPython `Modules/_interpretersmodule.c`.
 
-pub(crate) use _interpreters::{config_from_pyobject, init_xi_types, module_def};
+pub(crate) use _interpreters::{config_from_pyobject, init_xi_types, module_def, parse_id};
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpreters::{
     interpreter_error, interpreter_not_found, not_shareable_error, xibufferview_from_buffer,
@@ -170,7 +170,7 @@ pub(crate) mod _interpreters {
     }
 
     /// `_PyInterpreterState_ObjectToID`.
-    fn parse_id(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
+    pub(crate) fn parse_id(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
         if !obj.number().is_index() {
             return Err(vm.new_type_error(format!(
                 "interpreter ID must be an int, got {}",

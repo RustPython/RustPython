@@ -1,0 +1,77 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/named/missing_expression_3.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..112,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 100..112,
+                    value: Named(
+                        ExprNamed {
+                            node_index: NodeIndex(None),
+                            range: 101..112,
+                            target: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 101..102,
+                                    id: Name("x"),
+                                    ctx: Store,
+                                },
+                            ),
+                            value: BinOp(
+                                ExprBinOp {
+                                    node_index: NodeIndex(None),
+                                    range: 107..112,
+                                    left: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 107..108,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    op: Add,
+                                    right: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 111..112,
+                                            id: Name("y"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+2 | # assignment value.
+3 |
+4 | (x :=
+  | ^ Syntax Error: '(' was never closed
+5 |
+6 | x + y
+  |
+
+
+  |
+4 | (x :=
+5 |
+6 | x + y
+  |      ^ Syntax Error: invalid syntax

@@ -1,0 +1,135 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/missing_comma_before_invalid_expression.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..14,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 1..2,
+                                        id: Name("a"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                UnaryOp(
+                                    ExprUnaryOp {
+                                        node_index: NodeIndex(None),
+                                        range: 3..4,
+                                        op: Invert,
+                                        operand: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 4..4,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 6..13,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 6..13,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 7..8,
+                                        id: Name("a"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                BinOp(
+                                    ExprBinOp {
+                                        node_index: NodeIndex(None),
+                                        range: 9..12,
+                                        left: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 9..10,
+                                                id: Name("b"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        op: Add,
+                                        right: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 12..12,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | [a ~]
+  |    ^ Syntax Error: invalid syntax
+2 | [a b +]
+  |
+
+
+  |
+1 | [a ~]
+  |     ^ Syntax Error: invalid syntax
+2 | [a b +]
+  |
+
+
+  |
+1 | [a ~]
+2 | [a b +]
+  |  ^^^ Syntax Error: invalid syntax. Perhaps you forgot a comma?
+
+
+  |
+1 | [a ~]
+2 | [a b +]
+  |    ^ Syntax Error: invalid syntax
+
+
+  |
+1 | [a ~]
+2 | [a b +]
+  |       ^ Syntax Error: invalid syntax

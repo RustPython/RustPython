@@ -1,0 +1,114 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/args_keyword_generator.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..18,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 0..1,
+                                    id: Name("f"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 1..5,
+                                node_index: NodeIndex(None),
+                                args: [],
+                                keywords: [
+                                    Keyword {
+                                        range: 2..5,
+                                        node_index: NodeIndex(None),
+                                        arg: Some(
+                                            Identifier {
+                                                id: Name("a"),
+                                                range: 2..3,
+                                                node_index: NodeIndex(None),
+                                            },
+                                        ),
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 4..5,
+                                                id: Name("x"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+            For(
+                StmtFor {
+                    node_index: NodeIndex(None),
+                    range: 6..16,
+                    is_async: false,
+                    target: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 10..11,
+                            id: Name("x"),
+                            ctx: Store,
+                        },
+                    ),
+                    iter: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 15..16,
+                            id: Name("y"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    orelse: [],
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | f(a=x for x in y)
+  |   ^^ Syntax Error: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+
+
+  |
+1 | f(a=x for x in y)
+  |       ^^^ Syntax Error: invalid syntax
+
+
+  |
+1 | f(a=x for x in y)
+  |                 ^ Syntax Error: unmatched ')'
+
+
+  |
+1 | f(a=x for x in y)
+  |                  ^ Syntax Error: invalid syntax

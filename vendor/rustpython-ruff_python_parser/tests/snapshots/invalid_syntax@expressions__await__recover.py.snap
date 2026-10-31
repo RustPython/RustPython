@@ -1,0 +1,371 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/await/recover.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..284,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 117..130,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 117..130,
+                            value: Await(
+                                ExprAwait {
+                                    node_index: NodeIndex(None),
+                                    range: 123..130,
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 129..130,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 154..162,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 154..162,
+                            value: Starred(
+                                ExprStarred {
+                                    node_index: NodeIndex(None),
+                                    range: 160..162,
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 161..162,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    ctx: Load,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 163..173,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 163..173,
+                            value: Starred(
+                                ExprStarred {
+                                    node_index: NodeIndex(None),
+                                    range: 170..172,
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 171..172,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    ctx: Load,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 214..227,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 214..227,
+                            value: Yield(
+                                ExprYield {
+                                    node_index: NodeIndex(None),
+                                    range: 220..227,
+                                    value: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 226..227,
+                                                id: Name("x"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 228..245,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 228..245,
+                            value: Lambda(
+                                ExprLambda {
+                                    node_index: NodeIndex(None),
+                                    range: 234..245,
+                                    parameters: Some(
+                                        Parameters {
+                                            range: 241..242,
+                                            node_index: NodeIndex(None),
+                                            posonlyargs: [],
+                                            args: [
+                                                ParameterWithDefault {
+                                                    range: 241..242,
+                                                    node_index: NodeIndex(None),
+                                                    parameter: Parameter {
+                                                        range: 241..242,
+                                                        node_index: NodeIndex(None),
+                                                        name: Identifier {
+                                                            id: Name("x"),
+                                                            range: 241..242,
+                                                            node_index: NodeIndex(None),
+                                                        },
+                                                        annotation: None,
+                                                        runtime_type_comment: None,
+                                                        runtime_type_comment_bytes: None,
+                                                    },
+                                                    default: None,
+                                                },
+                                            ],
+                                            vararg: None,
+                                            kwonlyargs: [],
+                                            kwarg: None,
+                                            runtime_defaults: None,
+                                        },
+                                    ),
+                                    body: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 244..245,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 246..254,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 246..254,
+                            value: UnaryOp(
+                                ExprUnaryOp {
+                                    node_index: NodeIndex(None),
+                                    range: 252..254,
+                                    op: UAdd,
+                                    operand: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 253..254,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 255..263,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 255..263,
+                            value: UnaryOp(
+                                ExprUnaryOp {
+                                    node_index: NodeIndex(None),
+                                    range: 261..263,
+                                    op: USub,
+                                    operand: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 262..263,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 264..272,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 264..272,
+                            value: UnaryOp(
+                                ExprUnaryOp {
+                                    node_index: NodeIndex(None),
+                                    range: 270..272,
+                                    op: Invert,
+                                    operand: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 271..272,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 273..284,
+                    value: Await(
+                        ExprAwait {
+                            node_index: NodeIndex(None),
+                            range: 273..284,
+                            value: UnaryOp(
+                                ExprUnaryOp {
+                                    node_index: NodeIndex(None),
+                                    range: 279..284,
+                                    op: Not,
+                                    operand: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 283..284,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+4 | # Nested await
+5 | await await x
+  |       ^^^^^^^ Syntax Error: await expression cannot be used here
+6 |
+7 | # Starred expressions
+  |
+
+
+  |
+7 | # Starred expressions
+8 | await *x
+  |       ^ Syntax Error: invalid syntax
+9 | await (*x)
+  |
+
+
+   |
+ 7 | # Starred expressions
+ 8 | await *x
+ 9 | await (*x)
+   |        ^^ Syntax Error: cannot use starred expression here
+10 |
+11 | # Invalid expression as per precedence
+   |
+
+
+   |
+11 | # Invalid expression as per precedence
+12 | await yield x
+   |       ^^^^^^^ Syntax Error: yield expression cannot be used here
+13 | await lambda x: x
+14 | await +x
+   |
+
+
+   |
+11 | # Invalid expression as per precedence
+12 | await yield x
+13 | await lambda x: x
+   |       ^^^^^^^^^^^ Syntax Error: lambda expression cannot be used here
+14 | await +x
+15 | await -x
+   |
+
+
+   |
+12 | await yield x
+13 | await lambda x: x
+14 | await +x
+   |       ^^ Syntax Error: unary '+' expression cannot be used here
+15 | await -x
+16 | await ~x
+   |
+
+
+   |
+13 | await lambda x: x
+14 | await +x
+15 | await -x
+   |       ^^ Syntax Error: unary '-' expression cannot be used here
+16 | await ~x
+17 | await not x
+   |
+
+
+   |
+14 | await +x
+15 | await -x
+16 | await ~x
+   |       ^^ Syntax Error: unary '~' expression cannot be used here
+17 | await not x
+   |
+
+
+   |
+15 | await -x
+16 | await ~x
+17 | await not x
+   |       ^^^^^ Syntax Error: 'not' after an operator must be parenthesized

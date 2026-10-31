@@ -917,6 +917,8 @@ pub(crate) fn mode_type_and_name(mode: &str) -> Option<(PyRef<PyType>, &'static 
 struct TypeCommentLine<'a> {
     text: &'a str,
     comment_start: Option<usize>,
+    // Exact original Comment token, independent of the validator's line range.
+    comment_token: Option<TextRange>,
 }
 
 struct TypeCommentSource<'a> {
@@ -928,7 +930,7 @@ impl<'a> TypeCommentSource<'a> {
         let mut comment_offsets = Vec::new();
         for token in tokens {
             if matches!(token.kind(), ast::token::TokenKind::Comment) {
-                comment_offsets.push(token.start().to_usize());
+                comment_offsets.push((token.start().to_usize(), token.range()));
             }
         }
 
@@ -937,10 +939,11 @@ impl<'a> TypeCommentSource<'a> {
         let mut lines = Vec::new();
         for line in source.split_inclusive('\n') {
             let line_end = line_start + line.len();
-            let comment_start = comment_offsets.next_if(|offset| *offset < line_end);
+            let comment = comment_offsets.next_if(|(offset, _)| *offset < line_end);
             lines.push(TypeCommentLine {
                 text: line,
-                comment_start: comment_start.map(|offset| offset - line_start),
+                comment_start: comment.map(|(offset, _)| offset - line_start),
+                comment_token: comment.map(|(_, range)| range),
             });
             line_start = line_end;
         }
@@ -980,7 +983,7 @@ fn regular_type_comment_text<'a>(line: &'a TypeCommentLine<'a>) -> Option<&'a st
     type_ignore_tag(comment).is_none().then_some(comment)
 }
 
-fn type_comment_parse_error(
+pub(crate) fn type_comment_parse_error(
     source_file: &SourceFile,
     message: &str,
     start: usize,
@@ -1157,10 +1160,35 @@ fn line_allows_stmt_type_comment(code: &str) -> bool {
         || is_assignment_stmt_line(code)
 }
 
+/// Preserve the validator's reason separately from the token it rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TypeCommentRejectionRule {
+    BareStar,
+    DuplicateFunctionComment,
+    StatementPosition,
+}
+
+#[derive(Debug)]
+pub(crate) struct TypeCommentRejection {
+    pub error: CompileError,
+    /// Token identity, not the possibly longer diagnostic range. Canonical
+    /// TYPE_COMMENT classification is separately checked against parser reads.
+    pub token: Option<TextRange>,
+    pub rule: TypeCommentRejectionRule,
+}
+
 fn invalid_type_comment_syntax_error(
     source_file: &SourceFile,
     type_comment_source: &TypeCommentSource<'_>,
 ) -> Option<CompileError> {
+    invalid_type_comment_rejection_from_lines(source_file, type_comment_source)
+        .map(|rejection| rejection.error)
+}
+
+fn invalid_type_comment_rejection_from_lines(
+    source_file: &SourceFile,
+    type_comment_source: &TypeCommentSource<'_>,
+) -> Option<TypeCommentRejection> {
     let mut line_start = 0usize;
     let mut in_def_header = false;
     let mut def_depth = 0i32;
@@ -1175,20 +1203,28 @@ fn invalid_type_comment_syntax_error(
 
         if let Some(comment) = type_comment_position(line) {
             if code == "*" || code == "*," || code.ends_with("*,") {
-                return Some(type_comment_parse_error(
-                    source_file,
-                    "bare * has associated type comment",
-                    line_start + comment,
-                    line_start + line.text.len(),
-                ));
+                return Some(TypeCommentRejection {
+                    error: type_comment_parse_error(
+                        source_file,
+                        "bare * has associated type comment",
+                        line_start + comment,
+                        line_start + line.text.len(),
+                    ),
+                    token: line.comment_token,
+                    rule: TypeCommentRejectionRule::BareStar,
+                });
             }
             if previous_def_had_type_comment && code.is_empty() {
-                return Some(type_comment_parse_error(
-                    source_file,
-                    "Cannot have two type comments on def",
-                    line_start + comment,
-                    line_start + line.text.len(),
-                ));
+                return Some(TypeCommentRejection {
+                    error: type_comment_parse_error(
+                        source_file,
+                        "Cannot have two type comments on def",
+                        line_start + comment,
+                        line_start + line.text.len(),
+                    ),
+                    token: line.comment_token,
+                    rule: TypeCommentRejectionRule::DuplicateFunctionComment,
+                });
             }
             let allowed = !has_regular_type_comment
                 || in_def_header
@@ -1197,12 +1233,16 @@ fn invalid_type_comment_syntax_error(
                 || stripped.starts_with("async def ")
                 || (pending_func_type_comment && code.is_empty());
             if !allowed {
-                return Some(type_comment_parse_error(
-                    source_file,
-                    "invalid syntax",
-                    line_start + comment,
-                    line_start + line.text.len(),
-                ));
+                return Some(TypeCommentRejection {
+                    error: type_comment_parse_error(
+                        source_file,
+                        "invalid syntax",
+                        line_start + comment,
+                        line_start + line.text.len(),
+                    ),
+                    token: line.comment_token,
+                    rule: TypeCommentRejectionRule::StatementPosition,
+                });
             }
         }
 
@@ -1233,6 +1273,39 @@ fn invalid_type_comment_syntax_error(
     None
 }
 
+/// Raw validator evidence for malformed-input consumers. Single reachability
+/// must be checked separately; None here alone is not parser success.
+pub(crate) fn unfiltered_type_comment_rejection(
+    source_file: &SourceFile,
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<TypeCommentRejection> {
+    let comments = TypeCommentSource::new(source_file.source_text(), parsed.tokens());
+    invalid_type_comment_rejection_from_lines(source_file, &comments)
+}
+
+/// Expose the existing validator failure without changing its messages, ranges,
+/// recognition rules, or Single filtering. A missing/noncanonical token is an
+/// explicit unavailable provenance result for the grammar consumer, not success.
+pub(crate) fn invalid_type_comment_rejection(
+    source_file: &SourceFile,
+    parsed: &parser::Parsed<ast::Mod>,
+    interactive: bool,
+) -> Option<TypeCommentRejection> {
+    let rejection = unfiltered_type_comment_rejection(source_file, parsed)?;
+    let applicable = match &rejection.error {
+        CompileError::Parse(error) => {
+            !interactive
+                || type_comment_precedes_single_boundary(
+                    error.raw_location.start().to_usize(),
+                    source_file,
+                    parsed,
+                )
+        }
+        CompileError::Codegen(_) => false,
+    };
+    applicable.then_some(rejection)
+}
+
 /// The parser phase where a rejected TYPE_COMMENT stops grammar actions.
 /// Use the validator's token-backed location, not a textual comment search.
 pub(crate) fn invalid_type_comment_warning_boundary(
@@ -1240,18 +1313,13 @@ pub(crate) fn invalid_type_comment_warning_boundary(
     parsed: &parser::Parsed<ast::Mod>,
     interactive: bool,
 ) -> Option<usize> {
-    let comments = TypeCommentSource::new(source_file.source_text(), parsed.tokens());
-    match invalid_type_comment_syntax_error(source_file, &comments)? {
-        CompileError::Parse(error) => {
-            let offset = error.raw_location.start().to_usize();
-            (!interactive || type_comment_precedes_single_boundary(offset, source_file, parsed))
-                .then_some(offset)
-        }
+    match invalid_type_comment_rejection(source_file, parsed, interactive)?.error {
+        CompileError::Parse(error) => Some(error.raw_location.start().to_usize()),
         CompileError::Codegen(_) => None,
     }
 }
 
-fn type_comment_precedes_single_boundary(
+pub(crate) fn type_comment_precedes_single_boundary(
     offset: usize,
     source_file: &SourceFile,
     parsed: &parser::Parsed<ast::Mod>,

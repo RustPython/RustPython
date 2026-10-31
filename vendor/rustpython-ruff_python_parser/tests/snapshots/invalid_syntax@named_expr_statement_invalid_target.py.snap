@@ -1,0 +1,128 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/named_expr_statement_invalid_target.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..20,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            left: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 0..1,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            op: Add,
+                            right: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 4..5,
+                                    id: Name("y"),
+                                    ctx: Load,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 9..10,
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 9..10,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 11..14,
+                    value: Attribute(
+                        ExprAttribute {
+                            node_index: NodeIndex(None),
+                            range: 11..14,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 11..12,
+                                    id: Name("a"),
+                                    ctx: Load,
+                                },
+                            ),
+                            attr: Identifier {
+                                id: Name("b"),
+                                range: 13..14,
+                                node_index: NodeIndex(None),
+                            },
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 18..19,
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 18..19,
+                            value: Int(
+                                1,
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | x + y := 1
+  | ^^^^^ Syntax Error: cannot use assignment expressions with expression
+2 | a.b := 1
+  |
+
+
+  |
+1 | x + y := 1
+  |       ^^ Syntax Error: invalid syntax
+2 | a.b := 1
+  |
+
+
+  |
+1 | x + y := 1
+2 | a.b := 1
+  | ^^^ Syntax Error: cannot use assignment expressions with attribute
+
+
+  |
+1 | x + y := 1
+2 | a.b := 1
+  |     ^^ Syntax Error: invalid syntax

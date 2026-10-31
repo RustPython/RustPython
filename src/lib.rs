@@ -150,6 +150,12 @@ fn run_impl(mut builder: InterpreterBuilder, configure_locale: bool) -> ExitCode
 
     builder = builder.settings(settings);
 
+    #[cfg(feature = "capi")]
+    {
+        let def = rustpython_vm::stdlib::capi_test_module_def(&builder.ctx);
+        builder = builder.add_native_module(def);
+    }
+
     let interp = builder.interpreter();
     let exitcode = cfg_select! {
         feature = "capi" => rustpython_capi::run_main_interpreter(interp, move |vm| run_rustpython(vm, run_mode)),

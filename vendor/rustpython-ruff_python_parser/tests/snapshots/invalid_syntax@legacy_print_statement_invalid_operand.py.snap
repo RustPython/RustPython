@@ -1,0 +1,159 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/legacy_print_statement_invalid_operand.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..29,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            id: Name("print"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 6..16,
+                    value: Dict(
+                        ExprDict {
+                            node_index: NodeIndex(None),
+                            range: 6..16,
+                            items: [
+                                DictItem {
+                                    key: Some(
+                                        NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 7..8,
+                                                value: Int(
+                                                    1,
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    value: Attribute(
+                                        ExprAttribute {
+                                            node_index: NodeIndex(None),
+                                            range: 10..14,
+                                            value: Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 10..13,
+                                                    id: Name("foo"),
+                                                    ctx: Load,
+                                                },
+                                            ),
+                                            attr: Identifier {
+                                                id: Name(""),
+                                                range: 14..14,
+                                                node_index: NodeIndex(None),
+                                            },
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                            ],
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 17..28,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 17..28,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 18..23,
+                                        id: Name("print"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                BinOp(
+                                    ExprBinOp {
+                                        node_index: NodeIndex(None),
+                                        range: 24..27,
+                                        left: NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 24..25,
+                                                value: Int(
+                                                    1,
+                                                ),
+                                            },
+                                        ),
+                                        op: Add,
+                                        right: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 27..27,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | print {1:(foo.)}
+  |       ^ Syntax Error: invalid syntax
+2 | [print 1 +]
+  |
+
+
+  |
+1 | print {1:(foo.)}
+  |               ^ Syntax Error: invalid syntax
+2 | [print 1 +]
+  |
+
+
+  |
+1 | print {1:(foo.)}
+2 | [print 1 +]
+  |  ^^^^^^^ Syntax Error: Missing parentheses in call to 'print'. Did you mean print(...)?
+
+
+  |
+1 | print {1:(foo.)}
+2 | [print 1 +]
+  |        ^ Syntax Error: invalid syntax
+
+
+  |
+1 | print {1:(foo.)}
+2 | [print 1 +]
+  |           ^ Syntax Error: invalid syntax

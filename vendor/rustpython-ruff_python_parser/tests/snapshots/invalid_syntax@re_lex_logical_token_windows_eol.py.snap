@@ -1,0 +1,145 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/re_lex_logical_token_windows_eol.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..50,
+        body: [
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 0..48,
+                    test: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 3..18,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 3..7,
+                                    id: Name("call"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 7..18,
+                                node_index: NodeIndex(None),
+                                args: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 8..11,
+                                            id: Name("foo"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    List(
+                                        ExprList {
+                                            node_index: NodeIndex(None),
+                                            range: 13..18,
+                                            elts: [
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 14..15,
+                                                        id: Name("a"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 17..18,
+                                                        id: Name("b"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                            ],
+                                            ctx: Load,
+                                            runtime_elts: None,
+                                        },
+                                    ),
+                                ],
+                                keywords: [],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                    body: [
+                        FunctionDef(
+                            StmtFunctionDef {
+                                node_index: NodeIndex(None),
+                                range: 24..48,
+                                is_async: false,
+                                decorator_list: [],
+                                name: Identifier {
+                                    id: Name("bar"),
+                                    range: 28..31,
+                                    node_index: NodeIndex(None),
+                                },
+                                type_params: None,
+                                parameters: Parameters {
+                                    range: 31..33,
+                                    node_index: NodeIndex(None),
+                                    posonlyargs: [],
+                                    args: [],
+                                    vararg: None,
+                                    kwonlyargs: [],
+                                    kwarg: None,
+                                    runtime_defaults: None,
+                                },
+                                returns: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 44..48,
+                                        },
+                                    ),
+                                ],
+                                runtime_decorator_list: None,
+                                runtime_type_comment: None,
+                                runtime_type_comment_bytes: None,
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    elif_else_clauses: [],
+                    runtime_body: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | if call(foo, [a, b
+  |              ^ Syntax Error: '[' was never closed
+2 |     def bar():
+3 |         pass
+  |
+
+
+  |
+1 | if call(foo, [a, b
+2 |     def bar():
+  |     ^^^ Syntax Error: invalid syntax
+3 |         pass
+  |
+
+
+  |
+1 | if call(foo, [a, b
+  |                   ^ Syntax Error: invalid syntax
+2 |     def bar():
+3 |         pass
+  |
