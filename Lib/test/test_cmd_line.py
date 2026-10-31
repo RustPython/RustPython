@@ -728,7 +728,6 @@ class CmdLineTest(unittest.TestCase):
                                           cwd=tmpdir)
             self.assertEqual(out.strip(), b"ok")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sys_flags_set(self):
         # Issue 31845: a startup refactoring broke reading flags from env vars
         for value, expected in (("", 0), ("1", 1), ("text", 1), ("2", 2)):
@@ -750,7 +749,6 @@ class CmdLineTest(unittest.TestCase):
             with self.subTest(envar_value=value):
                 assert_python_ok('-c', code, **env_vars)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_pycache_prefix(self):
         # sys.pycache_prefix can be set from either -X pycache_prefix or
         # PYTHONPYCACHEPREFIX env var, with the former taking precedence.
