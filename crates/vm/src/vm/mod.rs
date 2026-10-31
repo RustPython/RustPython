@@ -3,6 +3,7 @@
 //! See also:
 //!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
 
+mod async_exception;
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
 pub(crate) mod compile_mode;
@@ -158,6 +159,9 @@ pub struct VirtualMachine {
     /// UnsafeCell because the VM is per-thread and no reference into the Vec
     /// is held across anything that could push to it.
     trampoline_stack: core::cell::UnsafeCell<Vec<SuspendedFrame>>,
+    // Keep the closed state alive through the release of every other VM root.
+    // A callback during field destruction must not reserve another exception.
+    async_exception: async_exception::PendingAsyncException,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -1408,6 +1412,7 @@ impl VirtualMachine {
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
+            async_exception: async_exception::PendingAsyncException::default(),
         };
 
         vm.builtins.init_dict(
@@ -3864,6 +3869,9 @@ impl VirtualMachine {
     /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        if self.async_exception.is_pending() {
+            return true;
+        }
         #[cfg(feature = "threading")]
         if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
             return true;

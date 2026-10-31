@@ -3931,7 +3931,7 @@ impl ExecutingFrame<'_> {
                 // the allocation that tripped the threshold.
                 #[cfg(feature = "threading")]
                 vm.run_scheduled_gc();
-                Ok(())
+                vm.raise_async_exception()
             }
             if vm.eval_breaker_tripped()
                 && let Err(exception) = eval_breaker_work(vm)
