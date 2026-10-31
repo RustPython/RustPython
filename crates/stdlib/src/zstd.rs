@@ -961,7 +961,8 @@ mod _zstd {
         } else {
             ("_compression_parameter_type", "decompression")
         };
-        let wrong_kind = vm.get_attribute_opt(&vm.import("_zstd", 0)?, wrong_kind_attr)?;
+        let module = vm.import("_zstd", 0)?;
+        let wrong_kind = vm.get_attribute_opt(module.as_ref(), wrong_kind_attr)?;
         for (k, v) in dict {
             // Reject a key from the wrong parameter family before any numeric
             // coercion, so the error names the type rather than giving a
