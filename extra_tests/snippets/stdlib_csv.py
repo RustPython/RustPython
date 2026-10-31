@@ -663,3 +663,25 @@ def test_non_ascii_dialect_chars():
 
 
 test_non_ascii_dialect_chars()
+
+
+def test_dialect_name_hashing():
+    class UnhashableName:
+        def __hash__(self):
+            raise ValueError("unhashable name")
+
+    with assert_raises(TypeError):
+        csv.get_dialect([])
+    with assert_raises(ValueError):
+        csv.get_dialect(UnhashableName())
+    with assert_raises(csv.Error):
+        csv.get_dialect(1)
+    with assert_raises(TypeError):
+        csv.unregister_dialect([])
+    with assert_raises(ValueError):
+        csv.unregister_dialect(UnhashableName())
+    with assert_raises(csv.Error):
+        csv.unregister_dialect(1)
+
+
+test_dialect_name_hashing()

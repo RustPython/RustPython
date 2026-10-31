@@ -215,30 +215,27 @@ mod _csv {
         Ok(())
     }
 
+    // Hash a non-str name as the dict lookup would; only str names are registered.
+    fn registry_key(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+        match name.downcast::<PyStr>() {
+            Ok(name) => name.try_into_utf8(vm),
+            Err(obj) => {
+                obj.hash(vm)?;
+                Err(new_csv_error(vm, "unknown dialect"))
+            }
+        }
+    }
+
     #[pyfunction]
     fn get_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<PyDialect> {
-        let name = name.downcast::<PyStr>().map_err(|obj| {
-            new_csv_error(
-                vm,
-                format!("argument 0 must be a string, not '{}'", obj.class().name()),
-            )
-        })?;
-
-        let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
+        let name = registry_key(name, vm)?;
         let dialect = GLOBAL_HASHMAP.lock().get(name.as_str()).cloned();
         dialect.ok_or_else(|| new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
     fn unregister_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<()> {
-        let name = name.downcast::<PyStr>().map_err(|obj| {
-            new_csv_error(
-                vm,
-                format!("argument 0 must be a string, not '{}'", obj.class().name()),
-            )
-        })?;
-
-        let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
+        let name = registry_key(name, vm)?;
         let removed = GLOBAL_HASHMAP.lock().remove(name.as_str());
 
         if removed.is_some() {
