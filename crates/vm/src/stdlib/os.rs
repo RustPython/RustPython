@@ -224,8 +224,6 @@ pub(super) mod _os {
     #[cfg(not(windows))]
     use crate::exceptions;
     use crate::host_env::fileutils::StatStruct;
-    #[cfg(any(unix, windows))]
-    use crate::utils::ToCString;
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         builtins::{
@@ -1924,6 +1922,12 @@ pub(super) mod _os {
     }
 
     #[cfg(any(unix, windows))]
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos"
+    )))]
     #[derive(FromArgs)]
     struct SystemArgs {
         #[pyarg(any)]
@@ -1931,8 +1935,16 @@ pub(super) mod _os {
     }
 
     #[cfg(any(unix, windows))]
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos"
+    )))]
     #[pyfunction]
     fn system(command: SystemArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        use crate::utils::ToCString;
+
         let command = command.command;
         let cstr = command.to_cstring(vm)?;
         let x = crate::host_env::os::system(cstr.as_c_str());

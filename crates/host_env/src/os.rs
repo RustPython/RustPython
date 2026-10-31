@@ -8,8 +8,6 @@ use crate::fs;
 pub use crate::posix::rename;
 #[cfg(any(unix, target_os = "wasi"))]
 pub use crate::posix_unix_like::rename;
-#[cfg(any(unix, windows))]
-use core::ffi::CStr;
 use core::str::Utf8Error;
 #[cfg(windows)]
 use core::time::Duration;
@@ -569,7 +567,13 @@ pub fn isatty(_fd: i32) -> bool {
 }
 
 #[cfg(any(unix, windows))]
-pub fn system(command: &CStr) -> libc::c_int {
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+)))]
+pub fn system(command: &core::ffi::CStr) -> libc::c_int {
     unsafe { libc::system(command.as_ptr()) }
 }
 

@@ -180,7 +180,11 @@ mod _socket {
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use host_socket::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
+    use host_socket::{AF_SYSTEM, PF_SYSTEM, TCP_KEEPALIVE};
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use host_socket::SYSPROTO_CONTROL;
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
