@@ -19,12 +19,18 @@ Non-marker adaptations require reviewed blocks on each migration, for example
 Use a host Python that parses the source version (Python 3.15 for 3.15 syntax),
 as required by the existing marker extraction and application steps.
 
-For a new destination only, --new-file-adaptations accepts exactly "target",
+For a new destination only, --new-file-adaptations requires "target",
 "source_sha256" (the raw canonical file hash), and "blocks". Each canonical
 fragment must occur uniquely, and fragments must not overlap. Only top-level
 imports and existing binding values may change; all class/function bodies are
 preserved. These adaptations still require review: preserving their AST does
 not prove behavioral equivalence. Existing destinations are never overwritten.
+An optional "import_binding_rewrites" list admits explicitly declared undotted
+top-level imports rewritten to same-name canonical test.support helper bindings.
+Each entry has "canonical_import" and "kind" ("optional_module" or
+"required_attributes"); the latter also requires "module_binding". Helper and
+module provenance, exact calls, scope collisions and statement order are checked
+before the existing protected AST comparison. Unsupported forms fail closed.
 
 Ordinary migration will:
     1. Extract patches from Lib/test/test_foo.py (if exists)
@@ -55,11 +61,11 @@ def migrate_new_file(src_path: pathlib.Path, document: dict) -> None:
     Import and binding values still require review: AST preservation alone does
     not establish behavioral equivalence of the adapted module.
     """
-    if not isinstance(document, dict) or set(document) != {
-        "target",
-        "source_sha256",
-        "blocks",
-    }:
+    required_keys = {"target", "source_sha256", "blocks"}
+    if not isinstance(document, dict) or set(document) not in (
+        required_keys,
+        required_keys | {"import_binding_rewrites"},
+    ):
         raise ValueError(
             "New-file adaptations require target, source_sha256 and blocks"
         )
@@ -115,8 +121,7 @@ def migrate_new_file(src_path: pathlib.Path, document: dict) -> None:
     for start, end, new in reversed(edits):
         adapted = adapted[:start] + new + adapted[end:]
 
-    def protected_structure(text):
-        tree = ast.parse(text)
+    def protected_structure(tree):
         protected = []
         for node in tree.body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -129,7 +134,16 @@ def migrate_new_file(src_path: pathlib.Path, document: dict) -> None:
         return protected
 
     try:
-        if protected_structure(canonical) != protected_structure(adapted):
+        trees = ast.parse(canonical), ast.parse(adapted)
+        if "import_binding_rewrites" in document:
+            from update_lib.import_binding_rewrites import (
+                normalize_import_binding_rewrites,
+            )
+
+            trees = normalize_import_binding_rewrites(
+                canonical, adapted, document["import_binding_rewrites"]
+            )
+        if protected_structure(trees[0]) != protected_structure(trees[1]):
             raise ValueError(
                 "New-file adaptations may change only imports and bindings"
             )
