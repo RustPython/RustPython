@@ -232,6 +232,15 @@ pub(crate) enum TraceEvent {
     CException,
 }
 
+// Existing callers retain their combined hook behavior. Virtual monitoring
+// dispatch can resolve each participant separately at its invocation turn.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum TraceParticipant {
+    ExistingBoth,
+    Trace,
+    Profile,
+}
+
 impl TraceEvent {
     /// Whether sys.settrace receives this event.
     #[must_use]
@@ -320,9 +329,19 @@ impl VirtualMachine {
         what: crate::stdlib::sys::monitoring::MonitoringEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
+        self.trace_participant_what(event, what, arg, TraceParticipant::ExistingBoth)
+    }
+
+    pub(crate) fn trace_participant_what(
+        &self,
+        event: TraceEvent,
+        what: crate::stdlib::sys::monitoring::MonitoringEvent,
+        arg: Option<PyObjectRef>,
+        participant: TraceParticipant,
+    ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() && !self.tracing_is_suppressed() {
             let old = self.what_event.replace(Some(what));
-            let result = self._trace_event_inner(event, arg);
+            let result = self._trace_event_inner(event, arg, participant);
             self.what_event.set(old);
             result
         } else {
@@ -333,15 +352,23 @@ impl VirtualMachine {
         &self,
         event: TraceEvent,
         arg: Option<PyObjectRef>,
+        participant: TraceParticipant,
     ) -> PyResult<Option<PyObjectRef>> {
-        let trace_func = self.trace_func.borrow().to_owned();
-        let profile_func = self.profile_func.borrow().to_owned();
-        if self.is_none(&trace_func) && self.is_none(&profile_func) {
+        if self.is_none(&self.trace_func.borrow()) && self.is_none(&self.profile_func.borrow()) {
             return Ok(None);
         }
-
-        let is_trace_event = event.is_trace_event();
-        let is_profile_event = event.is_profile_event();
+        let trace_func = if participant != TraceParticipant::Profile {
+            self.trace_func.borrow().to_owned()
+        } else {
+            self.ctx.none()
+        };
+        let profile_func = if participant != TraceParticipant::Trace {
+            self.profile_func.borrow().to_owned()
+        } else {
+            self.ctx.none()
+        };
+        let is_trace_event = participant != TraceParticipant::Profile && event.is_trace_event();
+        let is_profile_event = participant != TraceParticipant::Trace && event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
         let Some(frame_ref) = crate::frame::current_complete_frame_for_trace(self) else {

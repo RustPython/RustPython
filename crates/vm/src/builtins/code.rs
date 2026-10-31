@@ -4,7 +4,8 @@ mod const_cache;
 
 use super::descriptor::{MemberKind, MemberLayout};
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
-use crate::common::lock::{OnceCell, PyMutex};
+use crate::common::lock::OnceCell;
+use crate::common::rc::PyRc;
 #[cfg(feature = "host_env")]
 use crate::convert::ToPyException;
 use crate::{
@@ -22,7 +23,7 @@ use alloc::fmt;
 use core::{
     borrow::Borrow,
     ops::Deref,
-    sync::atomic::{AtomicPtr, AtomicU64, Ordering},
+    sync::atomic::{AtomicPtr, Ordering},
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
@@ -420,18 +421,6 @@ impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
     }
 }
 
-/// Per-code-object monitoring data (_PyCoMonitoringData).
-/// Stores original opcodes displaced by INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
-pub struct CoMonitoringData {
-    /// Original opcodes at positions with INSTRUMENTED_LINE.
-    /// Indexed by instruction index. 0 = not instrumented for LINE.
-    pub line_opcodes: Vec<u8>,
-
-    /// Original opcodes at positions with INSTRUMENTED_INSTRUCTION.
-    /// Indexed by instruction index. 0 = not instrumented for INSTRUCTION.
-    pub per_instruction_opcodes: Vec<u8>,
-}
-
 /// `_PyCoCached`: objects created on first use.
 #[derive(Default)]
 struct CoCached {
@@ -440,6 +429,8 @@ struct CoCached {
     cellvars: OnceCell<PyTupleRef>,
     freevars: OnceCell<PyTupleRef>,
 }
+
+pub(crate) struct MonitoringCodeIdentity;
 
 #[pyclass(module = false, name = "code", traverse = "manual", clear = false)]
 pub struct PyCode {
@@ -469,11 +460,8 @@ pub struct PyCode {
     source_path: AtomicPtr<PyStrInterned>,
     #[pymember(name = "co_nlocals")]
     nlocals: i32,
-    /// Version counter for lazy re-instrumentation.
-    /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
-    pub instrumentation_version: AtomicU64,
-    /// Side-table for INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
-    pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
+    // Native lifetime witness, separate from Python-visible weak references.
+    monitoring_identity: OnceCell<PyRc<MonitoringCodeIdentity>>,
     /// Whether adaptive counters have been initialized (lazy quickening).
     pub quickened: core::sync::atomic::AtomicBool,
     /// Whether the bytecode contains any instruction that mutates the current
@@ -605,6 +593,15 @@ impl MemberLayout for CodeFlags {
 }
 
 impl PyCode {
+    pub(crate) fn monitoring_identity(&self) -> &PyRc<MonitoringCodeIdentity> {
+        self.monitoring_identity
+            .get_or_init(|| PyRc::new(MonitoringCodeIdentity))
+    }
+
+    pub(crate) fn existing_monitoring_identity(&self) -> Option<&PyRc<MonitoringCodeIdentity>> {
+        self.monitoring_identity.get()
+    }
+
     pub fn new(mut code: CodeObject, ctx: &Context) -> Self {
         code.instructions.fixup_get_iter(code.flags);
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
@@ -668,8 +665,7 @@ impl PyCode {
             localsplus_names,
             source_path: AtomicPtr::new(sp),
             nlocals,
-            instrumentation_version: AtomicU64::new(0),
-            monitoring_data: PyMutex::new(None),
+            monitoring_identity: OnceCell::new(),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
         }
@@ -751,24 +747,7 @@ impl PyCode {
     /// `deopt_code`: the instructions with each opcode replaced by its base
     /// opcode (`_Py_GetBaseCodeUnit`) and the inline caches zeroed.
     fn deopt_code(&self) -> Vec<u8> {
-        let monitoring_data = self.monitoring_data.lock();
-        self.code.instructions.original_bytes_with(|i, op| {
-            let Some(data) = monitoring_data.as_ref() else {
-                return op;
-            };
-            let op = match op {
-                Instruction::InstrumentedLine => Instruction::try_from(data.line_opcodes[i])
-                    .expect("INSTRUMENTED_LINE without original opcode"),
-                op => op,
-            };
-            match op {
-                Instruction::InstrumentedInstruction => {
-                    Instruction::try_from(data.per_instruction_opcodes[i])
-                        .expect("INSTRUMENTED_INSTRUCTION without original opcode")
-                }
-                op => op,
-            }
-        })
+        self.code.instructions.original_bytes()
     }
 
     pub fn source_path(&self) -> &'static PyStrInterned {

@@ -823,41 +823,94 @@ impl CodeUnits {
         unsafe { &*self.units.get() }.as_ptr()
     }
 
-    /// `read_unit` from a base pointer previously obtained with `units_ptr`.
+    /// Read an instruction from a base pointer previously obtained with `units_ptr`.
     ///
     /// # Safety
-    /// `base` must come from `units_ptr` on a live `CodeUnits`, and `index`
-    /// must be within that array (the dispatch loop only ever reads indices
-    /// the code object itself produced).
+    /// `base` must belong to a live `CodeUnits`, and `index` must identify an
+    /// in-bounds instruction start, never an inline cache. Construction fixup
+    /// must be complete. Runtime opcode replacements preserve the operand and
+    /// base family, so the two bytes need not be read as one atomic value.
+    /// This accessor does not validate malformed jump targets.
     #[inline(always)]
     #[must_use]
     pub unsafe fn read_unit_from(base: *const CodeUnit, index: usize) -> CodeUnit {
-        let ptr = base.wrapping_add(index) as *const AtomicU16;
-        let [op, arg] = unsafe { &*ptr }.load(Ordering::Acquire).to_ne_bytes();
-        // SAFETY: only valid Instruction values are ever stored into the
-        // instruction array (see `read_op`).
+        let ptr = base.wrapping_add(index).cast::<AtomicU8>();
+        let op = unsafe { &*ptr }.load(Ordering::Acquire);
+        let arg = unsafe { &*ptr.add(1) }.load(Ordering::Relaxed);
+        // SAFETY: instruction starts contain valid opcodes; cache words are
+        // excluded by the caller. Match replace_op's byte-sized atomic access.
         CodeUnit {
             op: unsafe { mem::transmute::<u8, Instruction>(op) },
             arg: OpArgByte::from(arg),
         }
     }
 
-    /// Atomically read the opcode and its arg byte at `index` as a single
-    /// Acquire-ordered 16-bit load.
-    ///
-    /// Equivalent to `read_op` followed by `read_arg`, but the one access
-    /// keeps the eval loop from re-loading the instruction array pointer
-    /// across the acquire barrier, and it is what the dispatch loop uses.
-    /// Acquire pairs with `replace_op` (Release) exactly as `read_op` does.
-    ///
-    /// `to_ne_bytes` yields the bytes in memory order, so `[0]` is the `op`
-    /// field and `[1]` the `arg` field of the `repr(C)` unit on either
-    /// endianness.
+    /// Read an instruction start using separate opcode and operand byte loads.
+    /// Runtime specialization preserves its operand and base family.
     #[inline(always)]
     #[must_use]
     pub fn read_unit(&self, index: usize) -> CodeUnit {
-        // SAFETY: `index` is in bounds for every caller of this method.
+        // SAFETY: callers supply an in-bounds instruction start.
         unsafe { Self::read_unit_from(self.units_ptr(), index) }
+    }
+
+    /// Walk bounded base instructions for structural analysis.
+    ///
+    /// Like CPython's `_Py_GetBaseCodeUnit`, derive base opcodes from execution
+    /// units. Virtual monitoring never writes wrappers into these units, and
+    /// specialization preserves each base family, operand and cache width.
+    /// Read only instruction starts with byte-sized atomic accesses, skipping
+    /// all caches. Stop before a wrapper without owning metadata or an
+    /// incomplete extent. This is optional analysis, not constructor or jump
+    /// validation, and is not a decoder for physically instrumented code.
+    pub fn base_instructions(&self) -> impl Iterator<Item = (usize, CodeUnit)> + '_ {
+        let mut index = 0usize;
+        let mut stopped = false;
+        core::iter::from_fn(move || {
+            if stopped || index >= self.len() {
+                return None;
+            }
+            let op = self.read_op(index);
+            if matches!(
+                op,
+                Instruction::InstrumentedLine
+                    | Instruction::InstrumentedInstruction
+                    | Instruction::EnterExecutor
+                    | Instruction::TraceRecord
+                    | Instruction::Reserved
+                    | Instruction::InterpreterExit
+            ) {
+                stopped = true;
+                return None;
+            }
+            let base = op.deoptimize();
+            let Some(end) = index.checked_add(1 + base.cache_entries()) else {
+                stopped = true;
+                return None;
+            };
+            if end > self.len() {
+                stopped = true;
+                return None;
+            }
+            let unit = CodeUnit::new(base, self.read_arg(index));
+            let at = index;
+            index = end;
+            Some((at, unit))
+        })
+    }
+
+    /// Owned scalar snapshot for analyses indexed by code-unit offset.
+    /// Cache positions are newly generated zeroes, never live cache reads.
+    pub fn base_instruction_prefix(&self) -> Vec<CodeUnit> {
+        let mut result = Vec::new();
+        for (index, unit) in self.base_instructions() {
+            result.push(unit);
+            result.resize(
+                index + 1 + unit.op.cache_entries(),
+                CodeUnit::new(Instruction::Cache, 0.into()),
+            );
+        }
+        result
     }
 
     /// Atomically read the arg byte at `index` with Relaxed ordering.
@@ -1473,6 +1526,76 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 mod tests {
     use super::*;
     use alloc::{vec, vec::Vec};
+
+    #[test]
+    fn base_instruction_walk_skips_cache_payloads() {
+        // Scalar storage only: this fixture is never executed.
+        let code = CodeUnits::from([
+            CodeUnit::new(Opcode::LoadGlobal.as_instruction(), 7.into()),
+            CodeUnit::new(Instruction::Cache, 0.into()),
+            CodeUnit::new(Instruction::InstrumentedLine, 9.into()),
+            CodeUnit::new(Instruction::InstrumentedInstruction, 11.into()),
+            CodeUnit::new(Instruction::Cache, 0.into()),
+            CodeUnit::new(Instruction::ReturnValue, 0.into()),
+        ]);
+        // SAFETY: a sequential same-family replacement at a known start.
+        unsafe { code.replace_op(0, Instruction::LoadGlobalModule) };
+        let starts = code.base_instructions().collect::<Vec<_>>();
+        assert_eq!(starts.len(), 2);
+        assert_eq!(starts[0].0, 0);
+        assert_eq!(starts[0].1.op.as_opcode(), Opcode::LoadGlobal);
+        assert_eq!(u8::from(starts[0].1.arg), 7);
+        assert_eq!(starts[1].0, 5);
+        assert_eq!(starts[1].1.op.as_opcode(), Opcode::ReturnValue);
+        let snapshot = code.base_instruction_prefix();
+        assert_eq!(snapshot.len(), 6);
+        for unit in &snapshot[1..5] {
+            assert_eq!(unit.op.as_opcode(), Opcode::Cache);
+            assert_eq!(u8::from(unit.arg), 0);
+        }
+
+        // Optional analysis stops before unavailable structure. Neither scalar
+        // fixture is executed or used to change constructor admission policy.
+        for tail in [
+            Instruction::InstrumentedLine,
+            Opcode::LoadGlobal.as_instruction(),
+        ] {
+            let unavailable = CodeUnits::from([
+                CodeUnit::new(Instruction::Nop, 0.into()),
+                CodeUnit::new(tail, 0.into()),
+            ]);
+            let starts = unavailable.base_instructions().collect::<Vec<_>>();
+            assert_eq!(starts.len(), 1);
+            assert_eq!(starts[0].0, 0);
+            assert_eq!(starts[0].1.op.as_opcode(), Opcode::Nop);
+            assert_eq!(unavailable.base_instruction_prefix().len(), 1);
+        }
+    }
+
+    #[test]
+    fn base_instruction_families_preserve_cache_width() {
+        for value in 0..=u8::MAX {
+            if let Ok(op) = Opcode::try_from(value) {
+                assert_eq!(op.cache_entries(), op.deoptimize().cache_entries());
+            }
+        }
+    }
+
+    #[test]
+    fn instruction_byte_reader_preserves_operand() {
+        let code = CodeUnits::from([
+            CodeUnit::new(Opcode::JumpBackward.as_instruction(), 13.into()),
+            CodeUnit::new(Instruction::Cache, 0.into()),
+        ]);
+        // No bytecode execution or concurrent access: test scalar read results.
+        unsafe { code.replace_op(0, Instruction::JumpBackwardNoJit) };
+        let unit = code.read_unit(0);
+        assert_eq!(unit.op.as_opcode(), Opcode::JumpBackwardNoJit);
+        assert_eq!(u8::from(unit.arg), 13);
+        let base = code.base_instructions().next().unwrap();
+        assert_eq!(base.1.op.as_opcode(), Opcode::JumpBackward);
+        assert_eq!(u8::from(base.1.arg), 13);
+    }
 
     #[test]
     fn exception_table_encode_decode() {
