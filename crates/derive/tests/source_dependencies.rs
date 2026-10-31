@@ -1,5 +1,8 @@
 #![allow(clippy::tests_outside_test_module)]
 
+// cspell:ignore rlib rmeta
+
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -9,11 +12,11 @@ use std::{
 
 struct Project {
     path: PathBuf,
-    target: PathBuf,
 }
 
 impl Project {
     fn new() -> Self {
+        static NEXT_PROJECT: AtomicUsize = AtomicUsize::new(0);
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
@@ -23,13 +26,12 @@ impl Project {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let id = NEXT_PROJECT.fetch_add(1, Ordering::Relaxed);
         let project = Self {
             path: std::env::temp_dir().join(format!(
-                "rustpython-source-dependencies-{}-{suffix}",
+                "rustpython-source-dependencies-{}-{suffix}-{id}",
                 std::process::id()
             )),
-            // A separate target directory avoids the parent cargo test's build lock.
-            target: workspace.join("target/derive-rebuild-tests"),
         };
         project.write(
             "Cargo.toml",
@@ -128,12 +130,13 @@ pub fn show() {
     }
 
     fn run(&self) -> String {
+        // A separate target directory avoids the parent cargo test's build lock.
         let output = Command::new(env!("CARGO"))
             .args(["run", "--offline", "--quiet"])
             .arg("--manifest-path")
             .arg(self.path.join("Cargo.toml"))
             .arg("--target-dir")
-            .arg(&self.target)
+            .arg(self.path.join("target"))
             .output()
             .unwrap();
         assert!(
@@ -194,4 +197,107 @@ fn rebuilds_when_python_sources_change() {
     fs::remove_file(project.path.join("src/python tree/badsyntax_skipped.py")).unwrap();
     expected = expected.replace("directory/badsyntax_skipped:300\n", "");
     assert_eq!(project.run(), expected);
+}
+
+#[test]
+fn rebuilds_when_non_utf8_source_becomes_valid() {
+    let project = Project::new();
+    let source = "src/python tree/badsyntax_non_utf8.py";
+    fs::write(project.path.join(source), [0xff]).unwrap();
+    let original = project.run();
+
+    project.write(source, "VALUE = 301\n");
+    let expected = original.replace(
+        "directory/pkg",
+        "directory/badsyntax_non_utf8:301\ndirectory/pkg",
+    );
+    assert_eq!(project.run(), expected);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn compiles_from_non_utf8_directory_through_wrapper_macros() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+    let project = Project::new();
+    project.run();
+    let deps = project.path.join("target/debug/deps");
+    let find_library = |prefix: &str, extension: &str| {
+        fs::read_dir(&deps)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with(prefix)
+                    && path.extension().and_then(|ext| ext.to_str()) == Some(extension)
+            })
+            .unwrap()
+    };
+    let derive = find_library("librustpython_derive-", std::env::consts::DLL_EXTENSION);
+    let core = find_library("librustpython_compiler_core-", "rlib");
+    let directory = project
+        .path
+        .join(OsString::from_vec(b"non-utf8-\xff".to_vec()));
+    fs::create_dir(&directory).unwrap();
+    fs::create_dir(directory.join("package")).unwrap();
+    fs::write(directory.join("source.py"), "VALUE = 1\n").unwrap();
+    fs::write(directory.join("package/module.py"), "VALUE = 2\n").unwrap();
+    project.write(
+        "wrappers.rs",
+        r#"macro_rules! compile_file {
+    ($path:literal) => {
+        rustpython_derive::py_compile!(file = $path, crate_name = "rustpython_compiler_core")
+    };
+}
+macro_rules! freeze_file {
+    ($path:literal) => {
+        rustpython_derive::py_freeze!(file = $path, crate_name = "rustpython_compiler_core")
+    };
+}
+macro_rules! freeze_directory {
+    ($path:literal) => {
+        rustpython_derive::py_freeze!(dir = $path, crate_name = "rustpython_compiler_core")
+    };
+}
+"#,
+    );
+    fs::write(
+        directory.join("main.rs"),
+        r#"#[macro_use]
+#[path = "../wrappers.rs"]
+mod wrappers;
+fn main() {
+    let _ = compile_file!("source.py");
+    let _ = freeze_file!("source.py");
+    let _ = freeze_directory!("package");
+}
+"#,
+    )
+    .unwrap();
+    let output = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .current_dir(&directory)
+        .args([
+            "--edition=2024",
+            "--crate-name=non_utf8_source_paths",
+            "--emit=metadata",
+            "main.rs",
+        ])
+        .arg("-L")
+        .arg(format!("dependency={}", deps.display()))
+        .arg("--extern")
+        .arg(format!("rustpython_derive={}", derive.display()))
+        .arg("--extern")
+        .arg(format!("rustpython_compiler_core={}", core.display()))
+        .arg("-o")
+        .arg(project.path.join("probe.rmeta"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "non-UTF-8 source paths failed:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
 }

@@ -19,7 +19,7 @@ use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
 use std::{
     collections::HashMap,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 use syn::{
@@ -45,13 +45,17 @@ struct CompiledModule {
 struct CompilationSource {
     kind: CompilationSourceKind,
     span: (Span, Span),
+    path_span: Span,
 }
 
 /// Read a source file as text. A byte order mark belongs to the file's
 /// encoding rather than to the text, so it never reaches the compiler.
-fn read_source_file(path: &Path, source_files: &mut Vec<PathBuf>) -> std::io::Result<String> {
-    let mut source = fs::read_to_string(path)?;
-    source_files.push(std::path::absolute(path)?);
+fn read_source_file(path: &Path, source_files: &mut Vec<PathBuf>) -> io::Result<String> {
+    let bytes = fs::read(path)?;
+    // A decoding error may be skipped, but editing that input must still rebuild.
+    source_files.push(path.to_path_buf());
+    let mut source =
+        String::from_utf8(bytes).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
     if source.starts_with('\u{feff}') {
         source.drain(..'\u{feff}'.len_utf8());
     }
@@ -60,17 +64,30 @@ fn read_source_file(path: &Path, source_files: &mut Vec<PathBuf>) -> std::io::Re
 
 fn source_dependencies(
     mut source_files: Vec<PathBuf>,
-    span: (Span, Span),
+    source: &CompilationSource,
 ) -> Result<TokenStream, Diagnostic> {
+    let base = match &source.kind {
+        CompilationSourceKind::File { base, .. } | CompilationSourceKind::Dir { base, .. } => {
+            base.as_path()
+        }
+        CompilationSourceKind::SourceCode(_) => Path::new(""),
+    };
     source_files.sort();
     source_files.dedup();
+    // Resolve includes from the same source file as the original path literal.
+    // This also avoids requiring its parent directory to have a UTF-8 path.
     let paths = source_files
         .iter()
         .map(|path| {
-            path.to_str()
-                .map(|path| LitStr::new(path, span.0))
+            path.strip_prefix(base)
+                .unwrap_or(path)
+                .to_str()
+                .map(|path| LitStr::new(path, source.path_span))
                 .ok_or_else(|| {
-                    Diagnostic::spans_error(span, format!("Invalid UTF-8 in source path {path:?}"))
+                    Diagnostic::spans_error(
+                        source.span,
+                        format!("Invalid UTF-8 in source path {path:?}"),
+                    )
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -307,7 +324,7 @@ impl PyCompileArgs {
                     .local_file()
                     .ok_or_else(|| err_span!(s, "filepath literal has no span information"))?;
                 base_path.pop();
-                Ok::<_, syn::Error>((base_path, PathBuf::from(s.value())))
+                Ok::<_, syn::Error>((base_path, PathBuf::from(s.value()), s.span()))
             };
             if ident == "mode" {
                 let s = check_str()?;
@@ -323,13 +340,15 @@ impl PyCompileArgs {
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::SourceCode(code),
                     span: (ident.span(), meta.input.cursor().span()),
+                    path_span: ident.span(),
                 });
             } else if ident == "file" {
                 assert_source_empty(source.as_ref())?;
-                let (base, rel_path) = str_path()?;
+                let (base, rel_path, path_span) = str_path()?;
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::File { base, rel_path },
                     span: (ident.span(), meta.input.cursor().span()),
+                    path_span,
                 });
             } else if ident == "dir" {
                 if !allow_dir {
@@ -337,10 +356,11 @@ impl PyCompileArgs {
                 }
 
                 assert_source_empty(source.as_ref())?;
-                let (base, rel_path) = str_path()?;
+                let (base, rel_path, path_span) = str_path()?;
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::Dir { base, rel_path },
                     span: (ident.span(), meta.input.cursor().span()),
+                    path_span,
                 });
             } else if ident == "crate_name" {
                 let name = check_str()?.parse()?;
@@ -397,7 +417,7 @@ pub(crate) fn impl_py_compile(
     let code =
         args.source
             .compile_single(args.mode, &args.module_name, compiler, &mut source_files)?;
-    let dependencies = source_dependencies(source_files, args.source.span)?;
+    let dependencies = source_dependencies(source_files, &args.source)?;
 
     let frozen = frozen::FrozenCodeObject::encode(&code);
     let bytes = LitByteStr::new(&frozen.bytes, Span::call_site());
@@ -421,7 +441,7 @@ pub(crate) fn impl_py_freeze(
     let code_map =
         args.source
             .compile(args.mode, &args.module_name, compiler, &mut source_files)?;
-    let dependencies = source_dependencies(source_files, args.source.span)?;
+    let dependencies = source_dependencies(source_files, &args.source)?;
 
     let data = frozen::FrozenLib::encode(code_map.iter().map(|(k, v)| {
         let v = frozen::FrozenModule {
