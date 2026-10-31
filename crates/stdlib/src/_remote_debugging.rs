@@ -7,7 +7,7 @@ mod _remote_debugging {
     use super::binary;
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyDictRef, PyFloat, PyList, PyTuple, PyType},
+        builtins::{PyBaseExceptionRef, PyDictRef, PyFloat, PyList, PyListRef, PyTuple, PyType},
         common::{lock::PyMutex, rc::PyRc},
         convert::{IntoPyException, ToPyObject},
         function::{FsPath, FuncArgs},
@@ -15,6 +15,7 @@ mod _remote_debugging {
     };
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, Ordering};
+    use num_traits::ToPrimitive;
 
     #[pystruct_sequence_data]
     struct LocationInfoData {
@@ -148,6 +149,74 @@ mod _remote_debugging {
         Ok(rustpython_host_env::remote_debugging::is_python_process(
             pid,
         ))
+    }
+
+    #[derive(FromArgs)]
+    struct GetChildPidsArgs {
+        #[pyarg(any)]
+        pid: PyObjectRef,
+        #[pyarg(named, optional)]
+        recursive: Option<PyObjectRef>,
+    }
+
+    /// Return a snapshot of a process's children, optionally including descendants.
+    #[pyfunction]
+    fn get_child_pids(args: GetChildPidsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        // Complete argument binding first, then preserve CPython's conversion order.
+        let pid = args
+            .pid
+            .try_index(vm)?
+            .as_bigint()
+            .to_i32()
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))?;
+        let recursive = args
+            .recursive
+            .map(|value| value.try_to_bool(vm))
+            .transpose()?
+            .unwrap_or(true);
+        let pids = rustpython_host_env::remote_debugging::get_child_pids(pid, recursive).map_err(
+            |error| {
+                use rustpython_host_env::remote_debugging::ChildPidsError;
+                match error {
+                    ChildPidsError::Unsupported => vm.new_not_implemented_error(
+                        "Subprocess enumeration not supported on this platform",
+                    ),
+                    ChildPidsError::Memory => {
+                        vm.new_exception_empty(vm.ctx.exceptions.memory_error.to_owned())
+                    }
+                    ChildPidsError::Message(message) => vm.new_os_error(message),
+                    ChildPidsError::Os(error) => error.into_pyexception(vm),
+                    ChildPidsError::Proc { error, operation } => {
+                        // Preserve errno/subtype and filename. CPython wraps read/close
+                        // errors with context, but never hides PermissionError.
+                        let description = error
+                            .raw_os_error()
+                            .and_then(rustpython_host_env::errno::strerror_string)
+                            .unwrap_or_else(|| error.to_string());
+                        let cause = error.into_pyexception(vm);
+                        let _ = cause
+                            .as_object()
+                            .set_attr("filename", vm.ctx.new_str("/proc"), vm);
+                        match operation {
+                            Some(operation)
+                                if !cause.fast_isinstance(vm.ctx.exceptions.permission_error) =>
+                            {
+                                let outer = vm.new_os_error(format!(
+                                    "Failed to {operation} process directory '/proc': {description}"
+                                ));
+                                outer.set_context(Some(cause.clone()));
+                                outer.set_cause(Some(cause));
+                                outer
+                            }
+                            _ => cause,
+                        }
+                    }
+                }
+            },
+        )?;
+        Ok(vm
+            .ctx
+            .new_list(pids.into_iter().map(|pid| pid.to_pyobject(vm)).collect()))
     }
 
     #[pyfunction]

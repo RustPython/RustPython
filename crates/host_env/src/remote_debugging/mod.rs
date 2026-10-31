@@ -3,6 +3,13 @@
 //! A successful cookie probe identifies a runtime; it does not validate its
 //! debug offsets or promise that stack unwinding is supported.
 
+mod children;
+pub use children::Error as ChildPidsError;
+
+pub fn get_child_pids(pid: i32, recursive: bool) -> Result<Vec<i32>, ChildPidsError> {
+    children::enumerate(pid, recursive)
+}
+
 #[cfg(all(target_os = "linux", not(target_env = "uclibc")))]
 mod linux;
 #[cfg(target_os = "macos")]
