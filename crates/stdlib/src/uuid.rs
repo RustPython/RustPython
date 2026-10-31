@@ -6,7 +6,7 @@ mod _uuid {
     use crate::builtins::PyNone;
     use crate::vm::VirtualMachine;
     #[cfg(windows)]
-    use crate::vm::{PyResult, convert::ToPyObject};
+    use crate::vm::{AsObject, PyResult, convert::ToPyObject};
     #[cfg(not(windows))]
     use std::sync::OnceLock;
     #[cfg(not(windows))]
