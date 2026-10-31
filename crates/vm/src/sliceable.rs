@@ -1,6 +1,6 @@
 // export through sliceable module, not slice.
 use crate::{
-    PyObject, PyResult, VirtualMachine,
+    Py, PyObject, PyResult, VirtualMachine,
     builtins::{int::PyInt, slice::PySlice},
 };
 use core::ops::Range;
@@ -257,31 +257,98 @@ pub enum SequenceIndex {
     Slice(SaturatedSlice),
 }
 
+/// Compile-time type name used in sequence index TypeErrors.
+///
+/// `&'static str` is not a legal const-generic type, so the name is an associated
+/// constant on a marker type, the same pattern as [`crate::function::ArgName`].
+pub trait SequenceIndexName {
+    const NAME: &'static str;
+}
+
+macro_rules! sequence_index_name {
+    ($($ty:ident = $name:literal),* $(,)?) => {$(
+        #[derive(Clone, Copy, Debug)]
+        pub struct $ty;
+        impl SequenceIndexName for $ty {
+            const NAME: &'static str = $name;
+        }
+    )*};
+}
+
+sequence_index_name! {
+    NameList = "list",
+    NameTuple = "tuple",
+    NameByte = "byte",
+    NameBytearray = "bytearray",
+    NameArray = "array",
+    NameMmap = "mmap",
+    NameElement = "element",
+}
+
 impl SequenceIndex {
-    pub fn try_from_borrowed_object(
-        vm: &VirtualMachine,
-        obj: &PyObject,
-        type_name: &str,
-    ) -> PyResult<Self> {
+    /// The index or slice `obj` stands for, or `None` when it is neither.
+    fn try_from_object_opt(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<Self>> {
+        const OVERFLOW: &str = "cannot fit 'int' into an index-sized integer";
         if let Some(i) = obj.downcast_ref::<PyInt>() {
             // TODO: number protocol
-            i.try_to_primitive(vm)
-                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
-                .map(Self::Int)
+            Some(
+                i.try_to_primitive(vm)
+                    .map_err(|_| vm.new_index_error(OVERFLOW))
+                    .map(Self::Int),
+            )
         } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
-            slice.to_saturated(vm).map(Self::Slice)
-        } else if let Some(i) = obj.try_index_opt(vm) {
-            // TODO: __index__ for indices is no more supported?
-            i?.try_to_primitive(vm)
-                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
-                .map(Self::Int)
+            Some(slice.to_saturated(vm).map(Self::Slice))
         } else {
-            Err(vm.new_type_error(format!(
-                "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
-                type_name,
-                obj.class()
-            )))
+            // TODO: __index__ for indices is no more supported?
+            obj.try_index_opt(vm).map(|i| {
+                i?.try_to_primitive(vm)
+                    .map_err(|_| vm.new_index_error(OVERFLOW))
+                    .map(Self::Int)
+            })
         }
+    }
+
+    fn try_from_object(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        err_fmt: fn(&str) -> String,
+    ) -> PyResult<Self> {
+        Self::try_from_object_opt(vm, obj)
+            .unwrap_or_else(|| Self::index_type_error(vm, obj, err_fmt))
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn index_type_error(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        err_fmt: fn(&str) -> String,
+    ) -> PyResult<Self> {
+        let class_name = obj.class().slot_name();
+        Err(vm.new_type_error(err_fmt(&class_name)))
+    }
+
+    fn sequence_index_type_error<N: SequenceIndexName>(class_name: &str) -> String {
+        format!(
+            "{} indices must be integers or slices, not {class_name:.200}",
+            N::NAME
+        )
+    }
+
+    fn str_index_type_error(class_name: &str) -> String {
+        format!("string indices must be integers, not '{class_name:.200}'")
+    }
+
+    pub fn try_from_borrowed_object<N: SequenceIndexName>(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+    ) -> PyResult<Self> {
+        Self::try_from_object(vm, obj, Self::sequence_index_type_error::<N>)
+    }
+
+    /// `unicode_subscript`, which turns down what it cannot use in its own words.
+    pub fn try_from_str_subscript(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        Self::try_from_object(vm, obj, Self::str_index_type_error)
     }
 }
 
@@ -368,7 +435,7 @@ impl SaturatedSlice {
     }
 
     // Equivalent to PySlice_Unpack.
-    pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn with_slice(slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult<Self> {
         let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);
         if step == 0 {
             return Err(vm.new_value_error("slice step cannot be zero"));
@@ -376,7 +443,7 @@ impl SaturatedSlice {
         let start = to_isize_index(vm, slice.start_ref(vm))?
             .unwrap_or_else(|| if step.is_negative() { isize::MAX } else { 0 });
 
-        let stop = to_isize_index(vm, &slice.stop(vm))?.unwrap_or_else(|| {
+        let stop = to_isize_index(vm, &slice.stop)?.unwrap_or_else(|| {
             if step.is_negative() {
                 isize::MIN
             } else {

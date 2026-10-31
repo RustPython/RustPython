@@ -1,6 +1,6 @@
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
-#![deny(clippy::disallowed_methods)]
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 #![allow(clippy::module_inception)]
 
 #[macro_use]
@@ -17,12 +17,13 @@ pub mod array;
 mod binascii;
 mod bisect;
 mod bz2;
+mod cjkcodecs;
 mod cmath;
 mod compression; // internal module
 mod contextvars;
 mod csv;
+mod elementtree;
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod lzma;
 
 mod zlib;
@@ -56,8 +57,11 @@ mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
 
+mod _datetime;
 mod _heapq;
 mod _queue;
+mod _zoneinfo;
+mod pickle;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -66,7 +70,14 @@ mod suggestions;
 
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
-#[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "host_env",
+    not(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))
+))]
+pub mod socket;
+
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))]
+#[path = "socket_wasm.rs"]
 pub mod socket;
 
 #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
@@ -130,11 +141,24 @@ mod select;
 ))]
 mod openssl;
 
+// Full rustls `_ssl` stays native. All wasm targets (browser unknown and
+// WASI) bind the rustls-free `rustpython_host_env::ssl` surface (MemoryBIO,
+// constants, OID, ALPN). WASI still compiles the rustls engine inside
+// host_env. `_socket` on wasm is the rustls-free-style shim in
+// `socket_wasm.rs` so `Lib/ssl.py` can import.
 #[cfg(all(
     feature = "host_env",
-    not(target_arch = "wasm32"),
-    feature = "__ssl-rustls"
+    feature = "__ssl-rustls",
+    any(not(target_arch = "wasm32"), target_os = "wasi"),
 ))]
+pub mod ssl;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "ssl",
+    not(all(feature = "host_env", feature = "__ssl-rustls", target_os = "wasi")),
+))]
+#[path = "ssl_wasm.rs"]
 pub mod ssl;
 
 #[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
@@ -174,6 +198,13 @@ use crate::vm::{Context, builtins};
 pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> {
     vec![
         _asyncio::module_def(ctx),
+        cjkcodecs::_codecs_cn::module_def(ctx),
+        cjkcodecs::_codecs_hk::module_def(ctx),
+        cjkcodecs::_codecs_iso2022::module_def(ctx),
+        cjkcodecs::_codecs_jp::module_def(ctx),
+        cjkcodecs::_codecs_kr::module_def(ctx),
+        cjkcodecs::_codecs_tw::module_def(ctx),
+        cjkcodecs::multibytecodec::module_def(ctx),
         _opcode::module_def(ctx),
         _remote_debugging::module_def(ctx),
         array::module_def(ctx),
@@ -184,6 +215,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         cmath::module_def(ctx),
         contextvars::module_def(ctx),
         csv::module_def(ctx),
+        elementtree::module_def(ctx),
         #[cfg(feature = "host_env")]
         faulthandler::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
@@ -201,9 +233,9 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(any(target_os = "ios", target_arch = "wasm32"))
         ))]
         locale::module_def(ctx),
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         lzma::module_def(ctx),
         math::module_def(ctx),
+        math::integer_module_def(ctx),
         md5::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, windows)))]
         mmap::module_def(ctx),
@@ -228,8 +260,11 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(target_os = "android")
         ))]
         posixshmem::module_def(ctx),
+        pickle::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
+        _datetime::module_def(ctx),
+        _zoneinfo::module_def(ctx),
         _heapq::module_def(ctx),
         _queue::module_def(ctx),
         random::module_def(ctx),
@@ -243,7 +278,12 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         sha256::module_def(ctx),
         sha3::module_def(ctx),
         sha512::module_def(ctx),
-        #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
+        #[cfg(all(
+            feature = "host_env",
+            not(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))
+        ))]
+        socket::module_def(ctx),
+        #[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))]
         socket::module_def(ctx),
         #[cfg(all(
             feature = "sqlite",
@@ -252,8 +292,14 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         _sqlite3::module_def(ctx),
         #[cfg(all(
             feature = "host_env",
-            not(target_arch = "wasm32"),
-            feature = "__ssl-rustls"
+            feature = "__ssl-rustls",
+            any(not(target_arch = "wasm32"), target_os = "wasi"),
+        ))]
+        ssl::module_def(ctx),
+        #[cfg(all(
+            target_arch = "wasm32",
+            feature = "ssl",
+            not(all(feature = "host_env", feature = "__ssl-rustls", target_os = "wasi")),
         ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),

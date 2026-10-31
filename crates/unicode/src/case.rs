@@ -33,12 +33,18 @@ use writeable::Writeable;
 /// Simple (one-to-one) lowercase mapping of `c` (`Py_UNICODE_TOLOWER`).
 #[must_use]
 pub fn simple_lowercase(c: char) -> char {
+    if c.is_ascii() {
+        return c.to_ascii_lowercase();
+    }
     CaseMapper::new().simple_lowercase(c)
 }
 
 /// Simple (one-to-one) uppercase mapping of `c` (`Py_UNICODE_TOUPPER`).
 #[must_use]
 pub fn simple_uppercase(c: char) -> char {
+    if c.is_ascii() {
+        return c.to_ascii_uppercase();
+    }
     CaseMapper::new().simple_uppercase(c)
 }
 
@@ -377,6 +383,15 @@ mod tests {
         assert_eq!(title_str("ﬁNNISH"), "Finnish");
         assert_eq!(capitalize_str("ǳungla"), "ǲungla");
         assert_eq!(capitalize_str("ßhello"), "Sshello");
+    }
+
+    #[test]
+    fn ascii_fast_path_matches_icu() {
+        let mapper = icu_casemap::CaseMapper::new();
+        for c in (0u8..0x80).map(char::from) {
+            assert_eq!(simple_lowercase(c), mapper.simple_lowercase(c));
+            assert_eq!(simple_uppercase(c), mapper.simple_uppercase(c));
+        }
     }
 
     #[test]

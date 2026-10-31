@@ -1,5 +1,7 @@
+import _hashlib
 import _md5
 import _sha1
+import array
 import hashlib
 
 from testutils import assert_raises
@@ -64,3 +66,17 @@ assert _sha1.sha1(b"").hexdigest() == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 # narrower than the length asked for, converting the argument fails first.
 with assert_raises(OverflowError):
     hashlib.pbkdf2_hmac("sha256", b"password", b"salt", 1, 2**62)
+
+
+# Invalid names use the native constructor's bounded type diagnostic.
+for value, name in (
+    (None, "None"),
+    (42, "int"),
+    (b"sha256", "bytes"),
+    (array.array("b"), "array.array"),
+    (type("x" * 60, (), {})(), "x" * 50),
+    (type("€" * 17, (), {})(), "€" * 16),
+):
+    with assert_raises(TypeError) as caught:
+        _hashlib.new(value)
+    assert str(caught.exception) == f"new() argument 'name' must be str, not {name}"

@@ -891,7 +891,6 @@ class TestExceptStarRaiseFrom(ExceptStarTest):
 
 
 class TestExceptStarExceptionGroupSubclass(ExceptStarTest):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_except_star_EG_subclass(self):
         class EG(ExceptionGroup):
             def __new__(cls, message, excs, code):

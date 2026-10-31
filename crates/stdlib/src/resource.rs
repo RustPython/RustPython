@@ -5,19 +5,20 @@ pub(crate) use resource::module_def;
 #[pymodule]
 mod resource {
     use crate::vm::{
-        PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-        builtins::PyIntRef,
+        Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        builtins::PyInt,
         convert::{ToPyException, ToPyObject},
+        function::ArgIndex,
+        stdlib::_warnings,
         types::PyStructSequence,
     };
+    use num_traits::{Signed, ToPrimitive};
     use rustpython_host_env::resource as host_resource;
     use std::io;
 
     #[cfg_attr(target_os = "android", expect(deprecated))]
     const RLIM_NLIMITS: i32 = cfg_select! {
-        target_os = "android" => {
-            host_resource::RLIM_NLIMITS
-        }
+        target_os = "android" => host_resource::RLIM_NLIMITS,
         _ => {
             // This constant isn't abi-stable across os versions, so we just
             // pick a high number so we don't get false positive ValueErrors and just bubble up the
@@ -32,6 +33,20 @@ mod resource {
         RLIM_INFINITY, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
         RLIMIT_MEMLOCK, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK,
     };
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "l4re",
+        target_os = "emscripten",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "aix",
+        target_os = "fuchsia",
+        target_os = "cygwin"
+    ))]
+    #[pyattr]
+    use host_resource::{RLIM_SAVED_CUR, RLIM_SAVED_MAX};
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
     #[pyattr]
@@ -94,11 +109,9 @@ mod resource {
 
     impl From<host_resource::RUsage> for RUsageData {
         fn from(rusage: host_resource::RUsage) -> Self {
-            let tv =
-                |tv: host_resource::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
             Self {
-                ru_utime: tv(rusage.ru_utime),
-                ru_stime: tv(rusage.ru_stime),
+                ru_utime: rusage.utime_secs(),
+                ru_stime: rusage.stime_secs(),
                 ru_maxrss: rusage.ru_maxrss,
                 ru_ixrss: rusage.ru_ixrss,
                 ru_idrss: rusage.ru_idrss,
@@ -117,6 +130,18 @@ mod resource {
         }
     }
 
+    // The exception the module reports its failures through, which is the one
+    // every other call raises.
+    #[pyattr(name = "error", once)]
+    fn error(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.exceptions.os_error.to_owned().into()
+    }
+
+    #[pyfunction]
+    fn getpagesize() -> usize {
+        rustpython_host_env::os::page_size()
+    }
+
     #[pyfunction]
     fn getrusage(who: i32, vm: &VirtualMachine) -> PyResult<RUsageData> {
         let res = host_resource::getrusage(who);
@@ -133,11 +158,11 @@ mod resource {
 
     impl<'a> TryFromBorrowedObject<'a> for Limits {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            let seq: Vec<host_resource::rlim_t> = obj.try_to_value(vm)?;
-            match *seq {
+            let seq: Vec<PyObjectRef> = obj.try_to_value(vm)?;
+            match seq.as_slice() {
                 [cur, max] => Ok(Self(host_resource::rlimit {
-                    rlim_cur: cur & RLIM_INFINITY,
-                    rlim_max: max & RLIM_INFINITY,
+                    rlim_cur: py2rlim_limit(cur, vm)?,
+                    rlim_max: py2rlim_limit(max, vm)?,
                 })),
                 _ => Err(vm.new_value_error("expected a tuple of 2 integers")),
             }
@@ -150,7 +175,7 @@ mod resource {
         }
     }
 
-    fn py2rlim(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
+    fn py2rlim(obj: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
         let value = obj.try_to_primitive::<isize>(vm)?;
 
         if value.is_negative() {
@@ -161,9 +186,35 @@ mod resource {
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
     }
 
+    fn py2rlim_limit(obj: &PyObject, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
+        let int = obj.try_index(vm)?;
+        if int.as_bigint().is_negative() {
+            // Only accept the legacy signed representation of RLIM_INFINITY,
+            // not arbitrary negative values truncated to the native width.
+            if let Some(value) = int.as_bigint().to_i128()
+                && value >= -(1_i128 << (host_resource::rlim_t::BITS - 1))
+                && value as host_resource::rlim_t == RLIM_INFINITY
+            {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "Use RLIM_INFINITY instead of negative limit value.".to_owned(),
+                    1,
+                    vm,
+                )?;
+                return Ok(RLIM_INFINITY);
+            }
+            return Err(vm.new_value_error("Cannot convert negative int"));
+        }
+        let value = int
+            .try_to_primitive::<u64>(vm)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))?;
+        host_resource::rlim_t::try_from(value)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
+    }
+
     #[pyfunction]
-    fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
-        let resource = py2rlim(resource, vm)?;
+    fn getrlimit(resource: ArgIndex, vm: &VirtualMachine) -> PyResult<Limits> {
+        let resource = py2rlim(resource.as_ref(), vm)?;
 
         if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
@@ -174,8 +225,8 @@ mod resource {
     }
 
     #[pyfunction]
-    fn setrlimit(resource: PyIntRef, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        let resource = py2rlim(resource, vm)?;
+    fn setrlimit(resource: ArgIndex, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
+        let resource = py2rlim(resource.as_ref(), vm)?;
 
         if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));

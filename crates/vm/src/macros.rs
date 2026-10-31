@@ -1,3 +1,20 @@
+/// Expands to the first group when this crate is built with its `doc` feature, else to the second.
+/// Derive output uses it so doc-dependent code follows `rustpython-vm`'s features, not the
+/// features of the crate the derive expands in.
+#[cfg(feature = "doc")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cfg_doc {
+    ({ $($doc:tt)* } else { $($no_doc:tt)* }) => { $($doc)* };
+}
+
+#[cfg(not(feature = "doc"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cfg_doc {
+    ({ $($doc:tt)* } else { $($no_doc:tt)* }) => { $($no_doc)* };
+}
+
 #[macro_export]
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
@@ -10,13 +27,13 @@ macro_rules! extend_module {
 #[macro_export]
 macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
-        py_class!($ctx, $class_name, $class_base, $crate::types::PyTypeFlags::BASETYPE, { $($name => $value),* })
+        py_class!($ctx, $class_name, $class_base, $crate::types::PyTypeFlags::from_element($crate::types::PyTypeFlags::BASETYPE), { $($name => $value),* })
     };
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
             let mut slots = $crate::types::PyTypeSlots::heap_default();
-            slots.flags = $flags;
+            slots.flags = $crate::types::AtomicPyTypeFlags::from_plain($flags);
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class(None, $class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
@@ -231,6 +248,7 @@ macro_rules! named_function {
                 stringify!($func),
                 [<$module _ $func>],
                 ::rustpython_vm::function::PyMethodFlags::empty(),
+                ::rustpython_vm::function::ItemDoc::NONE,
             )
             .to_function()
             .with_module(ctx.intern_str(stringify!($module)).into())

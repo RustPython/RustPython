@@ -98,7 +98,12 @@ class SendfileBase:
     # 64 KiB page configuration.
     DATA = b"x" * (1024 * 17 * 64 + 1)
     # Reduce socket buffer size to test on relative small data sets.
-    BUF_SIZE = 4 * 1024   # 4 KiB
+    if sys.platform.startswith('dragonfly'):
+        # A smaller buffer makes every window update wait 100 ms for the
+        # delayed ACK timer.
+        BUF_SIZE = 32 * 1024  # 32 KiB
+    else:
+        BUF_SIZE = 4 * 1024   # 4 KiB
 
     def create_event_loop(self):
         raise NotImplementedError
@@ -625,10 +630,6 @@ else:
             def create_event_loop(self):
                 return asyncio.SelectorEventLoop(selectors.EpollSelector())
 
-            @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
-            def test_sendfile_ssl_pre_and_post_data(self):
-                return super().test_sendfile_ssl_pre_and_post_data()
-
     if hasattr(selectors, 'PollSelector'):
         class PollEventLoopTests(SendfileTestsBase,
                                  test_utils.TestCase):
@@ -636,20 +637,12 @@ else:
             def create_event_loop(self):
                 return asyncio.SelectorEventLoop(selectors.PollSelector())
 
-            @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
-            def test_sendfile_ssl_pre_and_post_data(self):
-                return super().test_sendfile_ssl_pre_and_post_data()
-
     # Should always exist.
     class SelectEventLoopTests(SendfileTestsBase,
                                test_utils.TestCase):
 
         def create_event_loop(self):
             return asyncio.SelectorEventLoop(selectors.SelectSelector())
-
-        @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
-        def test_sendfile_ssl_pre_and_post_data(self):
-            return super().test_sendfile_ssl_pre_and_post_data()
 
 
 if __name__ == '__main__':

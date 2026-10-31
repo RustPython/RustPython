@@ -1,10 +1,6 @@
 use rustpython_wtf8::Wtf8;
-use std::{
-    ffi::{OsStr, OsString},
-    io,
-    os::windows::ffi::OsStringExt,
-};
-use widestring::WideCString;
+use std::{ffi::OsStr, io};
+use widestring::{WideCStr, WideCString};
 use windows_sys::{
     Win32::{
         Foundation::{
@@ -20,13 +16,19 @@ use windows_sys::{
                 FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
                 FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
             },
-            LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
+            LibraryLoader::{
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
+                GetModuleHandleExW, GetModuleHandleW,
+            },
             SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
             Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
         },
     },
     w,
 };
+
+const NUL_ERROR: &str = "embedded null character";
 
 /// _MAX_ENV from Windows CRT stdlib.h - maximum environment variable size
 pub const _MAX_ENV: usize = 32767;
@@ -49,6 +51,23 @@ pub fn init_winsock() {
         let mut wsa_data = core::mem::MaybeUninit::uninit();
         let _ = WSAStartup(0x0101, wsa_data.as_mut_ptr());
     })
+}
+
+/// Handle of the already-loaded image containing this RustPython runtime.
+/// The handle is borrowed and must not be passed to `FreeLibrary`.
+pub fn runtime_module_handle() -> io::Result<usize> {
+    let mut module = core::ptr::null_mut();
+    // FROM_ADDRESS treats this pointer as an address inside the image, not a
+    // string. UNCHANGED_REFCOUNT avoids loading a second copy or owning a ref.
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            runtime_module_handle as *const () as *const u16,
+            &mut module,
+        )
+    }
+    .check_win32_bool()?;
+    Ok(module as usize)
 }
 
 /// Win32 BOOL convention: 0 = failure, nonzero = success.
@@ -218,18 +237,12 @@ pub fn get_windows_version() -> io::Result<WindowsVersionInfo> {
     }
     .check_win32_bool()?;
 
-    let service_pack = {
-        let (last, _) = version
-            .szCSDVersion
-            .iter()
-            .take_while(|&x| x != &0)
-            .enumerate()
-            .last()
-            .unwrap_or((0, &0));
-        let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-        sp.into_string()
-            .map_err(|_| io::Error::other("service pack is not ASCII"))?
-    };
+    // szCSDVersion is at most 128 wide chars and represented as slice so overflow is impossible.
+    let service_pack = WideCStr::from_slice_truncate(&version.szCSDVersion)
+        .map_err(|_| io::Error::other(NUL_ERROR))?
+        .to_string()
+        .map_err(|_| io::Error::other("service pack is not ASCII"))?;
+
     let (major, minor, build) = get_kernel32_version()?;
     Ok(WindowsVersionInfo {
         major,
@@ -413,7 +426,7 @@ where
     T: AsRef<OsStr>,
 {
     fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
-        WideCString::from_os_str(self).map_err(|_| io::Error::other("embedded null character"))
+        WideCString::from_os_str(self).map_err(|_| io::Error::other(NUL_ERROR))
     }
 }
 
@@ -426,11 +439,32 @@ impl ToWideString for Wtf8 {
         //
         // For the sake of that behavior, fail on trailing NUL.
         if self.as_bytes().last().is_some_and(|&b| b == 0) {
-            return Err(io::Error::other("embedded null character"));
+            return Err(io::Error::other(NUL_ERROR));
         }
 
         let mut buf = Vec::with_capacity(self.len() + 1);
         buf.extend(self.encode_wide());
-        WideCString::from_vec(buf).map_err(|_| io::Error::other("embedded null character"))
+        WideCString::from_vec(buf).map_err(|_| io::Error::other(NUL_ERROR))
     }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn sys_string_len(bstr: *const u16) -> usize {
+    unsafe { windows_sys::Win32::Foundation::SysStringLen(bstr) as usize }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn sys_free_string(bstr: *const u16) {
+    unsafe { windows_sys::Win32::Foundation::SysFreeString(bstr) };
+}
+
+pub fn sys_alloc_string_len(units: &[u16]) -> Option<*mut u16> {
+    let len = u32::try_from(units.len()).ok()?;
+    let bstr = unsafe { windows_sys::Win32::Foundation::SysAllocStringLen(units.as_ptr(), len) };
+    (!bstr.is_null()).then_some(bstr as *mut u16)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn co_task_mem_free(ptr: *mut core::ffi::c_void) {
+    unsafe { windows_sys::Win32::System::Com::CoTaskMemFree(ptr) };
 }

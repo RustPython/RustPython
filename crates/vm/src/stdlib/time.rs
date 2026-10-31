@@ -5,8 +5,10 @@
 // https://docs.python.org/3/library/time.html
 
 pub use decl::time;
+pub(crate) mod pytime;
 
 pub(crate) use decl::module_def;
+pub(crate) use decl::perf_counter_ns as profiler_time;
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
@@ -14,16 +16,20 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     use crate::builtins::PyBaseExceptionRef;
+    #[cfg(any(unix, windows))]
+    use crate::convert::{ToPyException, ToPyObject};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef},
-        function::{Either, FuncArgs, OptionalArg},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
+        class::PyClassDef,
+        common::wtf8::Wtf8Buf,
+        function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
-    #[cfg(any(unix, windows))]
+    #[cfg(target_os = "wasi")]
     use crate::{
-        common::wtf8::Wtf8Buf,
-        convert::{ToPyException, ToPyObject},
+        PyRef,
+        builtins::{PyNamespace, PyUtf8StrRef},
     };
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
@@ -74,6 +80,40 @@ mod decl {
         get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
     }
 
+    #[cfg(target_os = "wasi")]
+    fn clock_getres(id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
+        host_time::clock_getres(id)
+            .map(|d| d.as_secs_f64())
+            .map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    #[pyfunction]
+    fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_str() {
+            "monotonic" | "perf_counter" => (
+                false,
+                "time.clock_gettime(CLOCK_MONOTONIC)",
+                true,
+                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+            ),
+            "time" => (
+                true,
+                "time.clock_gettime(CLOCK_REALTIME)",
+                false,
+                clock_getres(ClockId::CLOCK_REALTIME, vm)?,
+            ),
+            _ => return Err(vm.new_value_error("unknown clock")),
+        };
+
+        Ok(py_namespace!(vm, {
+            "implementation" => vm.new_pyobj(imp),
+            "monotonic" => vm.ctx.new_bool(mono),
+            "adjustable" => vm.ctx.new_bool(adj),
+            "resolution" => vm.ctx.new_float(res),
+        }))
+    }
+
     #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
@@ -85,26 +125,16 @@ mod decl {
     }
 
     #[pyfunction]
-    fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("time.sleep"), seconds.clone()), vm)?;
-        }
+    fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        vm.audit("time.sleep", || (object.clone(),))?;
 
-        let seconds_type_name = seconds.class().name().to_owned();
-        let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
-                && s.as_bytes() == b"negative duration"
-            {
-                return vm.new_value_error("sleep length must be non-negative");
-            }
-            if e.class().is(vm.ctx.exceptions.type_error) {
-                return vm.new_type_error(format!(
-                    "'{seconds_type_name}' object cannot be interpreted as an integer or float"
-                ));
-            }
-            e
-        })?;
+        // _PyTime_ROUND_TIMEOUT rounds away from zero.
+        let nanoseconds =
+            super::pytime::from_seconds_object(&object, super::pytime::Round::Up, vm)?;
+        if nanoseconds < 0 {
+            return Err(vm.new_value_error("sleep length must be non-negative"));
+        }
+        let dur = Duration::from_nanos(nanoseconds as u64);
 
         #[cfg(unix)]
         {
@@ -203,7 +233,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+    pub(crate) fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
@@ -301,16 +331,11 @@ mod decl {
     }
 
     #[cfg(not(any(unix, windows)))]
-    impl OptionalArg<Option<Either<f64, i64>>> {
-        /// Construct a localtime from the optional seconds, or get the current local time.
-        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<Zoned> {
-            Ok(match self {
-                Self::Present(Some(secs)) => {
-                    pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system())
-                }
-                Self::Present(None) | Self::Missing => Zoned::now(),
-            })
-        }
+    fn naive_or_local(secs: Option<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<Zoned> {
+        Ok(match secs {
+            Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system()),
+            None => Zoned::now(),
+        })
     }
 
     #[cfg(any(unix, windows))]
@@ -434,26 +459,26 @@ mod decl {
         }
     }
 
-    /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
+    // https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
     fn gmtime(
-        secs: OptionalArg<Option<Either<f64, i64>>>,
+        secs: OptionalOption<Either<f64, i64>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
-                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                    Some(value) => pyobj_to_time_t(value, vm)?,
+                    None => current_time_t(),
                 };
                 gmtime_from_timestamp(ts, vm)
             }
             _ => {
                 let instant = match secs {
-                    OptionalArg::Present(Some(secs)) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
-                    OptionalArg::Present(None) | OptionalArg::Missing => {
-                        Zoned::now().with_time_zone(TimeZone::UTC)
-                    }
+                    Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
+                    None => Zoned::now().with_time_zone(TimeZone::UTC),
                 };
                 Ok(StructTimeData::new_utc(vm, instant))
             }
@@ -462,39 +487,41 @@ mod decl {
 
     #[pyfunction]
     fn localtime(
-        secs: OptionalArg<Option<Either<f64, i64>>>,
+        secs: OptionalOption<Either<f64, i64>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
-                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                    Some(value) => pyobj_to_time_t(value, vm)?,
+                    None => current_time_t(),
                 };
                 localtime_from_timestamp(ts, vm)
             }
             _ => {
-                let instant = secs.naive_or_local(vm)?;
+                let instant = naive_or_local(secs, vm)?;
                 StructTimeData::new_local(vm, instant.into(), 0)
             }
         }
     }
 
     #[pyfunction]
-    fn mktime(t: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
+    fn mktime(object: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         #[cfg(unix)]
         {
-            unix_mktime(&t, vm)
+            unix_mktime(&object, vm)
         }
 
         #[cfg(windows)]
         {
-            win_mktime(&t, vm)
+            win_mktime(&object, vm)
         }
 
         #[cfg(not(any(unix, windows)))]
         {
-            let datetime = t.to_date_time(vm)?;
+            let datetime = object.to_date_time(vm)?;
             // mktime interprets struct_time as local time
             let local_dt = datetime
                 .to_zoned(TimeZone::system())
@@ -533,12 +560,14 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ctime(secs: OptionalArg<Option<Either<f64, i64>>>, vm: &VirtualMachine) -> PyResult<String> {
+    fn ctime(secs: OptionalOption<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         #[cfg(any(unix, windows))]
         {
             let ts = match secs {
-                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                Some(value) => pyobj_to_time_t(value, vm)?,
+                None => current_time_t(),
             };
             let local = localtime_from_timestamp(ts, vm)?;
             let tm = checked_tm_from_struct_time(&local, vm, "asctime")?.tm;
@@ -547,14 +576,14 @@ mod decl {
 
         #[cfg(not(any(unix, windows)))]
         {
-            let instant = secs.naive_or_local(vm)?;
+            let instant = naive_or_local(secs, vm)?;
             Ok(instant.strftime(CFMT).to_string())
         }
     }
 
     #[cfg(any(unix, windows))]
     fn strftime_crt(
-        format: &PyStrRef,
+        format: &Py<PyStr>,
         checked_tm: host_time::CheckedTm,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -813,7 +842,7 @@ mod decl {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             struct_sequence_new(
                 cls,
-                args.bind(vm)?,
+                args.bind_for(vm, Self::NAME)?,
                 StructTimeData::OPTIONAL_FIELD_NAMES,
                 vm,
             )
@@ -869,7 +898,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     #[cfg_attr(target_env = "musl", allow(deprecated))]
-    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<libc::time_t> {
+    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<host_time::TimeT> {
         match value {
             Either::A(float) => {
                 if !float.is_finite() {
@@ -877,17 +906,19 @@ mod decl {
                 }
                 let secs = float.floor();
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                if secs < libc::time_t::MIN as f64 || secs > libc::time_t::MAX as f64 {
+                let minimum = host_time::TimeT::MIN as f64;
+                // The signed maximum rounds up when represented by f64.
+                if !(minimum..-minimum).contains(&secs) {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                Ok(secs as libc::time_t)
+                Ok(secs as host_time::TimeT)
             }
             Either::B(int) => {
                 // try_into is needed on 32-bit platforms where time_t != i64
                 #[allow(clippy::useless_conversion)]
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                let ts: libc::time_t = int.try_into().map_err(|_| {
+                let ts: host_time::TimeT = int.try_into().map_err(|_| {
                     vm.new_overflow_error("timestamp out of range for platform time_t")
                 })?;
                 Ok(ts)
@@ -914,7 +945,7 @@ mod decl {
 }
 
 #[cfg(unix)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "time")]
 mod platform {
     #[allow(unused_imports)]
     use super::decl::{SEC_TO_NS, StructTimeData, US_TO_NS};
@@ -936,7 +967,10 @@ mod platform {
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
-    use libc::CLOCK_HIGHRES;
+    use host_time::CLOCK_HIGHRES;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    #[pyattr]
+    use host_time::CLOCK_MONOTONIC_RAW;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -945,7 +979,7 @@ mod platform {
         target_os = "wasi",
     )))]
     #[pyattr]
-    use libc::CLOCK_PROCESS_CPUTIME_ID;
+    use host_time::CLOCK_PROCESS_CPUTIME_ID;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -954,15 +988,18 @@ mod platform {
         target_os = "redox",
     )))]
     #[pyattr]
-    use libc::CLOCK_THREAD_CPUTIME_ID;
+    use host_time::CLOCK_THREAD_CPUTIME_ID;
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::{CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_TAI};
+    use host_time::{CLOCK_BOOTTIME, CLOCK_TAI};
     #[pyattr]
-    use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+    use host_time::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_time::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))]
     #[pyattr]
-    use libc::{CLOCK_PROF, CLOCK_UPTIME};
+    use host_time::{CLOCK_PROF, CLOCK_UPTIME};
 
     impl<'a> TryFromBorrowedObject<'a> for ClockId {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
@@ -1032,6 +1069,20 @@ mod platform {
         rustpython_host_env::time::clock_gettime(clk_id).map_err(|e| e.into_pyexception(vm))
     }
 
+    // On Apple platforms, `CLOCK_MONOTONIC` keeps advancing while the system is
+    // asleep, unlike CPython's `time.monotonic()`/`time.perf_counter()`, which are
+    // backed by `mach_absolute_time()` (equivalent to `CLOCK_UPTIME_RAW`) and stop
+    // during sleep. Use `CLOCK_UPTIME_RAW` there to match CPython's behavior.
+    #[cfg(target_vendor = "apple")]
+    fn monotonic_clock_id() -> ClockId {
+        ClockId::CLOCK_UPTIME_RAW
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
+    fn monotonic_clock_id() -> ClockId {
+        ClockId::CLOCK_MONOTONIC
+    }
+
     #[pyfunction]
     fn clock_gettime(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
         get_clock_time(clk_id, vm).map(|d| d.as_secs_f64())
@@ -1079,11 +1130,19 @@ mod platform {
     #[pyfunction]
     fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
         let (adj, imp, mono, res) = match name.as_str() {
+            #[cfg(target_vendor = "apple")]
+            "monotonic" | "perf_counter" => (
+                false,
+                "mach_absolute_time()",
+                true,
+                clock_getres(monotonic_clock_id(), vm)?,
+            ),
+            #[cfg(not(target_vendor = "apple"))]
             "monotonic" | "perf_counter" => (
                 false,
                 "time.clock_gettime(CLOCK_MONOTONIC)",
                 true,
-                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+                clock_getres(monotonic_clock_id(), vm)?,
             ),
             "process_time" => (
                 false,
@@ -1129,11 +1188,11 @@ mod platform {
     }
 
     pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+        get_clock_time(monotonic_clock_id(), vm)
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+        get_clock_time(monotonic_clock_id(), vm)
     }
 
     #[cfg(not(any(
@@ -1169,29 +1228,21 @@ mod platform {
         target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
-            (|tv: libc::timeval| {
-                let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
-                let u = (tv.tv_usec as i64).checked_mul(US_TO_NS)?;
-                t.checked_add(u)
-            })(tv)
+        let ru = host_resource::getrusage(host_resource::RUSAGE_SELF)
+            .map_err(|e| e.into_pyexception(vm))?;
+        ru.total_cpu_duration()
             .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64"))
-        }
-        let ru = host_resource::getrusage(libc::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
-        let utime = from_timeval(ru.ru_utime, vm)?;
-        let stime = from_timeval(ru.ru_stime, vm)?;
-
-        Ok(Duration::from_nanos((utime + stime) as u64))
     }
 }
 
 #[cfg(windows)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "time")]
 mod platform {
     use super::decl::{MS_TO_NS, SEC_TO_NS, StructTimeData, get_tz_info, time_muldiv};
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyUtf8StrRef},
+        convert::ToPyException,
     };
     use core::time::Duration;
     use rustpython_host_env::time as host_time;
@@ -1225,8 +1276,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::gmtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::gmtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
         Ok(struct_time_from_tm(vm, tm, "UTC", 0))
     }
 
@@ -1234,8 +1285,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::localtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::localtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
 
         // Get timezone info from Windows API
         let info = get_tz_info();
@@ -1245,7 +1296,25 @@ mod platform {
             (info.standard_bias, &info.standard_name)
         };
 
-        let gmtoff = -(info.bias + bias) * 60;
+        let gmtoff = if when < 0 {
+            // FILETIME marks historical DST as unknown. Derive the offset from
+            // the converted wall time rather than treating unknown as standard.
+            let wall_time = jiff::civil::DateTime::new(
+                (tm.tm_year + 1900) as i16,
+                (tm.tm_mon + 1) as i8,
+                tm.tm_mday as i8,
+                tm.tm_hour as i8,
+                tm.tm_min as i8,
+                tm.tm_sec as i8,
+                0,
+            )
+            .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC))
+            .map_err(|_| vm.new_overflow_error("timestamp out of range for Windows FILETIME"))?;
+            i32::try_from(wall_time.timestamp().as_second() - when)
+                .map_err(|_| vm.new_overflow_error("timezone offset out of range"))?
+        } else {
+            -(info.bias + bias) * 60
+        };
 
         Ok(struct_time_from_tm(vm, tm, name, gmtoff))
     }

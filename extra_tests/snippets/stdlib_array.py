@@ -1,3 +1,4 @@
+import sys
 from array import array
 from pickle import dumps, loads
 
@@ -176,3 +177,271 @@ def test_frombytes_of_itself():
     wide = array("i", [1, 2, 3])
     with assert_raises(TypeError):
         wide.frombytes(memoryview(wide))
+
+
+# Repeating an empty array by a huge count returns at once
+empty = array("i")
+assert empty * sys.maxsize == array("i")
+empty *= sys.maxsize
+assert empty == array("i")
+
+
+def test_array_search_uses_python_equality():
+    for typecode, stored, needle, matches in (
+        ("i", 1, 1.0, True),
+        ("f", 0.1, 0.1, False),
+        ("Q", 2**53 + 1, float(2**53), False),
+        ("b", 1, 257, False),
+        ("d", float("nan"), float("nan"), False),
+    ):
+        values = array(typecode, [stored])
+        assert (needle in values) is matches
+        assert values.count(needle) == int(matches)
+        if matches:
+            assert values.index(needle) == 0
+            values.remove(needle)
+            assert not values
+        else:
+            with assert_raises(ValueError):
+                values.index(needle)
+            with assert_raises(ValueError):
+                values.remove(needle)
+            assert len(values) == 1
+
+    class DifferentInt(int):
+        def __eq__(self, other):
+            return False
+
+    values = array("i", [1])
+    assert values.count(DifferentInt(1)) == 0
+    assert DifferentInt(1) not in values
+
+    invalid = array("w")
+    invalid.frombytes((0x110000).to_bytes(4, sys.byteorder))
+    invalid.append("x")
+    for operation, _ in _SEARCH_OPERATIONS:
+        with assert_raises(ValueError):
+            operation(invalid, "x")
+    invalid.reverse()
+    assert invalid.index("x") == 0
+    assert "x" in invalid
+    with assert_raises(ValueError):
+        invalid.count("x")
+
+
+_SEARCH_OPERATIONS = (
+    (lambda values, needle: values.count(needle), 1),
+    (lambda values, needle: values.index(needle), 0),
+    (lambda values, needle: values.remove(needle), None),
+    (lambda values, needle: needle in values, True),
+)
+
+
+def test_array_search_callbacks():
+    class ComparisonError:
+        def __eq__(self, other):
+            raise RuntimeError("comparison failed")
+
+    for operation, expected in _SEARCH_OPERATIONS:
+        values = array("i", [1])
+        with assert_raises(RuntimeError):
+            operation(values, ComparisonError())
+
+        views = []
+
+        class ClearOnComparison:
+            def __eq__(self, other):
+                values.clear()
+                views.append(memoryview(values))
+                return True
+
+        assert operation(values, ClearOnComparison()) == expected
+        assert not values
+        views.pop().release()
+
+
+def test_array_search_sees_appended_items():
+    for stop in (None, 10):
+        values = array("i", [1])
+
+        class AppendOnComparison:
+            def __eq__(self, other):
+                if other == 1:
+                    values.append(2)
+                return other == 2
+
+        needle = AppendOnComparison()
+        result = values.index(needle) if stop is None else values.index(needle, 0, stop)
+        assert result == 1
+
+    values = array("i", [1])
+
+    class Start:
+        def __index__(self):
+            values.append(2)
+            return -1
+
+    assert values.index(2, Start()) == 1
+
+
+_ARRAY_INSERTIONS = (
+    lambda values, value: values.append(value),
+    lambda values, value: values.insert(0, value),
+)
+
+
+def test_array_insert_converts_without_lock():
+    for operation in _ARRAY_INSERTIONS:
+        values = array("i", [0])
+        view = memoryview(values)
+
+        class ReleaseExport:
+            def __index__(self):
+                view.release()
+                values[0] = 3
+                return 7
+
+        operation(values, ReleaseExport())
+        assert sorted(values) == [3, 7]
+
+        views = []
+
+        class CreateExport:
+            def __index__(self):
+                views.append(memoryview(values))
+                return 9
+
+        with assert_raises(BufferError):
+            operation(values, CreateExport())
+        assert sorted(values) == [3, 7]
+        views.pop().release()
+
+        class BadConversion:
+            def __index__(self):
+                raise RuntimeError("conversion failed")
+
+        with memoryview(values):
+            with assert_raises(RuntimeError):
+                operation(values, BadConversion())
+
+
+def test_array_extend_callbacks_and_partial_progress():
+    values = array("i", [0])
+
+    def source():
+        values[0] = 1
+        yield 2
+        assert list(values) == [1, 2]
+        values.append(3)
+        yield 4
+        raise RuntimeError("iterator failed")
+
+    with assert_raises(RuntimeError):
+        values.extend(source())
+    assert list(values) == [1, 2, 3, 4]
+
+
+test_array_search_uses_python_equality()
+test_array_search_callbacks()
+test_array_search_sees_appended_items()
+test_array_insert_converts_without_lock()
+test_array_extend_callbacks_and_partial_progress()
+
+
+def test_array_fromlist_callbacks():
+    for code in ("i", "d"):
+        values = array(code, [1])
+        source = []
+
+        class Number:
+            def __index__(self):
+                assert len(values) == 3
+                values[0] = 9
+                source[1] = 8
+                return 7
+
+            def __float__(self):
+                return float(self.__index__())
+
+        source[:] = [Number(), 2]
+        values.fromlist(source)
+        assert list(values) == [9, 7, 8]
+
+    values = array("i", [1])
+
+    class Append:
+        def __index__(self):
+            values.append(9)
+            return 7
+
+    values.fromlist([Append()])
+    assert list(values) == [1, 7, 9]
+
+
+def test_array_fromlist_rollback():
+    for mutate in (lambda source: source.clear(), lambda source: source.append(3)):
+        values = array("i", [1])
+
+        class ChangeList:
+            def __index__(self):
+                values[0] = 9
+                mutate(source)
+                return 7
+
+        source = [ChangeList(), 2]
+        with assert_raises(RuntimeError):
+            values.fromlist(source)
+        assert list(values) == [9]
+
+    values = array("i", [1])
+
+    class Fail:
+        def __index__(self):
+            assert values[1] == 2
+            raise ValueError("conversion failed")
+
+    with assert_raises(ValueError):
+        values.fromlist([2, Fail()])
+    assert list(values) == [1]
+
+    class Clear:
+        def __index__(self):
+            values.clear()
+            return 7
+
+    with assert_raises(IndexError):
+        values.fromlist([Clear()])
+    assert len(values) == 1
+
+
+def test_array_fromlist_exports():
+    values = array("i", [1])
+    with memoryview(values):
+        values.fromlist([])
+        with assert_raises(BufferError):
+            values.fromlist([2])
+
+    views = []
+
+    class Export:
+        def __index__(self):
+            views.append(memoryview(values))
+            return 7
+
+    values.fromlist([Export()])
+    assert list(views.pop()) == [1, 7]
+
+    class ExportAndFail:
+        def __index__(self):
+            views.append(memoryview(values))
+            raise ValueError("conversion failed")
+
+    with assert_raises(BufferError):
+        values.fromlist([ExportAndFail()])
+    assert len(values) == len(views[0]) == 3
+    views.pop().release()
+
+
+test_array_fromlist_callbacks()
+test_array_fromlist_rollback()
+test_array_fromlist_exports()

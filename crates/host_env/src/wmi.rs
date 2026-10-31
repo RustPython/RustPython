@@ -7,7 +7,7 @@
 
 use core::ffi::c_void;
 use core::ptr::{NonNull, null, null_mut};
-use widestring::WideCString;
+use widestring::{WideCStr, WideCString};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_BROKEN_PIPE, ERROR_INVALID_NAME, ERROR_MORE_DATA, ERROR_NOT_ENOUGH_MEMORY,
     GetLastError, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
@@ -19,7 +19,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::w;
 
-use crate::ctypes::wcslen;
+use crate::windows::{sys_alloc_string_len, sys_free_string};
 
 pub const BUFFER_SIZE: usize = 8192;
 
@@ -114,9 +114,29 @@ unsafe extern "system" {
 
 #[link(name = "oleaut32")]
 unsafe extern "system" {
-    fn SysAllocString(psz: *const u16) -> *mut u16;
-    fn SysFreeString(bstrString: *mut u16);
     fn VariantClear(pvarg: *mut VARIANT) -> HRESULT;
+}
+
+fn alloc_bstr(wide: &[u16]) -> *mut u16 {
+    let len = wide
+        .iter()
+        .position(|&unit| unit == 0)
+        .unwrap_or(wide.len());
+    sys_alloc_string_len(&wide[..len]).unwrap_or(null_mut())
+}
+
+fn alloc_bstr_ptr(ptr: *const u16) -> *mut u16 {
+    let Some(ptr) = NonNull::new(ptr.cast_mut()) else {
+        return null_mut();
+    };
+    let wide = unsafe { WideCStr::from_ptr_str(ptr.as_ptr()) };
+    sys_alloc_string_len(wide.as_slice()).unwrap_or(null_mut())
+}
+
+fn free_bstr(bstr: *mut u16) {
+    if !bstr.is_null() {
+        sys_free_string(bstr);
+    }
 }
 
 #[link(name = "propsys")]
@@ -290,7 +310,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     let mut enumerator: *mut c_void = null_mut();
     let mut hr: HRESULT = 0;
 
-    let bstr_query = unsafe { SysAllocString(data.query.as_ptr()) };
+    let bstr_query = alloc_bstr(data.query.as_slice());
     if bstr_query.is_null() {
         hr = hresult_from_win32(ERROR_NOT_ENOUGH_MEMORY);
     }
@@ -304,9 +324,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     if failed(hr) {
         unsafe {
             CloseHandle(write_pipe);
-            if !bstr_query.is_null() {
-                SysFreeString(bstr_query);
-            }
+            free_bstr(bstr_query);
         }
         return hr as u32;
     }
@@ -345,7 +363,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
 
     if succeeded(hr) {
         let root_cimv2 = w!("ROOT\\CIMV2");
-        let bstr_root = unsafe { SysAllocString(root_cimv2) };
+        let bstr_root = alloc_bstr_ptr(root_cimv2);
         hr = unsafe {
             locator_connect_server(
                 locator,
@@ -359,9 +377,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
                 &mut services,
             )
         };
-        if !bstr_root.is_null() {
-            unsafe { SysFreeString(bstr_root) };
-        }
+        free_bstr(bstr_root);
     }
     if succeeded(hr) && unsafe { SetEvent(connect_event) } == 0 {
         hr = hresult_from_win32(unsafe { GetLastError() });
@@ -383,7 +399,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     }
     if succeeded(hr) {
         let wql = w!("WQL");
-        let bstr_wql = unsafe { SysAllocString(wql) };
+        let bstr_wql = alloc_bstr_ptr(wql);
         hr = unsafe {
             services_exec_query(
                 services,
@@ -394,9 +410,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
                 &mut enumerator,
             )
         };
-        if !bstr_wql.is_null() {
-            unsafe { SysFreeString(bstr_wql) };
-        }
+        free_bstr(bstr_wql);
     }
 
     let mut value: *mut c_void;
@@ -463,12 +477,10 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
             }
 
             if succeeded(hr) && (flavor & WBEM_FLAVOR_MASK_ORIGIN) != WBEM_FLAVOR_ORIGIN_SYSTEM {
-                let Some(cb_str1) = NonNull::new(prop_name)
-                    .map(|prop_name| (unsafe { wcslen(prop_name) } * 2) as u32)
-                else {
-                    unsafe {
-                        SysFreeString(prop_name);
-                    }
+                let Some(cb_str1) = NonNull::new(prop_name).map(|prop_name| {
+                    (unsafe { WideCStr::from_ptr_str(prop_name.as_ptr()) }.len() * 2) as u32
+                }) else {
+                    free_bstr(prop_name);
                     break;
                 };
 
@@ -477,7 +489,9 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
                     VariantToString(&prop_value, prop_str.as_mut_ptr(), BUFFER_SIZE as u32)
                 };
                 let cb_str2 = NonNull::new(prop_str.as_ptr().cast_mut())
-                    .map(|prop_str| (unsafe { wcslen(prop_str) } * 2) as u32)
+                    .map(|prop_str| {
+                        (unsafe { WideCStr::from_ptr_str(prop_str.as_ptr()) }.len() * 2) as u32
+                    })
                     .expect("prop_str is never null");
 
                 if succeeded(hr)
@@ -523,8 +537,8 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
 
                 unsafe {
                     VariantClear(&mut prop_value);
-                    SysFreeString(prop_name);
                 }
+                free_bstr(prop_name);
             }
         }
 
@@ -535,9 +549,7 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     }
 
     unsafe {
-        if !bstr_query.is_null() {
-            SysFreeString(bstr_query);
-        }
+        free_bstr(bstr_query);
         if !enumerator.is_null() {
             com_release(enumerator);
         }

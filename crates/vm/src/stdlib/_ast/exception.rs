@@ -1,7 +1,7 @@
+use super::AstSourceContext;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
-fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<()> {
+fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObject) -> PyResult<()> {
     if vm.is_none(object)
         || !is_node_instance(
             vm,
@@ -19,22 +19,22 @@ fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObjectRef) -> PyRes
 
 // sum
 impl Node for ast::ExceptHandler {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self {
             Self::ExceptHandler(cons) => cons.ast_to_object(vm, source_file),
         }
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         ensure_excepthandler_node(vm, &object)?;
-        let range = excepthandler_range_from_object(vm, source_file, object.clone())?;
+        let range = excepthandler_range_from_object(vm, source_file, &object)?;
         Ok(Self::ExceptHandler(except_handler_from_object_with_range(
             vm,
             source_file,
-            object,
+            &object,
             range,
         )?))
     }
@@ -43,43 +43,43 @@ impl Node for ast::ExceptHandler {
 // constructor
 fn except_handler_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
-    object: PyObjectRef,
-    range: TextRange,
+    source_file: &AstSourceContext,
+    object: &PyObject,
+    range: AstNodeRange,
 ) -> PyResult<ast::ExceptHandlerExceptHandler> {
     let body: Vec<Option<ast::Stmt>> =
-        get_node_list_field(vm, source_file, &object, "body", "ExceptHandler")?;
+        get_node_list_field(vm, source_file, object, "body", "ExceptHandler")?;
     let (runtime_body, body) = runtime_stmt_list_from_values(body);
     Ok(ast::ExceptHandlerExceptHandler {
-        node_index: Default::default(),
-        type_: get_node_field_opt(vm, &object, "type")?
+        node_index: range.node_index(),
+        type_: get_node_field_opt(vm, object, "type")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        name: get_node_field_opt(vm, &object, "name")?
+        name: get_node_field_opt(vm, object, "name")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         body,
-        range,
+        range: range.range,
         runtime_body,
     })
 }
 
 pub(super) fn except_handler_from_object_unvalidated_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
-    object: PyObjectRef,
+    source_file: &AstSourceContext,
+    object: &PyObject,
 ) -> PyResult<ast::ExceptHandler> {
-    ensure_excepthandler_node(vm, &object)?;
-    let range = excepthandler_range_from_object_unvalidated(vm, source_file, object.clone())?;
+    ensure_excepthandler_node(vm, object)?;
+    let range = excepthandler_range_from_object_unvalidated(vm, source_file, object)?;
     Ok(ast::ExceptHandler::ExceptHandler(
         except_handler_from_object_with_range(vm, source_file, object, range)?,
     ))
 }
 
 impl Node for ast::ExceptHandlerExceptHandler {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
-            node_index: _,
+            node_index,
             type_,
             name,
             body,
@@ -102,16 +102,16 @@ impl Node for ast::ExceptHandlerExceptHandler {
             |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("body", body, vm).unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "ExceptHandler")?;
-        except_handler_from_object_with_range(vm, source_file, object, range)
+        let range = range_from_object(vm, source_file, &object, "ExceptHandler")?;
+        except_handler_from_object_with_range(vm, source_file, &object, range)
     }
 }

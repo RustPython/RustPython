@@ -7,7 +7,8 @@ use js_sys::{
 };
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 use rustpython_vm::{
-    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
     builtins::{PyBaseException, PyBaseExceptionRef, PyDict, PyList, PyStr, PyTuple},
     compiler::{CompileError, ParseError, parser::LexicalErrorType, parser::ParseErrorType},
     exceptions,
@@ -185,7 +186,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
 
 fn py_serde_to_js(
     vm: &VirtualMachine,
-    py_obj: &PyObjectRef,
+    py_obj: &PyObject,
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {
     if let Some(value) = py_obj.downcast_ref::<PyStr>() {
         Ok(wtf8_to_js_string(value.as_wtf8()).into())

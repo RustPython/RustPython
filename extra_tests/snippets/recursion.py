@@ -44,3 +44,32 @@ except (RecursionError, TypeError):
     pass
 else:
     raise AssertionError("descr.x should not resolve")
+
+
+def recurse():
+    recurse()
+
+
+try:
+    recurse()
+except RecursionError as e:
+    msg = str(e)
+    assert msg, f"empty RecursionError message: {e!r}"
+    assert not msg.endswith(" "), f"trailing space in RecursionError: {e!r}"
+
+import sys
+
+prev_limit = sys.getrecursionlimit()
+try:
+    sys.setrecursionlimit(50)
+    try:
+        recurse()
+    except RecursionError as e:
+        assert str(e) == "maximum recursion depth exceeded", (
+            f"unexpected message: {e!r}"
+        )
+        assert e.args == ("maximum recursion depth exceeded",), (
+            f"unexpected args: {e.args!r}"
+        )
+finally:
+    sys.setrecursionlimit(prev_limit)

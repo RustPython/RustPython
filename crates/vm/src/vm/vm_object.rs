@@ -9,6 +9,23 @@ use crate::{
 
 /// PyObject support
 impl VirtualMachine {
+    /// PyObject_Dump
+    ///
+    /// Write a description of `obj` to the process stderr, bypassing
+    /// `sys.stderr`.
+    pub fn dump_object(&self, obj: &PyObject) {
+        let class = obj.class();
+        eprintln!("object address  : {obj:p}");
+        eprintln!("object refcount : {}", obj.strong_count());
+        eprintln!("object type     : {class:p}");
+        eprintln!("object type name: {}", class.slot_name());
+        eprint!("object repr     : ");
+        if let Ok(repr) = obj.repr(self) {
+            eprint!("{}", repr.as_wtf8());
+        }
+        eprintln!();
+    }
+
     #[track_caller]
     #[cold]
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
@@ -37,7 +54,7 @@ impl VirtualMachine {
                 }
             },
             _ => {
-                self.print_exception(exc);
+                self.print_exception(&exc);
                 self.flush_std();
                 panic!("{msg}")
             }
@@ -106,20 +123,19 @@ impl VirtualMachine {
     pub fn call_get_descriptor_specific(
         &self,
         descr: &PyObject,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
     ) -> Option<PyResult> {
-        let descr_get = descr.class().slots.descr_get.load()?;
-        Some(descr_get(descr.to_owned(), obj, cls, self))
+        let descr_get = descr.class().slots().descr_get.load()?;
+        Some(descr_get(descr, obj, cls, self))
     }
 
-    pub fn call_get_descriptor(&self, descr: &PyObject, obj: PyObjectRef) -> Option<PyResult> {
-        let cls = obj.class().to_owned().into();
-        self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
+    pub fn call_get_descriptor(&self, descr: &PyObject, obj: &PyObject) -> Option<PyResult> {
+        self.call_get_descriptor_specific(descr, Some(obj), Some(obj.class().as_object()))
     }
 
     pub fn call_if_get_descriptor(&self, attr: &PyObject, obj: PyObjectRef) -> PyResult {
-        self.call_get_descriptor(attr, obj)
+        self.call_get_descriptor(attr, &obj)
             .unwrap_or_else(|| Ok(attr.to_owned()))
     }
 
@@ -176,7 +192,8 @@ impl VirtualMachine {
         method: &'static PyStrInterned,
         args: impl IntoFuncArgs,
     ) -> PyResult {
-        self.get_special_method(obj, method)?
+        // lookup_method: AttributeError from a data descriptor is kept.
+        PyMethod::get_special_ex::<false>(obj, method, self, true)?
             .ok_or_else(|| self.new_attribute_error(method.as_str().to_owned()))?
             .invoke(args, self)
     }

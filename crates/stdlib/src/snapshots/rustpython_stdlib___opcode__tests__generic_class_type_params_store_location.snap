@@ -1,0 +1,64 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef outer():\n    class X[T]: ...\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:19            LOAD_CONST               0 (<code object outer at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:19            MAKE_FUNCTION
+1:0-2:19            STORE_NAME               0 (outer)
+1:0-2:19            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:19            RETURN_VALUE
+
+Disassembly of <code object outer at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0             RESUME                   0
+
+2:4-2:19            LOAD_CONST               0 (<code object <generic parameters of X> at 0xdeadbeef, file "<?>", line 2>)
+2:4-2:19            MAKE_FUNCTION
+2:4-2:19            PUSH_NULL
+2:4-2:19            CALL                     0
+2:4-2:19            STORE_FAST               0 (X)
+2:4-2:19            LOAD_COMMON_CONSTANT     7 (None)
+2:4-2:19            RETURN_VALUE
+
+Disassembly of <code object <generic parameters of X> at 0xdeadbeef, file "<?>", line 2>:
+  --                 MAKE_CELL                2 (.type_params)
+
+2:0-2:0              RESUME                   0
+2:12-2:13            LOAD_CONST               0 ('T')
+2:12-2:13            CALL_INTRINSIC_1         7 (INTRINSIC_TYPEVAR)
+2:12-2:13            COPY                     1
+2:12-2:13            STORE_FAST               0 (T)
+2:12-2:13            BUILD_TUPLE              1
+2:4-2:19             STORE_DEREF              2 (.type_params)
+2:4-2:19             LOAD_BUILD_CLASS
+2:4-2:19             PUSH_NULL
+2:4-2:19             LOAD_FAST_BORROW         2 (.type_params)
+2:4-2:19             BUILD_TUPLE              1
+2:4-2:19             LOAD_CONST               1 (<code object X at 0xdeadbeef, file "<?>", line 2>)
+2:4-2:19             MAKE_FUNCTION
+2:4-2:19             SET_FUNCTION_ATTRIBUTE   8 (closure)
+2:4-2:19             LOAD_CONST               2 ('X')
+2:4-2:19             LOAD_DEREF               2 (.type_params)
+2:4-2:19             CALL_INTRINSIC_1        10 (INTRINSIC_SUBSCRIPT_GENERIC)
+2:4-2:19             STORE_FAST_LOAD_FAST    17 (.generic_base, .generic_base)
+2:4-2:19             CALL                     3
+2:4-2:19             RETURN_VALUE
+
+Disassembly of <code object X at 0xdeadbeef, file "<?>", line 2>:
+  --                 COPY_FREE_VARS           1
+
+2:0-2:0              RESUME                   0
+2:0-2:0              LOAD_NAME                0 (__name__)
+2:0-2:0              STORE_NAME               1 (__module__)
+2:0-2:0              LOAD_CONST               0 ('outer.<locals>.X')
+2:0-2:0              STORE_NAME               2 (__qualname__)
+2:0-2:0              LOAD_SMALL_INT           2
+2:0-2:0              STORE_NAME               3 (__firstlineno__)
+2:0-2:0              LOAD_LOCALS
+2:0-2:0              LOAD_FROM_DICT_OR_DEREF  0 (.type_params)
+2:0-2:0              STORE_NAME               4 (__type_params__)
+2:16-2:19            LOAD_CONST               1 (())
+2:16-2:19            STORE_NAME               5 (__static_attributes__)
+2:16-2:19            LOAD_COMMON_CONSTANT     7 (None)
+2:16-2:19            RETURN_VALUE

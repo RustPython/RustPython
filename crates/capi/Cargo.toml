@@ -22,6 +22,7 @@ rustpython-stdlib = {workspace = true, features = ["threading"] }
 rustpython-pylib = { workspace = true }
 
 [dev-dependencies]
+static_assertions = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize", "abi3t"] }
 
 [lints]

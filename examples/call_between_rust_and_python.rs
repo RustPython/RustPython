@@ -1,6 +1,6 @@
 use rustpython::InterpreterBuilderExt;
 use rustpython::vm::{
-    PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
+    Py, PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
 };
 
 pub fn main() {
@@ -34,7 +34,7 @@ mod rust_py_module {
         s: String,
         python_person: PythonPerson,
         _vm: &VirtualMachine,
-    ) -> PyResult<RustStruct> {
+    ) -> RustStruct {
         println!(
             "Calling standalone rust function from python passing args:
 num: {},
@@ -42,9 +42,9 @@ string: {},
 python_person.name: {}",
             num, s, python_person.name
         );
-        Ok(RustStruct {
+        RustStruct {
             numbers: NumVec(vec![1, 2, 3, 4]),
-        })
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -67,12 +67,12 @@ python_person.name: {}",
     #[pyclass]
     impl RustStruct {
         #[pygetset]
-        fn numbers(&self) -> NumVec {
-            self.numbers.clone()
+        fn numbers(zelf: &Py<Self>) -> NumVec {
+            zelf.numbers.clone()
         }
 
         #[pymethod]
-        fn print_in_rust_from_python(&self) {
+        fn print_in_rust_from_python(_zelf: &Py<Self>) {
             println!("Calling a rust method from python");
         }
     }

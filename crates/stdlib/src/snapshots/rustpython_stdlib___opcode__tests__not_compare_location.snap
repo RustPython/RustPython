@@ -1,0 +1,19 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(self, other):\n    return not self == other\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:28            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:28            MAKE_FUNCTION
+1:0-2:28            STORE_NAME               0 (f)
+1:0-2:28            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:28            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:15-2:19            LOAD_FAST_BORROW_LOAD_FAST_BORROW 1 (self, other)
+2:11-2:28            COMPARE_OP              88 (bool(==))
+2:11-2:28            UNARY_NOT
+2:4-2:28             RETURN_VALUE

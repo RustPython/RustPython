@@ -2,13 +2,14 @@ use crate::format::Case;
 use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::{String, ToString};
-use core::f64;
 use num_traits::Zero;
 
+#[must_use]
 pub fn parse_str(literal: &str) -> Option<f64> {
     parse_inner(literal.trim().as_bytes())
 }
 
+#[must_use]
 pub fn parse_bytes(literal: &[u8]) -> Option<f64> {
     parse_inner(literal.trim_ascii())
 }
@@ -25,6 +26,7 @@ fn parse_inner(literal: &[u8]) -> Option<f64> {
     f64::from_lexical_with_options::<PYTHON_STRING>(literal, &Options::new()).ok()
 }
 
+#[must_use]
 pub fn is_integer(v: f64) -> bool {
     v.is_finite() && v.fract() == 0.0
 }
@@ -47,6 +49,7 @@ fn format_inf(case: Case) -> String {
     inf.to_string()
 }
 
+#[must_use]
 pub const fn decimal_point_or_empty(precision: usize, alternate_form: bool) -> &'static str {
     match (precision, alternate_form) {
         (0, true) => ".",
@@ -70,15 +73,18 @@ pub const FMT_MAX_PRECISION: usize = u16::MAX as usize;
 pub const FMT_MAX_EXP_PRECISION: usize = u16::MAX as usize - 1;
 
 #[inline]
+#[must_use]
 pub fn clamp_fmt_precision(precision: usize) -> usize {
     core::cmp::min(precision, FMT_MAX_PRECISION)
 }
 
 #[inline]
+#[must_use]
 pub fn clamp_exp_precision(precision: usize) -> usize {
     core::cmp::min(precision, FMT_MAX_EXP_PRECISION)
 }
 
+#[must_use]
 pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form: bool) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
@@ -103,6 +109,7 @@ pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form
 
 // Formats floats into Python style exponent notation, by first formatting in Rust style
 // exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
+#[must_use]
 pub fn format_exponent(
     precision: usize,
     magnitude: f64,
@@ -166,6 +173,7 @@ fn remove_trailing_decimal_point(s: String) -> String {
     s
 }
 
+#[must_use]
 pub fn format_general(
     precision: usize,
     magnitude: f64,
@@ -176,7 +184,7 @@ pub fn format_general(
     match magnitude {
         magnitude if magnitude.is_finite() => {
             let exp_precision = clamp_exp_precision(precision.saturating_sub(1));
-            let r_exp = format!("{:.*e}", exp_precision, magnitude);
+            let r_exp = format!("{magnitude:.exp_precision$e}");
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
@@ -230,7 +238,7 @@ pub(crate) fn prefer_cpython_tie_repr(s: String, value: f64) -> String {
 
     let mut candidate = s.clone();
     candidate.replace_range(
-        digit_pos..digit_pos + 1,
+        digit_pos..=digit_pos,
         core::str::from_utf8(&[decremented]).unwrap(),
     );
     if parse_str(&candidate).is_none_or(|parsed| parsed.to_bits() != value.to_bits()) {
@@ -266,9 +274,7 @@ fn parse_decimal_rational(s: &str) -> Option<(u128, u32)> {
     };
     let significand = mantissa.strip_prefix('-').unwrap_or(mantissa);
     let dot_pos = significand.find('.');
-    let frac_digits = dot_pos
-        .map(|pos| significand.len().saturating_sub(pos + 1))
-        .unwrap_or(0);
+    let frac_digits = dot_pos.map_or(0, |pos| significand.len().saturating_sub(pos + 1));
     let mut digits = String::with_capacity(significand.len());
     for ch in significand.chars() {
         if ch != '.' {
@@ -317,6 +323,7 @@ fn decimal_distance_to_f64(s: &str, value: f64) -> Option<u128> {
 }
 
 // TODO: rewrite using format_general
+#[must_use]
 pub fn to_string(value: f64) -> String {
     let lit = format!("{value:e}");
     if let Some(position) = lit.find('e') {
@@ -339,37 +346,7 @@ pub fn to_string(value: f64) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::to_string;
-
-    #[test]
-    fn repr_uses_cpython_tie_digit_for_power_of_two() {
-        assert_eq!(to_string(2.0f64.powi(-25)), "2.9802322387695312e-08");
-        assert_eq!(to_string((-2.0f64).powi(-25)), "-2.9802322387695312e-08");
-        assert_eq!(to_string(2.0f64.powi(-26)), "1.4901161193847656e-08");
-        assert_eq!(
-            to_string(2.0f64.powi(-14) - 2.0f64.powi(-25)),
-            "6.1005353927612305e-05"
-        );
-    }
-
-    #[test]
-    fn repr_normal_range_uses_cpython_tie_digit() {
-        // Rust's shortest formatter yields "161852602146008.13" for this
-        // value; round-half-to-even (what `repr` uses) picks "…08.12".
-        assert_eq!(
-            to_string(f64::from_bits(0x42e26687db6b9b04)),
-            "161852602146008.12"
-        );
-        // Non-tie values are left untouched.
-        assert_eq!(to_string(1.5), "1.5");
-        assert_eq!(to_string(0.1), "0.1");
-        assert_eq!(to_string(12.34), "12.34");
-        assert_eq!(to_string(100.0), "100.0");
-    }
-}
-
+#[must_use]
 pub fn from_hex(s: &str) -> Option<f64> {
     if let Ok(f) = hexf_parse::parse_hexf64(s, false) {
         return Some(f);
@@ -418,6 +395,7 @@ pub fn from_hex(s: &str) -> Option<f64> {
     }
 }
 
+#[must_use]
 pub fn to_hex(value: f64) -> String {
     let bits = value.to_bits();
     let sign_fmt = if bits >> 63 != 0 { "-" } else { "" };
@@ -440,55 +418,86 @@ pub fn to_hex(value: f64) -> String {
     }
 }
 
-#[test]
-fn test_to_hex() {
-    use rand::RngExt;
-    assert_eq!(to_hex(f64::from_bits(1)), "0x0.0000000000001p-1022");
-    assert_eq!(to_hex(f64::from_bits(2)), "0x0.0000000000002p-1022");
-    assert_eq!(to_hex(-f64::from_bits(1)), "-0x0.0000000000001p-1022");
-    assert_eq!(to_hex(f64::MIN_POSITIVE), "0x1.0000000000000p-1022");
-    for _ in 0..20000 {
-        let bytes = rand::rng().random::<u64>();
-        let f = f64::from_bits(bytes);
-        if !f.is_finite() {
-            continue;
-        }
-        let hex = to_hex(f);
-        // println!("{} -> {}", f, hex);
-        let roundtrip = hexf_parse::parse_hexf64(&hex, false).unwrap();
-        // println!("  -> {}", roundtrip);
-        assert!(f == roundtrip, "{f} {hex} {roundtrip}");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repr_uses_cpython_tie_digit_for_power_of_two() {
+        assert_eq!(to_string(2.0f64.powi(-25)), "2.9802322387695312e-08");
+        assert_eq!(to_string((-2.0f64).powi(-25)), "-2.9802322387695312e-08");
+        assert_eq!(to_string(2.0f64.powi(-26)), "1.4901161193847656e-08");
+        assert_eq!(
+            to_string(2.0f64.powi(-14) - 2.0f64.powi(-25)),
+            "6.1005353927612305e-05"
+        );
     }
-}
 
-#[test]
-fn test_remove_trailing_zeros() {
-    assert!(remove_trailing_zeros(String::from("100")) == *"1");
-    assert!(remove_trailing_zeros(String::from("100.00")) == *"100.");
+    #[test]
+    fn repr_normal_range_uses_cpython_tie_digit() {
+        // Rust's shortest formatter yields "161852602146008.13" for this
+        // value; round-half-to-even (what `repr` uses) picks "…08.12".
+        assert_eq!(
+            to_string(f64::from_bits(0x42e26687db6b9b04)),
+            "161852602146008.12"
+        );
+        // Non-tie values are left untouched.
+        assert_eq!(to_string(1.5), "1.5");
+        assert_eq!(to_string(0.1), "0.1");
+        assert_eq!(to_string(12.34), "12.34");
+        assert_eq!(to_string(100.0), "100.0");
+    }
 
-    // leave leading zeros untouched
-    assert!(remove_trailing_zeros(String::from("001")) == *"001");
+    #[test]
+    fn to_hex_works() {
+        use rand::RngExt;
+        assert_eq!(to_hex(f64::from_bits(1)), "0x0.0000000000001p-1022");
+        assert_eq!(to_hex(f64::from_bits(2)), "0x0.0000000000002p-1022");
+        assert_eq!(to_hex(-f64::from_bits(1)), "-0x0.0000000000001p-1022");
+        assert_eq!(to_hex(f64::MIN_POSITIVE), "0x1.0000000000000p-1022");
+        for _ in 0..20000 {
+            let bytes = rand::rng().random::<u64>();
+            let f = f64::from_bits(bytes);
+            if !f.is_finite() {
+                continue;
+            }
+            let hex = to_hex(f);
+            // println!("{} -> {}", f, hex);
+            let roundtrip = hexf_parse::parse_hexf64(&hex, false).unwrap();
+            // println!("  -> {}", roundtrip);
+            assert!(f == roundtrip, "{f} {hex} {roundtrip}");
+        }
+    }
 
-    // leave strings untouched if they don't end with 0
-    assert!(remove_trailing_zeros(String::from("101")) == *"101");
-}
+    #[test]
+    fn remove_trailing_zeros_works() {
+        assert!(remove_trailing_zeros(String::from("100")) == *"1");
+        assert!(remove_trailing_zeros(String::from("100.00")) == *"100.");
 
-#[test]
-fn test_remove_trailing_decimal_point() {
-    assert!(remove_trailing_decimal_point(String::from("100.")) == *"100");
-    assert!(remove_trailing_decimal_point(String::from("1.")) == *"1");
+        // leave leading zeros untouched
+        assert!(remove_trailing_zeros(String::from("001")) == *"001");
 
-    // leave leading decimal points untouched
-    assert!(remove_trailing_decimal_point(String::from(".5")) == *".5");
-}
+        // leave strings untouched if they don't end with 0
+        assert!(remove_trailing_zeros(String::from("101")) == *"101");
+    }
 
-#[test]
-fn test_maybe_remove_trailing_redundant_chars() {
-    assert!(maybe_remove_trailing_redundant_chars(String::from("100."), true) == *"100.");
-    assert!(maybe_remove_trailing_redundant_chars(String::from("100."), false) == *"100");
-    assert!(maybe_remove_trailing_redundant_chars(String::from("1."), false) == *"1");
-    assert!(maybe_remove_trailing_redundant_chars(String::from("10.0"), false) == *"10");
+    #[test]
+    fn remove_trailing_decimal_point_works() {
+        assert!(remove_trailing_decimal_point(String::from("100.")) == *"100");
+        assert!(remove_trailing_decimal_point(String::from("1.")) == *"1");
 
-    // don't truncate integers
-    assert!(maybe_remove_trailing_redundant_chars(String::from("1000"), false) == *"1000");
+        // leave leading decimal points untouched
+        assert!(remove_trailing_decimal_point(String::from(".5")) == *".5");
+    }
+
+    #[test]
+    fn maybe_remove_trailing_redundant_chars_works() {
+        assert!(maybe_remove_trailing_redundant_chars(String::from("100."), true) == *"100.");
+        assert!(maybe_remove_trailing_redundant_chars(String::from("100."), false) == *"100");
+        assert!(maybe_remove_trailing_redundant_chars(String::from("1."), false) == *"1");
+        assert!(maybe_remove_trailing_redundant_chars(String::from("10.0"), false) == *"10");
+
+        // don't truncate integers
+        assert!(maybe_remove_trailing_redundant_chars(String::from("1000"), false) == *"1000");
+    }
 }

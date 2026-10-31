@@ -754,7 +754,6 @@ class TestBasicOps(unittest.TestCase):
         next(g)
         next(g)  # must pass with address sanitizer
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 4 != 1
     def test_grouper_reentrant_eq_does_not_crash(self):
         # regression test for gh-146613
         grouper_iter = None
@@ -1167,7 +1166,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(ValueError, next, starmap(errfunc, [(4,5)]))
         self.assertRaises(TypeError, next, starmap(onearg, [(4,5)]))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_islice(self):
         for args in [          # islice(args) should agree with range(args)
                 (10, 20, 3),
@@ -2493,7 +2491,6 @@ class RegressionTests(unittest.TestCase):
 
 
 class SubclassWithKwargsTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         # count is not subclassable...
         testcases = [

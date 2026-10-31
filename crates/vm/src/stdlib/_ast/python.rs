@@ -8,15 +8,17 @@ use super::{
 pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
+        builtins::{PyDict, PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
         types::{Constructor, Initializer},
         warn,
     };
+    use rustpython_common::wtf8::Wtf8Buf;
+
     #[pyattr]
-    #[pyclass(module = "_ast", name = "AST")]
+    #[pyclass(module = "ast", name = "AST")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct NodeAst;
 
@@ -24,45 +26,25 @@ pub(crate) mod _ast {
     impl NodeAst {
         #[extend_class]
         fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
-            // AST types are mutable (heap types, not IMMUTABLETYPE)
-            // Safety: called during type initialization before any concurrent access
-            unsafe {
-                let flags = &class.slots.flags as *const crate::types::PyTypeFlags
-                    as *mut crate::types::PyTypeFlags;
-                (*flags).remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
-            }
+            // AST types are mutable (heap types, not IMMUTABLETYPE).
+            class
+                .slots
+                .flags
+                .remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
             let empty_tuple = ctx.empty_tuple.clone();
             class.set_str_attr("_fields", empty_tuple.clone(), ctx);
             class.set_str_attr("_attributes", empty_tuple.clone(), ctx);
             class.set_str_attr("__match_args__", empty_tuple, ctx);
 
-            const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
-                "__reduce__",
-                |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
-                    ast_reduce(zelf, vm)
-                },
-                PyMethodFlags::METHOD,
-                None,
-            );
-            const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
-                "__replace__",
-                |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                    ast_replace(zelf, args, vm)
-                },
-                PyMethodFlags::METHOD,
-                None,
-            );
             const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_const(
                 "__deepcopy__",
                 |zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                    ast_deepcopy(zelf, memo, vm)
+                    ast_deepcopy(&zelf, &memo, vm)
                 },
                 PyMethodFlags::METHOD,
-                None,
+                crate::function::ItemDoc::NONE,
             );
 
-            class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
-            class.set_str_attr("__replace__", AST_REPLACE.to_proper_method(class, ctx), ctx);
             class.set_str_attr(
                 "__deepcopy__",
                 AST_DEEPCOPY.to_proper_method(class, ctx),
@@ -87,22 +69,12 @@ pub(crate) mod _ast {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            ast_reduce(zelf, vm)
-        }
-
-        #[pymethod]
-        fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            ast_replace(zelf, args, vm)
-        }
-
-        #[pymethod]
         fn __deepcopy__(zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            ast_deepcopy(zelf, memo, vm)
+            ast_deepcopy(&zelf, &memo, vm)
         }
     }
 
-    pub(crate) fn ast_reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    pub(crate) fn ast_reduce(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let dict = zelf.as_object().dict();
         let cls = zelf.class();
         let type_obj: PyObjectRef = cls.to_owned().into();
@@ -135,9 +107,9 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_update_payload(
-        payload: &PyDictRef,
-        keys: Option<&PyObjectRef>,
-        dict: &PyDictRef,
+        payload: &Py<PyDict>,
+        keys: Option<&PyObject>,
+        dict: &Py<PyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let Some(keys) = keys else {
@@ -155,14 +127,14 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_set_update(
-        expecting: &PyRef<PySet>,
-        iterable: Option<&PyObjectRef>,
+        expecting: &Py<PySet>,
+        iterable: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let Some(iterable) = iterable else {
             return Ok(());
         };
-        let iterable = iterable.clone().try_into_value::<ArgIterable>(vm)?;
+        let iterable = iterable.to_owned().try_into_value::<ArgIterable>(vm)?;
         for item in iterable.iter(vm)? {
             expecting.add(item?, vm)?;
         }
@@ -170,7 +142,7 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_set_discard(
-        expecting: &PyRef<PySet>,
+        expecting: &Py<PySet>,
         key: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -182,22 +154,6 @@ pub(crate) mod _ast {
             vm.call_method(expecting.as_object(), "discard", (key.to_owned(),))?;
         }
         Ok(contained)
-    }
-
-    fn ast_replace_set_difference_update(
-        expecting: &PyRef<PySet>,
-        iterable: Option<&PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let Some(iterable) = iterable else {
-            return Ok(());
-        };
-        let iterable = iterable.clone().try_into_value::<ArgIterable>(vm)?;
-        for item in iterable.iter(vm)? {
-            let item = item?;
-            ast_replace_set_discard(expecting, &item, vm)?;
-        }
-        Ok(())
     }
 
     fn ast_set_attr(
@@ -213,7 +169,18 @@ pub(crate) mod _ast {
         obj.set_attr(&name, value, vm)
     }
 
-    pub(crate) fn ast_replace(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
+        "__replace__",
+        |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+            ast_replace(&zelf, args, vm)
+        },
+        PyMethodFlags::METHOD,
+        crate::function::ItemDoc::static_text(
+            "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
+        ),
+    );
+
+    pub(crate) fn ast_replace(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("__replace__() takes no positional arguments"));
         }
@@ -223,61 +190,10 @@ pub(crate) mod _ast {
         let attributes = cls.get_attr(vm.ctx.intern_str("_attributes"));
         let dict = zelf.as_object().dict();
 
-        let expecting = PySet::default().into_ref(&vm.ctx);
-        ast_replace_set_update(&expecting, fields.as_ref(), vm)?;
-        ast_replace_set_update(&expecting, attributes.as_ref(), vm)?;
-
-        for (key, _value) in &args.kwargs {
-            let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
-            if !ast_replace_set_discard(&expecting, &key_obj, vm)? {
-                return Err(vm.new_type_error(format!(
-                    "{}.__replace__ got an unexpected keyword argument '{}'.",
-                    cls.name(),
-                    key
-                )));
-            }
-        }
-
-        if let Some(dict) = dict.as_ref() {
-            for (key, _value) in dict.items_vec() {
-                ast_replace_set_discard(&expecting, &key, vm)?;
-            }
-            ast_replace_set_difference_update(&expecting, attributes.as_ref(), vm)?;
-        }
-
-        // Discard optional fields (T | None).
-        if let Some(field_types) = cls.get_attr(vm.ctx.intern_str("_field_types"))
-            && let Ok(field_types) = field_types.downcast::<crate::builtins::PyDict>()
-        {
-            for (key, value) in field_types.items_vec() {
-                if value.fast_isinstance(vm.ctx.types.union_type) {
-                    ast_replace_set_discard(&expecting, &key, vm)?;
-                }
-            }
-        }
-
-        let remaining = expecting.elements();
-        if !remaining.is_empty() {
-            let mut names = Vec::with_capacity(remaining.len());
-            for name in &remaining {
-                names.push(name.repr(vm)?.to_string());
-            }
-            names.sort();
-            let missing = names.join(", ");
-            let count = names.len();
-            return Err(vm.new_type_error(format!(
-                "{}.__replace__ missing {} keyword argument{}: {}.",
-                cls.name(),
-                count,
-                if count == 1 { "" } else { "s" },
-                missing
-            )));
-        }
-
         let payload = vm.ctx.new_dict();
         if let Some(dict) = dict {
-            ast_replace_update_payload(&payload, fields.as_ref(), &dict, vm)?;
-            ast_replace_update_payload(&payload, attributes.as_ref(), &dict, vm)?;
+            ast_replace_update_payload(&payload, fields.as_deref(), &dict, vm)?;
+            ast_replace_update_payload(&payload, attributes.as_deref(), &dict, vm)?;
         }
         for (key, value) in args.kwargs {
             payload.set_item(vm.ctx.intern_str(key), value, vm)?;
@@ -298,13 +214,9 @@ pub(crate) mod _ast {
         Ok(result)
     }
 
-    pub(crate) fn ast_deepcopy(
-        zelf: PyObjectRef,
-        memo: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub(crate) fn ast_deepcopy(zelf: &PyObject, memo: &PyObject, vm: &VirtualMachine) -> PyResult {
         let memo_dict: PyDictRef = memo
-            .clone()
+            .to_owned()
             .downcast()
             .map_err(|_| vm.new_type_error("__deepcopy__() memo must be a dict"))?;
         let memo_key: PyObjectRef = vm.ctx.new_int(zelf.get_id() as i64).into();
@@ -317,7 +229,7 @@ pub(crate) mod _ast {
         let copied_dict = if cls
             .slots
             .flags
-            .contains(crate::types::PyTypeFlags::HAS_DICT)
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
         {
             Some(vm.ctx.new_dict())
         } else {
@@ -330,7 +242,7 @@ pub(crate) mod _ast {
         if let (Some(src_dict), Some(dst_dict)) = (zelf.as_object().dict(), copied_dict) {
             let deepcopy = vm.import("copy", 0)?.get_attr("deepcopy", vm)?;
             for (key, value) in src_dict.items_vec() {
-                let copied_value = deepcopy.call((value, memo.clone()), vm)?;
+                let copied_value = deepcopy.call((value, memo.to_owned()), vm)?;
                 dst_dict.set_item(&*key, copied_value, vm)?;
             }
         }
@@ -339,14 +251,62 @@ pub(crate) mod _ast {
     }
 
     pub(crate) fn ast_repr(zelf: &crate::PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let repr = repr::repr_ast_node(vm, &zelf.to_owned(), 3)?;
+        let repr = repr::repr_ast_node(vm, zelf, 3)?;
         Ok(vm.ctx.new_str(repr))
+    }
+
+    fn abstract_types() -> [&'static Py<PyType>; 13] {
+        [
+            NodeAst::static_type(),
+            super::super::pyast::NodeMod::static_type(),
+            super::super::pyast::NodeStmt::static_type(),
+            super::super::pyast::NodeExpr::static_type(),
+            super::super::pyast::NodeExprContext::static_type(),
+            super::super::pyast::NodeBoolOp::static_type(),
+            super::super::pyast::NodeOperator::static_type(),
+            super::super::pyast::NodeUnaryOp::static_type(),
+            super::super::pyast::NodeCmpOp::static_type(),
+            super::super::pyast::NodeExceptHandler::static_type(),
+            super::super::pyast::NodePattern::static_type(),
+            super::super::pyast::NodeTypeIgnore::static_type(),
+            super::super::pyast::NodeTypeParam::static_type(),
+        ]
+    }
+
+    #[pyfunction]
+    fn _is_abstract(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        is_abstract(&cls, vm)
+    }
+
+    fn is_abstract(cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        // PySet_Contains rejects mutable sets and preserves comparison errors;
+        // Python-level set containment has different behavior for both cases.
+        let hash = match cls.hash(vm) {
+            Ok(hash) => hash,
+            Err(err) if err.class().is(vm.ctx.exceptions.type_error) => {
+                return Err(vm.new_type_error(format!(
+                    "cannot use '{}' as a set element ({})",
+                    cls.class().fully_qualified_name(vm)?,
+                    err.as_object().str(vm)?
+                )));
+            }
+            Err(err) => return Err(err),
+        };
+        for typ in abstract_types() {
+            let typ = typ.as_object();
+            if typ.hash(vm)? == hash
+                && typ.rich_compare_bool(cls, crate::types::PyComparisonOp::Eq, vm)?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     impl Constructor for NodeAst {
         type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Keep _instance for parser-internal shared operator/context nodes,
             // but match CPython's public constructor behavior by allocating a
             // fresh object for Python-level ast.Load()/ast.Add()/... calls.
@@ -356,17 +316,13 @@ pub(crate) mod _ast {
             let dict = if cls
                 .slots
                 .flags
-                .contains(crate::types::PyTypeFlags::HAS_DICT)
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
             {
                 Some(vm.ctx.new_dict())
             } else {
                 None
             };
             let zelf = vm.ctx.new_base_object(cls, dict);
-
-            // type.__call__ does not invoke slot_init after slot_new
-            // for types with a custom slot_new, so we must call it here.
-            Self::slot_init(zelf.clone(), args, vm)?;
 
             Ok(zelf)
         }
@@ -379,7 +335,22 @@ pub(crate) mod _ast {
     impl Initializer for NodeAst {
         type Args = FuncArgs;
 
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if is_abstract(zelf.class().as_object(), vm)? {
+                let message = vm.ctx.new_str(format!(
+                    "Instantiating abstract AST node class {} is deprecated. \
+This will become an error in Python 3.20",
+                    zelf.class().fully_qualified_name(vm)?
+                ));
+                warn::warn(
+                    message.into(),
+                    Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                )?;
+            }
+
             let fields = zelf
                 .class()
                 .get_attr(vm.ctx.intern_str("_fields"))
@@ -413,7 +384,7 @@ pub(crate) mod _ast {
 
             for (i, arg) in args.args.into_iter().enumerate() {
                 let name = fields_seq.get_item(i as isize, vm)?;
-                ast_set_attr(&zelf, &name, arg, vm)?;
+                ast_set_attr(zelf, &name, arg, vm)?;
                 ast_replace_set_discard(&remaining_fields, &name, vm)?;
             }
             for (key, value) in args.kwargs {
@@ -422,9 +393,9 @@ pub(crate) mod _ast {
                 if contains {
                     if !ast_replace_set_discard(&remaining_fields, &key_obj, vm)? {
                         return Err(vm.new_type_error(format!(
-                            "{} got multiple values for argument '{}'",
-                            zelf.class().name(),
-                            key
+                            "{} got multiple values for argument {}",
+                            zelf.class().fully_qualified_name(vm)?,
+                            key_obj.repr(vm)?
                         )));
                     }
                 } else {
@@ -441,95 +412,99 @@ pub(crate) mod _ast {
                                 ))
                             })?;
                         attributes = Some(attrs);
-                        attributes.as_ref().unwrap()
+                        attributes.as_deref().unwrap()
                     };
                     if !attrs.sequence_unchecked().contains(&key_obj, vm)? {
-                        let message = vm.ctx.new_str(format!(
-                            "{}.__init__ got an unexpected keyword argument '{}'. \
-Support for arbitrary keyword arguments is deprecated and will be removed in Python 3.15.",
-                            zelf.class().name(),
-                            key
-                        ));
-                        warn::warn(
-                            message.into(),
-                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                            1,
-                            None,
-                            vm,
-                        )?;
+                        return Err(vm.new_type_error(format!(
+                            "{}.__init__ got an unexpected keyword argument {}",
+                            zelf.class().fully_qualified_name(vm)?,
+                            key_obj.repr(vm)?
+                        )));
                     }
                 }
 
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
 
-            // Use _field_types to determine defaults for unset fields.
-            // Only built-in AST node classes have _field_types populated.
-            let field_types = zelf.class().get_attr(vm.ctx.intern_str("_field_types"));
-            if let Some(Ok(ft_dict)) =
-                field_types.map(|ft| ft.downcast::<crate::builtins::PyDict>())
+            // Custom AST subclasses without _field_types retain their permissive
+            // treatment of fields omitted from the constructor.
+            if !remaining_fields.elements().is_empty()
+                && let Some(field_types) = zelf.class().get_attr(vm.ctx.intern_str("_field_types"))
             {
+                let ft_dict = field_types
+                    .downcast::<PyDict>()
+                    .map_err(|_| vm.new_system_error("bad argument to internal function"))?;
                 let expr_ctx_type: PyObjectRef =
                     super::super::pyast::NodeExprContext::make_static_type().into();
+                let missing_names = PySet::default().into_ref(&vm.ctx);
 
                 for field in remaining_fields.elements() {
-                    if let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? {
-                        if ftype.fast_isinstance(vm.ctx.types.union_type) {
-                            // Optional field (T | None) — no default
-                        } else if ftype.fast_isinstance(vm.ctx.types.generic_alias_type) {
-                            // List field (list[T]) — default to []
-                            let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
-                            ast_set_attr(&zelf, &field, empty_list, vm)?;
-                        } else if ftype.is(&expr_ctx_type) {
-                            // expr_context — default to Load()
-                            let load_type =
-                                super::super::pyast::NodeExprContextLoad::make_static_type();
-                            let load_instance = load_type
-                                .get_attr(vm.ctx.intern_str("_instance"))
-                                .unwrap_or_else(|| {
-                                    vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()))
-                                });
-                            ast_set_attr(&zelf, &field, load_instance, vm)?;
-                        } else {
-                            // Required field missing: emit DeprecationWarning.
-                            let field_repr = field.repr(vm)?;
-                            let message = vm.ctx.new_str(format!(
-                                "{}.__init__ missing 1 required positional argument: {}. \
-This will become an error in Python 3.15.",
-                                zelf.class().name(),
-                                field_repr
-                            ));
-                            warn::warn(
-                                message.into(),
-                                Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                                1,
-                                None,
-                                vm,
-                            )?;
-                        }
+                    let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? else {
+                        return Err(vm.new_type_error(format!(
+                            "Field {} is missing from {}._field_types",
+                            field.repr(vm)?,
+                            zelf.class().fully_qualified_name(vm)?
+                        )));
+                    };
+                    if ftype.fast_isinstance(vm.ctx.types.union_type) {
+                        // Optional fields already have a None default on the class.
+                    } else if ftype.class().is(vm.ctx.types.generic_alias_type) {
+                        let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
+                        ast_set_attr(zelf, &field, empty_list, vm)?;
+                    } else if ftype.is(&expr_ctx_type) {
+                        let load_type =
+                            super::super::pyast::NodeExprContextLoad::make_static_type();
+                        let load_instance = load_type
+                            .get_attr(vm.ctx.intern_str("_instance"))
+                            .unwrap_or_else(|| {
+                                vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()))
+                            });
+                        ast_set_attr(zelf, &field, load_instance, vm)?;
                     } else {
-                        let field_repr = field.repr(vm)?;
-                        let message = vm.ctx.new_str(format!(
-                            "Field {} is missing from {}._field_types. \
-This will become an error in Python 3.15.",
-                            field_repr,
-                            zelf.class().name()
-                        ));
-                        warn::warn(
-                            message.into(),
-                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                            1,
-                            None,
-                            vm,
-                        )?;
+                        missing_names.add(field, vm)?;
                     }
+                }
+
+                let count = missing_names.elements().len();
+                if count > 0 {
+                    // Match constructor order and preserve non-UTF-8 field names.
+                    let mut message = Wtf8Buf::from(format!(
+                        "{}.__init__ missing {} required positional argument{}: ",
+                        zelf.class().fully_qualified_name(vm)?,
+                        count,
+                        if count == 1 { "" } else { "s" },
+                    ));
+                    let mut num_left = count as isize;
+                    for i in 0..numfields {
+                        let field = fields_seq.get_item(i as isize, vm)?;
+                        if missing_names.contains(&field, vm)? {
+                            let field = field
+                                .downcast::<PyStr>()
+                                .map_err(|_| vm.new_system_error("non-string AST field name"))?;
+                            message.push_wtf8("'".as_ref());
+                            message.push_wtf8(field.as_wtf8());
+                            message.push_wtf8("'".as_ref());
+                            let separator = if num_left == 1 {
+                                ""
+                            } else if count == 2 {
+                                " and "
+                            } else if num_left == 2 {
+                                ", and "
+                            } else {
+                                ", "
+                            };
+                            message.push_wtf8(separator.as_ref());
+                            num_left -= 1;
+                        }
+                    }
+                    return Err(vm.new_type_error(message));
                 }
             }
 
             Ok(())
         }
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is defined")
         }
     }
@@ -598,18 +573,10 @@ This will become an error in Python 3.15.",
         const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
             "__reduce__",
             |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
-                ast_reduce(zelf, vm)
+                ast_reduce(&zelf, vm)
             },
             PyMethodFlags::METHOD,
-            None,
-        );
-        const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
-            "__replace__",
-            |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                ast_replace(zelf, args, vm)
-            },
-            PyMethodFlags::METHOD,
-            None,
+            crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
         );
         let base_type = NodeAst::static_type();
         ast_type.set_str_attr(
@@ -634,7 +601,7 @@ This will become an error in Python 3.15.",
      | Set(expr* elts)\n\
      | ListComp(expr elt, comprehension* generators)\n\
      | SetComp(expr elt, comprehension* generators)\n\
-     | DictComp(expr key, expr value, comprehension* generators)\n\
+     | DictComp(expr key, expr? value, comprehension* generators)\n\
      | GeneratorExp(expr elt, comprehension* generators)\n\
      | Await(expr value)\n\
      | Yield(expr? value)\n\

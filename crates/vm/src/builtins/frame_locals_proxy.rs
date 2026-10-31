@@ -1,16 +1,17 @@
 //! The `FrameLocalsProxy` type returned by `frame.f_locals` for optimized
-//! (function) frames. Implements PEP 667 write-through semantics on top of the
-//! frame's fast-local slots and an extra-locals side dict.
+//! (function) frames and for unoptimized frames that currently have PEP 709
+//! hidden comprehension locals. Implements PEP 667 write-through semantics on
+//! top of the frame's fast-local slots and an extra-locals side dict.
 
 use super::{PyDict, PyDictRef, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     frame::FrameObjectRef,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     object::{Traverse, TraverseFn},
-    protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
@@ -20,7 +21,19 @@ use crate::{
 use rustpython_common::lock::LazyLock;
 use rustpython_common::wtf8::Wtf8Buf;
 
-#[pyclass(module = false, name = "FrameLocalsProxy", traverse = "manual")]
+/// FrameLocalsProxy($frame)
+/// --
+///
+/// Create a write-through view of the locals dictionary for a frame.
+///
+///   frame
+///     the frame object to wrap.
+#[pyclass(
+    module = false,
+    name = "FrameLocalsProxy",
+    unhashable = true,
+    traverse = "manual"
+)]
 #[derive(Debug)]
 pub struct FrameLocalsProxy {
     frame: FrameObjectRef,
@@ -48,8 +61,16 @@ impl FrameLocalsProxy {
         self.frame.framelocalsproxy_snapshot(vm)
     }
 
+    fn items_vec(&self, vm: &VirtualMachine) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
+        self.frame.framelocalsproxy_items(vm)
+    }
+
     fn keys_vec(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        Ok(self.snapshot(vm)?.into_iter().map(|(k, _)| k).collect())
+        Ok(self
+            .items_vec(vm)?
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect())
     }
 }
 
@@ -57,22 +78,97 @@ impl Constructor for FrameLocalsProxy {
     type Args = FuncArgs;
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        if args.args.len() != 1 {
+            return Err(vm.new_arity_type_error(Self::NAME, 1..=1, args.args.len()));
+        }
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("FrameLocalsProxy() takes no keyword arguments"));
         }
         let mut args = args.args;
-        if args.len() != 1 {
-            return Err(vm.new_type_error(format!(
-                "FrameLocalsProxy expected 1 argument, got {}",
-                args.len()
-            )));
-        }
         let frame: FrameObjectRef = args
             .pop()
             .unwrap()
             .downcast()
             .map_err(|_| vm.new_type_error("FrameLocalsProxy expected a frame"))?;
         Ok(Self::new(frame))
+    }
+}
+
+impl FrameLocalsProxy {
+    fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.frame.framelocalsproxy_getitem(key, vm)
+    }
+
+    fn __setitem__(
+        &self,
+        key: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.frame.framelocalsproxy_setitem(&key, value, vm)
+    }
+
+    fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.frame.framelocalsproxy_delitem(key, vm)
+    }
+
+    fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.frame.framelocalsproxy_contains(&key, vm)
+    }
+
+    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(self.items_vec(vm)?.len())
+    }
+
+    fn update_from(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
+            return Err(
+                vm.new_type_error("update() argument must be dict or another FrameLocalsProxy")
+            );
+        }
+        // CPython deliberately uses the mapping protocol here, including
+        // overridden keys()/__getitem__ on dict subclasses.
+        let keys = other
+            .get_attr(vm.ctx.intern_str("keys"), vm)?
+            .call((), vm)?
+            .get_iter(vm)?;
+        while let PyIterReturn::Return(key) = keys.next(vm)? {
+            let value = other.get_item(&*key, vm)?;
+            self.frame.framelocalsproxy_setitem(&key, value, vm)?;
+        }
+        Ok(())
+    }
+
+    fn __ior__(zelf: PyRef<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
+        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
+            return Ok(vm.ctx.not_implemented());
+        }
+        zelf.update_from(other, vm)?;
+        Ok(zelf.into())
+    }
+
+    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
+            return Ok(vm.ctx.not_implemented());
+        }
+        let result = self.snapshot(vm)?;
+        if let Some(dict) = other.downcast_ref::<PyDict>() {
+            // PyDict_Update reads a dict subclass's stored entries directly;
+            // it does not dispatch to overridden mapping methods.
+            result.merge_dict(dict, true, vm)?;
+        } else {
+            result.merge_object(other, vm)?;
+        }
+        Ok(result.into())
+    }
+
+    fn __ror__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
+        let Some(other) = other.downcast_ref::<PyDict>() else {
+            return Ok(vm.ctx.not_implemented());
+        };
+        let result = other.copy().into_ref(&vm.ctx);
+        result.merge_object(self.snapshot(vm)?.into(), vm)?;
+        Ok(result.into())
     }
 }
 
@@ -85,32 +181,7 @@ impl Constructor for FrameLocalsProxy {
     Comparable,
     Representable
 ))]
-impl FrameLocalsProxy {
-    fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.frame.framelocalsproxy_getitem(key, vm)
-    }
-
-    fn __setitem__(
-        &self,
-        key: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.frame.framelocalsproxy_setitem(key, value, vm)
-    }
-
-    fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.frame.framelocalsproxy_delitem(key, vm)
-    }
-
-    fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.frame.framelocalsproxy_contains(key, vm)
-    }
-
-    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(self.snapshot(vm)?.__len__())
-    }
-
+impl Py<FrameLocalsProxy> {
     #[pymethod]
     fn keys(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         Ok(vm.ctx.new_list(self.keys_vec(vm)?).into())
@@ -118,14 +189,18 @@ impl FrameLocalsProxy {
 
     #[pymethod]
     fn values(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let values = self.snapshot(vm)?.into_iter().map(|(_, v)| v).collect();
+        let values = self
+            .items_vec(vm)?
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
         Ok(vm.ctx.new_list(values).into())
     }
 
     #[pymethod]
     fn items(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let items = self
-            .snapshot(vm)?
+            .items_vec(vm)?
             .into_iter()
             .map(|(k, v)| vm.ctx.new_tuple(vec![k, v]).into())
             .collect();
@@ -152,7 +227,7 @@ impl FrameLocalsProxy {
     #[pymethod]
     fn setdefault(&self, key: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
         self.frame
-            .framelocalsproxy_setdefault(key, default.unwrap_or_none(vm), vm)
+            .framelocalsproxy_setdefault(&key, default.unwrap_or_none(vm), vm)
     }
 
     #[pymethod]
@@ -174,43 +249,11 @@ impl FrameLocalsProxy {
         self.update_from(&args.args[0], vm)
     }
 
-    fn update_from(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        let items: Vec<(PyObjectRef, PyObjectRef)> =
-            if let Some(dict) = other.downcast_ref::<PyDict>() {
-                dict.into_iter().collect()
-            } else if let Some(proxy) = other.downcast_ref::<Self>() {
-                proxy.snapshot(vm)?.into_iter().collect()
-            } else {
-                return Err(
-                    vm.new_type_error("update() argument must be dict or another FrameLocalsProxy")
-                );
-            };
-        for (key, value) in items {
-            self.frame.framelocalsproxy_setitem(key, value, vm)?;
-        }
-        Ok(())
-    }
-
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let mut keys = self.keys_vec(vm)?;
         keys.reverse();
         Ok(vm.ctx.new_list(keys).into())
-    }
-
-    fn __ior__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        zelf.update_from(&other, vm)?;
-        Ok(zelf.into())
-    }
-
-    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let base = self.snapshot(vm)?;
-        vm._or(base.as_object(), &other)
-    }
-
-    fn __ror__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let base = self.snapshot(vm)?;
-        vm._or(&other, base.as_object())
     }
 
     #[pymethod]
@@ -264,7 +307,7 @@ impl AsNumber for FrameLocalsProxy {
                 if let Some(proxy) = a.downcast_ref::<FrameLocalsProxy>() {
                     proxy.__or__(b.to_owned(), vm)
                 } else if let Some(proxy) = b.downcast_ref::<FrameLocalsProxy>() {
-                    proxy.__ror__(a.to_owned(), vm)
+                    proxy.__ror__(a, vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
@@ -274,7 +317,7 @@ impl AsNumber for FrameLocalsProxy {
                     .to_owned()
                     .downcast::<FrameLocalsProxy>()
                     .map_err(|_| vm.new_type_error("expected FrameLocalsProxy"))?;
-                FrameLocalsProxy::__ior__(proxy, b.to_owned(), vm)
+                FrameLocalsProxy::__ior__(proxy, b, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -297,12 +340,14 @@ impl Comparable for FrameLocalsProxy {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
+            if let Some(other) = other.downcast_ref::<Self>() {
+                return Ok(PyComparisonValue::Implemented(zelf.frame.is(&other.frame)));
+            }
+            if other.downcast_ref::<PyDict>().is_none() {
+                return Ok(PyComparisonValue::NotImplemented);
+            }
             let self_dict: PyObjectRef = zelf.snapshot(vm)?.into();
-            let other_obj = match other.downcast_ref::<Self>() {
-                Some(proxy) => proxy.snapshot(vm)?.into(),
-                None => other.to_owned(),
-            };
-            let res = self_dict.rich_compare(other_obj, PyComparisonOp::Eq, vm)?;
+            let res = self_dict.rich_compare(other.to_owned(), PyComparisonOp::Eq, vm)?;
             PyArithmeticValue::from_object(vm, res)
                 .map(|o| o.try_to_bool(vm))
                 .transpose()

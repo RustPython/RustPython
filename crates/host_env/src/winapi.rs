@@ -12,11 +12,11 @@ use memchr::memchr;
 pub use windows_sys::Win32::{
     Foundation::{
         DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
-        ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
-        ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
-        ERROR_PIPE_CONNECTED, ERROR_PORT_UNREACHABLE, ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT,
-        ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, HANDLE, HMODULE, STILL_ACTIVE,
-        WAIT_ABANDONED_0, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        ERROR_BROKEN_PIPE, ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_MORE_DATA,
+        ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_FOUND,
+        ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, ERROR_PORT_UNREACHABLE,
+        ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE,
+        HANDLE, HMODULE, STILL_ACTIVE, WAIT_ABANDONED_0, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Globalization::{
         LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING,
@@ -24,20 +24,25 @@ pub use windows_sys::Win32::{
         LCMAP_UPPERCASE,
     },
     Storage::FileSystem::{
-        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_FAIL_IF_EXISTS,
-        COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD, COPY_FILE_OPEN_SOURCE_FOR_WRITE,
-        COPY_FILE_REQUEST_COMPRESSED_TRAFFIC, COPY_FILE_REQUEST_SECURITY_PRIVILEGES,
-        COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
-        COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
-        COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
-        COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE,
-        COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP,
-        FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-        FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, OPEN_EXISTING,
+        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_DIRECTORY,
+        COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
+        COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+        COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE,
+        COPYFILE2_CALLBACK_CHUNK_FINISHED, COPYFILE2_CALLBACK_CHUNK_STARTED,
+        COPYFILE2_CALLBACK_ERROR, COPYFILE2_CALLBACK_POLL_CONTINUE,
+        COPYFILE2_CALLBACK_STREAM_FINISHED, COPYFILE2_CALLBACK_STREAM_STARTED,
+        COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE,
+        COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE,
+        FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR,
+        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING,
         PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
     },
     System::{
         Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
+        EventLog::{
+            EVENTLOG_AUDIT_FAILURE, EVENTLOG_AUDIT_SUCCESS, EVENTLOG_ERROR_TYPE,
+            EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS, EVENTLOG_WARNING_TYPE,
+        },
         Memory::{
             FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE,
             MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE, PAGE_EXECUTE,
@@ -50,7 +55,7 @@ pub use windows_sys::Win32::{
             NMPWAIT_WAIT_FOREVER, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
             PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
         },
-        SystemServices::LOCALE_NAME_MAX_LENGTH,
+        SystemServices::{LOCALE_NAME_MAX_LENGTH, MAXIMUM_WAIT_OBJECTS},
         Threading::{
             ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
             CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
@@ -71,6 +76,10 @@ pub type Handle = HANDLE;
 pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
 pub type FileType = windows_sys::Win32::Storage::FileSystem::FILE_TYPE;
 pub const MAX_PATH_USIZE: usize = windows_sys::Win32::Foundation::MAX_PATH as usize;
+/// Empty locale name (`LOCALE_NAME_INVARIANT`).
+pub const LOCALE_NAME_INVARIANT: &str = "";
+/// Reserved name for the system default locale.
+pub const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
 pub const INFINITE_TIMEOUT: u32 = windows_sys::Win32::System::Threading::INFINITE;
 pub const CREATE_UNICODE_ENVIRONMENT_FLAG: u32 =
     windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT;
@@ -80,6 +89,44 @@ pub const LCMAP_BYTEREV_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_BYT
 pub const LCMAP_HASH_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_HASH;
 pub const LCMAP_SORTHANDLE_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_SORTHANDLE;
 pub const LCMAP_SORTKEY_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_SORTKEY;
+
+pub fn register_event_source_w(
+    server: Option<&widestring::WideCStr>,
+    source: &widestring::WideCStr,
+) -> io::Result<HANDLE> {
+    let server = server.map_or(core::ptr::null(), |name| name.as_ptr());
+    unsafe { windows_sys::Win32::System::EventLog::RegisterEventSourceW(server, source.as_ptr()) }
+        .check_nonnull()
+}
+
+pub fn deregister_event_source(handle: HANDLE) -> io::Result<()> {
+    unsafe { windows_sys::Win32::System::EventLog::DeregisterEventSource(handle) }
+        .check_win32_bool()
+}
+
+pub fn report_event_w(
+    handle: HANDLE,
+    event_type: u16,
+    category: u16,
+    event_id: u32,
+    message: &widestring::WideCStr,
+) -> io::Result<()> {
+    let message = message.as_ptr();
+    unsafe {
+        windows_sys::Win32::System::EventLog::ReportEventW(
+            handle,
+            event_type,
+            category,
+            event_id,
+            core::ptr::null_mut(),
+            1,
+            0,
+            &message,
+            core::ptr::null(),
+        )
+    }
+    .check_win32_bool()
+}
 
 pub struct PeekNamedPipeResult {
     pub data: Option<Vec<u8>>,
@@ -495,8 +542,7 @@ pub fn batched_wait_for_multiple_objects(
         },
     };
 
-    const MAXIMUM_WAIT_OBJECTS: usize = 64;
-    let batch_size = MAXIMUM_WAIT_OBJECTS - 1;
+    let batch_size = MAXIMUM_WAIT_OBJECTS as usize - 1;
     let mut batches: Vec<&[HANDLE]> = Vec::new();
     let mut i = 0;
     while i < handles.len() {
@@ -591,9 +637,7 @@ pub fn batched_wait_for_multiple_objects(
             let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
             let _ = set_event(data.cancel_event);
             err
-        } else if (WAIT_ABANDONED_0..WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS as u32)
-            .contains(&result)
-        {
+        } else if (WAIT_ABANDONED_0..WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS).contains(&result) {
             data.result.store(WAIT_FAILED, Ordering::SeqCst);
             let _ = set_event(data.cancel_event);
             windows_sys::Win32::Foundation::ERROR_ABANDONED_WAIT_0
@@ -788,6 +832,22 @@ pub fn get_last_error() -> u32 {
 #[must_use]
 pub fn get_version() -> u32 {
     unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
+}
+
+/// `GetVersionExW` major/minor/build. Not `get_version()`: that DWORD is
+/// `GetVersion()`, and `get_windows_version()` overwrites the triple with
+/// kernel32's file version.
+#[must_use]
+pub fn version_ex_triple() -> Option<(u32, u32, u32)> {
+    use windows_sys::Win32::System::SystemInformation::{GetVersionExW, OSVERSIONINFOW};
+
+    let mut info: OSVERSIONINFOW = unsafe { core::mem::zeroed() };
+    info.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOW>() as u32;
+    (unsafe { GetVersionExW(&mut info) } != 0).then_some((
+        info.dwMajorVersion,
+        info.dwMinorVersion,
+        info.dwBuildNumber,
+    ))
 }
 
 pub fn create_job_object_w(name: Option<&widestring::WideCStr>) -> io::Result<HANDLE> {
@@ -1285,6 +1345,23 @@ pub fn read_file(handle: HANDLE, size: u32) -> io::Result<ReadFileResult> {
     Ok(ReadFileResult { data, error: err })
 }
 
+pub fn get_named_pipe_handle_state(handle: HANDLE) -> io::Result<u32> {
+    let mut mode = 0u32;
+    unsafe {
+        windows_sys::Win32::System::Pipes::GetNamedPipeHandleStateW(
+            handle,
+            &mut mode,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            0,
+        )
+    }
+    .check_win32_bool()?;
+    Ok(mode)
+}
+
 pub fn set_named_pipe_handle_state(
     handle: HANDLE,
     mode: Option<u32>,
@@ -1349,3 +1426,78 @@ pub fn need_current_directory_for_exe_path_w(exe_name: &widestring::WideCStr) ->
             != 0
     }
 }
+
+pub type DllDirectoryCookie = *mut core::ffi::c_void;
+
+pub fn add_dll_directory(path: &widestring::WideCStr) -> io::Result<DllDirectoryCookie> {
+    let cookie =
+        unsafe { windows_sys::Win32::System::LibraryLoader::AddDllDirectory(path.as_ptr()) };
+    if cookie.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(cookie)
+    }
+}
+
+pub fn remove_dll_directory(cookie: DllDirectoryCookie) -> io::Result<()> {
+    unsafe { windows_sys::Win32::System::LibraryLoader::RemoveDllDirectory(cookie) }
+        .check_win32_bool()
+}
+
+/// `CreateHardLinkW(new, existing)` — `dst` is the new name, `src` the file it names.
+pub fn create_hard_link(dst: &widestring::WideCStr, src: &widestring::WideCStr) -> io::Result<()> {
+    unsafe {
+        windows_sys::Win32::Storage::FileSystem::CreateHardLinkW(
+            dst.as_ptr(),
+            src.as_ptr(),
+            core::ptr::null(),
+        )
+    }
+    .check_win32_bool()
+}
+
+/// `SW_SHOWNORMAL` — the default `os.startfile` show command.
+pub const SW_SHOWNORMAL: i32 = 1;
+
+/// `ShellExecuteW` with a null owner window. Failure is a return of 32 or less.
+pub fn shell_execute_w(
+    file: &widestring::WideCStr,
+    operation: Option<&widestring::WideCStr>,
+    arguments: Option<&widestring::WideCStr>,
+    directory: Option<&widestring::WideCStr>,
+    show_cmd: i32,
+) -> io::Result<()> {
+    let as_ptr = |wide: Option<&widestring::WideCStr>| {
+        wide.map_or(core::ptr::null(), widestring::WideCStr::as_ptr)
+    };
+    let rc = unsafe {
+        windows_sys::Win32::UI::Shell::ShellExecuteW(
+            core::ptr::null_mut(),
+            as_ptr(operation),
+            file.as_ptr(),
+            as_ptr(arguments),
+            as_ptr(directory),
+            show_cmd,
+        )
+    };
+    if rc as isize <= 32 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// `CompareStringOrdinal`. Returns the CSTR_* result, or 0 on failure.
+pub fn compare_string_ordinal(left: &[u16], right: &[u16], ignore_case: bool) -> i32 {
+    unsafe {
+        windows_sys::Win32::Globalization::CompareStringOrdinal(
+            left.as_ptr(),
+            left.len() as i32,
+            right.as_ptr(),
+            right.len() as i32,
+            i32::from(ignore_case),
+        )
+    }
+}
+
+pub const CSTR_EQUAL: i32 = windows_sys::Win32::Globalization::CSTR_EQUAL;

@@ -7,6 +7,11 @@ mod _stat {
     #[cfg(windows)]
     use rustpython_host_env::nt as host_nt;
 
+    use malachite_bigint::Sign;
+    use num_traits::ToPrimitive;
+
+    use crate::{PyObjectRef, PyResult, VirtualMachine, convert::TryFromObject};
+
     // Use libc::mode_t for Mode to match the system's definition
     #[cfg(unix)]
     type Mode = libc::mode_t;
@@ -79,155 +84,108 @@ mod _stat {
     );
 
     #[pyattr]
-    pub const S_IFDOOR: Mode = 0; // TODO: RUSTPYTHON Support Solaris
+    pub const S_IFDOOR: Mode = rustpython_host_env::os::S_IFDOOR as Mode;
 
     #[pyattr]
-    pub const S_IFPORT: Mode = 0; // TODO: RUSTPYTHON Support Solaris
-
-    // TODO: RUSTPYTHON Support BSD
-    // https://man.freebsd.org/cgi/man.cgi?stat(2)
+    pub const S_IFPORT: Mode = rustpython_host_env::os::S_IFPORT as Mode;
 
     #[pyattr]
-    pub const S_IFWHT: Mode = if cfg!(target_os = "macos") {
-        0o160000
-    } else {
-        0
+    pub const S_IFWHT: Mode = rustpython_host_env::os::S_IFWHT as Mode;
+
+    bitflagset::bitflag! {
+        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        #[allow(non_camel_case_types)]
+        #[repr(u8)]
+        enum StatPerm {
+            S_IXOTH = 0,
+            S_IWOTH = 1,
+            S_IROTH = 2,
+            S_IXGRP = 3,
+            S_IWGRP = 4,
+            S_IRGRP = 5,
+            S_IXUSR = 6,
+            S_IWUSR = 7,
+            S_IRUSR = 8,
+            S_ISVTX = 9,
+            S_ISGID = 10,
+            S_ISUID = 11,
+        }
+    }
+
+    bitflagset::bitflagset! {
+        #[derive(Copy, Clone, PartialEq, Eq)]
+        struct StatPerms(u32): StatPerm
+    }
+
+    impl StatPerms {
+        const S_IRWXO: Self =
+            Self::from_slice(&[StatPerm::S_IXOTH, StatPerm::S_IWOTH, StatPerm::S_IROTH]);
+        const S_IRWXG: Self =
+            Self::from_slice(&[StatPerm::S_IXGRP, StatPerm::S_IWGRP, StatPerm::S_IRGRP]);
+        const S_IRWXU: Self =
+            Self::from_slice(&[StatPerm::S_IXUSR, StatPerm::S_IWUSR, StatPerm::S_IRUSR]);
+    }
+
+    const fn perm(flag: StatPerm) -> Mode {
+        StatPerms::from_element(flag).bits() as Mode
+    }
+
+    #[pyattr]
+    pub const S_IXOTH: Mode = perm(StatPerm::S_IXOTH);
+    #[pyattr]
+    pub const S_IWOTH: Mode = perm(StatPerm::S_IWOTH);
+    #[pyattr]
+    pub const S_IROTH: Mode = perm(StatPerm::S_IROTH);
+    #[pyattr]
+    pub const S_IRWXO: Mode = StatPerms::S_IRWXO.bits() as Mode;
+    #[pyattr]
+    pub const S_IXGRP: Mode = perm(StatPerm::S_IXGRP);
+    #[pyattr]
+    pub const S_IWGRP: Mode = perm(StatPerm::S_IWGRP);
+    #[pyattr]
+    pub const S_IRGRP: Mode = perm(StatPerm::S_IRGRP);
+    #[pyattr]
+    pub const S_IRWXG: Mode = StatPerms::S_IRWXG.bits() as Mode;
+    #[pyattr]
+    pub const S_IXUSR: Mode = perm(StatPerm::S_IXUSR);
+    #[pyattr]
+    pub const S_IWUSR: Mode = perm(StatPerm::S_IWUSR);
+    #[pyattr]
+    pub const S_IRUSR: Mode = perm(StatPerm::S_IRUSR);
+    #[pyattr]
+    pub const S_IRWXU: Mode = StatPerms::S_IRWXU.bits() as Mode;
+    #[pyattr]
+    pub const S_ISVTX: Mode = perm(StatPerm::S_ISVTX);
+    #[pyattr]
+    pub const S_ISGID: Mode = perm(StatPerm::S_ISGID);
+    #[pyattr]
+    pub const S_ISUID: Mode = perm(StatPerm::S_ISUID);
+    #[pyattr]
+    pub const S_ENFMT: Mode = S_ISGID;
+    #[pyattr]
+    pub const S_IREAD: Mode = S_IRUSR;
+    #[pyattr]
+    pub const S_IWRITE: Mode = S_IWUSR;
+    #[pyattr]
+    pub const S_IEXEC: Mode = S_IXUSR;
+
+    const _: () = {
+        assert!(S_IXOTH == 0o0001 as Mode);
+        assert!(S_IWOTH == 0o0002 as Mode);
+        assert!(S_IROTH == 0o0004 as Mode);
+        assert!(S_IRWXO == 0o0007 as Mode);
+        assert!(S_IXGRP == 0o0010 as Mode);
+        assert!(S_IWGRP == 0o0020 as Mode);
+        assert!(S_IRGRP == 0o0040 as Mode);
+        assert!(S_IRWXG == 0o0070 as Mode);
+        assert!(S_IXUSR == 0o0100 as Mode);
+        assert!(S_IWUSR == 0o0200 as Mode);
+        assert!(S_IRUSR == 0o0400 as Mode);
+        assert!(S_IRWXU == 0o0700 as Mode);
+        assert!(S_ISVTX == 0o1000 as Mode);
+        assert!(S_ISGID == 0o2000 as Mode);
+        assert!(S_ISUID == 0o4000 as Mode);
     };
-
-    // Permission bits
-
-    #[pyattr]
-    pub const S_ISUID: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISUID,
-        0o4000
-    );
-
-    #[pyattr]
-    pub const S_ISGID: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISGID,
-        0o2000
-    );
-
-    #[pyattr]
-    pub const S_ENFMT: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISGID,
-        0o2000
-    );
-
-    #[pyattr]
-    pub const S_ISVTX: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISVTX,
-        0o1000
-    );
-
-    #[pyattr]
-    pub const S_IRWXU: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRWXU,
-        0o0700
-    );
-
-    #[pyattr]
-    pub const S_IRUSR: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRUSR,
-        0o0400
-    );
-
-    #[pyattr]
-    pub const S_IREAD: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRUSR,
-        0o0400
-    );
-
-    #[pyattr]
-    pub const S_IWUSR: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IWUSR,
-        0o0200
-    );
-
-    #[pyattr]
-    pub const S_IXUSR: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IXUSR,
-        0o0100
-    );
-
-    #[pyattr]
-    pub const S_IRWXG: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRWXG,
-        0o0070
-    );
-
-    #[pyattr]
-    pub const S_IRGRP: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRGRP,
-        0o0040
-    );
-
-    #[pyattr]
-    pub const S_IWGRP: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IWGRP,
-        0o0020
-    );
-
-    #[pyattr]
-    pub const S_IXGRP: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IXGRP,
-        0o0010
-    );
-
-    #[pyattr]
-    pub const S_IRWXO: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRWXO,
-        0o0007
-    );
-
-    #[pyattr]
-    pub const S_IROTH: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IROTH,
-        0o0004
-    );
-
-    #[pyattr]
-    pub const S_IWOTH: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IWOTH,
-        0o0002
-    );
-
-    #[pyattr]
-    pub const S_IXOTH: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IXOTH,
-        0o0001
-    );
-
-    #[pyattr]
-    pub const S_IWRITE: Mode = libc_const!(
-        #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
-        S_IWRITE,
-        0o0200
-    );
-
-    #[pyattr]
-    pub const S_IEXEC: Mode = libc_const!(
-        #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
-        S_IEXEC,
-        0o0100
-    );
 
     // Windows file attributes (if on Windows)
 
@@ -242,113 +200,22 @@ mod _stat {
         FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
     };
 
-    // Windows reparse point tags
     #[cfg(windows)]
     #[pyattr]
-    pub const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
-    #[cfg(windows)]
-    #[pyattr]
-    pub const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
-    #[cfg(windows)]
-    #[pyattr]
-    pub const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000001B;
-
-    // Unix file flags (if on Unix)
-
-    #[pyattr]
-    pub const UF_NODUMP: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_NODUMP,
-        0x00000001
-    );
-
-    #[pyattr]
-    pub const UF_IMMUTABLE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_IMMUTABLE,
-        0x00000002
-    );
-
-    #[pyattr]
-    pub const UF_APPEND: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_APPEND,
-        0x00000004
-    );
-
-    #[pyattr]
-    pub const UF_OPAQUE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_OPAQUE,
-        0x00000008
-    );
-
-    #[pyattr]
-    pub const UF_COMPRESSED: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_COMPRESSED,
-        0x00000020
-    );
-
-    #[pyattr]
-    pub const UF_HIDDEN: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_HIDDEN,
-        0x00008000
-    );
-
-    #[pyattr]
-    pub const SF_ARCHIVED: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_ARCHIVED,
-        0x00010000
-    );
-
-    #[pyattr]
-    pub const SF_IMMUTABLE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_IMMUTABLE,
-        0x00020000
-    );
-
-    #[pyattr]
-    pub const SF_APPEND: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_APPEND,
-        0x00040000
-    );
-
-    #[pyattr]
-    pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
-        0x3fff0000
-    } else {
-        0xffff0000
+    pub use host_nt::{
+        IO_REPARSE_TAG_APPEXECLINK, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
     };
 
     #[pyattr]
-    pub const UF_NOUNLINK: u32 = 0x00000010;
-
-    #[pyattr]
-    pub const SF_NOUNLINK: u32 = 0x00100000;
-
-    #[pyattr]
-    pub const SF_SNAPSHOT: u32 = 0x00200000;
-
-    #[pyattr]
-    pub const SF_FIRMLINK: u32 = 0x00800000;
-
-    #[pyattr]
-    pub const SF_DATALESS: u32 = 0x40000000;
-
-    // MacOS specific
+    pub use rustpython_host_env::os::{
+        SF_APPEND, SF_ARCHIVED, SF_DATALESS, SF_FIRMLINK, SF_IMMUTABLE, SF_NOUNLINK, SF_SETTABLE,
+        SF_SNAPSHOT, UF_APPEND, UF_COMPRESSED, UF_DATAVAULT, UF_HIDDEN, UF_IMMUTABLE, UF_NODUMP,
+        UF_NOUNLINK, UF_OPAQUE, UF_SETTABLE, UF_TRACKED,
+    };
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const SF_SUPPORTED: u32 = 0x009f0000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_SYNTHETIC: u32 = 0xc0000000;
+    pub use rustpython_host_env::os::{SF_SUPPORTED, SF_SYNTHETIC};
 
     // Stat result indices
 
@@ -382,88 +249,110 @@ mod _stat {
     #[pyattr]
     pub const ST_CTIME: u32 = 9;
 
+    /// The mode an argument stands for, which is read as an unsigned long and
+    /// then measured against the range a mode has. = mode_converter
+    #[derive(Copy, Clone)]
+    struct ModeArg(Mode);
+
+    impl TryFromObject for ModeArg {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let index = obj.try_index(vm)?;
+            let value = index.as_bigint();
+            // = PyLong_AsUnsignedLong
+            if value.sign() == Sign::Minus {
+                return Err(vm.new_overflow_error("can't convert negative value to unsigned int"));
+            }
+            let value = value.to_u64().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C unsigned long")
+            })?;
+            Mode::try_from(value)
+                .map(Self)
+                .map_err(|_| vm.new_overflow_error("mode out of range"))
+        }
+    }
+
     const S_IFMT: Mode = 0o170000;
 
     const S_IMODE: Mode = 0o7777;
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISDIR(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFDIR
+    const fn S_ISDIR(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFDIR
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISCHR(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFCHR
+    const fn S_ISCHR(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFCHR
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISREG(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFREG
+    const fn S_ISREG(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFREG
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISBLK(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFBLK
+    const fn S_ISBLK(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFBLK
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISFIFO(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFIFO
+    const fn S_ISFIFO(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFIFO
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISLNK(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFLNK
+    const fn S_ISLNK(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFLNK
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISSOCK(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFSOCK
+    const fn S_ISSOCK(object: ModeArg) -> bool {
+        (object.0 & S_IFMT) == S_IFSOCK
     }
 
     // TODO: RUSTPYTHON Support Solaris
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISDOOR(_mode: Mode) -> bool {
+    const fn S_ISDOOR(_object: ModeArg) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support Solaris
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISPORT(_mode: Mode) -> bool {
+    const fn S_ISPORT(_object: ModeArg) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support BSD
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISWHT(_mode: Mode) -> bool {
+    const fn S_ISWHT(_object: ModeArg) -> bool {
         false
     }
 
     #[pyfunction(name = "S_IMODE")]
     #[allow(non_snake_case)]
-    const fn S_IMODE_method(mode: Mode) -> Mode {
-        mode & S_IMODE
+    const fn S_IMODE_method(object: ModeArg) -> Mode {
+        object.0 & S_IMODE
     }
 
     #[pyfunction(name = "S_IFMT")]
     #[allow(non_snake_case)]
-    const fn S_IFMT_method(mode: Mode) -> Mode {
-        // 0o170000 is from the S_IFMT definition in CPython include/fileutils.h
-        mode & S_IFMT
+    const fn S_IFMT_method(object: ModeArg) -> Mode {
+        object.0 & S_IFMT
     }
 
-    #[pyfunction]
-    const fn filetype(mode: Mode) -> char {
+    /// The one character a mode's file type is written as, which the module
+    /// keeps to itself.
+    const fn filetype(mode: ModeArg) -> char {
         if S_ISREG(mode) {
             '-'
         } else if S_ISDIR(mode) {
@@ -491,37 +380,37 @@ mod _stat {
 
     // Convert file mode to string representation
     #[pyfunction]
-    fn filemode(mode: Mode) -> String {
+    fn filemode(object: ModeArg) -> String {
         let mut result = String::with_capacity(10);
 
         // File type
-        result.push(filetype(mode));
+        result.push(filetype(object));
 
         // User permissions
-        result.push(if mode & S_IRUSR != 0 { 'r' } else { '-' });
-        result.push(if mode & S_IWUSR != 0 { 'w' } else { '-' });
-        if mode & S_ISUID != 0 {
-            result.push(if mode & S_IXUSR != 0 { 's' } else { 'S' });
+        result.push(if object.0 & S_IRUSR != 0 { 'r' } else { '-' });
+        result.push(if object.0 & S_IWUSR != 0 { 'w' } else { '-' });
+        if object.0 & S_ISUID != 0 {
+            result.push(if object.0 & S_IXUSR != 0 { 's' } else { 'S' });
         } else {
-            result.push(if mode & S_IXUSR != 0 { 'x' } else { '-' });
+            result.push(if object.0 & S_IXUSR != 0 { 'x' } else { '-' });
         }
 
         // Group permissions
-        result.push(if mode & S_IRGRP != 0 { 'r' } else { '-' });
-        result.push(if mode & S_IWGRP != 0 { 'w' } else { '-' });
-        if mode & S_ISGID != 0 {
-            result.push(if mode & S_IXGRP != 0 { 's' } else { 'S' });
+        result.push(if object.0 & S_IRGRP != 0 { 'r' } else { '-' });
+        result.push(if object.0 & S_IWGRP != 0 { 'w' } else { '-' });
+        if object.0 & S_ISGID != 0 {
+            result.push(if object.0 & S_IXGRP != 0 { 's' } else { 'S' });
         } else {
-            result.push(if mode & S_IXGRP != 0 { 'x' } else { '-' });
+            result.push(if object.0 & S_IXGRP != 0 { 'x' } else { '-' });
         }
 
         // Other permissions
-        result.push(if mode & S_IROTH != 0 { 'r' } else { '-' });
-        result.push(if mode & S_IWOTH != 0 { 'w' } else { '-' });
-        if mode & S_ISVTX != 0 {
-            result.push(if mode & S_IXOTH != 0 { 't' } else { 'T' });
+        result.push(if object.0 & S_IROTH != 0 { 'r' } else { '-' });
+        result.push(if object.0 & S_IWOTH != 0 { 'w' } else { '-' });
+        if object.0 & S_ISVTX != 0 {
+            result.push(if object.0 & S_IXOTH != 0 { 't' } else { 'T' });
         } else {
-            result.push(if mode & S_IXOTH != 0 { 'x' } else { '-' });
+            result.push(if object.0 & S_IXOTH != 0 { 'x' } else { '-' });
         }
 
         result

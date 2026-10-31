@@ -1,4 +1,5 @@
 use crate::util::CStrExt;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::{c_char, c_int};
 use rustpython_vm::AsObject;
@@ -6,7 +7,7 @@ use rustpython_vm::AsObject;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_Check(obj: *mut PyObject) -> c_int {
     with_vm(|_vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         Ok(obj.mapping_unchecked().check())
     })
 }
@@ -14,7 +15,7 @@ pub unsafe extern "C" fn PyMapping_Check(obj: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_mapping(vm)?.length(vm)
     })
 }
@@ -27,7 +28,7 @@ pub unsafe extern "C" fn PyMapping_Length(obj: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_Keys(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let keys = obj.try_mapping(vm)?.keys(vm)?;
         let iter = keys.get_iter(vm)?;
         Ok(vm.ctx.new_list(iter.try_to_value(vm)?))
@@ -37,7 +38,7 @@ pub unsafe extern "C" fn PyMapping_Keys(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_Values(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let values = obj.try_mapping(vm)?.values(vm)?;
         let iter = values.get_iter(vm)?;
         Ok(vm.ctx.new_list(iter.try_to_value(vm)?))
@@ -47,7 +48,7 @@ pub unsafe extern "C" fn PyMapping_Values(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_Items(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let items = obj.try_mapping(vm)?.items(vm)?;
         let iter = items.get_iter(vm)?;
         Ok(vm.ctx.new_list(iter.try_to_value(vm)?))
@@ -60,7 +61,7 @@ pub unsafe extern "C" fn PyMapping_GetItemString(
     key: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let key = unsafe { key.try_as_str(vm) }?;
         obj.get_item(key, vm)
     })
@@ -76,8 +77,8 @@ pub unsafe extern "C" fn PyMapping_GetOptionalItem(
         unsafe {
             *result = core::ptr::null_mut();
         }
-        let obj = unsafe { &*obj };
-        let key = unsafe { &*key };
+        let obj = unsafe { obj.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
 
         match obj.get_item(key, vm) {
             Ok(value) => {
@@ -102,7 +103,7 @@ pub unsafe extern "C" fn PyMapping_GetOptionalItemString(
         unsafe {
             *result = core::ptr::null_mut();
         }
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let key = unsafe { key.try_as_str(vm) }?;
 
         match obj.get_item(key, vm) {
@@ -121,8 +122,8 @@ pub unsafe extern "C" fn PyMapping_GetOptionalItemString(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_HasKey(obj: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let key = unsafe { &*key };
+        let obj = unsafe { obj.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
         obj.get_item(key, vm).is_ok()
     })
 }
@@ -130,7 +131,7 @@ pub unsafe extern "C" fn PyMapping_HasKey(obj: *mut PyObject, key: *mut PyObject
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMapping_HasKeyString(obj: *mut PyObject, key: *const c_char) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         if let Ok(key) = unsafe { key.try_as_str(vm) } {
             obj.get_item(key, vm).is_ok()
         } else {
@@ -145,8 +146,8 @@ pub unsafe extern "C" fn PyMapping_HasKeyWithError(
     key: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let key = unsafe { &*key };
+        let obj = unsafe { obj.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
 
         match obj.get_item(key, vm) {
             Ok(_) => Ok(true),
@@ -162,7 +163,7 @@ pub unsafe extern "C" fn PyMapping_HasKeyStringWithError(
     key: *const c_char,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let key = unsafe { key.try_as_str(vm) }?;
 
         match obj.get_item(key, vm) {
@@ -180,9 +181,9 @@ pub unsafe extern "C" fn PyMapping_SetItemString(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let key = unsafe { key.try_as_str(vm) }?;
-        let value = unsafe { &*value }.to_owned();
+        let value = unsafe { value.assume_borrowed() }.to_owned();
         obj.set_item(key, value, vm)
     })
 }

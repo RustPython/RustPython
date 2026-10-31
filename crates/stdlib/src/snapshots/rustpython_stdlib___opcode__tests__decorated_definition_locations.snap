@@ -1,0 +1,164 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef dec(f): return f\n\nclass C:\n    @dec\n    def f(self):\n        yield\n\n@dec\nclass D:\n    pass\n\nclass E:\n    @dec\n    def g(self, flags: int, /) -> memoryview:\n        raise NotImplementedError\n\"#,\ntrue)"
+---
+0:0-1:0               RESUME                   0
+
+1:0-1:20              LOAD_CONST               0 (<code object dec at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:20              MAKE_FUNCTION
+1:0-1:20              STORE_NAME               0 (dec)
+
+3:0-6:13              LOAD_BUILD_CLASS
+3:0-6:13              PUSH_NULL
+3:0-6:13              LOAD_CONST               1 (<code object C at 0xdeadbeef, file "<?>", line 3>)
+3:0-6:13              MAKE_FUNCTION
+3:0-6:13              LOAD_CONST               2 ('C')
+3:0-6:13              CALL                     2
+3:0-6:13              STORE_NAME               1 (C)
+
+8:1-8:4               LOAD_NAME                0 (dec)
+
+9:0-10:8              LOAD_BUILD_CLASS
+9:0-10:8              PUSH_NULL
+9:0-10:8              LOAD_CONST               3 (<code object D at 0xdeadbeef, file "<?>", line 8>)
+9:0-10:8              MAKE_FUNCTION
+9:0-10:8              LOAD_CONST               4 ('D')
+9:0-10:8              CALL                     2
+
+8:1-8:4               CALL                     0
+
+9:0-10:8              STORE_NAME               2 (D)
+
+12:0-15:33            LOAD_BUILD_CLASS
+12:0-15:33            PUSH_NULL
+12:0-15:33            LOAD_CONST               5 (<code object E at 0xdeadbeef, file "<?>", line 12>)
+12:0-15:33            MAKE_FUNCTION
+12:0-15:33            LOAD_CONST               6 ('E')
+12:0-15:33            CALL                     2
+12:0-15:33            STORE_NAME               3 (E)
+12:0-15:33            LOAD_COMMON_CONSTANT     7 (None)
+12:0-15:33            RETURN_VALUE
+
+Disassembly of <code object dec at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:19-1:20            LOAD_FAST_BORROW         0 (f)
+1:12-1:20            RETURN_VALUE
+
+Disassembly of <code object C at 0xdeadbeef, file "<?>", line 3>:
+  --                MAKE_CELL                0 (__classdict__)
+
+3:0-3:0             RESUME                   0
+3:0-3:0             LOAD_NAME                0 (__name__)
+3:0-3:0             STORE_NAME               1 (__module__)
+3:0-3:0             LOAD_CONST               0 ('C')
+3:0-3:0             STORE_NAME               2 (__qualname__)
+3:0-3:0             LOAD_SMALL_INT           3
+3:0-3:0             STORE_NAME               3 (__firstlineno__)
+3:0-3:0             LOAD_LOCALS
+3:0-3:0             STORE_DEREF              0 (__classdict__)
+
+4:5-4:8             LOAD_NAME                4 (dec)
+
+5:4-6:13            LOAD_CONST               1 (<code object f at 0xdeadbeef, file "<?>", line 4>)
+5:4-6:13            MAKE_FUNCTION
+
+4:5-4:8             CALL                     0
+
+5:4-6:13            STORE_NAME               5 (f)
+5:4-6:13            LOAD_CONST               2 (())
+5:4-6:13            STORE_NAME               6 (__static_attributes__)
+5:4-6:13            LOAD_FAST_BORROW         0 (__classdict__)
+5:4-6:13            STORE_NAME               7 (__classdictcell__)
+5:4-6:13            LOAD_COMMON_CONSTANT     7 (None)
+5:4-6:13            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 4>:
+4:?-4:?             RETURN_GENERATOR
+4:?-4:?             POP_TOP
+4:0-4:0     L1:     RESUME                   0
+
+6:8-6:13            LOAD_COMMON_CONSTANT     7 (None)
+6:8-6:13            YIELD_VALUE              0
+6:8-6:13            RESUME                   9
+6:8-6:13            POP_TOP
+6:8-6:13            LOAD_COMMON_CONSTANT     7 (None)
+6:8-6:13            RETURN_VALUE
+
+  --        L2:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L2 [0] lasti
+
+Disassembly of <code object D at 0xdeadbeef, file "<?>", line 8>:
+8:0-8:0              RESUME                   0
+8:0-8:0              LOAD_NAME                0 (__name__)
+8:0-8:0              STORE_NAME               1 (__module__)
+8:0-8:0              LOAD_CONST               0 ('D')
+8:0-8:0              STORE_NAME               2 (__qualname__)
+8:0-8:0              LOAD_SMALL_INT           8
+8:0-8:0              STORE_NAME               3 (__firstlineno__)
+
+10:4-10:8            LOAD_CONST               1 (())
+10:4-10:8            STORE_NAME               4 (__static_attributes__)
+10:4-10:8            LOAD_COMMON_CONSTANT     7 (None)
+10:4-10:8            RETURN_VALUE
+
+Disassembly of <code object E at 0xdeadbeef, file "<?>", line 12>:
+  --                  MAKE_CELL                0 (__classdict__)
+
+12:0-12:0             RESUME                   0
+12:0-12:0             LOAD_NAME                0 (__name__)
+12:0-12:0             STORE_NAME               1 (__module__)
+12:0-12:0             LOAD_CONST               0 ('E')
+12:0-12:0             STORE_NAME               2 (__qualname__)
+12:0-12:0             LOAD_SMALL_INT          12
+12:0-12:0             STORE_NAME               3 (__firstlineno__)
+12:0-12:0             LOAD_LOCALS
+12:0-12:0             STORE_DEREF              0 (__classdict__)
+
+13:5-13:8             LOAD_NAME                4 (dec)
+
+14:4-15:33            LOAD_FAST_BORROW         0 (__classdict__)
+14:4-15:33            BUILD_TUPLE              1
+14:4-15:33            LOAD_CONST               1 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 14>)
+14:4-15:33            MAKE_FUNCTION
+14:4-15:33            SET_FUNCTION_ATTRIBUTE   8 (closure)
+14:4-15:33            LOAD_CONST               2 (<code object g at 0xdeadbeef, file "<?>", line 13>)
+14:4-15:33            MAKE_FUNCTION
+14:4-15:33            SET_FUNCTION_ATTRIBUTE  16 (annotate)
+
+13:5-13:8             CALL                     0
+
+14:4-15:33            STORE_NAME               5 (g)
+14:4-15:33            LOAD_CONST               3 (())
+14:4-15:33            STORE_NAME               6 (__static_attributes__)
+14:4-15:33            LOAD_FAST_BORROW         0 (__classdict__)
+14:4-15:33            STORE_NAME               7 (__classdictcell__)
+14:4-15:33            LOAD_COMMON_CONSTANT     7 (None)
+14:4-15:33            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 14>:
+  --                   COPY_FREE_VARS           1
+
+14:0-14:0              RESUME                   0
+14:4-15:33             LOAD_FAST_BORROW         0 (format)
+14:4-15:33             LOAD_SMALL_INT           2
+14:4-15:33             COMPARE_OP             132 (>)
+14:4-15:33             POP_JUMP_IF_FALSE        3 (to L1)
+14:4-15:33             NOT_TAKEN
+14:4-15:33             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+14:4-15:33             RAISE_VARARGS            1
+14:4-15:33     L1:     LOAD_CONST               1 ('flags')
+14:23-14:26            LOAD_DEREF               1 (__classdict__)
+14:23-14:26            LOAD_FROM_DICT_OR_GLOBALS 0 (int)
+14:4-15:33             LOAD_CONST               2 ('return')
+14:34-14:44            LOAD_DEREF               1 (__classdict__)
+14:34-14:44            LOAD_FROM_DICT_OR_GLOBALS 1 (memoryview)
+14:4-15:33             BUILD_MAP                2
+14:4-15:33             RETURN_VALUE
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 13>:
+13:0-13:0              RESUME                   0
+
+15:14-15:33            LOAD_GLOBAL              0 (NotImplementedError)
+15:8-15:33             RAISE_VARARGS            1

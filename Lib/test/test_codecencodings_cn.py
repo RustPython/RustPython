@@ -6,7 +6,6 @@
 from test import multibytecodec_support
 import unittest
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: gb2312")
 class Test_GB2312(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gb2312'
     tstring = multibytecodec_support.load_teststring('gb2312')
@@ -20,7 +19,6 @@ class Test_GB2312(multibytecodec_support.TestBase, unittest.TestCase):
         (b"\xc1\x64", "strict", None),
     )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: gbk")
 class Test_GBK(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gbk'
     tstring = multibytecodec_support.load_teststring('gbk')
@@ -35,7 +33,6 @@ class Test_GBK(multibytecodec_support.TestBase, unittest.TestCase):
         ("\u30fb", "strict", None),
     )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: gb18030")
 class Test_GB18030(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gb18030'
     tstring = multibytecodec_support.load_teststring('gb18030')
@@ -60,7 +57,6 @@ class Test_GB18030(multibytecodec_support.TestBase, unittest.TestCase):
     )
     has_iso10646 = True
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: hz")
 class Test_HZ(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'hz'
     tstring = multibytecodec_support.load_teststring('hz')

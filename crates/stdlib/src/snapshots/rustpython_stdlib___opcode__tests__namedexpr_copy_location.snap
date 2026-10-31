@@ -1,0 +1,40 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef outer():\n    a = 10\n    def spam():\n        nonlocal a\n        (a := 20)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-5:17            LOAD_CONST               0 (<code object outer at 0xdeadbeef, file "<?>", line 1>)
+1:0-5:17            MAKE_FUNCTION
+1:0-5:17            STORE_NAME               0 (outer)
+1:0-5:17            LOAD_COMMON_CONSTANT     7 (None)
+1:0-5:17            RETURN_VALUE
+
+Disassembly of <code object outer at 0xdeadbeef, file "<?>", line 1>:
+  --                MAKE_CELL                1 (a)
+
+1:0-1:0             RESUME                   0
+
+2:8-2:10            LOAD_SMALL_INT          10
+2:4-2:5             STORE_DEREF              1 (a)
+
+3:4-5:17            LOAD_FAST_BORROW         1 (a)
+3:4-5:17            BUILD_TUPLE              1
+3:4-5:17            LOAD_CONST               1 (<code object spam at 0xdeadbeef, file "<?>", line 3>)
+3:4-5:17            MAKE_FUNCTION
+3:4-5:17            SET_FUNCTION_ATTRIBUTE   8 (closure)
+3:4-5:17            STORE_FAST               0 (spam)
+3:4-5:17            LOAD_COMMON_CONSTANT     7 (None)
+3:4-5:17            RETURN_VALUE
+
+Disassembly of <code object spam at 0xdeadbeef, file "<?>", line 3>:
+  --                 COPY_FREE_VARS           1
+
+3:0-3:0              RESUME                   0
+
+5:14-5:16            LOAD_SMALL_INT          20
+5:9-5:16             COPY                     1
+5:9-5:10             STORE_DEREF              0 (a)
+5:9-5:10             POP_TOP
+5:9-5:10             LOAD_COMMON_CONSTANT     7 (None)
+5:9-5:10             RETURN_VALUE

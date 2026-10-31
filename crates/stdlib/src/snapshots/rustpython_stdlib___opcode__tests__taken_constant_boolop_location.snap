@@ -1,0 +1,27 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef and_false(x):\n    return False and x\n\ndef or_true(x):\n    return True or x\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:22            LOAD_CONST               0 (<code object and_false at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:22            MAKE_FUNCTION
+1:0-2:22            STORE_NAME               0 (and_false)
+
+4:0-5:20            LOAD_CONST               1 (<code object or_true at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:20            MAKE_FUNCTION
+4:0-5:20            STORE_NAME               1 (or_true)
+4:0-5:20            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:20            RETURN_VALUE
+
+Disassembly of <code object and_false at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:11-2:16            LOAD_COMMON_CONSTANT    10 (False)
+2:4-2:22             RETURN_VALUE
+
+Disassembly of <code object or_true at 0xdeadbeef, file "<?>", line 4>:
+4:0-4:0              RESUME                   0
+
+5:11-5:15            LOAD_COMMON_CONSTANT     9 (True)
+5:4-5:20             RETURN_VALUE

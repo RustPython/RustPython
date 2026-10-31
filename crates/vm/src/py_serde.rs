@@ -37,11 +37,11 @@ pub struct PyObjectSerializer<'s> {
 }
 
 impl<'s> PyObjectSerializer<'s> {
-    pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObjectRef) -> Self {
+    pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObject) -> Self {
         PyObjectSerializer { pyobject, vm }
     }
 
-    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer<'_> {
+    fn clone_with_object(&self, pyobject: &'s PyObject) -> PyObjectSerializer<'_> {
         PyObjectSerializer {
             pyobject,
             vm: self.vm,
@@ -86,7 +86,7 @@ impl serde::Serialize for PyObjectSerializer<'_> {
         } else if let Some(list) = self.pyobject.downcast_ref::<PyList>() {
             serialize_seq_elements(serializer, &list.borrow_vec())
         } else if let Some(tuple) = self.pyobject.downcast_ref::<PyTuple>() {
-            serialize_seq_elements(serializer, tuple)
+            serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();

@@ -8,10 +8,7 @@ import io
 import pydoc
 import py_compile
 import keyword
-try: # TODO: RUSTPYTHON; Implement `_pickle`
-    import _pickle
-except ImportError:
-    _pickle = None
+import _pickle
 import pkgutil
 import re
 import tempfile
@@ -419,7 +416,6 @@ class PydocDocTest(unittest.TestCase):
     def tearDown(self):
         self.assertIs(sys.modules['pydoc'], pydoc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings
@@ -438,7 +434,6 @@ class PydocDocTest(unittest.TestCase):
         self.assertIn(mod_file, result)
         self.assertIn(doc_loc, result)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings
@@ -583,7 +578,7 @@ class PydocDocTest(unittest.TestCase):
             # of the known subclasses of object. (doc.docclass() used to
             # fail if HeapType was imported before running this test, like
             # when running tests sequentially.)
-            from _testcapi import HeapType
+            from _testcapi import HeapType  # noqa: F401
         except ImportError:
             pass
         text = doc.docclass(object)
@@ -708,7 +703,6 @@ class PydocDocTest(unittest.TestCase):
             expected = missing_pattern % "abd"
             self.assertEqual(expected, buf.getvalue().strip().replace('\n', os.linesep))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @unittest.mock.patch('pydoc.pager')
@@ -787,7 +781,6 @@ class PydocDocTest(unittest.TestCase):
         run_pydoc_for_request(pydoc.Helper.help, 'Help on function help in module pydoc:')
         # test for pydoc.Helper() instance skipped because it is always meant to be interactive
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings
@@ -1013,6 +1006,8 @@ class PydocDocTest(unittest.TestCase):
         os = import_helper.import_fresh_module('os')
         expected = os.__doc__.splitlines()[0]
         filename = os.__spec__.cached
+        if not filename:
+            raise unittest.SkipTest('requires .pyc files')
         synopsis = pydoc.synopsis(filename)
 
         self.assertEqual(synopsis, expected)
@@ -1020,10 +1015,10 @@ class PydocDocTest(unittest.TestCase):
     def test_synopsis_sourceless_empty_doc(self):
         with os_helper.temp_cwd() as test_dir:
             init_path = os.path.join(test_dir, 'foomod42.py')
-            cached_path = importlib.util.cache_from_source(init_path)
+            cached_path = init_path + 'c'
             with open(init_path, 'w') as fobj:
                 fobj.write("foo = 1")
-            py_compile.compile(init_path)
+            py_compile.compile(init_path, cached_path)
             synopsis = pydoc.synopsis(init_path, {})
             self.assertIsNone(synopsis)
             synopsis_cached = pydoc.synopsis(cached_path, {})
@@ -1074,7 +1069,6 @@ class PydocDocTest(unittest.TestCase):
         methods = pydoc.allmethods(TestClass)
         self.assertDictEqual(methods, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_method_aliases(self):
         class A:
@@ -1165,7 +1159,6 @@ class B(A)
         for expected_line in expected_lines:
             self.assertIn(expected_line, as_text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_long_signatures(self):
         from collections.abc import Callable
         from typing import Literal, Annotated
@@ -1369,47 +1362,6 @@ class PydocImportTest(PydocBaseTest):
             finally:
                 sys.path[:] = saved_paths
 
-    @unittest.skip('causes undesirable side-effects (#20128)')
-    def test_modules(self):
-        # See Helper.listmodules().
-        num_header_lines = 2
-        num_module_lines_min = 5  # Playing it safe.
-        num_footer_lines = 3
-        expected = num_header_lines + num_module_lines_min + num_footer_lines
-
-        output = StringIO()
-        helper = pydoc.Helper(output=output)
-        helper('modules')
-        result = output.getvalue().strip()
-        num_lines = len(result.splitlines())
-
-        self.assertGreaterEqual(num_lines, expected)
-
-    @unittest.skip('causes undesirable side-effects (#20128)')
-    def test_modules_search(self):
-        # See Helper.listmodules().
-        expected = 'pydoc - '
-
-        output = StringIO()
-        helper = pydoc.Helper(output=output)
-        with captured_stdout() as help_io:
-            helper('modules pydoc')
-        result = help_io.getvalue()
-
-        self.assertIn(expected, result)
-
-    @unittest.skip('some buildbots are not cooperating (#20128)')
-    def test_modules_search_builtin(self):
-        expected = 'gc - '
-
-        output = StringIO()
-        helper = pydoc.Helper(output=output)
-        with captured_stdout() as help_io:
-            helper('modules garbage')
-        result = help_io.getvalue()
-
-        self.assertStartsWith(result, expected)
-
     def test_importfile(self):
         try:
             loaded_pydoc = pydoc.importfile(pydoc.__file__)
@@ -1451,7 +1403,6 @@ class TestDescriptions(unittest.TestCase):
         expected = 'C in module %s object' % __name__
         self.assertIn(expected, pydoc.render_doc(c))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_generic_alias(self):
         self.assertEqual(pydoc.describe(typing.List[int]), '_GenericAlias')
         doc = pydoc.render_doc(typing.List[int], renderer=pydoc.plaintext)
@@ -1467,7 +1418,6 @@ class TestDescriptions(unittest.TestCase):
         if not MISSING_C_DOCSTRINGS:
             self.assertIn(list.__doc__.strip().splitlines()[0], doc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_union_type(self):
         self.assertEqual(pydoc.describe(typing.Union[int, str]), 'Union')
         doc = pydoc.render_doc(typing.Union[int, str], renderer=pydoc.plaintext)
@@ -1491,7 +1441,7 @@ class TestDescriptions(unittest.TestCase):
             self.assertIn('NoReturn = typing.NoReturn', doc)
             self.assertIn(typing.NoReturn.__doc__.strip().splitlines()[0], doc)
         else:
-            self.assertIn('NoReturn = class _SpecialForm(_Final)', doc)
+            self.assertIn('NoReturn = class _SpecialForm(_Final, _NotIterable)', doc)
 
     def test_typing_pydoc(self):
         def foo(data: typing.List[typing.Any],
@@ -1540,7 +1490,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(textwrap.TextWrapper.wrap),
             "wrap(self, text)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_unbound_builtin_method(self):
         self.assertEqual(self._get_summary_line(_pickle.Pickler.dump),
@@ -1567,7 +1516,6 @@ class TestDescriptions(unittest.TestCase):
         pydoc.render_doc(NonIterableFields)
         pydoc.render_doc(NonHashableFields)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_bound_builtin_method(self):
         s = StringIO()
@@ -1576,7 +1524,6 @@ class TestDescriptions(unittest.TestCase):
             "dump(obj, /) method of _pickle.Pickler instance")
 
     # this should *never* include self!
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_module_level_callable(self):
         self.assertEqual(self._get_summary_line(os.stat),
@@ -1586,7 +1533,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(time.time),
             "time()")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_level_callable_o(self):
         try:
             import _stat
@@ -1597,37 +1543,30 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(_stat.S_IMODE),
             "S_IMODE(object, /)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_noargs(self):
         self.assertEqual(self._get_summary_line(str.lower),
             "lower(self, /) unbound builtins.str method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_noargs(self):
         self.assertEqual(self._get_summary_line(''.lower),
             "lower() method of builtins.str instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_o(self):
         self.assertEqual(self._get_summary_line(set.add),
             "add(self, object, /) unbound builtins.set method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_o(self):
         self.assertEqual(self._get_summary_line(set().add),
             "add(object, /) method of builtins.set instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_coexist_o(self):
         self.assertEqual(self._get_summary_line(set.__contains__),
             "__contains__(self, object, /) unbound builtins.set method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_coexist_o(self):
         self.assertEqual(self._get_summary_line(set().__contains__),
             "__contains__(object, /) method of builtins.set instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_classmethod_noargs(self):
         self.assertEqual(self._get_summary_line(datetime.datetime.__dict__['utcnow']),
             "utcnow(type, /) unbound datetime.datetime method")
@@ -1636,12 +1575,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(datetime.datetime.utcnow),
             "utcnow() class method of datetime.datetime")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_classmethod_o(self):
         self.assertEqual(self._get_summary_line(dict.__dict__['__class_getitem__']),
             "__class_getitem__(type, object, /) unbound builtins.dict method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_classmethod_o(self):
         self.assertEqual(self._get_summary_line(dict.__class_getitem__),
             "__class_getitem__(object, /) class method of builtins.dict")
@@ -1829,7 +1766,6 @@ cm(x) class method of test.test_pydoc.test_pydoc.X
         self.assertEqual(self._get_summary_line(type(sys.float_info).max),
                          "max")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_namedtuple_field_descriptor(self):
         Box = namedtuple('Box', ('width', 'height'))
@@ -1958,7 +1894,6 @@ class PydocFodderTest(unittest.TestCase):
             endindex = lines.index(endline, beginindex)
         return lines[beginindex:endindex]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_text_doc_routines_in_class(self, cls=pydocfodder.B):
         doc = pydoc.TextDoc()
         result = doc.docclass(cls)
@@ -2001,7 +1936,6 @@ class PydocFodderTest(unittest.TestCase):
         self.assertIn(' |  B_classmethod(x)', lines)
         self.assertIn(' |  B_classmethod_alias = B_classmethod(x)', lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_html_doc_routines_in_class(self, cls=pydocfodder.B):
         doc = pydoc.HTMLDoc()
         result = doc.docclass(cls)
@@ -2036,15 +1970,12 @@ class PydocFodderTest(unittest.TestCase):
         self.assertIn('B_classmethod(x)', lines)
         self.assertIn('B_classmethod_alias = B_classmethod(x)', lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_text_doc_inherited_routines_in_class(self):
         self.test_text_doc_routines_in_class(pydocfodder.D)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_html_doc_inherited_routines_in_class(self):
         self.test_html_doc_routines_in_class(pydocfodder.D)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_text_doc_routines_in_module(self):
         doc = pydoc.TextDoc()
         result = doc.docmodule(pydocfodder)
@@ -2091,7 +2022,6 @@ class PydocFodderTest(unittest.TestCase):
         else:
             self.assertIn('    sin(object, /)', lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_html_doc_routines_in_module(self):
         doc = pydoc.HTMLDoc()
         result = doc.docmodule(pydocfodder)
@@ -2243,7 +2173,7 @@ class TestHelper(unittest.TestCase):
 
     def test_keywords(self):
         self.assertEqual(sorted(pydoc.Helper.keywords),
-                         sorted(keyword.kwlist))
+                         sorted(keyword.kwlist + ['case', 'match', 'lazy']))
 
     def test_interact_empty_line_continues(self):
         # gh-138568: test pressing Enter without input should continue in help session
@@ -2441,6 +2371,32 @@ class TestInternalUtilities(unittest.TestCase):
                 self.assertIsNone(self._get_revised_path(leading_argv0dir))
                 trailing_argv0dir = trailing_curdir + [self.argv0dir]
                 self.assertIsNone(self._get_revised_path(trailing_argv0dir))
+
+    def test__get_version(self):
+        import json
+        import warnings
+
+        class MyModule:
+            __name__ = 'my_module'
+
+            @property
+            def __version__(self):
+                warnings._deprecated("__version__", remove=(3, 20))
+                return "1.2.3"
+
+        module = MyModule()
+        doc = pydoc.Doc()
+        with warnings.catch_warnings(record=True) as w: # TODO: remove in 3.20
+            warnings.simplefilter("always")
+            version = doc._get_version(json)
+            self.assertEqual(version, "2.0.9")
+            self.assertEqual(len(w), 0)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            version = doc._get_version(module)
+            self.assertEqual(version, "1.2.3")
+            self.assertEqual(len(w), 1)
 
 
 def setUpModule():

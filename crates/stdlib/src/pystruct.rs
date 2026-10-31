@@ -10,13 +10,15 @@ pub(crate) use _struct::module_def;
 #[pymodule]
 pub(crate) mod _struct {
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject,
+        VirtualMachine,
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
-        common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
+        common::{lock::PyRwLock, rc::PyRc},
         function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, PosArgs},
         match_class,
         protocol::PyIterReturn,
+        stdlib::_warnings,
         types::{Constructor, Initializer, IterNext, Iterable, Representable, SelfIter},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -27,33 +29,22 @@ pub(crate) mod _struct {
 
     impl TryFromObject for IntoStructFormatBytes {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            // CPython turns str to bytes (via str.encode('ascii')) but we keep str.
-            // The error reporting for non-ASCII input still matches CPython:
-            // - str input with non-ASCII char: UnicodeEncodeError, the same exception
-            //   str.encode('ascii') would produce.
-            // - bytes input with non-ASCII byte: struct.error("bad char in struct format"),
-            //   matching CPython where bytes are passed through to the format parser.
+            // CPython decodes bytes with ASCII and surrogateescape, then rejects
+            // every non-ASCII format before parsing, for both str and bytes.
             let fmt = match_class!(match obj {
                 s @ PyStr => {
                     if !s.isascii() {
-                        let start = s
-                            .as_wtf8()
-                            .code_points()
-                            .position(|cp| !cp.to_char().is_some_and(|c| c.is_ascii()))
-                            .unwrap_or(0);
-                        return Err(vm.new_unicode_encode_error_real(
-                            vm.ctx.new_str("ascii"),
-                            s,
-                            start,
-                            start + 1,
-                            vm.ctx.new_str("ordinal not in range(128)"),
-                        ));
+                        return Err(vm.new_value_error("non-ASCII character in struct format"));
                     }
-                    s
+                    if s.class().is(vm.ctx.types.str_type) {
+                        s
+                    } else {
+                        vm.ctx.new_str(s.as_wtf8())
+                    }
                 }
                 b @ PyBytes => {
                     let ascii_str = ascii::AsciiStr::from_ascii(&b)
-                        .map_err(|_| new_struct_error(vm, "bad char in struct format"))?;
+                        .map_err(|_| vm.new_value_error("non-ASCII character in struct format"))?;
                     vm.ctx.new_str(ascii_str)
                 }
                 other =>
@@ -69,6 +60,12 @@ pub(crate) mod _struct {
     impl IntoStructFormatBytes {
         fn format_spec(&self, vm: &VirtualMachine) -> PyResult<FormatSpec> {
             FormatSpec::parse(self.0.as_bytes(), vm)
+        }
+
+        fn cached_format_spec(&self, vm: &VirtualMachine) -> PyResult<PyRc<FormatSpec>> {
+            vm.state
+                .struct_format_cache
+                .get_or_parse(self.0.as_bytes(), vm)
         }
     }
 
@@ -126,7 +123,7 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        fmt.format_spec(vm)?.pack(args.into_vec(), vm)
+        fmt.cached_format_spec(vm)?.pack(args.into_vec(), vm)
     }
 
     #[pyfunction]
@@ -137,35 +134,35 @@ pub(crate) mod _struct {
         args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = fmt.cached_format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
     }
 
     #[pyfunction]
     fn unpack(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
     #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         offset: isize,
     }
 
     #[pyfunction]
     fn unpack_from(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -177,7 +174,7 @@ pub(crate) mod _struct {
     #[derive(Debug, PyPayload)]
     struct UnpackIterator {
         #[pytraverse(skip)]
-        format_spec: FormatSpec,
+        format_spec: PyRc<FormatSpec>,
         buffer: ArgBytesLike,
         #[pytraverse(skip)]
         offset: AtomicCell<usize>,
@@ -186,7 +183,7 @@ pub(crate) mod _struct {
     impl UnpackIterator {
         fn with_buffer(
             vm: &VirtualMachine,
-            format_spec: FormatSpec,
+            format_spec: PyRc<FormatSpec>,
             buffer: ArgBytesLike,
         ) -> PyResult<Self> {
             if format_spec.size == 0 {
@@ -215,8 +212,8 @@ pub(crate) mod _struct {
     #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl UnpackIterator {
         #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
+        fn __length_hint__(zelf: &Py<Self>) -> usize {
+            zelf.buffer.len().saturating_sub(zelf.offset.load()) / zelf.format_spec.size
         }
     }
     impl SelfIter for UnpackIterator {}
@@ -239,27 +236,45 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         UnpackIterator::with_buffer(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(fmt: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(fmt.format_spec(vm)?.size)
+    fn calcsize(format: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(format.cached_format_spec(vm)?.size)
     }
 
     /// What a `Struct` is once a format has been read into it. Held apart
-    /// from the object because `__new__` hands out a `Struct` that `__init__`
-    /// has not filled in yet, and `__init__` may be called again on one that
-    /// already holds a format.
-    #[derive(Debug)]
+    /// because `__new__` can still hand out an uninitialized `Struct`, and
+    /// `__init__` may be called again on one that already holds a format.
+    #[derive(Clone, Debug)]
     struct StructSpec {
-        spec: FormatSpec,
+        spec: PyRc<FormatSpec>,
         format: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct StructArgs {
+        #[pyarg(any)]
+        format: PyObjectRef,
+    }
+
+    impl StructArgs {
+        fn bind(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let nargs = args.args.len() + args.kwargs.len();
+            if nargs > 1 {
+                let keyword = if args.args.is_empty() { "keyword " } else { "" };
+                return Err(vm.new_type_error(format!(
+                    "Struct() takes at most 1 {keyword}argument ({nargs} given)"
+                )));
+            }
+            args.bind_for(vm, "Struct")
+        }
     }
 
     #[pyattr]
@@ -268,71 +283,181 @@ pub(crate) mod _struct {
     struct PyStruct {
         #[pytraverse(skip)]
         inner: PyRwLock<Option<StructSpec>>,
+        #[pytraverse(skip)]
+        init_called: AtomicCell<bool>,
+    }
+
+    impl PyStruct {
+        fn uses_struct_init(cls: &Py<PyType>, vm: &VirtualMachine) -> bool {
+            cls.slots()
+                .init
+                .load()
+                .zip(Self::class(&vm.ctx).slots().init.load())
+                .is_some_and(|(init, struct_init)| core::ptr::fn_addr_eq(init, struct_init))
+        }
+
+        fn parse_format(format: PyObjectRef, vm: &VirtualMachine) -> PyResult<StructSpec> {
+            let format = IntoStructFormatBytes::try_from_object(vm, format)?;
+            Ok(StructSpec {
+                spec: PyRc::new(format.format_spec(vm)?),
+                format: format.0,
+            })
+        }
+
+        fn same_format(format: &PyStr, candidate: &PyObject) -> bool {
+            candidate
+                .downcast_ref::<PyStr>()
+                .is_some_and(|candidate| candidate.as_bytes() == format.as_bytes())
+                || candidate
+                    .downcast_ref::<PyBytes>()
+                    .is_some_and(|candidate| candidate.as_bytes() == format.as_bytes())
+        }
     }
 
     impl Constructor for PyStruct {
         type Args = FuncArgs;
 
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let uses_struct_new = cls
+                .slots()
+                .new
+                .load()
+                .zip(Self::class(&vm.ctx).slots().new.load())
+                .is_some_and(|(new, struct_new)| core::ptr::fn_addr_eq(new, struct_new));
+            let uses_struct_init = Self::uses_struct_init(&cls, vm);
+            let format = if !uses_struct_new {
+                // A subclass explicitly called Struct.__new__ from its own __new__.
+                let args = StructArgs::bind(args, vm)?;
+                Some(args.format)
+            } else {
+                let format = match args.args.as_slice() {
+                    [format] if args.kwargs.is_empty() => Some(format.clone()),
+                    [] if args.kwargs.len() == 1 => args.kwargs.get("format").cloned(),
+                    _ => None,
+                };
+                if format.is_none() && !uses_struct_init {
+                    let nargs = args.args.len() + args.kwargs.len();
+                    let message = if nargs > 1 {
+                        format!("Struct() takes at most 1 argument ({nargs} given)")
+                    } else {
+                        "Struct() missing required argument 'format' (pos 1)".to_owned()
+                    };
+                    _warnings::warn(vm.ctx.exceptions.deprecation_warning, message, 1, vm)?;
+                }
+                format
+            };
+            // Allocate before parsing so a failing subclass constructor still
+            // finalizes its half-initialized instance.
+            let zelf = Self::py_new(&cls, FuncArgs::default(), vm)?.into_ref_with_type(vm, cls)?;
+            if let Some(format) = format {
+                match Self::parse_format(format, vm) {
+                    Ok(inner) => {
+                        let old = zelf.inner.write().replace(inner);
+                        drop(old);
+                    }
+                    Err(err) if uses_struct_new && !uses_struct_init => {
+                        _warnings::warn(
+                            vm.ctx.exceptions.deprecation_warning,
+                            format!(
+                                "Invalid 'format' argument for Struct.__new__(): {}",
+                                err.as_object().str(vm)?
+                            ),
+                            1,
+                            vm,
+                        )?;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            Ok(zelf.into())
+        }
+
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 inner: PyRwLock::new(None),
+                init_called: AtomicCell::new(false),
             })
         }
     }
 
     impl Initializer for PyStruct {
-        type Args = IntoStructFormatBytes;
+        type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            // The format is read before anything is replaced, so a format that
-            // cannot be read leaves the object as it was.
-            let spec = fmt.format_spec(vm)?;
-            *zelf.inner.write() = Some(StructSpec {
-                spec,
-                format: fmt.0,
-            });
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
+            if !zelf.init_called.load()
+                && Self::uses_struct_init(zelf.class(), vm)
+                && format.is_some()
+            {
+                // The implicit __init__ must not reinterpret a custom __new__'s arguments.
+                zelf.init_called.store(true);
+                return Ok(());
+            }
+            let args = StructArgs::bind(args, vm)?;
+            if let Some(format) = format {
+                if Self::same_format(&format, &args.format) {
+                    zelf.init_called.store(true);
+                    return Ok(());
+                }
+                let message = if zelf.init_called.load() {
+                    "Re-initialization of Struct by calling the __init__() method \
+                     will not work in future Python versions"
+                } else {
+                    "Different format arguments for __new__() and __init__() \
+                     methods of Struct"
+                };
+                _warnings::warn(vm.ctx.exceptions.future_warning, message.to_owned(), 1, vm)?;
+            }
+            // Warn and parse before replacing the format. Warning hooks may reenter,
+            // and either a warning or a conversion error must preserve the old state.
+            let inner = Self::parse_format(args.format, vm)?;
+            let old = zelf.inner.write().replace(inner);
+            drop(old);
+            zelf.init_called.store(true);
             Ok(())
         }
     }
 
     #[pyclass(with(Constructor, Initializer, Representable), flags(BASETYPE))]
     impl PyStruct {
-        /// The format this was initialized with, or an error if `__init__`
-        /// never ran.
-        fn ready(&self, vm: &VirtualMachine) -> PyResult<PyMappedRwLockReadGuard<'_, StructSpec>> {
-            PyRwLockReadGuard::try_map(self.inner.read(), Option::as_ref)
-                .map_err(|_| vm.new_runtime_error("Struct object is not initialized"))
+        // Hold an owned snapshot while conversions and warning hooks can reenter.
+        fn ready(&self, vm: &VirtualMachine) -> PyResult<StructSpec> {
+            let inner = self.inner.read().clone();
+            inner.ok_or_else(|| vm.new_runtime_error("Struct object is not initialized"))
         }
 
         #[pygetset]
-        fn format(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Ok(self.ready(vm)?.format.clone())
+        fn format(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
+            format.ok_or_else(|| {
+                vm.new_no_attribute_error(zelf.as_object().to_owned(), vm.ctx.new_str("format"))
+            })
         }
 
-        /// The size an uninitialized `Struct` reports, which no format has
-        /// yet given a value.
+        // The size an uninitialized `Struct` reports, which no format has
+        // yet given a value.
         #[pygetset]
-        fn size(&self) -> isize {
-            self.inner
+        fn size(zelf: &Py<Self>) -> isize {
+            zelf.inner
                 .read()
                 .as_ref()
                 .map_or(-1, |inner| inner.spec.size as isize)
         }
 
         #[pymethod]
-        fn pack(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.ready(vm)?.spec.pack(args.into_vec(), vm)
+        fn pack(zelf: &Py<Self>, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.ready(vm)?.spec.pack(args.into_vec(), vm)
         }
 
         #[pymethod]
         fn pack_into(
-            &self,
+            zelf: &Py<Self>,
             buffer: ArgMemoryBuffer,
             offset: isize,
             args: PosArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let inner = self.ready(vm)?;
+            let inner = zelf.ready(vm)?;
             let offset = get_buffer_offset(buffer.len(), offset, inner.spec.size, true, vm)?;
             buffer.with_ref(|data| {
                 inner
@@ -342,14 +467,22 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn unpack(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let inner = self.ready(vm)?;
-            data.with_ref(|buf| inner.spec.unpack(buf, vm))
+        fn unpack(
+            zelf: &Py<Self>,
+            buffer: ArgBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let inner = zelf.ready(vm)?;
+            buffer.with_ref(|buf| inner.spec.unpack(buf, vm))
         }
 
         #[pymethod]
-        fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let inner = self.ready(vm)?;
+        fn unpack_from(
+            zelf: &Py<Self>,
+            args: UpdateFromArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let inner = zelf.ready(vm)?;
             let size = inner.spec.size;
             let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
             args.buffer
@@ -358,12 +491,18 @@ pub(crate) mod _struct {
 
         #[pymethod]
         fn iter_unpack(
-            &self,
+            zelf: &Py<Self>,
             buffer: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<UnpackIterator> {
-            let spec = self.ready(vm)?.spec.clone();
+            let spec = zelf.ready(vm)?.spec;
             UnpackIterator::with_buffer(vm, spec, buffer)
+        }
+
+        #[pymethod]
+        fn __sizeof__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let inner = zelf.ready(vm)?;
+            Ok(core::mem::size_of::<Self>() + inner.spec.codes_sizeof())
         }
     }
 
@@ -379,12 +518,13 @@ pub(crate) mod _struct {
     }
 
     // seems weird that this is part of the "public" API, but whatever
-    // TODO: implement a format code->spec cache like CPython does?
     #[pyfunction]
-    const fn _clearcache() {}
+    fn _clearcache(vm: &VirtualMachine) {
+        vm.state.struct_format_cache.clear();
+    }
 
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        struct_error_type(vm).clone()
+        struct_error_type(vm).to_owned()
     }
 }

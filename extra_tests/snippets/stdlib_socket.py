@@ -186,3 +186,132 @@ with sizes:
             pass
     with assert_raises(ValueError):
         sizes.recvfrom(-1)
+
+
+import sys
+
+
+def receive_sizes_and_truncation():
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+        receiver.bind(("127.0.0.1", 0))
+        receiver.settimeout(2)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+            for method in (receiver.recv_into, receiver.recvfrom_into):
+                for size in (-1, 5):
+                    try:
+                        method(bytearray(4), size)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError("invalid receive size accepted")
+                sender.sendto(b"abc", receiver.getsockname())
+                destination = bytearray(b"------")
+                result = method(memoryview(destination)[1:5], 0)
+                assert (result[0] if isinstance(result, tuple) else result) == 3
+                assert destination == b"-abc--"
+
+            if sys.platform.startswith("linux"):
+                for method in (receiver.recv_into, receiver.recvfrom_into):
+                    sender.sendto(b"abcdefgh", receiver.getsockname())
+                    for flags in (socket.MSG_PEEK | socket.MSG_TRUNC, socket.MSG_TRUNC):
+                        destination = bytearray(b"------")
+                        result = method(memoryview(destination)[1:5], 3, flags)
+                        assert (result[0] if isinstance(result, tuple) else result) == 8
+                        assert destination == b"-abc--"
+                for method in (receiver.recv, receiver.recvfrom, receiver.recvmsg):
+                    sender.sendto(b"abcdefgh", receiver.getsockname())
+                    result = (
+                        method(3, 0, socket.MSG_TRUNC)
+                        if method == receiver.recvmsg
+                        else method(3, socket.MSG_TRUNC)
+                    )
+                    data = result[0] if isinstance(result, tuple) else result
+                    assert data[:3] == b"abc"
+                    if sys.implementation.name == "rustpython":
+                        # Some CPython recv paths enlarge the bytes result to the
+                        # reported datagram length, including an unwritten tail.
+                        assert data == b"abc"
+
+
+def tcp_truncation_preserves_buffer(protocol=0):
+    import signal
+
+    try:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM, protocol)
+    except OSError:
+        if protocol:
+            return  # MPTCP is optional in the running kernel.
+        raise
+    with listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with socket.create_connection(listener.getsockname()) as sender:
+            receiver, _ = listener.accept()
+            with receiver:
+                receiver.settimeout(2)
+                for method in (receiver.recv_into, receiver.recvfrom_into):
+                    destination = bytearray(b"original")
+
+                    def send_after_mutation(signum, frame):
+                        destination[0] = ord("X")
+                        sender.sendall(b"abc")
+
+                    previous = signal.signal(signal.SIGALRM, send_after_mutation)
+                    try:
+                        signal.setitimer(signal.ITIMER_REAL, 0.05)
+                        result = method(destination, 0, socket.MSG_TRUNC)
+                        assert (result[0] if isinstance(result, tuple) else result) == 3
+                        assert destination == b"Xriginal"
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+                        signal.signal(signal.SIGALRM, previous)
+
+
+receive_sizes_and_truncation()
+if sys.platform.startswith("linux"):
+    tcp_truncation_preserves_buffer()
+    if hasattr(socket, "IPPROTO_MPTCP"):
+        tcp_truncation_preserves_buffer(socket.IPPROTO_MPTCP)
+
+
+if hasattr(socket, "NETLINK_USERSOCK"):
+    with (
+        socket.socket(
+            socket.AF_NETLINK, socket.SOCK_DGRAM, socket.NETLINK_USERSOCK
+        ) as sender,
+        socket.socket(
+            socket.AF_NETLINK, socket.SOCK_DGRAM, socket.NETLINK_USERSOCK
+        ) as receiver,
+    ):
+        sender.settimeout(2)
+        receiver.settimeout(2)
+        # AF_NETLINK parses unsigned 32-bit pid/group values, including masking.
+        sender.bind((2**32, 0))
+        receiver.bind((0, 0))
+        with assert_raises(TypeError):
+            sender.sendto(b"message", (0,))
+        with assert_raises(TypeError):
+            sender.sendto(b"message", ("pid", 0))
+        sender.sendto(b"message", receiver.getsockname())
+        assert receiver.recvfrom(32) == (b"message", sender.getsockname())
+        sender.connect(receiver.getsockname())
+        assert sender.getpeername() == receiver.getsockname()
+
+
+# Exhaust the iterable before exporting its writable buffers.
+if hasattr(socket.socket, "recvmsg_into"):
+    first, second = bytearray(2), bytearray(2)
+
+    def receive_buffers():
+        yield first
+        first.extend(b"xx")
+        yield second
+
+    reader, writer = socket.socketpair()
+    try:
+        writer.sendall(b"abcdef")
+        assert reader.recvmsg_into(receive_buffers())[0] == 6
+        assert (first, second) == (b"abcd", b"ef")
+    finally:
+        reader.close()
+        writer.close()

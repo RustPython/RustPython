@@ -4,11 +4,8 @@ use criterion::{
 };
 use pyo3::types::PyAnyMethods;
 use rustpython_compiler::Mode;
-use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use rustpython_vm::{AsObject, Interpreter, PyResult, Settings, scope::Scope};
+use std::{fs, io, path::Path};
 
 // List of microbenchmarks to skip.
 //
@@ -36,7 +33,7 @@ pub struct MicroBenchmark {
     iterate: bool,
 }
 
-fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_cpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     pyo3::Python::attach(|py| {
         let setup_name = format!("{}_setup", bench.name);
         let setup_code = cpy_compile_code(py, &bench.setup, &setup_name).unwrap();
@@ -48,11 +45,8 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
             pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
         let exec = builtins.getattr("exec").expect("no exec in builtins");
 
-        let bench_func = |(globals, locals): &mut (
-            pyo3::Bound<pyo3::types::PyDict>,
-            pyo3::Bound<pyo3::types::PyDict>,
-        )| {
-            let res = exec.call((&code, &*globals, &*locals), None);
+        let bench_func = |globals: &mut pyo3::Bound<'_, pyo3::types::PyDict>| {
+            let res = exec.call((&code, &*globals), None);
             if let Err(e) = res {
                 e.print(py);
                 panic!("Error running microbenchmark")
@@ -61,23 +55,24 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
 
         let bench_setup = |iterations| {
             let globals = pyo3::types::PyDict::new(py);
-            let locals = pyo3::types::PyDict::new(py);
+            globals.set_item("__name__", "__main__").unwrap();
             if let Some(idx) = iterations {
                 globals.set_item("ITERATIONS", idx).unwrap();
             }
 
-            let res = exec.call((&setup_code, &globals, &locals), None);
+            let res = exec.call((&setup_code, &globals), None);
             if let Err(e) = res {
                 e.print(py);
                 panic!("Error running microbenchmark setup code")
             }
-            (globals, locals)
+            globals
         };
 
         if bench.iterate {
-            for idx in (100..=1_000).step_by(200) {
+            for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
-                group.bench_with_input(BenchmarkId::new("cpython", &bench.name), &idx, |b, idx| {
+                let id = BenchmarkId::new("cpython", format!("{}[{idx}]", bench.name));
+                group.bench_with_input(id, &idx, |b, idx| {
                     b.iter_batched_ref(
                         || bench_setup(Some(*idx)),
                         bench_func,
@@ -107,11 +102,14 @@ fn cpy_compile_code<'a>(
         .expect("compile() should return a code object"))
 }
 
-fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
     settings.user_site_directory = false;
+    // Pin the str/bytes hash secret so dict/set probe sequences (and thus
+    // timings) are reproducible across benchmark runs.
+    settings.hash_seed = Some(0);
 
     let builder = Interpreter::builder(settings);
     let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
@@ -124,13 +122,18 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
             .compile(&bench.code, Mode::Exec, &bench.name)
             .expect("Error compiling bench code");
 
-        let bench_func = |scope| {
-            let res: PyResult = vm.run_code_obj(bench_code.clone(), scope);
+        let bench_func = |scope: &mut Scope| {
+            // Keep setup objects alive until after timing, as in the CPython benchmark.
+            let res: PyResult = vm.run_code_obj(bench_code.clone(), scope.clone());
             vm.unwrap_pyresult(res);
         };
 
         let bench_setup = |iterations| {
             let scope = vm.new_scope_with_builtins();
+            scope
+                .globals
+                .set_item("__name__", vm.ctx.new_str("__main__").into(), vm)
+                .unwrap();
             if let Some(idx) = iterations {
                 scope
                     .locals
@@ -146,32 +149,57 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
         };
 
         if bench.iterate {
-            for idx in (100..=1_000).step_by(200) {
+            for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
-                group.bench_with_input(
-                    BenchmarkId::new("rustpython", &bench.name),
-                    &idx,
-                    |b, idx| {
-                        b.iter_batched(
-                            || bench_setup(Some(*idx)),
-                            bench_func,
-                            BatchSize::LargeInput,
-                        );
-                    },
-                );
+                let name = if is_codspeed() {
+                    bench.name.clone()
+                } else {
+                    format!("{}[{idx}]", bench.name)
+                };
+                group.bench_with_input(BenchmarkId::new("rustpython", name), &idx, |b, idx| {
+                    b.iter_batched_ref(
+                        || bench_setup(Some(*idx)),
+                        bench_func,
+                        BatchSize::LargeInput,
+                    );
+                });
             }
         } else {
             group.bench_function(BenchmarkId::new("rustpython", &bench.name), move |b| {
-                b.iter_batched(|| bench_setup(None), bench_func, BatchSize::LargeInput);
+                b.iter_batched_ref(|| bench_setup(None), bench_func, BatchSize::LargeInput);
             });
         }
     })
 }
 
+/// `true` when the benchmarks are executed by the CodSpeed runner.
+///
+/// CodSpeed tracks the performance of RustPython itself, so the CPython
+/// reference benchmarks are skipped there: they double the (already slow)
+/// instrumented run without ever reporting a change of RustPython.
+fn is_codspeed() -> bool {
+    std::env::var_os("CODSPEED_ENV").is_some()
+}
+
+/// The `ITERATIONS` values the benchmarks referencing them are run with.
+///
+/// A single size is used under CodSpeed: the criterion benchmark id does not
+/// include the iteration count, so every size would be reported under the same
+/// name.
+fn iteration_counts() -> Vec<i32> {
+    if is_codspeed() {
+        vec![1_000]
+    } else {
+        (100..=1_000).step_by(200).collect()
+    }
+}
+
 pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
     let mut group = c.benchmark_group("microbenchmarks");
 
-    bench_cpython_code(&mut group, &benchmark);
+    if !is_codspeed() {
+        bench_cpython_code(&mut group, &benchmark);
+    }
     bench_rustpython_code(&mut group, &benchmark);
 
     group.finish();
@@ -179,15 +207,19 @@ pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let benchmark_dir = Path::new("./benches/microbenchmarks/");
-    let dirs: Vec<fs::DirEntry> = benchmark_dir
+    let mut paths: Vec<_> = benchmark_dir
         .read_dir()
         .unwrap()
-        .collect::<io::Result<_>>()
-        .unwrap();
-    let paths: Vec<PathBuf> = dirs.iter().map(|p| p.path()).collect();
+        .collect::<io::Result<Vec<_>>>()
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "py"))
+        .collect();
+    paths.sort();
 
     let benchmarks: Vec<MicroBenchmark> = paths
-        .into_iter()
+        .iter()
         .map(|p| {
             let name = p.file_name().unwrap().to_os_string();
             let contents = fs::read_to_string(p).unwrap();

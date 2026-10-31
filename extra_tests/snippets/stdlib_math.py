@@ -7,6 +7,81 @@ NAN = float("nan")
 INF = float("inf")
 NINF = float("-inf")
 
+
+def test_math_315_apis():
+    import math.integer
+    import sys
+
+    import _math_integer
+
+    assert math.integer is _math_integer
+    assert sys.modules["math.integer"] is math.integer
+    assert math.integer.__name__ == "math.integer"
+    for name, args, expected in (
+        ("comb", (5, 2), 10),
+        ("factorial", (5,), 120),
+        ("gcd", (12, 18), 6),
+        ("isqrt", (17,), 4),
+        ("lcm", (4, 6), 12),
+        ("perm", (5, 2), 20),
+    ):
+        function = getattr(math, name)
+        assert function is getattr(math.integer, name)
+        assert function.__module__ == "math.integer"
+        assert function(*args) == expected
+
+    for value in (1.0, -1.0, sys.float_info.min, sys.float_info.max):
+        assert math.isnormal(value) is True
+        assert math.issubnormal(value) is False
+    for value in (sys.float_info.min / 2, -sys.float_info.min / 2):
+        assert math.isnormal(value) is False
+        assert math.issubnormal(value) is True
+    for value in (0.0, -0.0, INF, NINF, NAN):
+        assert math.isnormal(value) is False
+        assert math.issubnormal(value) is False
+    for value in (0.0, 1.0, INF, NAN):
+        assert math.signbit(math.copysign(value, 1.0)) is False
+        assert math.signbit(math.copysign(value, -1.0)) is True
+
+    class FloatArgument:
+        def __float__(self):
+            return -2.0
+
+    class IndexArgument:
+        def __index__(self):
+            return 2
+
+    for function in (math.isnormal, math.issubnormal, math.signbit):
+        assert function(FloatArgument()) == function(-2.0)
+        assert function(IndexArgument()) == function(2.0)
+        assert_raises(TypeError, function, object())
+        assert_raises(TypeError, function, x=1.0)
+        assert_raises(TypeError, function)
+        assert_raises(TypeError, function, 1.0, 2.0)
+
+    for function, expected in ((math.fmax, 2.0), (math.fmin, -2.0)):
+        assert function(-2.0, 2.0) == expected
+        assert function(2.0, -2.0) == expected
+        assert type(function(1, 2)) is float
+        assert function(FloatArgument(), IndexArgument()) == expected
+        assert math.isnan(function(NAN, NAN))
+        for value in (0.0, -0.0, 1.0, -1.0, INF, NINF):
+            for result in (function(NAN, value), function(value, NAN)):
+                assert result == value
+                assert math.signbit(result) == math.signbit(value)
+        assert function(0.0, -0.0) == 0.0
+        assert function(-0.0, 0.0) == 0.0
+        assert_raises(TypeError, function, object(), 1.0)
+        assert_raises(TypeError, function, 1.0, object())
+        assert_raises(TypeError, function, x=1.0, y=2.0)
+        assert_raises(TypeError, function, 1.0)
+        assert_raises(TypeError, function, 1.0, 2.0, 3.0)
+    assert math.fmax(NINF, INF) == INF
+    assert math.fmin(NINF, INF) == NINF
+
+
+test_math_315_apis()
+
 # assert(math.exp(2) == math.exp(2.0))
 # assert(math.exp(True) == math.exp(1.0))
 #
@@ -16,6 +91,114 @@ NINF = float("-inf")
 #         return 1.1111
 #
 # assert math.log(1.1111) == math.log(Conversible())
+
+# A logarithm can fit in a float even when its integer base cannot.
+assert math.isclose(math.log(2**4000, 2**2000), 2.0)
+assert math.isclose(math.log(2.0, 2**2000), 1.0 / 2000)
+
+for value in (1, 8.0, INF, NAN):
+    assert_raises(ZeroDivisionError, math.log, value, 1)
+assert_raises(TypeError, math.log, object(), 1)
+assert_raises(ValueError, math.log, 8, -(2**2000))
+
+log_conversions = []
+
+
+class LogFloat:
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+    def __float__(self):
+        log_conversions.append(self.name)
+        return self.value
+
+
+assert math.isclose(math.log(LogFloat("x", 8.0), LogFloat("base", 2.0)), 3.0)
+assert log_conversions == ["x", "base"]
+log_conversions.clear()
+assert_raises(ValueError, math.log, -1, LogFloat("base", 2.0))
+assert log_conversions == []
+
+
+class LogFloatOverflow:
+    def __float__(self):
+        log_conversions.append("float")
+        raise OverflowError("float conversion failed")
+
+    def __index__(self):
+        log_conversions.append("index")
+        return 2**2000
+
+
+class LogIndexOnly:
+    def __index__(self):
+        return 2**2000
+
+
+for logarithm in (math.log, math.log2, math.log10):
+    log_conversions.clear()
+    assert math.isclose(logarithm(LogFloatOverflow()), logarithm(2**2000))
+    assert log_conversions == ["float", "index"]
+    assert math.isclose(logarithm(LogIndexOnly()), logarithm(2**2000))
+
+    for error_type in (TypeError, ValueError, RuntimeError):
+        error = error_type("float conversion failed")
+
+        class FailedFloat(LogFloatOverflow):
+            def __float__(self):
+                raise error
+
+        with assert_raises(error_type) as caught:
+            logarithm(FailedFloat())
+        assert caught.exception is error
+
+    error = RuntimeError("index conversion failed")
+
+    class FailedIndex(LogFloatOverflow):
+        def __index__(self):
+            raise error
+
+    with assert_raises(RuntimeError) as caught:
+        logarithm(FailedIndex())
+    assert caught.exception is error
+
+    class NegativeIndex(LogFloatOverflow):
+        def __index__(self):
+            return -1
+
+    assert_raises(ValueError, logarithm, NegativeIndex())
+
+    class InvalidIndex(LogFloatOverflow):
+        def __index__(self):
+            return 1.0
+
+    assert_raises(TypeError, logarithm, InvalidIndex())
+
+    class NoIndex:
+        __float__ = LogFloatOverflow.__float__
+
+    assert_raises(OverflowError, logarithm, NoIndex())
+
+    class SuccessfulFloat:
+        def __float__(self):
+            return 8.0
+
+        def __index__(self):
+            raise AssertionError("successful float conversion must not retry index")
+
+    assert logarithm(SuccessfulFloat()) == logarithm(8.0)
+
+assert math.isclose(math.log(8, LogFloatOverflow()), 3 / 2000)
+assert math.isclose(math.log(8, LogIndexOnly()), 3 / 2000)
+
+
+class LogInt(int):
+    def __float__(self):
+        raise AssertionError("integer logarithms use the native integer value")
+
+
+assert math.isclose(math.log(LogInt(2**4000), LogInt(2**2000)), 2.0)
 
 # roundings
 assert int.__trunc__
@@ -102,6 +285,30 @@ with assert_raises(TypeError):
     math.ceil(object())
 with assert_raises(TypeError):
     math.floor(object())
+with assert_raises(TypeError) as cm:
+    math.floor("1.5")
+assert str(cm.exception) == "must be real number, not str"
+with assert_raises(TypeError) as cm:
+    math.ceil(None)
+assert str(cm.exception) == "must be real number, not NoneType"
+
+assert math.floor(-0.5) == -1 and math.ceil(-0.5) == 0
+with assert_raises(OverflowError):
+    math.floor(INF)
+with assert_raises(ValueError):
+    math.ceil(NAN)
+
+
+class FloatFloor(float):
+    def __floor__(self):
+        return "sub floor"
+
+    def __ceil__(self):
+        return "sub ceil"
+
+
+assert math.floor(FloatFloor(1.5)) == "sub floor"
+assert math.ceil(FloatFloor(1.5)) == "sub ceil"
 
 isclose = math.isclose
 
@@ -318,3 +525,19 @@ assert math.gamma(1) == 1.0
 assert_raises(ValueError, lambda: math.sumprod(itertools.count(), [1, 2, 3]))
 assert_raises(ValueError, lambda: math.sumprod([1, 2, 3], itertools.count()))
 assert math.sumprod(iter([1, 2, 3]), iter([4, 5, 6])) == 32
+
+# perm/comb reject a k above 2**63 - 1 instead of computing, and perm(n) is factorial(n).
+for f in [
+    lambda: math.perm(2**63),
+    lambda: math.perm(2**64 + 1, 2**63),
+    lambda: math.comb(2**64 + 1, 2**63),
+]:
+    assert_raises(OverflowError, f)
+assert_raises(
+    ValueError,
+    lambda: math.perm(-1),
+    _msg="factorial() not defined for negative values",
+)
+assert math.perm(5) == math.perm(5, None) == 120
+assert math.perm(2**64, 0) == 1
+assert math.comb(2**64, 2**64 - 1) == 2**64

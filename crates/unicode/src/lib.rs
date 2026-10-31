@@ -12,8 +12,9 @@ extern crate alloc;
 pub mod case;
 pub mod classify;
 pub mod data;
+pub mod grapheme;
 pub mod identifier;
 pub mod normalize;
 
-pub use data::{Ucd, character_name, lookup_character, unicode_version};
+pub use data::{LookupResult, Ucd, character_name, lookup_character, lookup_name, unicode_version};
 pub use normalize::{NormalizeForm, is_normalized, normalize};

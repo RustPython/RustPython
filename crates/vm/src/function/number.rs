@@ -1,5 +1,8 @@
 use super::argument::OptionalArg;
-use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyIntRef};
+use crate::{
+    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyIntRef},
+};
 use core::ops::Deref;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
@@ -112,6 +115,11 @@ impl ArgIntoBool {
     pub fn into_bool(self) -> bool {
         self.value
     }
+
+    #[must_use]
+    pub const fn py_default(&self) -> super::DefaultRepr {
+        super::DefaultRepr::Bool(self.value)
+    }
 }
 
 impl From<ArgIntoBool> for bool {
@@ -143,8 +151,8 @@ impl ArgIndex {
     }
 }
 
-impl AsRef<PyIntRef> for ArgIndex {
-    fn as_ref(&self) -> &PyIntRef {
+impl AsRef<Py<PyInt>> for ArgIndex {
+    fn as_ref(&self) -> &Py<PyInt> {
         &self.value
     }
 }
@@ -163,19 +171,35 @@ impl TryFromObject for ArgIndex {
     }
 }
 
+/// A signed size or index argument (`Py_ssize_t`).
+pub type PySsize = isize;
+/// An unsigned size argument (`size_t`).
+pub type PySize = usize;
+
+/// An `int` (or subclass, including `bool`) converted to a Rust primitive.
+///
+/// Unlike the primitive `TryFromObject` impls, this never calls `__index__`.
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
-pub struct ArgPrimitiveIndex<T> {
+pub struct ArgStrictInt<T> {
     pub value: T,
 }
 
-impl<T> OptionalArg<ArgPrimitiveIndex<T>> {
+impl<T> ArgStrictInt<T> {
+    #[inline]
+    #[must_use]
+    pub fn into_primitive(self) -> T {
+        self.value
+    }
+}
+
+impl<T> OptionalArg<ArgStrictInt<T>> {
     pub fn into_primitive(self) -> OptionalArg<T> {
         self.map(|x| x.value)
     }
 }
 
-impl<T> Deref for ArgPrimitiveIndex<T> {
+impl<T> Deref for ArgStrictInt<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -183,21 +207,13 @@ impl<T> Deref for ArgPrimitiveIndex<T> {
     }
 }
 
-impl<T> TryFromObject for ArgPrimitiveIndex<T>
+impl<T> TryFromObject for ArgStrictInt<T>
 where
     T: PrimInt + for<'a> TryFrom<&'a BigInt>,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(Self {
-            value: obj.try_index(vm)?.try_to_primitive(vm)?,
-        })
-    }
-}
-
-pub type ArgSize = ArgPrimitiveIndex<isize>;
-
-impl From<ArgSize> for isize {
-    fn from(arg: ArgSize) -> Self {
-        arg.value
+        // Same check the primitive conversions used before they grew `__index__`.
+        let value = obj.try_value_with(|int: &Py<PyInt>| int.try_to_primitive(vm), vm)?;
+        Ok(Self { value })
     }
 }

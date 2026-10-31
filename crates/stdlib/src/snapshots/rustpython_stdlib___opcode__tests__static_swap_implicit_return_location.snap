@@ -1,0 +1,22 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(a, b):\n    a, b = a, b\n    b, a = a, b\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-3:15            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-3:15            MAKE_FUNCTION
+1:0-3:15            STORE_NAME               0 (f)
+1:0-3:15            LOAD_COMMON_CONSTANT     7 (None)
+1:0-3:15            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:11-2:12            LOAD_FAST_LOAD_FAST      1 (a, b)
+2:7-2:8              STORE_FAST_STORE_FAST   16 (b, a)
+
+3:11-3:12            LOAD_FAST_LOAD_FAST      1 (a, b)
+3:7-3:8              STORE_FAST_STORE_FAST    1 (a, b)
+3:7-3:8              LOAD_COMMON_CONSTANT     7 (None)
+3:7-3:8              RETURN_VALUE

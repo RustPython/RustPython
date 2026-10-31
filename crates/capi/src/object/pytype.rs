@@ -1,7 +1,18 @@
+use crate::descrobject::{PyGetSetDef, PyMemberDef};
+use crate::methodobject::PyMethodDef;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use core::ffi::{c_int, c_ulong};
+use crate::slots::{PySlot, PySlotKind, PySlotType};
+use crate::util::CStrExt;
+use crate::util::FfiPtrExt;
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
+use core::ptr;
 use rustpython_vm::builtins::{PyStr, PyType};
+use rustpython_vm::function::{ItemDoc, PyMethodFlags};
+use rustpython_vm::types::{
+    AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots,
+    SlotAccessor::{TpBase, TpDealloc, TpDoc, TpGetset, TpMembers, TpMethods, TpNew, TpTraverse},
+};
 use rustpython_vm::{AsObject, Py, PyObject};
 
 pub type PyTypeObject = Py<PyType>;
@@ -9,56 +20,71 @@ pub type PyTypeObject = Py<PyType>;
 define_py_check!(fn PyType_Check, types.type_type);
 define_py_check!(exact fn PyType_CheckExact, types.type_type);
 
+#[repr(C)]
+pub struct PyType_Slot {
+    pub slot: c_int,
+    pub pfunc: *mut c_void,
+}
+
+#[repr(C)]
+pub struct PyType_Spec {
+    pub name: *const c_char,
+    pub basicsize: c_int,
+    pub itemsize: c_int,
+    pub flags: c_uint,
+    pub slots: *mut PyType_Slot,
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
-    unsafe { (*op).class() }
+    unsafe { op.assume_borrowed() }.class()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
     with_vm(|_vm| {
-        let obj = unsafe { &*op };
-        let ty = unsafe { &*ty };
+        let obj = unsafe { op.assume_borrowed() };
+        let ty = unsafe { ty.assume_borrowed() };
         obj.class().is(ty)
     })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
-    let ty = unsafe { &*ptr };
-    ty.slots.flags.bits() as u32 as c_ulong
+pub unsafe extern "C" fn PyType_GetFlags(ptr: *mut PyTypeObject) -> c_ulong {
+    let ty = unsafe { ptr.assume_borrowed() };
+    ty.slots.flags.load().bits() as u32 as c_ulong
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
+pub unsafe extern "C" fn PyType_IsSubtype(a: *mut PyTypeObject, b: *mut PyTypeObject) -> c_int {
     with_vm(move |_vm| {
-        let a = unsafe { &*a };
-        let b = unsafe { &*b };
+        let a = unsafe { a.assume_borrowed() };
+        let b = unsafe { b.assume_borrowed() };
         Ok(a.is_subtype(b))
     })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__name__(vm))
+pub unsafe extern "C" fn PyType_GetName(ptr: *mut PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { ptr.assume_borrowed() }.__name__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetQualName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__qualname__(vm))
+pub unsafe extern "C" fn PyType_GetQualName(ptr: *mut PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { ptr.assume_borrowed() }.__qualname__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetModuleName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__module__(vm))
+pub unsafe extern "C" fn PyType_GetModuleName(ptr: *mut PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { ptr.assume_borrowed() }.__module__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) -> *mut PyObject {
     with_vm(|vm| {
-        let ty = unsafe { &*ptr };
+        let ty = unsafe { ptr.assume_borrowed() };
         let qualname = ty.__qualname__(vm).try_downcast::<PyStr>(vm)?;
-        let module = ty.__module__(vm);
+        let module = ty.__module__(vm)?;
 
         if let Some(module) = module.downcast_ref::<PyStr>()
             && module.as_wtf8() != "builtins"
@@ -70,10 +96,239 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) 
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_GetSlot(_ty: *const PyTypeObject, _slot: c_int) -> *mut c_void {
+    ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
+    with_vm(|vm| {
+        let mut name = None;
+        let mut base = None;
+        let mut methods = Vec::new();
+        let mut type_slots: PyTypeSlots = Default::default();
+        let attrs = Default::default();
+        let mut getsets = Vec::new();
+        let mut members = Vec::new();
+        let mut metaclass = vm.ctx.types.type_type.to_owned();
+
+        for slot in PySlot::iter(slots) {
+            match slot.as_kind(vm)? {
+                PySlotKind::Type(type_slot) => {
+                    match type_slot {
+                        PySlotType::Name(value) => name = Some(value),
+                        PySlotType::Metaclass(meta) => metaclass = meta.to_owned(),
+                        PySlotType::Module(_) => {}
+                        PySlotType::Flags(value) => {
+                            let flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
+                                vm.new_value_error(format!(
+                                    "Invalid type flags: {value:#x} for PyType_FromSlots"
+                                ))
+                            })?;
+                            type_slots.flags = AtomicPyTypeFlags::from_plain(flags);
+                        }
+                        PySlotType::BasicSize(size)
+                        | PySlotType::ExtraBasicSize(size)
+                        | PySlotType::ItemSize(size) => {
+                            if size != 0 {
+                                return Err(vm.new_not_implemented_error(
+                                    "PyType_FromSlots with non-zero size is not yet supported",
+                                ));
+                            }
+                        }
+                        PySlotType::TypeSlot(TpDoc, pfunc) => {
+                            let doc = unsafe { pfunc.cast::<c_char>().try_as_str_opt(vm)? }.map_or(
+                                ItemDoc::NONE,
+                                |doc| {
+                                    let text: &'static str =
+                                        Box::leak(doc.to_owned().into_boxed_str());
+                                    ItemDoc::static_text(text)
+                                },
+                            );
+                            type_slots.doc = doc;
+                        }
+                        PySlotType::TypeSlot(TpBase, pfunc) => {
+                            base = unsafe { Some(&*pfunc.cast::<PyTypeObject>()) }
+                        }
+                        PySlotType::TypeSlot(TpMembers, pfunc) => {
+                            members.extend(PyMemberDef::iter(pfunc.cast()));
+                        }
+                        PySlotType::TypeSlot(TpGetset, pfunc) => {
+                            getsets.extend(PyGetSetDef::iter(pfunc.cast()));
+                        }
+                        PySlotType::TypeSlot(TpMethods, pfunc) => {
+                            for def in PyMethodDef::iter(pfunc.cast()) {
+                                let name = unsafe { def.ml_name.try_as_str(vm)? };
+                                let is_static = PyMethodFlags::from_bits_retain(def.ml_flags as _)
+                                    .contains(PyMethodFlags::STATIC);
+                                let method = def.build_method_def(vm, !is_static)?;
+                                methods.push((name, method));
+                            }
+                        }
+                        PySlotType::TypeSlot(TpNew | TpDealloc | TpTraverse | _, _) => {
+                            // TODO
+                        }
+                    }
+                }
+                PySlotKind::Module(_) => {
+                    return Err(
+                        vm.new_system_error("Got module slot while type slots are expected")
+                    );
+                }
+                PySlotKind::Unknown { .. } => {}
+            }
+        }
+
+        let bases = if let Some(base) = base {
+            vec![base.to_owned()]
+        } else {
+            vec![vm.ctx.types.object_type.to_owned()]
+        };
+
+        let Some(name) = name else {
+            return Err(vm.new_system_error("PyType_FromSlots requires a name slot"));
+        };
+
+        let class = PyType::new_heap(name, bases, attrs, type_slots, metaclass, &vm.ctx).map_err(
+            |msg| vm.new_system_error(format!("Failed to create type from slots: {msg}")),
+        )?;
+
+        let attrs = &class.attributes;
+        let class_static = unsafe { &*((&*class) as *const _) };
+        for (name, method) in methods {
+            attrs.insert(
+                vm.ctx.intern_str(name),
+                method.build_method(class_static, vm).into(),
+            );
+        }
+        for getset in getsets {
+            let name = unsafe { getset.name.try_as_str(vm)? };
+            attrs.insert(
+                vm.ctx.intern_str(name),
+                getset.build(class_static, vm)?.into(),
+            );
+        }
+        for member in members {
+            let name = unsafe { member.name.try_as_str(vm)? };
+            attrs.insert(
+                vm.ctx.intern_str(name),
+                member.build(class_static, vm)?.into(),
+            );
+        }
+
+        Ok(class)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromMetaclass(
+    metaclass: *mut PyTypeObject,
+    module: *mut PyObject,
+    spec: *mut PyType_Spec,
+    bases: *mut PyObject,
+) -> *mut PyObject {
+    let &PyType_Spec {
+        name,
+        basicsize,
+        itemsize,
+        flags,
+        slots: type_slots,
+    } = unsafe { &*spec };
+    let mut slots = [PySlot::SLOT_END; 9];
+    let mut write_slot = {
+        let mut iter = slots.iter_mut();
+        move |slot| {
+            debug_assert!(
+                iter.len() >= 2,
+                "PyType_FromMetaclass: last slot is reserved for SLOT_END"
+            );
+            let entry = iter
+                .next()
+                .expect("Too many slots for PyType_FromMetaclass");
+            *entry = slot;
+        }
+    };
+
+    write_slot(PySlot::new(95, name.cast_mut()));
+    write_slot(PySlot::new(96, basicsize as isize));
+    write_slot(PySlot::new(98, itemsize as isize));
+    write_slot(PySlot::new(99, flags as u64));
+    write_slot(PySlot::new(93, type_slots));
+
+    if !bases.is_null() {
+        write_slot(PySlot::new(49, bases));
+    }
+
+    if !metaclass.is_null() {
+        write_slot(PySlot::new(107, metaclass));
+    }
+
+    if !module.is_null() {
+        write_slot(PySlot::new(108, module));
+    }
+
+    unsafe { PyType_FromSlots(slots.as_ptr()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromModuleAndSpec(
+    module: *mut PyObject,
+    spec: *mut PyType_Spec,
+    bases: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { PyType_FromMetaclass(ptr::null_mut(), module, spec, bases) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromSpecWithBases(
+    spec: *mut PyType_Spec,
+    bases: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { PyType_FromMetaclass(ptr::null_mut(), ptr::null_mut(), spec, bases) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
+    unsafe { PyType_FromMetaclass(ptr::null_mut(), ptr::null_mut(), spec, ptr::null_mut()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetTypeData(
+    obj: *mut PyObject,
+    cls: *mut PyTypeObject,
+) -> *mut c_void {
+    let cls = unsafe { cls.assume_borrowed() };
+    let base_basicsize = cls.base.deref().map_or(0, |base| base.slots.basicsize);
+    let own_basicsize = cls.slots.basicsize.saturating_sub(base_basicsize);
+
+    if own_basicsize == 0 {
+        obj.cast()
+    } else {
+        todo!("PyObject_GetTypeData for non-zero sized types is not yet implemented")
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetTypeData_DuringGC(
+    obj: *mut PyObject,
+    cls: *mut PyTypeObject,
+) -> *mut c_void {
+    unsafe { PyObject_GetTypeData(obj, cls) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
+    0
+}
+
 #[cfg(test)]
 mod tests {
+    use pyo3::IntoPyObjectExt;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::ffi;
     use pyo3::prelude::*;
-    use pyo3::types::{PyInt, PyString, PyTypeMethods};
+    use pyo3::types::{PyDict, PyInt, PyList, PyString, PyType, PyTypeMethods};
 
     #[test]
     fn type_name() {
@@ -90,6 +345,220 @@ mod tests {
                 py.get_type::<PyInt>().module().unwrap().to_str().unwrap(),
                 "builtins"
             );
+        })
+    }
+
+    #[test]
+    #[ignore]
+    fn rust_class() {
+        #[pyclass]
+        struct MyClass {
+            #[pyo3(get)]
+            num: i32,
+        }
+
+        #[pymethods]
+        impl MyClass {
+            #[new]
+            fn new(value: i32) -> Self {
+                Self { num: value }
+            }
+
+            fn method1(&self) -> i32 {
+                self.num + 10
+            }
+
+            fn method2(&self, a: i32) -> i32 {
+                self.num + a
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
+
+            let globals = PyDict::new(py);
+            globals.set_item("instance", &obj).unwrap();
+            py.run(c"assert instance.num == 3", Some(&globals), None)
+                .unwrap();
+
+            assert_eq!(
+                obj.call_method1("method1", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("method2", (5,))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                8
+            );
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn rust_class_with_member() {
+        #[pyclass(frozen)]
+        struct MyClass {
+            #[pyo3(get)]
+            value: Py<PyAny>,
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(
+                py,
+                MyClass {
+                    value: 1.into_bound_py_any(py).unwrap().unbind(),
+                },
+            )
+            .unwrap();
+
+            let globals = PyDict::new(py);
+            globals.set_item("instance", &obj).unwrap();
+            py.run(c"assert instance.value is None", Some(&globals), None)
+                .unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn zero_sized_class() {
+        #[pyclass(frozen)]
+        struct MyEmptyClass {}
+
+        #[pymethods]
+        impl MyEmptyClass {
+            #[new]
+            fn new() -> Self {
+                Self {}
+            }
+
+            #[staticmethod]
+            fn static_method1(a: i32, b: i32) -> i32 {
+                a + b
+            }
+
+            #[staticmethod]
+            fn static_method2() -> i32 {
+                0
+            }
+
+            #[classmethod]
+            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
+                assert!(cls.is_subclass_of::<Self>()?);
+                Ok(10)
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyEmptyClass {}).unwrap();
+
+            assert_eq!(
+                obj.call_method1("static_method1", (5, 8))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method2", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                0
+            );
+
+            assert_eq!(
+                obj.call_method1("cls_method", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                10
+            );
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn subclass_with_property() {
+        #[pyclass(frozen, extends=PyList)]
+        struct MyList {}
+
+        #[pymethods]
+        impl MyList {
+            #[new]
+            fn new() -> Self {
+                Self {}
+            }
+
+            #[getter]
+            fn name(&self) -> &'static str {
+                "Some list"
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyList {}).unwrap();
+
+            assert!(obj.is_instance_of::<PyList>());
+
+            assert_eq!(
+                obj.getattr("name")
+                    .unwrap()
+                    .cast_into::<PyString>()
+                    .unwrap(),
+                "Some list"
+            );
+        });
+    }
+
+    #[test]
+    fn type_from_spec() {
+        Python::attach(|py| {
+            let mut slots = [ffi::PyType_Slot {
+                slot: 0,
+                pfunc: core::ptr::null_mut(),
+            }];
+            let mut spec = ffi::PyType_Spec {
+                name: c"somemodule.MySpecClass".as_ptr(),
+                basicsize: 0,
+                itemsize: 0,
+                flags: ffi::Py_TPFLAGS_DEFAULT as _,
+                slots: slots.as_mut_ptr(),
+            };
+
+            let type_ptr = unsafe { ffi::PyType_FromSpec(&mut spec) };
+            let type_obj = unsafe {
+                Bound::from_borrowed_ptr_or_err(py, type_ptr)
+                    .unwrap()
+                    .cast_into::<PyType>()
+                    .unwrap()
+            };
+
+            assert_eq!(type_obj.qualname().unwrap(), "somemodule.MySpecClass");
+        });
+    }
+
+    #[test]
+    fn fast_subclass_check_using_flags() {
+        Python::attach(|py| {
+            assert!(unsafe {
+                ffi::PyType_HasFeature(
+                    py.get_type::<PyDict>().as_type_ptr(),
+                    ffi::Py_TPFLAGS_DICT_SUBCLASS,
+                ) != 0
+            });
+            assert!(unsafe {
+                ffi::PyType_HasFeature(
+                    py.get_type::<PyValueError>().as_type_ptr(),
+                    ffi::Py_TPFLAGS_BASE_EXC_SUBCLASS,
+                ) != 0
+            });
         })
     }
 }

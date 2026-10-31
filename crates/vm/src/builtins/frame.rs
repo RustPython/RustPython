@@ -2,11 +2,11 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
+use super::{PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyGenerator, PyIntRef};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{FrameObject, FrameObjectRef, FrameOwner},
+    frame::{FrameObject, FrameOwner},
     function::PySetterValue,
     types::Representable,
 };
@@ -155,9 +155,24 @@ pub(crate) mod stack_analysis {
     }
 
     /// Analyze bytecode and compute the stack state at each instruction index.
-    pub(crate) fn mark_stacks<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i64> {
+    pub(crate) fn mark_stacks(code: &PyCode) -> Vec<i64> {
         let instructions = &*code.instructions;
         let len = instructions.len();
+        let monitoring_data = code.monitoring_data.lock();
+        let base_opcode = |i| {
+            let mut op = code.instructions.read_op(i);
+            if let Some(data) = monitoring_data.as_ref() {
+                if matches!(op, Instruction::InstrumentedLine) {
+                    op = Instruction::try_from(data.line_opcodes[i])
+                        .expect("INSTRUMENTED_LINE without original opcode");
+                }
+                if matches!(op, Instruction::InstrumentedInstruction) {
+                    op = Instruction::try_from(data.per_instruction_opcodes[i])
+                        .expect("INSTRUMENTED_INSTRUCTION without original opcode");
+                }
+            }
+            op.to_base().unwrap_or(op).deoptimize()
+        };
 
         let mut stacks = vec![UNINITIALIZED; len + 1];
         stacks[0] = EMPTY_STACK;
@@ -169,7 +184,7 @@ pub(crate) mod stack_analysis {
             let mut i = 0;
             while i < len {
                 let mut next_stack = stacks[i];
-                let mut opcode = instructions[i].op;
+                let mut opcode = base_opcode(i);
                 let mut oparg: u32 = 0;
 
                 // Accumulate EXTENDED_ARG prefixes
@@ -180,15 +195,12 @@ pub(crate) mod stack_analysis {
                         break;
                     }
                     stacks[i] = next_stack;
-                    opcode = instructions[i].op;
+                    opcode = base_opcode(i);
                 }
                 if i >= len {
                     break;
                 }
                 oparg = (oparg << 8) | u32::from(u8::from(instructions[i].arg));
-
-                // De-instrument and de-specialize: get the underlying base instruction
-                let opcode = opcode.to_base().unwrap_or(opcode).deoptimize();
 
                 let caches = opcode.cache_entries();
                 let next_i = i + 1 + caches;
@@ -242,29 +254,30 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAiter => {
+                    Instruction::GetIter { .. } => {
+                        next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
+                        next_stack = push_value(next_stack, Kind::Iterator as i64);
+                        if next_i < stacks.len() {
+                            stacks[next_i] = next_stack;
+                        }
+                    }
+                    Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
                     }
                     Instruction::ForIter { .. } => {
-                        // Fall-through (iteration continues): pushes the next value
-                        let body_stack = push_value(next_stack, Kind::Object as i64);
+                        // Both the body and the END_FOR target start with the
+                        // next value pushed.
+                        let target_stack = push_value(next_stack, Kind::Object as i64);
                         if next_i < stacks.len() {
-                            stacks[next_i] = body_stack;
+                            stacks[next_i] = target_stack;
                         }
-                        // Exhaustion path: relative forward from after_caches
-                        let mut j = next_i + oparg as usize;
-                        if j < instructions.len() {
-                            let target_op =
-                                instructions[j].op.to_base().unwrap_or(instructions[j].op);
-                            if matches!(target_op, Instruction::EndFor) {
-                                j += 1;
-                            }
-                        }
-                        if j < stacks.len() && stacks[j] == UNINITIALIZED {
-                            stacks[j] = next_stack;
+                        let j = next_i + oparg as usize;
+                        if j < stacks.len() {
+                            debug_assert!(stacks[j] == UNINITIALIZED || stacks[j] == target_stack);
+                            stacks[j] = target_stack;
                         }
                     }
                     Instruction::EndAsyncFor => {
@@ -349,18 +362,18 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     _ => {
-                        // Default: use stack_effect
-                        let effect: StackEffect = opcode.stack_effect_info(oparg);
-                        let popped = effect.popped() as i64;
-                        let pushed = effect.pushed() as i64;
-                        let mut ns = next_stack;
-                        for _ in 0..popped {
-                            ns = pop_value(ns);
+                        // PyCompile_OpcodeStackEffect: apply the net delta so
+                        // overlapping in/out (GET_ANEXT: aiter -- aiter, awaitable)
+                        // keep the original kind of the surviving entries.
+                        let mut delta = opcode.stack_effect(oparg);
+                        while delta < 0 {
+                            next_stack = pop_value(next_stack);
+                            delta += 1;
                         }
-                        for _ in 0..pushed {
-                            ns = push_value(ns, Kind::Object as i64);
+                        while delta > 0 {
+                            next_stack = push_value(next_stack, Kind::Object as i64);
+                            delta -= 1;
                         }
-                        next_stack = ns;
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
@@ -433,15 +446,16 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 impl Representable for FrameObject {
-    #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        const REPR: &str = "<frame object at .. >";
-        Ok(vm.ctx.intern_str(REPR).to_owned())
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let code = zelf.iframe().code();
+        let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
+        let lineno = zelf.lineno();
+        let name = code.code.obj_name.as_wtf8();
+        let ptr = zelf as *const Py<Self> as usize;
+        Ok(format!(
+            "<frame at {ptr:#x}, file {}, line {lineno}, code {name}>",
+            file_repr.as_wtf8(),
+        ))
     }
 }
 
@@ -464,67 +478,242 @@ impl FrameObject {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
 impl FrameObject {
-    #[pygetset]
-    fn f_globals(&self) -> PyDictRef {
-        self.iframe().globals().to_owned()
+    /// Current line, or -1 when the linetable has no line for lasti.
+    pub fn lineno(&self) -> i32 {
+        self.f_code().addr2line(self.f_lasti() as i32)
     }
 
-    #[pygetset]
-    fn f_builtins(&self) -> PyObjectRef {
-        self.iframe().builtins().to_owned()
-    }
-
-    #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
         self.iframe().code().to_owned()
     }
-
-    #[pygetset]
     fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility.
-        // For materialized frames, read live lasti from the source iframe on
-        // the TLS chain so f_lasti reflects the current execution position.
+        // Byte offset of the current opcode. lasti is stored as the next
+        // instruction index (see FrameObject::run), so the executing unit
+        // is lasti-1.
         let live = self.find_live_source_iframe();
         let val = if !live.is_null() {
             unsafe { (*live).lasti.load(Relaxed) }
         } else {
             self.lasti()
         };
-        val * 2
+        if val == 0 { 0 } else { (val - 1) * 2 }
+    }
+}
+
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(DISALLOW_INSTANTIATION),
+    with(Py, Representable)
+)]
+impl FrameObject {}
+
+#[pyclass]
+impl Py<FrameObject> {
+    #[pymethod]
+    // = frame_clear_impl
+    fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // Materialized stack frames are FrameObject-owned even while their
+        // source iframe is still executing. TLS lookup below only sees the
+        // calling thread, so attached_tid is the cross-thread-safe execution
+        // state check.
+        if self.iframe().attached_tid() != 0 {
+            return Err(vm.new_runtime_error("cannot clear an executing frame"));
+        }
+        let owner = FrameOwner::from_i8(
+            self.iframe()
+                .owner
+                .load(core::sync::atomic::Ordering::Acquire),
+        );
+        match owner {
+            FrameOwner::Generator => {
+                // RETURN_GENERATOR executes the creation preamble, so lasti
+                // no longer distinguishes a created frame from a suspended one.
+                if let Some(owner) = self.iframe().generator.to_owned() {
+                    let coro = if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
+                        coro.as_coro()
+                    } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
+                        async_gen.as_coro()
+                    } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
+                        generator.as_coro()
+                    } else {
+                        unreachable!("generator-owned frame has no coroutine owner")
+                    };
+                    coro.clear_frame(&owner, vm)?;
+                }
+                return Ok(());
+            }
+            FrameOwner::Thread => {
+                return Err(vm.new_runtime_error("cannot clear an executing frame"));
+            }
+            FrameOwner::FrameObject => {
+                if !self.find_live_source_iframe().is_null() {
+                    return Err(vm.new_runtime_error("cannot clear an executing frame"));
+                }
+            }
+        }
+
+        // Move references out before dropping them. Their finalizers may
+        // re-enter this frame, so no locals borrow or cold-data lock may be
+        // held while they run.
+        let fastlocals = {
+            // SAFETY: FrameObject is not executing (detached or stopped).
+            let slots = unsafe { self.fastlocals_mut() };
+            slots
+                .iter_mut()
+                .filter_map(Option::take)
+                .collect::<Vec<_>>()
+        };
+
+        // Clear the evaluation stack and cell references
+        self.clear_stack_and_cells();
+
+        let (temporary_refs, extra_locals, locals_cache, overwritten, retained_back) =
+            match self.iframe().cold_opt() {
+                Some(cold) => (
+                    core::mem::take(&mut *cold.temporary_refs.lock()),
+                    cold.f_extra_locals.lock().take(),
+                    cold.f_locals_cache.lock().take(),
+                    core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
+                    cold.retained_back.lock().take(),
+                ),
+                None => (Vec::new(), None, None, Vec::new(), None),
+            };
+        drop((
+            fastlocals,
+            temporary_refs,
+            extra_locals,
+            locals_cache,
+            overwritten,
+            retained_back,
+        ));
+
+        Ok(())
     }
 
     #[pygetset]
-    pub fn f_lineno(&self) -> usize {
-        // If lasti is 0, execution hasn't started yet - use first line number
-        if self.lasti() == 0 {
-            return self
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get());
+    pub fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
+        if self.uses_locals_proxy(vm)? {
+            let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
+            Ok(proxy.into_ref(&vm.ctx).into())
+        } else {
+            Ok(self.iframe().locals.clone_mapping(vm).into())
         }
-        // For executing frames (on the TLS chain), use prev_line which is
-        // updated at each bytecode instruction *before* the instruction
-        // runs. This gives the correct line even when observed mid-CALL
-        // (where lasti has already advanced past the CALL instruction).
-        let live = self.find_live_source_iframe();
-        if !live.is_null() {
-            // Read live prev_line. Use read_volatile to bypass LLVM noalias
-            // on the &mut InterpreterFrame borrow held by the running frame.
-            let prev = unsafe {
-                let field_ptr = core::ptr::addr_of!((*live).prev_line);
-                core::ptr::read_volatile(field_ptr as *const u32)
-            };
-            if prev > 0 {
-                return prev as usize;
+    }
+
+    #[pygetset]
+    fn f_generator(&self) -> Option<PyObjectRef> {
+        self.iframe().generator.to_owned()
+    }
+
+    #[pygetset]
+    pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
+        let mut prev = self.previous_iframe();
+
+        // For materialized frames (previous == 0), find the source iframe on
+        // the TLS chain and use its `previous` instead.
+        if prev.is_null() {
+            // materialized stores `*const Py<FrameObject>` as usize.
+            // `self` is `&Py<FrameObject>` — compare addresses directly.
+            let self_py_ptr = self as *const Self as usize;
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+                if materialized == self_py_ptr {
+                    // Found the source iframe — use its previous
+                    prev = unsafe { (*cur).previous() };
+                    break;
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+            if prev.is_null() {
+                // Check retained_back for frames whose callers have returned
+                let retained = self.iframe().cold().retained_back.lock().clone();
+                if let Some(frame) = retained {
+                    return Some(frame);
+                }
+                return None;
             }
         }
-        // For returned frames, use lasti-based location lookup. This is
-        // correct for exception tracebacks where prev_line may have been
-        // updated by cleanup instructions after the exception.
-        self.current_location().line.get()
+
+        // Walk the TLS chain to find the prev iframe and materialize it.
+        // This handles both heap-allocated FrameObjects and stack-allocated
+        // iframes that haven't been observed yet.
+        {
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                if core::ptr::eq(cur, prev) {
+                    // SAFETY: cur was found on this thread's live active chain.
+                    let cur = unsafe { crate::frame::first_complete_iframe(cur) };
+                    if cur.is_null() {
+                        return None;
+                    }
+                    let iframe_ref = unsafe { &*cur };
+                    let fo = iframe_ref.materialize(vm);
+                    return Some(fo.to_owned());
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+        }
+
+        // The caller already returned — check retained_back
+        let retained = self.iframe().cold().retained_back.lock().clone();
+        if let Some(frame) = retained {
+            return Some(frame);
+        }
+
+        // The caller lives on another thread. Use stop-the-world to
+        // safely materialize the cross-thread frame chain.
+        #[cfg(feature = "threading")]
+        {
+            // Enter STW before dereferencing `prev` — the owning thread may
+            // return and free the stack-allocated iframe at any time.
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+            // SAFETY: the world is stopped, preserving the live chain.
+            let prev = unsafe { crate::frame::first_complete_iframe(prev) };
+            if prev.is_null() {
+                return None;
+            }
+            let prev_ref = unsafe { &*prev };
+            // Fast path: already materialized.
+            if let Some(fo) = prev_ref.frame_obj() {
+                return Some(fo.to_owned());
+            }
+            // Slow path: copy the whole chain, linked through retained_back.
+            // SAFETY: the world is stopped, so the owning thread is parked.
+            let fo = unsafe { prev_ref.materialize_complete_detached_chain(vm) };
+            return Some(fo);
+        }
+
+        #[allow(unreachable_code)]
+        None
+    }
+
+    #[pygetset]
+    pub fn f_globals(&self) -> PyRef<PyAnyDict> {
+        self.iframe().globals().to_owned()
+    }
+
+    #[pygetset]
+    pub fn f_builtins(&self) -> PyObjectRef {
+        self.iframe().builtins().to_owned()
+    }
+
+    #[pygetset]
+    pub fn f_code(&self) -> PyRef<PyCode> {
+        self.payload.f_code()
+    }
+
+    #[pygetset]
+    fn f_lasti(&self) -> u32 {
+        self.payload.f_lasti()
+    }
+
+    #[pygetset]
+    fn f_lineno(&self) -> Option<usize> {
+        let lineno = self.lineno();
+        (lineno >= 0).then_some(lineno as usize)
     }
 
     #[pygetset(setter)]
@@ -539,9 +728,49 @@ impl FrameObject {
                     .map_err(|_| vm.new_value_error("lineno must be an integer"))?
             }
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("can't delete f_lineno attribute"));
+                return Err(vm.new_attribute_error("cannot delete attribute"));
             }
         };
+
+        let Some(what_event) = vm.what_event.get() else {
+            return Err(
+                vm.new_value_error("f_lineno can only be set in a trace function".to_owned())
+            );
+        };
+        {
+            use crate::stdlib::sys::monitoring::MonitoringEvent as Ev;
+            match what_event {
+                Ev::PyResume
+                | Ev::Jump
+                | Ev::Branch
+                | Ev::BranchLeft
+                | Ev::BranchRight
+                | Ev::Line
+                | Ev::PyYield => {}
+                Ev::PyStart => {
+                    return Err(vm.new_value_error(
+                        "can't jump from the 'call' trace event of a new frame".to_owned(),
+                    ));
+                }
+                Ev::Call | Ev::CReturn => {
+                    return Err(vm.new_value_error("can't jump during a call".to_owned()));
+                }
+                Ev::PyReturn
+                | Ev::PyUnwind
+                | Ev::PyThrow
+                | Ev::Raise
+                | Ev::CRaise
+                | Ev::Instruction
+                | Ev::ExceptionHandled => {
+                    return Err(
+                        vm.new_value_error("can only jump from a 'line' trace event".to_owned())
+                    );
+                }
+                Ev::StopIteration | Ev::Reraise => {
+                    return Err(vm.new_system_error("unexpected event type".to_owned()));
+                }
+            }
+        }
 
         let first_line = self
             .iframe()
@@ -555,7 +784,7 @@ impl FrameObject {
             )));
         }
 
-        let py_code: &PyCode = self.iframe().code();
+        let py_code: &Py<PyCode> = self.iframe().code();
         let code = &py_code.code;
         let lines = mark_lines(code);
 
@@ -567,7 +796,7 @@ impl FrameObject {
             )));
         }
 
-        let stacks = mark_stacks(code);
+        let stacks = mark_stacks(py_code);
         let len = self.iframe().code().instructions.len();
 
         // lasti points past the current instruction (already incremented).
@@ -582,7 +811,7 @@ impl FrameObject {
             self.lasti() as usize
         };
         let start_idx = current_lasti.saturating_sub(1);
-        let start_stack = if start_idx < stacks.len() {
+        let mut start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
         } else {
             OVERFLOWED
@@ -618,6 +847,18 @@ impl FrameObject {
             return Err(vm.new_value_error(msg.to_owned()));
         }
 
+        // Yield leaves the yielded value on the modeled stack; the eval
+        // loop has already popped it for a suspended generator.
+        let is_suspended = live.is_null()
+            && current_lasti > 0
+            && matches!(
+                FrameOwner::from_i8(self.iframe().owner.load(Relaxed)),
+                FrameOwner::Generator
+            );
+        if is_suspended {
+            start_stack = pop_value(start_stack);
+        }
+
         // Count how many entries to pop
         let mut pop_count = 0usize;
         {
@@ -644,6 +885,37 @@ impl FrameObject {
             .cold()
             .pending_unwind_from_stack
             .store(start_stack, Relaxed);
+        // Bind None into any NULL localsplus slots the jump target may
+        // assume exist, rather than leaving LOAD_FAST to raise later.
+        let unbound = {
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals()
+            };
+            fastlocals.iter().filter(|slot| slot.is_none()).count()
+        };
+        if unbound > 0 {
+            let s = if unbound == 1 { "" } else { "s" };
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!("assigning None to {unbound} unbound local{s}"),
+                1,
+                vm,
+            )?;
+            let none = vm.ctx.none();
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals_mut()
+            };
+            for slot in fastlocals.iter_mut() {
+                if slot.is_none() {
+                    *slot = Some(none.clone());
+                }
+            }
+        }
+
         target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }
@@ -672,80 +944,60 @@ impl FrameObject {
             }
             PySetterValue::Delete => None,
         };
+        // Whether this assignment turns tracing on for a frame that was
+        // previously untraced (e.g. bdb stepping back into a caller frame
+        // that had no f_trace). If so, `prev_line` may be stale -- it is
+        // only updated on the cold trace-event path -- and must be
+        // synced again to the currently-executing line so the next instruction
+        // doesn't fire a spurious 'line' event. See
+        // `InterpreterFrame::sync_prev_line_from_lasti`.
+        //
+        // Determine the canonical iframe to check/update *before* writing
+        // anything: for a live materialized frame, `self.iframe()` and the
+        // live source iframe found below alias the same underlying storage,
+        // so checking "was it unset" after writing through one of them
+        // would always observe the just-written value through the other.
+        let trace_is_some = trace.is_some();
+        let live = self.find_live_source_iframe();
+        let canonical = if !live.is_null() {
+            unsafe { &*live }
+        } else {
+            self.iframe()
+        };
+        let was_unset = canonical.cold().trace.lock().is_none();
+
         // Set on the materialized FrameObject.
         (*self.iframe().cold().trace.lock()).clone_from(&trace);
         // Also propagate to the live source iframe if this is a
         // materialized copy of a stack-allocated frame, so pdb's
         // f_trace assignment takes effect on the executing frame.
-        let live = self.find_live_source_iframe();
         if !live.is_null() {
             *unsafe { &*live }.cold().trace.lock() = trace;
         }
-    }
 
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(type = "bool")]
-    fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
-        let boxed = zelf.iframe().cold().trace_lines.lock();
-        Ok(vm.ctx.new_bool(*boxed).into())
-    }
-
-    #[pymember(type = "bool", setter)]
-    fn set_f_trace_lines(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        value: PySetterValue,
-    ) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
-                let value: PyIntRef = value
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
-
-                let val = !value.as_bigint().is_zero();
-                *zelf.iframe().cold().trace_lines.lock() = val;
-                // Propagate to live source iframe.
-                let live = zelf.find_live_source_iframe();
-                if !live.is_null() {
-                    *unsafe { &*live }.cold().trace_lines.lock() = val;
-                }
-
-                Ok(())
-            }
-            PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
+        if was_unset && trace_is_some {
+            canonical.sync_prev_line_from_lasti();
         }
     }
 
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(type = "bool")]
-    fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let trace_opcodes = zelf.iframe().cold().trace_opcodes.lock();
-        Ok(vm.ctx.new_bool(*trace_opcodes).into())
+    #[pygetset]
+    fn f_trace_opcodes(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let trace_opcodes = self.iframe().cold().trace_opcodes.lock();
+        vm.ctx.new_bool(*trace_opcodes).into()
     }
 
-    #[pymember(type = "bool", setter)]
-    fn set_f_trace_opcodes(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        value: PySetterValue,
-    ) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set_f_trace_opcodes(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
                 let value: PyIntRef = value
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
                 let val = !value.as_bigint().is_zero();
-                *zelf.iframe().cold().trace_opcodes.lock() = val;
+                *self.iframe().cold().trace_opcodes.lock() = val;
                 // Propagate to live source iframe.
-                let live = zelf.find_live_source_iframe();
+                let live = self.find_live_source_iframe();
                 if !live.is_null() {
                     *unsafe { &*live }.cold().trace_opcodes.lock() = val;
                 }
@@ -756,163 +1008,5 @@ impl FrameObject {
             }
             PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
         }
-    }
-}
-
-#[pyclass]
-impl Py<FrameObject> {
-    #[pymethod]
-    // = frame_clear_impl
-    fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let owner = FrameOwner::from_i8(
-            self.iframe()
-                .owner
-                .load(core::sync::atomic::Ordering::Acquire),
-        );
-        match owner {
-            FrameOwner::Generator => {
-                // Generator frame: check if suspended (lasti > 0 means
-                // FRAME_SUSPENDED). lasti == 0 means FRAME_CREATED and
-                // can be cleared.
-                if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
-                }
-            }
-            FrameOwner::Thread => {
-                // Thread-owned frame: always executing, cannot clear.
-                return Err(vm.new_runtime_error("cannot clear an executing frame"));
-            }
-            FrameOwner::FrameObject => {
-                // Check if this materialized frame is backed by a live
-                // stack-allocated iframe — if so, the frame is executing.
-                if !self.find_live_source_iframe().is_null() {
-                    return Err(vm.new_runtime_error("cannot clear an executing frame"));
-                }
-            }
-        }
-
-        // Clear fastlocals
-        // SAFETY: FrameObject is not executing (detached or stopped).
-        {
-            let fastlocals = unsafe { self.fastlocals_mut() };
-            for slot in fastlocals.iter_mut() {
-                *slot = None;
-            }
-        }
-
-        // Clear the evaluation stack and cell references
-        self.clear_stack_and_cells();
-
-        // Clear temporary refs
-        self.iframe().cold().temporary_refs.lock().clear();
-        self.iframe().cold().f_locals_hidden_overlay.lock().take();
-        self.iframe().cold().f_extra_locals.lock().take();
-        self.iframe().cold().retained_back.lock().take();
-
-        Ok(())
-    }
-
-    #[pygetset]
-    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        // Optimized (function) frames expose a live write-through
-        // FrameLocalsProxy; class/module/exec frames expose their namespace
-        // mapping directly.
-        if self
-            .iframe()
-            .code()
-            .flags
-            .contains(bytecode::CodeFlags::OPTIMIZED)
-        {
-            self.check_locals_access(vm)?;
-            self.mark_escaped();
-            let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
-            Ok(proxy.into_ref(&vm.ctx).into())
-        } else {
-            self.f_locals_mapping(vm).map(Into::into)
-        }
-    }
-
-    #[pygetset]
-    fn f_generator(&self) -> Option<PyObjectRef> {
-        self.iframe().generator.to_owned()
-    }
-
-    #[pygetset]
-    pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
-        let mut prev = self.previous_iframe();
-
-        // For materialized frames (previous == 0), find the source iframe on
-        // the TLS chain and use its `previous` instead.
-        if prev.is_null() {
-            // materialized stores `*const Py<FrameObject>` as usize.
-            // `self` is `&Py<FrameObject>` — compare addresses directly.
-            let self_py_ptr = self as *const Self as usize;
-            let mut cur = crate::vm::thread::get_current_frame();
-            while !cur.is_null() {
-                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
-                if materialized == self_py_ptr {
-                    // Found the source iframe — use its previous
-                    prev = unsafe { (*cur).previous() };
-                    break;
-                }
-                cur = unsafe { (*cur).previous() };
-            }
-            if prev.is_null() {
-                // Check retained_back for frames whose callers have returned
-                let retained = self.iframe().cold().retained_back.lock().clone();
-                if let Some(frame) = retained {
-                    frame.mark_escaped();
-                    return Some(frame);
-                }
-                return None;
-            }
-        }
-
-        // Walk the TLS chain to find the prev iframe and materialize it.
-        // This handles both heap-allocated FrameObjects and stack-allocated
-        // iframes that haven't been observed yet.
-        {
-            let mut cur = crate::vm::thread::get_current_frame();
-            while !cur.is_null() {
-                if core::ptr::eq(cur, prev) {
-                    let iframe_ref = unsafe { &*cur };
-                    let fo = iframe_ref.materialize(vm);
-                    fo.mark_escaped();
-                    return Some(fo.to_owned());
-                }
-                cur = unsafe { (*cur).previous() };
-            }
-        }
-
-        // The caller already returned — check retained_back
-        let retained = self.iframe().cold().retained_back.lock().clone();
-        if let Some(frame) = retained {
-            frame.mark_escaped();
-            return Some(frame);
-        }
-
-        // The caller lives on another thread. Use stop-the-world to
-        // safely materialize the cross-thread frame chain.
-        #[cfg(feature = "threading")]
-        {
-            // Enter STW before dereferencing `prev` — the owning thread may
-            // return and free the stack-allocated iframe at any time.
-            vm.state.stop_the_world.stop_the_world(&vm.state);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
-            let prev_ref = unsafe { &*prev };
-            // Fast path: already materialized.
-            if let Some(fo) = prev_ref.frame_obj() {
-                fo.mark_escaped();
-                return Some(fo.to_owned());
-            }
-            // Slow path: copy the whole chain, linked through retained_back.
-            // SAFETY: the world is stopped, so the owning thread is parked.
-            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
-            fo.mark_escaped();
-            return Some(fo);
-        }
-
-        #[allow(unreachable_code)]
-        None
     }
 }

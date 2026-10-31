@@ -33,10 +33,11 @@ class OpcodeInfo:
 
             for member in family.members:
                 member_name = to_pascal_case(member.name)
-                if member.name == family_name:
+                if member_name == family_name or member_name not in names:
                     continue
 
-                res[family_name].append(member_name)
+                if member_name not in res[family_name]:
+                    res[family_name].append(member_name)
 
         return dict(res)
 
@@ -76,13 +77,24 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
         opcode = Opcode.from_str(entry)
 
         rust_name = opcode.rust_name
+        # Shared opcodes use CPython's wire-format IDs; RustPython-only
+        # instructions must occupy an otherwise unused slot.
+        expected_id = analysis.opmap.get(opcode.cpython_name)
+        if expected_id is not None and opcode.id != expected_id:
+            raise ValueError(
+                f"{rust_name} has opcode ID {opcode.id}; CPython requires {expected_id}"
+            )
+        if expected_id is None and opcode.id in analysis.opmap.values():
+            raise ValueError(
+                f"RustPython-only opcode {rust_name} collides with CPython ID {opcode.id}"
+            )
         override = override_confs.get(rust_name, SKIP_OVERRIDE)
 
         cpython_name = opcode.cpython_name
 
         kwargs = {}
         if instr := analysis.instructions.get(cpython_name):
-            kwargs["properties"] = instr.properties
+            kwargs["properties"] = properties_with_pseudo_flags(instr)
             kwargs["family"] = getattr(instr, "family", None)
             kwargs["cache_entry"] = getattr(instr, "size", -1)
 
@@ -98,6 +110,33 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
             )
 
         yield dataclasses.replace(opcode, override=override, **kwargs)
+
+
+# opcode_metadata_generator.py generate_metadata_table: cflags(pseudo.properties)
+# plus each explicit flag from the pseudo() definition.
+_PSEUDO_FLAG_ATTRS = {
+    "HAS_ARG": "oparg",
+    "HAS_CONST": "uses_co_consts",
+    "HAS_NAME": "uses_co_names",
+    "HAS_JUMP": "jumps",
+    "HAS_FREE": "has_free",
+    "HAS_LOCAL": "uses_locals",
+    "HAS_EVAL_BREAK": "eval_breaker",
+    "HAS_DEOPT": "deopts",
+    "HAS_EXIT": "side_exit",
+    "HAS_PURE": "pure",
+}
+
+
+def properties_with_pseudo_flags(instr):
+    props = instr.properties
+    flags = getattr(instr, "flags", None)
+    if not flags:
+        return props
+    updates = {attr: True for flag in flags if (attr := _PSEUDO_FLAG_ATTRS.get(flag))}
+    if not updates:
+        return props
+    return dataclasses.replace(props, **updates)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

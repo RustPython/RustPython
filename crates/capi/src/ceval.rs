@@ -1,12 +1,12 @@
 use crate::pyframe::PyFrameObject;
 use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
+use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{CStr, c_char, c_int};
-use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyCode, PyDict};
+use rustpython_vm::builtins::{PyAnyDict, PyCode};
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
-use rustpython_vm::{AsObject, PyObject, TryFromObject};
+use rustpython_vm::{AsObject, PyObject, PyRef, TryFromObject};
 use rustpython_vm::{PyObjectRef, version};
 
 #[unsafe(no_mangle)]
@@ -31,13 +31,18 @@ pub unsafe extern "C" fn PyEval_EvalCode(
     locals: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let code = unsafe { &*co }.try_downcast_ref::<PyCode>(vm)?;
-        let globals = unsafe { &*globals }.try_downcast_ref::<PyDict>(vm)?;
-        let locals = NonNull::new(locals)
-            .map(|ptr| ArgMapping::try_from_object(vm, unsafe { ptr.as_ref() }.to_owned()))
+        let code = unsafe { co.assume_borrowed_and_cast::<PyCode>(vm) }?;
+        let globals = PyRef::<PyAnyDict>::try_from_object(
+            vm,
+            unsafe { globals.assume_borrowed() }.to_owned(),
+        )?;
+        let locals = unsafe { locals.assume_borrowed_or_opt() }
+            .map(|obj| ArgMapping::try_from_object(vm, obj.to_owned()))
             .transpose()?;
 
-        let scope = Scope::with_builtins(locals, globals.to_owned(), vm);
+        let locals = locals.or_else(|| Some(ArgMapping::from_anydict_exact(globals.clone())));
+        // Unlike Python's eval/exec, this API does not insert __builtins__.
+        let scope = Scope::new(locals, globals);
 
         vm.run_code_obj(code.to_owned(), scope)
     })
@@ -50,7 +55,7 @@ pub unsafe extern "C" fn PyEval_EvalFrame(f: *mut PyFrameObject) -> *mut PyObjec
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyEval_EvalFrameEx(f: *mut PyFrameObject, _exc: c_int) -> *mut PyObject {
-    with_vm(|vm| vm.run_frame(unsafe { &*f }.to_owned()))
+    with_vm(|vm| vm.run_frame(unsafe { f.assume_borrowed() }.to_owned()))
 }
 
 #[unsafe(no_mangle)]
@@ -126,15 +131,25 @@ pub extern "C" fn PyEval_GetLocals() -> *mut PyObject {
         let Some(frame) = vm.current_frame() else {
             return Ok(core::ptr::null_mut());
         };
-        let _ = frame.locals(vm)?;
-        Ok(frame.iframe().locals.as_object(vm).as_raw().cast_mut())
+        let locals = frame.locals(vm)?;
+        if frame
+            .iframe()
+            .locals
+            .get()
+            .is_some_and(|mapping| mapping.obj().is(locals.obj()))
+        {
+            return Ok(locals.obj().as_raw().cast_mut());
+        }
+        let cache = frame.locals_snapshot_cache(vm);
+        cache.merge_object(locals.into(), vm)?;
+        Ok(cache.as_object().as_raw().cast_mut())
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyEval_GetFuncDesc(func: *mut PyObject) -> *const c_char {
     with_vm(|vm| {
-        let func = unsafe { &*func };
+        let func = unsafe { func.assume_borrowed() };
         let cls = func.class();
         if cls.is(vm.ctx.types.bound_method_type)
             || cls.is(vm.ctx.types.function_type)
@@ -147,10 +162,61 @@ pub unsafe extern "C" fn PyEval_GetFuncDesc(func: *mut PyObject) -> *const c_cha
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_EnterRecursiveCall(where_: *const c_char) -> c_int {
+    with_vm(|vm| vm.enter_recursive_call(unsafe { where_.try_as_str(vm)? }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_LeaveRecursiveCall() {
+    with_vm(|vm| vm.leave_recursive_call())
+}
+
 #[cfg(test)]
 mod tests {
-    use pyo3::exceptions::PyException;
+    use super::{Py_EnterRecursiveCall, Py_LeaveRecursiveCall};
+    use alloc::ffi::CString;
+    use pyo3::exceptions::{PyException, PyRecursionError};
     use pyo3::prelude::*;
+
+    #[pyfunction]
+    fn legacy_local(name: &str) -> (usize, Option<i64>) {
+        let locals = super::PyEval_GetLocals();
+        assert!(!locals.is_null());
+        let name = CString::new(name).unwrap();
+        let value = unsafe { crate::dictobject::PyDict_GetItemString(locals, name.as_ptr()) };
+        let value = if value.is_null() {
+            None
+        } else {
+            Some(unsafe { crate::longobject::PyLong_AsLongLong(value) })
+        };
+        (locals as usize, value)
+    }
+
+    #[pyfunction]
+    fn legacy_locals_is_frame_mapping() -> bool {
+        let locals = super::PyEval_GetLocals();
+        rustpython_vm::vm::thread::with_current_vm(|vm| {
+            let frame = vm.current_frame().unwrap();
+            core::ptr::eq(
+                locals.cast_const(),
+                frame.iframe().locals.as_object(vm).as_raw(),
+            )
+        })
+    }
+
+    #[pyfunction]
+    fn frame_locals_are_fresh() -> bool {
+        let first = super::PyEval_GetFrameLocals();
+        let second = super::PyEval_GetFrameLocals();
+        assert!(!first.is_null() && !second.is_null());
+        let different = first != second;
+        unsafe {
+            crate::refcount::_Py_DecRef(first);
+            crate::refcount::_Py_DecRef(second);
+        }
+        different
+    }
 
     #[test]
     fn code_eval() {
@@ -165,6 +231,76 @@ mod tests {
         Python::attach(|py| {
             let err = py.run(c"raise Exception()", None, None).unwrap_err();
             assert!(err.is_instance_of::<PyException>(py));
+        })
+    }
+
+    #[test]
+    fn legacy_locals_cache_is_lazy_and_does_not_modify_namespaces() {
+        Python::attach(|py| {
+            let globals = pyo3::types::PyDict::new(py);
+            globals
+                .set_item("legacy_local", wrap_pyfunction!(legacy_local, py).unwrap())
+                .unwrap();
+            globals
+                .set_item(
+                    "legacy_locals_is_frame_mapping",
+                    wrap_pyfunction!(legacy_locals_is_frame_mapping, py).unwrap(),
+                )
+                .unwrap();
+            globals
+                .set_item(
+                    "frame_locals_are_fresh",
+                    wrap_pyfunction!(frame_locals_are_fresh, py).unwrap(),
+                )
+                .unwrap();
+            py.run(
+                c"\
+assert legacy_locals_is_frame_mapping()
+
+def optimized():
+    x = 1
+    first_ptr, first_x = legacy_local('x')
+    x = 2
+    second_ptr, second_x = legacy_local('x')
+    return first_ptr == second_ptr, first_x, second_x, frame_locals_are_fresh()
+
+def optimized_with_custom_locals():
+    x = 3
+    legacy_local('x')
+
+optimized_result = optimized()
+custom_locals = {}
+exec(optimized_with_custom_locals.__code__, globals(), custom_locals)
+hidden_result = [legacy_local('hidden_name')[1] for hidden_name in [7]][0]
+hidden_leaked = 'hidden_name' in globals()
+assert optimized_result == (True, 1, 2, True)
+assert custom_locals == {}
+assert hidden_result == 7
+assert not hidden_leaked
+",
+                Some(&globals),
+                None,
+            )
+            .unwrap();
+        })
+    }
+
+    #[test]
+    fn recursion_error() {
+        fn recurse(py: Python<'_>) -> PyResult<()> {
+            unsafe {
+                if Py_EnterRecursiveCall(c"".as_ptr().cast()) != 0 {
+                    return Err(PyErr::fetch(py));
+                };
+                let result = recurse(py);
+                Py_LeaveRecursiveCall();
+                result
+            }
+        }
+
+        Python::attach(|py| {
+            let err = recurse(py).unwrap_err();
+            assert!(err.is_instance_of::<PyRecursionError>(py));
         })
     }
 }

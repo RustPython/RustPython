@@ -26,7 +26,6 @@ def target(local, weaklist):
 
 class BaseLocalTest:
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_local_refs(self):
         self._local_refs(20)
         self._local_refs(50)

@@ -300,6 +300,77 @@ with assert_raises(TypeError):
 assert b"abc".join((b"123", b"xyz")) == b"123abcxyz"
 
 
+class JoinBytes(bytes):
+    def __buffer__(self, flags):
+        return memoryview(b"override")
+
+
+class JoinBuffer:
+    def __init__(self, action=None):
+        self.action = action
+
+    def __buffer__(self, flags):
+        if self.action is None:
+            join_chunk[0] = ord("b")
+        else:
+            self.action()
+        return memoryview(b"x")
+
+    def __release_buffer__(self, view):
+        join_events.append("release")
+
+
+for join_type in (bytes, bytearray):
+    join_separator = join_type(b",")
+
+    def join_mutable_chunks():
+        chunk = bytearray(b"a")
+        yield chunk
+        chunk[:] = b"bc"
+        yield chunk
+
+    assert join_separator.join(join_mutable_chunks()) == b"bc,bc"
+
+    def join_broken_iterable():
+        yield 42
+        yield b"a"
+        raise RuntimeError("producer failed")
+
+    with assert_raises(RuntimeError):
+        join_separator.join(join_broken_iterable())
+
+    for sequence_type in (list, tuple):
+
+        class JoinSequence(sequence_type):
+            def __iter__(self):
+                return iter([b"a", b"b"])
+
+        assert join_separator.join(JoinSequence([42])) == b"a,b"
+
+    result = join_separator.join([JoinBytes(b"original")])
+    assert result == b"override" and type(result) is join_type
+
+    join_chunk = bytearray(b"a")
+    join_events = []
+    assert join_separator.join([join_chunk, JoinBuffer()]) == b"b,x"
+    assert join_events == ["release"]
+    with assert_raises(TypeError):
+        join_separator.join([join_chunk, JoinBuffer(lambda: join_chunk.extend(b"c"))])
+    join_chunk.extend(b"c")
+    join_items = []
+    join_exporter = JoinBuffer(join_items.clear)
+    join_items[:] = [join_exporter, b"y"]
+    with assert_raises(RuntimeError):
+        join_separator.join(join_items)
+    join_events.clear()
+    with assert_raises(TypeError):
+        join_separator.join([JoinBuffer(), 42])
+    assert join_events == ["release"]
+
+join_single = b"single item"
+assert b",".join([join_single]) is join_single
+
+
 # endswith startswith
 assert b"abcde".endswith(b"de")
 assert b"abcde".endswith(b"")
@@ -644,6 +715,14 @@ assert b"-\xff".decode(sys.getfilesystemencoding(), "surrogateescape") == "-\udc
 # mod
 assert b"rust%bpython%b" % (b" ", b"!") == b"rust python!"
 assert b"x=%i y=%f" % (1, 2.5) == b"x=1 y=2.500000"
+for precision in (-1, -3, -(2**31)):
+    assert b"%.*b" % (precision, b"hello") == b""
+assert b"%.*s" % (-3, bytearray(b"hello")) == b""
+assert b"%.*a" % (-3, "hello") == b""
+assert b"%*.*d" % (-6, -3, 12) == b"12    "
+assert b"%.*f" % (-3, 1.25) == b"1"
+assert_raises(OverflowError, b"%.*b".__mod__, (-(2**31) - 1, b"abc"))
+assert_raises(TypeError, b"%.*b".__mod__, (1.0, b"abc"))
 
 
 # __bytes__
@@ -686,6 +765,26 @@ assert id(a) != id(a * 2)
 
 class SubBytes(bytes):
     pass
+
+
+# Unchanged operations reuse exact bytes but must not preserve a subclass.
+for method, args in (
+    ("strip", ()),
+    ("lstrip", ()),
+    ("rstrip", ()),
+    ("removeprefix", (b"!",)),
+    ("removesuffix", (b"!",)),
+    ("replace", (b"!", b"?")),
+    ("replace", (b"!", b"")),
+    ("replace", (b"!", b"longer")),
+    ("replace", (b"", b"")),
+    ("replace", (b"a", b"b", 0)),
+):
+    original = b"unchanged payload"
+    assert getattr(original, method)(*args) is original
+    result = getattr(SubBytes(original), method)(*args)
+    assert result == original
+    assert type(result) is bytes
 
 
 b = SubBytes(b"0123abc*&")
@@ -766,3 +865,79 @@ def test_huge_size():
 
 
 test_huge_size()
+
+
+# bytes() asks the object it was handed how long it is, so what answering
+# raises is the answer; the bytearray constructor asks nothing.
+class BadLen:
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __len__(self):
+        raise RuntimeError("hello")
+
+
+with assert_raises(RuntimeError):
+    bytes(BadLen())
+with assert_raises(RuntimeError):
+    int.from_bytes(BadLen(), "big")
+assert bytearray(BadLen()) == bytearray(b"\x01\x02\x03")
+with assert_raises(RuntimeError):
+    bytearray(b"ab").extend(BadLen())
+holder = bytearray(b"xyz")
+holder[:] = BadLen()
+assert holder == bytearray(b"\x01\x02\x03")
+
+
+# What could not be turned into bytes is answered for by whatever was asked,
+# rather than by the iteration protocol.
+def cannot(fn, message):
+    try:
+        fn()
+    except TypeError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected TypeError: {message}")
+
+
+cannot(lambda: bytes(object()), "cannot convert 'object' object to bytes")
+cannot(lambda: bytes(1.5), "cannot convert 'float' object to bytes")
+cannot(lambda: bytearray(object()), "cannot convert 'object' object to bytearray")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), object()),
+    "cannot convert 'object' object to bytearray",
+)
+cannot(lambda: bytearray().extend(object()), "can't extend bytearray with object")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), "ab"),
+    "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
+)
+
+
+def out_of_range(fn, message):
+    try:
+        fn()
+    except ValueError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected ValueError: {message}")
+
+
+# `bytes` is the one entry point that does not name a single byte, and both the
+# sized and unsized iterator paths report it that way.
+out_of_range(lambda: bytes([256]), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytes(iter([256])), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytes([-1]), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytearray([256]), "byte must be in range(0, 256)")
+out_of_range(lambda: bytearray(iter([256])), "byte must be in range(0, 256)")
+out_of_range(lambda: bytearray().extend([256]), "byte must be in range(0, 256)")
+
+
+class NewArgsBytes(bytes):
+    pass
+
+
+for bytes_type in (bytes, NewArgsBytes):
+    newargs = bytes_type(b"a\x00b").__getnewargs__()
+    assert newargs == (b"a\x00b",)
+    assert type(newargs[0]) is bytes

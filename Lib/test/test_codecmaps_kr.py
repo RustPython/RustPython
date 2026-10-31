@@ -11,10 +11,6 @@ class TestCP949Map(multibytecodec_support.TestBase_Mapping,
     encoding = 'cp949'
     mapfileurl = 'http://www.pythontest.net/unicode/CP949.TXT'
 
-    @unittest.expectedFailureIf(__import__("sys").platform in ("android", "darwin", "linux"), "TODO: RUSTPYTHON; LookupError: unknown encoding: cp949")
-    def test_mapping_file(self):
-        return super().test_mapping_file()
-
 
 class TestEUCKRMap(multibytecodec_support.TestBase_Mapping,
                    unittest.TestCase):
@@ -24,10 +20,6 @@ class TestEUCKRMap(multibytecodec_support.TestBase_Mapping,
     # A4D4 HANGUL FILLER indicates the begin of 8-bytes make-up sequence.
     pass_enctest = [(b'\xa4\xd4', '\u3164')]
     pass_dectest = [(b'\xa4\xd4', '\u3164')]
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_kr
-    def test_mapping_file(self):
-        return super().test_mapping_file()
 
 
 class TestJOHABMap(multibytecodec_support.TestBase_Mapping,
@@ -40,10 +32,6 @@ class TestJOHABMap(multibytecodec_support.TestBase_Mapping,
     # So, we ignore the standard here.
     pass_enctest = [(b'\\', '\u20a9')]
     pass_dectest = [(b'\\', '\u20a9')]
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: johab
-    def test_mapping_file(self):
-        return super().test_mapping_file()
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,24 +2,19 @@
 
 import os as _os
 import sys as _sys
-import sysconfig as _sysconfig
 import types as _types
 
-__version__ = "1.1.0"
+lazy import sysconfig as _sysconfig
 
 from _ctypes import Union, Structure, Array
 from _ctypes import _Pointer
 from _ctypes import CFuncPtr as _CFuncPtr
-from _ctypes import __version__ as _ctypes_version
 from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
 from _ctypes import ArgumentError
 from _ctypes import SIZEOF_TIME_T
 from _ctypes import CField
 
 from struct import calcsize as _calcsize
-
-if __version__ != _ctypes_version:
-    raise Exception("Version number mismatch", __version__, _ctypes_version)
 
 if _os.name == "nt":
     from _ctypes import COMError, CopyComPointer, FormatError
@@ -211,13 +206,13 @@ if sizeof(c_longdouble) == sizeof(c_double):
 
 try:
     class c_double_complex(_SimpleCData):
-        _type_ = "D"
+        _type_ = "Zd"
     _check_size(c_double_complex)
     class c_float_complex(_SimpleCData):
-        _type_ = "F"
+        _type_ = "Zf"
     _check_size(c_float_complex)
     class c_longdouble_complex(_SimpleCData):
-        _type_ = "G"
+        _type_ = "Zg"
 except AttributeError:
     pass
 
@@ -380,12 +375,6 @@ def create_unicode_buffer(init, size=None):
         buf = buftype()
         return buf
     raise TypeError(init)
-
-
-def SetPointerType(pointer, cls):
-    import warnings
-    warnings._deprecated("ctypes.SetPointerType", remove=(3, 15))
-    pointer.set_type(cls)
 
 def ARRAY(typ, len):
     return typ * len
@@ -681,3 +670,12 @@ else:
     raise SystemError(f"Unexpected sizeof(time_t): {SIZEOF_TIME_T=}")
 
 _reset_cache()
+
+
+def __getattr__(name):
+    if name == "__version__":
+        from warnings import _deprecated
+
+        _deprecated("__version__", remove=(3, 20))
+        return "1.1.0"  # Do not change
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

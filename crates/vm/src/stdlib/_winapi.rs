@@ -24,28 +24,30 @@ mod _winapi {
     #[pyattr]
     use host_winapi::{
         ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
-        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_FAIL_IF_EXISTS,
-        COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD, COPY_FILE_OPEN_SOURCE_FOR_WRITE,
-        COPY_FILE_REQUEST_COMPRESSED_TRAFFIC, COPY_FILE_REQUEST_SECURITY_PRIVILEGES,
-        COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
-        COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
-        COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
-        COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE,
-        COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP,
-        CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,
-        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, DUPLICATE_CLOSE_SOURCE,
-        DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE,
-        ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
-        ERROR_NO_SYSTEM_RESOURCES, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED,
-        ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, FILE_FLAG_FIRST_PIPE_INSTANCE,
-        FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_MAP_ALL_ACCESS,
-        FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE, FILE_TYPE_CHAR,
-        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, GENERIC_READ, GENERIC_WRITE,
-        HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS, LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA,
-        LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING, LCMAP_LOWERCASE, LCMAP_SIMPLIFIED_CHINESE,
-        LCMAP_TITLECASE, LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE, LOCALE_NAME_MAX_LENGTH,
-        MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE,
-        NMPWAIT_WAIT_FOREVER, NORMAL_PRIORITY_CLASS, OPEN_EXISTING, PAGE_EXECUTE,
+        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_DIRECTORY,
+        COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
+        COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+        COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE,
+        COPYFILE2_CALLBACK_CHUNK_FINISHED, COPYFILE2_CALLBACK_CHUNK_STARTED,
+        COPYFILE2_CALLBACK_ERROR, COPYFILE2_CALLBACK_POLL_CONTINUE,
+        COPYFILE2_CALLBACK_STREAM_FINISHED, COPYFILE2_CALLBACK_STREAM_STARTED,
+        COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE,
+        COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP, CREATE_BREAKAWAY_FROM_JOB,
+        CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW,
+        DETACHED_PROCESS, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED,
+        ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA,
+        ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES, ERROR_OPERATION_ABORTED,
+        ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT,
+        EVENTLOG_AUDIT_FAILURE, EVENTLOG_AUDIT_SUCCESS, EVENTLOG_ERROR_TYPE,
+        EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS, EVENTLOG_WARNING_TYPE,
+        FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+        FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE,
+        FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN,
+        GENERIC_READ, GENERIC_WRITE, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS, LCMAP_FULLWIDTH,
+        LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING, LCMAP_LOWERCASE,
+        LCMAP_SIMPLIFIED_CHINESE, LCMAP_TITLECASE, LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE,
+        LOCALE_NAME_MAX_LENGTH, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
+        MEM_RESERVE, NMPWAIT_WAIT_FOREVER, NORMAL_PRIORITY_CLASS, OPEN_EXISTING, PAGE_EXECUTE,
         PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
         PAGE_NOACCESS, PAGE_NOCACHE, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOMBINE,
         PAGE_WRITECOPY, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, PIPE_READMODE_MESSAGE,
@@ -64,17 +66,58 @@ mod _winapi {
     const NULL: isize = 0;
 
     #[pyattr]
-    const INVALID_HANDLE_VALUE: isize = -1;
+    const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
 
     #[pyattr]
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
 
-    #[pyattr]
-    const COPY_FILE_DIRECTORY: u32 = 0x00000080;
-
     #[pyfunction]
     fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
         WindowsSysResult(host_winapi::close_handle(handle.0))
+    }
+
+    #[pyfunction]
+    fn RegisterEventSource(
+        server: Option<PyStrRef>,
+        source: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        let server = server
+            .map(|server| server.as_wtf8().to_wide_cstring())
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        let source = source
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        vm.allow_threads(|| host_winapi::register_event_source_w(server.as_deref(), &source))
+            .map(WinHandle)
+            .map_err(|error| error.to_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn DeregisterEventSource(handle: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
+        vm.allow_threads(|| host_winapi::deregister_event_source(handle.0))
+            .map_err(|error| error.to_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn ReportEvent(
+        handle: WinHandle,
+        event_type: u16,
+        category: u16,
+        event_id: u32,
+        message: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let message = message
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        vm.allow_threads(|| {
+            host_winapi::report_event_w(handle.0, event_type, category, event_id, &message)
+        })
+        .map_err(|error| error.to_pyexception(vm))
     }
 
     /// CreateFile - Create or open a file or I/O device.
@@ -203,20 +246,25 @@ mod _winapi {
         args: CreateProcessArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
+        // Default failed startup attribute lookups as CPython does. Keep value
+        // conversion errors separate from lookup failures.
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
-                <Option<$t>>::try_from_object(
-                    vm,
-                    args.startup_info.get_attr(stringify!($attr), vm)?,
-                )?
-                .unwrap_or(0) as _
+                args.startup_info
+                    .get_attr(stringify!($attr), vm)
+                    .ok()
+                    .map(|obj| <Option<$t>>::try_from_object(vm, obj))
+                    .transpose()?
+                    .flatten()
+                    .unwrap_or(0) as _
             }};
             ($attr:ident) => {{
-                <Option<_>>::try_from_object(
-                    vm,
-                    args.startup_info.get_attr(stringify!($attr), vm)?,
-                )?
-                .unwrap_or(0)
+                args.startup_info
+                    .get_attr(stringify!($attr), vm)
+                    .ok()
+                    .map(|obj| TryFromObject::try_from_object(vm, obj))
+                    .transpose()?
+                    .unwrap_or(0)
             }};
         }
         let startup_info = host_winapi::StartupInfoData {
@@ -232,7 +280,13 @@ mod _winapi {
             .map(|m| getenvironment(m, vm))
             .transpose()?;
 
-        let handle_list = get_handle_list(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
+        let handle_list = args
+            .startup_info
+            .get_attr("lpAttributeList", vm)
+            .ok()
+            .map(|obj| get_handle_list(obj, vm))
+            .transpose()?
+            .flatten();
 
         // Validate no embedded null bytes in command name and command line
         // before handing the strings off; to_wide_cstring rejects interior NULs.
@@ -399,14 +453,20 @@ mod _winapi {
         WindowsSysResult(host_winapi::terminate_process(h.0, exit_code))
     }
 
+    #[derive(FromArgs)]
+    struct OptionalJobName {
+        #[pyarg(positional, optional)]
+        name: Option<PyStrRef>,
+    }
+
     #[pyfunction]
     fn CreateJobObject(
         _security_attributes: PyObjectRef,
-        name: OptionalArg<Option<PyStrRef>>,
+        name: OptionalJobName,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
         let name = name
-            .flatten()
+            .name
             .map(|name| name.as_wtf8().to_wide_cstring())
             .transpose()
             .map_err(|_| nul_char_error(vm))?;
@@ -469,20 +529,16 @@ mod _winapi {
         WindowsSysResult(host_winapi::release_mutex(handle.0))
     }
 
-    // LOCALE_NAME_INVARIANT is an empty string in Windows API
     #[pyattr]
-    const LOCALE_NAME_INVARIANT: &str = "";
-
-    #[pyattr]
-    const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
+    use host_winapi::{LOCALE_NAME_INVARIANT, LOCALE_NAME_SYSTEM_DEFAULT};
 
     #[pyattr(name = "LOCALE_NAME_USER_DEFAULT")]
     fn locale_name_user_default(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
 
-    /// LCMapStringEx - Map a string to another string using locale-specific rules
-    /// This is used by ntpath.normcase() for proper Windows case conversion
+    // LCMapStringEx - Map a string to another string using locale-specific rules
+    // This is used by ntpath.normcase() for proper Windows case conversion
     #[pyfunction]
     fn LCMapStringEx(
         locale: PyStrRef,
@@ -542,7 +598,7 @@ mod _winapi {
         _security_attributes: PyObjectRef, // Ignored, can be None
     }
 
-    /// CreateNamedPipe - Create a named pipe
+    // CreateNamedPipe - Create a named pipe
     #[pyfunction]
     fn CreateNamedPipe(args: CreateNamedPipeArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
         let name = args
@@ -573,7 +629,6 @@ mod _winapi {
         inner: PyMutex<host_overlapped::Operation>,
     }
 
-    #[pyclass(with(Constructor))]
     impl Overlapped {
         fn new_with_handle(handle: host_winapi::Handle, vm: &VirtualMachine) -> PyResult<Self> {
             host_overlapped::Operation::new(handle)
@@ -591,7 +646,10 @@ mod _winapi {
         fn lock_inner(&self, vm: &VirtualMachine) -> PyMutexGuard<'_, host_overlapped::Operation> {
             vm.allow_threads(|| self.inner.lock())
         }
+    }
 
+    #[pyclass(with(Constructor))]
+    impl Py<Overlapped> {
         #[pymethod]
         fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
             let mut inner = self.lock_inner(vm);
@@ -675,7 +733,6 @@ mod _winapi {
         vm.ctx.new_str(result_str)
     }
 
-    /// GetShortPathName - Return the short version of the provided path.
     #[pyfunction]
     fn GetShortPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let path = path
@@ -686,7 +743,6 @@ mod _winapi {
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
-    /// GetLongPathName - Return the long version of the provided path.
     #[pyfunction]
     fn GetLongPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let path = path
@@ -697,7 +753,7 @@ mod _winapi {
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
-    /// WaitNamedPipe - Wait for an instance of a named pipe to become available.
+    // WaitNamedPipe - Wait for an instance of a named pipe to become available.
     #[pyfunction]
     fn WaitNamedPipe(name: PyStrRef, timeout: u32, vm: &VirtualMachine) -> PyResult<()> {
         let name = name
@@ -707,7 +763,7 @@ mod _winapi {
         host_winapi::wait_named_pipe_w(&name, timeout).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// PeekNamedPipe - Peek at data in a named pipe without removing it.
+    // PeekNamedPipe - Peek at data in a named pipe without removing it.
     #[pyfunction]
     fn PeekNamedPipe(
         handle: WinHandle,
@@ -723,7 +779,8 @@ mod _winapi {
         if size > 0 {
             let result = host_winapi::peek_named_pipe(handle.0, Some(size as u32))
                 .map_err(|e| e.to_pyexception(vm))?;
-            let buf = result.data.unwrap_or_default();
+            let mut buf = result.data.unwrap_or_default();
+            buf.shrink_to_fit();
             let bytes: PyObjectRef = vm.ctx.new_bytes(buf).into();
             Ok(vm
                 .ctx
@@ -746,7 +803,7 @@ mod _winapi {
         }
     }
 
-    /// CreateEventW - Create or open a named or unnamed event object.
+    // CreateEventW - Create or open a named or unnamed event object.
     #[pyfunction]
     fn CreateEventW(
         security_attributes: isize, // Always NULL (0)
@@ -766,7 +823,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// SetEvent - Set the specified event object to the signaled state.
+    // SetEvent - Set the specified event object to the signaled state.
     #[pyfunction]
     fn SetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::set_event(event.0).map_err(|e| e.to_pyexception(vm))
@@ -778,11 +835,11 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         buffer: crate::function::ArgBytesLike,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         overlapped: bool,
     }
 
-    /// WriteFile - Write data to a file or I/O device.
+    // WriteFile - Write data to a file or I/O device.
     #[pyfunction]
     fn WriteFile(args: WriteFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
@@ -818,11 +875,11 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         size: u32,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         overlapped: bool,
     }
 
-    /// ReadFile - Read data from a file or I/O device.
+    // ReadFile - Read data from a file or I/O device.
     #[pyfunction]
     fn ReadFile(args: ReadFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
@@ -841,9 +898,10 @@ mod _winapi {
             return Ok(result.into());
         }
 
-        let result = vm
+        let mut result = vm
             .allow_threads(|| host_winapi::read_file(handle.0, size))
             .map_err(|e| e.to_pyexception(vm))?;
+        result.data.shrink_to_fit();
         Ok(vm
             .ctx
             .new_tuple(vec![
@@ -853,7 +911,7 @@ mod _winapi {
             .into())
     }
 
-    /// SetNamedPipeHandleState - Set the read mode and other options of a named pipe.
+    // SetNamedPipeHandleState - Set the read mode and other options of a named pipe.
     #[pyfunction]
     fn SetNamedPipeHandleState(
         named_pipe: WinHandle,
@@ -873,13 +931,13 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// ResetEvent - Reset the specified event object to the nonsignaled state.
+    // ResetEvent - Reset the specified event object to the nonsignaled state.
     #[pyfunction]
     fn ResetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::reset_event(event.0).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// CreateMutexW - Create or open a named or unnamed mutex object.
+    // CreateMutexW - Create or open a named or unnamed mutex object.
     #[pyfunction]
     fn CreateMutexW(
         security_attributes: isize,
@@ -897,7 +955,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// OpenEventW - Open an existing named event object.
+    // OpenEventW - Open an existing named event object.
     #[pyfunction]
     fn OpenEventW(
         desired_access: u32,
@@ -914,9 +972,8 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    const MAXIMUM_WAIT_OBJECTS: usize = 64;
+    const MAXIMUM_WAIT_OBJECTS: usize = host_winapi::MAXIMUM_WAIT_OBJECTS as usize;
 
-    /// BatchedWaitForMultipleObjects - Wait for multiple handles, supporting more than 64.
     #[pyfunction]
     fn BatchedWaitForMultipleObjects(
         handle_seq: PyObjectRef,
@@ -996,7 +1053,7 @@ mod _winapi {
         }
     }
 
-    /// CreateFileMapping - Create or open a named or unnamed file mapping object.
+    // CreateFileMapping - Create or open a named or unnamed file mapping object.
     #[pyfunction]
     fn CreateFileMapping(
         file_handle: WinHandle,
@@ -1022,7 +1079,7 @@ mod _winapi {
         .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// OpenFileMapping - Open a named file mapping object.
+    // OpenFileMapping - Open a named file mapping object.
     #[pyfunction]
     fn OpenFileMapping(
         desired_access: u32,
@@ -1039,7 +1096,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// MapViewOfFile - Map a view of a file mapping into the address space.
+    // MapViewOfFile - Map a view of a file mapping into the address space.
     #[pyfunction]
     fn MapViewOfFile(
         file_map: WinHandle,
@@ -1059,19 +1116,18 @@ mod _winapi {
         .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// UnmapViewOfFile - Unmap a mapped view of a file.
+    // UnmapViewOfFile - Unmap a mapped view of a file.
     #[pyfunction]
     fn UnmapViewOfFile(address: isize, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::unmap_view_of_file(address).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// VirtualQuerySize - Return the size of a memory region.
+    // VirtualQuerySize - Return the size of a memory region.
     #[pyfunction]
     fn VirtualQuerySize(address: isize, vm: &VirtualMachine) -> PyResult<usize> {
         host_winapi::virtual_query_size(address).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// CopyFile2 - Copy a file with extended parameters.
     #[pyfunction]
     fn CopyFile2(
         existing_file_name: PyStrRef,
@@ -1091,7 +1147,6 @@ mod _winapi {
         host_winapi::copy_file2(&src_wide, &dst_wide, flags).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// _mimetypes_read_windows_registry - Read MIME type associations from registry.
     #[pyfunction]
     fn _mimetypes_read_windows_registry(
         on_type_read: PyObjectRef,

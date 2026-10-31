@@ -50,7 +50,7 @@ impl PyObject {
     pub fn try_value_with<T, F, R>(&self, f: F, vm: &VirtualMachine) -> PyResult<R>
     where
         T: PyPayload,
-        F: Fn(&T) -> PyResult<R>,
+        F: Fn(&Py<T>) -> PyResult<R>,
     {
         let class = T::class(&vm.ctx);
         let py_ref = if self.fast_isinstance(class) {

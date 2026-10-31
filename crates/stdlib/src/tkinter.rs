@@ -322,19 +322,23 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn getvar(&self, args: TkAppGetVarArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self.var_invoke();
-            self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
+        fn getvar(
+            zelf: &Py<Self>,
+            args: TkAppGetVarArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            zelf.var_invoke();
+            zelf.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
         }
 
         #[pymethod]
         fn globalgetvar(
-            &self,
+            zelf: &Py<Self>,
             args: TkAppGetVarArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            self.var_invoke();
-            self.inner_getvar(
+            zelf.var_invoke();
+            zelf.inner_getvar(
                 args,
                 tk_sys::TCL_LEAVE_ERR_MSG | tk_sys::TCL_GLOBAL_ONLY,
                 vm,
@@ -342,7 +346,11 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn getint(&self, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn getint(
+            _zelf: &Py<Self>,
+            arg: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             if let Some(int) = arg.downcast_ref::<PyInt>() {
                 return Ok(PyObjectRef::from(vm.ctx.new_int(int.as_bigint().clone())));
             }
@@ -357,7 +365,7 @@ mod _tkinter {
         }
         // TODO: Fix arguments
         #[pymethod]
-        fn mainloop(&self, threshold: Option<i32>) -> PyResult<()> {
+        fn mainloop(zelf: &Py<Self>, threshold: Option<i32>) -> PyResult<()> {
             let threshold = threshold.unwrap_or(0);
             // self.dispatching = true;
             QUIT_MAIN_LOOP.store(false, Ordering::Relaxed);
@@ -365,7 +373,7 @@ mod _tkinter {
                 && !QUIT_MAIN_LOOP.load(Ordering::Relaxed)
                 && !ERROR_IN_CMD.load(Ordering::Relaxed)
             {
-                if self.threaded {
+                if zelf.threaded {
                     unsafe { tk_sys::Tcl_DoOneEvent(0 as _) };
                 } else {
                     unsafe { tk_sys::Tcl_DoOneEvent(tk_sys::TCL_DONT_WAIT as _) };
@@ -377,7 +385,7 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn quit(&self) {
+        fn quit(_zelf: &Py<Self>) {
             QUIT_MAIN_LOOP.store(true, Ordering::Relaxed);
         }
     }

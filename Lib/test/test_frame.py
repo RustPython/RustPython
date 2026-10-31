@@ -217,7 +217,6 @@ class FrameAttrsTest(unittest.TestCase):
         self.assertEqual(outer.f_locals, {})
         self.assertEqual(inner.f_locals, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: can't delete f_lineno attribute
     def test_f_lineno_del_segfault(self):
         f, _, _ = self.make_frames()
         with self.assertRaises(AttributeError):
@@ -279,7 +278,6 @@ class ReprTest(unittest.TestCase):
     Tests for repr(frame).
     """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_repr(self):
         def outer():
             x = 5

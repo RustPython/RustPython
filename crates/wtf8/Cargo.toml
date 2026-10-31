@@ -8,6 +8,9 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 ascii = { workspace = true, features = ["alloc"] }
 bstr = { workspace = true, features = ["alloc"] }

@@ -19,16 +19,19 @@ pub(crate) mod _thread {
     };
 
     use crate::{
-        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
-            PyUtf8StrRef,
+            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
+        convert::ToPyException,
         frame::FrameObjectRef,
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        function::{
+            ArgCallable, ArgIndex, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs,
+            NameExcInfo, OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
+        },
         object::{Traverse, TraverseFn},
-        types::{Constructor, GetAttr, Representable, SetAttr},
+        types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
     };
 
     use alloc::sync::{Arc, Weak};
@@ -89,33 +92,94 @@ pub(crate) mod _thread {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = TimeoutSeconds::new(-1.0))]
+        // No timeout; blocks until the lock is acquired.
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0), py_default = "-1")]
         timeout: TimeoutSeconds,
     }
 
-    macro_rules! acquire_lock_impl {
-        ($mu:expr, $args:expr, $vm:expr) => {{
-            let (mu, args, vm) = ($mu, $args, $vm);
-            let timeout = args.timeout.to_secs_f64();
-            match args.blocking {
-                true if timeout == -1.0 => {
-                    vm.allow_threads(|| mu.lock());
-                    Ok(true)
-                }
-                true if timeout < 0.0 => {
-                    Err(vm.new_value_error("timeout value must be a non-negative number"))
-                }
-                true => {
-                    if timeout > TIMEOUT_MAX {
-                        return Err(vm.new_overflow_error("timeout value is too large"));
-                    }
+    fn default_acquire_args() -> AcquireArgs {
+        AcquireArgs {
+            blocking: true,
+            timeout: TimeoutSeconds::new(-1.0),
+        }
+    }
 
-                    Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
+    fn validate_acquire_args(args: AcquireArgs, vm: &VirtualMachine) -> PyResult<(bool, f64)> {
+        let timeout = args.timeout.to_secs_f64();
+        // CPython checks the signed nanosecond range before acquire-specific restrictions.
+        let timeout_ns = timeout * 1_000_000_000.0;
+        if !(i64::MIN as f64..-(i64::MIN as f64)).contains(&timeout_ns) {
+            return Err(vm.new_overflow_error("timestamp out of range for C PyTime_t"));
+        }
+        if !args.blocking && timeout != -1.0 {
+            return Err(vm.new_value_error("can't specify a timeout for a non-blocking call"));
+        }
+        if args.blocking && timeout < 0.0 && timeout != -1.0 {
+            return Err(vm.new_value_error("timeout value must be a non-negative number"));
+        }
+        if timeout > TIMEOUT_MAX {
+            return Err(vm.new_overflow_error("timeout value is too large"));
+        }
+        Ok((args.blocking, timeout))
+    }
+
+    macro_rules! acquire_lock_impl {
+        ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr) => {{ acquire_lock_impl!($mu, $blocking, $timeout, $vm, false) }};
+        ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr, $owned:expr) => {{
+            let (mu, blocking, timeout, vm) = ($mu, $blocking, $timeout, $vm);
+            let started = std::time::Instant::now();
+            // CPython rounds positive timeouts up to the next nanosecond.
+            let timeout = (timeout != -1.0)
+                .then(|| Duration::from_nanos((timeout * 1_000_000_000.0).ceil() as u64));
+            let mut remaining = timeout;
+            loop {
+                // Ownership gained in a signal handler does not make an
+                // already pending acquisition recursive.
+                let owned = $owned;
+                if !owned && mu.try_lock() {
+                    break Ok(true);
                 }
-                false if timeout != -1.0 => {
-                    Err(vm.new_value_error("can't specify a timeout for a non-blocking call"))
+                if !blocking || remaining.is_some_and(|remaining| remaining.is_zero()) {
+                    break Ok(false);
                 }
-                false => Ok(mu.try_lock()),
+                if vm
+                    .state
+                    .finalizing
+                    .load(core::sync::atomic::Ordering::Acquire)
+                {
+                    // Other Python threads cannot release the lock once
+                    // finalization begins. Uncontested calls still work.
+                    break Err(vm.new_python_finalization_error(
+                        "cannot acquire lock at interpreter finalization",
+                    ));
+                }
+                let interval = Duration::from_millis(50);
+                let wait = match timeout {
+                    Some(timeout) => match timeout.checked_sub(started.elapsed()) {
+                        Some(remaining) if !remaining.is_zero() => remaining.min(interval),
+                        _ => break Ok(false),
+                    },
+                    None => interval,
+                };
+                // parking_lot waits are not interrupted by OS signals. Poll
+                // without restarting the deadline or acquiring a lock before
+                // running callbacks. A handler may itself retain an RLock.
+                let acquired = vm.allow_threads(|| {
+                    if owned {
+                        thread::sleep(wait);
+                        false
+                    } else {
+                        mu.try_lock_for(wait)
+                    }
+                });
+                if acquired {
+                    break Ok(true);
+                }
+                if timeout.is_some_and(|timeout| started.elapsed() >= timeout) {
+                    break Ok(false);
+                }
+                vm.check_signals()?;
+                remaining = timeout.map(|timeout| timeout.saturating_sub(started.elapsed()));
             }
         }};
     }
@@ -151,12 +215,17 @@ pub(crate) mod _thread {
     }
 
     #[pyclass(with(Constructor, Representable), flags(HAS_WEAKREF))]
-    impl Lock {
+    impl Py<Lock> {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
-        #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            acquire_lock_impl!(&self.mu, args, vm)
+            let (blocking, timeout) = validate_acquire_args(args, vm)?;
+            acquire_lock_impl!(&self.mu, blocking, timeout, vm)
+        }
+
+        #[pymethod]
+        fn __enter__(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.acquire(default_acquire_args(), vm)
         }
 
         #[pymethod]
@@ -178,7 +247,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            &self,
+            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             self.release(vm)
         }
 
@@ -219,10 +292,21 @@ pub(crate) mod _thread {
     }
 
     #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
-    impl RLock {
+    impl Py<RLock> {
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let rlock_type = RLock::class(&vm.ctx);
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let rlock_init = rlock_type.slots.init.load().map(crate::types::fn_addr);
+            if cls.is(rlock_type) || cls_init == rlock_init {
+                if !args.args.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no positional arguments"));
+                }
+                if !args.kwargs.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no keyword arguments"));
+                }
+            }
+            RLock {
                 mu: RawRMutex::INIT,
                 count: core::sync::atomic::AtomicUsize::new(0),
             }
@@ -232,8 +316,8 @@ pub(crate) mod _thread {
 
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
-        #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let (blocking, timeout) = validate_acquire_args(args, vm)?;
             if self.mu.is_owned_by_current_thread() {
                 // Re-entrant acquisition: just increment our count.
                 // parking_lot stays at 1 level; we track recursion ourselves.
@@ -241,11 +325,22 @@ pub(crate) mod _thread {
                     .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                 return Ok(true);
             }
-            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            let result = acquire_lock_impl!(
+                &self.mu,
+                blocking,
+                timeout,
+                vm,
+                self.mu.is_owned_by_current_thread()
+            )?;
             if result {
                 self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }
             Ok(result)
+        }
+
+        #[pymethod]
+        fn __enter__(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.acquire(default_acquire_args(), vm)
         }
 
         #[pymethod]
@@ -322,7 +417,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            &self,
+            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             self.release(vm)
         }
     }
@@ -346,11 +445,29 @@ pub(crate) mod _thread {
         }
     }
 
-    /// Get thread identity - uses pthread_self() on Unix for fork compatibility
+    // uses pthread_self() on Unix for fork compatibility
     #[pyfunction]
     #[must_use]
     pub fn get_ident() -> u64 {
         current_thread_id()
+    }
+
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            windows,
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+        )
+    ))]
+    #[pyfunction]
+    fn get_native_id() -> u64 {
+        host_thread::native_id()
     }
 
     #[cfg(all(unix, feature = "threading"))]
@@ -410,26 +527,98 @@ pub(crate) mod _thread {
         vm.state.stop_the_world.reset_stats();
     }
 
-    /// Set the name of the current thread
-    #[pyfunction]
-    fn set_name(name: PyUtf8StrRef) {
-        #[cfg(any(unix, windows))]
-        host_thread::set_current_thread_name(name.as_str());
-        #[cfg(not(any(unix, windows)))]
-        let _ = name;
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[pyattr]
+    const _NAME_MAXLEN: usize = host_thread::NAME_MAXLEN;
+
+    /// Truncate a Windows thread name to `_NAME_MAXLEN` UTF-16 code units,
+    /// dropping a trailing non-BMP character that would not fit as a pair.
+    #[cfg(windows)]
+    fn truncate_thread_name_wide(name: &crate::common::wtf8::Wtf8) -> Vec<u16> {
+        let encoded: Vec<u16> = name.encode_wide().collect();
+        let mut units = Vec::new();
+        let mut i = 0;
+        while i < encoded.len() {
+            let unit = encoded[i];
+            if unit == 0 {
+                break;
+            }
+            let width = match encoded.get(i + 1) {
+                Some(&lo)
+                    if (0xD800..=0xDBFF).contains(&unit) && (0xDC00..=0xDFFF).contains(&lo) =>
+                {
+                    2
+                }
+                _ => 1,
+            };
+            if units.len() + width > host_thread::NAME_MAXLEN {
+                break;
+            }
+            units.extend_from_slice(&encoded[i..i + width]);
+            i += width;
+        }
+        units.push(0);
+        units
     }
 
-    /// Get OS-level thread ID (pthread_self on Unix)
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[derive(FromArgs)]
+    struct SetNameArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[pyfunction]
+    fn set_name(SetNameArgs { name }: SetNameArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[cfg(windows)]
+        {
+            let units = truncate_thread_name_wide(name.as_wtf8());
+            host_thread::set_current_thread_name_wide(&units).map_err(|e| e.to_pyexception(vm))?;
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let os_name = vm.state.codec_registry.encode_text(
+                name,
+                "utf-8",
+                Some(vm.ctx.new_utf8_str("replace")),
+                vm,
+            )?;
+            host_thread::set_current_thread_name_bytes(os_name.as_bytes());
+        }
+        Ok(())
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[pyfunction(name = "_get_name")]
+    fn get_name(vm: &VirtualMachine) -> PyResult {
+        #[cfg(windows)]
+        {
+            let units =
+                host_thread::current_thread_name_wide().map_err(|e| e.to_pyexception(vm))?;
+            Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&units)).into())
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let bytes =
+                host_thread::current_thread_name(host_thread::NAME_MAXLEN.saturating_add(1))
+                    .map_err(|e| e.to_pyexception(vm))?;
+            let os = unsafe { std::ffi::OsString::from_encoded_bytes_unchecked(bytes) };
+            Ok(vm.fsdecode(os).into())
+        }
+    }
+
+    /// Get OS-level thread ID (pthread_self on Unix, GetCurrentThreadId on Windows)
     /// This is important for fork compatibility - the ID must remain stable after fork
     fn current_thread_id() -> u64 {
         cfg_select! {
-            unix => host_thread::current_thread_id(),
+            any(unix, windows) => host_thread::current_thread_id(),
             _ => thread_to_rust_id(&thread::current()),
         }
     }
 
-    /// Convert Rust thread to ID (used for non-unix platforms)
-    #[cfg(not(unix))]
+    /// Convert Rust thread to ID (used when no native thread id exists)
+    #[cfg(not(any(unix, windows)))]
     fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
 
@@ -466,7 +655,12 @@ pub(crate) mod _thread {
             handle.as_pthread_t() as _
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            host_thread::thread_id_from_handle(handle.as_raw_handle())
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             thread_to_rust_id(handle.thread())
         }
@@ -477,60 +671,99 @@ pub(crate) mod _thread {
         Lock { mu: RawMutex::INIT }
     }
 
+    struct StartNewThreadArgs {
+        func_obj: PyObjectRef,
+        args_obj: PyObjectRef,
+        func: ArgCallable,
+        args: PyTupleRef,
+        kwargs: Option<PyDictRef>,
+    }
+
+    impl FromArgs for StartNewThreadArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("function"),
+            Param::positional_only("args"),
+            Param {
+                name: "kwargs",
+                kind: ParamKind::PositionalOnly,
+                default: Some(DefaultRepr::Raw("{}")),
+            },
+        ]);
+
+        fn from_args(vm: &VirtualMachine, f_args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            if !f_args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("start_new_thread() takes no keyword arguments")
+                    .into());
+            }
+
+            let given = f_args.args.len();
+            if !(2..=3).contains(&given) {
+                return Err(vm
+                    .new_arity_type_error("start_new_thread", 2..=3, given)
+                    .into());
+            }
+
+            let func_obj = f_args.take_positional().unwrap();
+            let args_obj = f_args.take_positional().unwrap();
+            let kwargs_obj = f_args.take_positional();
+
+            if func_obj.to_callable().is_none() {
+                return Err(vm.new_type_error("first arg must be callable").into());
+            }
+
+            if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
+                return Err(vm.new_type_error("2nd arg must be a tuple").into());
+            }
+
+            if kwargs_obj
+                .as_ref()
+                .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
+            {
+                return Err(vm
+                    .new_type_error("optional 3rd arg must be a dictionary")
+                    .into());
+            }
+
+            let func: ArgCallable = func_obj.clone().try_into_value(vm)?;
+            let args: PyTupleRef = args_obj.clone().try_into_value(vm)?;
+            let kwargs: Option<PyDictRef> =
+                kwargs_obj.map(|obj| obj.try_into_value(vm)).transpose()?;
+            Ok(Self {
+                func_obj,
+                args_obj,
+                func,
+                args,
+                kwargs,
+            })
+        }
+    }
+
     #[pyfunction]
-    fn start_new_thread(mut f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u64> {
-        if !f_args.kwargs.is_empty() {
-            return Err(vm.new_type_error("start_new_thread() takes no keyword arguments"));
-        }
+    fn start_new_thread(parsed: StartNewThreadArgs, vm: &VirtualMachine) -> PyResult<u64> {
+        let StartNewThreadArgs {
+            func_obj,
+            args_obj,
+            func,
+            args,
+            kwargs,
+        } = parsed;
 
-        let given = f_args.args.len();
-        if given < 2 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at least 2 arguments, got {given}"
-            )));
-        }
-
-        if given > 3 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at most 3 arguments, got {given}"
-            )));
-        }
-
-        let func_obj = f_args.take_positional().unwrap();
-        let args_obj = f_args.take_positional().unwrap();
-        let kwargs_obj = f_args.take_positional();
-
-        if func_obj.to_callable().is_none() {
-            return Err(vm.new_type_error("first arg must be callable"));
-        }
-
-        if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
-            return Err(vm.new_type_error("2nd arg must be a tuple"));
-        }
-
-        if kwargs_obj
-            .as_ref()
-            .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
-        {
-            return Err(vm.new_type_error("optional 3rd arg must be a dictionary"));
-        }
-
-        let func: ArgCallable = func_obj.clone().try_into_value(vm)?;
-        let args: PyTupleRef = args_obj.clone().try_into_value(vm)?;
-        let kwargs: Option<PyDictRef> = kwargs_obj.map(|obj| obj.try_into_value(vm)).transpose()?;
-
-        vm.sys_module.get_attr("audit", vm)?.call(
+        vm.audit("_thread.start_new_thread", || {
             (
-                "_thread.start_new_thread",
                 func_obj,
                 args_obj,
                 kwargs
                     .as_ref()
                     .map_or_else(|| vm.ctx.none(), |k| k.clone().into()),
-            ),
-            vm,
-        )?;
+            )
+        })?;
 
+        if !vm.state.allow_threads() {
+            return Err(vm.new_runtime_error(
+                "thread is not supported for isolated subinterpreters".to_owned(),
+            ));
+        }
         if vm
             .state
             .finalizing
@@ -545,9 +778,14 @@ pub(crate) mod _thread {
         }
 
         let args = FuncArgs::new(
-            args.to_vec(),
+            args.as_slice().to_vec(),
             kwargs
-                .map_or_else(Default::default, |k| k.to_attributes(vm))
+                .map_or_else(
+                    || Ok(Default::default()),
+                    |k| {
+                        k.to_attributes(vm, |vm| Err(vm.new_type_error("keywords must be strings")))
+                    },
+                )?
                 .into_iter()
                 .map(|(k, v)| (k.as_str().to_owned(), v))
                 .collect::<KwArgs>(),
@@ -567,12 +805,12 @@ pub(crate) mod _thread {
         func: &ArgCallable,
         vm: &VirtualMachine,
     ) {
-        let msg = func
-            .as_ref()
-            .repr(vm)
-            .ok()
-            .map(|repr| format!("Exception ignored in thread started by {}", repr.as_wtf8()));
-        vm.run_unraisable(exc, msg, vm.ctx.none());
+        let msg = func.as_ref().repr(vm).ok().map(|repr| {
+            let mut message = Wtf8Buf::from("Exception ignored in thread started by ");
+            message.push_wtf8(repr.as_wtf8());
+            vm.ctx.new_str(message)
+        });
+        vm.run_unraisable_with_message(exc, msg, vm.ctx.none());
     }
 
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
@@ -616,25 +854,32 @@ pub(crate) mod _thread {
     const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
 
     /// Configure a `thread::Builder` with the stack size to use for a new
-    /// Python thread. Uses the value set via `threading.stack_size(N)` when
-    /// the user has provided one (non-zero). Otherwise, debug builds fall
-    /// back to [`DEFAULT_THREAD_STACK_SIZE`] and release builds leave the
-    /// builder unmodified (Rust's std default applies).
+    /// Python thread. Release builds use the value set via
+    /// `threading.stack_size(N)` when the user has provided one (non-zero) and
+    /// otherwise leave the builder unmodified (Rust's std default applies).
+    ///
+    /// Debug builds take [`DEFAULT_THREAD_STACK_SIZE`] as a floor rather than
+    /// only as a default: an unoptimized `ExecutingFrame::run` reserves around
+    /// eighty kilobytes of stack where an optimized one reserves under a
+    /// thousand, so a size that holds a Python call chain in release holds
+    /// three of its frames here — starting a thread at all needs six. The
+    /// value `threading.stack_size()` reports is untouched.
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
-        if configured != 0 {
-            return thread_builder.stack_size(configured);
-        }
         #[cfg(debug_assertions)]
         {
-            thread_builder.stack_size(DEFAULT_THREAD_STACK_SIZE)
+            thread_builder.stack_size(configured.max(DEFAULT_THREAD_STACK_SIZE))
         }
         #[cfg(not(debug_assertions))]
         {
-            thread_builder
+            if configured == 0 {
+                thread_builder
+            } else {
+                thread_builder.stack_size(configured)
+            }
         }
     }
 
@@ -648,9 +893,17 @@ pub(crate) mod _thread {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
+    #[derive(FromArgs)]
+    struct InterruptMainArgs {
+        // The signal enum's repr is not valid syntax in a text signature.
+        #[pyarg(positional, optional, py_default = "signal.SIGINT")]
+        signum: OptionalArg<SignalNum>,
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
-    fn interrupt_main(signum: OptionalArg<SignalNum>) -> PyResult<()> {
-        let sig = signum.unwrap_or(SignalNum::SIGINT);
+    fn interrupt_main(args: InterruptMainArgs) -> PyResult<()> {
+        let sig = args.signum.unwrap_or(SignalNum::SIGINT);
         crate::signal::set_interrupt_ex(sig)
     }
 
@@ -668,11 +921,18 @@ pub(crate) mod _thread {
         lock
     }
 
-    #[pyfunction]
-    fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+    #[derive(FromArgs)]
+    struct StackSizeArgs {
+        #[pyarg(positional, default = 0)]
+        size: ArgIndex,
+    }
 
-        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
+    #[pyfunction]
+    fn stack_size(args: StackSizeArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+        let StackSizeArgs { size } = args;
+
+        let Ok(size) = size.as_ref().try_to_primitive(vm) else {
             return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
         };
 
@@ -689,9 +949,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn daemon_threads_allowed() -> bool {
-        // RustPython always allows daemon threads
-        true
+    fn daemon_threads_allowed(vm: &VirtualMachine) -> bool {
+        vm.state.allow_daemon_threads()
     }
 
     // Registry for non-daemon threads that need to be joined at shutdown
@@ -779,15 +1038,26 @@ pub(crate) mod _thread {
         });
     }
 
+    #[derive(FromArgs)]
+    struct MakeThreadHandleArgs {
+        // An `int` only; the range is checked separately so it stays an OverflowError.
+        #[pyarg(positional, error_msg = "ident must be an integer")]
+        ident: PyIntRef,
+    }
+
     #[pyfunction]
-    fn _make_thread_handle(ident: u64, vm: &VirtualMachine) -> PyRef<ThreadHandle> {
+    fn _make_thread_handle(
+        args: MakeThreadHandleArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<ThreadHandle>> {
+        let ident = args.ident.try_to_primitive::<u64>(vm)?;
         let handle = ThreadHandle::new(vm);
         {
             let mut inner = handle.inner.lock();
             inner.ident = ident;
             inner.state = ThreadHandleState::Running;
         }
-        handle.into_ref(&vm.ctx)
+        Ok(handle.into_ref(&vm.ctx))
     }
 
     #[pyfunction]
@@ -806,75 +1076,70 @@ pub(crate) mod _thread {
         vm.state.main_thread_ident.store(ident);
     }
 
-    /// ExceptHookArgs - simple class to hold exception hook arguments
-    /// This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
-    #[pyattr]
-    #[pyclass(module = "_thread", name = "_ExceptHookArgs")]
-    #[derive(Debug, PyPayload)]
-    struct ExceptHookArgs {
+    // This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
+    #[pystruct_sequence_data]
+    struct ExceptHookArgsData {
         exc_type: crate::PyObjectRef,
         exc_value: crate::PyObjectRef,
         exc_traceback: crate::PyObjectRef,
         thread: crate::PyObjectRef,
     }
 
-    #[pyclass(with(Constructor))]
-    impl ExceptHookArgs {
-        #[pygetset]
-        fn exc_type(&self) -> crate::PyObjectRef {
-            self.exc_type.clone()
-        }
+    #[pyattr]
+    #[pystruct_sequence(
+        name = "_ExceptHookArgs",
+        module = "_thread",
+        data = "ExceptHookArgsData"
+    )]
+    struct PyExceptHookArgs;
 
-        #[pygetset]
-        fn exc_value(&self) -> crate::PyObjectRef {
-            self.exc_value.clone()
-        }
-
-        #[pygetset]
-        fn exc_traceback(&self) -> crate::PyObjectRef {
-            self.exc_traceback.clone()
-        }
-
-        #[pygetset]
-        fn thread(&self) -> crate::PyObjectRef {
-            self.thread.clone()
-        }
-    }
-
-    impl Constructor for ExceptHookArgs {
-        // Takes a single iterable argument like namedtuple
-        type Args = (crate::PyObjectRef,);
-
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            // Convert the argument to a list/tuple and extract elements
-            let seq: Vec<crate::PyObjectRef> = args.0.try_to_value(vm)?;
-            if seq.len() != 4 {
-                return Err(vm.new_type_error(format!(
-                    "_ExceptHookArgs expected 4 arguments, got {}",
-                    seq.len()
-                )));
-            }
-            Ok(Self {
-                exc_type: seq[0].clone(),
-                exc_value: seq[1].clone(),
-                exc_traceback: seq[2].clone(),
-                thread: seq[3].clone(),
-            })
+    #[pyclass(with(PyStructSequence))]
+    impl PyExceptHookArgs {
+        #[extend_class]
+        fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
+            // (type, (sequence, dict)). Set before the trait installs its default.
+            const EXCEPT_HOOK_ARGS_REDUCE: crate::function::PyMethodDef =
+                crate::function::PyMethodDef::new_const(
+                    "__reduce__",
+                    |zelf: crate::PyRef<crate::builtins::PyTuple>,
+                     vm: &VirtualMachine|
+                     -> PyTupleRef {
+                        vm.new_tuple((
+                            zelf.class().to_owned(),
+                            (
+                                vm.ctx.new_tuple(zelf.as_slice().to_vec()),
+                                vm.ctx.new_dict(),
+                            ),
+                        ))
+                    },
+                    crate::function::PyMethodFlags::METHOD,
+                    crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
+                );
+            class.set_attr(
+                ctx.intern_str("__reduce__"),
+                EXCEPT_HOOK_ARGS_REDUCE.to_proper_method(class, ctx),
+            );
         }
     }
 
-    /// Handle uncaught exception in Thread.run()
     #[pyfunction]
     fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Type check: args must be _ExceptHookArgs
-        let args = args.downcast::<ExceptHookArgs>().map_err(|_| {
-            vm.new_type_error("_thread._excepthook argument type must be _ExceptHookArgs")
+        let args = args.downcast::<PyExceptHookArgs>().map_err(|_| {
+            vm.new_type_error("_thread.excepthook argument type must be ExceptHookArgs")
         })?;
-
-        let exc_type = args.exc_type.clone();
-        let exc_value = args.exc_value.clone();
-        let exc_traceback = args.exc_traceback.clone();
-        let thread = args.thread.clone();
+        let fields = args.0.as_slice();
+        let (Some(exc_type), Some(exc_value), Some(exc_traceback), Some(thread)) =
+            (fields.first(), fields.get(1), fields.get(2), fields.get(3))
+        else {
+            return Err(
+                vm.new_type_error("_thread.excepthook argument type must be ExceptHookArgs")
+            );
+        };
+        let exc_type = exc_type.clone();
+        let exc_value = exc_value.clone();
+        let exc_traceback = exc_traceback.clone();
+        let thread = thread.clone();
 
         // Silently ignore SystemExit (identity check)
         if exc_type.is(vm.ctx.exceptions.system_exit.as_ref()) {
@@ -1006,7 +1271,15 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
+    impl Constructor for Local {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    #[pyclass(with(Constructor, GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn custom_init(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<crate::types::InitFunc> {
             let cls_init = cls.slots.init.load()?;
@@ -1090,7 +1363,7 @@ pub(crate) mod _thread {
                 return Ok(dict);
             };
             let init_args = zelf.inner.state.lock().init_args.clone();
-            if let Err(err) = init(zelf.as_object().to_owned(), init_args, vm) {
+            if let Err(err) = init(zelf.as_object(), init_args, vm) {
                 zelf.remove_current_dict();
                 return Err(err);
             }
@@ -1296,31 +1569,15 @@ pub(crate) mod _thread {
                     return false;
                 };
 
-                // Reinit this per-handle lock in case a dead thread held it
-                reinit_parking_lot_mutex(&inner);
-                let mut inner_guard = inner.lock();
-
-                if inner_guard.ident == current_ident {
-                    return true;
-                }
-                if inner_guard.state == ThreadHandleState::NotStarted {
-                    return true;
-                }
-
-                inner_guard.state = ThreadHandleState::Done;
-                inner_guard.join_handle = None;
-                drop(inner_guard);
-
-                // Reinit and set the done event
-                let (lock, cvar) = &*done_event;
-                reinit_parking_lot_mutex(lock);
-                *lock.lock() = true;
-                cvar.notify_all();
+                // SAFETY: only the forking thread survives in the child.
+                unsafe { reinit_handle_after_fork(&inner, &done_event, current_ident) };
 
                 true
             });
         }
 
+        // Every shutdown entry comes from ThreadHandle::new and is also in
+        // thread_handles, so its completion event was already reset above.
         // Clean up shutdown_handles.
         {
             let mut handles = vm.state.shutdown_handles.lock();
@@ -1347,12 +1604,48 @@ pub(crate) mod _thread {
 
                 let (lock, cvar) = &*done_event;
                 reinit_parking_lot_mutex(lock);
+                reinit_parking_lot_condvar(cvar);
                 *lock.lock() = true;
-                cvar.notify_all();
 
                 false
             });
         }
+    }
+
+    /// Repair a copied handle before any child thread cleanup or join.
+    ///
+    /// Unlike CPython's atomic completion event, ours includes a mutex that a
+    /// parent joiner can hold while detached. Even the surviving thread's
+    /// completion mutex and condvar must lose that dead owner's/waiter's state.
+    /// Its completion value remains unchanged until the thread really exits.
+    ///
+    /// # Safety
+    /// Only call in the single-threaded post-fork child, with no live guards or
+    /// waiters on these locks.
+    #[cfg(all(unix, feature = "host_env"))]
+    unsafe fn reinit_handle_after_fork(
+        inner: &parking_lot::Mutex<ThreadHandleInner>,
+        done_event: &(parking_lot::Mutex<bool>, parking_lot::Condvar),
+        current_ident: u64,
+    ) {
+        reinit_parking_lot_mutex(inner);
+        let (lock, cvar) = done_event;
+        reinit_parking_lot_mutex(lock);
+        reinit_parking_lot_condvar(cvar);
+        let mut inner_guard = inner.lock();
+        if inner_guard.ident == current_ident || inner_guard.state == ThreadHandleState::NotStarted
+        {
+            return;
+        }
+
+        inner_guard.state = ThreadHandleState::Done;
+        // The OS thread did not survive. Do not pthread_detach a copied handle.
+        if let Some(handle) = inner_guard.join_handle.take() {
+            core::mem::forget(handle);
+        }
+        drop(inner_guard);
+        // Do not notify waiters: none survived the fork.
+        *lock.lock() = true;
     }
 
     /// Take a thread handle's completion mutex, detaching first.
@@ -1372,6 +1665,14 @@ pub(crate) mod _thread {
     #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
+    }
+
+    /// Reset a parking_lot::Condvar after fork.
+    ///
+    /// `notify_all()` would unpark waiters that did not survive the fork.
+    #[cfg(all(unix, feature = "host_env"))]
+    fn reinit_parking_lot_condvar(cvar: &parking_lot::Condvar) {
+        unsafe { rustpython_common::lock::zero_reinit_after_fork(cvar) };
     }
 
     // Thread handle state enum
@@ -1404,7 +1705,7 @@ pub(crate) mod _thread {
         }
     }
 
-    /// _ThreadHandle - handle for joinable threads
+    // _ThreadHandle - handle for joinable threads
     #[pyattr]
     #[pyclass(module = "_thread", name = "_ThreadHandle")]
     #[derive(Debug, PyPayload)]
@@ -1414,7 +1715,6 @@ pub(crate) mod _thread {
         done_event: Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     }
 
-    #[pyclass(with(Representable))]
     impl ThreadHandle {
         fn new(vm: &VirtualMachine) -> Self {
             let inner = Arc::new(parking_lot::Mutex::new(ThreadHandleInner {
@@ -1620,24 +1920,17 @@ pub(crate) mod _thread {
                 timeout_obj.class().name()
             )))
         }
+    }
 
+    #[pyclass(with(Representable))]
+    impl Py<ThreadHandle> {
         #[pygetset]
         fn ident(&self) -> u64 {
             self.inner.lock().ident
         }
 
         #[pymethod]
-        fn is_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            if !f_args.kwargs.is_empty() {
-                return Err(vm.new_type_error("_ThreadHandle.is_done() takes no keyword arguments"));
-            }
-            let given = f_args.args.len();
-            if given != 0 {
-                return Err(vm.new_type_error(format!(
-                    "_ThreadHandle.is_done() takes no arguments ({given} given)"
-                )));
-            }
-
+        fn is_done(&self, vm: &VirtualMachine) -> PyResult<bool> {
             // If completion was observed, perform one-time join cleanup
             // before returning True.
             let done = {
@@ -1647,25 +1940,13 @@ pub(crate) mod _thread {
             if !done {
                 return Ok(false);
             }
-            Self::join_internal(&self.inner, &self.done_event, Some(Duration::ZERO), vm)?;
+            ThreadHandle::join_internal(&self.inner, &self.done_event, Some(Duration::ZERO), vm)?;
             Ok(true)
         }
 
         #[pymethod]
-        fn _set_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            if !f_args.kwargs.is_empty() {
-                return Err(
-                    vm.new_type_error("_ThreadHandle._set_done() takes no keyword arguments")
-                );
-            }
-            let given = f_args.args.len();
-            if given != 0 {
-                return Err(vm.new_type_error(format!(
-                    "_ThreadHandle._set_done() takes no arguments ({given} given)"
-                )));
-            }
-
-            Self::set_done_internal(&self.inner, &self.done_event, vm)
+        fn _set_done(&self, vm: &VirtualMachine) -> PyResult<()> {
+            ThreadHandle::set_done_internal(&self.inner, &self.done_event, vm)
         }
 
         #[pymethod]
@@ -1680,13 +1961,15 @@ pub(crate) mod _thread {
                 );
             }
             let timeout = f_args.take_positional().filter(|obj| !vm.is_none(obj));
-            let timeout_duration = Self::parse_join_timeout(timeout, vm)?;
-            Self::join_internal(&self.inner, &self.done_event, timeout_duration, vm)
+            let timeout_duration = ThreadHandle::parse_join_timeout(timeout, vm)?;
+            ThreadHandle::join_internal(&self.inner, &self.done_event, timeout_duration, vm)
         }
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::new(vm).into_ref_with_type(vm, cls).map(Into::into)
+            ThreadHandle::new(vm)
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 
@@ -1700,111 +1983,161 @@ pub(crate) mod _thread {
         }
     }
 
+    struct StartJoinableThreadArgs {
+        function_obj: PyObjectRef,
+        function: ArgCallable,
+        handle: Option<PyRef<ThreadHandle>>,
+        daemon: bool,
+    }
+
+    impl FromArgs for StartJoinableThreadArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_or_keyword("function"),
+            Param {
+                name: "handle",
+                kind: ParamKind::PositionalOrKeyword,
+                default: Some(DefaultRepr::None),
+            },
+            Param {
+                name: "daemon",
+                kind: ParamKind::PositionalOrKeyword,
+                default: Some(DefaultRepr::Bool(true)),
+            },
+        ]);
+
+        fn from_args(vm: &VirtualMachine, f_args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            let given = f_args.args.len() + f_args.kwargs.len();
+            if given > 3 {
+                return Err(vm
+                    .new_type_error(format!(
+                        "start_joinable_thread() takes at most 3 arguments ({given} given)"
+                    ))
+                    .into());
+            }
+
+            let function_pos = f_args.take_positional();
+            let function_kw = f_args.take_keyword("function");
+            if function_pos.is_some() && function_kw.is_some() {
+                return Err(vm
+                    .new_type_error(
+                        "argument for start_joinable_thread() given by name ('function') and position (1)",
+                    )
+                    .into());
+            }
+            let Some(function_obj) = function_pos.or(function_kw) else {
+                return Err(vm
+                    .new_type_error(
+                        "start_joinable_thread() missing required argument 'function' (pos 1)",
+                    )
+                    .into());
+            };
+
+            let handle_pos = f_args.take_positional();
+            let handle_kw = f_args.take_keyword("handle");
+            if handle_pos.is_some() && handle_kw.is_some() {
+                return Err(vm
+                    .new_type_error(
+                        "argument for start_joinable_thread() given by name ('handle') and position (2)",
+                    )
+                    .into());
+            }
+            let handle_obj = handle_pos.or(handle_kw);
+
+            let daemon_pos = f_args.take_positional();
+            let daemon_kw = f_args.take_keyword("daemon");
+            if daemon_pos.is_some() && daemon_kw.is_some() {
+                return Err(vm
+                    .new_type_error(
+                        "argument for start_joinable_thread() given by name ('daemon') and position (3)",
+                    )
+                    .into());
+            }
+            let daemon = daemon_pos
+                .or(daemon_kw)
+                .map_or(Ok(true), |obj| obj.try_to_bool(vm))?;
+
+            // Required argument errors are raised before unknown keyword errors
+            // when `function` is missing.
+            if let Some(unexpected) = f_args.kwargs.keys().next() {
+                let suggestion = ["function", "handle", "daemon"]
+                    .iter()
+                    .filter_map(|candidate| {
+                        let max_distance = (unexpected.len() + candidate.len() + 3) * MOVE_COST / 6;
+                        let distance = levenshtein_distance(
+                            unexpected.as_bytes(),
+                            candidate.as_bytes(),
+                            max_distance,
+                        );
+                        (distance <= max_distance).then_some((distance, *candidate))
+                    })
+                    .min_by_key(|(distance, _)| *distance)
+                    .map(|(_, candidate)| candidate);
+
+                let msg_suffix =
+                    suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
+                let msg = format!(
+                    "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
+                );
+                return Err(vm.new_type_error(msg).into());
+            }
+
+            if function_obj.to_callable().is_none() {
+                return Err(vm.new_type_error("thread function must be callable").into());
+            }
+            let function: ArgCallable = function_obj.clone().try_into_value(vm)?;
+
+            let thread_handle_type = ThreadHandle::class(&vm.ctx);
+            let handle = if let Some(handle_obj) = handle_obj {
+                if vm.is_none(&handle_obj) {
+                    None
+                } else if !handle_obj.class().is(thread_handle_type) {
+                    return Err(vm.new_type_error("'handle' must be a _ThreadHandle").into());
+                } else {
+                    Some(
+                        handle_obj
+                            .downcast::<ThreadHandle>()
+                            .map_err(|_| vm.new_type_error("'handle' must be a _ThreadHandle"))?,
+                    )
+                }
+            } else {
+                None
+            };
+            Ok(Self {
+                function_obj,
+                function,
+                handle,
+                daemon,
+            })
+        }
+    }
+
     #[pyfunction]
     fn start_joinable_thread(
-        mut f_args: FuncArgs,
+        parsed: StartJoinableThreadArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<ThreadHandle>> {
-        let given = f_args.args.len() + f_args.kwargs.len();
-        if given > 3 {
-            return Err(vm.new_type_error(format!(
-                "start_joinable_thread() takes at most 3 arguments ({given} given)"
-            )));
-        }
+        let StartJoinableThreadArgs {
+            function_obj,
+            function,
+            handle,
+            daemon,
+        } = parsed;
 
-        let function_pos = f_args.take_positional();
-        let function_kw = f_args.take_keyword("function");
-        if function_pos.is_some() && function_kw.is_some() {
-            return Err(vm.new_type_error(
-                "argument for start_joinable_thread() given by name ('function') and position (1)",
-            ));
-        }
-        let Some(function_obj) = function_pos.or(function_kw) else {
-            return Err(vm.new_type_error(
-                "start_joinable_thread() missing required argument 'function' (pos 1)",
-            ));
-        };
-
-        let handle_pos = f_args.take_positional();
-        let handle_kw = f_args.take_keyword("handle");
-        if handle_pos.is_some() && handle_kw.is_some() {
-            return Err(vm.new_type_error(
-                "argument for start_joinable_thread() given by name ('handle') and position (2)",
-            ));
-        }
-        let handle_obj = handle_pos.or(handle_kw);
-
-        let daemon_pos = f_args.take_positional();
-        let daemon_kw = f_args.take_keyword("daemon");
-        if daemon_pos.is_some() && daemon_kw.is_some() {
-            return Err(vm.new_type_error(
-                "argument for start_joinable_thread() given by name ('daemon') and position (3)",
-            ));
-        }
-        let daemon = daemon_pos
-            .or(daemon_kw)
-            .map_or(Ok(true), |obj| obj.try_to_bool(vm))?;
-
-        // Match CPython parser precedence:
-        // - required positional/keyword argument errors are raised before
-        //   unknown keyword errors when `function` is missing.
-        if let Some(unexpected) = f_args.kwargs.keys().next() {
-            let suggestion = ["function", "handle", "daemon"]
-                .iter()
-                .filter_map(|candidate| {
-                    let max_distance = (unexpected.len() + candidate.len() + 3) * MOVE_COST / 6;
-                    let distance = levenshtein_distance(
-                        unexpected.as_bytes(),
-                        candidate.as_bytes(),
-                        max_distance,
-                    );
-                    (distance <= max_distance).then_some((distance, *candidate))
-                })
-                .min_by_key(|(distance, _)| *distance)
-                .map(|(_, candidate)| candidate);
-
-            let msg_suffix =
-                suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
-            let msg = format!(
-                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
-            );
-            return Err(vm.new_type_error(msg));
-        }
-
-        if function_obj.to_callable().is_none() {
-            return Err(vm.new_type_error("thread function must be callable"));
-        }
-        let function: ArgCallable = function_obj.clone().try_into_value(vm)?;
-
-        let thread_handle_type = ThreadHandle::class(&vm.ctx);
-        let handle = if let Some(handle_obj) = handle_obj {
-            if vm.is_none(&handle_obj) {
-                None
-            } else if !handle_obj.class().is(thread_handle_type) {
-                return Err(vm.new_type_error("'handle' must be a _ThreadHandle"));
-            } else {
-                Some(
-                    handle_obj
-                        .downcast::<ThreadHandle>()
-                        .map_err(|_| vm.new_type_error("'handle' must be a _ThreadHandle"))?,
-                )
-            }
-        } else {
-            None
-        };
-
-        vm.sys_module.get_attr("audit", vm)?.call(
+        vm.audit("_thread.start_joinable_thread", || {
             (
-                "_thread.start_joinable_thread",
                 function_obj,
                 daemon,
                 handle
                     .as_ref()
                     .map_or_else(|| vm.ctx.none(), |h| h.clone().into()),
-            ),
-            vm,
-        )?;
+            )
+        })?;
 
+        if !vm.state.allow_threads() {
+            return Err(vm.new_runtime_error(
+                "thread is not supported for isolated subinterpreters".to_owned(),
+            ));
+        }
         if vm
             .state
             .finalizing
@@ -2002,10 +2335,78 @@ pub(crate) mod _thread {
 
     #[cfg(test)]
     mod tests {
-        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        #[cfg(any(
+            all(unix, feature = "host_env"),
+            all(debug_assertions, any(target_os = "linux", target_os = "macos"))
+        ))]
         use super::*;
         #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
         use crate::Interpreter;
+
+        /// Exercise only the native completion-state invariant, without Python
+        /// execution or actual fork in the multithreaded Rust test harness.
+        #[test]
+        #[cfg(all(unix, feature = "host_env"))]
+        fn fork_reinitializes_surviving_handle_completion_lock() {
+            for (ident, state, completed, expected_state, expected_completed) in [
+                (
+                    7,
+                    ThreadHandleState::Running,
+                    false,
+                    ThreadHandleState::Running,
+                    false,
+                ),
+                (
+                    0,
+                    ThreadHandleState::NotStarted,
+                    false,
+                    ThreadHandleState::NotStarted,
+                    false,
+                ),
+                (
+                    8,
+                    ThreadHandleState::Running,
+                    false,
+                    ThreadHandleState::Done,
+                    true,
+                ),
+                (
+                    8,
+                    ThreadHandleState::Done,
+                    true,
+                    ThreadHandleState::Done,
+                    true,
+                ),
+            ] {
+                let inner = parking_lot::Mutex::new(ThreadHandleInner {
+                    state,
+                    ident,
+                    join_handle: None,
+                    joining: false,
+                    joined: false,
+                });
+                let done_event = (
+                    parking_lot::Mutex::new(completed),
+                    parking_lot::Condvar::new(),
+                );
+                // Model the bytes inherited from a parent joiner that held the
+                // mutex at fork. No guard remains live and no other thread can
+                // access these exclusively owned fixtures.
+                core::mem::forget(done_event.0.lock());
+                assert!(done_event.0.try_lock().is_none());
+                // SAFETY: these private fixtures have no live guards/waiters,
+                // exactly as in a child after its parent lock owner vanished.
+                unsafe { reinit_handle_after_fork(&inner, &done_event, 7) };
+                let completed = done_event
+                    .0
+                    .try_lock()
+                    .expect("copied completion lock must be unlocked");
+                assert_eq!(*completed, expected_completed);
+                let inner = inner.lock();
+                assert_eq!(inner.state, expected_state);
+                assert_eq!(inner.ident, ident);
+            }
+        }
 
         /// Regression test for #7941: a Python thread started without an
         /// explicit `threading.stack_size()` must not run on Rust's 2 MiB
@@ -2026,6 +2427,31 @@ pub(crate) mod _thread {
                     stack_size >= DEFAULT_THREAD_STACK_SIZE,
                     "Python thread stack size is {stack_size} bytes, expected at least {DEFAULT_THREAD_STACK_SIZE}"
                 );
+            });
+        }
+
+        /// A size small enough for CPython's frames is not small enough for an
+        /// unoptimized build's: `test_threading` asks for 256 KiB, which holds
+        /// three of them where starting a thread needs six. The size the
+        /// request set is still what `threading.stack_size()` answers with.
+        #[test]
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        fn explicit_python_thread_stack_size_is_a_floor_debug() {
+            const REQUESTED: usize = 256 * 1024;
+
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                vm.state.stacksize.store(REQUESTED);
+                let builder = apply_thread_stack_size(thread::Builder::new(), vm);
+                let stack_size = builder
+                    .spawn(current_thread_stack_size)
+                    .expect("failed to spawn thread")
+                    .join()
+                    .expect("thread panicked");
+                assert!(
+                    stack_size >= DEFAULT_THREAD_STACK_SIZE,
+                    "Python thread stack size is {stack_size} bytes, expected at least {DEFAULT_THREAD_STACK_SIZE}"
+                );
+                assert_eq!(vm.state.stacksize.load(), REQUESTED);
             });
         }
 

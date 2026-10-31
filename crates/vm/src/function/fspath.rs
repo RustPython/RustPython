@@ -46,7 +46,7 @@ impl FsPath {
                     Self::Str(s)
                 }
                 b @ PyBytes => {
-                    if check_for_nul && b.contains_nuls() {
+                    if check_for_nul && b.payload.contains_nuls() {
                         cold_path();
                         return Err(crate::exceptions::nul_char_error(vm));
                     }
@@ -101,14 +101,14 @@ impl FsPath {
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         match self {
             Self::Str(s) => s.to_string_lossy(),
-            Self::Bytes(s) => String::from_utf8_lossy(s),
+            Self::Bytes(s) => String::from_utf8_lossy(s.as_bytes()),
         }
     }
 
     pub fn to_path_buf(&self, vm: &VirtualMachine) -> PyResult<PathBuf> {
         let path = match self {
             Self::Str(s) => PathBuf::from(vm.fsencode(s)?.as_ref() as &OsStr),
-            Self::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b, vm)?),
+            Self::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b.as_bytes(), vm)?),
         };
         Ok(path)
     }

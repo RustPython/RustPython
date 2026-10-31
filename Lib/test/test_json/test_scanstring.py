@@ -1,8 +1,6 @@
 import sys
 from test.test_json import PyTest, CTest
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 
 class TestScanstring:
     def test_scanstring(self):
@@ -139,12 +137,14 @@ class TestScanstring:
             '"\\ud834\\u-123"',
             '"\\ud834\\u+123"',
             '"\\ud834\\u1_23"',
+            # Truncated or non-hex \uXXXX escape at end of input.
+            '"\\u004',
+            '"\\uXYZW',
         ]
         for s in bad_escapes:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring("xxx", sys.maxsize+1)

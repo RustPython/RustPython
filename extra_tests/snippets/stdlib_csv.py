@@ -1,7 +1,6 @@
 import _csv
 import csv
 import io
-import sys
 
 from testutils import assert_raises
 
@@ -264,42 +263,6 @@ def test_multichar_lineterminator():
 test_multichar_lineterminator()
 
 
-def test_reject_non_ascii_lineterminator():
-    # CPython accepts non-ASCII line terminators; RustPython rejects them
-    # because the writer quotes and escapes byte by byte. Supporting them
-    # requires code-point-wise handling as part of full Unicode dialect support.
-    with assert_raises(csv.Error):
-        csv.writer(io.StringIO(), lineterminator="é")
-
-    with assert_raises(csv.Error):
-        csv.writer(io.StringIO(), lineterminator="\x85")
-
-    with assert_raises(csv.Error):
-        csv.writer(io.StringIO(), lineterminator="\ud800")
-
-    with assert_raises(csv.Error):
-        csv.writer(
-            io.StringIO(), lineterminator="é", quoting=csv.QUOTE_NONE, escapechar="\\"
-        )
-
-    with assert_raises(csv.Error):
-        csv.register_dialect("non_ascii_lt", lineterminator="é")
-
-    class NonAsciiDialect(csv.excel):
-        lineterminator = "é"
-
-    with assert_raises(csv.Error):
-        NonAsciiDialect()
-
-    buf = io.StringIO()
-    csv.writer(buf, lineterminator="!@#").writerow(["a", "b"])
-    assert buf.getvalue() == "a,b!@#"
-
-
-if sys.implementation.name == "rustpython":
-    test_reject_non_ascii_lineterminator()
-
-
 def test_empty_lineterminator():
     class EmptyLineTerminator(csv.excel):
         lineterminator = ""
@@ -350,3 +313,353 @@ test_reader_skipinitialspace_preserves_quoted_spaces()
 
 with assert_raises(StopIteration):
     next(_csv.reader([]))
+
+
+def test_quote_nonnumeric_writer():
+    class CustomInt:
+        def __int__(self):
+            return 42
+
+        def __str__(self):
+            return "42"
+
+    class NumberWithDelimiter:
+        def __int__(self):
+            return 1
+
+        def __str__(self):
+            return "1,2"
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_NONNUMERIC)
+    writer.writerow(["123", 123, "a"])
+    writer.writerow([12.5, "12.5", True, False, None])
+    writer.writerow([CustomInt(), NumberWithDelimiter()])
+    writer.writerow([""])
+    writer.writerow([None])
+    writer.writerow([])
+    writer.writerow(["", ""])
+    assert buf.getvalue() == (
+        '"123",123,"a"\r\n'
+        '12.5,"12.5",True,False,""\r\n'
+        '42,"1,2"\r\n'
+        '""\r\n'
+        '""\r\n'
+        "\r\n"
+        '"",""\r\n'
+    ), repr(buf.getvalue())
+
+    # QUOTE_NONNUMERIC with space delimiter and skipinitialspace
+    sp_buf = io.StringIO()
+    csv.writer(
+        sp_buf,
+        delimiter=" ",
+        skipinitialspace=True,
+        quoting=csv.QUOTE_NONNUMERIC,
+    ).writerow(["a", "", "b"])
+    assert sp_buf.getvalue() == '"a" "" "b"\r\n', repr(sp_buf.getvalue())
+
+
+test_quote_nonnumeric_writer()
+
+
+def test_dialect_truth_conversion():
+    def registered(dialect, **kwargs):
+        name = "truth_conversion"
+        try:
+            csv.register_dialect(name, dialect, **kwargs)
+            return csv.get_dialect(name)
+        finally:
+            if name in csv.list_dialects():
+                csv.unregister_dialect(name)
+
+    constructors = (
+        lambda dialect, **kwargs: csv.reader([], dialect, **kwargs).dialect,
+        lambda dialect, **kwargs: csv.writer(io.StringIO(), dialect, **kwargs).dialect,
+        _csv.Dialect,
+        registered,
+    )
+
+    class TruthError:
+        def __init__(self, error):
+            self.error = error
+            self.calls = 0
+
+        def __bool__(self):
+            self.calls += 1
+            raise self.error
+
+    class InvalidTruth:
+        def __bool__(self):
+            return 1
+
+    for construct in constructors:
+        for field in ("strict", "doublequote", "skipinitialspace"):
+            for error_type in (RuntimeError, AttributeError, TypeError):
+                for use_class in (False, True):
+                    error = error_type("dialect truth conversion")
+                    value = TruthError(error)
+
+                    class Dialect(csv.excel):
+                        def __new__(cls):
+                            raise AssertionError(
+                                "dialect classes must not be instantiated"
+                            )
+
+                    dialect = Dialect if use_class else csv.excel()
+                    setattr(dialect, field, value)
+                    try:
+                        construct(dialect)
+                    except error_type as caught:
+                        assert caught is error
+                    else:
+                        raise AssertionError("dialect truth error was suppressed")
+                    assert value.calls == 1
+
+                    # An explicit option replaces the attribute before conversion.
+                    result = construct(dialect, **{field: True})
+                    assert getattr(result, field) is True
+                    assert value.calls == 1
+
+                value = TruthError(error)
+                try:
+                    construct(None, **{field: value})
+                except error_type as caught:
+                    assert caught is error
+                else:
+                    raise AssertionError("keyword truth error was replaced")
+                assert value.calls == 1
+
+            for value in (None, False, True, 0, 1, [], [1]):
+                dialect = csv.excel()
+                setattr(dialect, field, value)
+                assert getattr(construct(dialect), field) is bool(value)
+                assert getattr(construct(None, **{field: value}), field) is bool(value)
+
+            dialect = csv.excel()
+            setattr(dialect, field, InvalidTruth())
+            with assert_raises(TypeError):
+                construct(dialect)
+            with assert_raises(TypeError):
+                construct(None, **{field: InvalidTruth()})
+
+    # csv.Dialect's Python validation wrapper translates TypeError to csv.Error.
+    for error_type in (RuntimeError, AttributeError, TypeError):
+        error = error_type("direct Python dialect validation")
+        value = TruthError(error)
+
+        class Dialect(csv.excel):
+            strict = value
+
+        expected = csv.Error if error_type is TypeError else error_type
+        try:
+            Dialect()
+        except expected as caught:
+            assert str(caught) == str(error)
+            if error_type is not TypeError:
+                assert caught is error
+        else:
+            raise AssertionError("Python dialect validation swallowed the error")
+        assert value.calls == 1
+
+
+test_dialect_truth_conversion()
+
+
+def test_dialect_lookup_and_conversion_order():
+    fields = (
+        "delimiter",
+        "doublequote",
+        "escapechar",
+        "lineterminator",
+        "quotechar",
+        "quoting",
+        "skipinitialspace",
+        "strict",
+    )
+    defaults = (",", True, None, "\r\n", '"', csv.QUOTE_MINIMAL, False, False)
+    constructors = (
+        lambda dialect, **kwargs: csv.reader([], dialect, **kwargs).dialect,
+        lambda dialect, **kwargs: csv.writer(io.StringIO(), dialect, **kwargs).dialect,
+        _csv.Dialect,
+    )
+
+    for construct in constructors:
+        for error_type in (AttributeError, RuntimeError, KeyboardInterrupt):
+            events = []
+
+            class Missing:
+                def __getattribute__(self, name):
+                    events.append(name)
+                    raise error_type(name)
+
+            if error_type is AttributeError:
+                result = construct(Missing())
+                assert tuple(getattr(result, field) for field in fields) == defaults
+                assert events == list(fields)
+            else:
+                with assert_raises(error_type) as caught:
+                    construct(Missing())
+                assert caught.exception.args == ("delimiter",)
+                assert events == ["delimiter"]
+        for dialect in (None, object(), _csv.Dialect(csv.excel)):
+            result = construct(dialect)
+            assert tuple(getattr(result, field) for field in fields) == defaults
+
+        events = []
+
+        class Truth:
+            def __init__(self, name):
+                self.name = name
+
+            def __bool__(self):
+                events.append("bool:" + self.name)
+                return False
+
+        values = dict(zip(fields, defaults))
+        for field in ("doublequote", "skipinitialspace", "strict"):
+            values[field] = Truth(field)
+
+        class Dialect:
+            def __getattribute__(self, name):
+                events.append(name)
+                return values[name]
+
+        construct(Dialect())
+        assert events == list(fields) + [
+            "bool:doublequote",
+            "bool:skipinitialspace",
+            "bool:strict",
+        ]
+
+        events.clear()
+        construct(Dialect(), strict=True, doublequote=True)
+        assert events == [
+            field for field in fields if field not in ("strict", "doublequote")
+        ] + ["bool:skipinitialspace"]
+
+        events.clear()
+        construct(
+            None,
+            strict=Truth("strict"),
+            skipinitialspace=Truth("skipinitialspace"),
+            doublequote=Truth("doublequote"),
+        )
+        assert events == ["bool:doublequote", "bool:skipinitialspace", "bool:strict"]
+
+        # Collect every attribute before starting conversions, even on failure.
+        events.clear()
+        values["delimiter"] = "too long"
+        with assert_raises(TypeError):
+            construct(Dialect())
+        assert events == list(fields)
+
+        error = RuntimeError("truth conversion wins")
+
+        class BadTruth:
+            def __bool__(self):
+                raise error
+
+        # Conversion order differs from option-validation order.
+        for options in (
+            {"doublequote": BadTruth(), "escapechar": "too long"},
+            {"strict": BadTruth(), "quoting": 42},
+            {"strict": BadTruth(), "quotechar": None, "quoting": csv.QUOTE_ALL},
+            {"strict": BadTruth(), "delimiter": "\n"},
+        ):
+            try:
+                construct(None, **options)
+            except RuntimeError as caught:
+                assert caught is error
+            else:
+                raise AssertionError("conversion order did not preserve truth error")
+        for options in (
+            {"delimiter": "too long", "doublequote": BadTruth()},
+            {"lineterminator": None, "skipinitialspace": BadTruth()},
+            {"quoting": None, "strict": BadTruth()},
+            {"unknown_option": None, "strict": BadTruth()},
+        ):
+            with assert_raises(TypeError):
+                construct(None, **options)
+
+        class IntegerSubclass(int):
+            pass
+
+        class Index:
+            def __index__(self):
+                raise AssertionError("quoting must not call __index__")
+
+        for value in (True, IntegerSubclass(0), Index()):
+            with assert_raises(TypeError):
+                construct(None, quoting=value)
+        with assert_raises(OverflowError):
+            construct(None, quoting=2**40, strict=BadTruth())
+
+        # None quotechar disables quoting only when quoting was not supplied.
+        assert construct(None, quotechar=None).quoting == csv.QUOTE_NONE
+        with assert_raises(TypeError):
+            construct(csv.excel, quotechar=None)
+        with assert_raises(TypeError):
+            construct(None, quotechar=None, quoting=csv.QUOTE_MINIMAL)
+
+    assert _csv.Dialect().strict is False
+    assert _csv.Dialect(strict=True).strict is True
+    for constructor, arg in ((csv.reader, []), (csv.writer, io.StringIO())):
+        with assert_raises(TypeError):
+            constructor(arg, None, None, strict=BadTruth())
+
+
+test_dialect_lookup_and_conversion_order()
+
+
+def test_field_size_limit_types():
+    index_calls = []
+
+    class IntSubclass(int):
+        pass
+
+    class Index:
+        def __index__(self):
+            index_calls.append(True)
+            return 17
+
+    old_limit = csv.field_size_limit()
+    try:
+        assert csv.field_size_limit(23) == old_limit
+        for value in (True, IntSubclass(17), Index()):
+            with assert_raises(TypeError):
+                csv.field_size_limit(value)
+            assert csv.field_size_limit() == 23
+        assert index_calls == []
+        with assert_raises(OverflowError):
+            csv.field_size_limit(2**100)
+        assert csv.field_size_limit() == 23
+    finally:
+        csv.field_size_limit(old_limit)
+
+
+test_field_size_limit_types()
+
+
+def test_non_ascii_dialect_chars():
+    for kwargs in (
+        {"delimiter": "€"},
+        {"quotechar": "€"},
+        {"escapechar": "€", "quoting": csv.QUOTE_NONE},
+    ):
+        out = io.StringIO()
+        csv.writer(out, **kwargs).writerow(["a€b", 'é"x', "plain"])
+        out.seek(0)
+        assert list(csv.reader(out, **kwargs)) == [["a€b", 'é"x', "plain"]]
+
+    assert csv.writer(io.StringIO(), delimiter="€").dialect.delimiter == "€"
+    assert list(csv.reader(['a€b€"c€d"'], delimiter="€")) == [["a", "b", "c€d"]]
+
+    for bad in ("", "€€"):
+        with assert_raises(TypeError):
+            csv.writer(io.StringIO(), delimiter=bad)
+    with assert_raises(ValueError):
+        csv.writer(io.StringIO(), delimiter="€", quotechar="€")
+
+
+test_non_ascii_dialect_chars()

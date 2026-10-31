@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBoundMethod, PyFunction},
     function::{FuncArgs, IntoFuncArgs},
-    types::{GenericMethod, VectorCallFunc},
+    types::{GenericMethod, PyTypeFlags, VectorCallFunc},
     {PyObject, PyObjectRef, PyResult, VirtualMachine},
 };
 
@@ -28,9 +28,10 @@ impl PyObject {
     /// PyObject_Call
     pub fn call_with_args(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let Some(callable) = self.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", self.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().slot_name()
+            )));
         };
         vm_trace!("Invoke: {:?} {:?}", callable, args);
         callable.invoke(args, vm)
@@ -47,11 +48,84 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult {
         let Some(callable) = self.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", self.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().slot_name()
+            )));
         };
         callable.invoke_vectorcall(args, nargs, kwnames, vm)
+    }
+
+    /// PyVectorcall_Call: invoke retained raw support without automatic eligibility
+    /// or a tp_call fallback.
+    pub fn vectorcall_call(
+        &self,
+        args: Vec<PyObjectRef>,
+        nargs: usize,
+        kwnames: Option<&[PyObjectRef]>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let vc = self.raw_vectorcall_func().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object does not support vectorcall",
+                self.class().slot_name()
+            ))
+        })?;
+        self.invoke_vectorcall_func(vc, args, nargs, kwnames, vm)
+    }
+
+    #[inline]
+    pub(crate) fn vectorcall_func(&self) -> Option<VectorCallFunc> {
+        if self
+            .class()
+            .slots()
+            .flags
+            .has_feature(PyTypeFlags::HAVE_VECTORCALL)
+        {
+            self.raw_vectorcall_func()
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn raw_vectorcall_func(&self) -> Option<VectorCallFunc> {
+        let slots = self.class().slots();
+        slots.vectorcall.load().or_else(|| {
+            slots
+                .vectorcall_resolver
+                .load()
+                .and_then(|resolve| resolve(self))
+        })
+    }
+
+    #[inline]
+    fn invoke_vectorcall_func(
+        &self,
+        vc: VectorCallFunc,
+        args: Vec<PyObjectRef>,
+        nargs: usize,
+        kwnames: Option<&[PyObjectRef]>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if !vm.use_tracing.get() {
+            return vc(self, args, nargs, kwnames, vm);
+        }
+        let is_python_callable = self.downcast_ref::<PyFunction>().is_some()
+            || self.downcast_ref::<PyBoundMethod>().is_some();
+        if is_python_callable {
+            vc(self, args, nargs, kwnames, vm)
+        } else {
+            let callable = self.to_owned();
+            vm.trace_event(TraceEvent::CCall, Some(callable.clone()))?;
+            let result = vc(self, args, nargs, kwnames, vm);
+            if result.is_ok() {
+                vm.trace_event(TraceEvent::CReturn, Some(callable))?;
+            } else {
+                let _ = vm.trace_event(TraceEvent::CException, Some(callable));
+            }
+            result
+        }
     }
 }
 
@@ -64,9 +138,9 @@ pub struct PyCallable<'a> {
 
 impl<'a> PyCallable<'a> {
     pub fn new(obj: &'a PyObject) -> Option<Self> {
-        let slots = &obj.class().slots;
+        let slots = obj.class().slots();
         let call = slots.call.load()?;
-        let vectorcall = slots.vectorcall.load();
+        let vectorcall = obj.vectorcall_func();
         Some(PyCallable {
             obj,
             call,
@@ -76,6 +150,18 @@ impl<'a> PyCallable<'a> {
 
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.into_args(vm);
+        if self.vectorcall_revoked() {
+            // A retained wrapper must use current tp_call, not its cached snapshot.
+            return self.obj.call_with_args(args, vm);
+        }
+        if let Some(vc) = self.vectorcall
+            && args.kwargs.is_empty()
+        {
+            let nargs = args.args.len();
+            return self
+                .obj
+                .invoke_vectorcall_func(vc, args.args, nargs, None, vm);
+        }
         if !vm.use_tracing.get() {
             return (self.call)(self.obj, args, vm);
         }
@@ -99,7 +185,7 @@ impl<'a> PyCallable<'a> {
         }
     }
 
-    /// Vectorcall dispatch: use vectorcall slot if available, else fall back to FuncArgs.
+    /// Use automatic vectorcall if available, else fall back to FuncArgs.
     #[inline]
     pub fn invoke_vectorcall(
         &self,
@@ -108,30 +194,28 @@ impl<'a> PyCallable<'a> {
         kwnames: Option<&[PyObjectRef]>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        if self.vectorcall_revoked() {
+            return self.obj.vectorcall(args, nargs, kwnames, vm);
+        }
         if let Some(vc) = self.vectorcall {
-            if !vm.use_tracing.get() {
-                return vc(self.obj, args, nargs, kwnames, vm);
-            }
-            let is_python_callable = self.obj.downcast_ref::<PyFunction>().is_some()
-                || self.obj.downcast_ref::<PyBoundMethod>().is_some();
-            if is_python_callable {
-                vc(self.obj, args, nargs, kwnames, vm)
-            } else {
-                let callable = self.obj.to_owned();
-                vm.trace_event(TraceEvent::CCall, Some(callable.clone()))?;
-                let result = vc(self.obj, args, nargs, kwnames, vm);
-                if result.is_ok() {
-                    vm.trace_event(TraceEvent::CReturn, Some(callable))?;
-                } else {
-                    let _ = vm.trace_event(TraceEvent::CException, Some(callable));
-                }
-                result
-            }
+            self.obj
+                .invoke_vectorcall_func(vc, args, nargs, kwnames, vm)
         } else {
             // Fallback: convert owned Vec to FuncArgs (move, no clone)
             let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
             self.invoke(func_args, vm)
         }
+    }
+
+    #[inline]
+    fn vectorcall_revoked(&self) -> bool {
+        self.vectorcall.is_some()
+            && !self
+                .obj
+                .class()
+                .slots()
+                .flags
+                .has_feature(PyTypeFlags::HAVE_VECTORCALL)
     }
 }
 
@@ -174,6 +258,22 @@ impl TraceEvent {
     pub(crate) const fn is_opcode_event(self) -> bool {
         matches!(self, Self::Opcode)
     }
+
+    /// Default `what_event` for this legacy event.
+    #[must_use]
+    const fn default_what(self) -> crate::stdlib::sys::monitoring::MonitoringEvent {
+        use crate::stdlib::sys::monitoring::MonitoringEvent as Ev;
+        match self {
+            Self::Call => Ev::PyStart,
+            Self::Return => Ev::PyReturn,
+            Self::Exception => Ev::Raise,
+            Self::Line => Ev::Line,
+            Self::Opcode => Ev::Instruction,
+            Self::CCall => Ev::Call,
+            Self::CReturn => Ev::CReturn,
+            Self::CException => Ev::CRaise,
+        }
+    }
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -207,8 +307,24 @@ impl VirtualMachine {
         event: TraceEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
+        self.trace_event_what(event, event.default_what(), arg)
+    }
+
+    /// Like [`Self::trace_event`], but records `what` as `tstate->what_event`
+    /// for the duration of the callback (so `f_lineno` assignment can tell
+    /// a 'line' event from a 'call'/'return'/'exception').
+    #[inline]
+    pub(crate) fn trace_event_what(
+        &self,
+        event: TraceEvent,
+        what: crate::stdlib::sys::monitoring::MonitoringEvent,
+        arg: Option<PyObjectRef>,
+    ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() && !self.tracing_is_suppressed() {
-            self._trace_event_inner(event, arg)
+            let old = self.what_event.replace(Some(what));
+            let result = self._trace_event_inner(event, arg);
+            self.what_event.set(old);
+            result
         } else {
             Ok(None)
         }
@@ -228,7 +344,7 @@ impl VirtualMachine {
         let is_profile_event = event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
-        let Some(frame_ref) = crate::frame::current_thread_frame_materialize(self) else {
+        let Some(frame_ref) = crate::frame::current_complete_frame_for_trace(self) else {
             return Ok(None);
         };
 
@@ -242,32 +358,49 @@ impl VirtualMachine {
             return Ok(None);
         }
 
-        let frame: PyObjectRef = frame_ref.into();
-        let event = self.ctx.new_str(event.to_string()).into();
-        let args = vec![frame, event, arg.unwrap_or_else(|| self.ctx.none())];
+        // trace_trampoline: CALL uses the global callback; every other
+        // event uses the per-frame f_trace (and is a no-op if that is unset).
+        let callback = if event == TraceEvent::Call {
+            if self.is_none(&trace_func) {
+                None
+            } else {
+                Some(trace_func)
+            }
+        } else {
+            frame_ref
+                .iframe()
+                .cold_opt()
+                .and_then(|c| c.trace.lock().clone())
+        };
+
+        let frame: PyObjectRef = frame_ref.to_owned().into();
+        let event_str: PyObjectRef = self.ctx.new_str(event.to_string()).into();
+        let args = vec![frame, event_str, arg.unwrap_or_else(|| self.ctx.none())];
 
         let mut trace_result = None;
 
         // temporarily disable tracing, during the call to the
         // tracing function itself.
-        if is_trace_event && !self.is_none(&trace_func) {
+        if is_trace_event && let Some(callback) = callback {
             self.use_tracing.set(false);
             self.enter_tracing();
-            let res = trace_func.call(args.clone(), self);
+            let res = callback.call(args.clone(), self);
             self.leave_tracing();
             self.use_tracing.set(true);
             match res {
                 Ok(result) => {
                     if !self.is_none(&result) {
+                        *frame_ref.iframe().cold().trace.lock() = Some(result.clone());
                         trace_result = Some(result);
                     }
                 }
                 Err(e) => {
-                    // trace_trampoline behavior: clear per-frame f_trace
-                    // and propagate the error.
-                    if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.iframe().cold().trace.lock() = None;
-                    }
+                    // trace_trampoline: disable the global tracer and clear
+                    // this frame's f_trace, then propagate.
+                    *self.trace_func.borrow_mut() = self.ctx.none();
+                    *frame_ref.iframe().cold().trace.lock() = None;
+                    let profile_is_none = self.is_none(&self.profile_func.borrow());
+                    self.use_tracing.set(!profile_is_none);
                     return Err(e);
                 }
             }

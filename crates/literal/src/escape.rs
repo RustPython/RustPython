@@ -9,6 +9,7 @@ pub enum Quote {
 
 impl Quote {
     #[inline]
+    #[must_use]
     pub const fn swap(self) -> Self {
         match self {
             Self::Single => Self::Double,
@@ -17,6 +18,7 @@ impl Quote {
     }
 
     #[inline]
+    #[must_use]
     pub const fn to_byte(&self) -> u8 {
         match self {
             Self::Single => b'\'',
@@ -25,6 +27,7 @@ impl Quote {
     }
 
     #[inline]
+    #[must_use]
     pub const fn to_char(&self) -> char {
         match self {
             Self::Single => '\'',
@@ -96,20 +99,24 @@ pub struct UnicodeEscape<'a> {
 
 impl<'a> UnicodeEscape<'a> {
     #[inline]
+    #[must_use]
     pub const fn with_forced_quote(source: &'a Wtf8, quote: Quote) -> Self {
         let layout = EscapeLayout { quote, len: None };
         Self { source, layout }
     }
     #[inline]
+    #[must_use]
     pub fn with_preferred_quote(source: &'a Wtf8, quote: Quote) -> Self {
         let layout = Self::repr_layout(source, quote);
         Self { source, layout }
     }
     #[inline]
+    #[must_use]
     pub fn new_repr(source: &'a Wtf8) -> Self {
         Self::with_preferred_quote(source, Quote::Single)
     }
     #[inline]
+    #[must_use]
     pub const fn str_repr<'r>(&'a self) -> StrRepr<'r, 'a> {
         StrRepr(self)
     }
@@ -125,6 +132,7 @@ impl StrRepr<'_, '_> {
         formatter.write_char(quote)
     }
 
+    #[must_use]
     pub fn to_string(&self) -> Option<String> {
         let mut s = String::with_capacity(self.0.layout().len?);
         self.write(&mut s).unwrap();
@@ -141,6 +149,7 @@ impl core::fmt::Display for StrRepr<'_, '_> {
 impl UnicodeEscape<'_> {
     const REPR_RESERVED_LEN: usize = 2; // for quotes
 
+    #[must_use]
     pub fn repr_layout(source: &Wtf8, preferred_quote: Quote) -> EscapeLayout {
         Self::output_layout_with_checker(source, preferred_quote, |a, b| {
             Some((a as isize).checked_add(b as isize)? as usize)
@@ -284,36 +293,43 @@ pub struct AsciiEscape<'a> {
 
 impl<'a> AsciiEscape<'a> {
     #[inline]
+    #[must_use]
     pub const fn new(source: &'a [u8], layout: EscapeLayout) -> Self {
         Self { source, layout }
     }
     #[inline]
+    #[must_use]
     pub const fn with_forced_quote(source: &'a [u8], quote: Quote) -> Self {
         let layout = EscapeLayout { quote, len: None };
         Self { source, layout }
     }
     #[inline]
+    #[must_use]
     pub fn with_preferred_quote(source: &'a [u8], quote: Quote) -> Self {
         let layout = Self::repr_layout(source, quote);
         Self { source, layout }
     }
     #[inline]
+    #[must_use]
     pub fn new_repr(source: &'a [u8]) -> Self {
         Self::with_preferred_quote(source, Quote::Single)
     }
     #[inline]
+    #[must_use]
     pub const fn bytes_repr<'r>(&'a self) -> BytesRepr<'r, 'a> {
         BytesRepr(self)
     }
 }
 
 impl AsciiEscape<'_> {
+    #[must_use]
     pub fn repr_layout(source: &[u8], preferred_quote: Quote) -> EscapeLayout {
         Self::output_layout_with_checker(source, preferred_quote, 3, |a, b| {
             Some((a as isize).checked_add(b as isize)? as usize)
         })
     }
 
+    #[must_use]
     pub fn named_repr_layout(source: &[u8], name: &str) -> EscapeLayout {
         Self::output_layout_with_checker(source, Quote::Single, name.len() + 2 + 3, |a, b| {
             Some((a as isize).checked_add(b as isize)? as usize)
@@ -436,6 +452,7 @@ impl BytesRepr<'_, '_> {
         formatter.write_char(quote)
     }
 
+    #[must_use]
     pub fn to_string(&self) -> Option<String> {
         let mut s = String::with_capacity(self.0.layout().len?);
         self.write(&mut s).unwrap();

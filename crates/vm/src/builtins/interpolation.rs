@@ -7,21 +7,22 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::ToPyObject,
-    function::{OptionalArg, PyComparisonValue},
+    function::PyComparisonValue,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use itertools::Itertools;
 use rustpython_common::wtf8::Wtf8Buf;
 
-/// Interpolation object for t-strings (PEP 750).
-///
-/// Represents an interpolated expression within a template string.
 #[pyclass(module = "string.templatelib", name = "Interpolation")]
 #[derive(Debug, Clone)]
 pub struct PyInterpolation {
+    #[pymember(type = "object_ex")]
     pub value: PyObjectRef,
-    pub expression: PyStrRef,
+    #[pymember(type = "object_ex")]
+    pub expression: PyObjectRef,
+    #[pymember(type = "object_ex")]
     pub conversion: PyObjectRef, // None or 's', 'r', 'a'
+    #[pymember(type = "object_ex")]
     pub format_spec: PyStrRef,
 }
 
@@ -35,7 +36,7 @@ impl PyPayload for PyInterpolation {
 impl PyInterpolation {
     pub fn new(
         value: PyObjectRef,
-        expression: PyStrRef,
+        expression: PyObjectRef,
         conversion: PyObjectRef,
         format_spec: PyStrRef,
         vm: &VirtualMachine,
@@ -79,12 +80,8 @@ impl Constructor for PyInterpolation {
             vm.ctx.none()
         };
 
-        let expression = args
-            .expression
-            .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
-        let format_spec = args
-            .format_spec
-            .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
+        let expression = args.expression.into();
+        let format_spec = args.format_spec;
 
         Ok(Self {
             value: args.value,
@@ -99,16 +96,16 @@ impl Constructor for PyInterpolation {
 pub struct InterpolationArgs {
     #[pyarg(positional)]
     value: PyObjectRef,
-    #[pyarg(any, optional)]
-    expression: OptionalArg<PyStrRef>,
+    #[pyarg(any, default = "")]
+    expression: PyStrRef,
     #[pyarg(
         any,
         optional,
         error_msg = "Interpolation() argument 'conversion' must be str or None"
     )]
     conversion: Option<PyStrRef>,
-    #[pyarg(any, optional)]
-    format_spec: OptionalArg<PyStrRef>,
+    #[pyarg(any, default = "")]
+    format_spec: PyStrRef,
 }
 
 #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
@@ -121,26 +118,6 @@ impl PyInterpolation {
             ctx.intern_str("conversion").to_owned().into(),
             ctx.intern_str("format_spec").to_owned().into(),
         ])
-    }
-
-    #[pygetset]
-    fn value(&self) -> PyObjectRef {
-        self.value.clone()
-    }
-
-    #[pygetset]
-    fn expression(&self) -> PyStrRef {
-        self.expression.clone()
-    }
-
-    #[pygetset]
-    fn conversion(&self) -> PyObjectRef {
-        self.conversion.clone()
-    }
-
-    #[pygetset]
-    fn format_spec(&self) -> PyStrRef {
-        self.format_spec.clone()
     }
 
     #[pyclassmethod]
@@ -211,7 +188,7 @@ impl Representable for PyInterpolation {
         let mut result = Wtf8Buf::from("Interpolation(");
         result.push_wtf8(value_repr.as_wtf8());
         result.push_str(", ");
-        result.push_str(&expr_repr);
+        result.push_wtf8(expr_repr.as_wtf8());
         result.push_str(", ");
         if vm.is_none(&zelf.conversion) {
             result.push_str("None");

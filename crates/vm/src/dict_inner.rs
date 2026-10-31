@@ -58,6 +58,11 @@ static KEYS_VERSION: AtomicU32 = AtomicU32::new(0);
 /// Allocate a new keys-version stamp. Returns 0 once the stamp space is
 /// exhausted; stamps are only allocated on specialization, so exhaustion is
 /// unrealistic in practice.
+/// Next keys-version stamp that [`next_keys_version`] would assign.
+pub(crate) fn peek_next_keys_version() -> u32 {
+    KEYS_VERSION.load(Relaxed).saturating_add(1)
+}
+
 fn next_keys_version() -> u32 {
     KEYS_VERSION
         .try_update(Relaxed, Relaxed, |v| v.checked_add(1))
@@ -179,6 +184,8 @@ impl IndexEntry {
 struct DictInner<T> {
     used: usize,
     filled: usize,
+    // Only private atomic relocations invalidate same-size reverse iteration.
+    relocation_epoch: u64,
     indices: Vec<IndexEntry>,
     entries: Vec<Option<DictEntry<T>>>,
 }
@@ -199,8 +206,32 @@ unsafe impl<T: Traverse> Traverse for DictInner<T> {
 
 impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
+        let inner = self.read();
+        if inner.used == 0 {
+            return Self::default();
+        }
+        // Keep dense copies cheap, but do not carry mostly empty storage into
+        // a new dictionary. pop_back can leave oversized indices without holes.
+        let mut inner = if inner.used >= inner.entries.len() - inner.entries.len() / 3
+            && (inner.indices.len() <= 8 || inner.used >= inner.indices.len() / 4)
+        {
+            inner.clone()
+        } else {
+            let mut copy = DictInner {
+                used: inner.used,
+                filled: inner.used,
+                relocation_epoch: 0,
+                indices: Vec::new(),
+                entries: Vec::with_capacity(inner.used),
+            };
+            copy.entries
+                .extend(inner.entries.iter().flatten().cloned().map(Some));
+            copy.resize(inner.used * 2);
+            copy
+        };
+        inner.relocation_epoch = 0;
         Self {
-            inner: PyRwLock::new(self.inner.read().clone()),
+            inner: PyRwLock::new(inner),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -212,6 +243,7 @@ impl<T> Default for Dict<T> {
             inner: PyRwLock::new(DictInner {
                 used: 0,
                 filled: 0,
+                relocation_epoch: 0,
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
@@ -235,9 +267,16 @@ pub struct DictSize {
     pub entries_size: usize,
     pub used: usize,
     filled: usize,
+    relocation_epoch: u64,
 }
 
-/// The dict was resized under an iterator holding an older [`DictSize`].
+impl DictSize {
+    pub(crate) fn has_same_used_and_relocations(&self, other: &Self) -> bool {
+        self.used == other.used && self.relocation_epoch == other.relocation_epoch
+    }
+}
+
+/// The dict changed under an iterator holding an older [`DictSize`].
 #[derive(Debug)]
 pub(crate) struct DictChanged;
 
@@ -270,6 +309,12 @@ impl GenIndexes {
 
 impl<T> DictInner<T> {
     fn resize(&mut self, new_size: usize) {
+        // Never shrink below the initial minimum table size (8). Without this
+        // floor, a dict/set that repeatedly adds and removes distinct keys
+        // (e.g. asyncio's per-task bookkeeping sets) settles at a tiny table
+        // after a resize and then re-triggers a resize on almost every single
+        // insert afterward, turning O(1) inserts into a resize storm.
+        let new_size = new_size.max(8);
         let new_size = {
             let mut i = 1;
             while i < new_size {
@@ -277,27 +322,39 @@ impl<T> DictInner<T> {
             }
             i
         };
+        // Compact away holes left by deleted entries. `entries` only ever
+        // grows via `unchecked_push`, so a dict/set that repeatedly inserts
+        // and removes distinct keys (e.g. asyncio's per-task bookkeeping
+        // sets) would otherwise keep every tombstoned entry forever, making
+        // this scan - and the dict's memory footprint - grow without bound
+        // relative to the live key count. Compacting here mirrors CPython's
+        // own compacting hash table and keeps entry positions dense, which
+        // is required for the hole-free shape-stamp fast path below.
+        if self.entries.len() != self.used {
+            let mut compacted = Vec::with_capacity(self.used);
+            compacted.extend(self.entries.drain(..).flatten().map(Some));
+            self.entries = compacted;
+        }
         self.indices = vec![IndexEntry::FREE; new_size];
         let mask = (new_size - 1) as i64;
         for (entry_idx, entry) in self.entries.iter_mut().enumerate() {
-            if let Some(entry) = entry {
-                let mut idxs = GenIndexes::new(entry.hash, mask);
-                loop {
-                    let index_index = idxs.next();
-                    unsafe {
-                        // Safety: index is always valid here
-                        // index_index is generated by idxs
-                        // entry_idx is saved one
-                        let idx = self.indices.get_unchecked_mut(index_index);
-                        if *idx == IndexEntry::FREE {
-                            *idx = IndexEntry::from_index_unchecked(entry_idx);
-                            entry.index = index_index;
-                            break;
-                        }
+            // SAFETY: compaction above removed every hole, so every slot is
+            // occupied here.
+            let entry = entry.as_mut().unwrap();
+            let mut idxs = GenIndexes::new(entry.hash, mask);
+            loop {
+                let index_index = idxs.next();
+                unsafe {
+                    // Safety: index is always valid here
+                    // index_index is generated by idxs
+                    // entry_idx is saved one
+                    let idx = self.indices.get_unchecked_mut(index_index);
+                    if *idx == IndexEntry::FREE {
+                        *idx = IndexEntry::from_index_unchecked(entry_idx);
+                        entry.index = index_index;
+                        break;
                     }
                 }
-            } else {
-                //removed entry
             }
         }
         self.filled = self.used;
@@ -331,9 +388,9 @@ impl<T> DictInner<T> {
                 self.resize(new_size)
             }
         }
-        // A resize keeps entry positions and rewrites only the index-index, so
-        // this stays the entry's index afterwards.
-        entry_index
+        // A resize may compact holes out of `entries`, shifting earlier
+        // positions, but the entry pushed above is always the last one.
+        self.entries.len() - 1
     }
 
     const fn size(&self) -> DictSize {
@@ -342,6 +399,7 @@ impl<T> DictInner<T> {
             entries_size: self.entries.len(),
             used: self.used,
             filled: self.filled,
+            relocation_epoch: self.relocation_epoch,
         }
     }
 
@@ -371,6 +429,59 @@ impl<T: Clone> Dict<T> {
     /// set (values may differ).
     pub(crate) fn keys_version(&self) -> u32 {
         self.keys_version.load(Acquire)
+    }
+
+    /// Capture a module attribute's entry index and layout stamp together.
+    /// Exact string keys and an absent `__getattr__` permit direct indexed reads.
+    pub(crate) fn module_attr_cache(
+        &self,
+        name: &PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> Option<(u32, u16)> {
+        self.assign_keys_version();
+        let inner = self.read();
+        // Shared shape stamps can recur after an A -> B -> A layout change.
+        // Read the stamp and resolve the index under the same guard.
+        let version = self.keys_version.load(Acquire);
+        if version == 0 {
+            return None;
+        }
+        let mut index = None;
+        for (entry_index, entry) in inner.entries.iter().enumerate() {
+            let Some(entry) = entry else { continue };
+            let key = entry.key.downcast_ref_if_exact::<PyStr>(vm)?;
+            if key.as_wtf8().as_bytes() == b"__getattr__" {
+                return None;
+            }
+            if key.as_wtf8() == name.as_wtf8() {
+                index = Some(u16::try_from(entry_index).ok()?);
+            }
+        }
+        Some((version, index?))
+    }
+
+    /// Concurrent specializations can publish an index from a different layout.
+    /// Validate the name as well as the stamp before reading the cached entry.
+    #[inline]
+    pub(crate) fn get_cached_module_attr(
+        &self,
+        name: &PyStrInterned,
+        version: usize,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> Option<T> {
+        let inner = self.read();
+        if version == 0 || self.keys_version.load(Acquire) as usize != version {
+            return None;
+        }
+        let entry = inner.entries.get(index)?.as_ref()?;
+        if !name.key_is(&entry.key) {
+            let key = entry.key.downcast_ref_if_exact::<PyStr>(vm)?;
+            if key.as_wtf8() != name.as_wtf8() {
+                return None;
+            }
+        }
+        Some(entry.value.clone())
     }
 
     /// Return the current keys-version stamp, assigning one if none is set.
@@ -437,8 +548,8 @@ impl<T: Clone> Dict<T> {
     /// old key set is linearizable. A stamp assigned concurrently (between
     /// this reset and the mutation) can only be trusted by a caller whose
     /// subsequent probe serializes after the mutation through the inner
-    /// lock, which then reflects the new key set. Since stamps are never
-    /// reused, a cached stamp can never spuriously match again.
+    /// lock, which then reflects the new key set. A nonzero stamp can match
+    /// again only after the exact key layout it attests has been restored.
     fn invalidate_keys_version(&self) {
         self.keys_version.store(0, Release);
     }
@@ -451,21 +562,43 @@ impl<T: Clone> Dict<T> {
         self.inner.write()
     }
 
-    /// Store a key
-    pub(crate) fn insert<K>(&self, vm: &VirtualMachine, key: &K, value: T) -> PyResult<()>
-    where
-        K: DictKey + ?Sized,
-    {
-        let hash = key.key_hash(vm)?;
-        self.insert_known_hash(vm, key, hash, value)
+    /// Reserve space for known keys without changing an existing key layout.
+    /// Only use on an unpublished dictionary: resizing must not race with a
+    /// lookup that has already probed the old index table.
+    pub(crate) fn reserve_for_empty(&self, capacity: usize) {
+        if capacity == 0 {
+            return;
+        }
+        let Some(index_capacity) = capacity
+            .checked_add(capacity.div_ceil(2))
+            .and_then(usize::checked_next_power_of_two)
+        else {
+            return;
+        };
+        let mut inner = self.write();
+        if inner.filled != 0 || !inner.entries.is_empty() {
+            return;
+        }
+        // Keep the usual incremental growth path if preallocation fails.
+        if inner.entries.try_reserve_exact(capacity).is_err() {
+            return;
+        }
+        let additional = index_capacity.saturating_sub(inner.indices.len());
+        if additional != 0 && inner.indices.try_reserve_exact(additional).is_ok() {
+            // Every existing index is FREE, so extending needs no rehash and
+            // leaves the empty key layout and its version unchanged.
+            inner.indices.resize(index_capacity, IndexEntry::FREE);
+        }
     }
 
-    /// Store a key whose hash the caller already knows.
+    /// Store a key.
     ///
-    /// `hash` must equal `key.key_hash(vm)`; a wrong one lands the entry in a
-    /// bucket no lookup probes, silently losing the key. Only pass a hash from
-    /// [`Self::keys_with_hashes`] on a container holding this same key.
-    pub(crate) fn insert_known_hash<K>(
+    /// `hash` must be computed for `key` or read from [`Self::keys_with_hashes`]
+    /// or [`Self::items_with_hashes`] or [`Self::next_entry_with_hash`] on a
+    /// container holding this same key.
+    /// A wrong hash lands the entry in a bucket no lookup probes, silently
+    /// losing the key.
+    pub(crate) fn insert<K>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -475,16 +608,16 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        self.insert_known_hash_indexed(vm, key, hash, value)?;
+        self.insert_indexed(vm, key, hash, value)?;
         Ok(())
     }
 
-    /// [`Self::insert_known_hash`], also reporting the entry index it stored to.
+    /// [`Self::insert`], also reporting the entry index it stored to.
     ///
     /// The index doubles as a `hint` for [`Self::get_hint`] /
     /// [`Self::insert_with_hint`], so a caller that wants one gets it from the
     /// store itself instead of probing the dict a second time.
-    fn insert_known_hash_indexed<K>(
+    fn insert_indexed<K>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -494,65 +627,35 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        let (stored_index, _removed) = loop {
-            let (entry_index, index_index) = self.lookup(vm, key, hash, None)?;
-            let mut inner = self.write();
-            if let Some(index) = entry_index.index() {
-                // Update existing key
-                if let Some(entry) = inner.entries.get_mut(index) {
-                    let Some(entry) = entry.as_mut() else {
-                        // The dict was changed since we did lookup. Let's try again.
-                        // this is very rare to happen
-                        // (and seems only happen with very high freq gc, and about one time in 10000 iters)
-                        // but still possible
-                        continue;
-                    };
-                    #[expect(
-                        clippy::redundant_else,
-                        reason = "Keeping the empty `else` block here for documentation"
-                    )]
-                    if entry.index == index_index {
-                        let removed = core::mem::replace(&mut entry.value, value);
-                        // defer dec RC
-                        break (index, Some(removed));
-                    } else {
-                        // stuff shifted around, let's try again
-                    }
-                } else {
-                    // The dict was changed since we did lookup. Let's try again.
+        let mut value = Some(value);
+        let (stored_index, _removed) = self.with_slot_mut_prepared(
+            vm,
+            key,
+            hash,
+            Some(|| key.to_pyobject(vm)),
+            |inner, (entry_index, index_index), prepared| {
+                if let Some(index) = entry_index.index() {
+                    let entry = inner.entries[index].as_mut().unwrap();
+                    let removed = core::mem::replace(&mut entry.value, value.take().unwrap());
+                    return (index, Some(removed));
                 }
-            } else {
-                // New key - validate slot is still what lookup found
-                if inner.indices.get(index_index) != Some(&entry_index) {
-                    // Dict was resized since lookup, retry
-                    continue;
-                }
+                let key = prepared.take().unwrap();
                 self.invalidate_keys_version();
                 let stored = inner.unchecked_push(
                     index_index,
                     hash,
-                    key.to_pyobject(vm),
-                    value,
+                    key,
+                    value.take().unwrap(),
                     entry_index,
                 );
-                break (stored, None);
-            }
-        };
+                (stored, None)
+            },
+        )?;
         Ok(stored_index)
     }
 
+    /// [`Self::insert`] for membership. Same hash contract.
     pub(crate) fn contains<K: DictKey + ?Sized>(
-        &self,
-        vm: &VirtualMachine,
-        key: &K,
-    ) -> PyResult<bool> {
-        let key_hash = key.key_hash(vm)?;
-        self.contains_known_hash(vm, key, key_hash)
-    }
-
-    /// [`Self::contains`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
-    pub(crate) fn contains_known_hash<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -562,14 +665,14 @@ impl<T: Clone> Dict<T> {
         Ok(entry.index().is_some())
     }
 
-    /// Retrieve a key
+    /// Retrieve a key. Same hash contract as [`Self::insert`].
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
     pub(crate) fn get<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
     ) -> PyResult<Option<T>> {
-        let hash = key.key_hash(vm)?;
         self._get_inner(vm, key, hash)
     }
 
@@ -581,8 +684,8 @@ impl<T: Clone> Dict<T> {
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
     ) -> PyResult<Option<u16>> {
-        let hash = key.key_hash(vm)?;
         let (entry, _) = self.lookup(vm, key, hash, None)?;
         let Some(index) = entry.index() else {
             return Ok(None);
@@ -598,8 +701,8 @@ impl<T: Clone> Dict<T> {
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
     ) -> PyResult<Option<(T, Option<u16>)>> {
-        let hash = key.key_hash(vm)?;
         let ret = loop {
             let (entry, index_index) = self.lookup(vm, key, hash, None)?;
             if let Some(index) = entry.index() {
@@ -625,6 +728,7 @@ impl<T: Clone> Dict<T> {
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
         hint: usize,
         value: T,
     ) -> PyResult<Option<u16>> {
@@ -641,8 +745,7 @@ impl<T: Clone> Dict<T> {
                 _ => value,
             }
         };
-        let hash = key.key_hash(vm)?;
-        let stored = self.insert_known_hash_indexed(vm, key, hash, value)?;
+        let stored = self.insert_indexed(vm, key, hash, value)?;
         Ok(u16::try_from(stored).ok())
     }
 
@@ -722,8 +825,8 @@ impl<T: Clone> Dict<T> {
         other: &Self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
     ) -> PyResult<Option<T>> {
-        let hash = key.key_hash(vm)?;
         if let Some(x) = self._get_inner(vm, key, hash)? {
             Ok(Some(x))
         } else {
@@ -744,28 +847,31 @@ impl<T: Clone> Dict<T> {
         };
     }
 
-    /// Delete a key
-    pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<()>
+    /// Install an owned table, releasing the old entries after unlocking.
+    pub(crate) fn replace_contents(&self, other: Self) {
+        let mut replacement = other.inner.into_inner();
+        let _removed = {
+            let mut inner = self.write();
+            self.invalidate_keys_version();
+            // Relocation history belongs to this dict, not the incoming table.
+            replacement.relocation_epoch = inner.relocation_epoch;
+            core::mem::replace(&mut *inner, replacement)
+        };
+    }
+
+    /// Delete a key. Same hash contract as [`Self::insert`].
+    pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K, hash: HashValue) -> PyResult<()>
     where
         K: DictKey + ?Sized,
     {
-        if self.remove_if_exists(vm, key)?.is_some() {
+        if self.remove_if_exists(vm, key, hash)?.is_some() {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
         }
     }
 
-    pub(crate) fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
-    where
-        K: DictKey + ?Sized,
-    {
-        self.remove_if_exists(vm, key).map(|opt| opt.is_some())
-    }
-
-    /// [`Self::delete_if_exists`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
-    pub(crate) fn delete_if_exists_known_hash<K>(
+    pub(crate) fn delete_if_exists<K>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -774,44 +880,39 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        self.remove_if_known_hash(vm, key, hash, |_| Ok(true))
+        self.remove_if_exists(vm, key, hash)
             .map(|opt| opt.is_some())
     }
 
-    pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
-    where
-        K: DictKey + ?Sized,
-        F: Fn(&T) -> PyResult<bool>,
-    {
-        self.remove_if(vm, key, pred).map(|opt| opt.is_some())
-    }
-
-    pub(crate) fn remove_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>>
-    where
-        K: DictKey + ?Sized,
-    {
-        self.remove_if(vm, key, |_| Ok(true))
-    }
-
-    /// pred should be VERY CAREFUL about what it does as it is called while
-    /// the dict's internal mutex is held
-    pub(crate) fn remove_if<K, F>(
+    pub(crate) fn delete_if<K, F>(
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
         pred: F,
-    ) -> PyResult<Option<T>>
+    ) -> PyResult<bool>
     where
         K: DictKey + ?Sized,
         F: Fn(&T) -> PyResult<bool>,
     {
-        let hash = key.key_hash(vm)?;
-        self.remove_if_known_hash(vm, key, hash, pred)
+        self.remove_if(vm, key, hash, pred).map(|opt| opt.is_some())
     }
 
-    /// [`Self::remove_if`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
-    fn remove_if_known_hash<K, F>(
+    pub(crate) fn remove_if_exists<K>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>>
+    where
+        K: DictKey + ?Sized,
+    {
+        self.remove_if(vm, key, hash, |_| Ok(true))
+    }
+
+    /// pred should be VERY CAREFUL about what it does as it is called while
+    /// the dict's internal mutex is held. Same hash contract as [`Self::insert`].
+    pub(crate) fn remove_if<K, F>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -832,116 +933,87 @@ impl<T: Clone> Dict<T> {
         Ok(removed.map(|entry| entry.value))
     }
 
+    /// Delete an existing key or insert a missing key. Same hash contract as
+    /// [`Self::insert`].
     pub(crate) fn delete_or_insert(
-        &self,
-        vm: &VirtualMachine,
-        key: &PyObject,
-        value: T,
-    ) -> PyResult<()> {
-        let hash = key.key_hash(vm)?;
-        self.delete_or_insert_known_hash(vm, key, hash, value)
-    }
-
-    /// [`Self::delete_or_insert`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
-    pub(crate) fn delete_or_insert_known_hash(
         &self,
         vm: &VirtualMachine,
         key: &PyObject,
         hash: HashValue,
         value: T,
     ) -> PyResult<()> {
-        let _removed = loop {
-            let lookup = self.lookup(vm, key, hash, None)?;
-            let (entry, index_index) = lookup;
-            if entry.index().is_some() {
-                match self.pop_inner(lookup) {
-                    ControlFlow::Break(Some(entry)) => break Some(entry),
-                    _ => continue,
+        // Borrow the value so a deletion leaves it to be dropped unlocked.
+        let mut value = Some(value);
+        let _removed = self.with_slot_mut_prepared(
+            vm,
+            key,
+            hash,
+            Some(|| key.to_owned()),
+            |inner, (entry, index_index), prepared| {
+                if let Some(index) = entry.index() {
+                    self.invalidate_keys_version();
+                    inner.indices[index_index] = IndexEntry::DUMMY;
+                    inner.used -= 1;
+                    return inner.entries[index].take();
                 }
-            }
-
-            let mut inner = self.write();
-            if inner.indices.get(index_index) != Some(&entry) {
-                continue;
-            }
-            self.invalidate_keys_version();
-            inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
-            break None;
-        };
+                let key = prepared.take().unwrap();
+                self.invalidate_keys_version();
+                inner.unchecked_push(index_index, hash, key, value.take().unwrap(), entry);
+                None
+            },
+        )?;
         Ok(())
     }
 
-    pub(crate) fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
+    /// Get the value for `key`, inserting `default()` if it is absent.
+    /// Same hash contract as [`Self::insert`].
+    pub(crate) fn setdefault<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        default: F,
+    ) -> PyResult<T>
     where
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
-        let hash = key.key_hash(vm)?;
-        let mut default = Some(default);
-        loop {
-            let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
-            if let Some(index) = index_entry.index() {
-                let inner = self.read();
-                if let Some(entry) = inner.get_entry_checked(index, index_index) {
-                    return Ok(entry.value.clone());
-                }
-                continue;
-            }
-            let mut inner = self.write();
-            if inner.indices.get(index_index) != Some(&index_entry) {
-                continue;
-            }
-            let value = default
-                .take()
-                .expect("default must only be computed on insertion")();
-            self.invalidate_keys_version();
-            inner.unchecked_push(
-                index_index,
-                hash,
-                key.to_pyobject(vm),
-                value.clone(),
-                index_entry,
-            );
-            return Ok(value);
-        }
+        self.setdefault_entry(vm, key, hash, default)
+            .map(|(_, value)| value)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn setdefault_entry<K, F>(
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash: HashValue,
         default: F,
     ) -> PyResult<(PyObjectRef, T)>
     where
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
-        let hash = key.key_hash(vm)?;
-        let mut default = Some(default);
-        loop {
-            let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
-            if let Some(index) = index_entry.index() {
-                let inner = self.read();
-                if let Some(entry) = inner.get_entry_checked(index, index_index) {
-                    return Ok((entry.key.clone(), entry.value.clone()));
+        self.with_slot_mut_prepared(
+            vm,
+            key,
+            hash,
+            Some(|| {
+                // Preserve lazy factory-before-key ordering, outside the guard.
+                let value = default();
+                (key.to_pyobject(vm), value)
+            }),
+            |inner, (index_entry, index_index), prepared| {
+                if let Some(index) = index_entry.index() {
+                    let entry = inner.entries[index].as_ref().unwrap();
+                    return (entry.key.clone(), entry.value.clone());
                 }
-                continue;
-            }
-            let mut inner = self.write();
-            if inner.indices.get(index_index) != Some(&index_entry) {
-                continue;
-            }
-            let value = default
-                .take()
-                .expect("default must only be computed on insertion")();
-            let key_obj = key.to_pyobject(vm);
-            let ret = (key_obj.clone(), value.clone());
-            self.invalidate_keys_version();
-            inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
-            return Ok(ret);
-        }
+                let (key, value) = prepared.take().unwrap();
+                let ret = (key.clone(), value.clone());
+                self.invalidate_keys_version();
+                inner.unchecked_push(index_index, hash, key, value, index_entry);
+                ret
+            },
+        )
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -962,7 +1034,7 @@ impl<T: Clone> Dict<T> {
         &self,
         mut position: EntryIndex,
         old: &DictSize,
-        project: impl FnOnce(&PyObjectRef, &T) -> R,
+        project: impl FnOnce(&PyObject, &T) -> R,
     ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
         if inner.size() != *old {
@@ -979,15 +1051,16 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    /// [`Self::next_entry_checked`] in reverse.
+    /// Step backward, validating the live size and private relocation history
+    /// under the same read guard. Ordinary same-size mutations may change layout.
     pub(crate) fn prev_entry_checked<R>(
         &self,
         mut position: EntryIndex,
         old: &DictSize,
-        project: impl FnOnce(&PyObjectRef, &T) -> R,
+        project: impl FnOnce(&PyObject, &T) -> R,
     ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
-        if inner.size() != *old {
+        if !inner.size().has_same_used_and_relocations(old) {
             return Err(DictChanged);
         }
         loop {
@@ -1004,13 +1077,21 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub(crate) fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+    pub(crate) fn next_entry(&self, position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+        self.next_entry_with_hash(position)
+            .map(|(position, key, value, _)| (position, key, value))
+    }
+
+    pub(crate) fn next_entry_with_hash(
+        &self,
+        mut position: EntryIndex,
+    ) -> Option<(usize, PyObjectRef, T, HashValue)> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
             position += 1;
             if let Some(entry) = entry {
-                break Some((position, entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone(), entry.hash));
             }
         }
     }
@@ -1038,6 +1119,16 @@ impl<T: Clone> Dict<T> {
         current != *old
     }
 
+    /// Inspect keys without allocating or cloning their references.
+    /// The predicate must not run Python or mutate this table.
+    pub(crate) fn any_key(&self, mut predicate: impl FnMut(&PyObject) -> bool) -> bool {
+        self.read()
+            .entries
+            .iter()
+            .flatten()
+            .any(|entry| predicate(&entry.key))
+    }
+
     pub(crate) fn keys(&self) -> Vec<PyObjectRef> {
         self.read()
             .entries
@@ -1047,7 +1138,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// All keys paired with the hash stored in their entry, for feeding
-    /// [`Self::insert_known_hash`] without re-calling `__hash__`.
+    /// [`Self::insert`] without re-calling `__hash__`.
     pub(crate) fn keys_with_hashes(&self) -> Vec<(PyObjectRef, HashValue)> {
         self.read()
             .entries
@@ -1072,15 +1163,24 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    pub(crate) fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
+    pub(crate) fn items_with_hashes(&self) -> Vec<(PyObjectRef, T, HashValue)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.value.clone(), v.hash)))
+            .collect()
+    }
+
+    /// Fold stored hashes under the read lock; the callback must not run Python.
+    pub(crate) fn fold_hashes<Acc, Fold>(&self, init: Acc, f: Fold) -> Acc
     where
-        Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
+        Fold: FnMut(Acc, HashValue) -> Acc,
     {
         self.read()
             .entries
             .iter()
-            .filter_map(|v| v.as_ref().map(|v| v.key.as_object()))
-            .try_fold(init, f)
+            .filter_map(|v| v.as_ref().map(|v| v.hash))
+            .fold(init, f)
     }
 
     /// Lookup the index for the given key.
@@ -1228,13 +1328,13 @@ impl<T: Clone> Dict<T> {
         Ok(ControlFlow::Break(removed))
     }
 
-    /// Retrieve and delete a key
+    /// Retrieve and delete a key. Same hash contract as [`Self::insert`].
     pub(crate) fn pop<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash_value: HashValue,
     ) -> PyResult<Option<T>> {
-        let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;
             match self.pop_inner(lookup) {
@@ -1243,6 +1343,237 @@ impl<T: Clone> Dict<T> {
             }
         };
         Ok(removed)
+    }
+
+    // Locate an entry and mutate it under one guard. The operation must not
+    // run Python or drop owned Python references while the guard is held.
+    fn with_entry_mut<K: DictKey + ?Sized, R>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash_value: HashValue,
+        update: impl FnOnce(&mut DictInner<T>, EntryIndex) -> R,
+    ) -> PyResult<Option<R>> {
+        let mut update = Some(update);
+        self.with_slot_mut(vm, key, hash_value, |inner, (entry, _)| {
+            entry
+                .index()
+                .map(|index| update.take().unwrap()(inner, index))
+        })
+    }
+
+    // Probe and commit under one guard, including when the key is absent.
+    // The callback must not run Python, allocate Python objects, or drop owned
+    // Python references (including unused captures) while the guard is held.
+    fn with_slot_mut<K: DictKey + ?Sized, R>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash_value: HashValue,
+        update: impl FnOnce(&mut DictInner<T>, LookupResult) -> R,
+    ) -> PyResult<R> {
+        self.with_slot_mut_prepared(vm, key, hash_value, None::<fn() -> ()>, |inner, slot, _| {
+            update(inner, slot)
+        })
+    }
+
+    // Preparation may run Python, but only after absence was established and
+    // the guard released. Retain that probe's witnesses so an unchanged route
+    // does not repeat equality. Unused preparation/captures stay outside guards.
+    fn with_slot_mut_prepared<K: DictKey + ?Sized, P, F: FnOnce() -> P, R>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash_value: HashValue,
+        mut prepare: Option<F>,
+        update: impl FnOnce(&mut DictInner<T>, LookupResult, &mut Option<P>) -> R,
+    ) -> PyResult<R> {
+        struct ProbeWitness {
+            index_index: IndexIndex,
+            entry_index: IndexEntry,
+            key: Option<(HashValue, PyObjectRef)>,
+        }
+
+        impl ProbeWitness {
+            fn matches<T>(&self, inner: &DictInner<T>) -> bool {
+                inner.indices.get(self.index_index) == Some(&self.entry_index)
+                    && self.key.as_ref().is_none_or(|(hash, key)| {
+                        inner
+                            .get_entry_checked(self.entry_index.index().unwrap(), self.index_index)
+                            .is_some_and(|entry| entry.hash == *hash && entry.key.is(key))
+                    })
+            }
+        }
+
+        let mut prepared = None;
+        let mut pending_vacancy: Option<(LookupResult, IndexIndex)> = None;
+        let mut idxs = None;
+        let mut free_slot = None;
+        let mut prefix = Vec::<ProbeWitness>::new();
+        let mut compared: Option<(EntryIndex, IndexIndex, PyObjectRef, bool)> = None;
+        'lookup: loop {
+            // Keep the compared key alive until after the guard is released,
+            // including when equality cleared the dictionary and recycled its
+            // entry and bucket for a different key.
+            let comparison = compared.take();
+            let mut inner = self.write();
+            let mask = (inner.indices.len() - 1) as i64;
+            let probes = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
+            if probes.mask != mask {
+                drop(inner);
+                prefix.clear();
+                idxs = None;
+                free_slot = None;
+                pending_vacancy = None;
+                continue;
+            }
+            if let Some((slot, terminal_free)) = pending_vacancy.take() {
+                // The terminal FREE matters even when insertion chose an earlier
+                // DUMMY. Every preceding occupied/DUMMY bucket is witnessed.
+                if inner.indices.get(terminal_free) == Some(&IndexEntry::FREE)
+                    && prefix.iter().all(|witness| witness.matches(&inner))
+                {
+                    let result = update(&mut inner, slot, &mut prepared);
+                    drop(inner);
+                    return Ok(result);
+                }
+                drop(inner);
+                prefix.clear();
+                idxs = None;
+                free_slot = None;
+                continue;
+            }
+            let matched = if let Some((entry_index, index_index, candidate, equal)) = &comparison {
+                let valid = inner.indices.get(*index_index).and_then(|i| i.index())
+                    == Some(*entry_index)
+                    && inner
+                        .get_entry_checked(*entry_index, *index_index)
+                        .is_some_and(|entry| entry.hash == hash_value && entry.key.is(candidate));
+                // A false comparison can survive while another previously
+                // probed bucket changes (including after nested compaction).
+                // Revalidate the whole prefix before continuing past it.
+                let prefix_valid = *equal || prefix.iter().all(|witness| witness.matches(&inner));
+                if !valid || !prefix_valid {
+                    drop(inner);
+                    prefix.clear();
+                    idxs = None;
+                    free_slot = None;
+                    continue;
+                }
+                equal.then_some((inner.indices[*index_index], *index_index))
+            } else {
+                None
+            };
+            let mut terminal_free = None;
+            let slot = match matched {
+                Some(slot) => slot,
+                None => loop {
+                    let index_index = probes.next();
+                    let index_entry = inner.indices[index_index];
+                    match index_entry {
+                        IndexEntry::FREE => {
+                            terminal_free = Some(index_index);
+                            break free_slot.map_or((IndexEntry::FREE, index_index), |index| {
+                                (IndexEntry::DUMMY, index)
+                            });
+                        }
+                        IndexEntry::DUMMY => {
+                            if free_slot.is_none() {
+                                free_slot = Some(index_index);
+                            }
+                            prefix.push(ProbeWitness {
+                                index_index,
+                                entry_index: index_entry,
+                                key: None,
+                            });
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    let entry_index = index_entry.index().unwrap();
+                    let entry = inner.entries[entry_index].as_ref().unwrap();
+                    if key.key_is(&entry.key) {
+                        break (index_entry, index_index);
+                    }
+                    prefix.push(ProbeWitness {
+                        index_index,
+                        entry_index: index_entry,
+                        key: Some((entry.hash, entry.key.clone())),
+                    });
+                    if entry.hash == hash_value {
+                        let candidate = entry.key.clone();
+                        drop(inner);
+                        drop(comparison);
+                        let equal = key.key_eq(vm, &candidate)?;
+                        compared = Some((entry_index, index_index, candidate, equal));
+                        continue 'lookup;
+                    }
+                },
+            };
+            if slot.0.index().is_none() && prepare.is_some() {
+                pending_vacancy = Some((slot, terminal_free.unwrap()));
+                drop(inner);
+                drop(comparison);
+                prepared = Some(prepare.take().unwrap()());
+                continue;
+            }
+            let result = update(&mut inner, slot, &mut prepared);
+            drop(inner);
+            return Ok(result);
+        }
+    }
+
+    /// Move an existing entry to the end and return its current value without
+    /// making the key temporarily absent. Equality runs unlocked.
+    pub(crate) fn move_to_end<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        self.with_entry_mut(vm, key, hash, |inner, entry_index| {
+            let value = inner.entries[entry_index].as_ref().unwrap().value.clone();
+            if inner.entries[entry_index + 1..].iter().any(Option::is_some) {
+                // Reserve before taking the entry. No reader can observe an
+                // absent entry, and no hashing, equality or finalizer runs in
+                // this critical section.
+                inner.entries.reserve(1);
+                self.invalidate_keys_version();
+                inner.relocation_epoch = inner.relocation_epoch.wrapping_add(1);
+                let entry = inner.entries[entry_index].take().unwrap();
+                let new_index = inner.entries.len();
+                inner.indices[entry.index] = unsafe {
+                    // SAFETY: new_index is a valid nonnegative entry index.
+                    IndexEntry::from_index_unchecked(new_index)
+                };
+                inner.entries.push(Some(entry));
+                let holes = inner.entries.len() - inner.used;
+                if holes >= 2 && holes >= inner.used {
+                    // Moves do not increase `filled`, so ordinary insertion's
+                    // resize threshold cannot bound their accumulated holes.
+                    let indices_size = inner.indices.len();
+                    inner.resize(indices_size);
+                }
+            }
+            value
+        })
+    }
+
+    // Replace only a still-matching value. The predicate must not run Python.
+    // Keep both the replacement and removed value alive outside the guard.
+    pub(crate) fn replace_if<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        replacement: T,
+        matches: impl FnOnce(&T) -> bool,
+    ) -> PyResult<bool> {
+        let removed = self.with_entry_mut(vm, key, hash, |inner, index| {
+            let entry = inner.entries[index].as_mut().unwrap();
+            matches(&entry.value).then(|| core::mem::replace(&mut entry.value, replacement.clone()))
+        })?;
+        Ok(removed.flatten().is_some())
     }
 
     pub(crate) fn pop_back(&self) -> Option<(PyObjectRef, T)> {
@@ -1297,6 +1628,7 @@ pub trait DictKey {
     }
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
     fn key_is(&self, other: &PyObject) -> bool;
+    /// Compare the stored entry (`other_key`) with this lookup key, in that order.
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool>;
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize>;
 }
@@ -1322,7 +1654,21 @@ impl DictKey for PyObject {
 
     #[inline(always)]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        vm.identical_or_equal(self, other_key)
+        if self.is(other_key) {
+            return Ok(true);
+        }
+        // Fast path mirroring CPython's `lookdict`: two exact `int`s compare
+        // equal by value without going through the generic rich-compare
+        // dispatch (`__eq__` slot lookup, `NotImplemented` handling, etc).
+        // Only applies when *both* sides are exactly `int` - a subclass may
+        // override `__eq__`.
+        if self.class().is(vm.ctx.types.int_type) && other_key.class().is(vm.ctx.types.int_type) {
+            // SAFETY: just checked both classes are exactly `int`.
+            let a = unsafe { self.downcast_unchecked_ref::<PyInt>() };
+            let b = unsafe { other_key.downcast_unchecked_ref::<PyInt>() };
+            return Ok(a.as_bigint() == b.as_bigint());
+        }
+        vm.bool_eq(other_key, self)
     }
 
     #[inline]
@@ -1354,7 +1700,7 @@ impl DictKey for Py<PyStr> {
         } else if let Some(pystr) = other_key.downcast_ref_if_exact::<PyStr>(vm) {
             Ok(self.as_wtf8() == pystr.as_wtf8())
         } else {
-            vm.bool_eq(self.as_object(), other_key)
+            vm.bool_eq(other_key, self.as_object())
         }
     }
 
@@ -1463,9 +1809,9 @@ impl DictKey for str {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_str(self))
+        Ok(crate::vm::hash_secret().hash_str(self))
     }
 
     #[inline(always)]
@@ -1524,9 +1870,9 @@ impl DictKey for Wtf8 {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_bytes(self.as_bytes()))
+        Ok(crate::vm::hash_secret().hash_bytes(self.as_bytes()))
     }
 
     #[inline(always)]
@@ -1585,9 +1931,9 @@ impl DictKey for [u8] {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_bytes(self))
+        Ok(crate::vm::hash_secret().hash_bytes(self))
     }
 
     #[inline(always)]
@@ -1603,7 +1949,7 @@ impl DictKey for [u8] {
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_bytes(self.to_vec());
-            s.key_eq(vm, other_key)
+            s.as_object().key_eq(vm, other_key)
         }
     }
 
@@ -1662,7 +2008,7 @@ impl DictKey for usize {
             }
         } else {
             let int = vm.ctx.new_int(*self);
-            vm.bool_eq(int.as_ref(), other_key)
+            vm.bool_eq(other_key, int.as_ref())
         }
     }
 
@@ -1676,6 +2022,524 @@ mod tests {
     use super::*;
     use crate::{Interpreter, common::ascii};
 
+    fn hash_key<K: DictKey + ?Sized>(vm: &VirtualMachine, key: &K) -> HashValue {
+        key.key_hash(vm).unwrap()
+    }
+
+    fn assert_table_invariants<T: Clone>(dict: &Dict<T>) {
+        let inner = dict.read();
+        assert_eq!(inner.entries.iter().flatten().count(), inner.used);
+        assert_eq!(
+            inner
+                .indices
+                .iter()
+                .filter(|index| index.index().is_some())
+                .count(),
+            inner.used
+        );
+        assert_eq!(
+            inner
+                .indices
+                .iter()
+                .filter(|index| **index != IndexEntry::FREE)
+                .count(),
+            inner.filled
+        );
+        for (index, entry) in inner.entries.iter().enumerate() {
+            let Some(entry) = entry else { continue };
+            assert_eq!(inner.indices[entry.index].index(), Some(index));
+            let mut probes = GenIndexes::new(entry.hash, (inner.indices.len() - 1) as i64);
+            let mut reached = false;
+            // After the finite perturb prefix, probing visits the entire table.
+            for _ in 0..inner.indices.len() + 64 {
+                let bucket = probes.next();
+                assert_ne!(inner.indices[bucket], IndexEntry::FREE);
+                if bucket == entry.index {
+                    reached = true;
+                    break;
+                }
+            }
+            assert!(reached, "live entry must be reachable before a free bucket");
+        }
+        for (bucket, index) in inner.indices.iter().enumerate() {
+            if let Some(index) = index.index() {
+                assert_eq!(inner.entries[index].as_ref().unwrap().index, bucket);
+            }
+        }
+    }
+
+    #[test]
+    fn insertion_paths_preserve_table_invariants() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let initial_buckets = dict.read().indices.len();
+            for key in 0..16usize {
+                dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
+                assert_table_invariants(&dict);
+            }
+            assert!(dict.read().indices.len() > initial_buckets);
+            let key: PyObjectRef = vm.ctx.new_int(3).into();
+            let hash = hash_key(vm, &3usize);
+            dict.delete_or_insert(vm, &key, hash, 30).unwrap();
+            assert_table_invariants(&dict);
+            let filled = dict.read().filled;
+            dict.delete_or_insert(vm, &key, hash, 30).unwrap();
+            assert_eq!(dict.read().filled, filled);
+            assert_table_invariants(&dict);
+            dict.insert(vm, &3usize, hash, 31).unwrap();
+            assert_eq!(dict.get(vm, &3usize, hash).unwrap(), Some(31));
+            assert_eq!(dict.setdefault(vm, &3usize, hash, || 32).unwrap(), 31);
+            let (_, value) = dict
+                .setdefault_entry(vm, &17usize, hash_key(vm, &17usize), || 17)
+                .unwrap();
+            assert_eq!(value, 17);
+            assert_eq!(dict.len(), 17);
+            assert_table_invariants(&dict);
+        });
+    }
+
+    #[test]
+    fn insertion_reprobes_after_native_key_preparation() {
+        struct PreparingKey<'a> {
+            dict: &'a Dict<usize>,
+            conversions: core::cell::Cell<usize>,
+        }
+        impl DictKey for PreparingKey<'_> {
+            type Owned = usize;
+            fn _to_owned(&self, vm: &VirtualMachine) -> usize {
+                self.conversions.set(self.conversions.get() + 1);
+                assert_eq!(self.conversions.get(), 1);
+                for key in 0..16usize {
+                    self.dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
+                }
+                64
+            }
+            fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+                64usize.key_hash(vm)
+            }
+            fn key_is(&self, _other: &PyObject) -> bool {
+                false
+            }
+            fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
+                64usize.key_eq(vm, other)
+            }
+            fn key_as_isize(&self, _vm: &VirtualMachine) -> PyResult<isize> {
+                Ok(64)
+            }
+        }
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let initial_buckets = dict.read().indices.len();
+            let key = PreparingKey {
+                dict: &dict,
+                conversions: core::cell::Cell::new(0),
+            };
+            dict.insert(vm, &key, hash_key(vm, &key), 64).unwrap();
+            assert_eq!(key.conversions.get(), 1);
+            assert!(dict.read().indices.len() > initial_buckets);
+            assert_eq!(dict.len(), 17);
+            assert_eq!(
+                dict.get(vm, &64usize, hash_key(vm, &64usize)).unwrap(),
+                Some(64)
+            );
+            assert_table_invariants(&dict);
+        });
+    }
+
+    #[test]
+    fn setdefault_reprobes_after_native_factory_inserts_winner() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let calls = core::cell::Cell::new(0);
+            let hash = hash_key(vm, &64usize);
+            let (key, value) = dict
+                .setdefault_entry(vm, &64usize, hash, || {
+                    calls.set(calls.get() + 1);
+                    for key in 0..16usize {
+                        dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
+                    }
+                    dict.insert(vm, &64usize, hash, 77).unwrap();
+                    99
+                })
+                .unwrap();
+            assert_eq!(calls.get(), 1);
+            assert_eq!(value, 77);
+            assert!(64usize.key_eq(vm, &key).unwrap());
+            assert_eq!(dict.get(vm, &64usize, hash).unwrap(), Some(77));
+            assert_eq!(dict.len(), 17);
+            assert_table_invariants(&dict);
+        });
+    }
+
+    #[test]
+    fn insertion_preparation_keeps_unchanged_comparison() {
+        struct CountedKey {
+            key: PyObjectRef,
+            comparisons: core::cell::Cell<usize>,
+            preparations: core::cell::Cell<usize>,
+        }
+        impl DictKey for CountedKey {
+            type Owned = PyObjectRef;
+            fn _to_owned(&self, _vm: &VirtualMachine) -> PyObjectRef {
+                self.preparations.set(self.preparations.get() + 1);
+                self.key.clone()
+            }
+            fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+                self.key.key_hash(vm)
+            }
+            fn key_is(&self, other: &PyObject) -> bool {
+                self.key.is(other)
+            }
+            fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
+                self.comparisons.set(self.comparisons.get() + 1);
+                self.key.key_eq(vm, other)
+            }
+            fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+                self.key.key_as_isize(vm)
+            }
+        }
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            // Exact native integers with equal hashes, without Python callbacks.
+            for use_default in [false, true] {
+                let dict = Dict::default();
+                let first: PyObjectRef = vm.ctx.new_int(0).into();
+                let key = CountedKey {
+                    key: vm.ctx.new_int(hash::MODULUS).into(),
+                    comparisons: core::cell::Cell::new(0),
+                    preparations: core::cell::Cell::new(0),
+                };
+                let hash = hash_key(vm, &key);
+                assert_eq!(hash_key(vm, &*first), hash);
+                dict.insert(vm, &*first, hash, 1).unwrap();
+                if use_default {
+                    assert_eq!(dict.setdefault(vm, &key, hash, || 2).unwrap(), 2);
+                } else {
+                    dict.insert(vm, &key, hash, 2).unwrap();
+                }
+                assert_eq!(key.comparisons.get(), 1);
+                assert_eq!(key.preparations.get(), 1);
+                assert_eq!(dict.len(), 2);
+                assert_table_invariants(&dict);
+            }
+        });
+    }
+
+    #[test]
+    fn insertion_preparation_revalidates_same_size_vacancy() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let initial_buckets = dict.read().indices.len();
+            let hash = hash_key(vm, &8usize);
+            let calls = core::cell::Cell::new(0);
+            // A winner occupies the saved terminal FREE without resizing.
+            assert_eq!(
+                dict.setdefault(vm, &8usize, hash, || {
+                    calls.set(calls.get() + 1);
+                    dict.insert(vm, &8usize, hash, 77).unwrap();
+                    99
+                })
+                .unwrap(),
+                77
+            );
+            assert_eq!(calls.get(), 1);
+            assert_eq!(dict.len(), 1);
+            assert_eq!(dict.read().indices.len(), initial_buckets);
+            assert_table_invariants(&dict);
+
+            let dict = Dict::default();
+            dict.insert(vm, &0usize, hash_key(vm, &0usize), 0).unwrap();
+            dict.delete(vm, &0usize, hash_key(vm, &0usize)).unwrap();
+            assert_eq!(dict.read().indices[0], IndexEntry::DUMMY);
+            // Preparation consumes the saved first DUMMY, but not the terminal
+            // FREE at bucket 1. Both keys must survive the resulting re-probe.
+            assert_eq!(
+                dict.setdefault(vm, &8usize, hash, || {
+                    dict.insert(vm, &16usize, hash_key(vm, &16usize), 16)
+                        .unwrap();
+                    8
+                })
+                .unwrap(),
+                8
+            );
+            assert_eq!(dict.read().indices.len(), initial_buckets);
+            assert_eq!(
+                dict.get(vm, &16usize, hash_key(vm, &16usize)).unwrap(),
+                Some(16)
+            );
+            assert_eq!(dict.get(vm, &8usize, hash).unwrap(), Some(8));
+            assert_eq!(dict.len(), 2);
+            assert_table_invariants(&dict);
+        });
+    }
+
+    #[test]
+    fn move_to_end_preserves_values_and_invalidates_layout() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let keys = [
+                vm.ctx.intern_str("first"),
+                vm.ctx.intern_str("middle"),
+                vm.ctx.intern_str("last"),
+            ];
+            for (value, key) in keys.iter().enumerate() {
+                dict.insert(vm, *key, hash_key(vm, *key), value).unwrap();
+            }
+            let hint = dict
+                .hint_for_key(vm, keys[1], hash_key(vm, keys[1]))
+                .unwrap()
+                .unwrap() as usize;
+            let version = dict.assign_keys_version();
+            let size = dict.size();
+            assert_ne!(version, 0);
+            assert_eq!(
+                dict.move_to_end(vm, keys[1], hash_key(vm, keys[1]))
+                    .unwrap(),
+                Some(1)
+            );
+            assert_eq!(dict.values(), vec![0, 2, 1]);
+            assert_eq!(dict.keys_version(), 0);
+            assert_eq!(dict.get_index_if_keys_version(version, hint), None);
+            assert_eq!(dict.get_hint(vm, keys[1], hint).unwrap(), None);
+            assert!(dict.next_entry_checked(0, &size, |_, v| *v).is_err());
+            assert!(
+                dict.prev_entry_checked(size.entries_size - 1, &size, |_, v| *v)
+                    .is_err()
+            );
+
+            let version = dict.assign_keys_version();
+            let size = dict.size();
+            assert_eq!(
+                dict.move_to_end(vm, keys[1], hash_key(vm, keys[1]))
+                    .unwrap(),
+                Some(1)
+            );
+            assert_eq!(dict.keys_version(), version);
+            assert_eq!(dict.size(), size);
+            assert_eq!(
+                dict.move_to_end(vm, "absent", hash_key(vm, "absent"))
+                    .unwrap(),
+                None
+            );
+            assert_eq!(dict.keys_version(), version);
+            assert_eq!(dict.size(), size);
+            assert_eq!(dict.values(), vec![0, 2, 1]);
+        });
+    }
+
+    #[test]
+    fn move_to_end_compacts_and_keeps_indices_consistent() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for count in [2, 3, 32] {
+                let dict = Dict::default();
+                for key in 0..count {
+                    dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
+                }
+                for step in 0..1024 {
+                    let key = step % count;
+                    let size = dict.size();
+                    let hint = dict
+                        .hint_for_key(vm, &key, hash_key(vm, &key))
+                        .unwrap()
+                        .unwrap() as usize;
+                    let version = dict.assign_keys_version();
+                    assert_eq!(
+                        dict.move_to_end(vm, &key, hash_key(vm, &key)).unwrap(),
+                        Some(key)
+                    );
+                    assert_eq!(dict.get_index_if_keys_version(version, hint), None);
+                    assert!(dict.next_entry_checked(0, &size, |_, v| *v).is_err());
+                    assert!(
+                        dict.prev_entry_checked(size.entries_size - 1, &size, |_, v| *v)
+                            .is_err()
+                    );
+                    let inner = dict.read();
+                    assert_eq!(inner.used, count);
+                    assert_eq!(inner.filled, count);
+                    assert!(inner.entries.len() < 2 * count);
+                    assert!(inner.entries.capacity() <= 4 * count);
+                    let values: Vec<_> = inner.entries.iter().flatten().map(|e| e.value).collect();
+                    assert_eq!(
+                        values,
+                        (1..=count).map(|i| (key + i) % count).collect::<Vec<_>>()
+                    );
+                    for (index, entry) in inner.entries.iter().enumerate() {
+                        if let Some(entry) = entry {
+                            assert_eq!(inner.indices[entry.index].index(), Some(index));
+                            assert_eq!(entry.hash, entry.value.key_hash(vm).unwrap());
+                        }
+                    }
+                    for (bucket, index) in inner.indices.iter().enumerate() {
+                        if let Some(index) = index.index() {
+                            assert_eq!(inner.entries[index].as_ref().unwrap().index, bucket);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn move_to_end_restores_only_matching_shared_shapes() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let first = vm.ctx.intern_str("move_first");
+            let last = vm.ctx.intern_str("move_last");
+            let dict = Dict::default();
+            let peer = Dict::default();
+            for table in [&dict, &peer] {
+                table.insert(vm, first, hash_key(vm, first), 1).unwrap();
+                table.insert(vm, last, hash_key(vm, last), 2).unwrap();
+            }
+            let version = dict.assign_keys_version();
+            assert_eq!(peer.assign_keys_version(), version);
+            dict.move_to_end(vm, first, hash_key(vm, first)).unwrap();
+            assert_ne!(dict.assign_keys_version(), version);
+            dict.move_to_end(vm, last, hash_key(vm, last)).unwrap();
+            // The second move compacts back to the original hole-free layout.
+            assert_eq!(dict.assign_keys_version(), version);
+            assert_eq!(dict.get_index_if_keys_version(version, 0), Some(1));
+            assert_eq!(dict.get_index_if_keys_version(version, 1), Some(2));
+        });
+    }
+
+    #[test]
+    fn clone_compacts_deleted_entries() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            for key in 0..128usize {
+                dict.insert(vm, &key, hash_key(vm, &key), key).unwrap();
+            }
+            for key in 0..120usize {
+                dict.delete(vm, &key, hash_key(vm, &key)).unwrap();
+            }
+            let version = dict.assign_keys_version();
+            let copied = dict.clone();
+            assert_eq!(copied.keys_version(), 0);
+            assert_eq!(dict.keys_version(), version);
+            {
+                let source = dict.read();
+                let result = copied.read();
+                assert_eq!(source.entries.len(), 128);
+                assert_eq!(result.entries.len(), result.used);
+                assert!(result.indices.len() < source.indices.len());
+                assert!(result.entries.capacity() < source.entries.capacity());
+                assert_eq!(result.filled, result.used);
+            }
+            assert_eq!(copied.values(), (120..128).collect::<Vec<_>>());
+            for key in 120..128usize {
+                assert_eq!(copied.get(vm, &key, hash_key(vm, &key)).unwrap(), Some(key));
+            }
+            copied
+                .insert(vm, &0usize, hash_key(vm, &0usize), 0)
+                .unwrap();
+            assert!(!dict.contains(vm, &0usize, hash_key(vm, &0usize)).unwrap());
+        });
+    }
+
+    #[test]
+    fn clone_shrinks_indices_after_pop_back() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            for key in 0..128usize {
+                dict.insert(vm, &key, hash_key(vm, &key), ()).unwrap();
+            }
+            for _ in 0..124 {
+                dict.pop_back().unwrap();
+            }
+            let copied = dict.clone();
+            assert_eq!(copied.len(), 4);
+            assert!(copied.read().indices.len() < dict.read().indices.len());
+            for key in 0..4usize {
+                assert!(copied.contains(vm, &key, hash_key(vm, &key)).unwrap());
+                dict.delete(vm, &key, hash_key(vm, &key)).unwrap();
+            }
+            let empty = dict.clone();
+            assert_eq!(dict.len(), 0);
+            assert_eq!(empty.len(), 0);
+            assert_eq!(
+                empty.read().indices.len(),
+                Dict::<()>::default().read().indices.len()
+            );
+            assert_eq!(empty.read().entries.capacity(), 0);
+        });
+    }
+
+    #[test]
+    fn module_attr_cache_rejects_mixed_entries_and_unsafe_layouts() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let name = vm.ctx.intern_str("target");
+            let padding = vm.ctx.intern_str("padding");
+            let first: Dict<i32> = Dict::default();
+            let second: Dict<i32> = Dict::default();
+            first.insert(vm, name, hash_key(vm, name), 10).unwrap();
+            first
+                .insert(vm, padding, hash_key(vm, padding), 20)
+                .unwrap();
+            second
+                .insert(vm, padding, hash_key(vm, padding), 30)
+                .unwrap();
+            second.insert(vm, name, hash_key(vm, name), 40).unwrap();
+            let (first_version, first_index) = first.module_attr_cache(name, vm).unwrap();
+            let (second_version, second_index) = second.module_attr_cache(name, vm).unwrap();
+            assert_ne!(first_version, second_version);
+            assert_ne!(first_index, second_index);
+            assert_eq!(
+                first.get_cached_module_attr(name, first_version as usize, first_index.into(), vm),
+                Some(10)
+            );
+            // These pairs model cache fields published by different writers.
+            assert_eq!(
+                first.get_cached_module_attr(name, first_version as usize, second_index.into(), vm),
+                None
+            );
+            assert_eq!(
+                second.get_cached_module_attr(
+                    name,
+                    second_version as usize,
+                    first_index.into(),
+                    vm
+                ),
+                None
+            );
+
+            let foreign_key: PyObjectRef = vm.ctx.new_int(7).into();
+            first
+                .insert(vm, &*foreign_key, hash_key(vm, &*foreign_key), 50)
+                .unwrap();
+            assert!(first.module_attr_cache(name, vm).is_none());
+            assert_eq!(
+                first.get_cached_module_attr(name, first_version as usize, first_index.into(), vm),
+                None
+            );
+            first
+                .delete(vm, &*foreign_key, hash_key(vm, &*foreign_key))
+                .unwrap();
+            first
+                .insert(
+                    vm,
+                    vm.ctx.intern_str("__getattr__"),
+                    hash_key(vm, vm.ctx.intern_str("__getattr__")),
+                    60,
+                )
+                .unwrap();
+            assert!(first.module_attr_cache(name, vm).is_none());
+
+            let noninterned: Dict<i32> = Dict::default();
+            noninterned
+                .insert(
+                    vm,
+                    &*vm.ctx.new_str("target"),
+                    hash_key(vm, &*vm.ctx.new_str("target")),
+                    70,
+                )
+                .unwrap();
+            let (version, index) = noninterned.module_attr_cache(name, vm).unwrap();
+            assert_eq!(
+                noninterned.get_cached_module_attr(name, version as usize, index.into(), vm),
+                Some(70)
+            );
+        });
+    }
+
     #[test]
     fn insert_basic() {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -1684,29 +2548,76 @@ mod tests {
 
             let key1 = vm.new_pyobj(true);
             let value1 = vm.new_pyobj(ascii!("abc"));
-            dict.insert(vm, &*key1, value1).unwrap();
+            dict.insert(vm, &*key1, hash_key(vm, &*key1), value1)
+                .unwrap();
             assert_eq!(1, dict.len());
 
             let key2 = vm.new_pyobj(ascii!("x"));
             let value2 = vm.new_pyobj(ascii!("def"));
-            dict.insert(vm, &*key2, value2.clone()).unwrap();
+            dict.insert(vm, &*key2, hash_key(vm, &*key2), value2.clone())
+                .unwrap();
             assert_eq!(2, dict.len());
 
-            dict.insert(vm, &*key1, value2.clone()).unwrap();
+            dict.insert(vm, &*key1, hash_key(vm, &*key1), value2.clone())
+                .unwrap();
             assert_eq!(2, dict.len());
 
-            dict.delete(vm, &*key1).unwrap();
+            dict.delete(vm, &*key1, hash_key(vm, &*key1)).unwrap();
             assert_eq!(1, dict.len());
 
-            dict.insert(vm, &*key1, value2.clone()).unwrap();
+            dict.insert(vm, &*key1, hash_key(vm, &*key1), value2.clone())
+                .unwrap();
             assert_eq!(2, dict.len());
 
-            assert!(dict.contains(vm, &*key1).unwrap());
-            assert!(dict.contains(vm, "x").unwrap());
+            assert!(dict.contains(vm, &*key1, hash_key(vm, &*key1)).unwrap());
+            assert!(dict.contains(vm, "x", hash_key(vm, "x")).unwrap());
 
-            let val = dict.get(vm, "x").unwrap().unwrap();
+            let val = dict.get(vm, "x", hash_key(vm, "x")).unwrap().unwrap();
             vm.bool_eq(&val, &value2)
                 .expect("retrieved value must be equal to inserted value.");
+        })
+    }
+
+    #[test]
+    fn reserve_empty_avoids_growth() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            dict.reserve_for_empty(usize::MAX);
+            assert_eq!(dict.read().indices.len(), 8);
+            assert_eq!(dict.read().entries.capacity(), 0);
+
+            let version = dict.assign_keys_version();
+            let count = 1000;
+            dict.reserve_for_empty(count);
+            assert_eq!(dict.keys_version(), version);
+            let capacity = {
+                let inner = dict.read();
+                (inner.indices.len(), inner.entries.capacity())
+            };
+            for key in 0..count {
+                dict.insert(vm, &key, hash_key(vm, &key), vm.ctx.none())
+                    .unwrap();
+                let inner = dict.read();
+                assert_eq!((inner.indices.len(), inner.entries.capacity()), capacity);
+            }
+            assert_eq!(dict.len(), count);
+            assert!(
+                dict.contains(vm, &(count - 1), hash_key(vm, &(count - 1)))
+                    .unwrap()
+            );
+
+            // Existing and tombstoned layouts are left intact.
+            dict.reserve_for_empty(count * 4);
+            {
+                let inner = dict.read();
+                assert_eq!((inner.indices.len(), inner.entries.capacity()), capacity);
+            }
+            for key in 0..count {
+                dict.delete(vm, &key, hash_key(vm, &key)).unwrap();
+            }
+            let old_size = dict.read().size();
+            dict.reserve_for_empty(count * 4);
+            assert_eq!(dict.read().size(), old_size);
         })
     }
 
@@ -1735,5 +2646,27 @@ mod tests {
             let hash2 = value2.key_hash(vm).expect("Hash should not fail.");
             assert_eq!(hash1, hash2);
         })
+    }
+
+    #[test]
+    fn replace_contents_invalidates_cached_indices() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            dict.insert(vm, &1usize, hash_key(vm, &1usize), ()).unwrap();
+            let old_version = dict.assign_keys_version();
+            assert_ne!(old_version, 0);
+
+            let replacement = Dict::default();
+            replacement
+                .insert(vm, &2usize, hash_key(vm, &2usize), ())
+                .unwrap();
+            assert_ne!(replacement.assign_keys_version(), 0);
+            dict.replace_contents(replacement);
+
+            assert_eq!(dict.keys_version(), 0);
+            assert_eq!(dict.get_index_if_keys_version(old_version, 0), None);
+            assert!(!dict.contains(vm, &1usize, hash_key(vm, &1usize)).unwrap());
+            assert!(dict.contains(vm, &2usize, hash_key(vm, &2usize)).unwrap());
+        });
     }
 }

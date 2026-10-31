@@ -1,0 +1,56 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f():\n    x = False\n    match 0:\n        case 0 | 1 | 2 | 3:\n            x = True\n    return x\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-6:12            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-6:12            MAKE_FUNCTION
+1:0-6:12            STORE_NAME               0 (f)
+1:0-6:12            LOAD_COMMON_CONSTANT     7 (None)
+1:0-6:12            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:8-2:13             LOAD_COMMON_CONSTANT    10 (False)
+2:4-2:5              STORE_FAST               0 (x)
+
+3:10-3:11            LOAD_SMALL_INT           0
+
+4:13-4:14            COPY                     1
+4:13-4:14            LOAD_SMALL_INT           0
+4:13-4:14            COMPARE_OP              88 (bool(==))
+4:13-4:14            POP_JUMP_IF_FALSE        2 (to L1)
+4:13-4:14            NOT_TAKEN
+4:13-4:14            JUMP_FORWARD            27 (to L5)
+4:17-4:18    L1:     COPY                     1
+4:17-4:18            LOAD_SMALL_INT           1
+4:17-4:18            COMPARE_OP              88 (bool(==))
+4:17-4:18            POP_JUMP_IF_FALSE        2 (to L2)
+4:17-4:18            NOT_TAKEN
+4:17-4:18            JUMP_FORWARD            19 (to L5)
+4:21-4:22    L2:     COPY                     1
+4:21-4:22            LOAD_SMALL_INT           2
+4:21-4:22            COMPARE_OP              88 (bool(==))
+4:21-4:22            POP_JUMP_IF_FALSE        2 (to L3)
+4:21-4:22            NOT_TAKEN
+4:21-4:22            JUMP_FORWARD            11 (to L5)
+4:25-4:26    L3:     COPY                     1
+4:25-4:26            LOAD_SMALL_INT           3
+4:25-4:26            COMPARE_OP              88 (bool(==))
+4:25-4:26            POP_JUMP_IF_FALSE        2 (to L4)
+4:25-4:26            NOT_TAKEN
+4:25-4:26            JUMP_FORWARD             3 (to L5)
+4:13-4:26    L4:     POP_TOP
+
+6:11-6:12            LOAD_FAST_BORROW         0 (x)
+6:4-6:12             RETURN_VALUE
+
+4:13-4:26    L5:     POP_TOP
+
+5:16-5:20            LOAD_COMMON_CONSTANT     9 (True)
+5:12-5:13            STORE_FAST               0 (x)
+
+6:11-6:12            LOAD_FAST_BORROW         0 (x)
+6:4-6:12             RETURN_VALUE

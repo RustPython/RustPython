@@ -60,6 +60,7 @@ powf
 powi
 prepended
 punct
+qself
 replacen
 retag
 rmatch
@@ -82,6 +83,8 @@ trai
 ulonglong
 unic
 unistd
+unparked
+unparking
 unraw
 unsync
 wasip1

@@ -8,6 +8,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub struct CodegenError {
     pub location: Option<SourceLocation>,
+    pub end_location: Option<SourceLocation>,
     #[source]
     pub error: CodegenErrorType,
     pub source_path: String,
@@ -28,6 +29,7 @@ pub enum InternalError {
     InvalidStackEffect,
     MalformedControlFlowGraph,
     MissingSymbol(String),
+    ConstIndexOutOfRange { index: usize, len: usize },
 }
 
 impl Display for InternalError {
@@ -41,6 +43,12 @@ impl Display for InternalError {
                 f,
                 "The symbol '{s}' must be present in the symbol table, even when it is undefined in python."
             ),
+            Self::ConstIndexOutOfRange { index, len } => {
+                write!(
+                    f,
+                    "LOAD_CONST index {index} is out of range for consts (len={len})"
+                )
+            }
         }
     }
 }
@@ -76,6 +84,9 @@ pub enum CodegenErrorType {
     InvalidFutureFeature(String),
     InvalidFutureBraces,
     RecursionError,
+    AstLocation(rustpython_compiler_core::AstLocationError),
+    /// A partial internal AST location map reached a span operation.
+    MixedAstLocationProvenance,
     TooManyStarUnpack,
     TooManyExpressionsInStarUnpackingSequencePattern,
     EmptyWithItems,
@@ -95,6 +106,20 @@ impl core::error::Error for CodegenErrorType {}
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MixedAstLocationProvenance => {
+                write!(f, "mixed AST location provenance")
+            }
+            Self::AstLocation(error) => match error {
+                rustpython_compiler_core::AstLocationError::ExhaustedNodeIdentities => {
+                    write!(f, "too many AST location identities")
+                }
+                rustpython_compiler_core::AstLocationError::ConflictingLocation => {
+                    write!(f, "conflicting AST location identity")
+                }
+                rustpython_compiler_core::AstLocationError::CoordinateOverflow => {
+                    write!(f, "AST location coordinate overflow")
+                }
+            },
             Self::Assign(target) => write!(f, "cannot assign to {target}"),
             Self::Delete(target) => write!(f, "cannot delete {target}"),
             Self::SyntaxError(err) => write!(f, "{}", err.as_str()),

@@ -146,13 +146,13 @@ impl Wtf8Index {
         };
         let mut index = group_min << 6;
         let mut pos = base;
-        for entry in 0..entries {
-            let at = base + self.groups[group_min].ofs[entry] as usize;
+        for (i, &entry) in self.groups[group_min].ofs.iter().enumerate().take(entries) {
+            let at = base + entry as usize;
             if at >= bytepos {
                 break;
             }
             pos = at;
-            index = (group_min << 6) + (entry << 2) + 1;
+            index = (group_min << 6) + (i << 2) + 1;
         }
         while pos < bytepos {
             pos = next_pos(data, pos);

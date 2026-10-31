@@ -4,17 +4,18 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "marshal")]
 mod decl {
     use crate::builtins::code::{CodeObject, Literal, PyVmBag};
+    use crate::builtins::dict::DictIter;
     use crate::class::StaticType;
     use crate::common::wtf8::Wtf8;
     use crate::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict,
-            PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr,
-            PyTuple,
+            PyAnyDict, PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict,
+            PyEllipsis, PyFloat, PyFrozenDict, PyFrozenSet, PyInt, PyList, PyMemoryView, PyNone,
+            PySet, PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
-        function::{ArgBytesLike, OptionalArg},
+        function::{ArgBytesLike, ArgIntoBool},
         object::{AsObject, PyPayload},
     };
     use core::cell::RefCell;
@@ -53,7 +54,7 @@ mod decl {
                     f(DumpableValue::Float(pyfloat.to_f64()))
                 }
                 ref pycomplex @ PyComplex => {
-                    f(DumpableValue::Complex(pycomplex.to_complex64()))
+                    f(DumpableValue::Complex(pycomplex.as_complex()))
                 }
                 ref pystr @ PyStr => {
                     f(DumpableValue::Str(pystr.as_wtf8()))
@@ -76,6 +77,10 @@ mod decl {
                     let entries = pydict.into_iter().collect::<Vec<_>>();
                     f(DumpableValue::Dict(&entries))
                 }
+                ref pyfrozen @ PyFrozenDict => {
+                    let entries = DictIter::new(&pyfrozen.dict).collect::<Vec<_>>();
+                    f(DumpableValue::Frozendict(&entries))
+                }
                 ref bytes @ PyBytes => {
                     f(DumpableValue::Bytes(bytes.as_bytes()))
                 }
@@ -93,11 +98,12 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpsArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(positional, default = 6)]
+        version: i32,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -105,16 +111,11 @@ mod decl {
         let DumpsArgs {
             value,
             allow_code,
-            _version,
+            version,
         } = args;
-        let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
+        let allow_code = allow_code.into();
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call(
-                (vm.ctx.new_str("marshal.dumps"), value.clone(), version),
-                vm,
-            )?;
-        }
+        vm.audit("marshal.dumps", || (value.clone(), version))?;
 
         check_exact_type(&value, vm)?;
         let mut buf = Vec::new();
@@ -129,6 +130,8 @@ mod decl {
 
     struct WriterRefEntry {
         idx: u32,
+        // The table holds a reference, as w_ref does, so the id stays unique.
+        _owner: PyObjectRef,
         /// Set between `reserve` and `complete` for the object kinds whose
         /// immutable representation cannot be rebuilt from a back-reference.
         incomplete: bool,
@@ -149,7 +152,7 @@ mod decl {
         /// `w_ref`: write a back-reference to an object already in the table.
         /// Reaching an entry that is still being written is a recursion the
         /// reader could not rebuild, so it is an error rather than a `TYPE_REF`.
-        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObjectRef) -> Result<bool, ()> {
+        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObject) -> Result<bool, ()> {
             use marshal::Write;
             let Some(entry) = self.map.get(&obj.get_id()) else {
                 return Ok(false);
@@ -161,16 +164,22 @@ mod decl {
             buf.write_u32(entry.idx);
             Ok(true)
         }
-        fn reserve(&mut self, obj: &PyObjectRef, incomplete: bool) -> u32 {
+        fn reserve(&mut self, obj: &PyObject, incomplete: bool) -> u32 {
             let idx = self.next_idx;
-            self.map
-                .insert(obj.get_id(), WriterRefEntry { idx, incomplete });
+            self.map.insert(
+                obj.get_id(),
+                WriterRefEntry {
+                    idx,
+                    incomplete,
+                    _owner: obj.to_owned(),
+                },
+            );
             self.next_idx += 1;
             idx
         }
         /// `w_complete`: the object's contents are on the stream, so a later
         /// occurrence may reference it.
-        fn complete(&mut self, obj: &PyObjectRef) {
+        fn complete(&mut self, obj: &PyObject) {
             if let Some(entry) = self.map.get_mut(&obj.get_id()) {
                 entry.incomplete = false;
             }
@@ -179,7 +188,7 @@ mod decl {
 
     fn write_object(
         buf: &mut Vec<u8>,
-        obj: &PyObjectRef,
+        obj: &PyObject,
         refs: &mut Option<WriterRefTable>,
         version: i32,
         allow_code: bool,
@@ -196,9 +205,31 @@ mod decl {
         )
     }
 
+    /// Write a float the way the pre-binary formats carry one: seventeen
+    /// significant digits, prefixed with their length.
+    fn write_float_str(buf: &mut Vec<u8>, value: f64) {
+        use marshal::Write;
+        let digits = rustpython_literal::float::format_general(
+            17,
+            value.abs(),
+            rustpython_literal::format::Case::Lower,
+            false,
+            false,
+        );
+        // A nan carries no sign of its own.
+        let sign = if value.is_sign_negative() && !value.is_nan() {
+            "-"
+        } else {
+            ""
+        };
+        buf.write_u8((sign.len() + digits.len()) as u8);
+        buf.write_slice(sign.as_bytes());
+        buf.write_slice(digits.as_bytes());
+    }
+
     fn write_object_depth(
         buf: &mut Vec<u8>,
-        obj: &PyObjectRef,
+        obj: &PyObject,
         refs: &mut Option<WriterRefTable>,
         version: i32,
         allow_code: bool,
@@ -216,8 +247,14 @@ mod decl {
             || obj.is(PyStopIteration::static_type())
             || obj.downcast_ref::<crate::builtins::PyEllipsis>().is_some();
 
-        // FLAG_REF: check if already written, otherwise reserve slot
-        if !is_singleton && let Some(rt) = refs.as_mut() {
+        // If it has only one reference, it definitely isn't shared. But
+        // TYPE_REF is always used for interned strings, to keep PYC files as
+        // stable as possible.
+        let use_ref = refs.is_some()
+            && !is_singleton
+            && (obj.strong_count() != 1
+                || (obj.class().is(PyStr::static_type()) && obj.is_interned()));
+        if use_ref && let Some(rt) = refs.as_mut() {
             match rt.try_ref(buf, obj) {
                 Ok(true) => return Ok(()),
                 Ok(false) => {}
@@ -230,13 +267,13 @@ mod decl {
             }
         }
         let type_pos = buf.len();
-        let use_ref = refs.is_some() && !is_singleton;
-        // A code or slice entry stays incomplete until its contents are
-        // written: the reader rebuilds both from their fields, so a
+        // A code, slice or frozendict entry stays incomplete until its contents are
+        // written: the reader rebuilds them from their fields, so a
         // back-reference issued while those fields are still being emitted
         // would name an object that does not exist yet.
         let requires_completion = obj.downcast_ref::<PyCode>().is_some()
-            || obj.downcast_ref::<crate::builtins::PySlice>().is_some();
+            || obj.downcast_ref::<crate::builtins::PySlice>().is_some()
+            || obj.downcast_ref::<PyFrozenDict>().is_some();
         if use_ref {
             refs.as_mut().unwrap().reserve(obj, requires_completion);
         }
@@ -290,19 +327,39 @@ mod decl {
                 }
             }
         } else if let Some(f) = obj.downcast_ref::<PyFloat>() {
-            buf.write_u8(b'g');
-            buf.write_u64(f.to_f64().to_bits());
+            if version > 1 {
+                buf.write_u8(b'g');
+                buf.write_u64(f.to_f64().to_bits());
+            } else {
+                buf.write_u8(b'f');
+                write_float_str(buf, f.to_f64());
+            }
         } else if let Some(c) = obj.downcast_ref::<PyComplex>() {
-            buf.write_u8(b'y');
-            let cv = c.to_complex64();
-            buf.write_u64(cv.re.to_bits());
-            buf.write_u64(cv.im.to_bits());
-        } else if let Some(s) = obj.downcast_ref::<PyStr>() {
+            let cv = c.as_complex();
+            if version > 1 {
+                buf.write_u8(b'y');
+                buf.write_u64(cv.re.to_bits());
+                buf.write_u64(cv.im.to_bits());
+            } else {
+                buf.write_u8(b'x');
+                write_float_str(buf, cv.re);
+                write_float_str(buf, cv.im);
+            }
+        } else if let Some(s) = obj.downcast_ref::<PyStr>()
+            && obj.class().is(PyStr::static_type())
+        {
             let bytes = s.as_wtf8().as_bytes();
-            let interned = version >= 3;
-            if bytes.len() < 256 && bytes.is_ascii() {
-                buf.write_u8(if interned { b'Z' } else { b'z' });
-                buf.write_u8(bytes.len() as u8);
+            // Only the formats that carry back-references tell an interned
+            // string apart, and only those from 4 on have the ascii-only forms.
+            let interned = version >= 3 && obj.is_interned();
+            if version >= 4 && bytes.is_ascii() {
+                if bytes.len() <= 255 {
+                    buf.write_u8(if interned { b'Z' } else { b'z' });
+                    buf.write_u8(bytes.len() as u8);
+                } else {
+                    buf.write_u8(if interned { b'A' } else { b'a' });
+                    buf.write_u32(bytes.len() as u32);
+                }
             } else {
                 buf.write_u8(if interned { b't' } else { b'u' });
                 buf.write_u32(bytes.len() as u32);
@@ -319,8 +376,14 @@ mod decl {
             buf.write_u32(data.len() as u32);
             buf.write_slice(&data);
         } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
-            buf.write_u8(b'(');
-            buf.write_u32(t.len() as u32);
+            // From 4 on a short tuple carries its length in a single byte.
+            if version >= 4 && t.as_slice().len() < 256 {
+                buf.write_u8(b')');
+                buf.write_u8(t.as_slice().len() as u8);
+            } else {
+                buf.write_u8(b'(');
+                buf.write_u32(t.as_slice().len() as u32);
+            }
             for elem in t.as_slice() {
                 write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
@@ -331,40 +394,62 @@ mod decl {
             for elem in items.iter() {
                 write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
-        } else if let Some(d) = obj.downcast_ref::<PyDict>() {
-            buf.write_u8(b'{');
-            for (k, v) in d {
+        } else if let Some(d) = PyAnyDict::from_object(obj) {
+            let typ = if d.is_frozen() {
+                if version < 6 || !obj.class().is(vm.ctx.types.frozendict_type) {
+                    return Err(vm.new_value_error("unmarshallable object"));
+                }
+                b'}'
+            } else {
+                b'{'
+            };
+            buf.write_u8(typ);
+            for (k, v) in DictIter::new(d.as_dict()) {
                 write_object_depth(buf, &k, refs, version, allow_code, vm, depth - 1)?;
                 write_object_depth(buf, &v, refs, version, allow_code, vm, depth - 1)?;
             }
             buf.write_u8(b'0'); // TYPE_NULL terminator
         } else if let Some(s) = obj.downcast_ref::<PySet>() {
             buf.write_u8(b'<');
-            let elems = s.elements();
-            buf.write_u32(elems.len() as u32);
-            for elem in &elems {
-                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
-            }
+            write_set_elements(buf, &s.elements(), refs, version, allow_code, vm, depth)?;
         } else if let Some(s) = obj.downcast_ref::<PyFrozenSet>() {
             buf.write_u8(b'>');
-            let elems = s.elements();
-            buf.write_u32(elems.len() as u32);
-            for elem in &elems {
-                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
-            }
+            write_set_elements(buf, &s.elements(), refs, version, allow_code, vm, depth)?;
         } else if let Some(co) = obj.downcast_ref::<PyCode>() {
             if !allow_code {
                 return Err(vm.new_value_error("marshalling code objects is disallowed"));
             }
             buf.write_u8(b'c');
-            // `Literal` holds the exact object a constant was built from, so
-            // route `co_consts` back through the object writer: it reaches the
-            // values `BorrowedConstant` cannot describe and shares the one
-            // reference table the reader indexes against.
-            marshal::serialize_code_with(buf, &co.code, |buf, constant| {
-                let constant = PyObjectRef::from(constant.clone());
-                write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
-            })?;
+            let code = &co.code;
+            for value in [
+                code.arg_count,
+                code.posonlyarg_count,
+                code.kwonlyarg_count,
+                code.max_stackdepth,
+                code.flags.bits(),
+            ] {
+                buf.write_u32(value);
+            }
+            let co_code = co.get_code(vm);
+            let co_qualname = co.co_qualname();
+            let mut write_field = |buf: &mut Vec<u8>, field: &PyObject| {
+                write_object_depth(buf, field, refs, version, allow_code, vm, depth - 1)
+            };
+            for field in [
+                co_code.as_object(),
+                co.co_consts().as_object(),
+                co.co_names.as_object(),
+                co.co_localsplusnames.as_object(),
+                co.co_localspluskinds.as_object(),
+                co.source_path().as_object(),
+                co.co_name.as_object(),
+                co_qualname.as_object(),
+            ] {
+                write_field(buf, field)?;
+            }
+            buf.write_u32(code.first_line_number.map_or(0, |n| n.get() as u32));
+            write_field(buf, co.co_linetable.as_object())?;
+            write_field(buf, co.co_exceptiontable.as_object())?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
                 return Err(vm.new_value_error("unmarshallable object"));
@@ -390,7 +475,7 @@ mod decl {
                 vm,
                 depth - 1,
             )?;
-        } else if let Ok(bytes_like) = ArgBytesLike::try_from_object(vm, obj.clone()) {
+        } else if let Ok(bytes_like) = ArgBytesLike::try_from_object(vm, obj.to_owned()) {
             buf.write_u8(b's');
             let data = bytes_like.borrow_buf();
             buf.write_u32(data.len() as u32);
@@ -408,28 +493,55 @@ mod decl {
         Ok(())
     }
 
+    /// Serialize set elements in `sorted(v, key=marshal.dumps)` order.
+    fn write_set_elements(
+        buf: &mut Vec<u8>,
+        elems: &[PyObjectRef],
+        refs: &mut Option<WriterRefTable>,
+        version: i32,
+        allow_code: bool,
+        vm: &VirtualMachine,
+        depth: usize,
+    ) -> PyResult<()> {
+        use marshal::Write;
+        buf.write_u32(elems.len() as u32);
+        let mut pairs = Vec::with_capacity(elems.len());
+        for elem in elems {
+            let mut dumped = Vec::new();
+            let mut inner_refs = (version >= 3).then(WriterRefTable::new);
+            write_object(&mut dumped, elem, &mut inner_refs, version, allow_code, vm)?;
+            pairs.push((dumped, elem.clone()));
+        }
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, elem) in &pairs {
+            write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
+        }
+        Ok(())
+    }
+
     #[derive(FromArgs)]
     struct DumpArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        f: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(positional)]
+        file: PyObjectRef,
+        #[pyarg(positional, default = 6)]
+        version: i32,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
-    fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let dumped = dumps(
             DumpsArgs {
                 value: args.value,
-                _version: args._version,
+                version: args.version,
                 allow_code: args.allow_code,
             },
             vm,
         )?;
-        vm.call_method(&args.f, "write", (dumped,))?;
-        Ok(())
+        vm.call_method(&args.file, "write", (dumped,))
     }
 
     #[derive(Copy, Clone)]
@@ -463,7 +575,7 @@ mod decl {
             let mut elements = Vec::new();
             elements
                 .try_reserve_exact(len)
-                .map_err(|_| self.remember_python_error(self.vm.new_memory_error("")))?;
+                .map_err(|_| self.remember_python_error(self.vm.no_memory_error()))?;
             elements.resize(len, self.vm.ctx.none());
             Ok(elements)
         }
@@ -529,17 +641,23 @@ mod decl {
                 .ok_or(marshal::MarshalError::BadType)?;
             // SAFETY: compiler-core calls this only on a fresh placeholder,
             // once per index, before returning it to Python code.
-            unsafe { tuple.set_marshal_item(index, value) };
+            unsafe { tuple.payload.set_marshal_item(index, value) };
             Ok(())
         }
-        fn make_code(&self, code: CodeObject) -> Result<Self::Value, marshal::MarshalError> {
+        fn make_code(
+            &self,
+            code: CodeObject,
+            fields: marshal::CodeFields<Self::Value>,
+        ) -> Result<Self::Value, marshal::MarshalError> {
             if !self.allow_code {
                 return Err(self.remember_python_error(
                     self.vm
                         .new_value_error("unmarshalling code objects is disallowed"),
                 ));
             }
-            Ok(crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into())
+            let mut code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            code.apply_debug_ranges(self.vm);
+            Ok(code.into_ref(&self.vm.ctx).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.vm.ctx.exceptions.stop_iteration.to_owned().into())
@@ -616,6 +734,12 @@ mod decl {
         fn make_dict_placeholder(&self) -> Option<Self::Value> {
             Some(self.vm.ctx.new_dict().into())
         }
+        fn freeze_dict(&self, source: Self::Value) -> Result<Self::Value, marshal::MarshalError> {
+            let dict = PyDict::default();
+            dict.update_arg(source, true, "frozendict", self.vm)
+                .map_err(|error| self.remember_python_error(error))?;
+            Ok(PyFrozenDict::from_dict(dict).into_ref(&self.vm.ctx).into())
+        }
         fn insert_dict_item(
             &self,
             dict: &Self::Value,
@@ -683,7 +807,11 @@ mod decl {
         match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error, allow_code)) {
             Ok(value) => Ok(value),
             Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
-                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
+                marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
+                marshal::MarshalError::EofObject => {
+                    vm.new_eof_error("EOF read where object expected")
+                }
+                marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
                 error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
                 error @ (marshal::MarshalError::BadSize(_)
                 | marshal::MarshalError::UnknownType
@@ -697,58 +825,129 @@ mod decl {
 
     #[derive(FromArgs)]
     struct LoadsArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
-        data: ArgBytesLike,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        bytes: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let LoadsArgs { data, allow_code } = args;
-        let buf = data.borrow_buf();
+        let LoadsArgs { bytes, allow_code } = args;
+        let allow_code = allow_code.into();
+        vm.audit("marshal.loads", || {
+            (vm.ctx.new_bytes(bytes.borrow_buf().to_vec()),)
+        })?;
+        let buf = bytes.borrow_buf();
 
         deserialize_value(&mut &buf[..], allow_code, vm)
     }
 
     #[derive(FromArgs)]
     struct LoadArgs {
-        f: PyObjectRef,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(positional)]
+        file: PyObjectRef,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // Read from file object into a buffer, one object at a time.
-        // We read all available data, deserialize one object, then seek
-        // back to just after the consumed bytes.
-        let tell_before = vm
-            .call_method(&args.f, "tell", ())?
-            .try_into_value::<i64>(vm)?;
-        let read_res = vm.call_method(&args.f, "read", ())?;
-        let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
-
-        // The borrow ends here: seek() below is the caller's, and reaching the
-        // same buffer from it would deadlock on a borrow still held.
-        let (result, consumed) = {
-            let buf = bytes.borrow_buf();
-            let mut rdr: &[u8] = &buf;
-            let len_before = rdr.len();
-            let result = deserialize_value(&mut rdr, args.allow_code, vm)?;
-            (result, len_before - rdr.len())
+        let data = vm.call_method(&args.file, "read", (0,))?;
+        if data.downcast_ref::<PyBytes>().is_none() {
+            let name = data.class().slot_name();
+            return Err(vm.new_type_error(format!(
+                "file.read() returned not bytes but {}",
+                &name[..name.floor_char_boundary(100.min(name.len()))]
+            )));
+        }
+        vm.audit("marshal.load", || ())?;
+        let mut rdr = ReadableFile {
+            file: args.file,
+            vm,
+            buf: Vec::new(),
+            error: None,
         };
+        let pending_error = RefCell::new(None);
+        let result = marshal::deserialize_value(
+            &mut rdr,
+            PyMarshalBag::new(vm, &pending_error, args.allow_code.into()),
+        );
+        if let Some(err) = rdr.error.take() {
+            return Err(err);
+        }
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
+                marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
+                marshal::MarshalError::EofObject => {
+                    vm.new_eof_error("EOF read where object expected")
+                }
+                marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
+                error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
+                error @ (marshal::MarshalError::BadSize(_)
+                | marshal::MarshalError::UnknownType
+                | marshal::MarshalError::InvalidRef) => {
+                    vm.new_value_error(format!("bad marshal data ({error})"))
+                }
+                _ => vm.new_value_error("bad marshal data"),
+            })),
+        }
+    }
 
-        // Seek file to just after the consumed bytes
-        let new_pos = tell_before + consumed as i64;
-        vm.call_method(&args.f, "seek", (new_pos,))?;
+    /// File-backed marshal reader. `r_string` fills a scratch buffer via
+    /// `readinto` on a contiguous writable memoryview.
+    struct ReadableFile<'a> {
+        file: PyObjectRef,
+        vm: &'a VirtualMachine,
+        buf: Vec<u8>,
+        error: Option<PyBaseExceptionRef>,
+    }
 
-        Ok(result)
+    impl ReadableFile<'_> {
+        fn r_string(&mut self, n: usize) -> PyResult<()> {
+            self.buf.clear();
+            let bytearray = PyByteArray::from(vec![0u8; n]).into_ref(&self.vm.ctx);
+            let memoryview = PyMemoryView::from_object_with_flags(
+                bytearray.as_object(),
+                crate::protocol::BufferFlags::CONTIG,
+                self.vm,
+            )?
+            .into_ref(&self.vm.ctx);
+            let nread_obj = self.vm.call_method(&self.file, "readinto", (memoryview,))?;
+            let nread = nread_obj
+                .try_index(self.vm)?
+                .try_to_primitive::<isize>(self.vm)?;
+            let n_isize = isize::try_from(n).unwrap_or(isize::MAX);
+            if nread != n_isize {
+                if nread > n_isize {
+                    return Err(self.vm.new_value_error(format!(
+                        "read() returned too much data: {n} bytes requested, {nread} returned"
+                    )));
+                }
+                return Err(self.vm.new_eof_error("EOF read where not expected"));
+            }
+            self.buf.extend_from_slice(&bytearray.borrow_buf());
+            Ok(())
+        }
+    }
+
+    impl marshal::Read for ReadableFile<'_> {
+        fn read_slice(&mut self, n: u32) -> Result<&[u8], marshal::MarshalError> {
+            if self.error.is_some() {
+                return Err(marshal::MarshalError::Eof);
+            }
+            if let Err(e) = self.r_string(n as usize) {
+                self.error = Some(e);
+                return Err(marshal::MarshalError::Eof);
+            }
+            Ok(&self.buf)
+        }
     }
 
     /// Reject subclasses of marshallable types (int, float, complex, tuple, etc.).
-    fn check_exact_type(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_exact_type(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let cls = obj.class();
         // bool is a subclass of int but is marshallable
         if cls.is(PyBool::static_type()) {
