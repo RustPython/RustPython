@@ -149,7 +149,11 @@ thread_local! {
     /// drops it while the VM is still current, so object destructors can still find
     /// their VM.
     #[cfg(feature = "threading")]
-    static GILSTATE_VM: RefCell<Option<Box<ThreadedVirtualMachine>>> = const { RefCell::new(None) };
+    static GILSTATE_VM: GilStateVm = const { GilStateVm(RefCell::new(None)) };
+
+    // No destructor: this remains readable while other TLS keys are torn down.
+    // An unmatched GILState attachment cannot run Python from its TLS destructor.
+    static PYTHON_CALLBACKS_DISABLED: Cell<bool> = const { Cell::new(false) };
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
 
@@ -192,6 +196,86 @@ thread_local! {
     static CURRENT_STOP_REQUESTED: Cell<*const core::sync::atomic::AtomicBool> =
         const { Cell::new(core::ptr::null()) };
 
+}
+
+#[cfg(feature = "threading")]
+struct GilStateVm(RefCell<Option<Box<ThreadedVirtualMachine>>>);
+
+#[cfg(feature = "threading")]
+impl core::ops::Deref for GilStateVm {
+    type Target = RefCell<Option<Box<ThreadedVirtualMachine>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(feature = "threading")]
+impl Drop for GilStateVm {
+    fn drop(&mut self) {
+        if let Some(owner) = self.0.get_mut().take() {
+            // Matched release takes the owner before this TLS destructor runs.
+            // This is only defensive cleanup for an unmatched attachment:
+            // arbitrary callback TLS may already have been destroyed.
+            PYTHON_CALLBACKS_DISABLED.with(|disabled| disabled.set(true));
+            drop(owner);
+        }
+    }
+}
+
+fn without_python_callbacks<R>(f: impl FnOnce() -> R) -> R {
+    PYTHON_CALLBACKS_DISABLED.with(|disabled| {
+        let old = disabled.replace(true);
+        scopeguard::defer! { disabled.set(old); }
+        f()
+    })
+}
+
+/// Drop only the asynchronous-exception root, before its owner loses its VM.
+/// Unlike an enter/run scope, this is a terminal operation on the thread state.
+pub(super) fn clear_async_exception_on_owner_drop(vm: &VirtualMachine) {
+    if !vm.async_exception.has_reference() {
+        vm.clear_async_exception();
+        return;
+    }
+    if PYTHON_CALLBACKS_DISABLED.with(Cell::get) {
+        vm.clear_async_exception();
+        return;
+    }
+    #[cfg(feature = "threading")]
+    let can_attach = (!vm.state.finalizing.load(Ordering::Acquire)
+        || crate::stdlib::_thread::get_ident() == vm.state.finalizing_thread_ident.load())
+        && INTERP_THREAD_SLOTS
+            .try_with(|slots| {
+                slots
+                    .borrow()
+                    .get(&vm.state.interpreter_id)
+                    .is_none_or(|slot| {
+                        slot.state.load(Ordering::Acquire) != ThreadState::ShuttingDown as i32
+                    })
+            })
+            .unwrap_or(false);
+    #[cfg(not(feature = "threading"))]
+    let can_attach = true;
+
+    if !can_attach {
+        // Python may no longer execute on this thread. Do not attach and hang,
+        // or route a dead interpreter's finalizers through an enclosing VM.
+        without_python_callbacks(|| vm.clear_async_exception());
+        return;
+    }
+    #[cfg(feature = "threading")]
+    let had_slot =
+        INTERP_THREAD_SLOTS.with(|slots| slots.borrow().contains_key(&vm.state.interpreter_id));
+    enter_vm(vm, || {
+        vm.clear_async_exception();
+        #[cfg(feature = "threading")]
+        if !had_slot {
+            // A drop-only attachment must not leave a newly registered slot.
+            // Existing slots may belong to an enclosing VM and stay untouched.
+            cleanup_current_thread_frames(vm);
+        }
+    });
 }
 
 #[must_use]
@@ -412,6 +496,9 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
     }
 
     let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
+    if let Some(owner) = &gilstate_vm {
+        owner.vm.clear_async_exception();
+    }
     drop(gilstate_vm);
 
     VM_STACK.with(|vms| {
@@ -1360,6 +1447,9 @@ pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
 where
     F: Fn(&VirtualMachine) -> R,
 {
+    if PYTHON_CALLBACKS_DISABLED.with(Cell::get) {
+        return None;
+    }
     let vm_owns_obj = |interp: NonNull<VirtualMachine>| {
         // SAFETY: all references in VM_STACK should be valid
         let vm = unsafe { interp.as_ref() };
@@ -1430,6 +1520,13 @@ where
 #[cfg(feature = "threading")]
 pub struct ThreadedVirtualMachine {
     pub(super) vm: VirtualMachine,
+}
+
+#[cfg(feature = "threading")]
+impl Drop for ThreadedVirtualMachine {
+    fn drop(&mut self) {
+        clear_async_exception_on_owner_drop(&self.vm);
+    }
 }
 
 #[cfg(feature = "threading")]
@@ -1513,11 +1610,18 @@ impl VirtualMachine {
     /// specific guaranteed behavior.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> ThreadedVirtualMachine {
+        ThreadedVirtualMachine {
+            vm: self.new_thread_vm(),
+        }
+    }
+
+    #[cfg(feature = "threading")]
+    pub(super) fn new_thread_vm(&self) -> Self {
         let global_trace = self.state.global_trace_func.lock().clone();
         let global_profile = self.state.global_profile_func.lock().clone();
         let use_tracing = global_trace.is_some() || global_profile.is_some();
 
-        let vm = Self {
+        Self {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
@@ -1555,7 +1659,7 @@ impl VirtualMachine {
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
-        };
-        ThreadedVirtualMachine { vm }
+            async_exception: super::async_exception::PendingAsyncException::default(),
+        }
     }
 }

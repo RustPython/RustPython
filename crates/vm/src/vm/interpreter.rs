@@ -487,6 +487,12 @@ pub struct Interpreter {
     vm: VirtualMachine,
 }
 
+impl Drop for Interpreter {
+    fn drop(&mut self) {
+        thread::clear_async_exception_on_owner_drop(&self.vm);
+    }
+}
+
 impl Interpreter {
     /// Create a new interpreter configuration builder.
     ///
@@ -640,7 +646,7 @@ impl Interpreter {
     #[cfg(feature = "threading")]
     #[must_use]
     pub fn take_main_thread(&mut self) -> Self {
-        let replacement = self.vm.new_thread().vm;
+        let replacement = self.vm.new_thread_vm();
         let vm = core::mem::replace(&mut self.vm, replacement);
         Self {
             global_state: self.global_state.clone(),
@@ -845,6 +851,7 @@ impl VirtualMachine {
         #[cfg(feature = "threading")]
         crate::object::qsbr::QSBR.process();
 
+        vm.clear_async_exception();
         flush_status
     }
 }
