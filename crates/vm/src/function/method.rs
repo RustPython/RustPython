@@ -1,7 +1,7 @@
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, VirtualMachine,
     builtins::{
-        PyType,
+        PyStaticMethod, PyType,
         builtin_func::{PyNativeFunction, PyNativeMethod},
         descriptor::{PyClassMethodDescriptor, PyMethodDescriptor},
     },
@@ -183,7 +183,7 @@ impl PyMethodDef {
         } else if self.flags.contains(PyMethodFlags::CLASS) {
             self.build_classmethod(ctx, class).into()
         } else if self.flags.contains(PyMethodFlags::STATIC) {
-            self.build_staticmethod(ctx, class).into()
+            PyStaticMethod::new_native(self.build_staticmethod(ctx, class), class, ctx).into()
         } else {
             unreachable!()
         }
