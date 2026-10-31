@@ -170,7 +170,9 @@ mod _pyexpat {
         VirtualMachine,
         builtins::{PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption},
+        function::{
+            ArgBytesLike, ArgIndex, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption,
+        },
         types::Constructor,
     };
     use alloc::collections::VecDeque;
@@ -187,7 +189,14 @@ mod _pyexpat {
 
         // Add submodules
         let model = super::_model::module_def(&vm.ctx).create_module(vm)?;
-        let errors = super::_errors::module_def(&vm.ctx).create_module(vm)?;
+        let errors_def = super::_errors::module_def(&vm.ctx);
+        let errors = errors_def.create_module(vm)?;
+        errors_def.exec_module(vm, &errors)?;
+        vm.sys_module.get_attr("modules", vm)?.set_item(
+            "pyexpat.errors",
+            errors.clone().into(),
+            vm,
+        )?;
 
         extend_module!(vm, module, {
             "model" => model,
@@ -195,6 +204,18 @@ mod _pyexpat {
         });
 
         Ok(())
+    }
+
+    #[pyfunction(name = "ErrorString")]
+    fn error_string(code: ArgIndex, vm: &VirtualMachine) -> PyResult<Option<&'static str>> {
+        let code = code
+            .into_int_ref()
+            .try_to_primitive::<core::ffi::c_long>(vm)?;
+        // CPython converts a C long to int before calling XML_ErrorString.
+        let index = (code as core::ffi::c_int).wrapping_sub(1) as usize;
+        Ok(super::_errors::ERRORS
+            .get(index)
+            .map(|(_, message)| *message))
     }
 
     type MutableObject = PyRwLock<PyObjectRef>;
@@ -1914,5 +1935,130 @@ mod _pyexpat {
 #[pymodule(name = "model")]
 mod _model {}
 
-#[pymodule(name = "errors")]
-mod _errors {}
+#[pymodule(name = "pyexpat.errors")]
+mod _errors {
+    use crate::vm::{Py, PyResult, VirtualMachine, builtins::PyModule, extend_module};
+
+    // CPython 3.15 Modules/pyexpat.c error_info_of; code zero has no message.
+    pub(super) const ERRORS: &[(&str, &str)] = &[
+        ("XML_ERROR_NO_MEMORY", "out of memory"),
+        ("XML_ERROR_SYNTAX", "syntax error"),
+        ("XML_ERROR_NO_ELEMENTS", "no element found"),
+        ("XML_ERROR_INVALID_TOKEN", "not well-formed (invalid token)"),
+        ("XML_ERROR_UNCLOSED_TOKEN", "unclosed token"),
+        ("XML_ERROR_PARTIAL_CHAR", "partial character"),
+        ("XML_ERROR_TAG_MISMATCH", "mismatched tag"),
+        ("XML_ERROR_DUPLICATE_ATTRIBUTE", "duplicate attribute"),
+        (
+            "XML_ERROR_JUNK_AFTER_DOC_ELEMENT",
+            "junk after document element",
+        ),
+        (
+            "XML_ERROR_PARAM_ENTITY_REF",
+            "illegal parameter entity reference",
+        ),
+        ("XML_ERROR_UNDEFINED_ENTITY", "undefined entity"),
+        (
+            "XML_ERROR_RECURSIVE_ENTITY_REF",
+            "recursive entity reference",
+        ),
+        ("XML_ERROR_ASYNC_ENTITY", "asynchronous entity"),
+        (
+            "XML_ERROR_BAD_CHAR_REF",
+            "reference to invalid character number",
+        ),
+        ("XML_ERROR_BINARY_ENTITY_REF", "reference to binary entity"),
+        (
+            "XML_ERROR_ATTRIBUTE_EXTERNAL_ENTITY_REF",
+            "reference to external entity in attribute",
+        ),
+        (
+            "XML_ERROR_MISPLACED_XML_PI",
+            "XML or text declaration not at start of entity",
+        ),
+        ("XML_ERROR_UNKNOWN_ENCODING", "unknown encoding"),
+        (
+            "XML_ERROR_INCORRECT_ENCODING",
+            "encoding specified in XML declaration is incorrect",
+        ),
+        ("XML_ERROR_UNCLOSED_CDATA_SECTION", "unclosed CDATA section"),
+        (
+            "XML_ERROR_EXTERNAL_ENTITY_HANDLING",
+            "error in processing external entity reference",
+        ),
+        ("XML_ERROR_NOT_STANDALONE", "document is not standalone"),
+        (
+            "XML_ERROR_UNEXPECTED_STATE",
+            "unexpected parser state - please send a bug report",
+        ),
+        (
+            "XML_ERROR_ENTITY_DECLARED_IN_PE",
+            "entity declared in parameter entity",
+        ),
+        (
+            "XML_ERROR_FEATURE_REQUIRES_XML_DTD",
+            "requested feature requires XML_DTD support in Expat",
+        ),
+        (
+            "XML_ERROR_CANT_CHANGE_FEATURE_ONCE_PARSING",
+            "cannot change setting once parsing has begun",
+        ),
+        ("XML_ERROR_UNBOUND_PREFIX", "unbound prefix"),
+        ("XML_ERROR_UNDECLARING_PREFIX", "must not undeclare prefix"),
+        (
+            "XML_ERROR_INCOMPLETE_PE",
+            "incomplete markup in parameter entity",
+        ),
+        ("XML_ERROR_XML_DECL", "XML declaration not well-formed"),
+        ("XML_ERROR_TEXT_DECL", "text declaration not well-formed"),
+        ("XML_ERROR_PUBLICID", "illegal character(s) in public id"),
+        ("XML_ERROR_SUSPENDED", "parser suspended"),
+        ("XML_ERROR_NOT_SUSPENDED", "parser not suspended"),
+        ("XML_ERROR_ABORTED", "parsing aborted"),
+        ("XML_ERROR_FINISHED", "parsing finished"),
+        (
+            "XML_ERROR_SUSPEND_PE",
+            "cannot suspend in external parameter entity",
+        ),
+        (
+            "XML_ERROR_RESERVED_PREFIX_XML",
+            "reserved prefix (xml) must not be undeclared or bound to another namespace name",
+        ),
+        (
+            "XML_ERROR_RESERVED_PREFIX_XMLNS",
+            "reserved prefix (xmlns) must not be declared or undeclared",
+        ),
+        (
+            "XML_ERROR_RESERVED_NAMESPACE_URI",
+            "prefix must not be bound to one of the reserved namespace names",
+        ),
+        ("XML_ERROR_INVALID_ARGUMENT", "invalid argument"),
+        (
+            "XML_ERROR_NO_BUFFER",
+            "a successful prior call to function XML_GetBuffer is required",
+        ),
+        (
+            "XML_ERROR_AMPLIFICATION_LIMIT_BREACH",
+            "limit on input amplification factor (from DTD and entities) breached",
+        ),
+        ("XML_ERROR_NOT_STARTED", "parser not started"),
+    ];
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        let codes = vm.ctx.new_dict();
+        let messages = vm.ctx.new_dict();
+        for (index, &(name, message)) in ERRORS.iter().enumerate() {
+            let code = vm.ctx.new_int(index + 1);
+            module.set_attr(name, vm.ctx.new_str(message), vm)?;
+            codes.set_item(message, code.clone().into(), vm)?;
+            messages.set_item(&(index + 1), vm.ctx.new_str(message).into(), vm)?;
+        }
+        extend_module!(vm, module, {
+            "__doc__" => vm.ctx.new_str("Constants used to describe error conditions."),
+            "codes" => codes,
+            "messages" => messages,
+        });
+        Ok(())
+    }
+}

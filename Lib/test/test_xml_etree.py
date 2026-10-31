@@ -4615,7 +4615,6 @@ class ParseErrorTest(unittest.TestCase):
         self.assertEqual(self._get_error('<tag>&foo;</tag>').position, (1, 5))
         self.assertEqual(self._get_error('foobar<').position, (1, 6))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_error_code(self):
         import xml.parsers.expat.errors as ERRORS
         self.assertEqual(self._get_error('foo').code,

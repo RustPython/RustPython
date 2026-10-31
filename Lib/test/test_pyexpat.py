@@ -921,13 +921,11 @@ class MalformedInputTest(unittest.TestCase):
             parser.Parse(xml, True)
 
 class ErrorMessageTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_codes(self):
         # verify mapping of errors.codes and errors.messages
         self.assertEqual(errors.XML_ERROR_SYNTAX,
                          errors.messages[errors.codes[errors.XML_ERROR_SYNTAX]])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expaterror(self):
         xml = b'<'
         parser = expat.ParserCreate()
