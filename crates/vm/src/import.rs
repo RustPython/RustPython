@@ -2,7 +2,7 @@
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    builtins::{PyCode, PyStr, PyStrRef, PyUtf8Str, traceback::PyTraceback},
+    builtins::{PyCode, PyDict, PyModule, PyStr, PyStrRef, PyUtf8Str, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
     vm::{VirtualMachine, resolve_frozen_alias, thread},
@@ -10,6 +10,48 @@ use crate::{
 
 use core::{cell::Cell, sync::atomic::Ordering, time::Duration};
 use std::{io::Write, time::Instant};
+
+/// Return a module from `sys.modules`, creating it if absent or not a module.
+///
+/// Exact dictionaries use conditional mutations so concurrent callers agree on
+/// the installed module. Dictionary subclasses retain their mapping callbacks;
+/// this does not extend the current dictionary-only `sys.modules` contract.
+pub fn add_module(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyModule>> {
+    let sys_modules = vm.sys_module.get_attr(identifier!(vm, modules), vm)?;
+    let modules = sys_modules.try_downcast_ref::<PyDict>(vm)?;
+
+    if !sys_modules.class().is(vm.ctx.types.dict_type) {
+        if let Some(current) = modules.get_item_opt(name, vm)?
+            && let Some(module) = current.downcast_ref::<PyModule>()
+        {
+            return Ok(module.to_owned());
+        }
+        let module = vm.new_module(name, vm.ctx.new_dict(), None);
+        sys_modules.set_item(name, module.clone().into(), vm)?;
+        return Ok(module);
+    }
+
+    let key = vm.ctx.new_str(name);
+    loop {
+        // The factory runs outside the payload guard. setdefault re-probes after
+        // construction, returning the winner if another caller inserted first.
+        let current = modules.get_or_insert(vm, key.as_object(), || {
+            vm.new_module(name, vm.ctx.new_dict(), None).into()
+        })?;
+        if let Some(module) = current.downcast_ref::<PyModule>() {
+            return Ok(module.to_owned());
+        }
+
+        let replacement = vm.new_module(name, vm.ctx.new_dict(), None);
+        // Keep the observed value alive across the identity check. Both module
+        // construction and destruction of replaced references stay unlocked.
+        if modules.replace_if_identity(&key, &current, replacement.clone().into(), vm)? {
+            return Ok(replacement);
+        }
+        // A competing replacement or removal won. Look up its result instead
+        // of overwriting a module installed by another caller.
+    }
+}
 
 /// Nested imports are timed per thread, so concurrent imports do not subtract
 /// each other's elapsed time. The output header belongs to the interpreter.

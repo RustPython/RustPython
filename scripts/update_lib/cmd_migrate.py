@@ -5,6 +5,7 @@ Migrate Python Lib files from CPython, preserving explicit local adaptations.
 Usage:
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py --patches remaining.json
+    python scripts/update_lib migrate cpython/Lib/example.py --new-file-adaptations new.json
 
 Remaining metadata names the exact repository-relative target and its existing
 decorator patches. An optional "doctests" object selects existing guarded inputs
@@ -18,7 +19,14 @@ Non-marker adaptations require reviewed blocks on each migration, for example
 Use a host Python that parses the source version (Python 3.15 for 3.15 syntax),
 as required by the existing marker extraction and application steps.
 
-This will:
+For a new destination only, --new-file-adaptations accepts exactly "target",
+"source_sha256" (the raw canonical file hash), and "blocks". Each canonical
+fragment must occur uniquely, and fragments must not overlap. Only top-level
+imports and existing binding values may change; all class/function bodies are
+preserved. These adaptations still require review: preserving their AST does
+not prove behavioral equivalence. Existing destinations are never overwritten.
+
+Ordinary migration will:
     1. Extract patches from Lib/test/test_foo.py (if exists)
     2. Apply them to cpython/Lib/test/test_foo.py
     3. Write result to Lib/test/test_foo.py
@@ -27,6 +35,7 @@ This will:
 import argparse
 import ast
 import collections
+import hashlib
 import json
 import pathlib
 import shutil
@@ -35,6 +44,103 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.file_utils import parse_lib_path
+
+
+def migrate_new_file(src_path: pathlib.Path, document: dict) -> None:
+    """Introduce reviewed import/binding adaptations into a new canonical file.
+
+    This opt-in path never overwrites an existing destination or changes the
+    preservation rules of ordinary migrations. Metadata pins the raw source
+    hash and exact target; all fragments are validated before any write.
+    Import and binding values still require review: AST preservation alone does
+    not establish behavioral equivalence of the adapted module.
+    """
+    if not isinstance(document, dict) or set(document) != {
+        "target",
+        "source_sha256",
+        "blocks",
+    }:
+        raise ValueError(
+            "New-file adaptations require target, source_sha256 and blocks"
+        )
+    target_name = document["target"]
+    if not isinstance(target_name, str) or "\\" in target_name:
+        raise ValueError("Expected a repository-relative Lib Python file")
+    relative = pathlib.Path(target_name)
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or relative.parts[:1] != ("Lib",)
+        or relative.suffix != ".py"
+        or relative.as_posix() != target_name
+        or relative != parse_lib_path(src_path)
+    ):
+        raise ValueError("New-file adaptation target does not match canonical Lib path")
+    repository = pathlib.Path(__file__).resolve().parents[2]
+    target = repository / relative
+    if any(
+        (repository / parent).is_symlink() for parent in (relative, *relative.parents)
+    ):
+        raise ValueError("New-file destination must not contain symlinks")
+    if target.exists():
+        raise ValueError("New-file adaptation destination already exists")
+    if not src_path.is_file() or src_path.is_symlink():
+        raise ValueError("New-file source must be a regular canonical file")
+    raw = src_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != document["source_sha256"]:
+        raise ValueError("New-file canonical source hash mismatch")
+    canonical = raw.decode("utf-8")
+    blocks = document["blocks"]
+    if (
+        not isinstance(blocks, list)
+        or not blocks
+        or any(
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or any(not isinstance(text, str) or not text.strip() for text in pair)
+            for pair in blocks
+        )
+    ):
+        raise ValueError("New-file blocks must be nonempty canonical/local pairs")
+    edits = []
+    for old, new in blocks:
+        start = canonical.find(old)
+        if start < 0 or canonical.find(old, start + 1) >= 0:
+            raise ValueError("Missing or ambiguous new-file canonical fragment")
+        edits.append((start, start + len(old), new))
+    edits.sort()
+    if any(left[1] > right[0] for left, right in zip(edits, edits[1:])):
+        raise ValueError("Overlapping new-file adaptation fragments")
+    adapted = canonical
+    for start, end, new in reversed(edits):
+        adapted = adapted[:start] + new + adapted[end:]
+
+    def protected_structure(text):
+        tree = ast.parse(text)
+        protected = []
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                # Only the value of an existing top-level binding may change.
+                # Assignment targets, their order and annotations are retained.
+                node.value = ast.Constant(value=None)
+            protected.append(ast.dump(node, include_attributes=False))
+        return protected
+
+    try:
+        if protected_structure(canonical) != protected_structure(adapted):
+            raise ValueError(
+                "New-file adaptations may change only imports and bindings"
+            )
+    except SyntaxError as error:
+        raise ValueError("Invalid Python in new-file adaptation") from error
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with target.open("xb") as output:
+            output.write(adapted.encode("utf-8"))
+    except FileExistsError as error:
+        raise ValueError("New-file adaptation destination already exists") from error
 
 
 def _preserve_block(old, new, canonical, local):
@@ -415,9 +521,26 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="Single-file target, remaining decorator patches, and optional doctests JSON",
     )
+    parser.add_argument(
+        "--new-file-adaptations",
+        type=pathlib.Path,
+        help="Opt-in exact source hash and import/binding blocks for a new Lib file",
+    )
     args = parser.parse_args(argv)
 
     try:
+        if args.new_file_adaptations is not None:
+            if (
+                args.path.is_dir()
+                or args.legacy_map is not None
+                or args.patches is not None
+            ):
+                raise ValueError("--new-file-adaptations requires a single new file")
+            migrate_new_file(
+                args.path,
+                json.loads(args.new_file_adaptations.read_text(encoding="utf-8")),
+            )
+            return 0
         if args.patches is not None and (
             args.path.is_dir() or args.legacy_map is not None
         ):

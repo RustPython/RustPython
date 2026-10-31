@@ -1,6 +1,7 @@
 """Tests for migrate.py - file migration operations."""
 
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -12,6 +13,7 @@ from unittest.mock import patch
 from update_lib.cmd_migrate import (
     _preserve_block,
     main,
+    migrate_new_file,
     migrate_package,
     patch_directory,
     patch_file,
@@ -28,6 +30,143 @@ from update_lib.patch_spec import (
     patches_to_json,
     select_remaining_patches,
 )
+
+
+class TestNewFileAdaptations(unittest.TestCase):
+    canonical = (
+        "import ctypes\n"
+        "api = ctypes.pythonapi.example\n"
+        "class Example:\n"
+        "    def test_api(self):\n"
+        "        assert api() == 1\n"
+    )
+
+    @contextlib.contextmanager
+    def files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "cpython/Lib/test/test_example.py"
+            source.parent.mkdir(parents=True)
+            source.write_text(self.canonical)
+            repository = root / "rustpython"
+            target = repository / "Lib/test/test_example.py"
+            document = {
+                "target": "Lib/test/test_example.py",
+                "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "blocks": [
+                    [
+                        "api = ctypes.pythonapi.example",
+                        "api = getattr(ctypes.pythonapi, 'example')",
+                    ]
+                ],
+            }
+            with patch(
+                "update_lib.cmd_migrate.__file__",
+                str(repository / "scripts/update_lib/cmd_migrate.py"),
+            ):
+                yield source, target, document
+
+    def test_new_file_and_import_binding_scope(self):
+        with self.files() as (source, target, document):
+            document["blocks"].append(["import ctypes", "import ctypes\nimport sys"])
+            migrate_new_file(source, document)
+            self.assertEqual(
+                target.read_text(),
+                self.canonical.replace(
+                    "import ctypes", "import ctypes\nimport sys"
+                ).replace(
+                    "ctypes.pythonapi.example", "getattr(ctypes.pythonapi, 'example')"
+                ),
+            )
+            self.assertEqual(source.read_text(), self.canonical)
+
+    def test_cli_is_explicit_and_existing_target_is_never_overwritten(self):
+        with self.files() as (source, target, document):
+            metadata = source.parent / "adapters.json"
+            metadata.write_text(json.dumps(document))
+            self.assertEqual(
+                main([str(source), "--new-file-adaptations", str(metadata)]), 0
+            )
+            previous = target.read_bytes()
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    main([str(source), "--new-file-adaptations", str(metadata)]), 1
+                )
+                self.assertEqual(
+                    main(
+                        [
+                            str(source),
+                            "--new-file-adaptations",
+                            str(metadata),
+                            "--patches",
+                            str(metadata),
+                        ]
+                    ),
+                    1,
+                )
+            self.assertEqual(target.read_bytes(), previous)
+
+    def test_hash_path_schema_and_block_validation_before_write(self):
+        for mutation in (
+            {"source_sha256": "0" * 64},
+            {"target": "Lib/test/other.py"},
+            {"target": "Lib/test/../test_example.py"},
+            {"target": "/Lib/test/test_example.py"},
+            {"target": "Lib\\test\\test_example.py"},
+            {"target": "Lib//test/test_example.py"},
+            {"unexpected": True},
+            {"blocks": []},
+            {"blocks": [["", "x"]]},
+            {"blocks": [["not present", "x"]]},
+            {"blocks": [["api", "x"]]},
+            {
+                "blocks": [
+                    ["import ctypes", "import sys"],
+                    ["import ctypes", "import os"],
+                ]
+            },
+            {"blocks": [["import ctypes", "import sys"], ["ctypes\napi", "sys\napi"]]},
+            {"blocks": [["api = ctypes.pythonapi.example", "api = ("]]},
+        ):
+            with (
+                self.subTest(mutation=mutation),
+                self.files() as (source, target, document),
+            ):
+                document.update(mutation)
+                with self.assertRaises(ValueError):
+                    migrate_new_file(source, document)
+                self.assertFalse(target.exists())
+
+    def test_class_assertion_binding_target_and_statement_order_are_protected(self):
+        for old, new in (
+            ("assert api() == 1", "assert api() == 2"),
+            ("class Example", "class Different"),
+            ("api = ctypes.pythonapi.example", "other = ctypes.pythonapi.example"),
+            ("import ctypes", "import ctypes\nraise RuntimeError"),
+            ("class Example:", "@unittest.skip('unsupported')\nclass Example:"),
+        ):
+            with self.subTest(old=old), self.files() as (source, target, document):
+                document["blocks"] = [[old, new]]
+                with self.assertRaisesRegex(ValueError, "only imports and bindings"):
+                    migrate_new_file(source, document)
+                self.assertFalse(target.exists())
+
+    def test_symlink_source_and_destination_parent_are_rejected(self):
+        with self.files() as (source, target, document):
+            original = source.with_name("original.py")
+            source.rename(original)
+            source.symlink_to(original)
+            with self.assertRaises(ValueError):
+                migrate_new_file(source, document)
+            self.assertFalse(target.exists())
+        with self.files() as (source, target, document):
+            target.parent.parent.parent.mkdir(parents=True)
+            outside = source.parent / "outside"
+            outside.mkdir()
+            target.parent.parent.symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                migrate_new_file(source, document)
+            self.assertEqual(list(outside.iterdir()), [])
 
 
 class TestRetireLegacyPaths(unittest.TestCase):
