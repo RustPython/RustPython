@@ -28,6 +28,8 @@ mod lzma;
 
 mod zlib;
 
+mod zstd;
+
 mod blake2;
 mod hashlib;
 mod md5;
@@ -325,5 +327,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         ))]
         uuid::module_def(ctx),
         zlib::module_def(ctx),
+        zstd::module_def(ctx),
     ]
 }
