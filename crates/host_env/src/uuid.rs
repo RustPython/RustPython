@@ -41,10 +41,12 @@ pub fn format_error_message(status: i32) -> String {
     const LANG_NEUTRAL_SUBLANG_DEFAULT: u32 = 1 << 10;
     let code = status as u32;
     crate::windows::format_error_message_with_language(code, LANG_NEUTRAL_SUBLANG_DEFAULT)
-        .map(|message| {
-            message
-                .trim_end_matches(|ch: char| ch <= ' ' || ch == '.')
-                .to_owned()
-        })
-        .unwrap_or_else(|| format!("Windows Error 0x{code:x}"))
+        .map_or_else(
+            || format!("Windows Error 0x{code:x}"),
+            |message| {
+                message
+                    .trim_end_matches(|ch: char| ch <= ' ' || ch == '.')
+                    .to_owned()
+            },
+        )
 }
