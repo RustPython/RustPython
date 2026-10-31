@@ -59,7 +59,7 @@ mod _testinternalcapi {
     const SPECIALIZATION_THRESHOLD: usize = 2;
 
     #[pyattr]
-    #[pyclass(name = "SelfInterruptingContextManager", module = "_testcapi")]
+    #[pyclass(name, module = "_testcapi")]
     #[derive(Debug, PyPayload)]
     struct SelfInterruptingContextManager {
         within: core::sync::atomic::AtomicBool,
