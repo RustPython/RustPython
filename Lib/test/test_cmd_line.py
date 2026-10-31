@@ -330,7 +330,6 @@ class CmdLineTest(unittest.TestCase):
         if not stdout.startswith(pattern):
             raise AssertionError("%a doesn't start with %a" % (stdout, pattern))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_invalid_utf8_arg(self):

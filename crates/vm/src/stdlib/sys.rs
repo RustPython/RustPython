@@ -313,7 +313,7 @@ pub mod sys {
             .settings
             .argv
             .iter()
-            .map(|arg| vm.ctx.new_str(arg.clone()).into())
+            .map(|arg| vm.fsdecode(arg.clone()).into())
             .collect()
     }
 
@@ -708,7 +708,7 @@ pub mod sys {
 
     #[pyattr]
     fn orig_argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        env::args().map(|arg| vm.ctx.new_str(arg).into()).collect()
+        env::args_os().map(|arg| vm.fsdecode(arg).into()).collect()
     }
 
     #[pyattr]

@@ -7,6 +7,7 @@
 
 use crate::vm::{Paths, Settings};
 use std::env;
+use std::ffi::OsString;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
@@ -622,13 +623,19 @@ fn env_executable_override() -> Option<String> {
 
 /// CALCULATE program_name: `argv[0]`, with the executable suffix added when
 /// only the suffixed file exists.
-fn program_name() -> String {
-    let program_name = env::args()
+fn program_name() -> OsString {
+    let program_name = env::args_os()
         .next()
         .filter(|arg| !arg.is_empty())
-        .unwrap_or_else(|| platform::DEFAULT_PROGRAM_NAME.to_owned());
-    if cfg!(windows) && !program_name.to_lowercase().ends_with(".exe") {
-        let suffixed = format!("{program_name}.exe");
+        .unwrap_or_else(|| platform::DEFAULT_PROGRAM_NAME.into());
+    if cfg!(windows)
+        && !program_name
+            .to_string_lossy()
+            .to_lowercase()
+            .ends_with(".exe")
+    {
+        let mut suffixed = program_name.clone();
+        suffixed.push(".exe");
         if Path::new(&suffixed).is_file() {
             return suffixed;
         }
@@ -651,7 +658,7 @@ fn get_executable_path() -> Option<PathBuf> {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let exec_arg = env::args().next()?;
+        let exec_arg = env::args_os().next()?;
         Some(PathBuf::from(exec_arg))
     }
 }

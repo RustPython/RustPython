@@ -5,7 +5,7 @@ use std::ffi::OsString;
 #[derive(Debug, Clone, Default)]
 pub struct Paths {
     /// program_name: the name the interpreter was invoked as
-    pub program_name: String,
+    pub program_name: OsString,
     /// sys.executable
     pub executable: String,
     /// sys._base_executable (original interpreter in venv)
@@ -77,8 +77,8 @@ pub struct Settings {
     pub pycache_prefix: Option<OsString>,
     // int parse_argv;
     // PyWideStringList orig_argv;
-    /// sys.argv
-    pub argv: Vec<String>,
+    /// sys.argv, decoded with the filesystem encoding during sys initialization.
+    pub argv: Vec<OsString>,
 
     // spell-checker:ignore Xfoo
     /// -Xfoo[=bar]
