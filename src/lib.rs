@@ -399,8 +399,8 @@ fn pymain_run_main(vm: &VirtualMachine, scope: Scope, run_mode: RunMode) -> PyRe
     vm.check_signals()?;
     let result = match run_mode {
         RunMode::Command(command) => {
-            debug!("Running command {command}");
-            vm.run_string(scope, &command, "<string>").map(|_| 0)
+            debug!("Running command {command:?}");
+            run_command(vm, scope, command)
         }
         RunMode::Module(module) => {
             debug!("Running module {module}");
@@ -419,6 +419,44 @@ fn pymain_run_main(vm: &VirtualMachine, scope: Scope, run_mode: RunMode) -> PyRe
 
     pymain_repl(vm, !is_repl, &mut exitcode);
     Ok(exitcode)
+}
+
+fn run_command(
+    vm: &VirtualMachine,
+    scope: Scope,
+    mut command: std::ffi::OsString,
+) -> PyResult<u32> {
+    // CPython appends a newline before auditing and executing -c.
+    command.push("\n");
+    let command = vm.fsdecode(command);
+    // Audit failures do not receive the command-decoding error prefix.
+    vm.audit("cpython.run_command", || (command.clone(),))?;
+
+    let Some(source) = command.to_str() else {
+        // CPython's dedent first requests strict UTF-8, so report positions
+        // in the original command, before removing indentation. These are
+        // Unicode character indices, not offsets into its WTF-8 bytes.
+        let mut points = command.as_wtf8().code_points();
+        let start = points
+            .position(|point| point.to_char().is_none())
+            .ok_or_else(|| vm.new_runtime_error("non-UTF-8 command has no surrogate"))?;
+        let end = start + 1 + points.take_while(|point| point.to_char().is_none()).count();
+        let exc = vm.new_unicode_encode_error(
+            vm.ctx.new_str("utf-8"),
+            command,
+            start,
+            end,
+            vm.ctx.new_str("surrogates not allowed"),
+        );
+        writeln!(
+            vm::stdlib::sys::PyStderr(vm),
+            "Unable to decode the command from the command line:"
+        );
+        return Err(exc);
+    };
+
+    let source = settings::dedent(source);
+    vm.run_string(scope, &source, "<string>").map(|_| 0)
 }
 
 /// pymain_err_print

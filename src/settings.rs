@@ -9,7 +9,7 @@ use std::ffi::OsString;
 
 pub enum RunMode {
     Script(String),
-    Command(String),
+    Command(OsString),
     Module(String),
     InstallPip(InstallPipMode),
     Repl,
@@ -128,12 +128,8 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
             Short('b') => args.bytes_warning += 1,
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
-                let cmd = parser.value()?.string()?;
-                return Ok((
-                    args,
-                    RunMode::Command(dedent(&cmd)),
-                    argv("-c".to_owned(), parser)?,
-                ));
+                let cmd = parser.value()?;
+                return Ok((args, RunMode::Command(cmd), argv("-c".to_owned(), parser)?));
             }
             Short('d') => args.debug += 1,
             Short('E') => args.ignore_environment = true,
@@ -647,7 +643,7 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
 /// This is like textwrap.dedent, and is used to process -c's code
 /// argument.  It's different from ruff's dedent, which does not
 /// distinguish between tab and space characters when dedenting.
-fn dedent(input: &str) -> String {
+pub(crate) fn dedent(input: &str) -> String {
     let mut prefix: Option<String> = None;
     let isspace = |c| c == ' ' || c == '\t';
 
