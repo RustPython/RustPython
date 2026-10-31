@@ -167,6 +167,28 @@ def test_too_many_arguments_are_counted_before_any_is_converted():
         hex(FailingIndex(), 1)
 
 
+def test_a_missing_argument_is_reported_before_any_is_converted():
+    check(
+        TypeError,
+        "compress() missing required argument 'selectors' (pos 2)",
+        itertools.compress,
+        TestFailingIter(),
+    )
+    check(
+        TypeError,
+        "compress() missing required argument 'selectors' (pos 2)",
+        itertools.compress,
+        data=TestFailingIter(),
+    )
+    check(
+        TypeError,
+        "compress() missing required argument 'selectors' (pos 2)",
+        itertools.compress,
+        TestFailingIter(),
+        sel=1,
+    )
+
+
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
@@ -176,3 +198,4 @@ test_a_type_is_named_by_the_type_it_builds()
 test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
 test_a_keyword_check_of_its_own_says_the_same_thing()
 test_too_many_arguments_are_counted_before_any_is_converted()
+test_a_missing_argument_is_reported_before_any_is_converted()

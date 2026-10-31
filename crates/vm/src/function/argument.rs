@@ -322,6 +322,15 @@ impl FuncArgs {
             return Err(callee.given_by_name_and_position(name, pos, vm));
         }
 
+        // A missing required argument is reported before the arguments ahead
+        // of it are converted, for the same reason.
+        if num_given < *arity.start()
+            && let Some(params) = T::PARAMS
+            && let Some(missing) = missing_positional(params, num_given, &self.kwargs)
+        {
+            return Err(missing.into_exception(&arity, num_given, callee, vm));
+        }
+
         let bound = T::from_args(vm, &mut self)
             .map_err(|e| e.into_exception(&arity, num_given, callee, vm))?;
 
@@ -532,6 +541,44 @@ fn duplicate_name_and_position<'a>(
         None
     }
     walk(params, nargs, kwargs, &mut 0)
+}
+
+/// First required positional parameter that neither a positional argument nor
+/// a keyword fills, as the error binding it would raise.
+fn missing_positional(params: &[Param], nargs: usize, kwargs: &KwArgs) -> Option<ArgumentError> {
+    // `Err(None)` ends the walk without finding one.
+    fn walk(
+        params: &[Param],
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+    ) -> Result<(), Option<ArgumentError>> {
+        for param in params {
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => walk(inner, nargs, kwargs, pos)?,
+                ParamKind::Flatten(None) => *pos += 1,
+                ParamKind::PositionalOnly => {
+                    *pos += 1;
+                    if *pos > nargs && param.default.is_none() {
+                        return Err(Some(ArgumentError::TooFewArgs));
+                    }
+                }
+                ParamKind::PositionalOrKeyword => {
+                    *pos += 1;
+                    if *pos > nargs && param.default.is_none() && !kwargs.contains_key(param.name) {
+                        return Err(Some(ArgumentError::MissingRequiredArgument {
+                            name: param.name.to_owned(),
+                            pos: *pos,
+                        }));
+                    }
+                }
+                ParamKind::VarPositional => return Err(None),
+                ParamKind::KeywordOnly | ParamKind::VarKeyword => {}
+            }
+        }
+        Ok(())
+    }
+    walk(params, nargs, kwargs, &mut 0).err().flatten()
 }
 
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
