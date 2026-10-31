@@ -39,9 +39,9 @@ mod _zstd {
         ZSTD_dParameter, ZSTD_decompressStream, ZSTD_findFrameCompressedSize, ZSTD_freeCCtx,
         ZSTD_freeCDict, ZSTD_freeDCtx, ZSTD_freeDDict, ZSTD_getDictID_fromDict,
         ZSTD_getDictID_fromFrame, ZSTD_getErrorName, ZSTD_getFrameContentSize, ZSTD_inBuffer,
-        ZSTD_isError, ZSTD_outBuffer, ZSTD_strategy, ZSTD_versionNumber, ZSTD_versionString,
+        ZSTD_isError, ZSTD_outBuffer, ZSTD_versionNumber, ZSTD_versionString,
     };
-    use rustpython_common::lock::PyMutex;
+    use rustpython_common::lock::{PyMutex, PyMutexGuard};
     use rustpython_vm::builtins::{
         PyBaseExceptionRef, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
     };
@@ -300,32 +300,14 @@ mod _zstd {
         }
     }
 
-    /// Validate a compression-parameter id and value pair, returning the
-    /// parameter constant on success. Used by the compressor's `options=`
-    /// constructor argument. The value is only validated here for the
-    /// strategy parameter (which libzstd does not bounds-check on its own in
-    /// a way CPython can rely on); everything else is guarded by the bounds
-    /// pre-validation in `apply_options` and passed through to libzstd
-    /// untouched, like CPython does.
-    fn cparameter_from_int(
-        param: i32,
-        value: i32,
-        vm: &VirtualMachine,
-    ) -> PyResult<ZSTD_cParameter> {
-        let p = c_param_enum(param).ok_or_else(|| {
+    /// Validate a compression-parameter id. Values are checked by libzstd,
+    /// except for the compression level bounds checked in `apply_options`.
+    fn cparameter_from_int(param: i32, vm: &VirtualMachine) -> PyResult<ZSTD_cParameter> {
+        c_param_enum(param).ok_or_else(|| {
             vm.new_value_error(format!(
                 "invalid compression parameter 'unknown parameter (key {param})'"
             ))
-        })?;
-        // Strategy 0 is libzstd's "use the default" sentinel, like the other
-        // parameters; only a non-zero value has to name a real strategy.
-        if param == ZSTD_c_strategy && value != 0 && strategy_from_int(value).is_none() {
-            return Err(new_zstd_error(
-                format!("invalid strategy value: {value}"),
-                vm,
-            ));
-        }
-        Ok(p)
+        })
     }
 
     /// Validate a decompression-parameter id, returning the parameter
@@ -436,26 +418,6 @@ mod _zstd {
                 _ => "unknown",
             }
         }
-    }
-
-    /// Map a strategy integer (as exposed via the `Strategy` IntEnum) back
-    /// to the underlying `ZSTD_strategy` C value. Done via an explicit
-    /// match for the same reason as [`c_param_enum`]: an untrusted int
-    /// might not correspond to any real strategy value.
-    fn strategy_from_int(v: i32) -> Option<ZSTD_strategy> {
-        use libzstd_rs_sys::lib::zstd as s;
-        Some(match v {
-            ZSTD_fast => s::ZSTD_fast,
-            ZSTD_dfast => s::ZSTD_dfast,
-            ZSTD_greedy => s::ZSTD_greedy,
-            ZSTD_lazy => s::ZSTD_lazy,
-            ZSTD_lazy2 => s::ZSTD_lazy2,
-            ZSTD_btlazy2 => s::ZSTD_btlazy2,
-            ZSTD_btopt => s::ZSTD_btopt,
-            ZSTD_btultra => s::ZSTD_btultra,
-            ZSTD_btultra2 => s::ZSTD_btultra2,
-            _ => return None,
-        })
     }
 
     /// Decode the `zstd_dict=` constructor argument. Accepts either a
@@ -878,6 +840,14 @@ mod _zstd {
         }
     }
 
+    impl ZstdCompressor {
+        // Compression detaches while holding this lock. A contending thread
+        // must also detach so it cannot block a stop-the-world collection.
+        fn lock_state(&self, vm: &VirtualMachine) -> PyMutexGuard<'_, CompressorState> {
+            vm.allow_threads(|| self.state.lock())
+        }
+    }
+
     #[derive(FromArgs)]
     pub(super) struct ZstdCompressorArgs {
         #[pyarg(any, optional)]
@@ -1031,15 +1001,15 @@ mod _zstd {
 
     /// Trait wrapper over `CCtx::set_parameter` and `DCtx::set_parameter` so
     /// `apply_options` can drive either context without duplicated code.
-    /// `apply` validates the (id, value) pair via `cparameter_from_int` /
-    /// `dparameter_from_int`, then forwards to libzstd.
+    /// `apply` validates the id via `cparameter_from_int` /
+    /// `dparameter_from_int`, then forwards the value to libzstd.
     trait ParamSetter {
         fn apply(&mut self, param: i32, value: i32, vm: &VirtualMachine) -> PyResult<()>;
     }
 
     impl ParamSetter for CCtx {
         fn apply(&mut self, param: i32, value: i32, vm: &VirtualMachine) -> PyResult<()> {
-            let p = cparameter_from_int(param, value, vm)?;
+            let p = cparameter_from_int(param, vm)?;
             self.set_parameter(p, value)
                 .map_err(|_| param_value_error_for(param, value, true, vm))?;
             Ok(())
@@ -1359,7 +1329,7 @@ mod _zstd {
             };
             let end_op = mode.end_directive();
             let data = args.data.with_ref(|b| b.to_vec());
-            let mut state = self.state.lock();
+            let mut state = self.lock_state(vm);
             match do_compress(&mut state, &data, end_op, vm) {
                 Ok(out) => {
                     state.last_mode = mode;
@@ -1393,7 +1363,7 @@ mod _zstd {
                 }
             };
             let end_op = mode.end_directive();
-            let mut state = self.state.lock();
+            let mut state = self.lock_state(vm);
             match do_compress(&mut state, &[], end_op, vm) {
                 Ok(out) => {
                     state.last_mode = mode;
@@ -1440,7 +1410,7 @@ mod _zstd {
                 }
                 Some(v)
             };
-            let mut state = self.state.lock();
+            let mut state = self.lock_state(vm);
             if state.last_mode != CompressMode::FlushFrame {
                 return Err(vm.new_value_error(
                     "set_pledged_input_size() method must be called when last_mode == FLUSH_FRAME",
@@ -1454,8 +1424,8 @@ mod _zstd {
         }
 
         #[pygetset]
-        fn last_mode(&self) -> i32 {
-            self.state.lock().last_mode as i32
+        fn last_mode(&self, vm: &VirtualMachine) -> i32 {
+            self.lock_state(vm).last_mode as i32
         }
 
         // Install class-level constants `CONTINUE`, `FLUSH_BLOCK`, and
@@ -1540,6 +1510,14 @@ mod _zstd {
     impl core::fmt::Debug for ZstdDecompressor {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "_zstd.ZstdDecompressor")
+        }
+    }
+
+    impl ZstdDecompressor {
+        // See ZstdCompressor::lock_state: decompression also detaches while
+        // holding the state lock, including when a property reader waits.
+        fn lock_state(&self, vm: &VirtualMachine) -> PyMutexGuard<'_, DecompressorState> {
+            vm.allow_threads(|| self.state.lock())
         }
     }
 
@@ -1749,7 +1727,7 @@ mod _zstd {
             } else {
                 Some(args.max_length as usize)
             };
-            let mut state = self.state.lock();
+            let mut state = self.lock_state(vm);
             if state.eof {
                 return Err(vm.new_exception_msg(
                     vm.ctx.exceptions.eof_error.to_owned(),
@@ -1760,18 +1738,18 @@ mod _zstd {
         }
 
         #[pygetset]
-        fn eof(&self) -> bool {
-            self.state.lock().eof
+        fn eof(&self, vm: &VirtualMachine) -> bool {
+            self.lock_state(vm).eof
         }
 
         #[pygetset]
-        fn needs_input(&self) -> bool {
-            self.state.lock().needs_input
+        fn needs_input(&self, vm: &VirtualMachine) -> bool {
+            self.lock_state(vm).needs_input
         }
 
         #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.state.lock().unused_data.clone()
+        fn unused_data(&self, vm: &VirtualMachine) -> PyBytesRef {
+            self.lock_state(vm).unused_data.clone()
         }
     }
 
@@ -2063,5 +2041,27 @@ mod _zstd {
         module.set_attr("_compression_parameter_type", c_parameter_type, vm)?;
         module.set_attr("_decompression_parameter_type", d_parameter_type, vm)?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn invalid_strategy_raises_value_error() {
+            let builder = rustpython_vm::Interpreter::builder(Default::default());
+            let module = module_def(&builder.ctx);
+            let interpreter = builder.add_native_module(module).build();
+            interpreter.enter(|vm| {
+                let mut cctx = CCtx::create(vm).unwrap();
+                for strategy in [-1, ZSTD_btultra2 + 1, i32::MIN, i32::MAX] {
+                    let error = cctx.apply(ZSTD_c_strategy, strategy, vm).unwrap_err();
+                    assert!(error.fast_isinstance(vm.ctx.exceptions.value_error));
+                }
+                for strategy in [0, ZSTD_fast, ZSTD_btultra2] {
+                    cctx.apply(ZSTD_c_strategy, strategy, vm).unwrap();
+                }
+            });
+        }
     }
 }
