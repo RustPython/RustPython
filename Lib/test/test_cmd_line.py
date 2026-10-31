@@ -294,7 +294,6 @@ class CmdLineTest(unittest.TestCase):
     # command line, but how subprocess does decode bytes to unicode. Python
     # doesn't decode the command line because Windows provides directly the
     # arguments as unicode (using wmain() instead of main()).
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_undecodable_code(self):
