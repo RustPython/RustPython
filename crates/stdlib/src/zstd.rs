@@ -678,7 +678,7 @@ mod _zstd {
 
         fn set_pledged_src_size(&mut self, pledged: Option<u64>) -> Result<(), usize> {
             // libzstd represents "unknown" as `ZSTD_CONTENTSIZE_UNKNOWN`.
-            let pledged = pledged.map_or(ZSTD_CONTENTSIZE_UNKNOWN, |v| v);
+            let pledged = pledged.unwrap_or(ZSTD_CONTENTSIZE_UNKNOWN);
             // SAFETY: `self.0` is a live context owned by this wrapper.
             let code = unsafe { ZSTD_CCtx_setPledgedSrcSize(self.0, pledged) };
             if ZSTD_isError(code) != 0 {
