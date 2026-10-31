@@ -678,7 +678,7 @@ class FrameLocalsProxyMappingTests(mapping_tests.TestHashMappingProtocol):
 
 
 class TestFrameCApi(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; Windows ABI3T exports omit non-Stable PyFrame_GetLocals")
     def test_basic(self):
         x = 1
         ctypes = import_helper.import_module('ctypes')

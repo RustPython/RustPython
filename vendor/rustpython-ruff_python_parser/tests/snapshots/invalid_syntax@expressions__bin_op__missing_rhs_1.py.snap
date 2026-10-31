@@ -1,0 +1,118 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/bin_op/missing_rhs_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..18,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..11,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 0..11,
+                            left: BinOp(
+                                ExprBinOp {
+                                    node_index: NodeIndex(None),
+                                    range: 0..5,
+                                    left: NumberLiteral(
+                                        ExprNumberLiteral {
+                                            node_index: NodeIndex(None),
+                                            range: 0..1,
+                                            value: Int(
+                                                1,
+                                            ),
+                                        },
+                                    ),
+                                    op: Add,
+                                    right: NumberLiteral(
+                                        ExprNumberLiteral {
+                                            node_index: NodeIndex(None),
+                                            range: 4..5,
+                                            value: Int(
+                                                2,
+                                            ),
+                                        },
+                                    ),
+                                },
+                            ),
+                            op: Sub,
+                            right: BinOp(
+                                ExprBinOp {
+                                    node_index: NodeIndex(None),
+                                    range: 8..11,
+                                    left: NumberLiteral(
+                                        ExprNumberLiteral {
+                                            node_index: NodeIndex(None),
+                                            range: 8..9,
+                                            value: Int(
+                                                3,
+                                            ),
+                                        },
+                                    ),
+                                    op: Mult,
+                                    right: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 11..11,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 13..18,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 13..18,
+                            left: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 13..14,
+                                    value: Int(
+                                        4,
+                                    ),
+                                },
+                            ),
+                            op: Add,
+                            right: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 17..18,
+                                    value: Int(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | 1 + 2 - 3 *
+  |            ^ Syntax Error: invalid syntax
+2 |
+3 | 4 + 5
+  |

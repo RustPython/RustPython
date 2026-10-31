@@ -1,0 +1,72 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/set/missing_closing_curly_brace_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..136,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 128..136,
+                    value: Set(
+                        ExprSet {
+                            node_index: NodeIndex(None),
+                            range: 128..136,
+                            elts: [
+                                BinOp(
+                                    ExprBinOp {
+                                        node_index: NodeIndex(None),
+                                        range: 131..136,
+                                        left: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 131..132,
+                                                id: Name("x"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                        op: Add,
+                                        right: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 135..136,
+                                                id: Name("y"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+2 | # is considered to be part of the set.
+3 |
+4 | {
+  | ^ Syntax Error: '{' was never closed
+5 |
+6 | x + y
+  |
+
+
+  |
+4 | {
+5 |
+6 | x + y
+  |      ^ Syntax Error: invalid syntax

@@ -1,0 +1,123 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/invalid_byte_literal.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..44,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..12,
+                    value: BytesLiteral(
+                        ExprBytesLiteral {
+                            node_index: NodeIndex(None),
+                            range: 0..12,
+                            value: BytesLiteralValue {
+                                inner: Single(
+                                    BytesLiteral {
+                                        range: 0..12,
+                                        node_index: NodeIndex(None),
+                                        value: [],
+                                        flags: BytesLiteralFlags {
+                                            quote_style: Single,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 13..26,
+                    value: BytesLiteral(
+                        ExprBytesLiteral {
+                            node_index: NodeIndex(None),
+                            range: 13..26,
+                            value: BytesLiteralValue {
+                                inner: Single(
+                                    BytesLiteral {
+                                        range: 13..26,
+                                        node_index: NodeIndex(None),
+                                        value: [],
+                                        flags: BytesLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Raw {
+                                                uppercase_r: false,
+                                            },
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 27..43,
+                    value: BytesLiteral(
+                        ExprBytesLiteral {
+                            node_index: NodeIndex(None),
+                            range: 27..43,
+                            value: BytesLiteralValue {
+                                inner: Single(
+                                    BytesLiteral {
+                                        range: 27..43,
+                                        node_index: NodeIndex(None),
+                                        value: [],
+                                        flags: BytesLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: true,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | b'123a𝐁c'
+  | ^^^^^^^^^ Syntax Error: bytes can only contain ASCII literal characters
+2 | rb"a𝐁c123"
+3 | b"""123a𝐁c"""
+  |
+
+
+  |
+1 | b'123a𝐁c'
+2 | rb"a𝐁c123"
+  | ^^^^^^^^^^ Syntax Error: bytes can only contain ASCII literal characters
+3 | b"""123a𝐁c"""
+  |
+
+
+  |
+1 | b'123a𝐁c'
+2 | rb"a𝐁c123"
+3 | b"""123a𝐁c"""
+  | ^^^^^^^^^^^^^ Syntax Error: bytes can only contain ASCII literal characters

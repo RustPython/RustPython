@@ -1,0 +1,78 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/args_parenthesized_keyword_name.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..9,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..8,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 0..8,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 0..1,
+                                    id: Name("f"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 1..8,
+                                node_index: NodeIndex(None),
+                                args: [],
+                                keywords: [
+                                    Keyword {
+                                        range: 2..7,
+                                        node_index: NodeIndex(None),
+                                        arg: Some(
+                                            Identifier {
+                                                id: Name("a"),
+                                                range: 3..4,
+                                                node_index: NodeIndex(None),
+                                            },
+                                        ),
+                                        value: NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 6..7,
+                                                value: Int(
+                                                    1,
+                                                ),
+                                            },
+                                        ),
+                                    },
+                                ],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | f((a)=1)
+  |    ^^^ Syntax Error: expression cannot contain assignment, perhaps you meant "=="?
+
+
+## Unsupported Syntax Errors
+
+  |
+1 | f((a)=1)
+  |   ^^^ Syntax Error: cannot use parenthesized keyword argument name on Python 3.14 (syntax was removed in Python 3.8)

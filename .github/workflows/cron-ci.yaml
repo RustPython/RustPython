@@ -17,6 +17,32 @@ env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env,doc,ucd_3_2_0
 
 jobs:
+  manager-coverage-regression:
+    name: Verify manager XML-RPC under coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Leave room for the instrumented build and the normal 600-second test limit.
+    timeout-minutes: 30
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-llvm-cov
+
+      # Keep this strict check independent of the full coverage collection below.
+      - name: Run the canonical manager XML-RPC regression
+        run: >-
+          cargo llvm-cov --no-report run --locked --
+          -m test -v -u all --timeout 600 --match '*test_remote'
+          test_multiprocessing_forkserver.test_manager
+
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
   # This is done using cargo-llvm-cov, which is a wrapper around llvm-cov.
   codecov:
@@ -41,6 +67,9 @@ jobs:
 
       - run: sudo apt-get update && sudo apt-get -y install lcov
 
+      - name: Clean previous coverage artifacts
+        run: cargo llvm-cov clean --workspace
+
       - name: Run cargo-llvm-cov with Rust tests.
         run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env,doc,ucd_3_2_0
 
@@ -48,8 +77,22 @@ jobs:
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
 
+      # Keep the C API cohort and its build features in sync with ci.yaml.
+      # Retain both feature sets' instrumented artifacts for the final report.
+      - name: Run cargo-llvm-cov with C API Python tests
+        run: >-
+          cargo llvm-cov --no-report run --locked --features=threading,jit,capi
+          --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc,ucd_3_2_0
+          -- -u -m test --slow-ci -v -u all --timeout 600 --dont-add-python-opts
+          test_frame test_inspect test_monitoring
+        env:
+          PYO3_CONFIG_FILE: ${{ github.workspace }}/crates/capi/pyo3-rustpython.config
+          PYO3_NO_PYTHON: "1"
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+          RUST_BACKTRACE: full
+
       - name: Run cargo-llvm-cov with Python test suite.
-        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed
+        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed -x test_frame test_inspect test_monitoring
         continue-on-error: true
 
       - name: Prepare code coverage data
@@ -110,6 +153,9 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
+      - name: Verify the CPython reference environment
+        run: python -c "import bz2, ctypes, lzma, pathlib, platform, sqlite3, ssl; expected = pathlib.Path('.python-version').read_text().strip(); actual = platform.python_version(); assert actual == expected, (actual, expected)"
+
       - name: build rustpython
         run: cargo build --release --verbose --features sqlite
 
@@ -169,6 +215,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+
+      - name: Verify the CPython reference environment
+        run: python -c "import bz2, ctypes, lzma, pathlib, platform, sqlite3, ssl; expected = pathlib.Path('.python-version').read_text().strip(); actual = platform.python_version(); assert actual == expected, (actual, expected)"
+
+      - name: Make the reference libpython available to benchmark executables
+        run: echo "LD_LIBRARY_PATH=$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - run: cargo install cargo-criterion
 

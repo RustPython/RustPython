@@ -1,0 +1,10 @@
+0001-unpack-diagnostics.patch
+0002-starred-generator-operands.patch
+0003-parameter-diagnostics.patch
+0004-statement-diagnostics.patch
+0005-fstring-diagnostics.patch
+0006-concat-comma-diagnostics.patch
+0007-standalone-pinned-manifest.patch
+0008-isolate-statement-probe-recovery.patch
+0009-preserve-case-unpack-priority.patch
+0010-relative-lazy-diagnostic-provenance.patch

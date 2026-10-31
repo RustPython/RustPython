@@ -1,0 +1,132 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/statements/match/as_pattern_4.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..187,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 0..186,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 6..13,
+                            id: Name("subject"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 156..186,
+                            node_index: NodeIndex(None),
+                            pattern: MatchMapping(
+                                PatternMatchMapping {
+                                    node_index: NodeIndex(None),
+                                    range: 161..172,
+                                    keys: [
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 162..163,
+                                                id: Name("x"),
+                                                ctx: Store,
+                                            },
+                                        ),
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 167..168,
+                                                id: Name("y"),
+                                                ctx: Store,
+                                            },
+                                        ),
+                                    ],
+                                    patterns: [
+                                        MatchAs(
+                                            PatternMatchAs {
+                                                node_index: NodeIndex(None),
+                                                range: 164..166,
+                                                pattern: None,
+                                                name: Some(
+                                                    Identifier {
+                                                        id: Name("as"),
+                                                        range: 164..166,
+                                                        node_index: NodeIndex(None),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        MatchValue(
+                                            PatternMatchValue {
+                                                node_index: NodeIndex(None),
+                                                range: 170..171,
+                                                value: NumberLiteral(
+                                                    ExprNumberLiteral {
+                                                        node_index: NodeIndex(None),
+                                                        range: 170..171,
+                                                        value: Int(
+                                                            1,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                    rest: None,
+                                    runtime_keys: None,
+                                    runtime_patterns: None,
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 182..186,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+2 |     # This `as` pattern is unparenthesized so the parser never takes the path
+3 |     # where it might be confused as a mapping key pattern.
+4 |     case {x as y: 1}:
+  |           ^ Syntax Error: invalid mapping pattern key
+5 |         pass
+  |
+
+
+  |
+2 |     # This `as` pattern is unparenthesized so the parser never takes the path
+3 |     # where it might be confused as a mapping key pattern.
+4 |     case {x as y: 1}:
+  |             ^^ Syntax Error: invalid syntax
+5 |         pass
+  |
+
+
+  |
+2 |     # This `as` pattern is unparenthesized so the parser never takes the path
+3 |     # where it might be confused as a mapping key pattern.
+4 |     case {x as y: 1}:
+  |                ^ Syntax Error: invalid syntax
+5 |         pass
+  |
