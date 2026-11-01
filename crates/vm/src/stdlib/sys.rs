@@ -43,7 +43,7 @@ pub mod sys {
             ascii,
             hash::{PyHash, PyUHash},
         },
-        convert::ToPyObject,
+        convert::{PyDictOf, ToPyObject},
         frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
         stdlib::_warnings::warn,
@@ -1221,44 +1221,28 @@ pub mod sys {
 
     #[cfg(feature = "threading")]
     #[pyfunction]
-    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        use crate::AsObject;
+    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictOf<u64, FrameObjectRef>> {
         use crate::stdlib::_thread::get_all_current_frames;
 
-        let frames = get_all_current_frames(vm);
-        let dict = vm.ctx.new_dict();
-
-        for (thread_id, frame) in frames {
-            let key = vm.ctx.new_int(thread_id);
-            dict.set_item(key.as_object(), frame.into(), vm)?;
-        }
-
-        Ok(dict)
+        PyDictOf::try_new(get_all_current_frames(vm), vm)
     }
 
     #[cfg(feature = "threading")]
     #[pyfunction]
-    fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        use crate::AsObject;
+    fn _current_exceptions(
+        vm: &VirtualMachine,
+    ) -> PyResult<PyDictOf<u64, Option<PyBaseExceptionRef>>> {
         use crate::vm::thread::get_all_current_exceptions;
 
-        let dict = vm.ctx.new_dict();
-        for (thread_id, exc) in get_all_current_exceptions(vm) {
-            let key = vm.ctx.new_int(thread_id);
-            let value = exc.map_or_else(|| vm.ctx.none(), |e| e.into());
-            dict.set_item(key.as_object(), value, vm)?;
-        }
-
-        Ok(dict)
+        PyDictOf::try_new(get_all_current_exceptions(vm), vm)
     }
 
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
-    fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        let dict = vm.ctx.new_dict();
-        let key = vm.ctx.new_int(0);
-        dict.set_item(key.as_object(), vm.topmost_exception().to_pyobject(vm), vm)?;
-        Ok(dict)
+    fn _current_exceptions(
+        vm: &VirtualMachine,
+    ) -> PyResult<PyDictOf<u64, Option<PyBaseExceptionRef>>> {
+        PyDictOf::try_new([(0, vm.topmost_exception())], vm)
     }
 
     // Stub for non-threading builds - returns empty dict
