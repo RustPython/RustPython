@@ -1,7 +1,7 @@
 use super::argument::OptionalArg;
 use crate::{
     AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyInt, PyIntRef},
+    builtins::{PyFloat, PyInt, PyIntRef},
 };
 use core::ops::Deref;
 use malachite_bigint::BigInt;
@@ -88,6 +88,12 @@ impl From<ArgIntoFloat> for f64 {
 impl TryFromObject for ArgIntoFloat {
     // Equivalent to PyFloat_AsDouble.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // A float subclass is read directly, without calling its __float__.
+        if let Some(float) = obj.downcast_ref::<PyFloat>() {
+            return Ok(Self {
+                value: float.to_f64(),
+            });
+        }
         let value = obj.try_float(vm)?.to_f64();
         Ok(Self { value })
     }

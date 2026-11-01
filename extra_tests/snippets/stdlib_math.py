@@ -562,3 +562,12 @@ assert math.ldexp(LdexpFloat(), 1) == 3.0
 assert math.ldexp(LdexpIndex(), 1) == 6.0
 assert_raises(RuntimeError, math.ldexp, LdexpRaisingFloat(), 1)
 assert_raises(OverflowError, math.ldexp, 10**400, 1)
+
+
+class FloatSubclass(float):
+    def __float__(self):
+        return 9.0
+
+
+assert math.sqrt(FloatSubclass(4.0)) == 2.0
+assert math.ldexp(FloatSubclass(1.0), 1) == 2.0
