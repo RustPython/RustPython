@@ -731,7 +731,12 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
-        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --exclude rustpython-capi --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+
+      # Load the C-API crate's RustPython-specific PyO3 configuration.
+      - name: Clippy C API
+        working-directory: crates/capi
+        run: cargo clippy --locked --all-targets -- -Dwarnings
 
   # macOS/Windows clippy uses the same OS-surface filter as cargo check.
   # Force with the run:cross-check label. Check names stay clippy (<os>).
