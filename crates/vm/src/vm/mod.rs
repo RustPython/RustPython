@@ -1569,6 +1569,10 @@ impl VirtualMachine {
             import::import_frozen(self, "_thread")?;
             let importlib = import::init_importlib_base(self)?;
             self.import_ascii_utf8_encodings()?;
+            // RustPython has no separate filesystem-codec initialization state.
+            // Successful core codec registration is our bootstrap boundary for
+            // development-mode name validation, before constructing stdio.
+            self.state.codec_registry.finish_core_codec_bootstrap();
 
             {
                 let io = import::import_builtin(self, "_io")?;

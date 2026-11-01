@@ -2654,7 +2654,6 @@ class StrTest(string_tests.StringLikeTest,
         if not support.Py_GIL_DISABLED:
             support.check_free_after_iterating(self, reversed, str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 22 != 10 : _PythonRunResult(rc=22, out=b'', err=b'')
     def test_check_encoding_errors(self):
         # bpo-37388: str(bytes) and str.decode() must check encoding and errors
         # arguments in dev mode
