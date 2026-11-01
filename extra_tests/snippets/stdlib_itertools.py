@@ -367,6 +367,48 @@ t = itertools.tee([1, 2, 3])
 assert list(t[0]) == [1, 2, 3]
 assert list(t[0]) == []
 
+
+class NoneIter:
+    def __iter__(self):
+        return None
+
+
+with assert_raises(ValueError):
+    itertools.tee(NoneIter(), -1)
+assert itertools.tee(NoneIter(), 0) == ()
+
+
+class BadIterator:
+    def __iter__(self):
+        return None
+
+    def __next__(self):
+        return None
+
+
+class BadIterable:
+    def __iter__(self):
+        return BadIterator()
+
+
+with assert_raises(TypeError):
+    itertools.tee(BadIterable())
+
+
+class CopyRaisingIterator:
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise StopIteration
+
+    def __copy__(self):
+        raise RuntimeError
+
+
+t0, t1 = itertools.tee(CopyRaisingIterator())
+assert list(t0) == list(t1) == []
+
 # itertools.product
 
 product_source = iter([1])
