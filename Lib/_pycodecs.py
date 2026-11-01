@@ -1381,7 +1381,7 @@ def unicode_call_errorhandler(
     res = errorHandler(exceptionObject)
     if (
         isinstance(res, tuple)
-        and len(res) == 2
+        and tuple.__len__(res) == 2
         and isinstance(res[0], (str, bytes))
         and isinstance(res[1], int)
     ):

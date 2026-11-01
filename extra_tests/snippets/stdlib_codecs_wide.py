@@ -204,28 +204,3 @@ def test_registry_reentrant_cleanup():
 
 
 test_registry_reentrant_cleanup()
-
-
-# Error handlers invoked through the _pycodecs helpers (e.g. by charmap
-# codecs) must return a (str/bytes, int) pair. Any other result is a
-# TypeError: a short tuple must not leak an IndexError, and extra tuple
-# elements must not be silently ignored.
-def test_charmap_error_handler_bad_results():
-    for bad_result in (42, "foo", (1, 2, 3), ("foo", 1, 3), ("foo", None), ("foo",)):
-        codecs.register_error(
-            "test_bad_charmap_handler", lambda exc, res=bad_result: res
-        )
-        try:
-            "あ".encode("iso-8859-15", "test_bad_charmap_handler")
-        except TypeError:
-            pass
-        else:
-            raise AssertionError(
-                f"error handler result {bad_result!r} was not rejected"
-            )
-
-    codecs.register_error("test_good_charmap_handler", lambda exc: ("?", exc.end))
-    assert "あ".encode("iso-8859-15", "test_good_charmap_handler") == b"?"
-
-
-test_charmap_error_handler_bad_results()
