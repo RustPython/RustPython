@@ -97,10 +97,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_c_methods(self):
-        return super().test_c_methods()
-
     @unittest.expectedFailureIf(sys.getrecursionlimit() == 256, "TODO: RUSTPYTHON; default debug recursion limit is 256")
     def test_deep_nested_struct_frozendict(self):
         return super().test_deep_nested_struct_frozendict()
@@ -125,10 +121,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     test_framed_write_sizes_with_delayed_writer = None
     test_find_class = None
     test_custom_find_class = None
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_c_methods(self):
-        return super().test_c_methods()
 
 
 class PersistentPicklerUnpicklerMixin(object):

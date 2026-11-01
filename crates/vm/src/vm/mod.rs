@@ -1051,13 +1051,14 @@ static HASH_SECRET: std::sync::OnceLock<HashSecret> = std::sync::OnceLock::new()
 /// `hash_seed` is used only when the secret is not set yet. `None` draws a
 /// random seed. A later call keeps the existing secret and ignores `hash_seed`.
 pub(crate) fn init_hash_secret(hash_seed: Option<u32>) {
-    let _ = HASH_SECRET.get_or_init(|| {
+    let secret = HASH_SECRET.get_or_init(|| {
         let seed = hash_seed.unwrap_or_else(|| {
             // os_random is expensive, but this runs only once per process.
             u32::from_ne_bytes(rustpython_common::rand::os_random())
         });
         HashSecret::new(seed)
     });
+    builtins::PyStaticMethod::init_native_metadata(secret);
 }
 
 /// Process-wide `_Py_HashSecret` used for str/bytes hashing.

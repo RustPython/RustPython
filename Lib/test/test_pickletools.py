@@ -66,10 +66,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
         self.assertIs(unpickled2[1], unpickled2[2])
         self.assertNotIn(pickle.BINPUT, pickled2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_c_methods(self):
-        return super().test_c_methods()
-
 
 class SimpleReader:
     def __init__(self, data):

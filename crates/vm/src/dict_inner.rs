@@ -252,6 +252,33 @@ impl<T> Default for Dict<T> {
     }
 }
 
+impl Dict {
+    // Initialize an unpublished, empty dict from unique interned names. This
+    // needs the process hash secret, but cannot call Python during bootstrap.
+    pub(crate) fn initialize_attributes(
+        &self,
+        attrs: crate::builtins::type_::PyAttributes,
+        secret: &hash::HashSecret,
+    ) {
+        let mut inner = self.write();
+        assert_eq!(inner.used, 0);
+        inner.entries = attrs
+            .into_iter()
+            .map(|(key, value)| {
+                Some(DictEntry {
+                    hash: secret.hash_bytes(key.as_bytes()),
+                    key: key.to_owned().into(),
+                    index: 0,
+                    value,
+                })
+            })
+            .collect();
+        inner.used = inner.entries.len();
+        let size = inner.used * 2;
+        inner.resize(size);
+    }
+}
+
 #[derive(Clone)]
 struct DictEntry<T> {
     hash: HashValue,
