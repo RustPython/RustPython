@@ -706,46 +706,34 @@ mod decl {
         tgtkey: PyObjectRef,
     }
 
+    #[derive(FromArgs)]
+    struct GrouperArgs {
+        #[pyarg(positional, expected = "itertools.groupby")]
+        parent: PyRef<PyItertoolsGroupBy>,
+        #[pyarg(positional)]
+        tgtkey: PyObjectRef,
+    }
+
     impl Constructor for PyItertoolsGrouper {
-        type Args = FuncArgs;
+        type Args = GrouperArgs;
 
         // The new grouper becomes the parent's current grouper.
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let grouper_type = Self::class(&vm.ctx);
-            if cls.is(grouper_type) && !args.kwargs.is_empty() {
-                return Err(
-                    vm.new_type_error(format!("{}() takes no keyword arguments", Self::NAME))
-                );
-            }
-            let nargs = args.args.len();
-            if nargs != 2 {
-                return Err(vm.new_arity_type_error(Self::NAME, 2..=2, nargs));
-            }
-            let parent = args.args[0]
-                .clone()
-                .downcast::<PyItertoolsGroupBy>()
-                .map_err(|obj| {
-                    let found = if vm.is_none(&obj) {
-                        "None".to_owned()
-                    } else {
-                        obj.class().slot_name().to_string()
-                    };
-                    vm.new_type_error(format!(
-                        "_grouper() argument 1 must be itertools.groupby, not {found}"
-                    ))
-                })?;
-            let tgtkey = args.args[1].clone();
-            let grouper = Self {
-                groupby: parent,
-                tgtkey,
-            }
-            .into_ref_with_type(vm, cls)?;
+            let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
+            let grouper = Self::py_new(&cls, args, vm)?.into_ref_with_type(vm, cls)?;
             grouper.groupby.state.lock().grouper = Some(grouper.downgrade(None, vm)?);
             Ok(grouper.into())
         }
 
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Err(vm.new_type_error("use slot_new"))
+        fn py_new(
+            _cls: &Py<PyType>,
+            Self::Args { parent, tgtkey }: Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
+                groupby: parent,
+                tgtkey,
+            })
         }
     }
 
