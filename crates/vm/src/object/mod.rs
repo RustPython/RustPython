@@ -72,7 +72,6 @@
 //! - Rust `Debug` formatting now consistently uses the allocation's vtable rather
 //!   than the statically selected payload's formatter. This is a Rust diagnostic
 //!   difference, not a Python semantic assertion.
-
 mod core;
 mod ext;
 mod payload;
