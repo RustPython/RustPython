@@ -1085,6 +1085,12 @@ impl Py<PyByteArray> {
         let ResizeAccess::Exclusive(mut inner) = access else {
             return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
         };
+        if size == 0 {
+            let old = core::mem::take(&mut inner.elements);
+            drop(inner);
+            drop(old);
+            return Ok(());
+        }
         let elements = &mut inner.elements;
         elements
             .try_reserve_exact(size.saturating_sub(elements.len()))
