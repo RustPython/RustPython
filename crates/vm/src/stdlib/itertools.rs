@@ -81,8 +81,8 @@ mod decl {
     impl Constructor for PyItertoolsChain {
         type Args = PosArgs<PyObjectRef, NameIterables>;
 
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Err(vm.new_type_error("use slot_new"))
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
         }
     }
 
@@ -708,7 +708,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct GrouperArgs {
-        #[pyarg(positional)]
+        #[pyarg(positional, expected = "itertools.groupby")]
         parent: PyRef<PyItertoolsGroupBy>,
         #[pyarg(positional)]
         tgtkey: PyObjectRef,
@@ -716,6 +716,14 @@ mod decl {
 
     impl Constructor for PyItertoolsGrouper {
         type Args = GrouperArgs;
+
+        // The new grouper becomes the parent's current grouper.
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
+            let grouper = Self::py_new(&cls, args, vm)?.into_ref_with_type(vm, cls)?;
+            grouper.groupby.state.lock().grouper = Some(grouper.downgrade(None, vm)?);
+            Ok(grouper.into())
+        }
 
         fn py_new(
             _cls: &Py<PyType>,

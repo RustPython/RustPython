@@ -44,6 +44,7 @@ struct ArgAttribute {
     optional: bool,
     py_default: Option<String>,
     error_msg: Option<String>,
+    expected: Option<String>,
 }
 
 impl ArgAttribute {
@@ -73,6 +74,7 @@ impl ArgAttribute {
                         optional: false,
                         py_default: None,
                         error_msg: None,
+                        expected: None,
                     });
                     return Ok(());
                 };
@@ -128,8 +130,23 @@ impl ArgAttribute {
             if self.error_msg.is_some() {
                 return Err(meta.error("already have an error_msg"));
             }
+            if self.expected.is_some() {
+                return Err(meta.error("cannot combine expected with error_msg"));
+            }
             let val = meta.value()?.parse::<syn::LitStr>()?;
             self.error_msg = Some(val.value())
+        } else if meta.path.is_ident("expected") {
+            if self.expected.is_some() {
+                return Err(meta.error("already have an expected"));
+            }
+            if self.kind != ParameterKind::PositionalOnly {
+                return Err(meta.error("`expected` is only valid on a positional argument"));
+            }
+            if self.error_msg.is_some() {
+                return Err(meta.error("cannot combine expected with error_msg"));
+            }
+            let val = meta.value()?.parse::<syn::LitStr>()?;
+            self.expected = Some(val.value())
         } else {
             return Err(meta.error("Unrecognized pyarg attribute"));
         }
@@ -182,7 +199,21 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
         .or(name_string)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
 
-    let middle = if let Some(error_msg) = &attr.error_msg {
+    let middle = if let Some(expected) = &attr.expected {
+        let pos = i + 1;
+        quote! {
+            .map(|x| {
+                let found = x.clone();
+                ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x).map_err(|_| {
+                    ::rustpython_vm::function::ArgumentError::BadArgument {
+                        pos: #pos,
+                        expected: #expected,
+                        found,
+                    }
+                })
+            }).transpose()?
+        }
+    } else if let Some(error_msg) = &attr.error_msg {
         quote! {
             .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)
                 .map_err(|_| vm.new_type_error(#error_msg))).transpose()?

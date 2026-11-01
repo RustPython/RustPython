@@ -40,6 +40,8 @@ use syn::punctuated::Punctuated;
 ///   when a missing argument is a distinct state, or give the default's type a
 ///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
+/// - `expected = "..."`: `_PyArg_BadArgument` type for a positional conversion
+///   failure. Cannot be combined with `error_msg`.
 /// # Signature default
 /// An explicit `py_default` is used as written. Otherwise:
 /// - a literal, a negative literal, or the path `None` becomes a typed default

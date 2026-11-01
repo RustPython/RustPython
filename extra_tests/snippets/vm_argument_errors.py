@@ -150,6 +150,38 @@ def test_a_keyword_check_of_its_own_says_the_same_thing():
     )
 
 
+def test_grouper_arguments():
+    G = type(next(itertools.groupby("a"))[1])
+    check(TypeError, "_grouper expected 2 arguments, got 0", G)
+    check(TypeError, "_grouper expected 2 arguments, got 1", G, 1)
+    check(TypeError, "_grouper expected 2 arguments, got 3", G, 1, 2, 3)
+    check(TypeError, "_grouper() takes no keyword arguments", G, x=1)
+    check(
+        TypeError,
+        "_grouper() argument 1 must be itertools.groupby, not int",
+        G,
+        1,
+        "a",
+    )
+    check(
+        TypeError,
+        "_grouper() argument 1 must be itertools.groupby, not None",
+        G,
+        None,
+        "a",
+    )
+    g = itertools.groupby("aab")
+    next(g)
+    assert list(G(g, "a")) == ["a", "a"]
+
+    class GroupBy(itertools.groupby):
+        pass
+
+    g = GroupBy("aab")
+    next(g)
+    assert list(G(g, "a")) == ["a", "a"]
+
+
 def test_too_many_arguments_are_counted_before_any_is_converted():
     class FailingIndex:
         def __index__(self):
@@ -175,4 +207,5 @@ test_a_parameter_a_call_may_name_is_named_back()
 test_a_type_is_named_by_the_type_it_builds()
 test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
 test_a_keyword_check_of_its_own_says_the_same_thing()
+test_grouper_arguments()
 test_too_many_arguments_are_counted_before_any_is_converted()
