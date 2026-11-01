@@ -1,5 +1,5 @@
-"""Test indexing ops with a key whose __index__ misbehaves: they must not
-hang when it mutates the sequence, and must propagate its exception."""
+"""Test that indexing ops don't hang when an object with a mutating
+__index__ is used."""
 
 import operator
 from array import array
@@ -36,6 +36,7 @@ for e in instances:
     run_delslice()
 
 
+# An exception from __index__ propagates before the operation is refused.
 class RaisingIndex:
     def __index__(self):
         raise ZeroDivisionError
@@ -72,3 +73,18 @@ assert str(cm.exception) == "'tuple' object does not support item deletion"
 with assert_raises(TypeError) as cm:
     del object()[RaisingIndex()]
 assert str(cm.exception) == "'object' object does not support item deletion"
+
+
+class Renamed:
+    pass
+
+
+class RenamingIndex:
+    def __index__(self):
+        Renamed.__name__ = "Other"
+        return 0
+
+
+with assert_raises(TypeError) as cm:
+    del Renamed()[RenamingIndex()]
+assert str(cm.exception) == "'Other' object doesn't support item deletion"
