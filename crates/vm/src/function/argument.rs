@@ -1,4 +1,4 @@
-use super::signature::{Param, ParamKind};
+use super::signature::{Param, ParamKind, params_take_no_keywords};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyType},
@@ -307,10 +307,22 @@ impl FuncArgs {
         let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
         let num_given = self.args.len().saturating_sub(instance);
 
+        // A function that takes no keywords refuses them before counting its
+        // arguments.
+        if T::TAKES_NO_KEYWORDS && !self.kwargs.is_empty() {
+            return Err(callee.no_keywords(vm));
+        }
+
         // Too many positional arguments are reported before any argument is
         // converted, so a conversion cannot run user code first.
         if num_given > *arity.end() {
             return Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, callee, vm));
+        }
+
+        // No keyword can fill a missing parameter of such a function, so too few
+        // arguments are also reported before any is converted.
+        if T::TAKES_NO_KEYWORDS && num_given < *arity.start() {
+            return Err(ArgumentError::TooFewArgs.into_exception(&arity, num_given, callee, vm));
         }
 
         // A keyword that fills a parameter already given by position is
@@ -441,6 +453,29 @@ impl Callee {
     ) -> PyBaseExceptionRef {
         vm.new_type_error(missing_argument_message(self.name, keyword, pos))
     }
+
+    /// _PyArg_NoKeywords
+    fn no_keywords(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_type_error(no_keywords_message(self.name))
+    }
+
+    /// _PyArg_BadArgument
+    fn bad_argument(
+        self,
+        pos: usize,
+        expected: &'static str,
+        found: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let class = found.class();
+        let found_ty = class.slot_name();
+        let found_name = if vm.is_none(found) {
+            "None"
+        } else {
+            &*found_ty
+        };
+        vm.new_type_error(bad_argument_message(self.name, pos, expected, found_name))
+    }
 }
 
 /// The name a message uses. `tp_name` carries the module along with the type,
@@ -486,6 +521,23 @@ pub(crate) fn arity_message(
 pub(crate) fn unexpected_keyword_message(name: Option<&str>, keyword: &str) -> String {
     let (name, parens) = call_form(name, "this function");
     format!("{name}{parens} got an unexpected keyword argument '{keyword}'")
+}
+
+/// _PyArg_NoKeywords
+pub(crate) fn no_keywords_message(name: Option<&str>) -> String {
+    let (name, parens) = call_form(name, "this function");
+    format!("{name}{parens} takes no keyword arguments")
+}
+
+/// _PyArg_BadArgument
+pub(crate) fn bad_argument_message(
+    name: Option<&str>,
+    pos: usize,
+    expected: &str,
+    found: &str,
+) -> String {
+    let (name, parens) = call_form(name, "this function");
+    format!("{name}{parens} argument {pos} must be {expected}, not {found}")
 }
 
 pub(crate) fn given_by_name_and_position_message(
@@ -552,6 +604,13 @@ pub enum ArgumentError {
     /// The function requires an argument for the named parameter, at the given
     /// 1-based position, but the call didn't pass one.
     MissingRequiredArgument { name: String, pos: usize },
+    /// The argument at the 1-based position is not the expected type.
+    /// `_PyArg_BadArgument`.
+    BadArgument {
+        pos: usize,
+        expected: &'static str,
+        found: PyObjectRef,
+    },
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyBaseExceptionRef),
@@ -576,6 +635,11 @@ impl ArgumentError {
             Self::TooManyArgs => callee.wrong_arity(arity, false, num_given, vm),
             Self::InvalidKeywordArgument(name) => callee.unexpected_keyword(&name, vm),
             Self::MissingRequiredArgument { name, pos } => callee.missing_argument(&name, pos, vm),
+            Self::BadArgument {
+                pos,
+                expected,
+                found,
+            } => callee.bad_argument(pos, expected, &found, vm),
             Self::Exception(ex) => ex,
         }
     }
@@ -601,6 +665,12 @@ pub trait FromArgs: Sized {
     /// `Some(params)`: the type supplies those parameters and the argument name
     /// is ignored.
     const PARAMS: Option<&'static [Param]> = None;
+
+    /// True when every parameter is positional-only or `*args`.
+    const TAKES_NO_KEYWORDS: bool = match Self::PARAMS {
+        Some(params) => params_take_no_keywords(params),
+        None => false,
+    };
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
