@@ -608,7 +608,8 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         .iter()
         .zip(&field_attrs)
         .filter(|(_, attr)| attr.kind == ParameterKind::Flatten)
-        .map(|(field, _)| &field.ty);
+        .map(|(field, _)| &field.ty)
+        .collect::<Vec<_>>();
 
     let mut params = Vec::new();
     for field in &struct_fields {
@@ -641,7 +642,9 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
 
-            const CONVERTS_BEFORE_MISSING: bool = #converts_before_missing;
+            const CONVERTS_BEFORE_MISSING: bool = #converts_before_missing #(
+                || <#flattened as ::rustpython_vm::function::FromArgs>::CONVERTS_BEFORE_MISSING
+            )*;
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 #min_arity..=#max_arity #(

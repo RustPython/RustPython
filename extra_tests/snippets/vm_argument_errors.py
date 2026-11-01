@@ -7,7 +7,6 @@ import collections
 import csv
 import datetime
 import itertools
-import mmap
 import operator
 import typing
 import weakref
@@ -201,16 +200,6 @@ def test_a_missing_argument_is_reported_before_any_is_converted():
     )
 
 
-def test_mmap_converts_before_reporting_a_missing_argument():
-    # CPython parses mmap() with PyArg_ParseTupleAndKeywords, not Argument Clinic.
-    class FailingIndex:
-        def __index__(self):
-            raise RuntimeError
-
-    with assert_raises(RuntimeError):
-        mmap.mmap(FailingIndex())
-
-
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
@@ -221,4 +210,3 @@ test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
 test_a_keyword_check_of_its_own_says_the_same_thing()
 test_too_many_arguments_are_counted_before_any_is_converted()
 test_a_missing_argument_is_reported_before_any_is_converted()
-test_mmap_converts_before_reporting_a_missing_argument()
