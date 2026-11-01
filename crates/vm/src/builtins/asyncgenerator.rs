@@ -149,7 +149,7 @@ impl Py<PyAsyncGen> {
 
     #[pygetset]
     fn ag_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame_opt().and_then(|f| f.yield_from_target())
+        self.inner.yield_from_target()
     }
     #[pygetset]
     fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {

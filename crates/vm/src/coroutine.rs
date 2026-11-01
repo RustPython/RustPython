@@ -31,6 +31,15 @@ impl ExecutionResult {
     }
 }
 
+// Inspection must exclude execution without appearing to execute Python code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum FrameAccess {
+    Idle,
+    Executing,
+    Inspecting,
+}
+
 #[derive(Debug)]
 pub struct Coro {
     /// Generator iframe, like `gi_iframe`. Cleared to `None` by take_ownership
@@ -39,7 +48,7 @@ pub struct Coro {
     /// `f_executable`; survives `_PyFrame_ClearExceptCode`.
     code: PyRef<PyCode>,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
-    running: AtomicCell<bool>,
+    access: AtomicCell<FrameAccess>,
     /// Whether execution has resumed beyond the eager creation preamble.
     started: AtomicCell<bool>,
     // _weakreflist
@@ -64,7 +73,7 @@ unsafe impl Traverse for Coro {
 
 /// An exclusive claim on a generator's frame, released when dropped.
 ///
-/// Only the holder may look at the frame or resume it. Resuming decides from
+/// This excludes both inspectors and other executors. Resuming decides from
 /// the frame state whether the sent value goes on the value stack, so a state
 /// read taken before the claim can be answered by a frame that another thread
 /// then advances: resuming it leaves the stack short of what the code after
@@ -73,7 +82,17 @@ struct RunningGuard<'a>(&'a Coro);
 
 impl Drop for RunningGuard<'_> {
     fn drop(&mut self) {
-        self.0.running.store(false);
+        self.0.access.store(FrameAccess::Idle);
+    }
+}
+
+// No Python callbacks, safepoints, or owned-reference drops may occur while
+// this guard is held. Contenders can therefore wait without parking its owner.
+struct InspectionGuard<'a>(&'a Coro);
+
+impl Drop for InspectionGuard<'_> {
+    fn drop(&mut self) {
+        self.0.access.store(FrameAccess::Idle);
     }
 }
 
@@ -236,7 +255,7 @@ impl Coro {
             frame: Some(frame).into(),
             code,
             closed: AtomicCell::new(false),
-            running: AtomicCell::new(false),
+            access: AtomicCell::new(FrameAccess::Idle),
             started: AtomicCell::new(false),
             exception: PyAtomicRef::from(None),
             name: PyMutex::new(name),
@@ -290,10 +309,51 @@ impl Coro {
     /// What the resume depends on -- whether the generator is closed, and
     /// whether it has started -- has to be read from here onwards.
     fn claim(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<RunningGuard<'_>> {
-        if self.running.compare_exchange(false, true).is_err() {
+        if !self.try_claim_execution() {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
         Ok(RunningGuard(self))
+    }
+
+    fn try_claim_execution(&self) -> bool {
+        loop {
+            match self
+                .access
+                .compare_exchange(FrameAccess::Idle, FrameAccess::Executing)
+            {
+                Ok(_) => return true,
+                Err(FrameAccess::Executing) => return false,
+                Err(FrameAccess::Inspecting) => std::thread::yield_now(),
+                Err(FrameAccess::Idle) => continue,
+            }
+        }
+    }
+
+    pub(crate) fn yield_from_target(&self) -> Option<PyObjectRef> {
+        let claim = loop {
+            match self
+                .access
+                .compare_exchange(FrameAccess::Idle, FrameAccess::Inspecting)
+            {
+                Ok(_) => break InspectionGuard(self),
+                Err(FrameAccess::Executing) => return None,
+                Err(FrameAccess::Inspecting) => std::thread::yield_now(),
+                Err(FrameAccess::Idle) => continue,
+            }
+        };
+        // clear_frame releases its execution claim before clearing the frame.
+        // Its closed flag prevents inspectors from touching that retired frame.
+        let result = if self.closed.load() {
+            None
+        } else {
+            self.frame.deref().and_then(|frame| {
+                // SAFETY: inspection excludes resume/close and other inspectors.
+                // This only reads the suspended stack and increments its target.
+                unsafe { frame.yield_from_target() }
+            })
+        };
+        drop(claim);
+        result
     }
 
     fn run_claimed<F>(
@@ -500,7 +560,7 @@ impl Coro {
         if self.closed.load() {
             return Ok(());
         }
-        if self.running.compare_exchange(false, true).is_err() {
+        if !self.try_claim_execution() {
             return Err(vm.new_runtime_error("cannot clear an executing frame"));
         }
         let claim = RunningGuard(self);
@@ -543,11 +603,11 @@ impl Coro {
     }
 
     pub fn suspended(&self) -> bool {
-        !self.closed.load() && !self.running.load() && self.started()
+        !self.closed.load() && !self.running() && self.started()
     }
 
     pub fn running(&self) -> bool {
-        self.running.load()
+        self.access.load() == FrameAccess::Executing
     }
 
     pub fn closed(&self) -> bool {

@@ -2665,45 +2665,14 @@ impl Py<FrameObject> {
         self.with_exec(vm, |mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
     }
 
-    pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        // If the frame is currently executing (owned by thread), it has no
-        // yield-from target to report.
-        let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
-        if owner == FrameOwner::Thread {
-            return None;
-        }
-        // SAFETY: FrameObject is not executing, so UnsafeCell access is safe.
-        let iframe = unsafe { self.iframe_mut() };
-        // SAFETY: established by `new` / `init_iframe_ptrs`.
-        let (code, globals, builtins, func_obj) = unsafe {
-            (
-                &*iframe.code,
-                &*iframe.globals,
-                &*iframe.builtins,
-                if iframe.func_obj.is_null() {
-                    None
-                } else {
-                    Some(&*iframe.func_obj)
-                },
-            )
-        };
-        let iframe_ptr = iframe as *const InterpreterFrame;
-        let exec = ExecutingFrame {
-            code,
-            localsplus: &mut iframe.localsplus,
-            locals: &iframe.locals,
-            globals,
-            builtins,
-            builtins_dict: None,
-            lasti: &iframe.lasti,
-            iframe: iframe_ptr,
-            func_obj,
-            prev_line: &iframe.prev_line,
-            monitoring_mask: 0,
-            flatten: Flatten::Nothing,
-            call_traced: false,
-        };
-        exec.yield_from_target().map(PyObject::to_owned)
+    /// Read the delegate without constructing a mutable executing-frame view.
+    ///
+    /// # Safety
+    /// Caller must hold the owning Coro's inspection claim and verify it is not
+    /// closed. This excludes execution and retirement while the stack is read.
+    pub(crate) unsafe fn yield_from_target(&self) -> Option<PyObjectRef> {
+        let iframe = self.iframe();
+        suspended_delegate(iframe.code(), &iframe.localsplus, self.lasti()).map(PyObject::to_owned)
     }
 
     pub fn is_internal_frame(&self) -> bool {
@@ -4185,45 +4154,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn yield_from_target(&self) -> Option<&PyObject> {
-        // checks gi_frame_state == FRAME_SUSPENDED_YIELD_FROM
-        // which is set when YIELD_VALUE with oparg >= 1 is executed.
-        // In RustPython, we check:
-        // 1. lasti points to RESUME (after YIELD_VALUE)
-        // 2. The previous instruction was YIELD_VALUE with arg >= 1
-        // 3. The delegate (receiver) is below its index-or-NULL slot
-        //
-        // First check if stack is empty - if so, we can't be in yield-from
-        if self.localsplus.stack_len() < 2 {
-            return None;
-        }
-        let lasti = self.lasti() as usize;
-        if let Some(unit) = self.code.instructions.get(lasti) {
-            match &unit.op {
-                Instruction::Send { .. } | Instruction::SendGen => {
-                    return Some(self.nth_value(1));
-                }
-                Instruction::Resume { .. } | Instruction::InstrumentedResume => {
-                    // Check if previous instruction was YIELD_VALUE with arg >= 1
-                    // This indicates yield-from/await context
-                    if lasti > 0
-                        && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
-                        && matches!(
-                            &prev_unit.op.into(),
-                            Opcode::YieldValue | Opcode::InstrumentedYieldValue
-                        )
-                    {
-                        // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
-                        // OpArgByte.0 is the raw byte value
-                        if u8::from(prev_unit.arg) >= 1 {
-                            // The iterator pair remains after YIELD_VALUE.
-                            return Some(self.nth_value(1));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
+        suspended_delegate(self.code, self.localsplus, self.lasti())
     }
 
     /// Handle throw() on a generator/coroutine.
@@ -5082,11 +5013,7 @@ impl ExecutingFrame<'_> {
 
                 // Check if coroutine is already being awaited
                 if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
-                    && coro
-                        .as_coro()
-                        .frame_opt()
-                        .and_then(|f| f.yield_from_target())
-                        .is_some()
+                    && coro.as_coro().yield_from_target().is_some()
                 {
                     return Err(vm.new_runtime_error("coroutine is being awaited already"));
                 }
@@ -12948,4 +12875,54 @@ fn expect_unchecked<T: fmt::Debug>(optional: Option<T>, err_msg: &'static str) -
     } else {
         unsafe { optional.unwrap_unchecked() }
     }
+}
+
+fn suspended_delegate<'a>(
+    code: &PyCode,
+    localsplus: &'a LocalsPlus,
+    lasti: u32,
+) -> Option<&'a PyObject> {
+    // checks gi_frame_state == FRAME_SUSPENDED_YIELD_FROM
+    // which is set when YIELD_VALUE with oparg >= 1 is executed.
+    // In RustPython, we check:
+    // 1. lasti points to RESUME (after YIELD_VALUE)
+    // 2. The previous instruction was YIELD_VALUE with arg >= 1
+    // 3. The delegate (receiver) is below its index-or-NULL slot
+    //
+    // First check if stack is empty - if so, we can't be in yield-from
+    if localsplus.stack_len() < 2 {
+        return None;
+    }
+    let lasti = lasti as usize;
+    if let Some(unit) = code.instructions.get(lasti) {
+        match &unit.op {
+            Instruction::Send { .. } | Instruction::SendGen => {
+                return localsplus
+                    .stack_index(localsplus.stack_len() - 2)
+                    .map(|value| value.as_object());
+            }
+            Instruction::Resume { .. } | Instruction::InstrumentedResume => {
+                // Check if previous instruction was YIELD_VALUE with arg >= 1
+                // This indicates yield-from/await context
+                if lasti > 0
+                    && let Some(prev_unit) = code.instructions.get(lasti - 1)
+                    && matches!(
+                        &prev_unit.op.into(),
+                        Opcode::YieldValue | Opcode::InstrumentedYieldValue
+                    )
+                {
+                    // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
+                    // OpArgByte.0 is the raw byte value
+                    if u8::from(prev_unit.arg) >= 1 {
+                        // The iterator pair remains after YIELD_VALUE.
+                        return localsplus
+                            .stack_index(localsplus.stack_len() - 2)
+                            .map(|value| value.as_object());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
