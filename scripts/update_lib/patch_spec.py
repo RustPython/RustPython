@@ -596,9 +596,12 @@ def _conditional_retirements(document, old_content):
                 "Original conditional decorator does not match exactly once"
             )
         marker = PatchSpec.try_from_ast_node(matches[0], old_content.splitlines())
-        if marker is None or marker.ut_method != UtMethod.ExpectedFailureIf:
+        if marker is None or marker.ut_method not in (
+            UtMethod.ExpectedFailureIf,
+            UtMethod.Skip,
+        ):
             raise ValueError(
-                "Only explicit expectedFailureIf retirements are supported"
+                "Only explicit expectedFailureIf and skip retirements are supported"
             )
         result[key] = marker
     return result

@@ -371,36 +371,6 @@ fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
         &mut values,
     );
     write_slice_unordered(&mut writer, "DECOMP_RANGE", "u32", &mut decomp_ranges);
-
-    // Normalization corrections is super small - only a handful chars at the time of writing.
-    let reader = UnicodeLineReader::from_file_name("NormalizationCorrections.txt", true);
-    let mut values = Vec::new();
-    for line in reader {
-        let field = line.field(
-            NonZeroUsize::new(1).unwrap(),
-            Some(&format!(
-                "field 2 missing from NormalizationCorrections: {}",
-                line.line
-            )),
-        );
-        let original = u32::from_str_radix(field.trim(), 16).unwrap_or_else(|e| {
-            panic!("field 2 of decomp corrections should be a char in hex: {field} {e}")
-        });
-        let version = line.field(
-            NonZeroUsize::new(3).unwrap(),
-            Some(&format!(
-                "field 4 of decomp corrections should be a UCD version: {}",
-                line.line
-            )),
-        );
-
-        // `version` = when the char was updated. Therefore, we use the incorrect chars past
-        // 3.2.0 but skip the chars fixed in 3.2.0 because they'll already be right.
-        if version != "3.2.0" {
-            values.push((line.start, original))
-        }
-    }
-    write_slice_pairs(&mut writer, "DECOMP_UPDATES", "(u32, u32)", &mut values);
 }
 
 fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
