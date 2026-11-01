@@ -115,3 +115,14 @@ for close_from in ("key", "value", "slice"):
         assert mapped.closed
     finally:
         mapped.close()
+
+
+class FailingIndex:
+    def __index__(self):
+        raise RuntimeError
+
+
+# CPython parses mmap() with PyArg_ParseTupleAndKeywords, which converts fileno
+# before it reports the missing length.
+with assert_raises(RuntimeError):
+    mmap.mmap(FailingIndex())

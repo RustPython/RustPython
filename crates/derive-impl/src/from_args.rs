@@ -663,7 +663,9 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
 
-            const CONVERTS_BEFORE_MISSING: bool = #converts_before_missing;
+            const CONVERTS_BEFORE_MISSING: bool = #converts_before_missing #(
+                || <#flattened as ::rustpython_vm::function::FromArgs>::CONVERTS_BEFORE_MISSING
+            )*;
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 let min = #min_arity;

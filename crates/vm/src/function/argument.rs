@@ -1236,6 +1236,8 @@ macro_rules! tuple_from_py_func_args {
                 }
             };
 
+            const CONVERTS_BEFORE_MISSING: bool = false $(|| $T::CONVERTS_BEFORE_MISSING)*;
+
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
                 let mut max = 0;
@@ -1357,5 +1359,34 @@ mod arity_composition_tests {
             <(Bounds<{ usize::MAX }, { usize::MAX }>, Bounds<1, 1>)>::arity(),
             usize::MAX..=usize::MAX,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FromArgs, OptionalArg};
+
+    #[derive(FromArgs)]
+    #[pyarg(convert_before_missing)]
+    struct ConvertsFirst {
+        #[pyarg(any)]
+        a: i32,
+        #[pyarg(any)]
+        b: i32,
+    }
+
+    #[derive(FromArgs)]
+    struct FlattensConvertsFirst {
+        #[pyarg(flatten)]
+        inner: ConvertsFirst,
+    }
+
+    #[test]
+    fn converts_before_missing_reaches_every_binding() {
+        assert!(ConvertsFirst::CONVERTS_BEFORE_MISSING);
+        assert!(<(ConvertsFirst,)>::CONVERTS_BEFORE_MISSING);
+        assert!(<(OptionalArg<i32>, ConvertsFirst)>::CONVERTS_BEFORE_MISSING);
+        assert!(FlattensConvertsFirst::CONVERTS_BEFORE_MISSING);
+        assert!(!<(OptionalArg<i32>,)>::CONVERTS_BEFORE_MISSING);
     }
 }
