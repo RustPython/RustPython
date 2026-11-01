@@ -3,6 +3,32 @@
 
 use alloc::ffi::CString;
 
+/// Check a raw descriptor without borrowing it or taking ownership.
+/// This is only a point-in-time check: another thread can close it afterwards.
+pub fn is_valid_fd(fd: i32) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    cfg_select! {
+        any(target_os = "linux", target_os = "android", target_vendor = "apple") => {
+            crate::fcntl::validate_fd(fd).is_ok()
+        }
+        windows => {
+            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+            use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
+
+            let handle = crate::nt::handle_from_fd(fd);
+            handle != INVALID_HANDLE_VALUE
+                && unsafe { GetFileType(handle) } != FILE_TYPE_UNKNOWN
+        }
+        _ => {
+            let mut stat = core::mem::MaybeUninit::<libc::stat>::uninit();
+            // fstat validates the raw descriptor; no Rust fd lifetime is claimed.
+            unsafe { libc::fstat(fd, stat.as_mut_ptr()) == 0 }
+        }
+    }
+}
+
 #[cfg(not(windows))]
 pub use rustix::fs::Stat as StatStruct;
 
