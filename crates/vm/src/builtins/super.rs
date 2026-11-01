@@ -169,7 +169,7 @@ fn super_init_without_args(vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyObject
                 .and_then(|c| c.get())
                 .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
             typ = Some(class.downcast().map_err(|o| {
-                vm.new_type_error(format!(
+                vm.new_runtime_error(format!(
                     "super(): __class__ is not a type ({})",
                     o.class().name()
                 ))
