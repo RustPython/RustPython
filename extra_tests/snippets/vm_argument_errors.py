@@ -6,7 +6,9 @@ import array
 import codecs
 import collections
 import csv
+import datetime
 import itertools
+import mmap
 import operator
 import typing
 import weakref
@@ -220,6 +222,10 @@ def test_too_many_arguments_are_counted_before_any_is_converted():
 
 
 def test_a_missing_argument_is_reported_before_any_is_converted():
+    class FailingIndex:
+        def __index__(self):
+            raise RuntimeError
+
     check(
         TypeError,
         "compress() missing required argument 'selectors' (pos 2)",
@@ -239,6 +245,22 @@ def test_a_missing_argument_is_reported_before_any_is_converted():
         TestFailingIter(),
         sel=1,
     )
+    check(
+        TypeError,
+        "date() missing required argument 'month' (pos 2)",
+        datetime.date,
+        FailingIndex(),
+    )
+
+
+def test_mmap_converts_before_reporting_a_missing_argument():
+    # CPython parses mmap() with PyArg_ParseTupleAndKeywords, not Argument Clinic.
+    class FailingIndex:
+        def __index__(self):
+            raise RuntimeError
+
+    with assert_raises(RuntimeError):
+        mmap.mmap(FailingIndex())
 
 
 test_the_message_names_the_function()
@@ -253,3 +275,4 @@ test_grouper_arguments()
 test_bad_argument_type()
 test_too_many_arguments_are_counted_before_any_is_converted()
 test_a_missing_argument_is_reported_before_any_is_converted()
+test_mmap_converts_before_reporting_a_missing_argument()

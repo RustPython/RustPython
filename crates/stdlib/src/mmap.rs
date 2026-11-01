@@ -248,6 +248,7 @@ mod mmap {
 
     #[cfg(unix)]
     #[derive(FromArgs)]
+    #[pyarg(convert_before_missing)]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,
@@ -267,6 +268,7 @@ mod mmap {
 
     #[cfg(windows)]
     #[derive(FromArgs)]
+    #[pyarg(convert_before_missing)]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,
