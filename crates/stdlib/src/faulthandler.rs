@@ -224,6 +224,8 @@ mod decl {
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = true)]
         all_threads: bool,
+        #[pyarg(named, default = 100)]
+        max_threads: isize,
     }
 
     #[pyfunction]
@@ -233,7 +235,7 @@ mod decl {
         #[cfg(any(unix, windows))]
         {
             if args.all_threads {
-                dump_all_threads(fd, vm);
+                dump_all_threads(fd, args.max_threads, vm);
             } else {
                 puts(fd, "Stack (most recent call first):\n");
                 dump_live_frames(fd);
@@ -242,7 +244,7 @@ mod decl {
 
         #[cfg(not(any(unix, windows)))]
         {
-            let _ = (fd, args.all_threads);
+            let _ = (fd, args.all_threads, args.max_threads);
         }
 
         Ok(())
@@ -250,7 +252,20 @@ mod decl {
 
     /// Dump tracebacks of all threads.
     #[cfg(any(unix, windows))]
-    fn dump_all_threads(fd: i32, vm: &VirtualMachine) {
+    fn dump_all_threads(fd: i32, max_threads: isize, vm: &VirtualMachine) {
+        let max_threads = if max_threads == 0 { 100 } else { max_threads };
+        let mut nthreads = 0;
+        let mut begin_thread_dump = || {
+            if nthreads != 0 {
+                puts(fd, "\n");
+            }
+            if nthreads >= max_threads {
+                puts(fd, "...\n");
+                return false;
+            }
+            nthreads += 1;
+            true
+        };
         // Get all threads' frame stacks from the shared registry
         // Stop the world so every other thread is parked at a safepoint
         // and its frame chain is quiescent and alive while we walk it (matches
@@ -270,6 +285,9 @@ mod decl {
                 for (&tid, slot) in registry.iter() {
                     if tid == current_tid {
                         continue;
+                    }
+                    if !begin_thread_dump() {
+                        return;
                     }
                     // Under STW, all other threads are suspended so their
                     // stack-allocated iframes are stable. Walk via top_iframe
@@ -292,12 +310,14 @@ mod decl {
                             puts(fd, "  ...\n");
                         }
                     }
-                    puts(fd, "\n");
                 }
             }
 
             // Now dump current thread from its live frame chain
             // (includes stack-allocated iframes without FrameObject).
+            if !begin_thread_dump() {
+                return;
+            }
             write_thread_id(fd, current_tid, true);
             dump_live_frames(fd);
         }
@@ -305,6 +325,9 @@ mod decl {
         #[cfg(not(feature = "threading"))]
         {
             let _ = vm;
+            if !begin_thread_dump() {
+                return;
+            }
             write_thread_id(fd, current_thread_id(), true);
             dump_live_frames(fd);
         }
