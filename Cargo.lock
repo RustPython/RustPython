@@ -3974,7 +3974,6 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_parser"
 version = "0.17.1"
-source = "git+https://github.com/RustPython/ruff.git?rev=9290a8849542134d83f77e9360e7f0b93897fd93#9290a8849542134d83f77e9360e7f0b93897fd93"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",

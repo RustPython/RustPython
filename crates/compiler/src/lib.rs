@@ -540,6 +540,15 @@ fn default_parse_diagnostic(
     error: parser::ParseError,
     source_file: &SourceFile,
 ) -> NormalizedParseDiagnostic {
+    if let parser::ParseErrorType::MissingCommaAfterConcatenatedLiteral {
+        diagnostic_start, ..
+    } = &error.error
+    {
+        // Concatenation hints can have empty or reversed CPython diagnostic ranges.
+        let (location, end_location) =
+            source_locations(source_file, *diagnostic_start, error.location.end());
+        return NormalizedParseDiagnostic::new(error.error, location, end_location);
+    }
     let (loc, end_loc) = if matches!(error.error, parser::ParseErrorType::EmptyImportNames) {
         // RAISE_SYNTAX_ERROR_STARTING_FROM the newline ends where it starts.
         source_locations(source_file, error.location.start(), error.location.end())
@@ -2251,7 +2260,27 @@ impl BarrySource<'_> {
         parse_error: Option<&parser::ParseError>,
         source_file: &SourceFile,
     ) -> Option<CompileError> {
-        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+        if let Some(error) = parse_error
+            && let Some(range) = self.invalid_legacy_operator(error)
+        {
+            if error.location.start() > range.start() {
+                return Some(CompileError::from_source_error(
+                    source_file,
+                    CpythonDiagnostic::new(
+                        "invalid syntax.  Maybe you meant '!=' instead of '<>'?".to_owned(),
+                        range.start().to_usize(),
+                        range.end().to_usize(),
+                    ),
+                ));
+            }
+            // At expression start, '<' is already invalid: the comparison
+            // production (and its obsolete-operator hint) was never entered.
+            // Barry mode instead lexed the rewritten '!=' as one token.
+            let range = if self.source.as_bytes()[range.start().to_usize()] == b'<' {
+                ruff_text_size::TextRange::at(range.start(), TextSize::new(1))
+            } else {
+                range
+            };
             return Some(barry_as_flufl_invalid_legacy_operator_error(
                 source_file,
                 range,

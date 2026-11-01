@@ -1,0 +1,84 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/invalid_string_literal.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..56,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..25,
+                    value: StringLiteral(
+                        ExprStringLiteral {
+                            node_index: NodeIndex(None),
+                            range: 0..25,
+                            value: StringLiteralValue {
+                                inner: Single(
+                                    StringLiteral {
+                                        range: 0..25,
+                                        node_index: NodeIndex(None),
+                                        value: "",
+                                        flags: StringLiteralFlags {
+                                            quote_style: Single,
+                                            prefix: Empty,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 26..55,
+                    value: StringLiteral(
+                        ExprStringLiteral {
+                            node_index: NodeIndex(None),
+                            range: 26..55,
+                            value: StringLiteralValue {
+                                inner: Single(
+                                    StringLiteral {
+                                        range: 26..55,
+                                        node_index: NodeIndex(None),
+                                        value: "",
+                                        flags: StringLiteralFlags {
+                                            quote_style: Double,
+                                            prefix: Empty,
+                                            triple_quoted: true,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | 'hello \N{INVALID} world'
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ Syntax Error: (unicode error) 'unicodeescape' codec can't decode bytes in position 6-16: unknown Unicode character name
+2 | """hello \N{INVALID} world"""
+  |
+
+
+  |
+1 | 'hello \N{INVALID} world'
+2 | """hello \N{INVALID} world"""
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Syntax Error: (unicode error) 'unicodeescape' codec can't decode bytes in position 6-16: unknown Unicode character name

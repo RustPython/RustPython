@@ -1,0 +1,93 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/if/missing_test_expr_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..64,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 53..57,
+                    value: If(
+                        ExprIf {
+                            node_index: NodeIndex(None),
+                            range: 53..57,
+                            test: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 57..57,
+                                    id: Name(""),
+                                    ctx: Invalid,
+                                },
+                            ),
+                            body: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 53..54,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            orelse: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 57..57,
+                                    id: Name(""),
+                                    ctx: Invalid,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 59..64,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 59..64,
+                            left: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 59..60,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            op: Add,
+                            right: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 63..64,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | # Missing test expression, followed by an expression
+2 | x if
+  |     ^ Syntax Error: invalid syntax
+3 |
+4 | 1 + 1
+  |

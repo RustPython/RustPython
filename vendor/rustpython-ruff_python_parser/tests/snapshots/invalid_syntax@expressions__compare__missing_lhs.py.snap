@@ -1,0 +1,70 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/compare/missing_lhs.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..10,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 2..3,
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 2..3,
+                            id: Name("y"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 5..10,
+                    value: BinOp(
+                        ExprBinOp {
+                            node_index: NodeIndex(None),
+                            range: 5..10,
+                            left: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 5..6,
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            op: Add,
+                            right: NumberLiteral(
+                                ExprNumberLiteral {
+                                    node_index: NodeIndex(None),
+                                    range: 9..10,
+                                    value: Int(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | > y
+  | ^ Syntax Error: invalid syntax
+2 |
+3 | 1 + 2
+  |
