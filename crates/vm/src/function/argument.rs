@@ -322,6 +322,16 @@ impl FuncArgs {
             return Err(callee.given_by_name_and_position(name, pos, vm));
         }
 
+        // A missing required argument is reported before the arguments ahead
+        // of it are converted, for the same reason.
+        if num_given < *arity.start()
+            && !T::CONVERTS_BEFORE_MISSING
+            && let Some(params) = T::PARAMS
+            && let Some(missing) = missing_positional(params, num_given, &self.kwargs)
+        {
+            return Err(missing.into_exception(&arity, num_given, callee, vm));
+        }
+
         let bound = T::from_args(vm, &mut self)
             .map_err(|e| e.into_exception(&arity, num_given, callee, vm))?;
 
@@ -534,6 +544,44 @@ fn duplicate_name_and_position<'a>(
     walk(params, nargs, kwargs, &mut 0)
 }
 
+/// First required positional parameter that neither a positional argument nor
+/// a keyword fills, as the error binding it would raise.
+fn missing_positional(params: &[Param], nargs: usize, kwargs: &KwArgs) -> Option<ArgumentError> {
+    // `Err(None)` ends the walk without finding one.
+    fn walk(
+        params: &[Param],
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+    ) -> Result<(), Option<ArgumentError>> {
+        for param in params {
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => walk(inner, nargs, kwargs, pos)?,
+                ParamKind::Flatten(None) => *pos += 1,
+                ParamKind::PositionalOnly => {
+                    *pos += 1;
+                    if *pos > nargs && param.default.is_none() {
+                        return Err(Some(ArgumentError::TooFewArgs));
+                    }
+                }
+                ParamKind::PositionalOrKeyword => {
+                    *pos += 1;
+                    if *pos > nargs && param.default.is_none() && !kwargs.contains_key(param.name) {
+                        return Err(Some(ArgumentError::MissingRequiredArgument {
+                            name: param.name.to_owned(),
+                            pos: *pos,
+                        }));
+                    }
+                }
+                ParamKind::VarPositional => return Err(None),
+                ParamKind::KeywordOnly | ParamKind::VarKeyword => {}
+            }
+        }
+        Ok(())
+    }
+    walk(params, nargs, kwargs, &mut 0).err().flatten()
+}
+
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
 pub(crate) fn missing_argument_message(name: Option<&str>, keyword: &str, pos: usize) -> String {
     let (name, parens) = call_form(name, "function");
@@ -601,6 +649,10 @@ pub trait FromArgs: Sized {
     /// `Some(params)`: the type supplies those parameters and the argument name
     /// is ignored.
     const PARAMS: Option<&'static [Param]> = None;
+
+    /// CPython parses the function with `PyArg_ParseTupleAndKeywords`, which
+    /// converts the arguments it was given before it reports a missing one.
+    const CONVERTS_BEFORE_MISSING: bool = false;
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
@@ -1029,6 +1081,8 @@ macro_rules! tuple_from_py_func_args {
                 }
             };
 
+            const CONVERTS_BEFORE_MISSING: bool = false $(|| $T::CONVERTS_BEFORE_MISSING)*;
+
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
                 let mut max = 0;
@@ -1059,3 +1113,32 @@ tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 tuple_from_py_func_args!(A, B, C, D, E, F, G);
 tuple_from_py_func_args!(A, B, C, D, E, F, G, H);
+
+#[cfg(test)]
+mod tests {
+    use super::{FromArgs, OptionalArg};
+
+    #[derive(FromArgs)]
+    #[pyarg(convert_before_missing)]
+    struct ConvertsFirst {
+        #[pyarg(any)]
+        a: i32,
+        #[pyarg(any)]
+        b: i32,
+    }
+
+    #[derive(FromArgs)]
+    struct FlattensConvertsFirst {
+        #[pyarg(flatten)]
+        inner: ConvertsFirst,
+    }
+
+    #[test]
+    fn converts_before_missing_reaches_every_binding() {
+        assert!(ConvertsFirst::CONVERTS_BEFORE_MISSING);
+        assert!(<(ConvertsFirst,)>::CONVERTS_BEFORE_MISSING);
+        assert!(<(OptionalArg<i32>, ConvertsFirst)>::CONVERTS_BEFORE_MISSING);
+        assert!(FlattensConvertsFirst::CONVERTS_BEFORE_MISSING);
+        assert!(!<(OptionalArg<i32>,)>::CONVERTS_BEFORE_MISSING);
+    }
+}
