@@ -884,13 +884,9 @@ mod _testinternalcapi {
     }
 
     impl Constructor for Hamt {
-        type Args = ();
+        type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self::default())
         }
     }
@@ -1242,9 +1238,9 @@ mod _testinternalcapi {
 
     #[cfg(feature = "codegen")]
     impl Constructor for PyInstructionSequence {
-        type Args = ();
+        type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn py_new(cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
             if cls.is(Self::class(&vm.ctx)) {
                 if !args.args.is_empty() {
                     return Err(vm.new_type_error(
@@ -1257,10 +1253,6 @@ mod _testinternalcapi {
                     );
                 }
             }
-            Self::empty().into_ref_with_type(vm, cls).map(Into::into)
-        }
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self::empty())
         }
     }
