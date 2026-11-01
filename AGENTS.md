@@ -277,9 +277,10 @@ See the "Testing on Linux from macOS" section in [CONTRIBUTING.md](CONTRIBUTING.
 - NEVER comment out or delete any test code lines except for removing `@unittest.expectedFailure` decorators and upper TODO comments
 - NEVER modify test assertions, test logic, or test data
 - When a test cannot pass due to missing language features, keep it as expectedFailure and document the reason
-- The only acceptable modifications to test files are:
+- The only acceptable modifications to the CPython test files in `Lib/test` are:
   1. Removing `@unittest.expectedFailure` decorators and the upper TODO comments when tests actually pass
   2. Adding `@unittest.expectedFailure` decorators when tests cannot be fixed
+- Adding a new test to an existing `extra_tests/snippets` file is allowed; see [Testing](#testing).
 
 **Examples of FORBIDDEN modifications:**
 - Commenting out test lines
