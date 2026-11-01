@@ -235,6 +235,10 @@ mod _csv {
 
     #[pyfunction]
     fn unregister_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<()> {
+        // PyDict_Pop misses on an empty dict without hashing the key.
+        if GLOBAL_HASHMAP.lock().is_empty() {
+            return Err(new_csv_error(vm, "unknown dialect"));
+        }
         let name = registry_key(name, vm)?;
         let removed = GLOBAL_HASHMAP.lock().remove(name.as_str());
 
