@@ -1595,63 +1595,79 @@ impl VirtualMachine {
                 // Full stdio: FileIO → BufferedWriter → TextIOWrapper
                 #[cfg(all(feature = "host_env", feature = "stdio"))]
                 let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
-                    let buffered_stdio = self.state.config.settings.buffered_stdio;
-                    let unbuffered = write && !buffered_stdio;
-                    let buf = crate::stdlib::_io::open(
-                        self.ctx.new_int(fd).into(),
-                        Some(if write { "wb" } else { "rb" }),
-                        crate::stdlib::_io::OpenArgs {
-                            buffering: if unbuffered { 0 } else { -1 },
-                            closefd: false,
-                            ..Default::default()
-                        },
-                        self,
-                    )?;
-                    let raw = if unbuffered {
-                        buf.clone()
-                    } else {
-                        buf.get_attr("raw", self)?
-                    };
-                    raw.set_attr("name", self.ctx.new_str(format!("<{name}>")), self)?;
-                    let isatty = self.call_method(&raw, "isatty", ())?.is_true(self)?;
-                    let write_through = !buffered_stdio;
-                    let line_buffering = buffered_stdio && (isatty || fd == 2);
+                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+                    if !rustpython_host_env::fileutils::is_valid_fd(fd) {
+                        return Ok(self.ctx.none());
+                    }
 
-                    let newline = if cfg!(windows) { None } else { Some("\n") };
-                    let encoding = stdio_encoding.clone();
-                    // stderr always uses backslashreplace (ignores stdio_errors)
-                    let errors = if fd == 2 {
-                        Some("backslashreplace")
-                    } else {
-                        self.state
-                            .config
-                            .settings
-                            .stdio_errors
-                            .as_deref()
-                            .or_else(|| {
-                                Some(if self.state.config.settings.stdio_encoding.is_some() {
-                                    "strict"
-                                } else {
-                                    "surrogateescape"
+                    let result = (|| {
+                        let buffered_stdio = self.state.config.settings.buffered_stdio;
+                        let unbuffered = write && !buffered_stdio;
+                        let buf = crate::stdlib::_io::open(
+                            self.ctx.new_int(fd).into(),
+                            Some(if write { "wb" } else { "rb" }),
+                            crate::stdlib::_io::OpenArgs {
+                                buffering: if unbuffered { 0 } else { -1 },
+                                closefd: false,
+                                ..Default::default()
+                            },
+                            self,
+                        )?;
+                        let raw = if unbuffered {
+                            buf.clone()
+                        } else {
+                            buf.get_attr("raw", self)?
+                        };
+                        raw.set_attr("name", self.ctx.new_str(format!("<{name}>")), self)?;
+                        let isatty = self.call_method(&raw, "isatty", ())?.is_true(self)?;
+                        let write_through = !buffered_stdio;
+                        let line_buffering = buffered_stdio && (isatty || fd == 2);
+
+                        let newline = if cfg!(windows) { None } else { Some("\n") };
+                        let encoding = stdio_encoding.clone();
+                        // stderr always uses backslashreplace (ignores stdio_errors)
+                        let errors = if fd == 2 {
+                            Some("backslashreplace")
+                        } else {
+                            self.state
+                                .config
+                                .settings
+                                .stdio_errors
+                                .as_deref()
+                                .or_else(|| {
+                                    Some(if self.state.config.settings.stdio_encoding.is_some() {
+                                        "strict"
+                                    } else {
+                                        "surrogateescape"
+                                    })
                                 })
-                            })
-                    };
+                        };
 
-                    let stdio = self.call_method(
-                        &io,
-                        "TextIOWrapper",
-                        (
-                            buf,
-                            encoding,
-                            errors,
-                            newline,
-                            line_buffering,
-                            write_through,
-                        ),
-                    )?;
-                    let mode = if write { "w" } else { "r" };
-                    stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
-                    Ok::<_, self::PyBaseExceptionRef>(stdio)
+                        let stdio = self.call_method(
+                            &io,
+                            "TextIOWrapper",
+                            (
+                                buf,
+                                encoding,
+                                errors,
+                                newline,
+                                line_buffering,
+                                write_through,
+                            ),
+                        )?;
+                        let mode = if write { "w" } else { "r" };
+                        stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
+                        Ok::<_, self::PyBaseExceptionRef>(stdio)
+                    })();
+
+                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+                    if let Err(ref exc) = result
+                        && exc.fast_isinstance(self.ctx.exceptions.os_error)
+                        && !rustpython_host_env::fileutils::is_valid_fd(fd)
+                    {
+                        return Ok(self.ctx.none());
+                    }
+                    result
                 };
 
                 // Sandbox stdio: lightweight wrapper using Rust's std::io directly

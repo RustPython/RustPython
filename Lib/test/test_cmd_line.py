@@ -615,19 +615,15 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(err, b'')
         self.assertEqual(p.returncode, 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_stdin(self):
         self._test_no_stdio(['stdin'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_stdout(self):
         self._test_no_stdio(['stdout'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_stderr(self):
         self._test_no_stdio(['stderr'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_std_streams(self):
         self._test_no_stdio(['stdin', 'stdout', 'stderr'])
 
