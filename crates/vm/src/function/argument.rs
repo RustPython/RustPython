@@ -325,6 +325,7 @@ impl FuncArgs {
         // A missing required argument is reported before the arguments ahead
         // of it are converted, for the same reason.
         if num_given < *arity.start()
+            && !T::CONVERTS_BEFORE_MISSING
             && let Some(params) = T::PARAMS
             && let Some(missing) = missing_positional(params, num_given, &self.kwargs)
         {
@@ -648,6 +649,10 @@ pub trait FromArgs: Sized {
     /// `Some(params)`: the type supplies those parameters and the argument name
     /// is ignored.
     const PARAMS: Option<&'static [Param]> = None;
+
+    /// CPython parses the function with `PyArg_ParseTupleAndKeywords`, which
+    /// converts the arguments it was given before it reports a missing one.
+    const CONVERTS_BEFORE_MISSING: bool = false;
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;

@@ -1742,7 +1742,7 @@ mod _datetime {
             {
                 return Ok(Self::from_state(&state));
             }
-            let DateArgs { year, month, day } = args.bind(vm)?;
+            let DateArgs { year, month, day } = args.bind_for(vm, "date")?;
             check_date_args(year, month, day, vm)?;
             Ok(Self::new(year, month, day))
         }
@@ -3613,7 +3613,7 @@ mod _datetime {
                     i32::from(fold),
                 ));
             }
-            let a: DateTimeArgs = args.bind(vm)?;
+            let a: DateTimeArgs = args.bind_for(vm, "datetime")?;
             let tzinfo = a.tzinfo.into_option().and_then(|tz| tzinfo_arg(tz, vm));
             check_date_args(a.year, a.month, a.day, vm)?;
             check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
