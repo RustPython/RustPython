@@ -6,13 +6,11 @@ use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 #[pymodule]
 mod math {
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{
             PyFloat, PyInt, PyIntRef, PyModule, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint,
         },
-        function::{
-            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, OptionalArg, PosArgs,
-        },
+        function::{ArgIndex, ArgIntoFloat, ArgIterable, NameCoordinates, OptionalArg, PosArgs},
         identifier,
     };
     use malachite_bigint::BigInt;
@@ -457,7 +455,7 @@ mod math {
     #[derive(FromArgs)]
     struct LdexpArgs {
         #[pyarg(positional)]
-        x: Either<PyRef<PyFloat>, PyIntRef>,
+        x: ArgIntoFloat,
         // Refuses anything that is not an `int`, including objects with `__index__`.
         #[pyarg(positional, error_msg = "Expected an int as second argument to ldexp.")]
         i: PyIntRef,
@@ -466,11 +464,8 @@ mod math {
     #[pyfunction]
     fn ldexp(args: LdexpArgs, vm: &VirtualMachine) -> PyResult<f64> {
         let LdexpArgs { x, i } = args;
-        let value = match x {
-            Either::A(f) => f.to_f64(),
-            Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
-        };
-        pymath::math::ldexp_bigint(value, i.as_bigint()).map_err(|err| pymath_exception(err, vm))
+        pymath::math::ldexp_bigint(x.into_float(), i.as_bigint())
+            .map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
