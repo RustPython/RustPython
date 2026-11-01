@@ -588,7 +588,7 @@ jobs:
 
       # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
-        run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --release --verbose --features=threading,jit,capi ${{ env.CARGO_ARGS }}
 
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
