@@ -28,7 +28,7 @@ pub(crate) mod _thread {
         frame::FrameObjectRef,
         function::{
             ArgCallable, ArgIndex, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs,
-            OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
+            OptionalArg, Param, ParamKind, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
