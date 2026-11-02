@@ -755,7 +755,6 @@ class CodecCallbackTest(unittest.TestCase):
                     (s[:1], 1 + n)
                 )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_badhandlerresults(self):
         results = ( 42, "foo", (1,2,3), ("foo", 1, 3), ("foo", None), ("foo",), ("foo", 1, 3), ("foo", None), ("foo",) )
         encs = ("ascii", "latin-1", "iso-8859-1", "iso-8859-15")
