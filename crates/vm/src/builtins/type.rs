@@ -2496,12 +2496,12 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
 // _PyType_DocWithoutSignature in CPython
 fn doc_without_signature<'a>(name: &str, internal_doc: &'a str) -> &'a str {
     // If the doc starts with the type name and a '(', it's a signature
-    if let Some(doc_without_sig) = find_signature(name, internal_doc) {
-        if let Some(signature) = get_signature(doc_without_sig) {
-            let after_sig = &doc_without_sig[signature.len() + SIGNATURE_END_MARKER.len() - 1..];
-            // Return the documentation after the signature, or empty string if none
-            return after_sig;
-        }
+    if let Some(doc_without_sig) = find_signature(name, internal_doc)
+        && let Some(signature) = get_signature(doc_without_sig)
+    {
+        let after_sig = &doc_without_sig[signature.len() + SIGNATURE_END_MARKER.len() - 1..];
+        // Return the documentation after the signature, or empty string if none
+        return after_sig;
     }
     // If no signature found, return the whole doc
     internal_doc
