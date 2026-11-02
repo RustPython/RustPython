@@ -503,16 +503,12 @@ const fn put_exp(buf: &mut [u8], i: usize, exp: i32) -> usize {
         (put_byte(buf, i, b'+'), exp)
     };
     let exp = exp as u32;
-    if exp >= 10 {
-        let i = put_byte(buf, i, b'0' + (exp / 10) as u8);
-        put_byte(buf, i, b'0' + (exp % 10) as u8)
-    } else {
-        let i = put_byte(buf, i, b'0');
-        put_byte(buf, i, b'0' + exp as u8)
-    }
+    let i = if exp < 10 { put_byte(buf, i, b'0') } else { i };
+    put_u128(buf, i, exp as u128)
 }
 
-/// Shortest round-trip decimal, matching `float.__repr__` for finite values.
+/// Decimal rendering using up to 17 significant digits.
+// This normalization-based formatter is not a shortest-round-trip algorithm.
 const fn put_f64(buf: &mut [u8], i: usize, v: f64) -> usize {
     if v.is_nan() {
         return put_str(buf, i, "nan");
@@ -706,7 +702,7 @@ const fn write_args(buf: &mut [u8], mut st: St, args: &[SigArg]) -> St {
 
 #[cfg(test)]
 mod tests {
-    use super::{DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, write_one};
+    use super::{DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, put_exp, write_one};
     use crate::function::PyMethodFlags;
 
     fn rendered(default: DefaultRepr) -> String {
@@ -730,6 +726,25 @@ mod tests {
         );
         let text = core::str::from_utf8(&buf[..st.n]).unwrap();
         text.split_once('=').unwrap().1.to_owned()
+    }
+
+    #[test]
+    fn exponent_text_keeps_all_digits() {
+        for (exp, expected) in [
+            (0, "e+00"),
+            (9, "e+09"),
+            (-9, "e-09"),
+            (10, "e+10"),
+            (-99, "e-99"),
+            (100, "e+100"),
+            (308, "e+308"),
+            (-324, "e-324"),
+        ] {
+            let mut buf = [0u8; 16];
+            let len = put_exp(&mut buf, 0, exp);
+            assert_eq!(core::str::from_utf8(&buf[..len]).unwrap(), expected);
+            assert_eq!(put_exp(&mut [], 0, exp), len);
+        }
     }
 
     #[test]

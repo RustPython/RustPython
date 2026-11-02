@@ -313,8 +313,8 @@ mod mmap {
     pub(super) struct FlushOptions {
         #[pyarg(positional, default)]
         offset: isize,
-        #[pyarg(positional, optional)]
-        size: Option<isize>,
+        #[pyarg(positional, default = -1)]
+        size: isize,
         #[pyarg(named, default)]
         flags: core::ffi::c_int,
     }
@@ -328,9 +328,9 @@ mod mmap {
             let remaining = len.checked_sub(offset)?;
 
             let size = match self.size {
-                None | Some(-1) => remaining,
-                Some(s) if s < 0 => return None,
-                Some(s) => s as usize,
+                -1 => remaining,
+                s if s < 0 => return None,
+                s => s as usize,
             };
 
             if remaining < size {

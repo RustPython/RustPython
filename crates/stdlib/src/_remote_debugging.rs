@@ -10,7 +10,7 @@ mod _remote_debugging {
         builtins::{PyBaseExceptionRef, PyDictRef, PyFloat, PyList, PyListRef, PyTuple, PyType},
         common::{lock::PyMutex, rc::PyRc},
         convert::{IntoPyException, ToPyObject},
-        function::{FsPath, FuncArgs},
+        function::{FsPath, FuncArgs, OptionalArg},
         types::{Constructor, DefaultConstructor, Initializer, PyStructSequence},
     };
     use alloc::sync::Arc;
@@ -155,8 +155,8 @@ mod _remote_debugging {
     struct GetChildPidsArgs {
         #[pyarg(any)]
         pid: PyObjectRef,
-        #[pyarg(named, optional)]
-        recursive: Option<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "True")]
+        recursive: OptionalArg<PyObjectRef>,
     }
 
     /// Return a snapshot of a process's children, optionally including descendants.
@@ -171,6 +171,7 @@ mod _remote_debugging {
             .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))?;
         let recursive = args
             .recursive
+            .into_option()
             .map(|value| value.try_to_bool(vm))
             .transpose()?
             .unwrap_or(true);
