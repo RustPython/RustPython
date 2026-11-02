@@ -601,14 +601,21 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         .iter()
         .map(ArgAttribute::try_from)
         .collect::<Result<Vec<_>>>()?;
-    let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
-    // A flattened field adds its own type's upper bound. An unbounded one
-    // such as `PosArgs` is `usize::MAX`, so the sum saturates.
+    // Phantom fields are absent from both argument extraction and signatures.
+    let visible_attrs = struct_fields
+        .iter()
+        .filter(|field| !is_phantom(field))
+        .map(ArgAttribute::try_from)
+        .collect::<Result<Vec<_>>>()?;
+    let (min_arity, max_arity) = compute_arity_bounds(&visible_attrs);
+    // Flattened types contribute both bounds. Saturate each sum, including
+    // custom required bounds and an unbounded `PosArgs` upper bound.
     let flattened = struct_fields
         .iter()
         .zip(&field_attrs)
-        .filter(|(_, attr)| attr.kind == ParameterKind::Flatten)
-        .map(|(field, _)| &field.ty);
+        .filter(|(field, attr)| !is_phantom(field) && attr.kind == ParameterKind::Flatten)
+        .map(|(field, _)| &field.ty)
+        .collect::<Vec<_>>();
 
     let mut params = Vec::new();
     for field in &struct_fields {
@@ -626,9 +633,14 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 Some(&[#(#params),*]);
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
-                #min_arity..=#max_arity #(
-                    .saturating_add(*<#flattened as ::rustpython_vm::function::FromArgs>::arity().end())
+                let min = #min_arity;
+                let max = #max_arity;
+                #(
+                    let (start, end) = <#flattened as ::rustpython_vm::function::FromArgs>::arity().into_inner();
+                    let min = min.saturating_add(start);
+                    let max = max.saturating_add(end);
                 )*
+                min..=max
             }
 
             fn from_args(
