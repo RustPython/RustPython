@@ -3130,7 +3130,7 @@ pub mod module {
 #[pymodule(sub, name = "posix")]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
         class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
@@ -3150,7 +3150,12 @@ mod posix_sched {
     }
 
     #[pyattr]
-    #[pystruct_sequence(name = "sched_param", module = "posix", data = "SchedParamData")]
+    #[pystruct_sequence(
+        name = "sched_param",
+        module = "posix",
+        data = "SchedParamData",
+        constructor_args = "SchedParamArgs"
+    )]
     struct PySchedParam;
 
     #[pyclass(with(PyStructSequence))]
@@ -3169,27 +3174,47 @@ mod posix_sched {
                 .map(Into::into)
         }
 
-        #[extend_class]
-        fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
-            // Override __reduce__ to return (type, (sched_priority,))
-            // instead of the generic structseq (type, ((sched_priority,),)).
-            // The trait's extend_class checks contains_key before setting default.
-            const SCHED_PARAM_REDUCE: crate::function::PyMethodDef =
-                crate::function::PyMethodDef::new_const(
-                    "__reduce__",
-                    |zelf: crate::PyRef<crate::builtins::PyTuple>,
-                     vm: &VirtualMachine|
-                     -> PyTupleRef {
-                        vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
-                    },
-                    crate::function::PyMethodFlags::METHOD,
-                    crate::function::ItemDoc::NONE,
-                );
-            class.set_attr(
-                ctx.intern_str("__reduce__"),
-                SCHED_PARAM_REDUCE.to_proper_method(class, ctx),
-            );
+        #[pymethod]
+        fn __reduce__(
+            zelf: crate::PyRef<crate::builtins::PyTuple>,
+            vm: &VirtualMachine,
+        ) -> PyTupleRef {
+            vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
         }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sched_param_signature_metadata_uses_its_binder() {
+        use crate::class::PyClassImpl;
+        assert!(
+            PySchedParam::INTERNAL_DOC
+                .text
+                .unwrap()
+                .starts_with("sched_param(sched_priority)\n--\n\n")
+        );
+        let reduce = PySchedParam::METHOD_DEFS
+            .iter()
+            .find(|method| method.name == "__reduce__")
+            .unwrap();
+        assert!(
+            reduce
+                .doc
+                .unwrap()
+                .starts_with("__reduce__($self, /)\n--\n\n")
+        );
+        assert!(
+            crate::builtins::type_::get_doc_from_internal_doc("__reduce__", reduce.doc.unwrap())
+                .is_none()
+        );
+        assert!(reduce.flags.contains(
+            crate::function::PyMethodFlags::METHOD | crate::function::PyMethodFlags::NOARGS
+        ));
+        assert!(
+            !reduce
+                .flags
+                .contains(crate::function::PyMethodFlags::KEYWORDS)
+        );
     }
 
     #[cfg(not(target_env = "musl"))]

@@ -2662,7 +2662,9 @@ fn class_internal_doc(
         quote! {
             match #chosen {
                 Some(params) => Some(params),
-                None => ::rustpython_vm::types::STRUCT_SEQUENCE_PARAMS,
+                None => ::rustpython_vm::function::real_signature(
+                    <#payload as ::rustpython_vm::types::PyStructSequence>::CONSTRUCTOR_PARAMS,
+                ),
             }
         }
     } else {

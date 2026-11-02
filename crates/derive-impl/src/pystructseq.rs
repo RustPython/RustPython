@@ -386,7 +386,8 @@ pub(crate) struct PyStructSequenceMeta {
 }
 
 impl ItemMeta for PyStructSequenceMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "module", "data", "no_attr"];
+    const ALLOWED_NAMES: &'static [&'static str] =
+        &["name", "module", "data", "no_attr", "constructor_args"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self { inner }
@@ -470,12 +471,22 @@ impl PyStructSequenceMeta {
         )
     }
 
+    fn constructor_args_type(&self) -> Result<Option<syn::Type>> {
+        self.inner()
+            ._optional_str("constructor_args")?
+            .map(|name| syn::parse_str(&name))
+            .transpose()
+    }
+
     pub(crate) fn no_attr(&self) -> Result<bool> {
         self.inner()._bool("no_attr")
     }
 }
 
 /// Attribute macro for struct sequences.
+///
+/// `constructor_args = "ArgsType"` connects the signature to the `FromArgs`
+/// type used by a custom `slot_new`. It does not change runtime construction.
 ///
 /// Usage:
 /// ```ignore
@@ -500,6 +511,12 @@ pub(crate) fn impl_pystruct_sequence(
     let pytype_ident = struct_item.ident.clone();
     let pytype_vis = struct_item.vis.clone();
     let data_ident = meta.data_type()?;
+    let constructor_params = meta.constructor_args_type()?.map(|args| {
+        quote! {
+            const CONSTRUCTOR_PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
+                <#args as ::rustpython_vm::function::FromArgs>::PARAMS;
+        }
+    });
 
     let class_name = meta.class_name()?.ok_or_else(|| {
         syn::Error::new_spanned(
@@ -611,6 +628,7 @@ pub(crate) fn impl_pystruct_sequence(
         // PyStructSequence trait for Python type
         impl ::rustpython_vm::types::PyStructSequence for #pytype_ident {
             type Data = #data_ident;
+            #constructor_params
         }
 
         // ToPyObject for Data struct - uses PyStructSequence::from_data
@@ -622,4 +640,73 @@ pub(crate) fn impl_pystruct_sequence(
     };
 
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::impl_pystruct_sequence;
+    use crate::metadata::PunctuatedNestedMeta;
+    use quote::{ToTokens, quote};
+    use syn::parse::Parser;
+
+    fn expand(options: proc_macro2::TokenStream) -> syn::File {
+        let attr = PunctuatedNestedMeta::parse_terminated
+            .parse2(options)
+            .unwrap();
+        let item = syn::parse2(quote!(
+            struct Demo;
+        ))
+        .unwrap();
+        syn::parse2(impl_pystruct_sequence(attr, item).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn custom_constructor_metadata_does_not_change_payload_expansion() {
+        let default = expand(quote!(name = "demo", data = "DemoData"));
+        let mut custom = expand(quote!(
+            name = "demo",
+            data = "DemoData",
+            constructor_args = "crate::DemoArgs"
+        ));
+        let mut removed = 0;
+        for item in &mut custom.items {
+            let syn::Item::Impl(imp) = item else { continue };
+            imp.items.retain(|item| {
+                let syn::ImplItem::Const(c) = item else {
+                    return true;
+                };
+                if c.ident != "CONSTRUCTOR_PARAMS" {
+                    return true;
+                }
+                assert_eq!(
+                    c.expr.to_token_stream().to_string(),
+                    quote!(<crate::DemoArgs as ::rustpython_vm::function::FromArgs>::PARAMS)
+                        .to_string()
+                );
+                removed += 1;
+                false
+            });
+        }
+        assert_eq!(removed, 1);
+        assert_eq!(
+            custom.to_token_stream().to_string(),
+            default.to_token_stream().to_string()
+        );
+    }
+
+    #[test]
+    fn malformed_constructor_args_is_a_macro_error() {
+        let attr = PunctuatedNestedMeta::parse_terminated
+            .parse2(quote!(
+                name = "demo",
+                data = "DemoData",
+                constructor_args = "not a type!"
+            ))
+            .unwrap();
+        let item = syn::parse2(quote!(
+            struct Demo;
+        ))
+        .unwrap();
+        assert!(impl_pystruct_sequence(attr, item).is_err());
+    }
 }
