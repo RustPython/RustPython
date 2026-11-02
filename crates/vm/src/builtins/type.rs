@@ -2492,7 +2492,12 @@ impl Constructor for PyType {
 
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
 fn get_signature(doc: &str) -> Option<&str> {
-    doc.find(SIGNATURE_END_MARKER).map(|index| &doc[..=index])
+    let index = doc.find(SIGNATURE_END_MARKER)?;
+    // Like CPython's skip_signature, a blank paragraph ends the header search.
+    if doc[..index].contains("\n\n") {
+        return None;
+    }
+    Some(&doc[..=index])
 }
 
 fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
@@ -2511,13 +2516,12 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
 // _PyType_DocWithoutSignature in CPython
 fn doc_without_signature<'a>(name: &str, internal_doc: &'a str) -> &'a str {
     // If the doc starts with the type name and a '(', it's a signature
-    if let Some(doc_without_sig) = find_signature(name, internal_doc) {
-        // Find where the signature ends
-        if let Some(sig_end_pos) = doc_without_sig.find(SIGNATURE_END_MARKER) {
-            let after_sig = &doc_without_sig[sig_end_pos + SIGNATURE_END_MARKER.len()..];
-            // Return the documentation after the signature, or empty string if none
-            return after_sig;
-        }
+    if let Some(doc_without_sig) = find_signature(name, internal_doc)
+        && let Some(signature) = get_signature(doc_without_sig)
+    {
+        let after_sig = &doc_without_sig[signature.len() + SIGNATURE_END_MARKER.len() - 1..];
+        // Return the documentation after the signature, or empty string if none
+        return after_sig;
     }
     // If no signature found, return the whole doc
     internal_doc
@@ -2527,6 +2531,36 @@ fn doc_without_signature<'a>(name: &str, internal_doc: &'a str) -> &'a str {
 pub(crate) fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> Option<&'a str> {
     let doc = doc_without_signature(name, internal_doc);
     (!doc.is_empty()).then_some(doc)
+}
+
+#[cfg(test)]
+mod internal_doc_signature_tests {
+    use super::{get_doc_from_internal_doc, get_text_signature_from_internal_doc};
+
+    #[test]
+    fn signatures_stop_before_a_blank_paragraph() {
+        for doc in [
+            "f(x\n\ncontinued)\n--\n\nDocumentation.",
+            "f(x)\n\nExample: f(y)\n--\n\nDocumentation.",
+        ] {
+            assert_eq!(get_text_signature_from_internal_doc("f", doc), None);
+            assert_eq!(get_doc_from_internal_doc("f", doc), Some(doc));
+        }
+    }
+
+    #[test]
+    fn multiline_signature_and_documentation_keep_their_boundary() {
+        let doc = "f($module, x,\n  y=None, /)\n--\n\nFirst.\n\nSecond.";
+        assert_eq!(
+            get_text_signature_from_internal_doc("mod.f", doc),
+            Some("($module, x,\n  y=None, /)")
+        );
+        assert_eq!(
+            get_doc_from_internal_doc("mod.f", doc),
+            Some("First.\n\nSecond.")
+        );
+        assert_eq!(get_doc_from_internal_doc("f", "f()\n--\n\n"), None);
+    }
 }
 
 pub(crate) fn rendered_item_doc(name: &str, doc: ItemDoc) -> Option<&'static str> {
