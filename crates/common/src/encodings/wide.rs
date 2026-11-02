@@ -131,12 +131,11 @@ where
         let replace = ctx.handle_error(errors, range.clone(), Some(reason))?;
         match replace {
             EncodeReplace::Str(s) => {
+                if !s.is_compatible_with(StrKind::Ascii) {
+                    return Err(ctx.error_encoding(range, Some(reason)));
+                }
                 for c in s.as_ref().code_points() {
-                    let cp = c.to_u32();
-                    if is_surrogate(cp) {
-                        return Err(ctx.error_encoding(range, Some(reason)));
-                    }
-                    emit(&mut out, cp, big_endian);
+                    emit(&mut out, c.to_u32(), big_endian);
                 }
             }
             EncodeReplace::Bytes(b) => {
