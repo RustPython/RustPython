@@ -34,8 +34,19 @@ mod _functools {
         function: PyObjectRef,
         #[pyarg(positional)]
         iterable: PyIter,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "functools._initial_missing")]
         initial: OptionalOption<PyObjectRef>,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn reduce_initial_default_metadata() {
+        use crate::function::{DefaultRepr, FromArgs};
+        let params = ReduceArgs::PARAMS.expect("known reduce parameters");
+        assert!(matches!(
+            params[2].default,
+            Some(DefaultRepr::Raw("functools._initial_missing"))
+        ));
     }
 
     #[pyfunction]

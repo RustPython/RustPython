@@ -223,13 +223,34 @@ mod unicodedata {
         }
     }
 
+    #[derive(FromArgs)]
+    struct IterGraphemesArgs {
+        #[pyarg(positional)]
+        unistr: PyStrRef,
+        #[pyarg(positional, optional, py_default = "0")]
+        start: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, optional, py_default = "sys.maxsize")]
+        end: OptionalArg<PyObjectRef>,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn grapheme_index_default_metadata() {
+        use crate::vm::function::{DefaultRepr, FromArgs};
+        let params = IterGraphemesArgs::PARAMS.expect("known grapheme parameters");
+        assert!(matches!(params[1].default, Some(DefaultRepr::Raw("0"))));
+        assert!(matches!(
+            params[2].default,
+            Some(DefaultRepr::Raw("sys.maxsize"))
+        ));
+    }
+
     #[pyfunction]
     fn iter_graphemes(
-        unistr: PyStrRef,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        args: IterGraphemesArgs,
         vm: &VirtualMachine,
     ) -> PyResult<crate::vm::PyRef<GraphemeBreakIterator>> {
+        let IterGraphemesArgs { unistr, start, end } = args;
         // Convert in argument order, including overflow, before adjusting bounds.
         let index = |arg: OptionalArg<PyObjectRef>, default| -> PyResult<isize> {
             match arg {
