@@ -1152,16 +1152,16 @@ impl PyType {
         if !defer_mro {
             new_type.mro.write().insert(0, new_type.clone());
             new_type.init_slots(ctx);
-        }
 
-        let weakref_type = super::PyWeak::static_type();
-        for base in new_type.bases.read().as_slice() {
-            base.subclasses.write().push(
-                new_type
-                    .as_object()
-                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                    .unwrap(),
-            );
+            let weakref_type = super::PyWeak::static_type();
+            for base in new_type.bases.read().as_slice() {
+                base.subclasses.write().push(
+                    new_type
+                        .as_object()
+                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
+                        .unwrap(),
+                );
+            }
         }
 
         Ok(new_type)
@@ -2421,6 +2421,26 @@ impl Constructor for PyType {
             if !typ.attributes.contains(__doc__) {
                 typ.attributes.set(__doc__, vm.ctx.none());
             }
+        }
+
+        if custom_mro {
+            // Like CPython's type_ready_publish, expose the type only after
+            // its MRO and slots are initialized. A failed custom mro() may
+            // leave the incomplete type alive through a user reference.
+            PyType::with_type_lock(vm, || {
+                let weak = typ
+                    .as_object()
+                    .downgrade_with_weakref_typ_opt(None, super::PyWeak::static_type().to_owned())
+                    .unwrap();
+                for base in typ.bases.read().as_slice() {
+                    let mut subclasses = base.subclasses.write();
+                    // A reentrant __bases__ assignment may have registered
+                    // this type already. Callback-free weakrefs are cached.
+                    if !subclasses.iter().any(|existing| existing.is(&weak)) {
+                        subclasses.push(weak.clone());
+                    }
+                }
+            });
         }
 
         // avoid deadlock
