@@ -9,7 +9,7 @@ mod _json {
             PyTuple, PyType,
         },
         convert::ToPyResult,
-        function::{ArgIntoBool, IntoFuncArgs, OptionalArg},
+        function::{ArgIntoBool, IntoFuncArgs},
         protocol::PyIterReturn,
         types::{Callable, Constructor, PyComparisonOp},
     };
