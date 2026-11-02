@@ -28,7 +28,7 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
 );
 
-/// Text signature `(iterable=(), /)` shared by every struct sequence.
+/// Default text signature `(iterable=(), /)` for struct sequences.
 pub const STRUCT_SEQUENCE_PARAMS: Option<&'static [crate::function::Param]> =
     Some(&[crate::function::Param {
         name: "iterable",
@@ -261,6 +261,10 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     /// The Data struct that provides field definitions.
     type Data: PyStructSequenceData;
 
+    /// Signature metadata for the constructor, including custom `slot_new` binders.
+    /// This does not change the constructor slot or tuple payload.
+    const CONSTRUCTOR_PARAMS: Option<&'static [crate::function::Param]> = STRUCT_SEQUENCE_PARAMS;
+
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         struct_sequence_new(
@@ -460,9 +464,9 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             .richcompare
             .store(Some(struct_sequence_richcompare));
 
-        // Default __reduce__: only set if not already overridden by the impl's extend_class.
-        // This allows struct sequences like sched_param to provide a custom __reduce__
-        // (equivalent to METH_COEXIST in structseq.c).
+        // Keep an override already installed by the impl's class extension.
+        // Custom method definitions are applied after this fallback by
+        // PyClassImpl::extend_class (equivalent to METH_COEXIST in structseq.c).
         if !class.attributes.contains(ctx.intern_str("__reduce__")) {
             class.set_attr(
                 ctx.intern_str("__reduce__"),
@@ -530,4 +534,31 @@ fn struct_sequence_richcompare(
         .iter()
         .map(|o| &**o)
         .richcompare(other_visible.iter().map(|o| &**o), op, vm)
+}
+
+#[cfg(test)]
+mod signature_metadata_tests {
+    use super::PyStructSequence;
+    use crate::{PyObjectRef, class::PyClassImpl};
+
+    #[pystruct_sequence_data]
+    struct DefaultData {
+        value: PyObjectRef,
+    }
+
+    #[pystruct_sequence(name = "metadata_default", data = "DefaultData")]
+    struct MetadataDefault;
+
+    #[pyclass(with(PyStructSequence))]
+    impl MetadataDefault {}
+
+    #[test]
+    fn ordinary_struct_sequence_signature_keeps_its_fallback() {
+        assert!(
+            MetadataDefault::INTERNAL_DOC
+                .text
+                .unwrap()
+                .starts_with("metadata_default(iterable=(), /)\n--\n\n")
+        );
+    }
 }
