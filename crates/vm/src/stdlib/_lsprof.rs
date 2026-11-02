@@ -14,7 +14,7 @@ mod _lsprof {
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::ToPyObject,
-        function::{FuncArgs, OptionalArg, PyMethodDef},
+        function::{ArgIntoBool, FuncArgs, OptionalArg, PyMethodDef},
         object::{Traverse, TraverseFn},
         stdlib::sys::monitoring::MonitoringEvent,
         types::{Constructor, Initializer, PyStructSequence},
@@ -167,22 +167,32 @@ mod _lsprof {
 
     #[derive(FromArgs)]
     struct InitArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         timer: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = 0.0)]
         timeunit: f64,
-        #[pyarg(any, default = true)]
-        subcalls: bool,
-        #[pyarg(any, default = true)]
-        builtins: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        subcalls: ArgIntoBool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        builtins: ArgIntoBool,
     }
 
     #[derive(FromArgs)]
     struct EnableArgs {
-        #[pyarg(any, default = true)]
-        subcalls: bool,
-        #[pyarg(any, default = true)]
-        builtins: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        subcalls: ArgIntoBool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        builtins: ArgIntoBool,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn profiler_constructor_default_metadata() {
+        use crate::function::{DefaultRepr, FromArgs, real_signature};
+        let params = real_signature(InitArgs::PARAMS).expect("known profiler initializer");
+        assert!(matches!(params[0].default, Some(DefaultRepr::Raw("None"))));
+        assert!(matches!(params[2].default, Some(DefaultRepr::Bool(true))));
+        assert!(matches!(params[3].default, Some(DefaultRepr::Bool(true))));
     }
 
     impl Constructor for Profiler {
@@ -204,8 +214,8 @@ mod _lsprof {
             let old_timer = {
                 let mut state = zelf.state.lock();
                 state.unit = args.timeunit;
-                state.subcalls = args.subcalls;
-                state.builtins = args.builtins;
+                state.subcalls = args.subcalls.into_bool();
+                state.builtins = args.builtins.into_bool();
                 core::mem::replace(&mut state.timer, args.timer.into_option())
             };
             drop(old_timer);
@@ -545,8 +555,8 @@ mod _lsprof {
             zelf.with_operation(vm, || {
                 {
                     let mut state = zelf.state.lock();
-                    state.subcalls = args.subcalls;
-                    state.builtins = args.builtins;
+                    state.subcalls = args.subcalls.into_bool();
+                    state.builtins = args.builtins.into_bool();
                 }
                 let monitoring = vm.sys_module.get_attr("monitoring", vm)?;
                 vm.call_method(&monitoring, "use_tool_id", (TOOL_ID, "cProfile"))?;
