@@ -9,7 +9,7 @@ mod _json {
             PyTuple, PyType,
         },
         convert::ToPyResult,
-        function::{IntoFuncArgs, OptionalArg},
+        function::{ArgIntoBool, IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor, PyComparisonOp},
     };
@@ -719,13 +719,13 @@ mod _json {
     }
 
     #[pyfunction]
-    fn encode_basestring(object: PyStrRef) -> Wtf8Buf {
-        json::encode_string(object.as_wtf8(), false)
+    fn encode_basestring(pystr: PyStrRef) -> Wtf8Buf {
+        json::encode_string(pystr.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(object: PyStrRef) -> Wtf8Buf {
-        json::encode_string(object.as_wtf8(), true)
+    fn encode_basestring_ascii(pystr: PyStrRef) -> Wtf8Buf {
+        json::encode_string(pystr.as_wtf8(), true)
     }
 
     /// Which Rust-native string escaper (if any) the `encoder` callable is
@@ -1388,13 +1388,23 @@ mod _json {
         }
     }
 
-    #[pyfunction]
-    fn scanstring(
-        s: PyStrRef,
+    #[derive(FromArgs)]
+    struct ScanStringArgs {
+        #[pyarg(positional)]
+        pystr: PyStrRef,
+        #[pyarg(positional)]
         end: isize,
-        strict: OptionalArg<bool>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Wtf8Buf, usize)> {
+        #[pyarg(positional, default = ArgIntoBool::TRUE)]
+        strict: ArgIntoBool,
+    }
+
+    #[pyfunction]
+    fn scanstring(args: ScanStringArgs, vm: &VirtualMachine) -> PyResult<(Wtf8Buf, usize)> {
+        let ScanStringArgs {
+            pystr: s,
+            end,
+            strict,
+        } = args;
         flame_guard!("_json::scanstring");
         let wtf8 = s.as_wtf8();
 
@@ -1413,7 +1423,7 @@ mod _json {
         };
 
         let (result, end_char_idx, _bytes_consumed) =
-            json::scan_string(&wtf8[byte_idx..], end, strict.unwrap_or(true))
+            json::scan_string(&wtf8[byte_idx..], end, strict.into_bool())
                 .map_err(|e| py_decode_error(e, s, vm))?;
 
         Ok((result, end_char_idx))

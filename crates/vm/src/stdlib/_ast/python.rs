@@ -274,8 +274,8 @@ pub(crate) mod _ast {
     }
 
     #[pyfunction]
-    fn _is_abstract(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        is_abstract(&cls, vm)
+    fn _is_abstract(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        is_abstract(&object, vm)
     }
 
     fn is_abstract(cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {

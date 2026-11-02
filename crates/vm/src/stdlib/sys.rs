@@ -1037,8 +1037,15 @@ pub mod sys {
         }
     }
 
+    #[derive(FromArgs)]
+    struct SetLazyImportsArgs {
+        #[pyarg(any)]
+        mode: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn set_lazy_imports(mode: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_lazy_imports(args: SetLazyImportsArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let mode = args.mode;
         let mode = mode
             .downcast_ref::<PyStr>()
             .ok_or_else(|| vm.new_type_error("mode must be a string: 'normal' or 'all'"))?;
@@ -1062,8 +1069,18 @@ pub mod sys {
             .unwrap_or_else(|| vm.ctx.none())
     }
 
+    #[derive(FromArgs)]
+    struct SetLazyImportsFilterArgs {
+        #[pyarg(any)]
+        filter: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn set_lazy_imports_filter(filter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_lazy_imports_filter(
+        args: SetLazyImportsFilterArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let filter = args.filter;
         let filter = if vm.is_none(&filter) {
             None
         } else {

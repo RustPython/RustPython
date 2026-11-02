@@ -679,7 +679,7 @@ mod _lsprof {
         fn _pystart_callback(
             zelf: &Py<Self>,
             code: PyObjectRef,
-            _offset: PyObjectRef,
+            _instruction_offset: PyObjectRef,
             vm: &VirtualMachine,
         ) {
             zelf.with_operation(vm, || {
@@ -691,7 +691,7 @@ mod _lsprof {
         fn _pythrow_callback(
             zelf: &Py<Self>,
             code: PyObjectRef,
-            _offset: PyObjectRef,
+            _instruction_offset: PyObjectRef,
             _exception: PyObjectRef,
             vm: &VirtualMachine,
         ) {
@@ -704,7 +704,7 @@ mod _lsprof {
         fn _pyreturn_callback(
             zelf: &Py<Self>,
             code: PyObjectRef,
-            _offset: PyObjectRef,
+            _instruction_offset: PyObjectRef,
             _retval: PyObjectRef,
             vm: &VirtualMachine,
         ) {
@@ -717,9 +717,9 @@ mod _lsprof {
         fn _ccall_callback(
             zelf: &Py<Self>,
             _code: PyObjectRef,
-            _offset: PyObjectRef,
+            _instruction_offset: PyObjectRef,
             callable: PyObjectRef,
-            arg: PyObjectRef,
+            self_arg: PyObjectRef,
             vm: &VirtualMachine,
         ) {
             zelf.with_operation(vm, || {
@@ -727,7 +727,8 @@ mod _lsprof {
                     let state = zelf.state.lock();
                     (state.builtins, state.missing.clone())
                 };
-                if builtins && let Some(call) = native_call(&callable, &arg, missing.as_ref()) {
+                if builtins && let Some(call) = native_call(&callable, &self_arg, missing.as_ref())
+                {
                     if zelf.state.lock().in_timer {
                         return;
                     }
@@ -748,9 +749,9 @@ mod _lsprof {
         fn _creturn_callback(
             zelf: &Py<Self>,
             _code: PyObjectRef,
-            _offset: PyObjectRef,
+            _instruction_offset: PyObjectRef,
             callable: PyObjectRef,
-            arg: PyObjectRef,
+            self_arg: PyObjectRef,
             vm: &VirtualMachine,
         ) {
             zelf.with_operation(vm, || {
@@ -758,7 +759,8 @@ mod _lsprof {
                     let state = zelf.state.lock();
                     (state.builtins, state.missing.clone())
                 };
-                if builtins && let Some(call) = native_call(&callable, &arg, missing.as_ref()) {
+                if builtins && let Some(call) = native_call(&callable, &self_arg, missing.as_ref())
+                {
                     zelf.leave(call.key(), vm);
                 }
             })

@@ -84,14 +84,24 @@ mod _warnings {
     struct WarnArgs {
         #[pyarg(any)]
         message: PyObjectRef,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         category: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = 1)]
         stacklevel: i32,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         source: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "()")]
         skip_file_prefixes: OptionalArg<PyTupleRef>,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn warn_clinic_default_metadata() {
+        use crate::function::{DefaultRepr, FromArgs};
+        let params = WarnArgs::PARAMS.expect("known warning parameters");
+        assert!(matches!(params[1].default, Some(DefaultRepr::Raw("None"))));
+        assert!(matches!(params[3].default, Some(DefaultRepr::Raw("None"))));
+        assert!(matches!(params[4].default, Some(DefaultRepr::Raw("()"))));
     }
 
     /// Validate and resolve the category argument, matching get_category() in C.

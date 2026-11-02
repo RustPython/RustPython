@@ -28,7 +28,7 @@ pub(crate) mod _thread {
         frame::FrameObjectRef,
         function::{
             ArgCallable, ArgIndex, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs,
-            NameExcInfo, OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
+            OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
@@ -249,7 +249,9 @@ pub(crate) mod _thread {
         #[pymethod]
         fn __exit__(
             &self,
-            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            _exc_type: crate::PyObjectRef,
+            _exc_value: crate::PyObjectRef,
+            _exc_tb: crate::PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             self.release(vm)
@@ -419,7 +421,9 @@ pub(crate) mod _thread {
         #[pymethod]
         fn __exit__(
             &self,
-            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            _exc_type: crate::PyObjectRef,
+            _exc_value: crate::PyObjectRef,
+            _exc_tb: crate::PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             self.release(vm)
