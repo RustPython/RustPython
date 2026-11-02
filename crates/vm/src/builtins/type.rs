@@ -2427,7 +2427,7 @@ impl Constructor for PyType {
             // Like CPython's type_ready_publish, expose the type only after
             // its MRO and slots are initialized. A failed custom mro() may
             // leave the incomplete type alive through a user reference.
-            PyType::with_type_lock(vm, || {
+            Self::with_type_lock(vm, || {
                 let weak = typ
                     .as_object()
                     .downgrade_with_weakref_typ_opt(None, super::PyWeak::static_type().to_owned())
