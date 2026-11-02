@@ -1486,8 +1486,7 @@ impl PyFrozenDict {
     #[pymethod]
     fn get(
         zelf: &Py<Self>,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
+        DictGetArgs { key, default }: DictGetArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         Ok(zelf
@@ -1503,8 +1502,7 @@ impl PyFrozenDict {
     #[pyclassmethod]
     fn fromkeys(
         cls: PyTypeRef,
-        iterable: PyObjectRef,
-        value: OptionalArg<PyObjectRef>,
+        FromKeysArgs { iterable, value }: FromKeysArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         dict_fromkeys(cls, iterable, value.unwrap_or_else(|| vm.ctx.none()), vm)

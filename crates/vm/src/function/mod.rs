@@ -16,7 +16,7 @@ mod time;
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
     NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
-    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjs, NameOthers, OptionalArg,
+    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjects, NameObjs, NameOthers, OptionalArg,
     OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
 };
 pub(crate) use argument::{

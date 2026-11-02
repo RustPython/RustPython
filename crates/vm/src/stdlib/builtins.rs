@@ -23,7 +23,7 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike, Either,
-            FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
+            FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -806,8 +806,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hex(number: ArgIndex) -> String {
-        let number = number.into_int_ref();
+    fn hex(integer: ArgIndex) -> String {
+        let number = integer.into_int_ref();
         let n = number.as_bigint();
         format!("{n:#x}")
     }
@@ -1074,8 +1074,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
-        let number = number.into_int_ref();
+    fn oct(integer: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
+        let number = integer.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
@@ -1160,7 +1160,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn print(objects: PosArgs, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn print(
+        objects: PosArgs<PyObjectRef, NameObjects>,
+        options: PrintOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let file = match options.file {
             Some(f) => f,
             None => sys::get_stdout(vm)?,
@@ -1196,7 +1200,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn reversed(sequence: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub fn reversed(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let sequence = object;
         if let Some(reversed_method) =
             vm.get_method(sequence.clone(), identifier!(vm, __reversed__))
         {

@@ -20,7 +20,10 @@ use crate::{
         PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{
+        ArgBytesLike, ArgIndex, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param,
+        PyComparisonValue, PySsize,
+    },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -493,8 +496,26 @@ impl PyByteArray {}
 
 #[derive(FromArgs)]
 struct ByteArrayReduceExArgs {
-    #[pyarg(positional, optional)]
+    #[pyarg(positional, optional, py_default = "0")]
     proto: OptionalArg<ArgIndex>,
+}
+
+#[derive(FromArgs)]
+struct TakeBytesArgs {
+    #[pyarg(positional, optional, py_default = "None")]
+    n: OptionalArg,
+}
+
+// Expose the actual split parameters without converting them before the
+// method acquires its export guard.
+struct ByteArraySplitArgs(FuncArgs);
+
+impl FromArgs for ByteArraySplitArgs {
+    const PARAMS: Option<&'static [Param]> = ByteInnerSplitOptions::PARAMS;
+
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        FuncArgs::from_args(vm, args).map(Self)
+    }
 }
 
 #[derive(FromArgs)]
@@ -604,7 +625,11 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn take_bytes(&self, n: OptionalArg, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn take_bytes(
+        &self,
+        TakeBytesArgs { n }: TakeBytesArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
         // __index__ can resize self or acquire/release exports. Convert before
         // observing either the payload or the export epoch.
         let n = match n.into_option().filter(|n| !vm.is_none(n)) {
@@ -980,7 +1005,11 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn split(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn split(
+        &self,
+        ByteArraySplitArgs(args): ByteArraySplitArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         // Converting the separator runs Python, which must not resize this
         // bytearray, so the arguments are bound with the buffer exported.
         let _export = self.begin_export();
@@ -990,7 +1019,11 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn rsplit(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn rsplit(
+        &self,
+        ByteArraySplitArgs(args): ByteArraySplitArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         let _export = self.begin_export();
         let options: ByteInnerSplitOptions = args.bind_for(vm, "rsplit")?;
         self.inner()
