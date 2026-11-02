@@ -1280,7 +1280,7 @@ mod _sre {
                 "scanner",
                 "search",
             ] {
-                let method = <Py<Pattern> as PyClassImpl>::METHOD_DEFS
+                let method = <Pattern as PyClassImpl>::METHOD_DEFS
                     .iter()
                     .find(|method| method.name == name)
                     .unwrap();
