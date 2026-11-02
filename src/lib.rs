@@ -113,9 +113,9 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
             fn _setmode(fd: i32, flags: i32) -> i32;
         }
         unsafe {
-            _setmode(0, libc::O_BINARY);
-            _setmode(1, libc::O_BINARY);
-            _setmode(2, libc::O_BINARY);
+            rustpython_vm::host_env::suppress_iph!(_setmode(0, libc::O_BINARY));
+            rustpython_vm::host_env::suppress_iph!(_setmode(1, libc::O_BINARY));
+            rustpython_vm::host_env::suppress_iph!(_setmode(2, libc::O_BINARY));
         }
     }
 
