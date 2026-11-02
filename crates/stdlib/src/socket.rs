@@ -1131,6 +1131,14 @@ mod _socket {
         }
     }
 
+    #[derive(FromArgs)]
+    struct SendArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, default)]
+        flags: i32,
+    }
+
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
     #[pyclass(name = "socket")]
@@ -2247,11 +2255,9 @@ mod _socket {
         #[pymethod]
         fn send(
             zelf: &Py<Self>,
-            bytes: ArgBytesLike,
-            flags: OptionalArg<i32>,
+            SendArgs { data: bytes, flags }: SendArgs,
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
-            let flags = flags.unwrap_or(0);
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             zelf.sock_op(vm, SockWaitKind::Write, || {
@@ -2262,12 +2268,9 @@ mod _socket {
         #[pymethod]
         fn sendall(
             zelf: &Py<Self>,
-            bytes: ArgBytesLike,
-            flags: OptionalArg<i32>,
+            SendArgs { data: bytes, flags }: SendArgs,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let flags = flags.unwrap_or(0);
-
             let timeout = zelf.get_timeout().ok();
             let mut deadline = None;
 

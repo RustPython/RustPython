@@ -87,7 +87,7 @@ mod _warnings {
         #[pyarg(any, optional, py_default = "None")]
         category: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = 1)]
-        stacklevel: i32,
+        stacklevel: isize,
         #[pyarg(any, optional, py_default = "None")]
         source: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional, py_default = "()")]
@@ -137,7 +137,7 @@ mod _warnings {
 
     #[pyfunction]
     fn warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let level = args.stacklevel as isize;
+        let level = args.stacklevel;
 
         let category = get_category(&args.message, args.category.into_option(), vm)?;
 

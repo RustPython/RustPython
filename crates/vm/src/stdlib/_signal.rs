@@ -410,12 +410,27 @@ pub(crate) mod _signal {
     use crate::function::OptionalArg;
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[derive(FromArgs)]
+    struct PidfdSendSignalArgs {
+        #[pyarg(positional)]
+        pidfd: i32,
+        #[pyarg(positional, name = "signalnum")]
+        sig: core::ffi::c_int,
+        #[pyarg(positional, optional, py_default = "None")]
+        siginfo: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, default)]
+        flags: core::ffi::c_int,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyfunction]
     fn pidfd_send_signal(
-        pidfd: i32,
-        sig: SignalNum,
-        siginfo: OptionalArg<PyObjectRef>,
-        flags: OptionalArg<u32>,
+        PidfdSendSignalArgs {
+            pidfd,
+            sig,
+            siginfo,
+            flags,
+        }: PidfdSendSignalArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let OptionalArg::Present(obj) = siginfo
@@ -424,8 +439,7 @@ pub(crate) mod _signal {
             return Err(vm.new_type_error("siginfo must be None"));
         }
 
-        let flags = flags.unwrap_or(0);
-        host_signal::pidfd_send_signal(pidfd, sig.into(), flags)
+        host_signal::pidfd_send_signal(pidfd, sig, flags as u32)
             .map_err(|_| vm.new_last_errno_error())
     }
 

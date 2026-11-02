@@ -617,8 +617,8 @@ pub mod latin_1 {
         _errors: &E,
     ) -> Result<(Wtf8Buf, usize), Ctx::Error> {
         let out: String = ctx.remaining_data().iter().map(|c| *c as char).collect();
-        let out_len = out.len();
-        Ok((out.into(), out_len))
+        let consumed = ctx.full_data().len();
+        Ok((out.into(), consumed))
     }
 }
 
