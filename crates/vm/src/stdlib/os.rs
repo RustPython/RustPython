@@ -2186,15 +2186,15 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[derive(FromArgs)]
     struct CopyFileRangeArgs<'fd> {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         src: crt_fd::Borrowed<'fd>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         dst: crt_fd::Borrowed<'fd>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         count: i64,
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "None")]
         offset_src: Option<crt_fd::Offset>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "None")]
         offset_dst: Option<crt_fd::Offset>,
     }
 

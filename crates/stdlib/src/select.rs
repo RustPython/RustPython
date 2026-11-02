@@ -478,10 +478,20 @@ mod decl {
 
         #[derive(FromArgs)]
         struct EpollPollArgs {
-            #[pyarg(any, default)]
+            #[pyarg(any, default, py_default = "None")]
             timeout: poll::TimeoutArg<false>,
             #[pyarg(any, default = -1)]
             maxevents: i32,
+        }
+
+        #[derive(FromArgs)]
+        struct EpollExitArgs {
+            #[pyarg(positional, optional, name = "exc_type", py_default = "None")]
+            _exc_type: OptionalArg,
+            #[pyarg(positional, optional, name = "exc_value", py_default = "None")]
+            _exc_value: OptionalArg,
+            #[pyarg(positional, optional, name = "exc_tb", py_default = "None")]
+            _exc_tb: OptionalArg,
         }
 
         #[pyclass(with(Constructor))]
@@ -643,12 +653,7 @@ mod decl {
             }
 
             #[pymethod]
-            fn __exit__(
-                zelf: &Py<Self>,
-                _exc_type: OptionalArg,
-                _exc_value: OptionalArg,
-                _exc_tb: OptionalArg,
-            ) -> std::io::Result<()> {
+            fn __exit__(zelf: &Py<Self>, _args: EpollExitArgs) -> std::io::Result<()> {
                 Self::close(zelf)
             }
         }
