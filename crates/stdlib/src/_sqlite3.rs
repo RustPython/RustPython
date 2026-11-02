@@ -2288,7 +2288,7 @@ mod _sqlite3 {
     struct Cursor {
         connection: PyRef<Connection>,
         #[pytraverse(skip)]
-        arraysize: PyAtomic<c_int>,
+        arraysize: PyAtomic<u32>,
         #[pytraverse(skip)]
         row_factory: PyAtomicRef<Option<PyObject>>,
         inner: PyMutex<Option<CursorInner>>,
@@ -2312,7 +2312,7 @@ mod _sqlite3 {
         // Like Clinic, display the initial arraysize but read the current value
         // when omitted. Explicit None must still fail integer conversion.
         #[pyarg(any, optional, py_default = "1")]
-        size: OptionalArg<c_int>,
+        size: OptionalArg<u32>,
     }
 
     #[derive(FromArgs)]
@@ -2606,16 +2606,9 @@ mod _sqlite3 {
             args: FetchManyArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let max_rows = match args.size {
-                OptionalArg::Present(size) => {
-                    if size < 0 {
-                        return Err(vm.new_value_error("fetchmany may not be negative"));
-                    }
-
-                    size
-                }
-                OptionalArg::Missing => zelf.arraysize.load(Ordering::Relaxed),
-            };
+            let max_rows = args
+                .size
+                .unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
 
             let mut list = vec![];
             let mut remaining = max_rows;
@@ -2691,19 +2684,13 @@ mod _sqlite3 {
         }
 
         #[pygetset]
-        fn arraysize(zelf: &Py<Self>) -> c_int {
+        fn arraysize(zelf: &Py<Self>) -> u32 {
             zelf.arraysize.load(Ordering::Relaxed)
         }
 
         #[pygetset(setter)]
-        fn set_arraysize(zelf: &Py<Self>, val: c_int, vm: &VirtualMachine) -> PyResult<()> {
-            if val < 0 {
-                return Err(vm.new_value_error("arraysize may not be negative"));
-            }
-
+        fn set_arraysize(zelf: &Py<Self>, val: u32) {
             zelf.arraysize.store(val, Ordering::Relaxed);
-
-            Ok(())
         }
 
         #[pygetset]
