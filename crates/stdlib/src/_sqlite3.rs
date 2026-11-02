@@ -2049,12 +2049,23 @@ mod _sqlite3 {
             exc: PyObjectRef,
             tb: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        ) -> PyResult<bool> {
             if vm.is_none(&cls) && vm.is_none(&exc) && vm.is_none(&tb) {
-                Self::commit(zelf, vm)
+                if let Err(commit_error) = Self::commit(zelf, vm) {
+                    // Release the failed transaction's locks, retaining the
+                    // commit error if rollback succeeds or as the context if it fails.
+                    return match Self::rollback(zelf, vm) {
+                        Ok(()) => Err(commit_error),
+                        Err(rollback_error) => {
+                            rollback_error.set_context(Some(commit_error));
+                            Err(rollback_error)
+                        }
+                    };
+                }
             } else {
-                Self::rollback(zelf, vm)
+                Self::rollback(zelf, vm)?;
             }
+            Ok(false)
         }
 
         #[pygetset]
