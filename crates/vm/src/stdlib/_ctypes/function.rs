@@ -1849,7 +1849,8 @@ impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
     fn restype(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        zelf.restype.read().clone().or_else(|| {
+        let restype = zelf.restype.read().clone();
+        restype.or_else(|| {
             zelf.as_object()
                 .class()
                 .get_attr(vm.ctx.intern_str("_restype_"))
@@ -1863,7 +1864,7 @@ impl Py<PyCFuncPtr> {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
         }
         // An explicit None requests a void result; it is distinct from unset.
-        let old = std::mem::replace(&mut *self.restype.write(), Some(value));
+        let old = self.restype.write().replace(value);
         // Finalizers on the previous value can re-enter this setter.
         drop(old);
         Ok(())
