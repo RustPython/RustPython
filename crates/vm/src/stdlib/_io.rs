@@ -6713,24 +6713,12 @@ mod winconsoleio {
 
     impl DefaultConstructor for WindowsConsoleIO {}
 
-    struct WindowsConsoleMode(PyUtf8StrRef);
-
-    impl TryFromObject for WindowsConsoleMode {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            let mode = PyUtf8StrRef::try_from_object(vm, obj)?;
-            if mode.as_str().contains('\0') {
-                return Err(vm.new_value_error("embedded null character"));
-            }
-            Ok(Self(mode))
-        }
-    }
-
     #[derive(FromArgs)]
     pub(super) struct WindowsConsoleIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, optional, py_default = "'r'")]
-        mode: OptionalArg<WindowsConsoleMode>,
+        mode: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(any, default = true)]
         closefd: bool,
         #[allow(dead_code)]
@@ -6742,6 +6730,19 @@ mod winconsoleio {
         type Args = WindowsConsoleIOArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let mode_str = match &args.mode {
+                OptionalArg::Present(Some(mode)) => mode.as_str(),
+                OptionalArg::Present(None) => {
+                    return Err(vm.new_type_error(
+                        "_WindowsConsoleIO() argument 'mode' must be str, not None",
+                    ));
+                }
+                OptionalArg::Missing => "r",
+            };
+            if mode_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+
             let nameobj = args.name;
 
             if zelf.fd.load() >= 0 {
@@ -6772,11 +6773,6 @@ mod winconsoleio {
             }
 
             // Parse mode
-            let mode_str: &str = match &args.mode {
-                OptionalArg::Present(mode) => mode.0.as_str(),
-                OptionalArg::Missing => "r",
-            };
-
             let mut rwa = false;
             let mut readable = false;
             let mut writable = false;
