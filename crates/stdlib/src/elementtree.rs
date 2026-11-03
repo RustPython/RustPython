@@ -709,7 +709,7 @@ pub(crate) mod _elementtree {
                 ))
             })?;
             let attrib = attrib.copy().into_ref(&vm.ctx);
-            create_element(tag, Some(attrib.into()), vm)
+            Ok(create_element(tag, Some(attrib.into()), vm))
         }
 
         #[pymethod]
@@ -837,7 +837,7 @@ pub(crate) mod _elementtree {
                     inner.children.clone(),
                 )
             };
-            let new = create_element(tag, attrib, vm)?;
+            let new = create_element(tag, attrib, vm);
             {
                 let elem = as_element(&new, vm)?;
                 let mut inner = elem.inner.write();
@@ -1074,8 +1074,8 @@ pub(crate) mod _elementtree {
         tag: PyObjectRef,
         attrib: Option<PyRef<PyAnyDict>>,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(PyElement::new(tag, attrib, vm).into_ref(&vm.ctx).into())
+    ) -> PyObjectRef {
+        PyElement::new(tag, attrib, vm).into_ref(&vm.ctx).into()
     }
 
     fn deepcopy_obj(obj: &PyObject, memo: &Py<PyDict>, vm: &VirtualMachine) -> PyResult {
@@ -1131,7 +1131,7 @@ pub(crate) mod _elementtree {
             }
             None => None,
         };
-        let new = create_element(tag, attrib, vm)?;
+        let new = create_element(tag, attrib, vm);
         let elem = as_element(&new, vm)?;
         let text = deepcopy_obj(&text, memo, vm)?;
         let tail = deepcopy_obj(&tail, memo, vm)?;
@@ -1302,7 +1302,7 @@ pub(crate) mod _elementtree {
             ))
         })?;
         let (tag, attrib) = parse_attrib_args(args, "SubElement", 1, vm)?;
-        let element = create_element(tag, attrib.map(Into::into), vm)?;
+        let element = create_element(tag, attrib.map(Into::into), vm);
         parent.push(element.clone());
         Ok(element)
     }
