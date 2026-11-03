@@ -565,7 +565,7 @@ pub(crate) mod _elementtree {
             // Keep the bulk path while committing valid items before an error.
             let valid_prefix = items
                 .iter()
-                .position(|element| !element.downcastable::<PyElement>())
+                .position(|element| !element.downcastable::<Self>())
                 .unwrap_or(items.len());
             let mut items = items.into_iter();
             zelf.inner
