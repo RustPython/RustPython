@@ -313,7 +313,7 @@ mod _csv {
 
         Ok(Writer {
             write,
-            state: PyMutex::new(()),
+            operation: PyOperation::new(vm),
             dialect,
         })
     }
@@ -1012,7 +1012,7 @@ mod _csv {
     pub(super) struct Writer {
         write: PyObjectRef,
         #[pytraverse(skip)]
-        state: PyMutex<()>,
+        operation: PyOperation,
         #[pytraverse(skip)]
         dialect: PyDialect,
     }
@@ -1099,7 +1099,11 @@ mod _csv {
 
         #[pymethod]
         fn writerow(zelf: &Py<Self>, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let _state = zelf.state.lock();
+            zelf.operation
+                .with(vm, || Self::writerow_impl(zelf, &row, vm))
+        }
+
+        fn writerow_impl(zelf: &Py<Self>, row: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let row: ArgIterable =
                 ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
                     new_csv_error(
