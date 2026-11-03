@@ -61,19 +61,19 @@ pub unsafe extern "C" fn PyBuffer_FillContiguousStrides(
         return;
     }
     let ndim = ndim as usize;
-    let shape = unsafe { core::slice::from_raw_parts(shape, ndim) };
-    let strides = unsafe { core::slice::from_raw_parts_mut(strides, ndim) };
     let mut stride = itemsize as isize;
 
     if order == b'F' as c_char {
-        for (shape, output) in shape.iter().zip(strides) {
-            *output = stride;
-            stride = stride.wrapping_mul(*shape);
+        for index in 0..ndim {
+            unsafe { strides.add(index).write(stride) };
+            let dimension = unsafe { shape.add(index).read() };
+            stride = stride.wrapping_mul(dimension);
         }
     } else {
-        for (shape, output) in shape.iter().zip(strides).rev() {
-            *output = stride;
-            stride = stride.wrapping_mul(*shape);
+        for index in (0..ndim).rev() {
+            unsafe { strides.add(index).write(stride) };
+            let dimension = unsafe { shape.add(index).read() };
+            stride = stride.wrapping_mul(dimension);
         }
     }
 }
@@ -375,6 +375,18 @@ mod tests {
             );
         }
         assert_eq!(strides, [2, 4, 0]);
+
+        let mut overlapping = [2isize, 3, 4];
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                overlapping.as_mut_ptr(),
+                overlapping.as_mut_ptr(),
+                2,
+                b'C' as _,
+            );
+        }
+        assert_eq!(overlapping, [16, 4, 2]);
 
         unsafe {
             PyBuffer_FillContiguousStrides(
