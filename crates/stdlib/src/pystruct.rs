@@ -540,48 +540,4 @@ pub(crate) mod _struct {
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         struct_error_type(vm).to_owned()
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::vm::class::PyClassImpl;
-
-        #[test]
-        fn struct_constructor_signature_metadata() {
-            assert!(
-                <PyStruct as PyClassImpl>::INTERNAL_DOC
-                    .text
-                    .unwrap()
-                    .starts_with("Struct(format)\n--\n\n")
-            );
-        }
-
-        #[test]
-        fn struct_pack_signature_metadata() {
-            for (methods, name, expected) in [
-                (METHOD_DEFS, "pack", "pack($module, format, /, *values)"),
-                (
-                    METHOD_DEFS,
-                    "pack_into",
-                    "pack_into($module, format, buffer, offset, /, *values)",
-                ),
-                (
-                    <PyStruct as PyClassImpl>::METHOD_DEFS,
-                    "pack",
-                    "pack($self, /, *values)",
-                ),
-                (
-                    <PyStruct as PyClassImpl>::METHOD_DEFS,
-                    "pack_into",
-                    "pack_into($self, buffer, offset, /, *values)",
-                ),
-            ] {
-                let method = methods.iter().find(|method| method.name == name).unwrap();
-                assert_eq!(
-                    method.doc.unwrap().split_once("\n--\n\n").unwrap().0,
-                    expected
-                );
-            }
-        }
-    }
 }

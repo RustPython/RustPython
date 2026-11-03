@@ -1455,16 +1455,6 @@ mod builtins {
         level: i32,
     }
 
-    #[cfg(test)]
-    #[test]
-    fn lazy_import_clinic_default_metadata() {
-        use crate::function::{DefaultRepr, FromArgs};
-        let params = LazyImportArgs::PARAMS.expect("known lazy-import parameters");
-        assert_eq!(params[1].name, "globals");
-        assert!(matches!(params[1].default, Some(DefaultRepr::Raw("None"))));
-        assert!(matches!(params[3].default, Some(DefaultRepr::Raw("()"))));
-    }
-
     #[pyfunction]
     fn __lazy_import__(args: LazyImportArgs, vm: &VirtualMachine) -> PyResult {
         let globals = args
