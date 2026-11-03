@@ -1869,7 +1869,8 @@ impl Py<PyCFuncPtr> {
     // argtypes getter/setter
     #[pygetset]
     fn argtypes(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        zelf.argtypes.read().clone().or_else(|| {
+        let argtypes = zelf.argtypes.read().clone();
+        argtypes.or_else(|| {
             zelf.as_object()
                 .class()
                 .get_attr(vm.ctx.intern_str("_argtypes_"))
