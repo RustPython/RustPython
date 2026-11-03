@@ -1085,19 +1085,25 @@ mod mmap {
 
         #[pymethod]
         fn read(zelf: &Py<Self>, args: ReadArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let num_bytes = args
-                .n
-                .map(|obj| {
-                    let class = obj.class().to_owned();
-                    obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
+            let num_bytes = match args.n {
+                Some(obj) if !vm.is_none(&obj) => {
+                    let index = obj.try_index_opt(vm).ok_or_else(|| {
+                        let mut name = obj.class().slot_name().to_string();
+                        if name.len() > 200 {
+                            let mut end = 200;
+                            while !name.is_char_boundary(end) {
+                                end -= 1;
+                            }
+                            name.truncate(end);
+                        }
                         vm.new_type_error(format!(
-                            "read argument must be int or None, not {}",
-                            class.name()
+                            "argument should be integer or None, not '{name}'"
                         ))
-                    })
-                })
-                .transpose()?
-                .flatten();
+                    })??;
+                    Some(index.try_to_primitive::<isize>(vm)?)
+                }
+                _ => None,
+            };
             let mmap = zelf.check_valid(vm)?;
             let pos = zelf.pos();
             let remaining = zelf.__len__().saturating_sub(pos);
