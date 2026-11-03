@@ -281,7 +281,6 @@ mod zlib {
         ) -> PyResult<Vec<u8>> {
             let max_length: usize = args
                 .raw_max_length()
-                .unwrap_or(0)
                 .try_into()
                 .map_err(|_| vm.new_value_error("max_length must be non-negative"))?;
             let max_length = (max_length != 0).then_some(max_length);

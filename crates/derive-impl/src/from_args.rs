@@ -6,6 +6,9 @@ use syn::{
     Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Result, Token, Type, parse_quote,
 };
 
+#[cfg(test)]
+mod integer_alias_tests;
+
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
@@ -293,6 +296,7 @@ fn is_primitive_int(ty: &Type) -> bool {
                 | "i64"
                 | "i128"
                 | "isize"
+                | "PySsize"
                 | "u8"
                 | "u16"
                 | "u32"
