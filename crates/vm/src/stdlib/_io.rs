@@ -6643,7 +6643,7 @@ mod winconsoleio {
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
-        function::{ArgBytesLike, ArgMemoryBuffer},
+        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6713,12 +6713,24 @@ mod winconsoleio {
 
     impl DefaultConstructor for WindowsConsoleIO {}
 
+    struct WindowsConsoleMode(PyUtf8StrRef);
+
+    impl TryFromObject for WindowsConsoleMode {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let mode = PyUtf8StrRef::try_from_object(vm, obj)?;
+            if mode.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            Ok(Self(mode))
+        }
+    }
+
     #[derive(FromArgs)]
     pub(super) struct WindowsConsoleIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
-        #[pyarg(any, default)]
-        mode: Option<PyUtf8StrRef>,
+        #[pyarg(any, optional, py_default = "'r'")]
+        mode: OptionalArg<WindowsConsoleMode>,
         #[pyarg(any, default = true)]
         closefd: bool,
         #[allow(dead_code)]
@@ -6760,7 +6772,10 @@ mod winconsoleio {
             }
 
             // Parse mode
-            let mode_str: &str = args.mode.as_deref().map_or("r", |s| s.as_str());
+            let mode_str: &str = match &args.mode {
+                OptionalArg::Present(mode) => mode.0.as_str(),
+                OptionalArg::Missing => "r",
+            };
 
             let mut rwa = false;
             let mut readable = false;
