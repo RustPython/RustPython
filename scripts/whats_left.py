@@ -100,6 +100,41 @@ CPYTHON_SPECIFIC_MODS = {
 
 IGNORED_MODULES = {"this", "antigravity"} | CPYTHON_SPECIFIC_MODS
 
+# This records only the top-level names returned by the existing scanner.
+# A truncated manifest is explicitly incomplete and must not certify coverage.
+reference_discovery = {
+    "names": [],
+    "ignored": [],
+    "scanner_errors": [],
+    "truncated": False,
+}
+_discovery_type, _discovery_str, _discovery_len = type, str, len
+_discovery_chars = [0]
+_MAX_DISCOVERY_RECORDS = 16384
+_MAX_DISCOVERY_CHARS = 1048576
+
+
+def record_reference_discovery(group, name):
+    if _discovery_type(name) is not _discovery_str:
+        reference_discovery["truncated"] = True
+        return
+    size = _discovery_len(name)
+    count = (
+        _discovery_len(reference_discovery["names"])
+        + _discovery_len(reference_discovery["ignored"])
+        + _discovery_len(reference_discovery["scanner_errors"])
+    )
+    if (
+        size > 4096
+        or count >= _MAX_DISCOVERY_RECORDS
+        or _discovery_chars[0] + size > _MAX_DISCOVERY_CHARS
+    ):
+        reference_discovery["truncated"] = True
+        return
+    _discovery_chars[0] += size
+    reference_discovery[group].append(name)
+
+
 sys.path = [
     path
     for path in sys.path
@@ -314,6 +349,7 @@ def scan_modules():
             modules[modname] = 1
 
     def onerror(modname):
+        record_reference_discovery("scanner_errors", modname)
         callback(None, modname, None)
 
     with warnings.catch_warnings():
@@ -419,7 +455,9 @@ def gen_modules():
     # e.g. printing something or opening a webpage
     modules = {}
     for mod_name in sorted(scan_modules(), key=name_sort_key):
+        record_reference_discovery("names", mod_name)
         if mod_name in IGNORED_MODULES:
+            record_reference_discovery("ignored", mod_name)
             continue
         # decimal's accelerated types are not the implementation under test.
         if mod_name == "decimal":
@@ -467,6 +505,7 @@ output = """\
 output += gen_methods()
 output += f"""
 cpymods = {gen_modules()!r}
+reference_discovery = {reference_discovery!r}
 libdir = {os.path.abspath("Lib/").encode("utf8")!r}
 
 """
@@ -485,6 +524,7 @@ for fn in REUSED:
 # Prevent missing variable linter errors from compare()
 expected_methods = {}
 cpymods = {}
+reference_discovery = {}
 libdir = ""
 
 
@@ -562,6 +602,7 @@ def compare():
 
     result = {
         "cpython_modules": {},
+        "reference_discovery": reference_discovery,
         "implemented": {},
         "not_implemented": {},
         "failed_to_import": {},
@@ -732,4 +773,17 @@ if args.doc:
 print()
 print("# summary")
 for error_type, modules in result.items():
-    print("# ", error_type, len(modules))
+    if error_type != "reference_discovery":
+        print("# ", error_type, len(modules))
+discovery = result["reference_discovery"]
+print(
+    "# reference discovery:",
+    len(discovery["names"]),
+    "names,",
+    len(discovery["ignored"]),
+    "ignored,",
+    len(discovery["scanner_errors"]),
+    "scanner errors",
+)
+if discovery["truncated"]:
+    print("# reference discovery manifest truncated")

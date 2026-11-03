@@ -581,6 +581,9 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
+      - name: Test whats_left discovery reporting
+        run: python -I -B -m unittest discover -s scripts/tests -p test_whatsleft_discovery.py -v
+
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
         with:
