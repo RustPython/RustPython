@@ -5,11 +5,12 @@ pub(crate) use syslog::module_def;
 #[pymodule(name = "syslog")]
 mod syslog {
     use crate::vm::{
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef},
-        convert::ToPyException,
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        builtins::{PyList, PyStr, PyStrRef},
+        function::OptionalArg,
         utils::ToCString,
     };
+    use core::ffi::c_long;
     use rustpython_host_env::syslog as host_syslog;
 
     #[pyattr]
@@ -28,52 +29,30 @@ mod syslog {
     #[pyattr]
     use host_syslog::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
 
-    fn ident_to_utf8_cstring(
-        ident: &Py<PyStr>,
-        vm: &VirtualMachine,
-    ) -> PyResult<alloc::ffi::CString> {
-        let utf8 = ident.to_str().ok_or_else(|| {
-            let start = ident
-                .as_wtf8()
-                .code_points()
-                .position(|c| c.to_char().is_none())
-                .unwrap_or(0);
-            vm.new_unicode_encode_error(
-                vm.ctx.new_str("utf-8"),
-                ident.to_owned(),
-                start,
-                start + 1,
-                vm.ctx.new_str("surrogates not allowed"),
-            )
-        })?;
-        alloc::ffi::CString::new(utf8).map_err(|err| err.to_pyexception(vm))
-    }
-
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
-        if let Some(argv) = vm.state.config.settings.argv.first()
-            && !argv.is_empty()
-        {
-            let argv = vm.fsdecode(argv.clone());
-            let argv = argv.as_wtf8();
-            return Some(
-                PyStr::from(match argv.as_bytes().iter().position(|&b| b == b'\\') {
-                    Some(value) => &argv[value..],
-                    None => argv,
-                })
-                .into_ref(&vm.ctx),
-            );
+        let argv = vm.sys_module.dict().get_item_opt("argv", vm).ok()??;
+        let argv = argv.downcast_ref::<PyList>()?;
+        let script = argv.borrow_vec().first()?.clone();
+        let script = script.downcast::<PyStr>().ok()?;
+        let name = script.as_wtf8();
+        if name.is_empty() {
+            return None;
         }
-        None
+        // syslog is a Unix module: use the final slash in the current sys.argv[0].
+        match name.as_bytes().iter().rposition(|&b| b == b'/') {
+            Some(slash) => Some(PyStr::from(&name[slash + 1..]).into_ref(&vm.ctx)),
+            None => Some(script),
+        }
     }
 
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
         #[pyarg(any, optional)]
-        ident: Option<PyStrRef>,
+        ident: OptionalArg<PyStrRef>,
         #[pyarg(any, default)]
-        logoption: i32,
-        #[pyarg(any, default = ::LOG_USER)]
-        facility: i32,
+        logoption: c_long,
+        #[pyarg(any, default = LOG_USER as c_long, py_default = "LOG_USER")]
+        facility: c_long,
     }
 
     #[pyfunction]
@@ -83,23 +62,33 @@ mod syslog {
         }
         let logoption = args.logoption;
         let facility = args.facility;
-        let ident = match args.ident.clone() {
-            Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),
-            None => get_argv(vm)
-                .map(|argv| ident_to_utf8_cstring(&argv, vm))
-                .transpose()?,
-        }
-        .map(|ident| ident.into_boxed_c_str());
+        let ident = args.ident.into_option().or_else(|| get_argv(vm));
+        let c_ident = ident
+            .as_ref()
+            .map(|ident| {
+                let utf8 = ident.try_as_utf8(vm)?;
+                // openlog accepts a Unicode ident, not a NUL-checked "s" argument.
+                // Keep the full object for auditing, but pass its C string prefix.
+                utf8.as_str()
+                    .split('\0')
+                    .next()
+                    .unwrap_or_default()
+                    .to_cstring(vm)
+            })
+            .transpose()?
+            .map(|ident| ident.into_boxed_c_str());
 
         vm.audit("syslog.openlog", || {
-            let audit_ident: PyObjectRef = args.ident.map_or_else(
-                || get_argv(vm).map_or_else(|| vm.ctx.none(), Into::into),
-                Into::into,
-            );
-            (audit_ident, logoption, facility)
+            (
+                ident
+                    .as_ref()
+                    .map_or_else(|| vm.ctx.none(), |s| s.clone().into()),
+                logoption,
+                facility,
+            )
         })?;
 
-        host_syslog::openlog(ident, logoption, facility);
+        host_syslog::openlog(c_ident, logoption as i32, facility as i32);
         Ok(())
     }
 
@@ -108,17 +97,26 @@ mod syslog {
         #[pyarg(positional)]
         priority: PyObjectRef,
         #[pyarg(positional, optional)]
-        message: Option<PyStrRef>,
+        message: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
     fn syslog(args: SysLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let (priority, msg) = match args.message {
-            Some(s) => (args.priority.try_into_value(vm)?, s),
-            None => (LOG_INFO, args.priority.try_into_value(vm)?),
+        let (priority, msg): (i32, PyStrRef) = match args.message {
+            OptionalArg::Present(message) => {
+                // Convert priority before inspecting message, as PyArg_ParseTuple does.
+                let priority = args.priority.try_into_value(vm)?;
+                (priority, message.try_into_value(vm)?)
+            }
+            OptionalArg::Missing => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
+        // Reject invalid UTF-8 and embedded NUL before auditing or opening the log.
+        let utf8 = msg.try_as_utf8(vm)?;
+        let cmsg = utf8.to_cstring(vm)?;
 
-        vm.audit("syslog.syslog", || (priority, msg.clone()))?;
+        vm.audit("syslog.syslog", || {
+            (priority, vm.ctx.new_str(utf8.as_str()))
+        })?;
 
         if !host_syslog::is_open() {
             if !vm.state.is_main_interpreter() {
@@ -128,14 +126,13 @@ mod syslog {
             }
             openlog(
                 OpenLogArgs {
-                    facility: LOG_USER,
+                    facility: LOG_USER as c_long,
                     ..OpenLogArgs::default()
                 },
                 vm,
             )?;
         }
 
-        let cmsg = msg.to_cstring(vm)?;
         host_syslog::syslog(priority, cmsg.as_c_str());
         Ok(())
     }
@@ -152,10 +149,10 @@ mod syslog {
     }
 
     #[pyfunction]
-    fn setlogmask(maskpri: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    fn setlogmask(maskpri: c_long, vm: &VirtualMachine) -> PyResult<i32> {
         vm.audit("syslog.setlogmask", || (maskpri,))?;
 
-        Ok(host_syslog::setlogmask(maskpri))
+        Ok(host_syslog::setlogmask(maskpri as i32))
     }
 
     #[inline]
