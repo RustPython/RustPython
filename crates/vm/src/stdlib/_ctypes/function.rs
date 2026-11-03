@@ -1855,13 +1855,16 @@ impl Py<PyCFuncPtr> {
     #[pygetset(setter)]
     fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Must be type, callable, or None
-        if vm.is_none(&value) {
-            *self.restype.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else if value.downcast_ref::<PyType>().is_some() || value.is_callable() {
-            *self.restype.write() = Some(value);
+            Some(value)
         } else {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
-        }
+        };
+        let old = std::mem::replace(&mut *self.restype.write(), value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
