@@ -84,14 +84,24 @@ mod _warnings {
     struct WarnArgs {
         #[pyarg(any)]
         message: PyObjectRef,
-        #[pyarg(any, optional)]
-        category: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        category: Option<PyObjectRef>,
         #[pyarg(any, default = 1)]
         stacklevel: isize,
-        #[pyarg(any, optional)]
-        source: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, default = None)]
+        source: Option<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "()")]
         skip_file_prefixes: OptionalArg<PyTupleRef>,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn warn_clinic_default_metadata() {
+        use crate::function::{DefaultRepr, FromArgs};
+        let params = WarnArgs::PARAMS.expect("known warning parameters");
+        assert!(matches!(params[1].default, Some(DefaultRepr::None)));
+        assert!(matches!(params[3].default, Some(DefaultRepr::None)));
+        assert!(matches!(params[4].default, Some(DefaultRepr::Raw("()"))));
     }
 
     /// Validate and resolve the category argument, matching get_category() in C.
@@ -129,7 +139,7 @@ mod _warnings {
     fn warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
         let level = args.stacklevel;
 
-        let category = get_category(&args.message, args.category.into_option(), vm)?;
+        let category = get_category(&args.message, args.category, vm)?;
 
         // Validate skip_file_prefixes: each element must be a str
         let skip_prefixes = args.skip_file_prefixes.into_option();
@@ -145,7 +155,7 @@ mod _warnings {
             args.message,
             category,
             level,
-            args.source.into_option(),
+            args.source,
             skip_prefixes.as_deref(),
             vm,
         )
