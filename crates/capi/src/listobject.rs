@@ -42,6 +42,20 @@ pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> 
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
+        let vec = list.borrow_vec();
+        let item = index
+            .try_into()
+            .ok()
+            .and_then(|index: usize| vec.get(index))
+            .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))?;
+        Ok(item.as_object().as_raw().cast_mut())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_SetItem(
     list: *mut PyObject,
     index: isize,
@@ -169,7 +183,33 @@ pub unsafe extern "C" fn PyList_Sort(list: *mut PyObject) -> c_int {
 mod tests {
     use pyo3::exceptions::PyIndexError;
     use pyo3::prelude::*;
-    use pyo3::types::{PyList, PyListMethods};
+    use pyo3::types::{PyList, PyListMethods, PyTuple};
+
+    #[test]
+    fn get_item_borrowed() {
+        Python::attach(|py| {
+            let list = PyList::new(py, [10, 20]).unwrap();
+            let first = list.get_item(0).unwrap();
+            let last = list.get_item(1).unwrap();
+
+            assert_eq!(
+                unsafe { super::PyList_GetItem(list.as_ptr().cast(), 0) },
+                first.as_ptr().cast::<super::PyObject>()
+            );
+            assert_eq!(
+                unsafe { super::PyList_GetItem(list.as_ptr().cast(), 1) },
+                last.as_ptr().cast::<super::PyObject>()
+            );
+            assert!(unsafe { super::PyList_GetItem(list.as_ptr().cast(), -1) }.is_null());
+            assert!(unsafe { super::PyList_GetItem(list.as_ptr().cast(), 2) }.is_null());
+
+            let empty = PyList::empty(py);
+            assert!(unsafe { super::PyList_GetItem(empty.as_ptr().cast(), 0) }.is_null());
+
+            let tuple = PyTuple::new(py, [10]).unwrap();
+            assert!(unsafe { super::PyList_GetItem(tuple.as_ptr().cast(), 0) }.is_null());
+        });
+    }
 
     #[test]
     fn create_list() {
