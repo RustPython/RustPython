@@ -910,7 +910,7 @@ mod mmap {
                     }
                 },
             );
-            let end = end.map_or(initial_size.min(size), |end| end.saturated_at(size));
+            let end = end.map_or_else(|| initial_size.min(size), |end| end.saturated_at(size));
             (start, end)
         }
 
