@@ -42,8 +42,29 @@ mod winreg {
             if let Some(hkey_obj) = obj.downcast_ref::<PyHkey>() {
                 return Ok(Self(hkey_obj.hkey.load()));
             }
-            // Then try int
-            let handle = usize::try_from_object(vm, obj)?;
+            if vm.is_none(&obj) {
+                return Err(vm.new_type_error("None is not a valid HKEY in this context"));
+            }
+            let Some(value) = obj.downcast_ref::<PyInt>() else {
+                return Err(vm.new_type_error("The object is not a PyHKEY object"));
+            };
+            let value = value.as_bigint();
+            let negative = value.sign() == Sign::Minus;
+            let handle = if negative {
+                value.to_isize().map(|v| v as usize)
+            } else {
+                value.to_usize()
+            }
+            .ok_or_else(|| {
+                let message = if cfg!(target_pointer_width = "64") {
+                    "int too big to convert"
+                } else if negative {
+                    "Python int too large to convert to C long"
+                } else {
+                    "Python int too large to convert to C unsigned long"
+                };
+                vm.new_overflow_error(message)
+            })?;
             Ok(Self(handle as host_winreg::HKEY))
         }
     }
