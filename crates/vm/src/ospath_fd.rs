@@ -21,7 +21,33 @@ impl PathConverter {
             Err(obj) => obj,
         };
 
-        if let Some(int) = obj.try_index_opt(vm) {
+        if let Some(fd) = self.try_index_as_fd(&obj, vm) {
+            return fd;
+        }
+
+        self.try_pathlike(obj, true, vm).map(OsPathOrFd::Path)
+    }
+
+    /// Preserve descriptor-first validation for the I/O open path.
+    #[cfg(all(unix, feature = "host_env"))]
+    pub(crate) fn try_fd_first_path_or_fd<'fd>(
+        &self,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<OsPathOrFd<'fd>> {
+        if let Some(fd) = self.try_index_as_fd(&obj, vm) {
+            return fd;
+        }
+        self.try_path_inner(obj, true, vm).map(OsPathOrFd::Path)
+    }
+
+    fn try_index_as_fd<'fd>(
+        &self,
+        obj: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<OsPathOrFd<'fd>>> {
+        let int = obj.try_index_opt(vm)?;
+        Some((|| {
             if obj
                 .class()
                 .is(crate::builtins::bool_::PyBool::static_type())
@@ -34,12 +60,10 @@ impl PathConverter {
                 )?;
             }
             let fd = int?.try_to_primitive(vm)?;
-            return unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+            unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
                 .map(OsPathOrFd::Fd)
-                .map_err(|e| e.into_pyexception(vm));
-        }
-
-        self.try_pathlike(obj, true, vm).map(OsPathOrFd::Path)
+                .map_err(|e| e.into_pyexception(vm))
+        })())
     }
 }
 

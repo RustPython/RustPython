@@ -5821,7 +5821,9 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(all(unix, feature = "host_env"))]
-        if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
+        if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) =
+            crate::ospath::PathConverter::new().try_fd_first_path_or_fd(file.clone(), vm)
+        {
             rustpython_host_env::fcntl::validate_fd(fd.as_raw())
                 .map_err(|_| vm.new_last_errno_error())?;
         }
