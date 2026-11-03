@@ -68,6 +68,14 @@ pub struct Fildes(pub i32);
 impl TryFromObject for Fildes {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         use crate::builtins::int;
+        if obj.class().is(vm.ctx.types.bool_type) {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                "bool is used as a file descriptor".to_owned(),
+                1,
+                vm,
+            )?;
+        }
         let int = match obj.downcast::<int::PyInt>() {
             Ok(i) => i,
             Err(obj) => {
