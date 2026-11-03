@@ -226,7 +226,7 @@ mod _lzma {
                 return Ok(None);
             }
             let value = dict
-                .get_item_opt(key, vm)
+                .inner_getitem_opt(key, vm)
                 .map_err(|_| vm.new_value_error(error))?;
             if value.is_some() {
                 *remaining -= 1;
