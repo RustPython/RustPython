@@ -939,8 +939,8 @@ pub mod array {
 
     #[derive(FromArgs)]
     struct ArrayIndexArgs {
-        #[pyarg(positional, optional, py_default = "0")]
-        start: OptionalArg<ArgIndex>,
+        #[pyarg(positional, default = 0)]
+        start: ArgIndex,
         #[pyarg(positional, optional, py_default = "9223372036854775807")]
         stop: OptionalArg<ArgIndex>,
     }
@@ -1214,7 +1214,7 @@ pub mod array {
                     isize::MAX as usize
                 })
             };
-            let start = start.map_or(0, bound);
+            let start = bound(start);
             let stop = stop.map_or(isize::MAX as usize, bound);
             zelf.find(&v, start, stop, vm)?
                 .ok_or_else(|| vm.new_value_error("array.index(x): x not in array"))

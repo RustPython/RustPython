@@ -338,8 +338,8 @@ mod _sre {
     #[derive(FromArgs)]
     struct DefaultArg {
         // Missing default is None.
-        #[pyarg(any, optional, py_default = "None")]
-        default: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        default: Option<PyObjectRef>,
     }
 
     /// A position in the searched string, taken as a Py_ssize_t; a negative
@@ -648,7 +648,7 @@ mod _sre {
                     } else {
                         m.groups(
                             DefaultArg {
-                                default: OptionalArg::Present(empty.clone()),
+                                default: Some(empty.clone()),
                             },
                             vm,
                         )?

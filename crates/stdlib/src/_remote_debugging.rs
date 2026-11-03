@@ -10,7 +10,7 @@ mod _remote_debugging {
         builtins::{PyBaseExceptionRef, PyDictRef, PyFloat, PyList, PyListRef, PyTuple, PyType},
         common::{lock::PyMutex, rc::PyRc},
         convert::{IntoPyException, ToPyObject},
-        function::{FsPath, FuncArgs, OptionalArg},
+        function::{FsPath, FuncArgs},
         types::{Constructor, DefaultConstructor, Initializer, PyStructSequence},
     };
     use alloc::sync::Arc;
@@ -155,8 +155,8 @@ mod _remote_debugging {
     struct GetChildPidsArgs {
         #[pyarg(any)]
         pid: PyObjectRef,
-        #[pyarg(named, optional, py_default = "True")]
-        recursive: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = true)]
+        recursive: PyObjectRef,
     }
 
     /// Return a snapshot of a process's children, optionally including descendants.
@@ -169,12 +169,10 @@ mod _remote_debugging {
             .as_bigint()
             .to_i32()
             .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))?;
-        let recursive = args
-            .recursive
-            .into_option()
-            .map(|value| value.try_to_bool(vm))
-            .transpose()?
-            .unwrap_or(true);
+        let recursive = {
+            let value = args.recursive;
+            value.try_to_bool(vm)?
+        };
         let pids = rustpython_host_env::remote_debugging::get_child_pids(pid, recursive).map_err(
             |error| {
                 use rustpython_host_env::remote_debugging::ChildPidsError;

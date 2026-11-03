@@ -257,8 +257,8 @@ mod decl {
         alphabet: OptionalArg<PyBytesRef>,
         #[pyarg(named, optional)]
         ignorechars: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional, py_default = "False")]
-        canonical: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = false)]
+        canonical: PyObjectRef,
     }
 
     fn a2b_base64(
@@ -280,9 +280,9 @@ mod decl {
         };
         let result = (|| {
             // Convert the last Clinic argument while both acquired buffers are alive.
-            let canonical = match canonical {
-                OptionalArg::Present(value) => value.try_to_bool(vm)?,
-                OptionalArg::Missing => false,
+            let canonical = {
+                let value = canonical;
+                value.try_to_bool(vm)?
             };
             const DEFAULT_TABLE: [u8; 256] =
                 binascii::base64_reverse_table(binascii::BASE64_ALPHABET);
@@ -399,16 +399,6 @@ mod decl {
         }
     }
 
-    fn canonical_argument(
-        argument: &OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        match argument {
-            OptionalArg::Present(value) => value.try_to_bool(vm),
-            OptionalArg::Missing => Ok(false),
-        }
-    }
-
     #[derive(FromArgs)]
     struct B2aBase32Args {
         #[pyarg(positional)]
@@ -431,8 +421,8 @@ mod decl {
         alphabet: OptionalArg<PyBytesRef>,
         #[pyarg(named, optional, py_default = "b''")]
         ignorechars: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional, py_default = "False")]
-        canonical: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = false)]
+        canonical: PyObjectRef,
     }
 
     fn a2b_base32(
@@ -450,7 +440,7 @@ mod decl {
         let result = (|| {
             // This is the last Clinic conversion. Keep acquired exports alive
             // and reach ordered cleanup even when __bool__ raises.
-            let canonical = canonical_argument(&canonical, vm)?;
+            let canonical = canonical.try_to_bool(vm)?;
             let table = match &alphabet {
                 OptionalArg::Present(value) => reverse_table(&module, value, 32, Some(b'='), vm)?,
                 OptionalArg::Missing => base_n::reverse_table(base_n::BASE32, Some(b'=')),
@@ -505,8 +495,8 @@ mod decl {
         alphabet: OptionalArg<PyBytesRef>,
         #[pyarg(named, optional, py_default = "b''")]
         ignorechars: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional, py_default = "False")]
-        canonical: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = false)]
+        canonical: PyObjectRef,
     }
 
     fn a2b_base85(
@@ -523,7 +513,7 @@ mod decl {
         let result = (|| {
             // This is the last Clinic conversion. Keep acquired exports alive
             // and reach ordered cleanup even when __bool__ raises.
-            let canonical = canonical_argument(&canonical, vm)?;
+            let canonical = canonical.try_to_bool(vm)?;
             let table = match &alphabet {
                 OptionalArg::Present(value) => reverse_table(&module, value, 85, None, vm)?,
                 OptionalArg::Missing => base_n::reverse_table(base_n::BASE85, None),
@@ -589,8 +579,8 @@ mod decl {
         adobe: ArgIntoBool,
         #[pyarg(named, optional, py_default = "b''")]
         ignorechars: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional, py_default = "False")]
-        canonical: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = false)]
+        canonical: PyObjectRef,
     }
 
     #[pyfunction]
@@ -605,7 +595,7 @@ mod decl {
         let result = (|| {
             // This is the last Clinic conversion. Keep acquired exports alive
             // and reach ordered cleanup even when __bool__ raises.
-            let canonical = canonical_argument(&canonical, vm)?;
+            let canonical = canonical.try_to_bool(vm)?;
             let ignore = ignored_argument(&ignorechars);
             let result = data.with_ref(|data| {
                 base_n::decode85(
