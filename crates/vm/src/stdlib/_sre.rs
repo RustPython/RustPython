@@ -12,7 +12,7 @@ mod _sre {
         common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
-        function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
+        function::{ArgCallable, DefaultRepr, OptionalArg, PosArgs, PyComparisonValue},
         protocol::{BufferFlags, PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable, Representable},
@@ -344,8 +344,14 @@ mod _sre {
 
     /// A position in the searched string, taken as a Py_ssize_t; a negative
     /// one means the start of the string.
-    #[derive(Clone, Copy, Default)]
+    #[derive(Clone, Copy)]
     struct StringPos(usize);
+
+    impl StringPos {
+        const fn py_default(self) -> DefaultRepr {
+            DefaultRepr::Int(self.0 as i128)
+        }
+    }
 
     impl TryFromObject for StringPos {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -357,7 +363,7 @@ mod _sre {
     #[derive(FromArgs)]
     struct StringArgs {
         string: PyObjectRef,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = StringPos(0))]
         pos: StringPos,
         // Platform ssize maximum, shown as sys.maxsize.
         #[pyarg(any, default = StringPos(sys::MAXSIZE as usize), py_default = "sys.maxsize")]
@@ -1255,6 +1261,33 @@ mod _sre {
                 },
                 self.buffer.as_ref()
             )
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::class::PyClassImpl;
+
+        #[test]
+        fn pattern_position_signature_metadata() {
+            for name in [
+                "findall",
+                "finditer",
+                "fullmatch",
+                "match",
+                "prefixmatch",
+                "scanner",
+                "search",
+            ] {
+                let method = <Pattern as PyClassImpl>::METHOD_DEFS
+                    .iter()
+                    .find(|method| method.name == name)
+                    .unwrap();
+                let expected =
+                    format!("{name}($self, /, string, pos=0, endpos=sys.maxsize)\n--\n\n");
+                assert!(method.doc.unwrap().starts_with(&expected), "{name}");
+            }
         }
     }
 }

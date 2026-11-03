@@ -564,19 +564,19 @@ mod _datetime {
 
     #[derive(FromArgs)]
     pub(super) struct DeltaArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         days: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         seconds: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         microseconds: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         milliseconds: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         minutes: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         hours: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         weeks: OptionalArg<PyObjectRef>,
     }
 
@@ -1724,7 +1724,7 @@ mod _datetime {
     }
 
     #[derive(FromArgs)]
-    struct DateArgs {
+    pub(super) struct DateArgs {
         #[pyarg(any)]
         year: i32,
         #[pyarg(any)]
@@ -1734,15 +1734,24 @@ mod _datetime {
     }
 
     impl Constructor for PyDate {
-        type Args = FuncArgs;
+        type Args = DateArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             if args.args.len() == 1
                 && let Some(state) = pickle_state(&args.args[0], 4, 2, month_is_sane, "date", vm)?
             {
-                return Ok(Self::from_state(&state));
+                let payload = Self::from_state(&state);
+                drop(args);
+                return payload.into_ref_with_type(vm, cls).map(Into::into);
             }
-            let DateArgs { year, month, day } = args.bind(vm)?;
+            let args = args.bind(vm)?;
+            Self::py_new(&cls, args, vm)?
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let DateArgs { year, month, day } = args;
             check_date_args(year, month, day, vm)?;
             Ok(Self::new(year, month, day))
         }
@@ -1969,8 +1978,8 @@ mod _datetime {
         }
 
         #[pyclassmethod]
-        fn fromisoformat(cls: PyTypeRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let dtstr = object;
+        fn fromisoformat(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let dtstr = string;
             let Some(s) = dtstr.downcast_ref::<PyStr>() else {
                 return Err(vm.new_type_error("fromisoformat: argument must be str"));
             };
@@ -2037,8 +2046,8 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn __format__(zelf: PyObjectRef, spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            object_format(&zelf, spec, vm)
+        fn __format__(zelf: PyObjectRef, format: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            object_format(&zelf, format, vm)
         }
 
         #[pymethod]
@@ -2782,7 +2791,7 @@ mod _datetime {
     }
 
     #[derive(FromArgs)]
-    struct TimeArgs {
+    pub(super) struct TimeArgs {
         #[pyarg(any, default = 0)]
         hour: i32,
         #[pyarg(any, default = 0)]
@@ -2791,8 +2800,8 @@ mod _datetime {
         second: i32,
         #[pyarg(any, default = 0)]
         microsecond: i32,
-        #[pyarg(any, optional)]
-        tzinfo: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tzinfo: Option<PyObjectRef>,
         #[pyarg(named, default = 0)]
         fold: i32,
     }
@@ -2813,9 +2822,9 @@ mod _datetime {
     }
 
     impl Constructor for PyTime {
-        type Args = FuncArgs;
+        type Args = TimeArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             if (1..=2).contains(&args.args.len())
                 && let Some(state) =
                     pickle_state(&args.args[0], 6, 0, |hour| (hour & 0x7f) < 24, "time", vm)?
@@ -2823,17 +2832,25 @@ mod _datetime {
                 let tzinfo = pickle_tzinfo(args.args.get(1), vm)?;
                 let fold = (state[0] & 0x80) != 0;
                 let us = i32::from(state[3]) << 16 | i32::from(state[4]) << 8 | i32::from(state[5]);
-                return Ok(Self::new(
+                let payload = Self::new(
                     i32::from(state[0] & 0x7f),
                     i32::from(state[1]),
                     i32::from(state[2]),
                     us,
                     tzinfo,
                     i32::from(fold),
-                ));
+                );
+                drop(args);
+                return payload.into_ref_with_type(vm, cls).map(Into::into);
             }
-            let a: TimeArgs = args.bind(vm)?;
-            let tzinfo = a.tzinfo.into_option().and_then(|tz| tzinfo_arg(tz, vm));
+            let args = args.bind(vm)?;
+            Self::py_new(&cls, args, vm)?
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+
+        fn py_new(_cls: &Py<PyType>, a: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let tzinfo = a.tzinfo.and_then(|tz| tzinfo_arg(tz, vm));
             check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
             if let Some(tz) = &tzinfo {
                 check_tzinfo_subclass(tz, vm)?;
@@ -2867,7 +2884,7 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct TimeIsoformatArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "'auto'")]
         timespec: OptionalArg<PyStrRef>,
     }
 
@@ -2968,8 +2985,8 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn __format__(zelf: PyObjectRef, spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            object_format(&zelf, spec, vm)
+        fn __format__(zelf: PyObjectRef, format: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            object_format(&zelf, format, vm)
         }
 
         #[pymethod]
@@ -3018,8 +3035,8 @@ mod _datetime {
         }
 
         #[pyclassmethod]
-        fn fromisoformat(cls: PyTypeRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let tstr = object;
+        fn fromisoformat(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let tstr = string;
             let Some(s) = tstr.downcast_ref::<PyStr>() else {
                 return Err(vm.new_type_error("fromisoformat: argument must be str"));
             };
@@ -3562,7 +3579,7 @@ mod _datetime {
     }
 
     #[derive(FromArgs)]
-    struct DateTimeArgs {
+    pub(super) struct DateTimeArgs {
         #[pyarg(any)]
         year: i32,
         #[pyarg(any)]
@@ -3577,16 +3594,16 @@ mod _datetime {
         second: i32,
         #[pyarg(any, default = 0)]
         microsecond: i32,
-        #[pyarg(any, optional)]
-        tzinfo: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tzinfo: Option<PyObjectRef>,
         #[pyarg(named, default = 0)]
         fold: i32,
     }
 
     impl Constructor for PyDateTime {
-        type Args = FuncArgs;
+        type Args = DateTimeArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             if (1..=2).contains(&args.args.len())
                 && let Some(state) = pickle_state(
                     &args.args[0],
@@ -3601,7 +3618,7 @@ mod _datetime {
                 let fold = (state[2] & 0x80) != 0;
                 let date = PyDate::from_state(&[state[0], state[1], state[2] & 0x7f, state[3]]);
                 let us = i32::from(state[7]) << 16 | i32::from(state[8]) << 8 | i32::from(state[9]);
-                return Ok(Self::new(
+                let payload = Self::new(
                     date.y(),
                     date.m(),
                     date.d(),
@@ -3611,10 +3628,18 @@ mod _datetime {
                     us,
                     tzinfo,
                     i32::from(fold),
-                ));
+                );
+                drop(args);
+                return payload.into_ref_with_type(vm, cls).map(Into::into);
             }
-            let a: DateTimeArgs = args.bind(vm)?;
-            let tzinfo = a.tzinfo.into_option().and_then(|tz| tzinfo_arg(tz, vm));
+            let args = args.bind(vm)?;
+            Self::py_new(&cls, args, vm)?
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+
+        fn py_new(_cls: &Py<PyType>, a: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let tzinfo = a.tzinfo.and_then(|tz| tzinfo_arg(tz, vm));
             check_date_args(a.year, a.month, a.day, vm)?;
             check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
             if let Some(tz) = &tzinfo {
@@ -3636,16 +3661,16 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct NowArgs {
-        #[pyarg(any, optional, py_default = "None")]
-        tz: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tz: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct FromTimestampArgs {
         #[pyarg(any)]
         timestamp: PyObjectRef,
-        #[pyarg(any, optional)]
-        tz: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tz: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -3660,9 +3685,9 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct DateTimeIsoformatArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "'T'")]
         sep: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "'auto'")]
         timespec: OptionalArg<PyStrRef>,
     }
 
@@ -3690,8 +3715,8 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct AstimezoneArgs {
-        #[pyarg(any, optional)]
-        tz: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tz: Option<PyObjectRef>,
     }
 
     /// `_find_isoformat_datetime_separator`
@@ -3740,7 +3765,7 @@ mod _datetime {
     impl PyDateTime {
         #[pyclassmethod]
         fn now(cls: PyTypeRef, args: NowArgs, vm: &VirtualMachine) -> PyResult {
-            let tz = args.tz.unwrap_or_none(vm);
+            let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
             check_tzinfo_subclass(&tz, vm)?;
             let tzinfo = tzinfo_arg(tz, vm);
             let result = datetime_best_possible(&cls, tzinfo.is_none(), tzinfo.clone(), vm)?;
@@ -3770,7 +3795,7 @@ mod _datetime {
 
         #[pyclassmethod]
         fn fromtimestamp(cls: PyTypeRef, args: FromTimestampArgs, vm: &VirtualMachine) -> PyResult {
-            let tz = args.tz.unwrap_or_none(vm);
+            let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
             check_tzinfo_subclass(&tz, vm)?;
             let tzinfo = tzinfo_arg(tz, vm);
             let (timet, us) = object_to_timeval(&args.timestamp, vm)?;
@@ -3848,8 +3873,8 @@ mod _datetime {
         }
 
         #[pyclassmethod]
-        fn fromisoformat(cls: PyTypeRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let dtstr = object;
+        fn fromisoformat(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let dtstr = string;
             let Some(s) = dtstr.downcast_ref::<PyStr>() else {
                 return Err(vm.new_type_error("fromisoformat: argument must be str"));
             };
@@ -4143,7 +4168,7 @@ mod _datetime {
 
         #[pymethod]
         fn astimezone(zelf: &Py<Self>, args: AstimezoneArgs, vm: &VirtualMachine) -> PyResult {
-            let tz = args.tz.unwrap_or_none(vm);
+            let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
             check_tzinfo_subclass(&tz, vm)?;
             let target = tzinfo_arg(tz, vm);
             let local_zone = |vm: &VirtualMachine| -> PyResult<PyObjectRef> {

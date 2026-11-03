@@ -1445,7 +1445,7 @@ mod builtins {
     struct LazyImportArgs {
         #[pyarg(any)]
         name: PyObjectRef,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         globals: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         locals: Option<PyObjectRef>,
@@ -1453,6 +1453,16 @@ mod builtins {
         fromlist: Option<PyObjectRef>,
         #[pyarg(any, default)]
         level: i32,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn lazy_import_clinic_default_metadata() {
+        use crate::function::{DefaultRepr, FromArgs};
+        let params = LazyImportArgs::PARAMS.expect("known lazy-import parameters");
+        assert_eq!(params[1].name, "globals");
+        assert!(matches!(params[1].default, Some(DefaultRepr::Raw("None"))));
+        assert!(matches!(params[3].default, Some(DefaultRepr::Raw("()"))));
     }
 
     #[pyfunction]

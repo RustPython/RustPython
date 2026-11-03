@@ -65,8 +65,8 @@ mod _sqlite3 {
             PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
         function::{
-            ArgCallable, ArgIterable, ArgStrOrBytesLike, FsPath, FuncArgs, KwArgs, OptionalArg,
-            PyComparisonValue, PySetterValue, TimeoutSeconds,
+            ArgCallable, ArgIntoBool, ArgIterable, ArgStrOrBytesLike, FsPath, FuncArgs, KwArgs,
+            OptionalArg, PyComparisonValue, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -402,8 +402,8 @@ mod _sqlite3 {
         pages: c_int,
         #[pyarg(named, optional)]
         progress: Option<PyObjectRef>,
-        #[pyarg(named, optional)]
-        name: Option<PyStrRef>,
+        #[pyarg(named, default = "main")]
+        name: PyStrRef,
         #[pyarg(named, default = 0.250)]
         sleep: f64,
     }
@@ -437,24 +437,54 @@ mod _sqlite3 {
 
     #[derive(FromArgs)]
     struct CreateFunctionArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         name: PyStrRef,
-        #[pyarg(any)]
+        #[pyarg(positional)]
         narg: c_int,
-        #[pyarg(any)]
+        #[pyarg(positional)]
         func: PyObjectRef,
-        #[pyarg(named, default)]
-        deterministic: bool,
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
+        deterministic: ArgIntoBool,
     }
 
     #[derive(FromArgs)]
     struct CreateAggregateArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         name: PyStrRef,
         #[pyarg(positional)]
-        narg: c_int,
+        n_arg: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct CompleteStatementArgs {
+        #[pyarg(any)]
+        statement: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct ExecuteArgs {
+        #[pyarg(positional)]
+        sql: PyUtf8StrRef,
+        #[pyarg(positional, optional, py_default = "()")]
+        parameters: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct SetProgressHandlerArgs {
+        #[pyarg(positional)]
+        progress_handler: PyObjectRef,
+        #[pyarg(any)]
+        n: c_int,
+    }
+
+    #[derive(FromArgs)]
+    struct SetConfigArgs {
+        #[pyarg(positional)]
+        op: c_int,
+        #[pyarg(positional, default = ArgIntoBool::TRUE)]
+        enable: ArgIntoBool,
     }
 
     #[derive(FromArgs)]
@@ -884,28 +914,32 @@ mod _sqlite3 {
     }
 
     #[pyfunction]
-    fn complete_statement(statement: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let s = statement.to_cstring(vm)?;
+    fn complete_statement(args: CompleteStatementArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        let s = args.statement.to_cstring(vm)?;
         let ret = unsafe { sqlite3_complete(s.as_ptr()) };
         Ok(ret == 1)
     }
 
     #[pyfunction]
-    fn enable_callback_tracebacks(flag: bool) {
-        enable_traceback().store(flag, Ordering::Relaxed);
+    fn enable_callback_tracebacks(enable: c_int) {
+        enable_traceback().store(enable != 0, Ordering::Relaxed);
     }
 
     #[pyfunction]
-    fn register_adapter(typ: PyTypeRef, adapter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
-        if typ.is(PyInt::class(&vm.ctx))
-            || typ.is(PyFloat::class(&vm.ctx))
-            || typ.is(PyStr::class(&vm.ctx))
-            || typ.is(PyByteArray::class(&vm.ctx))
+    fn register_adapter(
+        r#type: PyTypeRef,
+        adapter: ArgCallable,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if r#type.is(PyInt::class(&vm.ctx))
+            || r#type.is(PyFloat::class(&vm.ctx))
+            || r#type.is(PyStr::class(&vm.ctx))
+            || r#type.is(PyByteArray::class(&vm.ctx))
         {
             let _ = BASE_TYPE_ADAPTED.set(());
         }
         let protocol = PrepareProtocol::class(&vm.ctx).to_owned();
-        let key = vm.ctx.new_tuple(vec![typ.into(), protocol.into()]);
+        let key = vm.ctx.new_tuple(vec![r#type.into(), protocol.into()]);
         adapters().set_item(key.as_object(), adapter.into(), vm)
     }
 
@@ -1475,37 +1509,36 @@ mod _sqlite3 {
         #[pymethod]
         fn execute(
             zelf: PyRef<Self>,
-            sql: PyUtf8StrRef,
-            parameters: OptionalArg<PyObjectRef>,
+            args: ExecuteArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.load_owned();
             let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
-            Cursor::execute(cursor, sql, parameters, vm)
+            Cursor::execute(cursor, args, vm)
         }
 
         #[pymethod]
         fn executemany(
             zelf: PyRef<Self>,
             sql: PyUtf8StrRef,
-            seq_of_params: ArgIterable,
+            parameters: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.load_owned();
             let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
-            Cursor::executemany(cursor, sql, seq_of_params, vm)
+            Cursor::executemany(cursor, sql, parameters, vm)
         }
 
         #[pymethod]
         fn executescript(
             zelf: PyRef<Self>,
-            script: PyUtf8StrRef,
+            sql_script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.load_owned();
             Cursor::executescript(
                 Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx),
-                script,
+                sql_script,
                 vm,
             )
         }
@@ -1535,13 +1568,8 @@ mod _sqlite3 {
 
             let pages = if pages == 0 { -1 } else { pages };
 
-            let name_cstring;
-            let name_ptr = if let Some(name) = &name {
-                name_cstring = name.to_cstring(vm)?;
-                name_cstring.as_ptr()
-            } else {
-                c"main".as_ptr()
-            };
+            let name_cstring = name.to_cstring(vm)?;
+            let name_ptr = name_cstring.as_ptr();
 
             let sleep_ms = (sleep * 1000.0) as c_int;
 
@@ -1604,7 +1632,7 @@ mod _sqlite3 {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
-            let flags = if args.deterministic {
+            let flags = if args.deterministic.into_bool() {
                 SQLITE_UTF8 | SQLITE_DETERMINISTIC
             } else {
                 SQLITE_UTF8
@@ -1654,11 +1682,11 @@ mod _sqlite3 {
         ) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
             let db = zelf.db_lock(vm)?;
-            check_num_params(&db, args.narg, "n_arg", vm)?;
+            check_num_params(&db, args.n_arg, "n_arg", vm)?;
             let Some(data) = CallbackData::new(args.aggregate_class, vm) else {
                 return db.create_function(
                     &name,
-                    args.narg,
+                    args.n_arg,
                     SQLITE_UTF8,
                     null_mut(),
                     None,
@@ -1671,7 +1699,7 @@ mod _sqlite3 {
 
             db.create_function(
                 &name,
-                args.narg,
+                args.n_arg,
                 SQLITE_UTF8,
                 Box::into_raw(Box::new(data)).cast(),
                 None,
@@ -1686,10 +1714,10 @@ mod _sqlite3 {
         fn create_collation(
             zelf: &Py<Self>,
             name: PyUtf8StrRef,
-            callable: PyObjectRef,
+            callback: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            with_deferred_drops(|| Self::create_collation_inner(zelf, name, callable, vm))
+            with_deferred_drops(|| Self::create_collation_inner(zelf, name, callback, vm))
         }
 
         fn create_collation_inner(
@@ -1740,12 +1768,12 @@ mod _sqlite3 {
         fn create_window_function(
             zelf: &Py<Self>,
             name: PyStrRef,
-            narg: c_int,
+            num_params: c_int,
             aggregate_class: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             with_deferred_drops(|| {
-                Self::create_window_function_inner(zelf, name, narg, aggregate_class, vm)
+                Self::create_window_function_inner(zelf, name, num_params, aggregate_class, vm)
             })
         }
 
@@ -1798,29 +1826,28 @@ mod _sqlite3 {
         #[pymethod]
         fn set_authorizer(
             zelf: &Py<Self>,
-            callable: PyObjectRef,
+            authorizer_callback: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            zelf.set_callback(callable, CallbackKind::Authorizer, vm)
+            zelf.set_callback(authorizer_callback, CallbackKind::Authorizer, vm)
         }
 
         #[pymethod]
         fn set_trace_callback(
             zelf: &Py<Self>,
-            callable: PyObjectRef,
+            trace_callback: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            zelf.set_callback(callable, CallbackKind::Trace, vm)
+            zelf.set_callback(trace_callback, CallbackKind::Trace, vm)
         }
 
         #[pymethod]
         fn set_progress_handler(
             zelf: &Py<Self>,
-            callable: PyObjectRef,
-            n: c_int,
+            args: SetProgressHandlerArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            zelf.set_callback(callable, CallbackKind::Progress(n), vm)
+            zelf.set_callback(args.progress_handler, CallbackKind::Progress(args.n), vm)
         }
 
         fn set_callback(
@@ -2005,17 +2032,13 @@ mod _sqlite3 {
         }
 
         #[pymethod]
-        fn setconfig(
-            zelf: &Py<Self>,
-            op: c_int,
-            enable: OptionalArg<bool>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn setconfig(zelf: &Py<Self>, args: SetConfigArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let SetConfigArgs { op, enable } = args;
             let db = zelf.db_lock(vm)?;
             if !is_int_dbconfig(op) {
                 return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
             }
-            let enable = enable.unwrap_or(true) as c_int;
+            let enable = enable.into_bool() as c_int;
             let mut actual: c_int = 0;
             let rc = db.call(|| unsafe { sqlite3_db_config(db.db, op, enable, &mut actual) });
             db.check(rc, vm)?;
@@ -2045,12 +2068,12 @@ mod _sqlite3 {
         #[pymethod]
         fn __exit__(
             zelf: &Py<Self>,
-            cls: PyObjectRef,
-            exc: PyObjectRef,
-            tb: PyObjectRef,
+            r#type: PyObjectRef,
+            value: PyObjectRef,
+            traceback: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            if vm.is_none(&cls) && vm.is_none(&exc) && vm.is_none(&tb) {
+            if vm.is_none(&r#type) && vm.is_none(&value) && vm.is_none(&traceback) {
                 if let Err(commit_error) = Self::commit(zelf, vm) {
                     // Release the failed transaction's locks, retaining the
                     // commit error if rollback succeeds or as the context if it fails.
@@ -2265,7 +2288,7 @@ mod _sqlite3 {
     struct Cursor {
         connection: PyRef<Connection>,
         #[pytraverse(skip)]
-        arraysize: PyAtomic<c_int>,
+        arraysize: PyAtomic<u32>,
         #[pytraverse(skip)]
         row_factory: PyAtomicRef<Option<PyObject>>,
         inner: PyMutex<Option<CursorInner>>,
@@ -2286,8 +2309,18 @@ mod _sqlite3 {
 
     #[derive(FromArgs)]
     struct FetchManyArgs {
-        #[pyarg(any, name = "size", optional)]
-        size: Option<c_int>,
+        // Like Clinic, display the initial arraysize but read the current value
+        // when omitted. Explicit None must still fail integer conversion.
+        #[pyarg(any, optional, py_default = "1")]
+        size: OptionalArg<u32>,
+    }
+
+    #[derive(FromArgs)]
+    struct SetOutputSizeArgs {
+        #[pyarg(positional)]
+        size: PyObjectRef,
+        #[pyarg(positional, optional)]
+        column: Option<PyObjectRef>,
     }
 
     #[pyclass(
@@ -2356,11 +2389,10 @@ mod _sqlite3 {
         #[pymethod]
         fn execute(
             zelf: PyRef<Self>,
-            sql: PyUtf8StrRef,
-            parameters: OptionalArg<PyObjectRef>,
+            args: ExecuteArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            with_deferred_drops(|| Self::execute_inner(zelf, sql, parameters, vm))
+            with_deferred_drops(|| Self::execute_inner(zelf, args.sql, args.parameters, vm))
         }
 
         fn execute_inner(
@@ -2435,10 +2467,10 @@ mod _sqlite3 {
         fn executemany(
             zelf: PyRef<Self>,
             sql: PyUtf8StrRef,
-            seq_of_params: ArgIterable,
+            seq_of_parameters: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            with_deferred_drops(|| Self::executemany_inner(zelf, sql, seq_of_params, vm))
+            with_deferred_drops(|| Self::executemany_inner(zelf, sql, seq_of_parameters, vm))
         }
 
         fn executemany_inner(
@@ -2513,10 +2545,10 @@ mod _sqlite3 {
         #[pymethod]
         fn executescript(
             zelf: PyRef<Self>,
-            script: PyUtf8StrRef,
+            sql_script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            with_deferred_drops(|| Self::executescript_inner(zelf, script, vm))
+            with_deferred_drops(|| Self::executescript_inner(zelf, sql_script, vm))
         }
 
         fn executescript_inner(
@@ -2574,16 +2606,9 @@ mod _sqlite3 {
             args: FetchManyArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let max_rows = match args.size {
-                Some(size) => {
-                    if size < 0 {
-                        return Err(vm.new_value_error("fetchmany may not be negative"));
-                    }
-
-                    size
-                }
-                None => zelf.arraysize.load(Ordering::Relaxed),
-            };
+            let max_rows = args
+                .size
+                .unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
 
             let mut list = vec![];
             let mut remaining = max_rows;
@@ -2634,7 +2659,9 @@ mod _sqlite3 {
         fn setinputsizes(_zelf: &Py<Self>, _sizes: PyObjectRef) {}
 
         #[pymethod]
-        fn setoutputsize(_zelf: &Py<Self>, _size: PyObjectRef, _column: OptionalArg<PyObjectRef>) {}
+        fn setoutputsize(_zelf: &Py<Self>, args: SetOutputSizeArgs) {
+            let _ = (args.size, args.column);
+        }
 
         #[pygetset]
         fn connection(zelf: &Py<Self>) -> PyRef<Connection> {
@@ -2657,19 +2684,13 @@ mod _sqlite3 {
         }
 
         #[pygetset]
-        fn arraysize(zelf: &Py<Self>) -> c_int {
+        fn arraysize(zelf: &Py<Self>) -> u32 {
             zelf.arraysize.load(Ordering::Relaxed)
         }
 
         #[pygetset(setter)]
-        fn set_arraysize(zelf: &Py<Self>, val: c_int, vm: &VirtualMachine) -> PyResult<()> {
-            if val < 0 {
-                return Err(vm.new_value_error("arraysize may not be negative"));
-            }
-
+        fn set_arraysize(zelf: &Py<Self>, val: u32) {
             zelf.arraysize.store(val, Ordering::Relaxed);
-
-            Ok(())
         }
 
         #[pygetset]
@@ -3197,6 +3218,20 @@ mod _sqlite3 {
         }
     }
 
+    #[derive(FromArgs)]
+    struct BlobReadArgs {
+        #[pyarg(positional, default = -1)]
+        length: c_int,
+    }
+
+    #[derive(FromArgs)]
+    struct BlobSeekArgs {
+        #[pyarg(positional)]
+        offset: c_int,
+        #[pyarg(positional, default = 0)]
+        origin: c_int,
+    }
+
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(AsMapping, AsNumber, AsSequence))]
     impl Blob {
         #[pymethod]
@@ -3221,12 +3256,12 @@ mod _sqlite3 {
         #[pymethod]
         fn read(
             zelf: &Py<Self>,
-            length: OptionalArg<c_int>,
+            args: BlobReadArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<PyBytes>> {
             zelf.ensure_connection_open(vm)?;
 
-            let mut length = length.unwrap_or(-1);
+            let mut length = args.length;
             let mut inner = zelf.inner(vm)?;
             let blob_len = inner.blob.bytes();
             let max_read = blob_len - inner.offset;
@@ -3272,14 +3307,9 @@ mod _sqlite3 {
         }
 
         #[pymethod]
-        fn seek(
-            zelf: &Py<Self>,
-            mut offset: c_int,
-            origin: OptionalArg<c_int>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn seek(zelf: &Py<Self>, args: BlobSeekArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.ensure_connection_open(vm)?;
-            let origin = origin.unwrap_or(libc::SEEK_SET);
+            let BlobSeekArgs { mut offset, origin } = args;
             let mut inner = zelf.inner(vm)?;
             let blob_len = inner.blob.bytes();
 
@@ -3314,11 +3344,17 @@ mod _sqlite3 {
         }
 
         #[pymethod]
-        fn __exit__(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            zelf: &Py<Self>,
+            _type: PyObjectRef,
+            _val: PyObjectRef,
+            _tb: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
             zelf.ensure_connection_open(vm)?;
             let _ = zelf.inner(vm)?;
             Self::close(zelf);
-            Ok(())
+            Ok(false)
         }
 
         fn inner(&self, vm: &VirtualMachine) -> PyResult<BlobGuard<'_>> {

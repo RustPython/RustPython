@@ -251,7 +251,7 @@ mod decl {
         data: ArgAsciiBuffer,
         #[pyarg(named, optional)]
         strict_mode: OptionalArg<ArgIntoBool>,
-        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
         padded: ArgIntoBool,
         #[pyarg(named, optional, py_default = "BASE64_ALPHABET")]
         alphabet: OptionalArg<PyBytesRef>,
@@ -322,11 +322,11 @@ mod decl {
     struct B2aBase64Args {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
         padded: ArgIntoBool,
         #[pyarg(named, default = 0)]
         wrapcol: usize,
-        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
         newline: ArgIntoBool,
         #[pyarg(named, optional, py_default = "BASE64_ALPHABET")]
         alphabet: OptionalArg<ArgBytesLike>,
@@ -413,7 +413,7 @@ mod decl {
     struct B2aBase32Args {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
         padded: ArgIntoBool,
         #[pyarg(named, default = 0)]
         wrapcol: usize,
@@ -425,7 +425,7 @@ mod decl {
     struct A2bBase32Args {
         #[pyarg(positional)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
         padded: ArgIntoBool,
         #[pyarg(named, optional, py_default = "BASE32_ALPHABET")]
         alphabet: OptionalArg<PyBytesRef>,
@@ -489,7 +489,7 @@ mod decl {
     struct B2aBase85Args {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         pad: ArgIntoBool,
         #[pyarg(named, default = 0)]
         wrapcol: usize,
@@ -569,13 +569,13 @@ mod decl {
     struct B2aAscii85Args {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         foldspaces: ArgIntoBool,
         #[pyarg(named, default = 0)]
         wrapcol: usize,
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         pad: ArgIntoBool,
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         adobe: ArgIntoBool,
     }
 
@@ -583,9 +583,9 @@ mod decl {
     struct A2bAscii85Args {
         #[pyarg(positional)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         foldspaces: ArgIntoBool,
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         adobe: ArgIntoBool,
         #[pyarg(named, optional, py_default = "b''")]
         ignorechars: OptionalArg<ArgBytesLike>,

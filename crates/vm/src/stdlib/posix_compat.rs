@@ -26,7 +26,7 @@ pub(crate) mod module {
         path: PyObjectRef,
         #[pyarg(any)]
         mode: PyObjectRef,
-        #[pyarg(named, default, py_default = "None")]
+        #[pyarg(named, default = None)]
         dir_fd: Option<PyObjectRef>,
         #[pyarg(named, optional, py_default = "(os.name != 'nt')")]
         follow_symlinks: OptionalArg<PyObjectRef>,

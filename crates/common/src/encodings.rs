@@ -252,7 +252,7 @@ where
         let replace = ctx.handle_error(errors, range.clone(), Some(err_reason))?;
         match replace {
             EncodeReplace::Str(s) => {
-                if s.is_compatible_with(target_kind) {
+                if s.is_compatible_with(StrKind::Ascii) {
                     out.extend_from_slice(s.as_ref().as_bytes());
                 } else {
                     return Err(ctx.error_encoding(range, Some(err_reason)));

@@ -1414,7 +1414,7 @@ pub mod module {
         path: OsPathOrFd<'fd>,
         #[pyarg(any)]
         mode: u32,
-        #[pyarg(named, default, py_default = "None")]
+        #[pyarg(named, default = None)]
         dir_fd: Option<ChmodDirFd>,
         // CPython writes the platform expression; on posix it is always true.
         #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]

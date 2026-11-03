@@ -4571,11 +4571,76 @@ mod _ssl {
 
     // Windows-specific certificate store enumeration functions
     #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct CertificateStoreArgs {
+        #[pyarg(any)]
+        store_name: PyObjectRef,
+    }
+
+    #[cfg(windows)]
+    impl CertificateStoreArgs {
+        fn validated_name(self, function: &str, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+            // Keep conversion after the complete argument-shape check, including
+            // unexpected keywords, and before any certificate store is opened.
+            if self
+                .store_name
+                .downcast_ref::<crate::vm::builtins::PyStr>()
+                .is_none()
+            {
+                let actual = if vm.is_none(&self.store_name) {
+                    "None".to_owned()
+                } else {
+                    let name = self.store_name.class().name();
+                    name[..name.floor_char_boundary(name.len().min(50))].to_owned()
+                };
+                return Err(vm.new_type_error(format!(
+                    "{function}() argument 'store_name' must be str, not {actual}"
+                )));
+            }
+            let name = PyUtf8StrRef::try_from_object(vm, self.store_name)?;
+            if name.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            Ok(name)
+        }
+    }
+
+    #[cfg(windows)]
+    #[cfg(test)]
+    mod certificate_store_tests {
+        use super::*;
+
+        #[test]
+        fn certificate_store_signature_metadata() {
+            use crate::vm::function::{FromArgs, ParamKind};
+            let params = CertificateStoreArgs::PARAMS.expect("known store parameters");
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "store_name");
+            assert!(matches!(params[0].kind, ParamKind::PositionalOrKeyword));
+            assert!(params[0].default.is_none());
+            for (name, signature) in [
+                (
+                    "enum_certificates",
+                    "enum_certificates($module, /, store_name)",
+                ),
+                ("enum_crls", "enum_crls($module, /, store_name)"),
+            ] {
+                let method = METHOD_DEFS
+                    .iter()
+                    .find(|method| method.name == name)
+                    .unwrap();
+                assert_eq!(method.doc.unwrap().lines().next(), Some(signature));
+            }
+        }
+    }
+
+    #[cfg(windows)]
     #[pyfunction]
     fn enum_certificates(
-        store_name: PyUtf8StrRef,
+        args: CertificateStoreArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
+        let store_name = args.validated_name("enum_certificates", vm)?;
         let store_name_str = store_name.as_str();
         let certs = rustpython_host_env::cert_store::enum_certificates(store_name_str);
         if !certs.had_open_store {
@@ -4615,7 +4680,8 @@ mod _ssl {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn enum_crls(store_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn enum_crls(args: CertificateStoreArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let store_name = args.validated_name("enum_crls", vm)?;
         let store_name_str = store_name.as_str();
         let crls = rustpython_host_env::cert_store::enum_crls(store_name_str).map_err(|_| {
             vm.new_os_error(format!(
