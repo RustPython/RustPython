@@ -115,7 +115,10 @@ mod _pickle {
 
         #[pymethod]
         fn release(zelf: &Py<Self>) {
-            *zelf.buffer.write() = None;
+            // Releasing the last share can invoke Python's __release_buffer__.
+            // Publish the released state and drop the lock before that callback.
+            let buffer = zelf.buffer.write().take();
+            drop(buffer);
         }
     }
 
