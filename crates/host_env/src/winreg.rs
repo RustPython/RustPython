@@ -107,8 +107,10 @@ pub fn registry_wide_units(bytes: &[u8]) -> Cow<'_, [u16]> {
     } else {
         Cow::Owned(
             bytes
-                .chunks_exact(2)
-                .map(|pair| u16::from_ne_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| u16::from_ne_bytes(pair))
                 .collect(),
         )
     }
