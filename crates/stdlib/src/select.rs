@@ -477,6 +477,64 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        struct EpollModifyArgs {
+            #[pyarg(any)]
+            fd: PyObjectRef,
+            #[pyarg(any)]
+            eventmask: PyObjectRef,
+        }
+
+        fn epoll_eventmask(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+            use num_traits::ToPrimitive;
+
+            let value = obj.try_index(vm)?;
+            // Clinic's unsigned-int bitfield conversion accepts signed values too.
+            if !value
+                .as_bigint()
+                .to_i64()
+                .is_some_and(|value| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value))
+            {
+                crate::vm::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "integer value out of range".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
+            Ok(value.as_u32_mask())
+        }
+
+        #[cfg(test)]
+        #[test]
+        fn modify_accepts_named_arguments() {
+            use crate::vm::{
+                class::PyClassImpl,
+                function::{FromArgs, ParamKind, PyMethodFlags},
+            };
+
+            let params = EpollModifyArgs::PARAMS.expect("known modify parameters");
+            assert_eq!(params.len(), 2);
+            for (param, name) in params.iter().zip(["fd", "eventmask"]) {
+                assert_eq!(param.name, name);
+                assert!(matches!(param.kind, ParamKind::PositionalOrKeyword));
+                assert!(param.default.is_none());
+            }
+            assert_eq!(EpollModifyArgs::arity(), 2..=2);
+
+            let method = PyEpoll::METHOD_DEFS
+                .iter()
+                .find(|method| method.name == "modify")
+                .unwrap();
+            assert!(method.flags.contains(PyMethodFlags::KEYWORDS));
+            assert!(
+                method
+                    .doc
+                    .unwrap()
+                    .starts_with("modify($self, /, fd, eventmask)\n--\n\n")
+            );
+        }
+
+        #[derive(FromArgs)]
         struct EpollPollArgs {
             #[pyarg(any, default, py_default = "None")]
             timeout: poll::TimeoutArg<false>,
@@ -558,12 +616,10 @@ mod decl {
             }
 
             #[pymethod]
-            fn modify(
-                zelf: &Py<Self>,
-                fd: Fildes,
-                eventmask: u32,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
+            fn modify(zelf: &Py<Self>, args: EpollModifyArgs, vm: &VirtualMachine) -> PyResult<()> {
+                // Bind the full call before fileno(), __index__(), or warning hooks run.
+                let fd = Fildes::try_from_object(vm, args.fd)?;
+                let eventmask = epoll_eventmask(args.eventmask, vm)?;
                 let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::modify(
                     epoll_fd,
