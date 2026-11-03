@@ -856,14 +856,21 @@ mod winreg {
                 if vm.is_none(&value) {
                     return Ok(None);
                 }
-                // Try to get bytes
-                if let Some(bytes) = value.downcast_ref::<crate::builtins::PyBytes>() {
+                // Exact bytes need no buffer acquisition; subclasses and other
+                // exporters must use their buffer protocol implementation.
+                if value.class().is(vm.ctx.types.bytes_type) {
+                    let bytes = value
+                        .downcast_ref::<crate::builtins::PyBytes>()
+                        .expect("the exact bytes type has a bytes payload");
                     return Ok(Some(bytes.as_bytes().to_vec()));
                 }
-                Err(vm.new_type_error(format!(
-                    "Objects of type '{}' can not be used as binary registry values",
-                    value.class().name()
-                )))
+                if !value.check_buffer() {
+                    return Err(vm.new_type_error(format!(
+                        "Objects of type '{}' can not be used as binary registry values",
+                        value.class().name()
+                    )));
+                }
+                value.try_bytes_like(vm, |bytes| Some(bytes.to_vec()))
             }
         }
     }
@@ -877,6 +884,7 @@ mod winreg {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let hkey = key.hkey.load();
         let value_name = value_name
             .map(WideCString::from_str)
             .transpose()
@@ -886,9 +894,7 @@ mod winreg {
             Some(v) => (v.as_ptr(), v.len() as u32),
             None => (core::ptr::null(), 0),
         };
-        let res = unsafe {
-            host_winreg::set_value_ex(key.hkey.load(), value_name.as_deref(), typ, ptr, len)
-        };
+        let res = unsafe { host_winreg::set_value_ex(hkey, value_name.as_deref(), typ, ptr, len) };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
