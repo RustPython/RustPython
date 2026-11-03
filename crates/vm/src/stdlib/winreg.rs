@@ -623,20 +623,12 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryValue(
-        key: HKEYArg,
-        sub_key: Option<PyRef<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn QueryValue(key: HKEYArg, sub_key: Option<Wtf8Buf>, vm: &VirtualMachine) -> PyResult<String> {
         let hkey = key.0;
 
         let sub_key = sub_key
             .as_ref()
-            .map(|s| {
-                s.as_wtf8()
-                    .to_wide_cstring()
-                    .map_err(|_| nul_char_error(vm))
-            })
+            .map(|s| s.to_wide_cstring().map_err(|_| nul_char_error(vm)))
             .transpose()?;
         vm.audit("winreg.QueryValue", || {
             let sub_key: PyObjectRef = sub_key.as_ref().map_or_else(
