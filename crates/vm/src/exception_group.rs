@@ -125,7 +125,6 @@ pub(super) mod types {
 
             let exceptions = get_exceptions_tuple(&zelf, vm)?;
             let mut matching: Vec<PyObjectRef> = Vec::new();
-            let mut modified = false;
 
             for exc in exceptions {
                 if is_base_exception_group(&exc, vm) {
@@ -137,20 +136,11 @@ pub(super) mod types {
                             vm.call_method(&exc, "subgroup", (matcher_value.clone(),))
                         })?;
                     if !vm.is_none(&subgroup_result) {
-                        matching.push(subgroup_result.clone());
-                    }
-                    if !subgroup_result.is(&exc) {
-                        modified = true;
+                        matching.push(subgroup_result);
                     }
                 } else if matcher.check(&exc, vm)? {
                     matching.push(exc);
-                } else {
-                    modified = true;
                 }
-            }
-
-            if !modified {
-                return Ok(zelf.into());
             }
 
             if matching.is_empty() {
@@ -495,26 +485,21 @@ pub(super) mod types {
             return Err(vm.new_type_error("derive must return an instance of BaseExceptionGroup"));
         }
 
-        // Copy traceback
+        let derived = new_group.try_downcast_ref::<PyBaseExceptionGroup>(vm)?;
         if let Some(tb) = orig.base.__traceback__() {
-            new_group.set_attr("__traceback__", tb, vm)?;
+            derived.base.set_traceback(Some(tb));
         }
+        derived.base.set_context(orig.base.__context__());
+        derived.base.set_cause(orig.base.__cause__());
 
-        // Copy context
-        if let Some(ctx) = orig.base.__context__() {
-            new_group.set_attr("__context__", ctx, vm)?;
-        }
-
-        // Copy cause
-        if let Some(cause) = orig.base.__cause__() {
-            new_group.set_attr("__cause__", cause, vm)?;
-        }
-
-        // Copy notes (if present) - make a copy of the list
-        if let Ok(notes) = orig.as_object().get_attr("__notes__", vm)
-            && let Some(notes_list) = notes.downcast_ref::<PyList>()
+        // CPython copies notes only when they are a sequence, excluding dicts.
+        if let Some(notes) = vm.get_attribute_opt(orig.as_object(), "__notes__")?
+            && !notes.fast_isinstance(vm.ctx.types.dict_type)
+            && notes.sequence_unchecked().check()
         {
-            let notes_copy = vm.ctx.new_list(notes_list.borrow_vec().to_vec());
+            let notes_copy = vm
+                .ctx
+                .new_list(vm.extract_elements_sized(&notes, &|| 0, Ok)?);
             new_group.set_attr("__notes__", notes_copy, vm)?;
         }
 
