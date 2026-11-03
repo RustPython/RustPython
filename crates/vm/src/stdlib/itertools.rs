@@ -5,14 +5,13 @@ mod decl {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
-        builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int},
+        builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef},
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock},
         convert::ToPyObject,
         function::{ArgIndex, FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
-        stdlib::sys,
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
     };
     use core::sync::atomic::{AtomicBool, Ordering};
@@ -846,86 +845,77 @@ mod decl {
         step: usize,
     }
 
-    fn pyobject_to_opt_usize(
-        obj: &PyObject,
-        name: &'static str,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let value = match obj.try_index(vm) {
-            Ok(i) => int::get_value(i.as_object()).to_usize(),
-            Err(e)
-                if e.fast_isinstance(vm.ctx.exceptions.type_error)
-                    || e.fast_isinstance(vm.ctx.exceptions.overflow_error) =>
-            {
-                None
-            }
-            Err(e) => return Err(e),
-        };
-        if let Some(value) = value
-            && value <= sys::MAXSIZE as usize
-        {
-            return Ok(value);
-        }
-        Err(vm.new_value_error(format!(
-            "{name} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
-        )))
-    }
-
     #[pyclass(with(IterNext, Iterable), flags(BASETYPE))]
     impl PyItertoolsIslice {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let args =
                 crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
-            let (iter, start, stop, step) = match args.args.len() {
+            let (iter, a1, a2, a3) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
                 }
                 2 => {
-                    let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
-                    (iter, 0usize, stop, 1usize)
+                    let (iter, a1): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
+                    (iter, a1, None, None)
+                }
+                3 => {
+                    let (iter, a1, a2): (PyObjectRef, PyObjectRef, PyObjectRef) =
+                        args.bind_for(vm, Self::NAME)?;
+                    (iter, a1, Some(a2), None)
                 }
                 _ => {
-                    let (iter, start, stop, step) = if args.args.len() == 3 {
-                        let (iter, start, stop): (PyObjectRef, PyObjectRef, PyObjectRef) =
-                            args.bind_for(vm, Self::NAME)?;
-                        (iter, start, stop, 1usize)
-                    } else {
-                        let (iter, start, stop, step): (
-                            PyObjectRef,
-                            PyObjectRef,
-                            PyObjectRef,
-                            PyObjectRef,
-                        ) = args.bind_for(vm, Self::NAME)?;
-
-                        let step = if !vm.is_none(&step) {
-                            let step = pyobject_to_opt_usize(&step, "Step", vm)?;
-                            if step == 0 {
-                                return Err(vm.new_value_error(
-                                    "Step for islice() must be a positive integer or None.",
-                                ));
-                            }
-                            step
-                        } else {
-                            1usize
-                        };
-                        (iter, start, stop, step)
-                    };
-                    let start = if !vm.is_none(&start) {
-                        pyobject_to_opt_usize(&start, "Start", vm)?
-                    } else {
-                        0usize
-                    };
-
-                    (iter, start, stop, step)
+                    let (iter, a1, a2, a3): (PyObjectRef, PyObjectRef, PyObjectRef, PyObjectRef) =
+                        args.bind_for(vm, Self::NAME)?;
+                    (iter, a1, Some(a2), Some(a3))
                 }
             };
 
-            let stop = if !vm.is_none(&stop) {
-                Some(pyobject_to_opt_usize(&stop, "Stop", vm)?)
-            } else {
-                None
-            };
+            // CPython clears index conversion errors and reports the appropriate
+            // islice ValueError after converting arguments in this order.
+            let to_ssize = |obj: &PyObject| isize::try_from_borrowed_object(vm, obj).unwrap_or(-1);
+            let mut start = 0;
+            let mut stop = -1;
+            if let Some(a2) = &a2 {
+                if !vm.is_none(&a1) {
+                    start = to_ssize(&a1);
+                }
+                if !vm.is_none(a2) {
+                    stop = to_ssize(a2);
+                    if stop == -1 {
+                        return Err(vm.new_value_error(
+                            "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+                        ));
+                    }
+                }
+            } else if !vm.is_none(&a1) {
+                stop = to_ssize(&a1);
+                if stop == -1 {
+                    return Err(vm.new_value_error(
+                        "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+                    ));
+                }
+            }
+            if start < 0 || stop < -1 {
+                return Err(vm.new_value_error(
+                    "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+                ));
+            }
+
+            let mut step = 1;
+            if let Some(a3) = &a3
+                && !vm.is_none(a3)
+            {
+                step = to_ssize(a3);
+            }
+            if step < 1 {
+                return Err(
+                    vm.new_value_error("Step for islice() must be a positive integer or None.")
+                );
+            }
+            let start = start as usize;
+            let stop = (stop >= 0).then_some(stop as usize);
+            let step = step as usize;
 
             let iter = PyIter::try_from_object(vm, iter)?;
 
