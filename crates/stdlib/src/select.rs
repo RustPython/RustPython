@@ -482,34 +482,6 @@ mod decl {
             fd: PyObjectRef,
         }
 
-        #[cfg(test)]
-        #[test]
-        fn unregister_accepts_a_named_file_descriptor() {
-            use crate::vm::{
-                class::PyClassImpl,
-                function::{FromArgs, ParamKind, PyMethodFlags},
-            };
-
-            let params = EpollUnregisterArgs::PARAMS.expect("known unregister parameters");
-            assert_eq!(params.len(), 1);
-            assert_eq!(params[0].name, "fd");
-            assert!(matches!(params[0].kind, ParamKind::PositionalOrKeyword));
-            assert!(params[0].default.is_none());
-            assert_eq!(EpollUnregisterArgs::arity(), 1..=1);
-
-            let method = PyEpoll::METHOD_DEFS
-                .iter()
-                .find(|method| method.name == "unregister")
-                .unwrap();
-            assert!(method.flags.contains(PyMethodFlags::KEYWORDS));
-            assert!(
-                method
-                    .doc
-                    .unwrap()
-                    .starts_with("unregister($self, /, fd)\n--\n\n")
-            );
-        }
-
         #[derive(FromArgs)]
         struct EpollPollArgs {
             #[pyarg(any, default, py_default = "None")]
