@@ -2424,7 +2424,23 @@ mod _socket {
                 OptionalArg::Missing => None,
             };
 
-            let buffers = msg.iter().map(|buf| buf.borrow_buf()).collect::<Vec<_>>();
+            if iv.as_ref().is_some_and(|iv| {
+                iv.len()
+                    .checked_add(core::mem::size_of::<u32>())
+                    .and_then(host_socket::checked_cmsg_space)
+                    .is_none()
+            }) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "AF_ALG control data too large",
+                )
+                .into_pyexception(vm));
+            }
+
+            let buffers = msg
+                .iter()
+                .map(|buf| buf.borrow_buf_unlocked(vm))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
