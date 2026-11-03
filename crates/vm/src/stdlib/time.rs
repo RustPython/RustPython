@@ -5,7 +5,7 @@
 // https://docs.python.org/3/library/time.html
 
 pub use decl::time;
-pub(crate) mod pytime;
+pub mod pytime;
 
 pub(crate) use decl::module_def;
 pub(crate) use decl::perf_counter_ns as profiler_time;

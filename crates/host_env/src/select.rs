@@ -291,6 +291,19 @@ pub fn duration_to_timeval(d: Duration) -> timeval {
     tv
 }
 
+pub fn duration_to_timeval_ceiling(duration: Duration) -> Option<timeval> {
+    let micros = i64::try_from(duration.as_nanos().div_ceil(1000)).ok()?;
+    timeval_from_microseconds(micros)
+}
+
+#[allow(clippy::useless_conversion, reason = "timeval fields can be 32-bit")]
+pub fn timeval_from_microseconds(micros: i64) -> Option<timeval> {
+    Some(timeval {
+        tv_sec: micros.div_euclid(1_000_000).try_into().ok()?,
+        tv_usec: micros.rem_euclid(1_000_000).try_into().ok()?,
+    })
+}
+
 fn saturate_secs<T>(secs: u64, _sample: T) -> T
 where
     T: TryFrom<u64> + TryFrom<i32>,
@@ -479,6 +492,83 @@ pub fn poll_fds(fds: &mut [PollFd], timeout: i32) -> std::io::Result<i32> {
         Err(std::io::Error::last_os_error())
     } else {
         Ok(res)
+    }
+}
+
+// ppoll preserves Python's nanosecond timeout on platforms with a supported
+// binding. Other poll backends continue to use rounded signed milliseconds.
+#[cfg(unix)]
+pub struct PollTimeout {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    timespec: Option<libc::timespec>,
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    milliseconds: i32,
+}
+
+#[cfg(unix)]
+impl PollTimeout {
+    #[allow(clippy::useless_conversion, reason = "time_t can be 32-bit")]
+    pub fn from_nanoseconds(timeout: Option<i64>) -> Option<Self> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if let Some(nanoseconds) = timeout {
+            // CPython validates timespec even for negative (infinite) waits.
+            // Floor division matches the normalized signed timespec seconds.
+            libc::time_t::try_from(nanoseconds.div_euclid(1_000_000_000)).ok()?;
+        }
+        Self::from_duration(
+            timeout
+                .filter(|&ns| ns >= 0)
+                .map(|ns| Duration::from_nanos(ns as u64)),
+        )
+    }
+
+    pub fn from_duration(timeout: Option<Duration>) -> Option<Self> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let timespec = match timeout {
+                Some(duration) => Some(libc::timespec {
+                    tv_sec: duration.as_secs().try_into().ok()?,
+                    tv_nsec: duration.subsec_nanos() as _,
+                }),
+                None => None,
+            };
+            Some(Self { timespec })
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let milliseconds = match timeout {
+                Some(duration) => duration_as_millis_ceiling(duration)?,
+                None => -1,
+            };
+            Some(Self { milliseconds })
+        }
+    }
+}
+
+#[cfg(unix)]
+pub fn poll_fds_with_timeout(fds: &mut [PollFd], timeout: &PollTimeout) -> io::Result<i32> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let timespec = timeout.timespec.as_ref().map_or(core::ptr::null(), |ts| ts);
+        // A null mask preserves the calling thread's signal mask. libc owns
+        // any platform-specific copying needed by the ppoll syscall.
+        let result = unsafe {
+            libc::ppoll(
+                fds.as_mut_ptr(),
+                fds.len() as _,
+                timespec,
+                core::ptr::null(),
+            )
+        };
+        if result < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(result)
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        poll_fds(fds, timeout.milliseconds)
     }
 }
 
