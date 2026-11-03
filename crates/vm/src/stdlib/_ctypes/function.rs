@@ -1155,24 +1155,25 @@ fn compute_ret_spec(
 
 /// Extract call information (argtypes, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
+    // Clone before calling Python sequence methods, which can change argtypes.
+    let argtypes = zelf.argtypes.read().clone();
     // Get argtypes - first from instance, then from type's _argtypes_
-    let explicit_arg_types: Option<Vec<PyTypeRef>> =
-        if let Some(argtypes_obj) = zelf.argtypes.read().as_ref() {
-            if !vm.is_none(argtypes_obj) {
-                Some(extract_arg_types(argtypes_obj, vm)?)
-            } else {
-                None // argtypes is None -> use ConvParam
-            }
-        } else if let Some(class_argtypes) = zelf
-            .as_object()
-            .class()
-            .get_attr(vm.ctx.intern_str("_argtypes_"))
-            && !vm.is_none(&class_argtypes)
-        {
-            Some(extract_arg_types(&class_argtypes, vm)?)
+    let explicit_arg_types: Option<Vec<PyTypeRef>> = if let Some(argtypes_obj) = argtypes.as_ref() {
+        if !vm.is_none(argtypes_obj) {
+            Some(extract_arg_types(argtypes_obj, vm)?)
         } else {
-            None // No argtypes -> use ConvParam
-        };
+            None // argtypes is None -> use ConvParam
+        }
+    } else if let Some(class_argtypes) = zelf
+        .as_object()
+        .class()
+        .get_attr(vm.ctx.intern_str("_argtypes_"))
+        && !vm.is_none(&class_argtypes)
+    {
+        Some(extract_arg_types(&class_argtypes, vm)?)
+    } else {
+        None // No argtypes -> use ConvParam
+    };
 
     // Get restype - first from instance, then from class's _restype_
     let restype_obj = zelf.restype.read().clone().or_else(|| {
@@ -1876,12 +1877,15 @@ impl Py<PyCFuncPtr> {
 
     #[pygetset(name = "argtypes", setter)]
     fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        if vm.is_none(&value) {
-            *self.argtypes.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else {
             // Store the argtypes object directly as it is
-            *self.argtypes.write() = Some(value);
-        }
+            Some(value)
+        };
+        let old = std::mem::replace(&mut *self.argtypes.write(), value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
     }
 
     // errcheck getter/setter
