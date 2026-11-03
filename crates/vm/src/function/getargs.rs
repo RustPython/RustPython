@@ -142,7 +142,7 @@ mod tests {
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let args = FuncArgs::new(
                 vec![vm.ctx.none()],
-                [("third", vm.ctx.none())].into_iter().collect::<KwArgs>(),
+                core::iter::once(("third", vm.ctx.none())).collect::<KwArgs>(),
             );
             let mut visited = Vec::new();
             let mut retained = [None, None, None];
@@ -193,7 +193,7 @@ mod tests {
             for keyword in ["first", "unexpected"] {
                 let args = FuncArgs::new(
                     vec![vm.ctx.none()],
-                    [(keyword, vm.ctx.none())].into_iter().collect::<KwArgs>(),
+                    core::iter::once((keyword, vm.ctx.none())).collect::<KwArgs>(),
                 );
                 let mut visited = Vec::new();
                 let result = SPEC.parse_with(
