@@ -356,8 +356,7 @@ mod decl {
         ) -> PyResult<Self> {
             let times = match times {
                 OptionalArg::Present(obj) => {
-                    let int = obj.try_index(vm)?;
-                    let val: isize = int.try_to_primitive(vm)?;
+                    let val = index_to_ssize(&obj, vm)?;
                     // times always >= 0.
                     Some(PyRwLock::new(val.to_usize().unwrap_or(0)))
                 }
