@@ -1231,11 +1231,11 @@ mod decl {
     fn tee(args: TeeArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let TeeArgs { iterable, n } = args;
         let n_value = match &n {
-            OptionalArg::Present(value) => isize::try_from_borrowed_object(vm, value)?,
+            OptionalArg::Present(value) => index_to_ssize(value, vm)?,
             OptionalArg::Missing => 2,
         };
         if n_value < 0 {
-            return Err(vm.new_value_error("n must be >= 0"));
+            return Err(vm.new_value_error("n cannot be negative"));
         }
         let n = n_value as usize;
 
@@ -1461,18 +1461,21 @@ mod decl {
         r: PyObjectRef,
     }
 
-    fn combinations_r(r: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+    fn index_to_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<isize> {
         let index;
-        let int = if let Some(int) = r.downcast_ref::<PyInt>() {
+        let int = if let Some(int) = obj.downcast_ref::<PyInt>() {
             int
         } else {
-            index = r.try_index(vm)?;
+            index = obj.try_index(vm)?;
             &index
         };
-        let value = int
-            .as_bigint()
+        int.as_bigint()
             .to_isize()
-            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C ssize_t"))?;
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+    }
+
+    fn combinations_r(r: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+        let value = index_to_ssize(r, vm)?;
         if value < 0 {
             return Err(vm.new_value_error("r cannot be negative"));
         }
@@ -2012,7 +2015,7 @@ mod decl {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let n_value = isize::try_from_borrowed_object(vm, &n)?;
+            let n_value = index_to_ssize(&n, vm)?;
             let strict_value = match &strict {
                 Some(value) => value.try_to_bool(vm)?,
                 None => false,
