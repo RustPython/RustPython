@@ -966,18 +966,22 @@ impl Py<FrameObject> {
         };
         let was_unset = canonical.cold().trace.lock().is_none();
 
-        // Set on the materialized FrameObject.
-        (*self.iframe().cold().trace.lock()).clone_from(&trace);
+        // Keep replaced traces alive until both copies are updated and no
+        // trace lock is held: their finalizers can access this frame again.
+        let previous = core::mem::replace(&mut *self.iframe().cold().trace.lock(), trace.clone());
         // Also propagate to the live source iframe if this is a
         // materialized copy of a stack-allocated frame, so pdb's
         // f_trace assignment takes effect on the executing frame.
-        if !live.is_null() {
-            *unsafe { &*live }.cold().trace.lock() = trace;
-        }
+        let previous_live = if !live.is_null() {
+            core::mem::replace(&mut *unsafe { &*live }.cold().trace.lock(), trace)
+        } else {
+            None
+        };
 
         if was_unset && trace_is_some {
             canonical.sync_prev_line_from_lasti();
         }
+        drop((previous, previous_live));
     }
 
     #[pygetset]
