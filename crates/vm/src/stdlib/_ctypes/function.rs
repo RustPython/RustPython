@@ -1885,7 +1885,7 @@ impl Py<PyCFuncPtr> {
             // Store the argtypes object directly as it is
             Some(value)
         };
-        let old = std::mem::replace(&mut *self.argtypes.write(), value);
+        let old = core::mem::replace(&mut *self.argtypes.write(), value);
         // Finalizers on the previous value can re-enter this setter.
         drop(old);
     }
