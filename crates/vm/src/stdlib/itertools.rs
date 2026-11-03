@@ -101,7 +101,8 @@ mod decl {
                             break Ok(PyIterReturn::Return(ok));
                         }
                         Ok(PyIterReturn::StopIteration(_)) => {
-                            *zelf.active.write() = None;
+                            let previous = zelf.active.write().take();
+                            drop(previous);
                         }
                         Err(err) => {
                             break Err(err);
@@ -111,7 +112,8 @@ mod decl {
                     match source.next(vm) {
                         Ok(PyIterReturn::Return(ok)) => match PyIter::try_from_object(vm, ok) {
                             Ok(iter) => {
-                                *zelf.active.write() = Some(iter);
+                                let previous = zelf.active.write().replace(iter);
+                                drop(previous);
                             }
                             Err(err) => {
                                 break Err(err);
