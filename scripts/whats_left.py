@@ -600,8 +600,10 @@ def compare():
         "mismatched_doc_items": mismatched_method_docs,
     }
     for modname, cpymod in cpymods.items():
+        module_has_uncomparable = False
         for item, info in cpymod.items():
             if info["sig_error"]:
+                module_has_uncomparable = True
                 uncomparable.setdefault(modname, []).append(
                     (f"{modname}.{item}", info["sig"])
                 )
@@ -656,7 +658,7 @@ def compare():
             if mod_mismatched_doc_items:
                 result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
             if not (
-                mod_missing_items or mod_mismatched_items or modname in uncomparable
+                mod_missing_items or mod_mismatched_items or module_has_uncomparable
             ):
                 result["implemented"][modname] = None
 
