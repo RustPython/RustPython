@@ -529,7 +529,7 @@ mod _functools {
                 args,
                 keywords,
             } = args;
-            let args_slice = args.as_slice();
+            let args_slice = args.as_ref();
 
             if !func.is_callable() {
                 return Err(vm.new_type_error("the first argument must be callable"));
