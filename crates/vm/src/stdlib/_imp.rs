@@ -403,7 +403,7 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn exec_dynamic(_module: PyRef<PyModule>) -> i32 {
+    fn exec_dynamic(_mod: PyRef<PyModule>) -> i32 {
         0
     }
 
