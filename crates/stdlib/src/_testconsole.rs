@@ -3,8 +3,8 @@ pub(crate) use _testconsole::module_def;
 #[pymodule]
 mod _testconsole {
     use crate::vm::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine, convert::IntoPyException,
-        function::ArgBytesLike,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyTypeRef,
+        convert::IntoPyException, function::ArgBytesLike,
     };
     use rustpython_host_env::testconsole as host_testconsole;
 
@@ -19,10 +19,15 @@ mod _testconsole {
     #[pyfunction]
     fn write_input(args: WriteInputArgs, vm: &VirtualMachine) -> PyResult<()> {
         let s = ArgBytesLike::try_from_object(vm, args.s)?;
-        // Get the fd from the file object via fileno()
-        let fd_obj = vm.call_method(&args.file, "fileno", ())?;
-        let fd: i32 = fd_obj.try_into_value(vm)?;
-
+        let console_type = {
+            let io = vm.import("_io", 0)?;
+            PyTypeRef::try_from_object(vm, io.get_attr("_WindowsConsoleIO", vm)?)?
+        };
+        let is_console = args.file.fast_isinstance(&console_type);
+        drop(console_type);
+        if !is_console || crate::vm::stdlib::_io::raw_windows_console_fd(&args.file).is_none() {
+            return Err(vm.new_type_error("expected raw console object"));
+        }
         // CPython interprets complete UTF-16-LE pairs and ignores a final byte.
         // Release the buffer borrow before the OS call and error conversion.
         let wchars: Vec<u16> = {
@@ -35,7 +40,10 @@ mod _testconsole {
                 .map(|chunk| u16::from_le_bytes(*chunk))
                 .collect()
         };
-        host_testconsole::write_console_input(fd, &wchars).map_err(|e| e.into_pyexception(vm))
+        host_testconsole::write_console_input_with_fd(&wchars, || {
+            crate::vm::stdlib::_io::raw_windows_console_fd(&args.file).unwrap_or(-1)
+        })
+        .map_err(|e| e.into_pyexception(vm))
     }
 
     #[derive(FromArgs)]

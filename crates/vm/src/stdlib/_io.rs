@@ -52,6 +52,13 @@ fn open_file_descriptor(name: &PyObject, vm: &VirtualMachine) -> PyResult<Option
     Ok(fd)
 }
 
+/// Return a non-owning descriptor snapshot of a native Windows console stream.
+#[doc(hidden)]
+#[cfg(all(feature = "host_env", windows))]
+pub fn raw_windows_console_fd(obj: &PyObject) -> Option<i32> {
+    winconsoleio::raw_console_fd(obj)
+}
+
 fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
 }
@@ -6671,6 +6678,11 @@ mod winconsoleio {
 
     const SMALLBUF: usize = 4;
     const BUFMAX: usize = 32 * 1024 * 1024;
+
+    pub(super) fn raw_console_fd(obj: &PyObject) -> Option<i32> {
+        obj.downcast_ref::<WindowsConsoleIO>()
+            .map(|stream| stream.fd.load())
+    }
 
     fn handle_from_fd(fd: i32) -> HANDLE {
         host_nt::handle_from_fd(fd)
