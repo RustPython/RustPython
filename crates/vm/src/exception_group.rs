@@ -500,6 +500,7 @@ pub(super) mod types {
             let notes_copy = vm
                 .ctx
                 .new_list(vm.extract_elements_sized(&notes, &|| 0, Ok)?);
+            drop(notes);
             new_group.set_attr("__notes__", notes_copy, vm)?;
         }
 
