@@ -227,8 +227,8 @@ mod unicodedata {
     struct IterGraphemesArgs {
         #[pyarg(positional)]
         unistr: PyStrRef,
-        #[pyarg(positional, default = 0)]
-        start: PyObjectRef,
+        #[pyarg(positional, optional, py_default = "0")]
+        start: OptionalArg<PyObjectRef>,
         #[pyarg(positional, optional, py_default = "sys.maxsize")]
         end: OptionalArg<PyObjectRef>,
     }
@@ -238,7 +238,7 @@ mod unicodedata {
     fn grapheme_index_default_metadata() {
         use crate::vm::function::{DefaultRepr, FromArgs};
         let params = IterGraphemesArgs::PARAMS.expect("known grapheme parameters");
-        assert!(matches!(params[1].default, Some(DefaultRepr::Int(0))));
+        assert!(matches!(params[1].default, Some(DefaultRepr::Raw("0"))));
         assert!(matches!(
             params[2].default,
             Some(DefaultRepr::Raw("sys.maxsize"))
@@ -258,7 +258,7 @@ mod unicodedata {
                 OptionalArg::Missing => Ok(default),
             }
         };
-        let mut start: isize = start.try_index(vm)?.try_to_primitive(vm)?;
+        let mut start = index(start, 0)?;
         let mut end = index(end, isize::MAX)?;
         let len = unistr.char_len() as isize;
         if end > len {
