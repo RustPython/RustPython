@@ -77,8 +77,8 @@ const fn unhex_nibble(c: u8) -> Option<u8> {
     }
 }
 
-/// `b2a_hex` / `hexlify`. `sep` is the (already validated, length-1 ASCII)
-/// separator byte, or `None` for no separator.
+/// `b2a_hex` / `hexlify`. `sep` is the already validated separator byte,
+/// or `None` for no separator.
 #[must_use]
 pub fn hexlify(bytes: &[u8], sep: Option<u8>, bytes_per_sep: isize) -> Vec<u8> {
     // If no separator or bytes_per_sep is 0, use simple hexlify
