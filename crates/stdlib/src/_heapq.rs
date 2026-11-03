@@ -134,7 +134,9 @@ mod _heapq {
             vec.len() - 1
         };
 
-        siftdown_func(heap, 0, pos, vm)
+        let result = siftdown_func(heap, 0, pos, vm);
+        drop(item);
+        result
     }
 
     #[pyfunction]
@@ -157,7 +159,7 @@ mod _heapq {
                 if vec.is_empty() {
                     (lastelt, false)
                 } else {
-                    (std::mem::replace(&mut vec[0], lastelt), true)
+                    (core::mem::replace(&mut vec[0], lastelt), true)
                 }
             })
         };
@@ -201,6 +203,7 @@ mod _heapq {
         };
 
         siftup_func(heap, 0, vm)?;
+        drop(item);
         Ok(returnitem)
     }
 
@@ -249,6 +252,7 @@ mod _heapq {
         };
 
         siftup(&heap, 0, vm)?;
+        drop(item);
         Ok(returnitem)
     }
 
@@ -495,6 +499,7 @@ mod _heapq {
         };
 
         siftup_max(&heap, 0, vm)?;
+        drop(item);
         Ok(returnitem)
     }
 }
