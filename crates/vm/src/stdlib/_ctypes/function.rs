@@ -1901,7 +1901,7 @@ impl Py<PyCFuncPtr> {
         } else {
             return Err(vm.new_type_error("errcheck must be a callable or None"));
         };
-        let old = std::mem::replace(&mut *self.errcheck.write(), value);
+        let old = core::mem::replace(&mut *self.errcheck.write(), value);
         // Finalizers on the previous callable can re-enter this setter.
         drop(old);
         Ok(())
