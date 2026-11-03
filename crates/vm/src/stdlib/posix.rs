@@ -1103,8 +1103,8 @@ pub mod module {
         path: MkfifoPath,
         #[pyarg(any, default = MkfifoMode(0o666), py_default = "438")]
         mode: MkfifoMode,
-        #[pyarg(named, optional, py_default = "None")]
-        dir_fd: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        dir_fd: Option<PyObjectRef>,
     }
 
     #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
@@ -1115,7 +1115,7 @@ pub mod module {
         // Keep a raw C int: even -1 is valid with an absolute path, for which
         // mkfifoat ignores dir_fd. BorrowedFd cannot represent that value.
         let dir_fd = match args.dir_fd {
-            OptionalArg::Present(fd) if !vm.is_none(&fd) => {
+            Some(fd) => {
                 warn_if_bool_fd(&fd, vm)?;
                 let fd = fd.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
@@ -1133,7 +1133,7 @@ pub mod module {
                 })?;
                 (fd != rustpython_host_env::os::AT_FDCWD).then_some(fd)
             }
-            _ => None,
+            None => None,
         };
         if dir_fd.is_some() && !host_posix::has_mkfifoat() {
             return Err(vm.new_not_implemented_error("dir_fd unavailable on this platform"));
