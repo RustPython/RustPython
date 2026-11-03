@@ -587,7 +587,7 @@ mod _functools {
                     stored_keywords.copy().into_ref(&vm.ctx),
                 )
             } else {
-                (func.clone(), args_slice.to_vec(), vm.ctx.new_dict())
+                (func, args_slice.to_vec(), vm.ctx.new_dict())
             };
 
             let phcount = count_placeholders(&final_args);
