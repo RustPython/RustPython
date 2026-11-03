@@ -6,7 +6,7 @@ use crate::{
 use core::ops::Deref;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::PrimInt;
+use num_traits::{PrimInt, ToPrimitive};
 
 /// A Python complex-like object.
 ///
@@ -174,6 +174,41 @@ impl TryFromObject for ArgIndex {
         Ok(Self {
             value: obj.try_index(vm)?,
         })
+    }
+}
+
+/// An index argument converted with CPython's `PyLong_AsInt` semantics.
+///
+/// Conversion errors raised by `__index__` are preserved. Only an integer
+/// outside the C `int` range gets the C integer overflow diagnostic.
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct ArgCInt {
+    pub value: i32,
+}
+
+impl ArgCInt {
+    #[inline]
+    #[must_use]
+    pub fn into_primitive(self) -> i32 {
+        self.value
+    }
+}
+
+impl From<i32> for ArgCInt {
+    fn from(value: i32) -> Self {
+        Self { value }
+    }
+}
+
+impl TryFromObject for ArgCInt {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let value = obj
+            .try_index(vm)?
+            .as_bigint()
+            .to_i32()
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))?;
+        Ok(Self { value })
     }
 }
 
