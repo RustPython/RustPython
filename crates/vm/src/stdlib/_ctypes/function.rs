@@ -1312,11 +1312,12 @@ fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
 /// Create OUT buffer for a parameter type
 fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
-    if arg_type.fast_issubclass(PyCPointer::static_type())
-        && let Some(stg_info) = arg_type.stg_info_opt()
-        && let Some(ref proto) = stg_info.proto
-    {
-        return proto.as_object().call((), vm);
+    if arg_type.fast_issubclass(PyCPointer::static_type()) {
+        // Constructing the pointed-to type can re-enter pointer type setup.
+        let proto = arg_type.stg_info_opt().and_then(|info| info.proto.clone());
+        if let Some(proto) = proto {
+            return proto.as_object().call((), vm);
+        }
     }
     // Not a pointer type or no proto, create instance directly
     arg_type.as_object().call((), vm)
