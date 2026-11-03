@@ -21,8 +21,8 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param,
-        PyComparisonValue, PySsize,
+        ArgBytesLike, ArgIndex, ArgumentError, FromArgs, FuncArgs, Param, PyComparisonValue,
+        PySsize,
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
