@@ -510,8 +510,8 @@ fn reduce_ex_default_metadata_comes_from_its_value() {
 
 #[derive(FromArgs)]
 struct TakeBytesArgs {
-    #[pyarg(positional, optional, py_default = "None")]
-    n: OptionalArg,
+    #[pyarg(positional, default = None)]
+    n: Option<PyObjectRef>,
 }
 
 // Expose the actual split parameters without converting them before the
@@ -640,7 +640,7 @@ impl Py<PyByteArray> {
     ) -> PyResult<PyBytes> {
         // __index__ can resize self or acquire/release exports. Convert before
         // observing either the payload or the export epoch.
-        let n = match n.into_option().filter(|n| !vm.is_none(n)) {
+        let n = match n {
             None => None,
             Some(n) => {
                 let index = n
