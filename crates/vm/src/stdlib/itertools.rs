@@ -862,32 +862,19 @@ mod decl {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let args =
                 crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
-            let (iter, a1, a2, a3) = match args.args.len() {
-                0 | 1 => {
-                    return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
-                }
-                2 => {
-                    let (iter, a1): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
-                    (iter, a1, None, None)
-                }
-                3 => {
-                    let (iter, a1, a2): (PyObjectRef, PyObjectRef, PyObjectRef) =
-                        args.bind_for(vm, Self::NAME)?;
-                    (iter, a1, Some(a2), None)
-                }
-                _ => {
-                    let (iter, a1, a2, a3): (PyObjectRef, PyObjectRef, PyObjectRef, PyObjectRef) =
-                        args.bind_for(vm, Self::NAME)?;
-                    (iter, a1, Some(a2), Some(a3))
-                }
-            };
+            let (iter, a1, a2, a3): (
+                PyObjectRef,
+                PyObjectRef,
+                OptionalArg<PyObjectRef>,
+                OptionalArg<PyObjectRef>,
+            ) = args.bind_for(vm, Self::NAME)?;
 
             // CPython clears index conversion errors and reports the appropriate
             // islice ValueError after converting arguments in this order.
             let to_ssize = |obj: &PyObject| isize::try_from_borrowed_object(vm, obj).unwrap_or(-1);
             let mut start = 0;
             let mut stop = -1;
-            if let Some(a2) = &a2 {
+            if let OptionalArg::Present(a2) = &a2 {
                 if !vm.is_none(&a1) {
                     start = to_ssize(&a1);
                 }
@@ -914,7 +901,7 @@ mod decl {
             }
 
             let mut step = 1;
-            if let Some(a3) = &a3
+            if let OptionalArg::Present(a3) = &a3
                 && !vm.is_none(a3)
             {
                 step = to_ssize(a3);
