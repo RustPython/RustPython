@@ -622,7 +622,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryValue(key: HKEYArg, sub_key: Option<String>, vm: &VirtualMachine) -> PyResult<String> {
+    fn QueryValue(
+        key: HKEYArg,
+        sub_key: Option<String>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
         let hkey = key.0;
 
         if hkey == host_winreg::HKEY_PERFORMANCE_DATA {
@@ -636,7 +640,8 @@ mod winreg {
             .map(WideCString::from_str)
             .transpose()
             .map_err(|e| e.to_pyexception(vm))?;
-        host_winreg::query_default_value(hkey, sub_key.as_deref())
+        host_winreg::query_default_value_wtf8(hkey, sub_key.as_deref())
+            .map(|value| vm.ctx.new_str(value))
             .map_err(|err| err.to_pyexception(vm))
     }
 
