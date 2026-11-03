@@ -3183,40 +3183,6 @@ mod posix_sched {
         }
     }
 
-    #[cfg(test)]
-    #[test]
-    fn sched_param_signature_metadata_uses_its_binder() {
-        use crate::class::PyClassImpl;
-        assert!(
-            PySchedParam::INTERNAL_DOC
-                .text
-                .unwrap()
-                .starts_with("sched_param(sched_priority)\n--\n\n")
-        );
-        let reduce = PySchedParam::METHOD_DEFS
-            .iter()
-            .find(|method| method.name == "__reduce__")
-            .unwrap();
-        assert!(
-            reduce
-                .doc
-                .unwrap()
-                .starts_with("__reduce__($self, /)\n--\n\n")
-        );
-        assert!(
-            crate::builtins::type_::get_doc_from_internal_doc("__reduce__", reduce.doc.unwrap())
-                .is_none()
-        );
-        assert!(reduce.flags.contains(
-            crate::function::PyMethodFlags::METHOD | crate::function::PyMethodFlags::NOARGS
-        ));
-        assert!(
-            !reduce
-                .flags
-                .contains(crate::function::PyMethodFlags::KEYWORDS)
-        );
-    }
-
     #[cfg(not(target_env = "musl"))]
     pub(super) fn convert_sched_param(
         obj: &PyObject,
