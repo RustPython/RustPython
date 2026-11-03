@@ -2800,8 +2800,8 @@ mod _datetime {
         second: i32,
         #[pyarg(any, default = 0)]
         microsecond: i32,
-        #[pyarg(any, optional, py_default = "None")]
-        tzinfo: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tzinfo: Option<PyObjectRef>,
         #[pyarg(named, default = 0)]
         fold: i32,
     }
@@ -2850,7 +2850,7 @@ mod _datetime {
         }
 
         fn py_new(_cls: &Py<PyType>, a: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let tzinfo = a.tzinfo.into_option().and_then(|tz| tzinfo_arg(tz, vm));
+            let tzinfo = a.tzinfo.and_then(|tz| tzinfo_arg(tz, vm));
             check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
             if let Some(tz) = &tzinfo {
                 check_tzinfo_subclass(tz, vm)?;
@@ -2884,8 +2884,8 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct TimeIsoformatArgs {
-        #[pyarg(any, optional, py_default = "'auto'")]
-        timespec: OptionalArg<PyStrRef>,
+        #[pyarg(any, default = "auto")]
+        timespec: PyStrRef,
     }
 
     /// `isoformat`'s time part for `timespec`, or `Err(())` for an unknown one.
@@ -2937,9 +2937,9 @@ mod _datetime {
             args: TimeIsoformatArgs,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
-            let spec = args.timespec.into_option().map(|s| s.to_string());
+            let spec = args.timespec.to_string();
             let mut result = format_time_spec(
-                spec.as_deref(),
+                Some(&spec),
                 zelf.hour,
                 zelf.minute,
                 zelf.second,
@@ -3594,8 +3594,8 @@ mod _datetime {
         second: i32,
         #[pyarg(any, default = 0)]
         microsecond: i32,
-        #[pyarg(any, optional, py_default = "None")]
-        tzinfo: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tzinfo: Option<PyObjectRef>,
         #[pyarg(named, default = 0)]
         fold: i32,
     }
@@ -3639,7 +3639,7 @@ mod _datetime {
         }
 
         fn py_new(_cls: &Py<PyType>, a: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let tzinfo = a.tzinfo.into_option().and_then(|tz| tzinfo_arg(tz, vm));
+            let tzinfo = a.tzinfo.and_then(|tz| tzinfo_arg(tz, vm));
             check_date_args(a.year, a.month, a.day, vm)?;
             check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
             if let Some(tz) = &tzinfo {
@@ -3661,16 +3661,16 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct NowArgs {
-        #[pyarg(any, optional, py_default = "None")]
-        tz: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tz: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct FromTimestampArgs {
         #[pyarg(any)]
         timestamp: PyObjectRef,
-        #[pyarg(any, optional, py_default = "None")]
-        tz: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tz: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -3685,10 +3685,10 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct DateTimeIsoformatArgs {
-        #[pyarg(any, optional, py_default = "'T'")]
-        sep: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional, py_default = "'auto'")]
-        timespec: OptionalArg<PyStrRef>,
+        #[pyarg(any, default = "T")]
+        sep: PyObjectRef,
+        #[pyarg(any, default = "auto")]
+        timespec: PyStrRef,
     }
 
     #[derive(FromArgs)]
@@ -3715,8 +3715,8 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct AstimezoneArgs {
-        #[pyarg(any, optional, py_default = "None")]
-        tz: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tz: Option<PyObjectRef>,
     }
 
     /// `_find_isoformat_datetime_separator`
@@ -3765,7 +3765,7 @@ mod _datetime {
     impl PyDateTime {
         #[pyclassmethod]
         fn now(cls: PyTypeRef, args: NowArgs, vm: &VirtualMachine) -> PyResult {
-            let tz = args.tz.unwrap_or_none(vm);
+            let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
             check_tzinfo_subclass(&tz, vm)?;
             let tzinfo = tzinfo_arg(tz, vm);
             let result = datetime_best_possible(&cls, tzinfo.is_none(), tzinfo.clone(), vm)?;
@@ -3795,7 +3795,7 @@ mod _datetime {
 
         #[pyclassmethod]
         fn fromtimestamp(cls: PyTypeRef, args: FromTimestampArgs, vm: &VirtualMachine) -> PyResult {
-            let tz = args.tz.unwrap_or_none(vm);
+            let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
             check_tzinfo_subclass(&tz, vm)?;
             let tzinfo = tzinfo_arg(tz, vm);
             let (timet, us) = object_to_timeval(&args.timestamp, vm)?;
@@ -4091,30 +4091,25 @@ mod _datetime {
             args: DateTimeIsoformatArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyStrRef> {
-            let sep = match &args.sep {
-                OptionalArg::Missing => CodePoint::from('T'),
-                OptionalArg::Present(sep) => {
-                    let Some(sep_str) = sep.downcast_ref::<PyStr>() else {
-                        return Err(vm.new_type_error(format!(
-                            "isoformat() argument 1 must be a unicode character, not {}",
-                            type_name(sep)
-                        )));
-                    };
-                    let chars: Vec<CodePoint> = sep_str.as_wtf8().code_points().collect();
-                    match chars[..] {
-                        [c] => c,
-                        _ => {
-                            return Err(vm.new_type_error(format!(
-                                "isoformat() argument 1 must be a unicode character, not a string of length {}",
-                                chars.len()
-                            )));
-                        }
-                    }
+            let Some(sep_str) = args.sep.downcast_ref::<PyStr>() else {
+                return Err(vm.new_type_error(format!(
+                    "isoformat() argument 1 must be a unicode character, not {}",
+                    type_name(&args.sep)
+                )));
+            };
+            let chars: Vec<CodePoint> = sep_str.as_wtf8().code_points().collect();
+            let sep = match chars[..] {
+                [c] => c,
+                _ => {
+                    return Err(vm.new_type_error(format!(
+                        "isoformat() argument 1 must be a unicode character, not a string of length {}",
+                        chars.len()
+                    )));
                 }
             };
-            let spec = args.timespec.into_option().map(|s| s.to_string());
+            let spec = args.timespec.to_string();
             let time = format_time_spec(
-                spec.as_deref(),
+                Some(&spec),
                 zelf.hour,
                 zelf.minute,
                 zelf.second,
@@ -4168,7 +4163,7 @@ mod _datetime {
 
         #[pymethod]
         fn astimezone(zelf: &Py<Self>, args: AstimezoneArgs, vm: &VirtualMachine) -> PyResult {
-            let tz = args.tz.unwrap_or_none(vm);
+            let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
             check_tzinfo_subclass(&tz, vm)?;
             let target = tzinfo_arg(tz, vm);
             let local_zone = |vm: &VirtualMachine| -> PyResult<PyObjectRef> {
