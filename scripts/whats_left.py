@@ -171,6 +171,7 @@ def extra_info(obj):
         try:
             return {
                 "sig": stable_signature(obj),
+                "sig_error": False,
                 "doc": doc,
             }
         except Exception as e:
@@ -179,16 +180,19 @@ def extra_info(obj):
             if exception.replace('"', "'").startswith("ValueError('no signature found"):
                 return {
                     "sig": "ValueError('no signature found')",
+                    "sig_error": True,
                     "doc": doc,
                 }
 
             return {
                 "sig": exception,
+                "sig_error": True,
                 "doc": doc,
             }
 
     return {
         "sig": None,
+        "sig_error": False,
         "doc": None,
     }
 
@@ -362,7 +366,11 @@ def dir_of_mod_or_error(module_name, keep_other=True):
         if item_name == "__doc__":
             # extra_info() reports a docstring for a callable only, and a module
             # is not one. getdoc() matches how a callable's is normalized.
-            result[item_name] = {"sig": None, "doc": inspect.getdoc(module)}
+            result[item_name] = {
+                "sig": None,
+                "sig_error": False,
+                "doc": inspect.getdoc(module),
+            }
             continue
         item = getattr(module, item_name)
         # don't repeat items imported from other modules
@@ -404,7 +412,11 @@ def _pure_decimal_baseline(wrapper):
         if item_name == "__builtins__":
             continue
         if item_name == "__doc__":
-            result[item_name] = {"sig": None, "doc": inspect.getdoc(wrapper)}
+            result[item_name] = {
+                "sig": None,
+                "sig_error": False,
+                "doc": inspect.getdoc(wrapper),
+            }
             continue
         item = getattr(_pydecimal, item_name)
         if not _is_decimal_fallback_item(item):
@@ -500,11 +512,18 @@ def compare():
     import warnings
     from contextlib import redirect_stdout
 
-    def sig_mismatch(rustpy_sig, cpython_sig):
-        # A signature CPython cannot produce is never a mismatch; having one is fine.
-        if cpython_sig is None or cpython_sig.startswith("ValueError("):
+    def sig_mismatch(rustpy_sig, cpython_info):
+        # A reference introspection failure cannot establish a mismatch.
+        if cpython_info["sig"] is None or cpython_info["sig_error"]:
             return False
-        return rustpy_sig != cpython_sig
+        return rustpy_sig != cpython_info["sig"]
+
+    def info_equivalent(rustpy_info, cpython_info):
+        # A failed reference signature cannot prove an inherited member differs.
+        signatures_match = (
+            cpython_info["sig_error"] or rustpy_info["sig"] == cpython_info["sig"]
+        )
+        return signatures_match and rustpy_info["doc"] == cpython_info["doc"]
 
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
@@ -514,7 +533,9 @@ def compare():
         is_inherited = not attr_is_not_inherited(typ, method_name)
         # Inheriting something that reads the same as CPython's own member
         # leaves nothing to implement.
-        if is_inherited and extra_info(getattr(typ, method_name)) != real_method_value:
+        if is_inherited and not info_equivalent(
+            extra_info(getattr(typ, method_name)), real_method_value
+        ):
             return "(inherited)"
 
         return None
@@ -522,17 +543,24 @@ def compare():
     not_implementeds = {}
     mismatched_methods = {}
     mismatched_method_docs = {}
+    uncomparable = {}
     for name, (typ, real_value, methods) in expected_methods.items():
+        if real_value["sig_error"]:
+            uncomparable.setdefault(name, []).append((name, real_value["sig"]))
         missing_methods = {}
         for method, real_method_value in methods:
+            item = f"{name}.{method}"
+            if real_method_value["sig_error"]:
+                uncomparable.setdefault(name, []).append(
+                    (item, real_method_value["sig"])
+                )
             reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
                 continue
             # A method that exists but differs is a mismatch, not a missing one.
             value = extra_info(getattr(typ, method))
-            item = f"{name}.{method}"
-            if sig_mismatch(value["sig"], real_method_value["sig"]):
+            if sig_mismatch(value["sig"], real_method_value):
                 mismatched_methods.setdefault(name, []).append(
                     (item, value["sig"], real_method_value["sig"])
                 )
@@ -568,9 +596,15 @@ def compare():
         "missing_items": {},
         # builtin types first, keyed by type name, then modules
         "mismatched_items": mismatched_methods,
+        "uncomparable_signatures": uncomparable,
         "mismatched_doc_items": mismatched_method_docs,
     }
     for modname, cpymod in cpymods.items():
+        for item, info in cpymod.items():
+            if info["sig_error"]:
+                uncomparable.setdefault(modname, []).append(
+                    (f"{modname}.{item}", info["sig"])
+                )
         rustpymod = rustpymods.get(modname)
         if rustpymod is None:
             result["not_implemented"][modname] = None
@@ -595,7 +629,7 @@ def compare():
                     continue
                 elif attr_is_not_inherited(cls, attr):
                     rustpymod[item] = extra_info(getattr(cls, attr))
-                elif extra_info(getattr(cls, attr)) == cpymod[item]:
+                elif info_equivalent(extra_info(getattr(cls, attr)), cpymod[item]):
                     rustpymod[item] = cpymod[item]
                 else:
                     inherited.add(item)
@@ -608,7 +642,7 @@ def compare():
             mod_mismatched_items = [
                 (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
                 for item in implemented_items
-                if sig_mismatch(rustpymod[item]["sig"], cpymod[item]["sig"])
+                if sig_mismatch(rustpymod[item]["sig"], cpymod[item])
             ]
             mod_mismatched_doc_items = [
                 (f"{modname}.{item}", rustpymod[item]["doc"], cpymod[item]["doc"])
@@ -621,7 +655,9 @@ def compare():
                 result["mismatched_items"][modname] = mod_mismatched_items
             if mod_mismatched_doc_items:
                 result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
-            if not (mod_missing_items or mod_mismatched_items):
+            if not (
+                mod_missing_items or mod_mismatched_items or modname in uncomparable
+            ):
                 result["implemented"][modname] = None
 
     result["cpython_modules"] = cpymods
@@ -721,6 +757,15 @@ if args.signature:
             print(f"{' ' * len(item)}{cpython_value}")
             if i < len(mismatched) - 1:
                 print()
+
+if args.signature:
+    print(
+        "\n# uncomparable signature observations (CPython introspection errors; aliases may repeat)"
+    )
+    for entries in result["uncomparable_signatures"].values():
+        for item, error in entries:
+            print(f"{item}: {error}")
+
 
 if args.doc:
     print("\n# mismatching `__doc__`s (warnings)")
