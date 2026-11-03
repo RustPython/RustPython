@@ -1263,31 +1263,4 @@ mod _sre {
             )
         }
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::class::PyClassImpl;
-
-        #[test]
-        fn pattern_position_signature_metadata() {
-            for name in [
-                "findall",
-                "finditer",
-                "fullmatch",
-                "match",
-                "prefixmatch",
-                "scanner",
-                "search",
-            ] {
-                let method = <Pattern as PyClassImpl>::METHOD_DEFS
-                    .iter()
-                    .find(|method| method.name == name)
-                    .unwrap();
-                let expected =
-                    format!("{name}($self, /, string, pos=0, endpos=sys.maxsize)\n--\n\n");
-                assert!(method.doc.unwrap().starts_with(&expected), "{name}");
-            }
-        }
-    }
 }

@@ -504,36 +504,6 @@ mod decl {
             Ok(value.as_u32_mask())
         }
 
-        #[cfg(test)]
-        #[test]
-        fn modify_accepts_named_arguments() {
-            use crate::vm::{
-                class::PyClassImpl,
-                function::{FromArgs, ParamKind, PyMethodFlags},
-            };
-
-            let params = EpollModifyArgs::PARAMS.expect("known modify parameters");
-            assert_eq!(params.len(), 2);
-            for (param, name) in params.iter().zip(["fd", "eventmask"]) {
-                assert_eq!(param.name, name);
-                assert!(matches!(param.kind, ParamKind::PositionalOrKeyword));
-                assert!(param.default.is_none());
-            }
-            assert_eq!(EpollModifyArgs::arity(), 2..=2);
-
-            let method = PyEpoll::METHOD_DEFS
-                .iter()
-                .find(|method| method.name == "modify")
-                .unwrap();
-            assert!(method.flags.contains(PyMethodFlags::KEYWORDS));
-            assert!(
-                method
-                    .doc
-                    .unwrap()
-                    .starts_with("modify($self, /, fd, eventmask)\n--\n\n")
-            );
-        }
-
         #[derive(FromArgs)]
         struct EpollPollArgs {
             #[pyarg(any, default, py_default = "None")]

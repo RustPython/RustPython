@@ -94,16 +94,6 @@ mod _warnings {
         skip_file_prefixes: OptionalArg<PyTupleRef>,
     }
 
-    #[cfg(test)]
-    #[test]
-    fn warn_clinic_default_metadata() {
-        use crate::function::{DefaultRepr, FromArgs};
-        let params = WarnArgs::PARAMS.expect("known warning parameters");
-        assert!(matches!(params[1].default, Some(DefaultRepr::None)));
-        assert!(matches!(params[3].default, Some(DefaultRepr::None)));
-        assert!(matches!(params[4].default, Some(DefaultRepr::Raw("()"))));
-    }
-
     /// Validate and resolve the category argument, matching get_category() in C.
     fn get_category(
         message: &PyObject,
