@@ -222,6 +222,103 @@ pub fn strxfrm(string: &CStr, _initial_len: usize) -> Vec<u8> {
     buff
 }
 
+#[cfg(target_os = "linux")]
+pub use wide_collation::{CollationString, CollationTransformError};
+
+#[cfg(target_os = "linux")]
+mod wide_collation {
+    use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
+    use std::io;
+
+    unsafe extern "C" {
+        fn wcscoll(first: *const libc::wchar_t, second: *const libc::wchar_t) -> libc::c_int;
+        fn wcsxfrm(
+            destination: *mut libc::wchar_t,
+            source: *const libc::wchar_t,
+            capacity: usize,
+        ) -> usize;
+    }
+
+    /// A NUL-terminated wide string for the locale collation APIs.
+    pub struct CollationString(Vec<libc::wchar_t>);
+
+    pub enum CollationTransformError {
+        Memory,
+        Os(io::Error),
+    }
+
+    impl CollationString {
+        /// Preserve Python's lone surrogates and reject embedded NULs.
+        pub fn new(string: &Wtf8) -> Option<Self> {
+            let mut wide = Vec::with_capacity(string.len() + 1);
+            for point in string.code_points() {
+                let value = point.to_u32();
+                if value == 0 {
+                    return None;
+                }
+                wide.push(value as libc::wchar_t);
+            }
+            wide.push(0);
+            Some(Self(wide))
+        }
+
+        pub fn compare(&self, other: &Self) -> libc::c_int {
+            // Both buffers retain their terminator and cannot contain interior NULs.
+            unsafe { wcscoll(self.0.as_ptr(), other.0.as_ptr()) }
+        }
+
+        pub fn transform(&self) -> Result<Wtf8Buf, CollationTransformError> {
+            let mut dummy = [0];
+            crate::os::clear_errno();
+            let needed = unsafe { wcsxfrm(dummy.as_mut_ptr(), self.0.as_ptr(), 1) };
+            let errno = crate::os::get_errno();
+            if errno != 0 && errno != libc::ERANGE {
+                return Err(CollationTransformError::Os(io::Error::from_raw_os_error(
+                    errno,
+                )));
+            }
+            let capacity = needed
+                .checked_add(1)
+                .ok_or(CollationTransformError::Memory)?;
+            let mut wide = Vec::new();
+            wide.try_reserve_exact(capacity)
+                .map_err(|_| CollationTransformError::Memory)?;
+            wide.resize(capacity, 0);
+            crate::os::clear_errno();
+            let written = unsafe { wcsxfrm(wide.as_mut_ptr(), self.0.as_ptr(), wide.len()) };
+            let errno = crate::os::get_errno();
+            if errno != 0 {
+                return Err(CollationTransformError::Os(io::Error::from_raw_os_error(
+                    errno,
+                )));
+            }
+            // A concurrent locale change can invalidate the size query. Never
+            // interpret a truncated or unterminated result as a collation key.
+            if written >= wide.len() {
+                return Err(CollationTransformError::Os(io::Error::from_raw_os_error(
+                    libc::ERANGE,
+                )));
+            }
+            wide.truncate(written);
+
+            // wcsxfrm emits integer weights, not necessarily Unicode. CPython
+            // 3.15 splits weights above 0x10000 into two ordered code points.
+            // Keep individual surrogates rather than decoding as UTF-16.
+            let mut key = Wtf8Buf::new();
+            for weight in wide {
+                let value = weight as u32;
+                if value > 0x10000 {
+                    key.push(CodePoint::from_u32((value >> 16) | 0x10000).unwrap());
+                    key.push(CodePoint::from_u32(value & 0xffff).unwrap());
+                } else {
+                    key.push(CodePoint::from_u32(value).unwrap());
+                }
+            }
+            Ok(key)
+        }
+    }
+}
+
 pub fn setlocale(category: i32, locale: Option<&CStr>) -> Option<Vec<u8>> {
     let result = unsafe {
         match locale {
