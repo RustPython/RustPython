@@ -1742,7 +1742,14 @@ mod decl {
         ) -> PyResult<Self> {
             let fillvalue = args.fillvalue.unwrap_or_else(|| vm.ctx.none());
             let iterators = iterators.into_vec();
+            let mut exhausted = Vec::new();
+            exhausted
+                .try_reserve_exact(iterators.len())
+                .map_err(|_| vm.no_memory_error())?;
+            exhausted.extend((0..iterators.len()).map(|_| AtomicBool::new(false)));
             Ok(Self {
+                exhausted,
+                terminal: AtomicBool::new(false),
                 iterators,
                 fillvalue: PyRwLock::new(fillvalue),
             })
@@ -1755,6 +1762,10 @@ mod decl {
     struct PyItertoolsZipLongest {
         iterators: Vec<PyIter>,
         fillvalue: PyRwLock<PyObjectRef>,
+        #[pytraverse(skip)]
+        exhausted: Vec<AtomicBool>,
+        #[pytraverse(skip)]
+        terminal: AtomicBool,
     }
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
@@ -1764,24 +1775,36 @@ mod decl {
 
     impl IterNext for PyItertoolsZipLongest {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            if zelf.iterators.is_empty() {
+            if zelf.terminal.load(Ordering::Acquire) {
                 return Ok(PyIterReturn::StopIteration(None));
             }
             let mut result: Vec<PyObjectRef> = Vec::new();
-            let mut num_active = zelf.iterators.len();
-
-            for idx in 0..zelf.iterators.len() {
-                let next_obj = match zelf.iterators[idx].next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => {
-                        num_active -= 1;
-                        if num_active == 0 {
-                            return Ok(PyIterReturn::StopIteration(v));
+            let mut saw_item = false;
+            for (idx, iter) in zelf.iterators.iter().enumerate() {
+                let next_obj = if !zelf.exhausted[idx].load(Ordering::Acquire) {
+                    match iter.next(vm) {
+                        Ok(PyIterReturn::Return(obj)) => {
+                            saw_item = true;
+                            obj
                         }
-                        zelf.fillvalue.read().clone()
+                        Ok(PyIterReturn::StopIteration(value)) => {
+                            drop(value);
+                            zelf.exhausted[idx].store(true, Ordering::Release);
+                            zelf.fillvalue.read().clone()
+                        }
+                        Err(err) => {
+                            zelf.terminal.store(true, Ordering::Release);
+                            return Err(err);
+                        }
                     }
+                } else {
+                    zelf.fillvalue.read().clone()
                 };
                 result.push(next_obj);
+            }
+            if !saw_item {
+                zelf.terminal.store(true, Ordering::Release);
+                return Ok(PyIterReturn::StopIteration(None));
             }
             Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
         }
