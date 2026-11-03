@@ -3,14 +3,24 @@ pub(crate) use _testconsole::module_def;
 #[pymodule]
 mod _testconsole {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine, convert::IntoPyException, function::ArgBytesLike,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine, convert::IntoPyException,
+        function::ArgBytesLike,
     };
     use rustpython_host_env::testconsole as host_testconsole;
 
+    #[derive(FromArgs)]
+    struct WriteInputArgs {
+        #[pyarg(any)]
+        file: PyObjectRef,
+        #[pyarg(any)]
+        s: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn write_input(file: PyObjectRef, s: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn write_input(args: WriteInputArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let s = ArgBytesLike::try_from_object(vm, args.s)?;
         // Get the fd from the file object via fileno()
-        let fd_obj = vm.call_method(&file, "fileno", ())?;
+        let fd_obj = vm.call_method(&args.file, "fileno", ())?;
         let fd: i32 = fd_obj.try_into_value(vm)?;
 
         let data = s.borrow_buf();
@@ -27,8 +37,15 @@ mod _testconsole {
         host_testconsole::write_console_input(fd, &wchars).map_err(|e| e.into_pyexception(vm))
     }
 
+    #[derive(FromArgs)]
+    struct ReadOutputArgs {
+        #[pyarg(any)]
+        file: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn read_output(_file: PyObjectRef) -> Option<()> {
+    fn read_output(args: ReadOutputArgs) -> Option<()> {
+        let _file = args.file;
         // Stub, same as CPython
         None
     }
