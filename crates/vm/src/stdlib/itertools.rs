@@ -9,7 +9,7 @@ mod decl {
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock},
         convert::ToPyObject,
-        function::{FuncArgs, NameIterables, PosArgs},
+        function::{FuncArgs, NameIterables, OptionalArg, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
@@ -338,7 +338,7 @@ mod decl {
     struct PyRepeatNewArgs {
         object: PyObjectRef,
         #[pyarg(any, optional)]
-        times: Option<PyObjectRef>,
+        times: OptionalArg<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsRepeat {
@@ -350,13 +350,13 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let times = match times {
-                Some(obj) => {
+                OptionalArg::Present(obj) => {
                     let int = obj.try_index(vm)?;
                     let val: isize = int.try_to_primitive(vm)?;
                     // times always >= 0.
                     Some(PyRwLock::new(val.to_usize().unwrap_or(0)))
                 }
-                None => None,
+                OptionalArg::Missing => None,
             };
             Ok(Self { object, times })
         }
