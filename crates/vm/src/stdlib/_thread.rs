@@ -965,7 +965,7 @@ pub(crate) mod _thread {
     );
 
     #[pyfunction]
-    fn _shutdown(vm: &VirtualMachine) {
+    pub(crate) fn _shutdown(vm: &VirtualMachine) {
         // Wait for all non-daemon threads to finish
         let current_ident = get_ident();
 

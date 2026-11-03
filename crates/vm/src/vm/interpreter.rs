@@ -798,15 +798,25 @@ impl VirtualMachine {
             );
         }
 
-        // Run atexit handlers before setting finalizing flag.
-        // This allows unraisable exceptions from atexit handlers to be reported.
-        atexit::_run_exitfuncs(vm);
+        // Exit callbacks and subinterpreter cleanup can start non-daemon
+        // threads. Join those threads before finalization, and process any
+        // callbacks or subinterpreters they leave behind.
+        loop {
+            atexit::_run_exitfuncs(vm);
 
-        // Clean up any lingering subinterpreters. This has to happen before
-        // the finalizing flag is set, or else threads might get prematurely
-        // blocked.
-        #[cfg(feature = "threading")]
-        finalize_subinterpreters(vm);
+            #[cfg(feature = "threading")]
+            {
+                finalize_subinterpreters(vm);
+                crate::stdlib::_thread::_thread::_shutdown(vm);
+                let has_callbacks = !vm.state.atexit_funcs.lock().is_empty();
+                let has_subinterpreters = vm.state.is_main
+                    && !runtime::owned_interpreter_ids_for(vm.state.runtime_root_id).is_empty();
+                if has_callbacks || has_subinterpreters {
+                    continue;
+                }
+            }
+            break;
+        }
 
         // Remaining daemon threads hang in `_PyThreadState_HangThread` when
         // they next attach (or at the eval-breaker if they are already
