@@ -587,11 +587,8 @@ mod decl {
     }
 
     impl GroupByState {
-        fn is_current(&self, grouper: &Py<PyItertoolsGrouper>) -> bool {
-            self.grouper
-                .as_ref()
-                .and_then(|g| g.upgrade())
-                .is_some_and(|current_grouper| grouper.is(&current_grouper))
+        fn current_grouper(&self) -> Option<PyRef<PyItertoolsGrouper>> {
+            self.grouper.as_ref().and_then(|g| g.upgrade())
         }
     }
 
@@ -689,13 +686,26 @@ mod decl {
                 drop(old_value);
             }
 
-            let mut state = zelf.state.lock();
-            let currkey = state.current_key.clone().unwrap();
-            state.tgtkey = Some(currkey.clone());
+            let old_tgtkey = {
+                let mut state = zelf.state.lock();
+                let Some(currkey) = state.current_key.clone() else {
+                    return Ok(PyIterReturn::StopIteration(None));
+                };
+                state.tgtkey.replace(currkey)
+            };
+            drop(old_tgtkey);
 
+            let mut state = zelf.state.lock();
+            // A target-key finalizer may have reentered and consumed the current item.
+            let Some(currkey) = state.current_key.clone() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let Some(tgtkey) = state.tgtkey.clone() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
             let grouper = PyItertoolsGrouper {
                 groupby: zelf.to_owned(),
-                tgtkey: currkey.clone(),
+                tgtkey,
             }
             .into_ref(&vm.ctx);
 
@@ -742,9 +752,11 @@ mod decl {
 
     impl IterNext for PyItertoolsGrouper {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            if !zelf.groupby.state.lock().is_current(zelf) {
+            let current = zelf.groupby.state.lock().current_grouper();
+            if !current.as_ref().is_some_and(|g| zelf.is(g)) {
                 return Ok(PyIterReturn::StopIteration(None));
             }
+            drop(current);
 
             if zelf.groupby.state.lock().current_value.is_none() {
                 let (value, key) = raise_if_stop!(zelf.groupby.advance(vm)?);
@@ -759,9 +771,11 @@ mod decl {
                 drop(old_value);
             }
 
+            let current;
             let currkey = {
                 let state = zelf.groupby.state.lock();
-                if !state.is_current(zelf) {
+                current = state.current_grouper();
+                if !current.as_ref().is_some_and(|g| zelf.is(g)) {
                     return Ok(PyIterReturn::StopIteration(None));
                 }
                 let Some(currkey) = state.current_key.clone() else {
@@ -769,18 +783,22 @@ mod decl {
                 };
                 currkey
             };
+            drop(current);
             let tgtkey = zelf.tgtkey.clone();
             if !vm.bool_eq(&tgtkey, &currkey)? {
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
+            let current;
             let (value, old_key) = {
                 let mut state = zelf.groupby.state.lock();
-                if !state.is_current(zelf) {
+                current = state.current_grouper();
+                if !current.as_ref().is_some_and(|g| zelf.is(g)) {
                     return Ok(PyIterReturn::StopIteration(None));
                 }
                 (state.current_value.take(), state.current_key.take())
             };
+            drop(current);
             drop(old_key);
             match value {
                 Some(v) => Ok(PyIterReturn::Return(v)),
