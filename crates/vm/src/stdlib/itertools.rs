@@ -678,9 +678,15 @@ mod decl {
                     }
                 }
                 let (value, key) = raise_if_stop!(zelf.advance(vm)?);
-                let mut state = zelf.state.lock();
-                state.current_value = Some(value);
-                state.current_key = Some(key);
+                let (old_value, old_key) = {
+                    let mut state = zelf.state.lock();
+                    (
+                        state.current_value.replace(value),
+                        state.current_key.replace(key),
+                    )
+                };
+                drop(old_key);
+                drop(old_value);
             }
 
             let mut state = zelf.state.lock();
@@ -742,9 +748,15 @@ mod decl {
 
             if zelf.groupby.state.lock().current_value.is_none() {
                 let (value, key) = raise_if_stop!(zelf.groupby.advance(vm)?);
-                let mut state = zelf.groupby.state.lock();
-                state.current_value = Some(value);
-                state.current_key = Some(key);
+                let (old_value, old_key) = {
+                    let mut state = zelf.groupby.state.lock();
+                    (
+                        state.current_value.replace(value),
+                        state.current_key.replace(key),
+                    )
+                };
+                drop(old_key);
+                drop(old_value);
             }
 
             let currkey = {
@@ -752,19 +764,24 @@ mod decl {
                 if !state.is_current(zelf) {
                     return Ok(PyIterReturn::StopIteration(None));
                 }
-                state.current_key.clone().unwrap()
+                let Some(currkey) = state.current_key.clone() else {
+                    return Ok(PyIterReturn::StopIteration(None));
+                };
+                currkey
             };
             let tgtkey = zelf.tgtkey.clone();
             if !vm.bool_eq(&tgtkey, &currkey)? {
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
-            let mut state = zelf.groupby.state.lock();
-            if !state.is_current(zelf) {
-                return Ok(PyIterReturn::StopIteration(None));
-            }
-            let value = state.current_value.take();
-            state.current_key = None;
+            let (value, old_key) = {
+                let mut state = zelf.groupby.state.lock();
+                if !state.is_current(zelf) {
+                    return Ok(PyIterReturn::StopIteration(None));
+                }
+                (state.current_value.take(), state.current_key.take())
+            };
+            drop(old_key);
             match value {
                 Some(v) => Ok(PyIterReturn::Return(v)),
                 None => Ok(PyIterReturn::StopIteration(None)),
