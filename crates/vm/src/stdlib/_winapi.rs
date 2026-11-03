@@ -6,7 +6,7 @@ pub(crate) use _winapi::module_def;
 #[pymodule]
 mod _winapi {
     use crate::{
-        Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
         common::lock::{PyMutex, PyMutexGuard},
         convert::ToPyException,
@@ -16,6 +16,7 @@ mod _winapi {
         windows::{WinHandle, WindowsSysResult},
     };
     use core::ptr::null_mut;
+    use num_traits::ToPrimitive;
     use rustpython_common::wtf8::Wtf8Buf;
     use rustpython_host_env::overlapped as host_overlapped;
     use rustpython_host_env::winapi as host_winapi;
@@ -403,15 +404,32 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(h: WinHandle, ms: i64, vm: &VirtualMachine) -> PyResult<u32> {
-        // Negative values (e.g., -1) map to INFINITE (0xFFFFFFFF)
-        let ms = if ms < 0 {
-            host_winapi::INFINITE_TIMEOUT
-        } else if ms > u32::MAX as i64 {
-            return Err(vm.new_overflow_error("timeout value is too large"));
-        } else {
-            ms as u32
+    fn WaitForSingleObject(h: WinHandle, ms: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let Some(index) = ms.try_index_opt(vm) else {
+            let actual = if vm.is_none(&ms) {
+                "None".to_owned()
+            } else {
+                let name = ms.class().slot_name();
+                name[..name.floor_char_boundary(50.min(name.len()))].to_owned()
+            };
+            return Err(vm.new_type_error(format!(
+                "WaitForSingleObject() argument 2 must be int, not {actual}"
+            )));
         };
+        let index = index?;
+        let fits = index
+            .as_bigint()
+            .to_i64()
+            .is_some_and(|value| (i32::MIN as i64..=u32::MAX as i64).contains(&value));
+        if !fits {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "integer value out of range".to_owned(),
+                1,
+                vm,
+            )?;
+        }
+        let ms = index.as_u32_mask();
         vm.allow_threads(|| host_winapi::wait_for_single_object(h.0, ms))
             .map_err(|e| e.to_pyexception(vm))
     }
