@@ -1697,7 +1697,7 @@ fn build_result(
     }
 
     // Convert the foreign-call result to a Python object
-    let mut result = convert_raw_result(&call_result, call_info, vm)?;
+    let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
     if let Some(errcheck) = zelf.errcheck.read().as_ref() {
@@ -1707,7 +1707,7 @@ fn build_result(
         let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
         // Returning the original args tuple requests normal result processing.
         if !checked.is(&args_tuple) {
-            result = Some(checked);
+            return Ok(checked);
         }
     }
 
