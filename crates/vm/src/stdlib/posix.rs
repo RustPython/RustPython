@@ -1101,7 +1101,7 @@ pub mod module {
     struct MkfifoArgs {
         #[pyarg(any)]
         path: MkfifoPath,
-        #[pyarg(any, default = 0o666)]
+        #[pyarg(any, default = MkfifoMode(0o666), py_default = "438")]
         mode: MkfifoMode,
         #[pyarg(named, default = None)]
         dir_fd: Option<PyObjectRef>,
