@@ -796,8 +796,15 @@ mod _winapi {
         vm.ctx.new_str(result_str)
     }
 
+    #[derive(FromArgs)]
+    struct PathNameArgs {
+        #[pyarg(any)]
+        path: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn GetShortPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn GetShortPathName(args: PathNameArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let path = PyStrRef::try_from_object(vm, args.path)?;
         let path = path
             .as_wtf8()
             .to_wide_cstring()
@@ -807,7 +814,8 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetLongPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn GetLongPathName(args: PathNameArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let path = PyStrRef::try_from_object(vm, args.path)?;
         let path = path
             .as_wtf8()
             .to_wide_cstring()
@@ -1246,11 +1254,18 @@ mod _winapi {
         host_winapi::copy_file2(&src_wide, &dst_wide, args.flags).map_err(|e| e.to_pyexception(vm))
     }
 
+    #[derive(FromArgs)]
+    struct MimeRegistryArgs {
+        #[pyarg(any)]
+        on_type_read: PyObjectRef,
+    }
+
     #[pyfunction]
     fn _mimetypes_read_windows_registry(
-        on_type_read: PyObjectRef,
+        args: MimeRegistryArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let on_type_read = args.on_type_read;
         host_winapi::read_windows_mimetype_registry_in_batches(|entries| {
             for (mime_type, ext) in entries.drain(..) {
                 on_type_read.call((vm.ctx.new_str(mime_type), vm.ctx.new_str(ext)), vm)?;
