@@ -16,7 +16,7 @@ mod _ssl {
             PyUtf8StrRef,
         },
         common::lock::{PyMutex, PyRwLock},
-        function::{ArgBytesLike, OptionalArg},
+        function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat, ArgStrOrBytesLike, OptionalArg},
         stdlib::_warnings,
         types::Constructor,
     };
@@ -354,7 +354,7 @@ mod _ssl {
     struct WrapBioArgs {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
-        server_side: bool,
+        server_side: ArgIntoBool,
         #[pyarg(named, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
@@ -366,7 +366,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct WrapSocketArgs {
         sock: PyObjectRef,
-        server_side: bool,
+        server_side: ArgIntoBool,
         #[pyarg(positional, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
@@ -383,7 +383,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_check_hostname(zelf: &Py<Self>, value: bool) {
+        fn set_check_hostname(zelf: &Py<Self>, value: ArgIntoBool) {
+            let value = value.into_bool();
             *zelf.check_hostname.write() = value;
         }
 
@@ -528,7 +529,7 @@ mod _ssl {
             args: WrapBioArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<PySSLSocket>> {
-            let server_side = args.server_side;
+            let server_side = args.server_side.into_bool();
             let hostname = match args.server_hostname {
                 Some(name) => {
                     let hostname = name.as_str();
@@ -846,7 +847,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = args.der;
+            let binary = args.der.into_bool();
             let der = {
                 let guard = zelf.connection.lock();
                 let Some(conn) = guard.as_ref() else {
@@ -934,14 +935,14 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct CaCertsArgs {
-        #[pyarg(any, default)]
-        binary_form: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        binary_form: ArgIntoBool,
     }
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, default)]
-        der: bool,
+        #[pyarg(positional, default = ArgIntoBool::FALSE)]
+        der: ArgIntoBool,
     }
 
     #[derive(FromArgs)]
@@ -1002,7 +1003,7 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn RAND_add(_string: PyObjectRef, _entropy: f64) {}
+    fn RAND_add(_string: ArgStrOrBytesLike, _entropy: ArgIntoFloat) {}
 
     #[pyfunction]
     fn RAND_bytes(n: i32, vm: &VirtualMachine) -> PyResult<PyBytesRef> {

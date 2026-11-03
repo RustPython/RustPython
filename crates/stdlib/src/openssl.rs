@@ -79,8 +79,8 @@ mod _ssl {
             convert::ToPyException,
             exceptions,
             function::{
-                ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg,
-                PyComparisonValue,
+                ArgBytesLike, ArgIntoBool, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike,
+                Either, FsPath, OptionalArg, PyComparisonValue,
             },
             object::{Traverse, TraverseFn},
             stdlib::_warnings,
@@ -466,7 +466,8 @@ mod _ssl {
     }
 
     #[pyfunction(name = "RAND_add")]
-    fn rand_add(string: ArgStrOrBytesLike, entropy: f64) {
+    fn rand_add(string: ArgStrOrBytesLike, entropy: ArgIntoFloat) {
+        let entropy = entropy.into_float();
         let f = |b: &[u8]| {
             for buf in b.chunks(core::ffi::c_int::MAX as usize) {
                 unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
@@ -1111,6 +1112,7 @@ mod _ssl {
             args: GetGroupsArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyListRef> {
+            let include_aliases = args.include_aliases.into_bool();
             #[cfg(ossl350)]
             unsafe {
                 const SSL_CTRL_GET0_IMPLEMENTED_GROUPS: core::ffi::c_int = 139;
@@ -1121,7 +1123,7 @@ mod _ssl {
                 let result = sys::SSL_CTX_ctrl(
                     zelf.ctx().as_ptr(),
                     SSL_CTRL_GET0_IMPLEMENTED_GROUPS,
-                    core::ffi::c_long::from(args.include_aliases),
+                    core::ffi::c_long::from(include_aliases),
                     groups.cast(),
                 );
                 if result == 0 {
@@ -1146,7 +1148,7 @@ mod _ssl {
             }
             #[cfg(not(ossl350))]
             {
-                let _ = (zelf, args.include_aliases);
+                let _ = (zelf, include_aliases);
                 Err(vm.new_not_implemented_error("Getting groups requires OpenSSL 3.5 or later."))
             }
         }
@@ -1343,7 +1345,8 @@ mod _ssl {
             zelf.check_hostname.load()
         }
         #[pygetset(setter)]
-        fn set_check_hostname(zelf: &Py<Self>, ch: bool) {
+        fn set_check_hostname(zelf: &Py<Self>, ch: ArgIntoBool) {
+            let ch = ch.into_bool();
             let mut ctx = zelf.builder();
             if ch && builder_as_ctx(&ctx).verify_mode() == SslVerifyMode::NONE {
                 ctx.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
@@ -1664,7 +1667,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let binary_form = args.binary_form.unwrap_or(false);
+            let binary_form = args.binary_form.map_or(false, ArgIntoBool::into_bool);
             let ctx = zelf.ctx();
             let certs = cfg_select! {
                 ossl300 => ctx.cert_store().all_certificates(),
@@ -2207,8 +2210,12 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             // Use common helper function
-            let (ssl, socket_type, server_hostname) =
-                Self::new_py_ssl_socket(zelf.clone(), args.server_side, args.server_hostname, vm)?;
+            let (ssl, socket_type, server_hostname) = Self::new_py_ssl_socket(
+                zelf.clone(),
+                args.server_side.into_bool(),
+                args.server_hostname,
+                vm,
+            )?;
 
             // Create SslStream with socket
             let stream = ssl::SslStream::new(
@@ -2272,8 +2279,12 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             // Use common helper function
-            let (ssl, socket_type, server_hostname) =
-                Self::new_py_ssl_socket(zelf.clone(), args.server_side, args.server_hostname, vm)?;
+            let (ssl, socket_type, server_hostname) = Self::new_py_ssl_socket(
+                zelf.clone(),
+                args.server_side.into_bool(),
+                args.server_hostname,
+                vm,
+            )?;
 
             // Create BioStream wrapper
             let bio_stream = BioStream {
@@ -2337,7 +2348,7 @@ mod _ssl {
     struct WrapBioArgs {
         incoming: PyRef<PySslMemoryBio>,
         outgoing: PyRef<PySslMemoryBio>,
-        server_side: bool,
+        server_side: ArgIntoBool,
         #[pyarg(any, default)]
         server_hostname: Option<PyStrRef>,
         #[pyarg(named, default)]
@@ -2349,7 +2360,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct WrapSocketArgs {
         sock: PyRef<PySocket>,
-        server_side: bool,
+        server_side: ArgIntoBool,
         #[pyarg(any, default)]
         server_hostname: Option<PyStrRef>,
         #[pyarg(named, default)]
@@ -2380,13 +2391,13 @@ mod _ssl {
     #[derive(FromArgs)]
     struct GetCertArgs {
         #[pyarg(any, optional)]
-        binary_form: OptionalArg<bool>,
+        binary_form: OptionalArg<ArgIntoBool>,
     }
 
     #[derive(FromArgs)]
     struct GetGroupsArgs {
-        #[pyarg(named, default)]
-        include_aliases: bool,
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
+        include_aliases: ArgIntoBool,
     }
 
     // Err is true if the socket is blocking
@@ -3557,7 +3568,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = args.binary_form.unwrap_or(false);
+            let binary = args.binary_form.map_or(false, ArgIntoBool::into_bool);
             with_ssl_pointer(&zelf.connection, |ssl_ptr| {
                 let ssl = unsafe { ssl::SslRef::from_ptr(ssl_ptr) };
                 if !ssl.is_init_finished() {
