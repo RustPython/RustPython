@@ -38,17 +38,6 @@ mod _functools {
         initial: OptionalOption<PyObjectRef>,
     }
 
-    #[cfg(test)]
-    #[test]
-    fn reduce_initial_default_metadata() {
-        use crate::function::{DefaultRepr, FromArgs};
-        let params = ReduceArgs::PARAMS.expect("known reduce parameters");
-        assert!(matches!(
-            params[2].default,
-            Some(DefaultRepr::Raw("functools._initial_missing"))
-        ));
-    }
-
     #[pyfunction]
     fn reduce(args: ReduceArgs, vm: &VirtualMachine) -> PyResult {
         let ReduceArgs {

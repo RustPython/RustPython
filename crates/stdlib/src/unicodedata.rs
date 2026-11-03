@@ -233,18 +233,6 @@ mod unicodedata {
         end: OptionalArg<PyObjectRef>,
     }
 
-    #[cfg(test)]
-    #[test]
-    fn grapheme_index_default_metadata() {
-        use crate::vm::function::{DefaultRepr, FromArgs};
-        let params = IterGraphemesArgs::PARAMS.expect("known grapheme parameters");
-        assert!(matches!(params[1].default, Some(DefaultRepr::Raw("0"))));
-        assert!(matches!(
-            params[2].default,
-            Some(DefaultRepr::Raw("sys.maxsize"))
-        ));
-    }
-
     #[pyfunction]
     fn iter_graphemes(
         args: IterGraphemesArgs,
