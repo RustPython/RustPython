@@ -341,14 +341,14 @@ mod mmap {
         }
     }
 
-    #[derive(FromArgs, Clone)]
+    #[derive(FromArgs)]
     pub(super) struct FindOptions {
         #[pyarg(positional)]
-        view: Vec<u8>,
+        view: PyObjectRef,
         #[pyarg(positional, optional)]
-        start: Option<isize>,
+        start: Option<PyObjectRef>,
         #[pyarg(positional, optional)]
-        end: Option<isize>,
+        end: Option<PyObjectRef>,
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
@@ -892,10 +892,16 @@ mod mmap {
             Ok(())
         }
 
-        fn get_find_range(&self, options: &FindOptions) -> (usize, usize) {
+        fn get_find_range(
+            &self,
+            initial_pos: usize,
+            initial_size: usize,
+            start: Option<isize>,
+            end: Option<isize>,
+        ) -> (usize, usize) {
             let size = self.__len__();
-            let start = options.start.map_or_else(
-                || self.pos(),
+            let start = start.map_or_else(
+                || initial_pos,
                 |start| {
                     if start < 0 {
                         start.saturated_at(size)
@@ -904,7 +910,7 @@ mod mmap {
                     }
                 },
             );
-            let end = options.end.map_or(size, |end| end.saturated_at(size));
+            let end = end.map_or(initial_size.min(size), |end| end.saturated_at(size));
             (start, end)
         }
 
@@ -914,15 +920,44 @@ mod mmap {
             reverse: bool,
             vm: &VirtualMachine,
         ) -> PyResult<PyInt> {
+            // Bind the positional arguments before acquiring the buffer, as
+            // Clinic does. The buffer can call Python and close the mapping.
+            let view = ArgBytesLike::try_from_borrowed_object(vm, &options.view)?;
             let mmap = self.check_valid(vm)?;
-            let (start, end) = self.get_find_range(&options);
+            let initial_pos = self.pos();
+            let initial_size = self.__len__();
+            drop(mmap);
+
+            let start = options
+                .start
+                .as_ref()
+                .map(|value| isize::try_from_borrowed_object(vm, value))
+                .transpose()?;
+            let end = if start.is_some() {
+                options
+                    .end
+                    .as_ref()
+                    .map(|value| isize::try_from_borrowed_object(vm, value))
+                    .transpose()?
+            } else {
+                None
+            };
+            // Index conversion may have closed the mapping. Do not borrow
+            // search bytes from an exporter before reporting that closure.
+            if self.closed.load() {
+                return Err(vm.new_value_error("mmap closed or invalid"));
+            }
+            // A search view may itself be this mmap (or a view of it). Take
+            // an unlocked snapshot before locking the mapping for the scan.
+            let sub = view.borrow_buf_unlocked(vm)?;
+            let mmap = self.check_valid(vm)?;
+            let (start, end) = self.get_find_range(initial_pos, initial_size, start, end);
 
             // A reversed range contains nothing, not even the empty subsequence.
             if start > end {
                 return Ok(PyInt::from(-1isize));
             }
 
-            let sub = &options.view;
             // The empty subsequence matches at the edge the scan begins from:
             // the start of the range going forward, the end going backward.
             if sub.is_empty() {
@@ -933,9 +968,9 @@ mod mmap {
             let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
             let mut windows = buf.windows(sub.len());
             let pos = if reverse {
-                windows.rposition(|window| window == sub)
+                windows.rposition(|window| window == &*sub)
             } else {
-                windows.position(|window| window == sub)
+                windows.position(|window| window == &*sub)
             };
 
             Ok(pos.map_or_else(|| PyInt::from(-1isize), |i| PyInt::from(start + i)))
