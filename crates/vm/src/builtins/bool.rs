@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     convert::{ToPyObject, ToPyResult},
-    function::{FuncArgs, OptionalArg},
+    function::FuncArgs,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
@@ -88,9 +88,9 @@ impl Debug for PyBool {
 
 #[derive(FromArgs)]
 pub struct BoolArgs {
-    // Missing skips conversion and is False.
-    #[pyarg(positional, default, py_default = "False")]
-    object: OptionalArg<PyObjectRef>,
+    // Missing uses the False singleton.
+    #[pyarg(positional, default = false)]
+    object: PyObjectRef,
 }
 
 impl Constructor for PyBool {
@@ -105,7 +105,10 @@ impl Constructor for PyBool {
                 zelf.class().name()
             )));
         }
-        let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
+        let val = {
+            let value = x;
+            value.try_to_bool(vm)?
+        };
         Ok(vm.ctx.new_bool(val).into())
     }
 

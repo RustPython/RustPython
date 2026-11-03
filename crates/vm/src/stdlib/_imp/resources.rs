@@ -6,7 +6,7 @@ pub(super) mod resources {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStrRef},
         frozen_resources::{ResourceError, ResourceView},
-        function::{FsPath, FuncArgs, OptionalArg, PosArgs},
+        function::{FsPath, FuncArgs, PosArgs},
         protocol::PyNumberMethods,
         types::AsNumber,
     };
@@ -50,8 +50,8 @@ pub(super) mod resources {
 
     #[derive(FromArgs)]
     struct OpenArgs {
-        #[pyarg(any, optional, py_default = "'r'")]
-        mode: OptionalArg<PyStrRef>,
+        #[pyarg(any, default = "r")]
+        mode: PyStrRef,
         #[pyarg(any, optional)]
         encoding: Option<PyObjectRef>,
         #[pyarg(any, optional)]
@@ -177,10 +177,7 @@ pub(super) mod resources {
 
         #[pymethod]
         fn open(zelf: &Py<Self>, args: OpenArgs, vm: &VirtualMachine) -> PyResult {
-            let mode = match &args.mode {
-                OptionalArg::Present(mode) => mode.as_bytes(),
-                OptionalArg::Missing => b"r",
-            };
+            let mode = args.mode.as_bytes();
             match mode {
                 b"rb" => {
                     if args.encoding.is_some() || args.errors.is_some() || args.newline.is_some() {
@@ -224,7 +221,7 @@ pub(super) mod resources {
             let stream = Self::open(
                 zelf,
                 OpenArgs {
-                    mode: OptionalArg::Missing,
+                    mode: vm.ctx.new_str("r"),
                     encoding: args.encoding,
                     errors: args.errors,
                     newline: args.newline,

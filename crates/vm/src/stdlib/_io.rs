@@ -3380,7 +3380,7 @@ mod _io {
                     let args = IncrementalNewlineDecoderArgs {
                         decoder,
                         translate: matches!(newline, Newlines::Universal),
-                        errors: None,
+                        errors: vm.ctx.none(),
                     };
                     Some(IncrementalNewlineDecoder::construct_and_init(args, vm)?.into())
                 } else {
@@ -4616,8 +4616,8 @@ mod _io {
         #[pyarg(any)]
         translate: bool,
         // Accepted and ignored. strict is the reported default.
-        #[pyarg(any, default, py_default = "'strict'")]
-        errors: Option<PyObjectRef>,
+        #[pyarg(any, default = "strict")]
+        errors: PyObjectRef,
     }
 
     impl Initializer for IncrementalNewlineDecoder {

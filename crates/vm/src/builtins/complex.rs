@@ -425,10 +425,7 @@ impl Constructor for PyComplex {
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let imag_missing = args.imag.is_missing();
-        let original_real = match args.real {
-            OptionalArg::Missing => vm.ctx.new_int(0).into(),
-            OptionalArg::Present(value) => value,
-        };
+        let original_real = args.real;
         let converted_real = original_real.try_complex_special_method(vm)?;
         if converted_real.is_none()
             && original_real.downcast_ref::<Self>().is_none()
@@ -832,8 +829,8 @@ impl Representable for PyComplex {
 #[derive(FromArgs)]
 pub struct ComplexArgs {
     // Component construction defaults the missing real part to 0.
-    #[pyarg(any, default, py_default = "0")]
-    real: OptionalArg<PyObjectRef>,
+    #[pyarg(any, default = 0)]
+    real: PyObjectRef,
     // Missing imag retains the imaginary part of a converted real argument.
     #[pyarg(any, default, py_default = "0")]
     imag: OptionalArg<PyObjectRef>,
