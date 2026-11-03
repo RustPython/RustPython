@@ -807,10 +807,14 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn iter(zelf: PyRef<Self>, args: IterArgs, vm: &VirtualMachine) -> PyElementIter {
             let tag = args.tag.unwrap_or_else(|| vm.ctx.none());
-            let tag = match tag.downcast_ref::<PyStr>() {
-                Some(s) if s.as_wtf8() == "*" => vm.ctx.none(),
-                _ => tag,
+            let wildcard = if let Some(s) = tag.downcast_ref::<PyStr>() {
+                s.as_wtf8() == "*"
+            } else if let Some(b) = tag.downcast_ref::<crate::vm::builtins::PyBytes>() {
+                b.as_bytes() == b"*"
+            } else {
+                false
             };
+            let tag = if wildcard { vm.ctx.none() } else { tag };
             PyElementIter::new(zelf, tag, false)
         }
 
