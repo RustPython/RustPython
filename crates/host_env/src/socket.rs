@@ -989,10 +989,27 @@ struct AncillaryChunk {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 impl AlignedAncillaryBuffer {
+    fn zeroed(len: usize) -> Option<Self> {
+        let count = len.div_ceil(core::mem::size_of::<AncillaryChunk>());
+        count
+            .checked_mul(core::mem::size_of::<AncillaryChunk>())
+            .filter(|&size| isize::try_from(size).is_ok())?;
+        Some(Self {
+            chunks: vec![AncillaryChunk { _bytes: [0; 16] }; count],
+            len,
+        })
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         // SAFETY: Every byte in each chunk is initialized. The logical length
         // is at most the size of the allocation and the chunks outlive the slice.
         unsafe { core::slice::from_raw_parts(self.chunks.as_ptr().cast(), self.len) }
+    }
+
+    fn as_mut_bytes(&mut self) -> &mut [u8] {
+        // SAFETY: The chunks are fully initialized and exclusively borrowed;
+        // len fits in their allocation and every bit pattern is valid for u8.
+        unsafe { core::slice::from_raw_parts_mut(self.chunks.as_mut_ptr().cast(), self.len) }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1005,16 +1022,9 @@ pub fn pack_ancillary_messages_aligned(
     cmsgs: &[(i32, i32, &[u8])],
 ) -> Result<AlignedAncillaryBuffer, AncillaryPackError> {
     let len = ancillary_capacity(cmsgs)?;
-    let count = len.div_ceil(core::mem::size_of::<AncillaryChunk>());
-    count
-        .checked_mul(core::mem::size_of::<AncillaryChunk>())
-        .filter(|&size| isize::try_from(size).is_ok())
-        .ok_or(AncillaryPackError::TooMuchData)?;
-    let mut chunks = vec![AncillaryChunk { _bytes: [0; 16] }; count];
-    // SAFETY: All chunks are initialized, and len fits in their allocation.
-    let control = unsafe { core::slice::from_raw_parts_mut(chunks.as_mut_ptr().cast::<u8>(), len) };
-    encode_ancillary_messages(cmsgs, control)?;
-    Ok(AlignedAncillaryBuffer { chunks, len })
+    let mut control = AlignedAncillaryBuffer::zeroed(len).ok_or(AncillaryPackError::TooMuchData)?;
+    encode_ancillary_messages(cmsgs, control.as_mut_bytes())?;
+    Ok(control)
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -1030,8 +1040,8 @@ pub fn pack_ancillary_messages(cmsgs: &[(i32, i32, &[u8])]) -> Result<Vec<u8>, A
 #[cfg(all(test, unix, not(target_os = "redox")))]
 mod ancillary_pack_tests {
     use super::{
-        checked_cmsg_len, checked_cmsg_space, encode_ancillary_messages, pack_ancillary_messages,
-        pack_ancillary_messages_aligned,
+        AlignedAncillaryBuffer, checked_cmsg_len, checked_cmsg_space, encode_ancillary_messages,
+        pack_ancillary_messages, pack_ancillary_messages_aligned,
     };
 
     #[test]
@@ -1085,6 +1095,18 @@ mod ancillary_pack_tests {
         let aligned = pack_ancillary_messages_aligned(&[]).unwrap();
         assert!(aligned.is_empty());
         assert!(aligned.as_bytes().is_empty());
+    }
+
+    #[test]
+    fn receive_control_storage_is_aligned_and_initialized() {
+        for len in [0, 1, 16, 17] {
+            let mut buffer = AlignedAncillaryBuffer::zeroed(len).unwrap();
+            let bytes = buffer.as_mut_bytes();
+            assert_eq!(bytes.len(), len);
+            assert_eq!(bytes.as_ptr() as usize % 16, 0);
+            assert!(bytes.iter().all(|&byte| byte == 0));
+        }
+        assert!(AlignedAncillaryBuffer::zeroed(usize::MAX).is_none());
     }
 }
 
@@ -1178,11 +1200,13 @@ pub fn recvmsg_into(
             .collect::<Vec<_>>();
         &mut multiple
     };
-    // CMSG_* requires aligned headers; initialize padding before exposing bytes.
-    let mut anc_buf = vec![
-        MaybeUninit::<libc::cmsghdr>::zeroed();
-        ancbufsize.div_ceil(core::mem::size_of::<libc::cmsghdr>())
-    ];
+    #[allow(clippy::useless_conversion)]
+    let controllen = ancbufsize
+        .try_into()
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    // CMSG alignment can exceed cmsghdr alignment on some targets.
+    let mut anc_buf = AlignedAncillaryBuffer::zeroed(ancbufsize)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let mut addr_storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
     let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
     msg.msg_name = (&mut addr_storage as *mut libc::sockaddr_storage).cast();
@@ -1196,23 +1220,14 @@ pub fn recvmsg_into(
         .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
     msg.msg_iovlen = iovlen;
     if ancbufsize > 0 {
-        msg.msg_control = anc_buf.as_mut_ptr().cast();
-        #[allow(clippy::useless_conversion)]
-        let controllen = ancbufsize
-            .try_into()
-            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+        msg.msg_control = anc_buf.as_mut_bytes().as_mut_ptr().cast();
         msg.msg_controllen = controllen;
     }
 
     // SAFETY: all iovecs refer to disjoint writable slices; the control and address
     // buffers are aligned and live until the syscall returns.
     let ret = unsafe { libc::recvmsg(fd.as_raw_fd(), &mut msg, flags) }.check_libc_neg()?;
-    let control = unsafe {
-        core::slice::from_raw_parts(
-            anc_buf.as_ptr().cast::<u8>(),
-            (msg.msg_controllen as usize).min(ancbufsize),
-        )
-    };
+    let control = &anc_buf.as_bytes()[..(msg.msg_controllen as usize).min(ancbufsize)];
     let ancdata = parse_ancillary_messages(control);
     let address = if msg.msg_namelen > 0 {
         let storage = unsafe {
