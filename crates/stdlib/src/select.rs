@@ -3,8 +3,8 @@
 pub(crate) use decl::module_def;
 
 use crate::vm::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyInt, PyListRef},
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
+    stdlib::_io::Fildes,
 };
 use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
@@ -18,20 +18,8 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fileno;
-        let fd = if let Some(fd) = obj.downcast_ref::<PyInt>() {
-            fd
-        } else {
-            let meth = vm.get_attribute_opt(&obj, "fileno")?.ok_or_else(|| {
-                vm.new_type_error("select arg must be an int or object with a fileno() method")
-            })?;
-            fileno = meth
-                .call((), vm)?
-                .downcast::<PyInt>()
-                .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?;
-            &fileno
-        };
-        let fno = fd.try_to_primitive(vm)?;
+        let Fildes(fd) = Fildes::try_from_object(vm, obj.clone())?;
+        let fno = fd as RawFd;
         Ok(Self { obj, fno })
     }
 }
@@ -40,12 +28,60 @@ impl TryFromObject for Selectable {
 mod decl {
     use super::*;
     use crate::vm::{
-        Py, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyTypeRef},
         convert::ToPyException,
-        function::Either,
-        stdlib::time,
+        stdlib::time::pytime::{self, Round},
     };
+
+    use core::time::Duration;
+    use std::time::Instant;
+
+    // Keep the signed result until each API has applied its negative-timeout
+    // policy. In particular, overflow must not become an infinite wait.
+    fn timeout_nanoseconds(
+        object: Option<&PyObject>,
+        milliseconds: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<i64>> {
+        let Some(object) = object.filter(|object| !vm.is_none(object)) else {
+            return Ok(None);
+        };
+        let convert = if milliseconds {
+            pytime::from_milliseconds_object
+        } else {
+            pytime::from_seconds_object
+        };
+        convert(object, Round::Up, vm).map(Some).map_err(|err| {
+            if err.fast_isinstance(vm.ctx.exceptions.type_error) {
+                vm.new_type_error(format!(
+                    "timeout must be a real number or None, not {}",
+                    object.class().name()
+                ))
+            } else {
+                err
+            }
+        })
+    }
+
+    fn timeout_duration(timeout: Option<i64>) -> Option<Duration> {
+        timeout
+            .filter(|&ns| ns >= 0)
+            .map(|ns| Duration::from_nanos(ns as u64))
+    }
+
+    fn timeout_deadline(
+        timeout: Option<Duration>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<Instant>> {
+        timeout
+            .map(|duration| {
+                Instant::now()
+                    .checked_add(duration)
+                    .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+            })
+            .transpose()
+    }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -76,7 +112,7 @@ mod decl {
         #[pyarg(positional)]
         xlist: PyObjectRef,
         #[pyarg(positional, optional)]
-        timeout: Option<Either<f64, isize>>,
+        timeout: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -90,23 +126,27 @@ mod decl {
             xlist,
             timeout,
         } = args;
-        let mut timeout = timeout.map(|e| match e {
-            Either::A(f) => f,
-            Either::B(i) => i as f64,
-        });
-        if let Some(timeout) = timeout
-            && timeout < 0.0
-        {
-            return Err(vm.new_value_error("timeout must be positive"));
+        let timeout = timeout_nanoseconds(timeout.as_deref(), false, vm)?;
+        if let Some(ns) = timeout {
+            host_select::timeval_from_microseconds(Round::Up.divide(ns, 1000)).ok_or_else(
+                || vm.new_overflow_error("timestamp out of range for platform time_t"),
+            )?;
+            if ns < 0 {
+                return Err(vm.new_value_error("timeout must be non-negative"));
+            }
         }
-        let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
+        let mut timeout = timeout_duration(timeout);
+        let timeval = |duration| {
+            host_select::duration_to_timeval_ceiling(duration)
+                .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))
+        };
 
         let max_fds: usize = cfg_select! {
             windows => FD_SETSIZE as usize,
             _ => FD_SETSIZE,
         };
 
-        let seq2set = |list: &PyObject| -> PyResult<(Vec<Selectable>, FdSet)> {
+        let seq2set = |list: &PyObject| -> PyResult<Vec<Selectable>> {
             // The limit is answered while the sequence is walked rather than
             // from the length of the result. fileno() runs Python and can
             // append to the very list being walked, and a walk that re-reads
@@ -115,6 +155,10 @@ mod decl {
             let seen = core::cell::Cell::new(0usize);
             let v: Vec<Selectable> = vm.extract_elements_with(list, |obj| {
                 let selectable = Selectable::try_from_object(vm, obj)?;
+                #[cfg(unix)]
+                if selectable.fno as usize >= FD_SETSIZE {
+                    return Err(vm.new_value_error("filedescriptor out of range in select()"));
+                }
                 seen.set(seen.get() + 1);
                 if seen.get() > max_fds {
                     return Err(vm.new_value_error("too many file descriptors in select()"));
@@ -122,21 +166,12 @@ mod decl {
                 Ok(selectable)
             })?;
 
-            let mut fds = FdSet::new();
-            for fd in &v {
-                #[cfg(unix)]
-                if fd.fno as usize >= FD_SETSIZE {
-                    return Err(vm.new_value_error("file descriptor out of range in select()"));
-                }
-
-                fds.insert(fd.fno);
-            }
-            Ok((v, fds))
+            Ok(v)
         };
 
-        let (rlist, _) = seq2set(&rlist)?;
-        let (wlist, _) = seq2set(&wlist)?;
-        let (xlist, _) = seq2set(&xlist)?;
+        let rlist = seq2set(&rlist)?;
+        let wlist = seq2set(&wlist)?;
+        let xlist = seq2set(&xlist)?;
 
         let nfds = cfg_select! {
             windows => 0, // value is ignored on windows
@@ -167,6 +202,7 @@ mod decl {
             )
         };
 
+        let deadline = timeout_deadline(timeout, vm)?;
         loop {
             // `select(2)` updates the fd sets in place. Rebuild them on every
             // attempt, including EINTR retries; otherwise an interrupted call
@@ -175,7 +211,7 @@ mod decl {
             let mut w = fill(&wlist);
             let mut x = fill(&xlist);
 
-            let mut tv = timeout.map(host_select::sec_to_timeval);
+            let mut tv = timeout.map(timeval).transpose()?;
             let res =
                 vm.allow_threads(|| host_select::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
 
@@ -189,9 +225,9 @@ mod decl {
 
             vm.check_signals()?;
 
-            if let Some(ref mut timeout) = timeout {
-                *timeout = deadline.unwrap() - time::time(vm).unwrap();
-                if *timeout < 0.0 {
+            if let Some(deadline) = deadline {
+                timeout = deadline.checked_duration_since(Instant::now());
+                if timeout.is_none() {
                     return Ok((
                         vm.ctx.new_list(Vec::new()),
                         vm.ctx.new_list(Vec::new()),
@@ -219,66 +255,14 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
-            AsObject, PyPayload,
-            builtins::PyFloat,
+            PyPayload,
             common::lock::PyMutex,
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
             stdlib::_io::Fildes,
         };
-        use core::{
-            convert::TryFrom,
-            sync::atomic::{AtomicBool, Ordering},
-            time::Duration,
-        };
-        use num_traits::{Signed, ToPrimitive};
+        use core::sync::atomic::{AtomicBool, Ordering};
         use std::time::Instant;
-
-        #[derive(Default)]
-        pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
-
-        impl<const MILLIS: bool> TryFromObject for TimeoutArg<MILLIS> {
-            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                let timeout = if vm.is_none(&obj) {
-                    None
-                } else if let Some(float) = obj.downcast_ref::<PyFloat>() {
-                    let float = float.to_f64();
-                    if float.is_nan() {
-                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                    }
-                    if float.is_sign_negative() {
-                        None
-                    } else {
-                        // MILLIS: the Python timeout is in milliseconds.
-                        let secs = if MILLIS { float / 1e3 } else { float };
-                        Some(
-                            Duration::try_from_secs_f64(secs)
-                                .map_err(|_| vm.new_overflow_error("timeout is too large"))?,
-                        )
-                    }
-                } else if let Some(int) = obj.try_index_opt(vm).transpose()? {
-                    if int.as_bigint().is_negative() {
-                        None
-                    } else {
-                        let n = int
-                            .as_bigint()
-                            .to_u64()
-                            .ok_or_else(|| vm.new_overflow_error("value out of range"))?;
-                        Some(if MILLIS {
-                            Duration::from_millis(n)
-                        } else {
-                            Duration::from_secs(n)
-                        })
-                    }
-                } else {
-                    return Err(vm.new_type_error(format!(
-                        "expected an int or float for duration, got {}",
-                        obj.class()
-                    )));
-                };
-                Ok(Self(timeout))
-            }
-        }
 
         #[pyclass(module = "select", name = "poll")]
         #[derive(Default, Debug, PyPayload)]
@@ -288,27 +272,20 @@ mod decl {
             poll_running: AtomicBool,
         }
 
-        // new EventMask type
-        #[derive(Copy, Clone)]
-        #[repr(transparent)]
-        pub(crate) struct EventMask(pub i16);
+        #[derive(FromArgs)]
+        struct PollRegisterArgs {
+            #[pyarg(positional)]
+            fd: PyObjectRef,
+            #[pyarg(positional, optional)]
+            eventmask: OptionalArg<PyObjectRef>,
+        }
 
-        impl TryFromObject for EventMask {
-            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                // Event masks go through the integer converter, so `__index__` counts.
-                let int = obj.try_index(vm)?;
-
-                let val = int.as_bigint();
-                if val.is_negative() {
-                    return Err(vm.new_value_error("negative event mask"));
-                }
-
-                // Try converting to i16, should raise OverflowError if too large
-                let mask = i16::try_from(val)
-                    .map_err(|_| vm.new_overflow_error("event mask value out of range"))?;
-
-                Ok(Self(mask))
-            }
+        #[derive(FromArgs)]
+        struct PollModifyArgs {
+            #[pyarg(positional)]
+            fd: PyObjectRef,
+            #[pyarg(positional)]
+            eventmask: PyObjectRef,
         }
 
         const DEFAULT_EVENTS: i16 =
@@ -317,26 +294,34 @@ mod decl {
         #[pyclass(flags(DISALLOW_INSTANTIATION))]
         impl PyPoll {
             #[pymethod]
-            fn register(zelf: &Py<Self>, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
-                let mask = match eventmask {
-                    OptionalArg::Present(event_mask) => event_mask.0,
+            fn register(
+                zelf: &Py<Self>,
+                args: PollRegisterArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                let Fildes(fd) = Fildes::try_from_object(vm, args.fd.clone())?;
+                let mask = match args.eventmask.as_ref() {
+                    OptionalArg::Present(mask) => u16::try_from_object(vm, mask.clone())? as i16,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
                 host_select::insert_poll_fd(&mut zelf.fds.lock(), fd, mask);
+                Ok(())
             }
 
             #[pymethod]
-            fn modify(
-                zelf: &Py<Self>,
-                Fildes(fd): Fildes,
-                eventmask: EventMask,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
+            fn modify(zelf: &Py<Self>, args: PollModifyArgs, vm: &VirtualMachine) -> PyResult<()> {
+                let Fildes(fd) = Fildes::try_from_object(vm, args.fd.clone())?;
+                #[expect(
+                    clippy::redundant_clone,
+                    reason = "Keep raw argument alive through conversion"
+                )]
+                let eventmask = u16::try_from_object(vm, args.eventmask.clone())? as i16;
                 let mut fds = zelf.fds.lock();
-                // CPython raises KeyError if fd is not registered, match that behavior
-                let pfd = host_select::get_poll_fd_mut(&mut fds, fd)
-                    .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
-                pfd.events = eventmask.0;
+                // Unlike unregister(), modify() reports an unregistered fd as ENOENT.
+                let pfd = host_select::get_poll_fd_mut(&mut fds, fd).ok_or_else(|| {
+                    io::Error::from_raw_os_error(libc::ENOENT).into_pyexception(vm)
+                })?;
+                pfd.events = eventmask;
                 Ok(())
             }
 
@@ -355,9 +340,27 @@ mod decl {
             #[pymethod]
             fn poll(
                 zelf: &Py<Self>,
-                timeout: OptionalArg<TimeoutArg<true>>,
+                timeout: OptionalArg<PyObjectRef>,
                 vm: &VirtualMachine,
             ) -> PyResult<Vec<PyObjectRef>> {
+                let timeout = timeout_nanoseconds(
+                    timeout.as_ref().into_option().map(|obj| &**obj),
+                    true,
+                    vm,
+                )?;
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                if let Some(ns) = timeout {
+                    i32::try_from(Round::Up.divide(ns, 1_000_000))
+                        .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
+                }
+                let mut poll_timeout = host_select::PollTimeout::from_nanoseconds(timeout)
+                    .ok_or_else(|| vm.new_overflow_error("timeout is too large"))?;
+                let timeout = timeout_duration(timeout);
+                let native_timeout = |timeout| {
+                    host_select::PollTimeout::from_duration(timeout)
+                        .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                };
+                let deadline = timeout_deadline(timeout, vm)?;
                 if zelf.poll_running.swap(true, Ordering::SeqCst) {
                     return Err(vm.new_runtime_error("concurrent poll() invocation"));
                 }
@@ -373,22 +376,10 @@ mod decl {
                 // signal handlers, which can register or unregister on the same
                 // object, and a held lock would deadlock them.
                 let mut fds = zelf.fds.lock().clone();
-                let TimeoutArg(timeout) = timeout.unwrap_or_default();
-                let timeout_ms = match timeout {
-                    Some(d) => host_select::duration_as_millis_ceiling(d)
-                        .ok_or_else(|| vm.new_overflow_error("value out of range"))?,
-                    None => -1i32,
-                };
-                let deadline = timeout
-                    .map(|d| {
-                        Instant::now()
-                            .checked_add(d)
-                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
-                    })
-                    .transpose()?;
-                let mut poll_timeout = timeout_ms;
                 loop {
-                    match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
+                    match vm.allow_threads(|| {
+                        host_select::poll_fds_with_timeout(&mut fds, &poll_timeout)
+                    }) {
                         Ok(_) => break,
                         Err(err) if err.raw_os_error() == Some(host_select::EINTR) => {
                             vm.check_signals()?
@@ -397,17 +388,16 @@ mod decl {
                     }
                     if let Some(d) = deadline {
                         if let Some(remaining) = d.checked_duration_since(Instant::now()) {
-                            poll_timeout = host_select::duration_as_millis_ceiling(remaining)
-                                .ok_or_else(|| vm.new_overflow_error("value out of range"))?;
+                            poll_timeout = native_timeout(Some(remaining))?;
                         } else {
-                            break;
+                            return Ok(Vec::new());
                         }
                     }
                 }
                 Ok(fds
                     .iter()
                     .filter(|pfd| pfd.revents != 0)
-                    .map(|pfd| (pfd.fd, pfd.revents & 0xfff).to_pyobject(vm))
+                    .map(|pfd| (pfd.fd, pfd.revents as u16).to_pyobject(vm))
                     .collect())
             }
         }
@@ -483,6 +473,14 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        struct EpollRegisterArgs {
+            #[pyarg(any)]
+            fd: PyObjectRef,
+            #[pyarg(any, optional)]
+            eventmask: OptionalArg<PyObjectRef>,
+        }
+
+        #[derive(FromArgs)]
         struct EpollModifyArgs {
             #[pyarg(any)]
             fd: PyObjectRef,
@@ -504,9 +502,9 @@ mod decl {
         #[derive(FromArgs)]
         struct EpollPollArgs {
             #[pyarg(any, default, py_default = "None")]
-            timeout: poll::TimeoutArg<false>,
-            #[pyarg(any, default = -1)]
-            maxevents: i32,
+            timeout: Option<PyObjectRef>,
+            #[pyarg(any, default, py_default = "-1")]
+            maxevents: OptionalArg<PyObjectRef>,
         }
 
         #[derive(FromArgs)]
@@ -567,12 +565,12 @@ mod decl {
             #[pymethod]
             fn register(
                 zelf: &Py<Self>,
-                fd: Fildes,
-                eventmask: OptionalArg<u32>,
+                args: EpollRegisterArgs,
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
-                let events = match eventmask {
-                    OptionalArg::Present(mask) => mask,
+                let fd = Fildes::try_from_object(vm, args.fd.clone())?;
+                let events = match args.eventmask.as_ref() {
+                    OptionalArg::Present(mask) => epoll_eventmask(mask.clone(), vm)?,
                     OptionalArg::Missing => (host_select::epoll::EventFlags::IN
                         | host_select::epoll::EventFlags::PRI
                         | host_select::epoll::EventFlags::OUT)
@@ -586,8 +584,12 @@ mod decl {
             #[pymethod]
             fn modify(zelf: &Py<Self>, args: EpollModifyArgs, vm: &VirtualMachine) -> PyResult<()> {
                 // Bind the full call before fileno(), __index__(), or warning hooks run.
-                let fd = Fildes::try_from_object(vm, args.fd)?;
-                let eventmask = epoll_eventmask(args.eventmask, vm)?;
+                let fd = Fildes::try_from_object(vm, args.fd.clone())?;
+                #[expect(
+                    clippy::redundant_clone,
+                    reason = "Keep raw argument alive through conversion and syscall"
+                )]
+                let eventmask = epoll_eventmask(args.eventmask.clone(), vm)?;
                 let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::modify(
                     epoll_fd,
@@ -605,7 +607,11 @@ mod decl {
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
                 // Validate the argument shape before fileno() can run Python code.
-                let fd = Fildes::try_from_object(vm, args.fd)?;
+                #[expect(
+                    clippy::redundant_clone,
+                    reason = "Keep descriptor object alive through the syscall"
+                )]
+                let fd = Fildes::try_from_object(vm, args.fd.clone())?;
                 let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::delete(epoll_fd, fd.as_raw_fd())
                     .map_err(|e| e.into_pyexception(vm))
@@ -617,8 +623,26 @@ mod decl {
                 args: EpollPollArgs,
                 vm: &VirtualMachine,
             ) -> PyResult<PyListRef> {
-                let poll::TimeoutArg(timeout) = args.timeout;
-                let maxevents = args.maxevents;
+                let maxevents = match args.maxevents.as_ref() {
+                    OptionalArg::Present(value) => i32::try_from_object(vm, value.clone())?,
+                    OptionalArg::Missing => -1,
+                };
+                // The closed check precedes timeout callbacks, but the read lock
+                // must not be held while a callback can close this object.
+                drop(zelf.get_epoll(vm)?);
+                let nanoseconds = timeout_nanoseconds(args.timeout.as_deref(), false, vm)?;
+                if let Some(ns) = nanoseconds {
+                    i32::try_from(Round::Ceiling.divide(ns, 1_000_000))
+                        .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
+                }
+                // Negative sub-millisecond values round to zero for epoll_wait.
+                let timeout = timeout_duration(nanoseconds.map(|ns| {
+                    if ns < 0 && Round::Ceiling.divide(ns, 1_000_000) == 0 {
+                        0
+                    } else {
+                        ns
+                    }
+                }));
 
                 // epoll_wait takes signed milliseconds; round upward and reject
                 // overflow, matching CPython's epoll.poll conversion.
@@ -628,15 +652,9 @@ mod decl {
                 };
                 let mut poll_timeout = timeout.map(to_millis).transpose()?.unwrap_or(-1);
 
-                let deadline = timeout
-                    .map(|d| {
-                        Instant::now()
-                            .checked_add(d)
-                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
-                    })
-                    .transpose()?;
+                let deadline = timeout_deadline(timeout_duration(nanoseconds), vm)?;
                 let maxevents = match maxevents {
-                    ..-1 => {
+                    ..=-2 | 0 => {
                         return Err(vm.new_value_error(format!(
                             "maxevents must be greater than 0, got {maxevents}"
                         )));
@@ -754,7 +772,7 @@ mod decl {
         use super::*;
         use crate::vm::{
             Py, PyObject, PyPayload, PyRef,
-            builtins::{PyFloat, PyType},
+            builtins::PyType,
             class_or_notimplemented,
             common::lock::PyRwLock,
             convert::{IntoPyException, ToPyObject},
@@ -765,7 +783,6 @@ mod decl {
         use core::sync::atomic::{
             AtomicI16, AtomicI32, AtomicI64, AtomicU16, AtomicU32, AtomicU64, Ordering,
         };
-        use num_traits::ToPrimitive;
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "kevent")]
@@ -931,36 +948,14 @@ mod decl {
         }
 
         fn timespec_from_timeout(
-            timeout: Option<PyObjectRef>,
+            timeout: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<host_select::kqueue::Timespec>> {
-            let Some(obj) = timeout else {
-                return Ok(None);
-            };
-            if vm.is_none(&obj) {
-                return Ok(None);
-            }
-            let secs = if let Some(float) = obj.downcast_ref::<PyFloat>() {
-                float.to_f64()
-            } else if let Some(int) = obj.try_index_opt(vm).transpose()? {
-                int.as_bigint()
-                    .to_f64()
-                    .ok_or_else(|| vm.new_overflow_error("timeout is too large"))?
-            } else {
-                return Err(vm.new_type_error(format!(
-                    "timeout argument must be a number or None, got {}",
-                    obj.class()
-                )));
-            };
-            if secs.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-            }
-            if secs < 0.0 {
+            let timeout = timeout_nanoseconds(timeout, false, vm)?;
+            if timeout.is_some_and(|ns| ns < 0) {
                 return Err(vm.new_value_error("timeout must be positive or None"));
             }
-            host_select::kqueue::Timespec::from_secs(secs)
-                .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
-                .map(Some)
+            Ok(timeout_duration(timeout).map(host_select::kqueue::Timespec::from_duration))
         }
 
         #[pyclass(with(Constructor, Destructor))]
@@ -1015,6 +1010,7 @@ mod decl {
                 args: KqueueControlArgs,
                 vm: &VirtualMachine,
             ) -> PyResult<PyListRef> {
+                Self::fd_or_closed(zelf.kqfd.read().as_ref(), vm)?;
                 if args.maxevents < 0 {
                     return Err(vm.new_value_error(format!(
                         "Length of eventlist must be 0 or positive, got {}",
@@ -1022,18 +1018,7 @@ mod decl {
                     )));
                 }
 
-                let mut timeout = timespec_from_timeout(args.timeout, vm)?;
-                let deadline = timeout
-                    .map(|ts| {
-                        let duration = ts
-                            .to_duration()
-                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))?;
-                        Instant::now()
-                            .checked_add(duration)
-                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
-                    })
-                    .transpose()?;
-
+                let mut timeout = timespec_from_timeout(args.timeout.as_deref(), vm)?;
                 let changelist = if vm.is_none(&args.changelist) {
                     Vec::new()
                 } else {
@@ -1054,6 +1039,7 @@ mod decl {
                 let mut eventlist =
                     vec![host_select::kqueue::Event::default(); args.maxevents as usize];
 
+                let deadline = timeout_deadline(timeout.and_then(|ts| ts.to_duration()), vm)?;
                 let n = loop {
                     let result = {
                         let guard = zelf.kqfd.read();

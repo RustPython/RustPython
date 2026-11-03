@@ -36,7 +36,7 @@ pub(crate) const THREAD_TIMEOUT_MAX_SECONDS: i64 = {
 };
 
 #[derive(Clone, Copy)]
-pub(crate) enum Round {
+pub enum Round {
     Floor,
     Ceiling,
     HalfEven,
@@ -64,7 +64,8 @@ impl Round {
         }
     }
 
-    pub(crate) fn divide(self, value: i64, divisor: i64) -> i64 {
+    #[must_use]
+    pub fn divide(self, value: i64, divisor: i64) -> i64 {
         debug_assert!(divisor > 1);
         let quotient = value / divisor;
         let remainder = value % divisor;
@@ -114,19 +115,27 @@ fn float_seconds(object: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     Ok(seconds)
 }
 
-pub(crate) fn from_seconds_object(
+pub fn from_seconds_object(object: &PyObject, round: Round, vm: &VirtualMachine) -> PyResult<i64> {
+    from_object(object, SEC_TO_NS, round, vm)
+}
+
+pub fn from_milliseconds_object(
     object: &PyObject,
     round: Round,
     vm: &VirtualMachine,
 ) -> PyResult<i64> {
-    // _PyTime_FromSecondsObject uses __index__ before __float__ and bounds
-    // the converted value to signed 64-bit nanoseconds.
+    from_object(object, SEC_TO_NS / 1000, round, vm)
+}
+
+fn from_object(object: &PyObject, scale: i64, round: Round, vm: &VirtualMachine) -> PyResult<i64> {
+    // _PyTime_FromSecondsObject and _PyTime_FromMillisecondsObject use
+    // __index__ before __float__ and bound the result to signed nanoseconds.
     if object.number().is_index() {
         index_seconds(object, PYTIME_OVERFLOW, vm)?
-            .checked_mul(SEC_TO_NS)
+            .checked_mul(scale)
             .ok_or_else(|| vm.new_overflow_error(PYTIME_OVERFLOW))
     } else {
-        let nanoseconds = round.round(float_seconds(object, vm)? * SEC_TO_NS as f64);
+        let nanoseconds = round.round(float_seconds(object, vm)? * scale as f64);
         let minimum = i64::MIN as f64;
         // The maximum rounds up to 2**63 as a double, so use an exclusive bound.
         if !(minimum..-minimum).contains(&nanoseconds) {
