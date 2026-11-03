@@ -81,23 +81,29 @@ mod _heapq {
             if childpos + 1 < endpos {
                 let (a, b) = {
                     let vec = heap.borrow_vec();
+                    if vec.len() != endpos {
+                        drop(vec);
+                        return Err(vm.new_runtime_error("list changed size during iteration"));
+                    }
                     (vec[childpos].clone(), vec[childpos + 1].clone())
                 };
 
-                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
-
-                if endpos != heap.__len__() {
-                    return Err(vm.new_runtime_error("list changed size during iteration"));
-                }
-
+                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm);
+                drop(a);
+                drop(b);
+                let cmp = cmp?;
                 if !cmp {
                     childpos += 1;
                 }
             }
 
             {
-                // Move the smaller child up
+                // Move the smaller child up.
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != endpos {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, childpos);
             }
 
@@ -388,23 +394,29 @@ mod _heapq {
             if childpos + 1 < endpos {
                 let (a, b) = {
                     let vec = heap.borrow_vec();
+                    if vec.len() != endpos {
+                        drop(vec);
+                        return Err(vm.new_runtime_error("list changed size during iteration"));
+                    }
                     (vec[childpos + 1].clone(), vec[childpos].clone())
                 };
 
-                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
-
-                if endpos != heap.__len__() {
-                    return Err(vm.new_runtime_error("list changed size during iteration"));
-                }
-
+                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm);
+                drop(a);
+                drop(b);
+                let cmp = cmp?;
                 if !cmp {
                     childpos += 1;
                 }
             }
 
             {
-                // Move the larger child up
+                // Move the larger child up.
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != endpos {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, childpos);
             }
 
