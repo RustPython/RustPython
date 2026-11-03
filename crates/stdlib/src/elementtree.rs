@@ -892,7 +892,7 @@ pub(crate) mod _elementtree {
                     .as_wtf8()
                     .code_point_indices()
                     .nth(200)
-                    .map_or(repr.byte_len(), |(offset, _)| offset);
+                    .map_or_else(|| repr.byte_len(), |(offset, _)| offset);
                 let mut message = Wtf8Buf::from("Don't know how to unpickle \"");
                 message.push_wtf8(&repr.as_wtf8()[..end]);
                 message.push_str("\" as an Element");
