@@ -379,9 +379,12 @@ fn is_wrapped_arg_ty(ty: &Type) -> bool {
     )
 }
 
-/// Expression passed to `ToPyObject` for a string, bytes, int, float, or bool literal.
+/// Expression passed to `ToPyObject` for a literal Python default.
 fn literal_object_expr(expr: &Expr) -> Option<TokenStream> {
     match expr {
+        Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {
+            Some(quote!(vm.ctx.none()))
+        }
         Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
             Lit::Str(_) | Lit::ByteStr(_) | Lit::Bool(_) => Some(expr.to_token_stream()),
             Lit::Int(_) => Some(quote!((#expr as i128))),
@@ -652,4 +655,75 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         }
     };
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn none_object_default_is_lazy_and_typed() {
+        let field: Field = parse_quote! {
+            #[pyarg(any, default = None)]
+            value: PyObjectRef
+        };
+        let tokens = generate_field((0, &field)).unwrap().to_string();
+        let fallback = tokens.find("unwrap_or_else").unwrap();
+        let none = tokens.find("vm . ctx . none ()").unwrap();
+        assert!(fallback < none);
+        assert!(tokens.contains("TryFromObject > :: try_from_object"));
+        let attr = ArgAttribute::try_from(&field).unwrap();
+        let repr = repr_path();
+        assert_eq!(
+            signature_default(&field, &attr).unwrap().to_string(),
+            quote!(Some(#repr::None)).to_string()
+        );
+    }
+
+    #[test]
+    fn none_default_keeps_wrapped_argument_paths() {
+        let types: [Type; 3] = [
+            parse_quote!(Option<PyObjectRef>),
+            parse_quote!(OptionalArg<PyObjectRef>),
+            parse_quote!(OptionalOption<PyObjectRef>),
+        ];
+        for ty in types {
+            let field: Field = parse_quote! {
+                #[pyarg(any, default = None)]
+                value: #ty
+            };
+            let tokens = generate_field((0, &field)).unwrap().to_string();
+            assert!(!tokens.contains("vm . ctx . none"));
+            assert!(tokens.contains("unwrap_or_else (| | None)"));
+        }
+    }
+
+    #[test]
+    fn literal_object_defaults_preserve_conversion() {
+        for expr in [parse_quote!(None), parse_quote!((None))] {
+            assert_eq!(
+                literal_object_expr(&expr).unwrap().to_string(),
+                quote!(vm.ctx.none()).to_string()
+            );
+        }
+        for expr in [
+            parse_quote!("text"),
+            parse_quote!(b"bytes"),
+            parse_quote!(true),
+        ] {
+            assert_eq!(
+                literal_object_expr(&expr).unwrap().to_string(),
+                quote!(#expr).to_string()
+            );
+        }
+        let field: Field = parse_quote! {
+            #[pyarg(any, default = None)]
+            value: PyStrRef
+        };
+        // A typed object still validates the default through its converter;
+        // None must not be transmuted or treated as a missing sentinel.
+        let tokens = generate_field((0, &field)).unwrap().to_string();
+        assert!(tokens.contains("< PyStrRef as :: rustpython_vm :: convert :: TryFromObject >"));
+        assert!(tokens.contains("vm . ctx . none ()"));
+    }
 }
