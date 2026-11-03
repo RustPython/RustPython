@@ -128,14 +128,13 @@ mod _heapq {
     where
         F: Fn(&Py<PyList>, usize, usize, &VirtualMachine) -> PyResult<()>,
     {
-        {
+        let pos = {
             let mut vec = heap.borrow_vec_mut();
             vec.push(item);
-        }
+            vec.len() - 1
+        };
 
-        let size = heap.__len__();
-
-        siftdown_func(heap, 0, size - 1, vm)
+        siftdown_func(heap, 0, pos, vm)
     }
 
     #[pyfunction]
@@ -152,22 +151,23 @@ mod _heapq {
     where
         F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
-        let Some(lastelt) = heap.borrow_vec_mut().pop() else {
+        let popped = {
+            let mut vec = heap.borrow_vec_mut();
+            vec.pop().map(|lastelt| {
+                if vec.is_empty() {
+                    (lastelt, false)
+                } else {
+                    (std::mem::replace(&mut vec[0], lastelt), true)
+                }
+            })
+        };
+        let Some((returnitem, needs_sift)) = popped else {
             return Err(vm.new_index_error("index out of range"));
         };
 
-        if heap.borrow_vec().is_empty() {
-            return Ok(lastelt);
-        };
-
-        let returnitem = {
-            let mut vec = heap.borrow_vec_mut();
-            let root = vec[0].clone();
-            vec[0] = lastelt;
-            root
-        };
-
-        siftup_func(heap, 0, vm)?;
+        if needs_sift {
+            siftup_func(heap, 0, vm)?;
+        }
         Ok(returnitem)
     }
 
