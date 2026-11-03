@@ -1036,7 +1036,8 @@ mod decl {
                     }
                 }
             };
-            *zelf.acc_value.write() = Some(next_acc_value.clone());
+            let previous = zelf.acc_value.write().replace(next_acc_value.clone());
+            drop(previous);
 
             Ok(PyIterReturn::Return(next_acc_value))
         }
@@ -1814,7 +1815,8 @@ mod decl {
                 None => match zelf.iterator.next(vm)? {
                     PyIterReturn::Return(obj) => {
                         // Needed for when we reenter
-                        *zelf.old.write() = Some(obj.clone());
+                        let previous = zelf.old.write().replace(obj.clone());
+                        drop(previous);
                         obj
                     }
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -1823,7 +1825,8 @@ mod decl {
             };
 
             let new = raise_if_stop!(zelf.iterator.next(vm)?);
-            *zelf.old.write() = Some(new.clone());
+            let previous = zelf.old.write().replace(new.clone());
+            drop(previous);
 
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
