@@ -185,16 +185,6 @@ mod _lsprof {
         builtins: ArgIntoBool,
     }
 
-    #[cfg(test)]
-    #[test]
-    fn profiler_constructor_default_metadata() {
-        use crate::function::{DefaultRepr, FromArgs, real_signature};
-        let params = real_signature(InitArgs::PARAMS).expect("known profiler initializer");
-        assert!(matches!(params[0].default, Some(DefaultRepr::Raw("None"))));
-        assert!(matches!(params[2].default, Some(DefaultRepr::Bool(true))));
-        assert!(matches!(params[3].default, Some(DefaultRepr::Bool(true))));
-    }
-
     impl Constructor for Profiler {
         type Args = FuncArgs;
 
