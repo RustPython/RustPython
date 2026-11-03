@@ -799,42 +799,40 @@ impl VirtualMachine {
         }
 
         // Exit callbacks and subinterpreter cleanup can start non-daemon
-        // threads. Join those threads before finalization, and process any
-        // callbacks or subinterpreters they leave behind.
+        // threads. Recheck after stopping all interpreters so new work cannot
+        // race the transition to finalization.
+        #[cfg(feature = "threading")]
         loop {
             atexit::_run_exitfuncs(vm);
+            finalize_subinterpreters(vm);
+            crate::stdlib::_thread::_thread::_shutdown(vm);
 
-            #[cfg(feature = "threading")]
-            {
-                finalize_subinterpreters(vm);
-                crate::stdlib::_thread::_thread::_shutdown(vm);
-                let has_callbacks = !vm.state.atexit_funcs.lock().is_empty();
-                let has_subinterpreters = vm.state.is_main
-                    && !runtime::owned_interpreter_ids_for(vm.state.runtime_root_id).is_empty();
-                if has_callbacks || has_subinterpreters {
-                    continue;
-                }
+            let mut stopped = super::stop_the_world::StopTheWorldGroup::new();
+            let has_callbacks = !vm.state.atexit_funcs.lock().is_empty();
+            let has_subinterpreters = vm.state.is_main
+                && !runtime::owned_interpreter_ids_for(vm.state.runtime_root_id).is_empty();
+            let has_threads = crate::stdlib::_thread::_thread::has_pending_shutdown_threads(vm);
+            if has_callbacks || has_subinterpreters || has_threads {
+                stopped.restart();
+                continue;
             }
-            break;
-        }
 
-        // Remaining daemon threads hang in `_PyThreadState_HangThread` when
-        // they next attach (or at the eval-breaker if they are already
-        // running). Their `_ThreadHandle` stays not-done so `is_alive()`
-        // is still true for `join()` during the GC that follows.
-        #[cfg(feature = "threading")]
-        {
-            vm.state.stop_the_world.stop_the_world(&vm.state);
+            // Remaining daemon threads hang when they next attach or reach a
+            // safepoint. Publish finalization while the world is still stopped.
             vm.state
                 .finalizing_thread_ident
                 .store(crate::stdlib::_thread::get_ident());
-        }
-        vm.state.finalizing.store(true, Ordering::Release);
-        #[cfg(feature = "threading")]
-        {
+            vm.state.finalizing.store(true, Ordering::Release);
             thread::set_other_threads_shutting_down(&vm.state);
-            vm.state.stop_the_world.start_the_world(&vm.state);
+            stopped.restart();
             crate::signal::set_finalizing_bit();
+            break;
+        }
+
+        #[cfg(not(feature = "threading"))]
+        {
+            atexit::_run_exitfuncs(vm);
+            vm.state.finalizing.store(true, Ordering::Release);
         }
 
         // GC pass - collect cycles before module cleanup
