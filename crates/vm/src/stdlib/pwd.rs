@@ -5,8 +5,8 @@ pub(crate) use pwd::module_def;
 #[pymodule]
 mod pwd {
     use crate::{
-        PyObjectRef, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::TryFromObject,
-        exceptions, stdlib::posix::module::RawUid, types::PyStructSequence,
+        AsObject, PyObjectRef, PyResult, VirtualMachine, builtins::PyUtf8StrRef,
+        convert::TryFromObject, exceptions, stdlib::posix::module::RawUid, types::PyStructSequence,
     };
     use core::hint::cold_path;
     use rustpython_host_env::pwd as host_pwd;

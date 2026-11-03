@@ -17,7 +17,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 ))]
 pub mod module {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
