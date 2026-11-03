@@ -658,9 +658,9 @@ impl Py<PyRangeIterator> {
     }
 
     #[pymethod]
-    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.index.store(
-            range_state(&BigInt::from(self.length), &object, vm)?
+            range_state(&BigInt::from(self.length), &state, vm)?
                 .to_usize()
                 .unwrap(),
         );

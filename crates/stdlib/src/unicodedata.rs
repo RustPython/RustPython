@@ -223,13 +223,22 @@ mod unicodedata {
         }
     }
 
+    #[derive(FromArgs)]
+    struct IterGraphemesArgs {
+        #[pyarg(positional)]
+        unistr: PyStrRef,
+        #[pyarg(positional, optional, py_default = "0")]
+        start: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, optional, py_default = "sys.maxsize")]
+        end: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
     fn iter_graphemes(
-        unistr: PyStrRef,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        args: IterGraphemesArgs,
         vm: &VirtualMachine,
     ) -> PyResult<crate::vm::PyRef<GraphemeBreakIterator>> {
+        let IterGraphemesArgs { unistr, start, end } = args;
         // Convert in argument order, including overflow, before adjusting bounds.
         let index = |arg: OptionalArg<PyObjectRef>, default| -> PyResult<isize> {
             match arg {

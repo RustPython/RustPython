@@ -557,7 +557,14 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
                     .unwrap_or_else(|| vm.ctx.none()),
             ),
             state: core::sync::atomic::AtomicI32::new(
-                if vm.state.stop_the_world.requested.load(Ordering::Acquire) {
+                if vm.state.finalizing.load(Ordering::Acquire)
+                    && vm.state.finalizing_thread_ident.load() != thread_id
+                {
+                    // A daemon may first attach after the shutdown stop.
+                    // Mark the slot rather than hanging here: switching VMs
+                    // must detach the enclosing interpreter first.
+                    ThreadState::ShuttingDown as i32
+                } else if vm.state.stop_the_world.requested.load(Ordering::Acquire) {
                     // Match init_threadstate(): new thread-state starts
                     // suspended while stop-the-world is active.
                     ThreadState::Suspended as i32

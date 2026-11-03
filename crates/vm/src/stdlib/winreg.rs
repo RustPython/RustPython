@@ -9,7 +9,7 @@ mod winreg {
     use crate::common::hash::PyHash;
     use crate::convert::{ToPyException, TryFromObject};
     use crate::exceptions::nul_char_error;
-    use crate::function::{FuncArgs, OptionalOption, PyComparisonValue};
+    use crate::function::{FuncArgs, PyComparisonValue};
     use crate::object::AsObject;
     use crate::protocol::PyNumberMethods;
     use crate::types::{AsNumber, Comparable, Hashable, PyComparisonOp};
@@ -363,13 +363,18 @@ mod winreg {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DeleteTreeSubKey {
+        #[pyarg(positional, optional)]
+        sub_key: Option<PyRef<PyStr>>,
+    }
+
     #[pyfunction]
     fn DeleteTree(
         key: HKEYArg,
-        sub_key: OptionalOption<PyRef<PyStr>>,
+        DeleteTreeSubKey { sub_key }: DeleteTreeSubKey,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let sub_key = sub_key.flatten();
         let wide_sub_key = sub_key
             .as_ref()
             .map(|s| WideCString::from_vec(s.as_wtf8().encode_wide().collect::<Vec<_>>()))
@@ -450,11 +455,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn EnumValue(hkey: PyRef<PyHkey>, index: u32, vm: &VirtualMachine) -> PyResult {
+    fn EnumValue(key: PyRef<PyHkey>, index: u32, vm: &VirtualMachine) -> PyResult {
         // Query registry for the required buffer sizes.
         let mut ret_value_size: u32 = 0;
         let mut ret_data_size: u32 = 0;
-        let hkey: host_winreg::HKEY = hkey.hkey.load();
+        let hkey: host_winreg::HKEY = key.hkey.load();
         let rc = unsafe {
             host_winreg::query_info_key(
                 hkey,
@@ -666,11 +671,11 @@ mod winreg {
     fn SetValue(
         key: PyRef<PyHkey>,
         sub_key: String,
-        typ: u32,
+        r#type: u32,
         value: String,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if typ != host_winreg::REG_SZ {
+        if r#type != host_winreg::REG_SZ {
             return Err(vm.new_type_error("type must be winreg.REG_SZ"));
         }
 
@@ -687,7 +692,7 @@ mod winreg {
         let mut wide_value = WideString::with_capacity(value.len() + 1);
         wide_value.push_str(&value);
         wide_value.push_str("\0");
-        let res = host_winreg::set_default_value(hkey, &sub_key, typ, &wide_value);
+        let res = host_winreg::set_default_value(hkey, &sub_key, r#type, &wide_value);
 
         if res == 0 {
             Ok(())
@@ -880,7 +885,7 @@ mod winreg {
         key: PyRef<PyHkey>,
         value_name: Option<String>,
         _reserved: PyObjectRef,
-        typ: u32,
+        r#type: u32,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -889,12 +894,13 @@ mod winreg {
             .map(WideCString::from_str)
             .transpose()
             .map_err(|e| e.to_pyexception(vm))?;
-        let reg_value = py2reg(value, typ, vm)?;
+        let reg_value = py2reg(value, r#type, vm)?;
         let (ptr, len) = match &reg_value {
             Some(v) => (v.as_ptr(), v.len() as u32),
             None => (core::ptr::null(), 0),
         };
-        let res = unsafe { host_winreg::set_value_ex(hkey, value_name.as_deref(), typ, ptr, len) };
+        let res =
+            unsafe { host_winreg::set_value_ex(hkey, value_name.as_deref(), r#type, ptr, len) };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
@@ -933,10 +939,13 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn ExpandEnvironmentStrings(i: PyRef<PyStr>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let i = WideCString::from_vec(i.as_wtf8().encode_wide().collect::<Vec<_>>())
+    fn ExpandEnvironmentStrings(
+        string: PyRef<PyStr>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
+        let string = WideCString::from_vec(string.as_wtf8().encode_wide().collect::<Vec<_>>())
             .map_err(|_| nul_char_error(vm))?;
-        let expanded = host_winreg::expand_environment_strings_wide(&i)
+        let expanded = host_winreg::expand_environment_strings_wide(&string)
             .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&expanded)))
     }

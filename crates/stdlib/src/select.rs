@@ -477,6 +477,12 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        struct EpollUnregisterArgs {
+            #[pyarg(any)]
+            fd: PyObjectRef,
+        }
+
+        #[derive(FromArgs)]
         struct EpollModifyArgs {
             #[pyarg(any)]
             fd: PyObjectRef,
@@ -601,7 +607,13 @@ mod decl {
             }
 
             #[pymethod]
-            fn unregister(zelf: &Py<Self>, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
+            fn unregister(
+                zelf: &Py<Self>,
+                args: EpollUnregisterArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                // Validate the argument shape before fileno() can run Python code.
+                let fd = Fildes::try_from_object(vm, args.fd)?;
                 let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::delete(epoll_fd, fd.as_raw_fd())
                     .map_err(|e| e.into_pyexception(vm))

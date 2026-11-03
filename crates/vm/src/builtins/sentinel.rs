@@ -87,7 +87,7 @@ impl PySentinel {
     }
 
     #[pymethod]
-    fn __deepcopy__(zelf: PyRef<Self>, _memo: PyObjectRef) -> PyRef<Self> {
+    fn __deepcopy__(zelf: PyRef<Self>, _object: PyObjectRef) -> PyRef<Self> {
         zelf
     }
 
