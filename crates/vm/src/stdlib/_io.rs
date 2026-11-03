@@ -228,28 +228,31 @@ mod _io {
     }
 
     // truncate reports None. Missing still means the current position.
-    #[derive(Clone, Copy, FromArgs)]
+    #[derive(FromArgs)]
     struct OptionalPos {
         #[pyarg(positional, optional)]
-        size: Option<PySsize>,
+        size: Option<PyObjectRef>,
     }
 
-    #[derive(Clone, Copy, FromArgs)]
+    #[derive(FromArgs)]
     struct StringIOPos {
         #[pyarg(positional, optional)]
-        pos: Option<PySsize>,
+        pos: Option<PyObjectRef>,
     }
 
-    impl StringIOPos {
-        fn as_optional(self) -> OptionalPos {
-            OptionalPos { size: self.pos }
-        }
-    }
-
-    impl OptionalPos {
-        fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
-            OptionalSize { size: self.size }.try_usize(vm)
-        }
+    // Memory streams check closed/exported state before invoking __index__.
+    // Keep that conversion outside their storage locks, then recheck the state.
+    fn memory_truncate_pos(
+        pos: Option<PyObjectRef>,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>> {
+        pos.map(|pos| {
+            let pos = core::ffi::c_long::try_from_object(vm, pos)?;
+            usize::try_from(pos)
+                .map_err(|_| vm.new_value_error(format!("negative {name} value {pos}")))
+        })
+        .transpose()
     }
 
     // peek ignores the value and returns the buffer.
@@ -337,18 +340,6 @@ mod _io {
         pub(super) fn to_usize(self) -> Option<usize> {
             self.size?.to_usize()
         }
-
-        pub(super) fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
-            self.size
-                .map(|v| {
-                    if v >= 0 {
-                        Ok(v as usize)
-                    } else {
-                        Err(vm.new_value_error(format!("Negative size value {v}")))
-                    }
-                })
-                .transpose()
-        }
     }
 
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
@@ -362,20 +353,6 @@ mod _io {
 
     #[pyattr]
     const DEFAULT_BUFFER_SIZE: usize = super::DEFAULT_BUFFER_SIZE;
-
-    pub(super) fn seekfrom(
-        vm: &VirtualMachine,
-        offset: PyObjectRef,
-        how: i32,
-    ) -> PyResult<SeekFrom> {
-        let seek = match how {
-            0 => SeekFrom::Start(offset.try_into_value(vm)?),
-            1 => SeekFrom::Current(offset.try_into_value(vm)?),
-            2 => SeekFrom::End(offset.try_into_value(vm)?),
-            _ => return Err(vm.new_value_error("invalid value for how")),
-        };
-        Ok(seek)
-    }
 
     #[derive(Debug)]
     struct BufferedIO {
@@ -5049,22 +5026,20 @@ mod _io {
 
         // skip to the jth position
         #[pymethod]
-        fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
-            let offset: isize = isize::try_from_object(vm, pos)?;
+        fn seek(&self, pos: PySsize, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
             let how = whence.whence;
             let mut buffer = self.buffer(vm)?;
             let char_offset = match how {
-                0 if offset >= 0 => offset as usize,
-                0 => return Err(vm.new_value_error(format!("negative seek position {offset}"))),
-                1 | 2 if offset != 0 => {
-                    let kind = if how == 1 { "cur" } else { "end" };
-                    return Err(vm.new_os_error(format!("can't do nonzero {kind}-relative seeks")));
+                0 if pos >= 0 => pos as usize,
+                0 => return Err(vm.new_value_error(format!("Negative seek position {pos}"))),
+                1 | 2 if pos != 0 => {
+                    return Err(vm.new_os_error("Can't do nonzero cur-relative seeks"));
                 }
                 1 => return Ok(buffer.position as u64),
                 2 => buffer.length,
                 _ => {
                     return Err(
-                        vm.new_value_error(format!("invalid whence ({how}, should be 0, 1 or 2)"))
+                        vm.new_value_error(format!("Invalid whence ({how}, should be 0, 1 or 2)"))
                     );
                 }
             };
@@ -5103,8 +5078,10 @@ mod _io {
 
         #[pymethod]
         fn truncate(&self, pos: StringIOPos, vm: &VirtualMachine) -> PyResult<usize> {
+            drop(self.buffer(vm)?);
+            let pos = memory_truncate_pos(pos.pos, "pos", vm)?;
             let mut buffer = self.buffer(vm)?;
-            let pos = pos.as_optional().try_usize(vm)?.unwrap_or(buffer.position);
+            let pos = pos.unwrap_or(buffer.position);
             let byte_pos = buffer.byte_offset(pos);
             buffer.bytes.truncate(Some(byte_pos));
             buffer.length = buffer.length.min(pos);
@@ -5314,6 +5291,13 @@ mod _io {
                 drop(buffer);
                 return Err(vm.new_value_error("I/O operation on closed file."));
             }
+            if !b.is_empty() {
+                buffer
+                    .tell()
+                    .checked_add(b.len() as u64)
+                    .filter(|&position| isize::try_from(position).is_ok())
+                    .ok_or_else(|| vm.new_overflow_error("new buffer size too large"))?;
+            }
             b.with_ref(|bytes| buffer.write(bytes))
                 .ok_or_else(|| vm.new_type_error("Error Writing Bytes"))
         }
@@ -5360,21 +5344,31 @@ mod _io {
 
         //skip to the jth position
         #[pymethod]
-        fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
-            let seek_from = seekfrom(vm, pos, whence.whence)?;
+        fn seek(&self, pos: PySsize, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.buffer(vm)?;
-
-            // Handle negative positions by clamping to 0
-            match seek_from {
-                SeekFrom::Current(offset) if offset < 0 => {
-                    let current = buffer.tell();
-                    let new_pos = current.saturating_add_signed(offset);
-                    buffer
-                        .seek(SeekFrom::Start(new_pos))
-                        .map_err(|err| os_err(vm, err))
+            let base = match whence.whence {
+                0 if pos < 0 => {
+                    return Err(vm.new_value_error(format!("negative seek value {pos}")));
                 }
-                _ => buffer.seek(seek_from).map_err(|err| os_err(vm, err)),
-            }
+                0 => 0,
+                1 => buffer.tell(),
+                2 => buffer.cursor.get_ref().len() as u64,
+                how => {
+                    return Err(
+                        vm.new_value_error(format!("invalid whence ({how}, should be 0, 1 or 2)"))
+                    );
+                }
+            };
+            let position = if pos < 0 {
+                base.saturating_sub(pos.unsigned_abs() as u64)
+            } else {
+                base.checked_add(pos as u64)
+                    .filter(|&position| isize::try_from(position).is_ok())
+                    .ok_or_else(|| vm.new_overflow_error("new position too large"))?
+            };
+            buffer
+                .seek(SeekFrom::Start(position))
+                .map_err(|err| os_err(vm, err))
         }
 
         #[pymethod]
@@ -5389,15 +5383,16 @@ mod _io {
 
         #[pymethod]
         fn truncate(&self, pos: OptionalPos, vm: &VirtualMachine) -> PyResult<usize> {
-            if self.closed.load() {
-                return Err(io_closed_error(vm));
-            }
+            self.check_closed(vm)?;
+            drop(self.try_resizable(vm)?);
+            let pos = memory_truncate_pos(pos.size, "size", vm)?;
+            // __index__ may close the stream or create a view of its storage.
+            self.check_closed(vm)?;
             let mut buffer = self.try_resizable(vm)?;
             if self.closed.load() {
                 drop(buffer);
-                return Err(io_closed_error(vm));
+                return Err(vm.new_value_error("I/O operation on closed file."));
             }
-            let pos = pos.try_usize(vm)?;
             Ok(buffer.truncate(pos))
         }
 
