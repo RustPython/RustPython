@@ -5,14 +5,14 @@ pub(crate) use pwd::module_def;
 #[pymodule]
 mod pwd {
     use crate::{
-        PyResult, VirtualMachine, builtins::PyUtf8StrRef, exceptions, function::ArgIndex,
-        types::PyStructSequence,
+        PyObjectRef, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::TryFromObject,
+        exceptions, stdlib::posix::module::RawUid, types::PyStructSequence,
     };
     use core::hint::cold_path;
     use rustpython_host_env::pwd as host_pwd;
 
     #[cfg(not(target_os = "android"))]
-    use crate::{PyObjectRef, convert::ToPyObject};
+    use crate::convert::ToPyObject;
 
     #[pystruct_sequence_data]
     struct PasswdData {
@@ -65,22 +65,30 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwuid(uidobj: ArgIndex, vm: &VirtualMachine) -> PyResult<PasswdData> {
-        let uidobj = uidobj.into_int_ref();
-        let user = match libc::uid_t::try_from(uidobj.as_bigint())
-            .ok()
-            .map(host_pwd::getpwuid)
-        {
-            Some(Ok(user)) => user,
-            Some(Err(err)) if err.raw_os_error() == Some(libc::ENOMEM) => {
+    fn getpwuid(uidobj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
+        let uid = RawUid::try_from_object(vm, uidobj)
+            .map_err(|err| {
+                if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    vm.new_key_error(vm.ctx.new_str("getpwuid(): uid not found").into())
+                } else {
+                    err
+                }
+            })?
+            .0;
+        let user = match host_pwd::getpwuid(uid) {
+            Ok(user) => user,
+            Err(err) if err.raw_os_error() == Some(libc::ENOMEM) => {
                 return Err(vm.no_memory_error());
             }
-            _ => None,
+            Err(_) => None,
         };
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwuid(): uid not found: {}", uidobj.as_bigint()))
+                    .new_str(format!(
+                        "getpwuid(): uid not found: {}",
+                        if uid == u32::MAX { -1 } else { i64::from(uid) }
+                    ))
                     .into(),
             )
         })?;

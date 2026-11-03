@@ -1692,47 +1692,53 @@ pub mod module {
         rustpython_host_env::posix::tcsetpgrp(fd, pgid).map_err(|err| err.into_pyexception(vm))
     }
 
-    fn try_from_id(vm: &VirtualMachine, obj: &PyObject, typ_name: &str) -> PyResult<u32> {
-        use core::cmp::Ordering;
-        let i = obj
-            .try_to_ref::<PyInt>(vm)
-            .map_err(|_| {
-                vm.new_type_error(format!(
-                    "an integer is required (got type {})",
-                    obj.class().name()
-                ))
-            })?
-            .try_to_primitive::<i64>(vm)?;
-
-        match i.cmp(&-1) {
-            Ordering::Greater => Ok(i.try_into().map_err(|_| {
-                vm.new_overflow_error(format!("{typ_name} is larger than maximum"))
-            })?),
-            Ordering::Less => {
-                Err(vm.new_overflow_error(format!("{typ_name} is less than minimum")))
+    fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
+        let index = crate::function::ArgIndex::try_from_object(vm, obj.clone()).map_err(|_| {
+            let name = obj.class().slot_name().to_string();
+            let name = &name[..name.floor_char_boundary(200.min(name.len()))];
+            vm.new_type_error(format!("{typ_name} should be integer, not {name}"))
+        })?;
+        let index = index.into_int_ref();
+        let value = index.as_bigint();
+        // CPython first converts through C long, including its -1 sentinel.
+        // Truncation in this branch is reported as underflow, even for positives.
+        if let Ok(value) = libc::c_long::try_from(value) {
+            if value == -1 {
+                // -1 means does not change the value
+                // In CPython, this is `(uid_t) -1`, rustc gets mad when we try to declare
+                // a negative unsigned integer :).
+                return Ok(u32::MAX);
             }
-            // -1 means does not change the value
-            // In CPython, this is `(uid_t) -1`, rustc gets mad when we try to declare
-            // a negative unsigned integer :).
-            Ordering::Equal => Ok(-1i32 as u32),
+            return u32::try_from(value)
+                .map_err(|_| vm.new_overflow_error(format!("{typ_name} is less than minimum")));
         }
+        if value < &0.into() {
+            return Err(vm.new_overflow_error(format!("{typ_name} is less than minimum")));
+        }
+        // A positive value outside signed long may still fit unsigned long,
+        // but must not become the sentinel or be truncated to the ID width.
+        libc::c_ulong::try_from(value)
+            .ok()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|&value| value != u32::MAX)
+            .ok_or_else(|| vm.new_overflow_error(format!("{typ_name} is greater than maximum")))
     }
 
     #[derive(Clone, Copy)]
-    struct RawUid(u32);
+    pub(crate) struct RawUid(pub(crate) u32);
 
     #[derive(Clone, Copy)]
-    struct RawGid(u32);
+    pub struct RawGid(pub u32);
 
     impl TryFromObject for RawUid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, &obj, "uid").map(Self)
+            try_from_id(vm, obj, "uid").map(Self)
         }
     }
 
     impl TryFromObject for RawGid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, &obj, "gid").map(Self)
+            try_from_id(vm, obj, "gid").map(Self)
         }
     }
 
