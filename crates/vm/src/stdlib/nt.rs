@@ -919,12 +919,15 @@ pub(crate) mod module {
     #[pyfunction]
     fn _path_normpath(args: PathArg, vm: &VirtualMachine) -> PyResult {
         let path = args.path;
-        // Handle path-like objects via os.fspath
-        let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
-            fspath?.call((), vm)?
-        } else {
-            path
-        };
+        // Direct strings and bytes take precedence over __fspath__, including subclasses.
+        let path =
+            if path.downcast_ref::<PyStr>().is_some() || path.downcast_ref::<PyBytes>().is_some() {
+                path
+            } else if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
+                fspath?.call((), vm)?
+            } else {
+                path
+            };
 
         let (wide, is_bytes): (Vec<u16>, bool) = if let Some(s) = path.downcast_ref::<PyStr>() {
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
