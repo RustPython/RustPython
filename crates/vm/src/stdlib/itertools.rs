@@ -262,6 +262,8 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCycle {
         iter: PyIter,
+        #[pytraverse(skip)]
+        exhausted: AtomicBool,
         saved: PyRwLock<Vec<PyObjectRef>>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
@@ -275,6 +277,7 @@ mod decl {
             let iter = args.iterable;
             Ok(Self {
                 iter,
+                exhausted: AtomicBool::new(false),
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             })
@@ -288,27 +291,34 @@ mod decl {
 
     impl IterNext for PyItertoolsCycle {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let item = if let PyIterReturn::Return(item) = zelf.iter.next(vm)? {
-                zelf.saved.write().push(item.clone());
-                item
-            } else {
-                let saved = zelf.saved.read();
-                if saved.is_empty() {
-                    return Ok(PyIterReturn::StopIteration(None));
+            if !zelf.exhausted.load(Ordering::Acquire) {
+                match zelf.iter.next(vm)? {
+                    PyIterReturn::Return(item) => {
+                        zelf.saved.write().push(item.clone());
+                        return Ok(PyIterReturn::Return(item));
+                    }
+                    PyIterReturn::StopIteration(value) => {
+                        drop(value);
+                        zelf.exhausted.store(true, Ordering::Release);
+                    }
                 }
+            }
 
-                // Advance and wrap in a single atomic step. A separate
-                // fetch_add followed by a reset lets a second thread observe
-                // an index past the end of `saved`.
-                let last_index = match zelf.index.fetch_update(|index| {
-                    let next = index + 1;
-                    Some(if next < saved.len() { next } else { 0 })
-                }) {
-                    Ok(index) | Err(index) => index,
-                };
+            let saved = zelf.saved.read();
+            if saved.is_empty() {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
 
-                saved[last_index].clone()
+            // Advance and wrap in a single atomic step. A separate
+            // fetch_add followed by a reset lets a second thread observe
+            // an index past the end of `saved`.
+            let last_index = match zelf.index.fetch_update(|index| {
+                let next = index + 1;
+                Some(if next < saved.len() { next } else { 0 })
+            }) {
+                Ok(index) | Err(index) => index,
             };
+            let item = saved[last_index].clone();
 
             Ok(PyIterReturn::Return(item))
         }
