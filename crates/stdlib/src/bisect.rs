@@ -3,7 +3,8 @@ pub(crate) use _bisect::module_def;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine, function::ArgIndex, types::PyComparisonOp,
+        PyObjectRef, PyResult, VirtualMachine, function::ArgIndex, protocol::PySequence,
+        types::PyComparisonOp,
     };
 
     #[derive(FromArgs)]
@@ -25,31 +26,50 @@ mod _bisect {
         arg.into_int_ref().try_to_primitive(vm)
     }
 
-    // Handles defaults for lo, hi.
-    //
-    //  - lo must be >= 0 with a default of 0.
-    //  - hi, while it could be negative, defaults to `0` and the same effect is achieved
-    //    (while loop isn't entered); this way we keep it a usize (and, if my understanding
-    //    is correct, issue 13496 is handled). Its default value is set to the length of the
-    //    input sequence.
+    // The -1 sentinel is shared by an omitted/None hi and an explicit -1.
+    // Other negative upper bounds have the same result as zero because lo is
+    // nonnegative. Only the sentinel requires asking the sequence for length.
     #[inline]
     fn as_usize(
         lo: ArgIndex,
         hi: Option<ArgIndex>,
-        seq_len: usize,
+        sequence: PySequence<'_>,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, usize)> {
-        // We only deal with positives for lo, try_from can't fail.
         let lo = usize::try_from(handle_default(lo, vm)?)
             .map_err(|_| vm.new_value_error("lo must be non-negative"))?;
         let hi = match hi {
-            Some(value) => {
-                let value: isize = value.into_int_ref().try_to_primitive(vm)?;
-                usize::try_from(value).unwrap_or(0)
-            }
-            None => seq_len,
+            Some(value) => handle_default(value, vm)?,
+            None => -1,
+        };
+        let hi = if hi == -1 {
+            sequence.length(vm)?
+        } else {
+            usize::try_from(hi).unwrap_or(0)
         };
         Ok((lo, hi))
+    }
+
+    type SequenceItem = for<'a> fn(PySequence<'a>, isize, &VirtualMachine) -> PyResult;
+
+    // Snapshot the item slot even when the search range is empty, as CPython does.
+    fn sequence_item(sequence: PySequence<'_>, vm: &VirtualMachine) -> PyResult<SequenceItem> {
+        sequence.slots().item.load().ok_or_else(|| {
+            let msg = {
+                let name = sequence.obj.class().slot_name();
+                let mut end = name.len().min(200);
+                while !name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let name = &name[..end];
+                if sequence.obj.mapping_unchecked().check() {
+                    format!("{name} is not a sequence")
+                } else {
+                    format!("'{name}' object does not support indexing")
+                }
+            };
+            vm.new_type_error(msg)
+        })
     }
 
     #[inline]
@@ -58,12 +78,14 @@ mod _bisect {
         BisectArgs { a, x, lo, hi, key }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (mut lo, mut hi) = as_usize(lo, hi, a.length(vm)?, vm)?;
+        let sequence = a.sequence_unchecked();
+        let (mut lo, mut hi) = as_usize(lo, hi, sequence, vm)?;
+        let get_item = sequence_item(sequence, vm)?;
 
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            let a_mid = a.get_item(&mid, vm)?;
+            let a_mid = get_item(sequence, mid as isize, vm)?;
             let comp = if let Some(ref key) = key {
                 key.call((a_mid,), vm)?
             } else {
@@ -84,12 +106,14 @@ mod _bisect {
         BisectArgs { a, x, lo, hi, key }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (mut lo, mut hi) = as_usize(lo, hi, a.length(vm)?, vm)?;
+        let sequence = a.sequence_unchecked();
+        let (mut lo, mut hi) = as_usize(lo, hi, sequence, vm)?;
+        let get_item = sequence_item(sequence, vm)?;
 
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            let a_mid = a.get_item(&mid, vm)?;
+            let a_mid = get_item(sequence, mid as isize, vm)?;
             let comp = if let Some(ref key) = key {
                 key.call((a_mid,), vm)?
             } else {
