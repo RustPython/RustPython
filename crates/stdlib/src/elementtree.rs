@@ -1245,19 +1245,21 @@ pub(crate) mod _elementtree {
                 }),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyElement::sequence_downcast(seq);
-                    let recycle = if let Some(value) = value {
-                        check_element(&value, vm)?;
+                    let recycle = {
                         let mut inner = zelf.inner.write();
-                        let pos = inner.children.wrap_index(i).ok_or_else(|| {
-                            vm.new_index_error("child assignment index out of range")
-                        })?;
-                        core::mem::replace(&mut inner.children[pos], value)
-                    } else {
-                        let mut inner = zelf.inner.write();
-                        let pos = inner.children.wrap_index(i).ok_or_else(|| {
-                            vm.new_index_error("child assignment index out of range")
-                        })?;
-                        inner.children.remove(pos)
+                        let Some(pos) = inner.children.wrap_index(i) else {
+                            drop(inner);
+                            return Err(vm.new_index_error("child assignment index out of range"));
+                        };
+                        if let Some(value) = value {
+                            if !value.downcastable::<PyElement>() {
+                                drop(inner);
+                                return reject_element(&value, vm);
+                            }
+                            core::mem::replace(&mut inner.children[pos], value)
+                        } else {
+                            inner.children.remove(pos)
+                        }
                     };
                     drop(recycle);
                     Ok(())
