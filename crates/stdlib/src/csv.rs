@@ -1104,14 +1104,21 @@ mod _csv {
         }
 
         fn writerow_impl(zelf: &Py<Self>, row: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let row: ArgIterable =
-                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
-                    new_csv_error(
-                        vm,
-                        format!("'{}' object is not iterable", row.class().name()),
-                    )
-                })?;
-            let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+            let iter = row.get_iter(vm).map_err(|error| {
+                if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    let message = {
+                        let name = row.class().slot_name();
+                        let end = name.floor_char_boundary(name.len().min(200));
+                        format!("iterable expected, not {}", &name[..end])
+                    };
+                    new_csv_error(vm, message)
+                } else {
+                    error
+                }
+            })?;
+            let fields = iter
+                .into_iter::<PyObjectRef>(vm)
+                .collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
             let mut output = String::new();
 
