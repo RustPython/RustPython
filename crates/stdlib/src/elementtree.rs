@@ -311,11 +311,15 @@ pub(crate) mod _elementtree {
         if obj.downcastable::<PyElement>() {
             Ok(())
         } else {
-            Err(vm.new_type_error(format!(
-                "expected an Element, not \"{}\"",
-                obj.class().name()
-            )))
+            reject_element(obj, vm)
         }
+    }
+
+    fn reject_element(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_type_error(format!(
+            "expected an Element, not \"{}\"",
+            obj.class().name()
+        )))
     }
 
     fn as_element<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<PyElement>> {
@@ -984,12 +988,15 @@ pub(crate) mod _elementtree {
             let mut recycle: Vec<PyObjectRef> = Vec::new();
             match sequence_index(vm, needle)? {
                 SequenceIndex::Int(i) => {
-                    check_element(&value, vm)?;
                     let mut inner = self.inner.write();
-                    let pos = inner
-                        .children
-                        .wrap_index(i)
-                        .ok_or_else(|| vm.new_index_error("child assignment index out of range"))?;
+                    let Some(pos) = inner.children.wrap_index(i) else {
+                        drop(inner);
+                        return Err(vm.new_index_error("child assignment index out of range"));
+                    };
+                    if !value.downcastable::<PyElement>() {
+                        drop(inner);
+                        return reject_element(&value, vm);
+                    }
                     recycle.push(core::mem::replace(&mut inner.children[pos], value));
                     Ok(())
                 }
