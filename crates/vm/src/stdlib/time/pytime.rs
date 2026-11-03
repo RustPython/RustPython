@@ -24,6 +24,7 @@ pub(crate) const THREAD_TIMEOUT_MAX_MICROSECONDS: i64 = cfg_select! {
 };
 
 /// `_thread.TIMEOUT_MAX` also respects the signed nanosecond representation.
+#[cfg(feature = "threading")]
 pub(crate) const THREAD_TIMEOUT_MAX_SECONDS: i64 = {
     let platform_max = THREAD_TIMEOUT_MAX_MICROSECONDS / 1_000_000;
     let pytime_max = i64::MAX / 1_000_000_000;
