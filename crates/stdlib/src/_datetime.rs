@@ -2884,8 +2884,8 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct TimeIsoformatArgs {
-        #[pyarg(any, default = "auto")]
-        timespec: PyStrRef,
+        #[pyarg(any, optional, py_default = "'auto'")]
+        timespec: OptionalArg<PyStrRef>,
     }
 
     /// `isoformat`'s time part for `timespec`, or `Err(())` for an unknown one.
@@ -2937,9 +2937,9 @@ mod _datetime {
             args: TimeIsoformatArgs,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
-            let spec = args.timespec.to_string();
+            let spec = args.timespec.into_option().map(|s| s.to_string());
             let mut result = format_time_spec(
-                Some(&spec),
+                spec.as_deref(),
                 zelf.hour,
                 zelf.minute,
                 zelf.second,
@@ -3685,10 +3685,10 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct DateTimeIsoformatArgs {
-        #[pyarg(any, default = "T")]
-        sep: PyObjectRef,
-        #[pyarg(any, default = "auto")]
-        timespec: PyStrRef,
+        #[pyarg(any, optional, py_default = "'T'")]
+        sep: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional, py_default = "'auto'")]
+        timespec: OptionalArg<PyStrRef>,
     }
 
     #[derive(FromArgs)]
@@ -4091,25 +4091,30 @@ mod _datetime {
             args: DateTimeIsoformatArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyStrRef> {
-            let Some(sep_str) = args.sep.downcast_ref::<PyStr>() else {
-                return Err(vm.new_type_error(format!(
-                    "isoformat() argument 1 must be a unicode character, not {}",
-                    type_name(&args.sep)
-                )));
-            };
-            let chars: Vec<CodePoint> = sep_str.as_wtf8().code_points().collect();
-            let sep = match chars[..] {
-                [c] => c,
-                _ => {
-                    return Err(vm.new_type_error(format!(
-                        "isoformat() argument 1 must be a unicode character, not a string of length {}",
-                        chars.len()
-                    )));
+            let sep = match &args.sep {
+                OptionalArg::Missing => CodePoint::from('T'),
+                OptionalArg::Present(sep) => {
+                    let Some(sep_str) = sep.downcast_ref::<PyStr>() else {
+                        return Err(vm.new_type_error(format!(
+                            "isoformat() argument 1 must be a unicode character, not {}",
+                            type_name(sep)
+                        )));
+                    };
+                    let chars: Vec<CodePoint> = sep_str.as_wtf8().code_points().collect();
+                    match chars[..] {
+                        [c] => c,
+                        _ => {
+                            return Err(vm.new_type_error(format!(
+                                "isoformat() argument 1 must be a unicode character, not a string of length {}",
+                                chars.len()
+                            )));
+                        }
+                    }
                 }
             };
-            let spec = args.timespec.to_string();
+            let spec = args.timespec.into_option().map(|s| s.to_string());
             let time = format_time_spec(
-                Some(&spec),
+                spec.as_deref(),
                 zelf.hour,
                 zelf.minute,
                 zelf.second,
