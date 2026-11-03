@@ -259,6 +259,12 @@ mod _overlapped {
         }
     }
 
+    #[derive(FromArgs)]
+    struct RecvFromIntoFlags {
+        #[pyarg(positional, default)]
+        flags: u32,
+    }
+
     #[pyclass(with(Constructor, Destructor))]
     impl Overlapped {
         #[pygetset]
@@ -1015,8 +1021,20 @@ mod _overlapped {
             }
         }
 
-        // WSARecvFromInto
-        #[pymethod]
+        // Preserve the Rust entry point used by existing tests while exposing
+        // the native default to Python's signature machinery.
+        #[pymethod(name = "WSARecvFromInto")]
+        fn recvfrom_into(
+            zelf: &Py<Self>,
+            handle: isize,
+            buf: ArgMemoryBuffer,
+            size: u32,
+            RecvFromIntoFlags { flags }: RecvFromIntoFlags,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            Self::WSARecvFromInto(zelf, handle, buf, size, OptionalArg::Present(flags), vm)
+        }
+
         fn WSARecvFromInto(
             zelf: &Py<Self>,
             handle: isize,
