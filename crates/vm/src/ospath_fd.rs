@@ -28,19 +28,6 @@ impl PathConverter {
         self.try_pathlike(obj, true, vm).map(OsPathOrFd::Path)
     }
 
-    /// Preserve descriptor-first validation for the I/O open path.
-    #[cfg(all(unix, feature = "host_env"))]
-    pub(crate) fn try_fd_first_path_or_fd<'fd>(
-        &self,
-        obj: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<OsPathOrFd<'fd>> {
-        if let Some(fd) = self.try_index_as_fd(&obj, vm) {
-            return fd;
-        }
-        self.try_path_inner(obj, true, vm).map(OsPathOrFd::Path)
-    }
-
     fn try_index_as_fd<'fd>(
         &self,
         obj: &PyObjectRef,

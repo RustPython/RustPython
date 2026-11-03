@@ -26,6 +26,32 @@ use crate::{
 pub use _io::{OpenArgs, io_open as open};
 use rustpython_host_env::io as host_io;
 
+/// Mirror the file descriptor conversion used by FileIO and WindowsConsoleIO.
+#[cfg(feature = "host_env")]
+fn open_file_descriptor(name: &PyObject, vm: &VirtualMachine) -> PyResult<Option<i32>> {
+    if name.class().is(vm.ctx.types.bool_type) {
+        crate::stdlib::_warnings::warn(
+            vm.ctx.exceptions.runtime_warning,
+            "bool is used as a file descriptor".to_owned(),
+            1,
+            vm,
+        )?;
+    }
+    // CPython clears failed integer conversions and then tries a path. Do not
+    // turn a failed conversion into a negative descriptor error.
+    let fd = if let Some(i) = name.downcast_ref::<crate::builtins::PyInt>() {
+        i.try_to_primitive::<i32>(vm).ok()
+    } else {
+        name.try_index_opt(vm)
+            .and_then(Result::ok)
+            .and_then(|i| i.try_to_primitive::<i32>(vm).ok())
+    };
+    if fd.is_some_and(|fd| fd < 0) {
+        return Err(vm.new_value_error("negative file descriptor"));
+    }
+    Ok(fd)
+}
+
 fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
 }
@@ -5789,6 +5815,14 @@ mod _io {
         opts: OpenArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        // Match _io.open: numeric objects go to FileIO unchanged; other
+        // arguments are resolved through the path protocol before mode parsing.
+        let file = if crate::protocol::PyNumber::check(&file) {
+            file
+        } else {
+            FsPath::try_from_path_like(file.clone(), false, vm)?.to_pyobject(vm)
+        };
+
         // mode is optional: 'rt' is the default mode (open from reading text)
         let mode_string = mode.unwrap_or("r");
         let mode = mode_string
@@ -5808,24 +5842,6 @@ mod _io {
             if let Some(msg) = msg {
                 return Err(vm.new_value_error(msg));
             }
-        }
-
-        // Match CPython's _pyio.open (Lib/_pyio.py): resolve PathLike here so
-        // _io.FileIO still receives (and preserves on .name) the raw argument
-        // when called directly.
-        let file = if file.fast_isinstance(vm.ctx.types.int_type) {
-            file
-        } else {
-            FsPath::try_from_path_like(file, true, vm)?.to_pyobject(vm)
-        };
-
-        // check file descriptor validity
-        #[cfg(all(unix, feature = "host_env"))]
-        if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) =
-            crate::ospath::PathConverter::new().try_fd_first_path_or_fd(file.clone(), vm)
-        {
-            rustpython_host_env::fcntl::validate_fd(fd.as_raw())
-                .map_err(|_| vm.new_last_errno_error())?;
         }
 
         // Construct a RawIO (subclass of RawIOBase)
@@ -6105,7 +6121,7 @@ mod fileio {
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
-        exceptions::OSErrorBuilder,
+        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgBytesLike, ArgMemoryBuffer},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os,
@@ -6162,21 +6178,10 @@ mod fileio {
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: let atomic_flag_works
             let name = args.file;
-            // Check if bool is used as file descriptor
-            if name.class().is(vm.ctx.types.bool_type) {
-                crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.runtime_warning,
-                    "bool is used as a file descriptor".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
-            let arg_fd = if let Some(i) = name.downcast_ref::<crate::builtins::PyInt>() {
-                let fd = i.try_to_primitive(vm)?;
-                if fd < 0 {
-                    return Err(vm.new_value_error("negative file descriptor"));
-                }
-                Some(fd)
+            let arg_fd = super::open_file_descriptor(&name, vm)?;
+            // Resolve the path before mode validation, even with a custom opener.
+            let mut path = if arg_fd.is_none() {
+                Some(OsPath::try_from_fspath(name.clone(), vm)?)
             } else {
                 None
             };
@@ -6191,7 +6196,7 @@ mod fileio {
             let flags = parsed.flags;
             zelf.mode.store(mode);
 
-            let (fd, filename) = if let Some(fd) = arg_fd {
+            let (fd, _filename) = if let Some(fd) = arg_fd {
                 zelf.closefd.store(args.closefd);
                 (fd, None)
             } else {
@@ -6211,7 +6216,7 @@ mod fileio {
                     }
                     (fd, None)
                 } else {
-                    let path = OsPath::try_from_fspath(name.clone(), vm)?;
+                    let path = path.take().expect("a filename was resolved above");
                     #[cfg(any(unix, target_os = "wasi"))]
                     let raw_path = path.clone().into_cstring(vm)?;
                     #[cfg(windows)]
@@ -6233,8 +6238,6 @@ mod fileio {
             let fd_is_own = arg_fd.is_none();
             zelf.fd.store(fd);
             let fd = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
-            let filename = filename.unwrap_or(OsPathOrFd::Fd(fd));
-
             // TODO: _Py_set_inheritable
 
             match host_io::inspect_file_target(fd) {
@@ -6247,7 +6250,13 @@ mod fileio {
                     if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {
                         zelf.fd.store(-1);
                     }
-                    return Err(OSErrorBuilder::with_filename(&err, filename, vm));
+                    if err.posix_errno() == libc::EBADF {
+                        return Err(err.to_pyexception(vm));
+                    }
+                    return Err(err
+                        .to_os_error_builder(vm)
+                        .filename(name.clone())
+                        .into_pyexception(vm));
                 }
             }
 
@@ -6646,7 +6655,7 @@ mod winconsoleio {
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
         exceptions::nul_char_error,
-        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6756,24 +6765,22 @@ mod winconsoleio {
                 }
             }
 
-            // Warn if bool is used as file descriptor
-            if nameobj.class().is(vm.ctx.types.bool_type) {
-                crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.runtime_warning,
-                    "bool is used as a file descriptor".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
-
-            // Try to get fd from integer
-            let mut fd: i32 = -1;
-            if let Some(i) = nameobj.downcast_ref::<crate::builtins::PyInt>() {
-                fd = i.try_to_primitive::<i32>(vm).unwrap_or(-1);
-                if fd < 0 {
-                    return Err(vm.new_value_error("negative file descriptor"));
-                }
-            }
+            let mut fd = super::open_file_descriptor(&nameobj, vm)?.unwrap_or(-1);
+            let path = if fd < 0 {
+                let path = FsPath::try_from_path_like(nameobj.clone(), true, vm)?;
+                let decoded = match &path {
+                    FsPath::Str(s) => s.to_owned(),
+                    FsPath::Bytes(_) => vm.fsdecode(path.as_os_str(vm)?.into_owned()),
+                };
+                let wide = decoded
+                    .as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|e| e.to_pyexception(vm))?;
+                let console_type = pyio_get_console_type(&decoded, vm);
+                Some((wide, console_type))
+            } else {
+                None
+            };
 
             // Parse mode
             let mut rwa = false;
@@ -6814,8 +6821,9 @@ mod winconsoleio {
             zelf.writable.store(writable);
 
             if fd < 0 {
-                // Get console type from name
-                console_type = pyio_get_console_type(&nameobj, vm);
+                // The decoded name was resolved before mode validation.
+                let (wide, detected_type) = path.expect("a filename was resolved above");
+                console_type = detected_type;
                 if console_type == 'x' {
                     if writable {
                         console_type = 'w';
@@ -6829,12 +6837,6 @@ mod winconsoleio {
                 if !args.closefd {
                     return Err(vm.new_value_error("Cannot use closefd=False with file name"));
                 }
-
-                let name_str = nameobj.str(vm)?;
-                let wide = name_str
-                    .as_wtf8()
-                    .to_wide_cstring()
-                    .map_err(|e| e.to_pyexception(vm))?;
 
                 fd = host_nt::open_console_path_fd(&wide, writable)
                     .map_err(|err| err.to_pyexception(vm))?;
