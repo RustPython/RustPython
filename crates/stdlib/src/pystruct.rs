@@ -15,7 +15,7 @@ pub(crate) mod _struct {
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::{lock::PyRwLock, rc::PyRc},
-        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, PosArgs},
+        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, NameValues, PosArgs},
         match_class,
         protocol::PyIterReturn,
         stdlib::_warnings,
@@ -122,21 +122,25 @@ pub(crate) mod _struct {
     }
 
     #[pyfunction]
-    fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        fmt.cached_format_spec(vm)?.pack(args.into_vec(), vm)
+    fn pack(
+        format: IntoStructFormatBytes,
+        values: PosArgs<PyObjectRef, NameValues>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        format.cached_format_spec(vm)?.pack(values.into_vec(), vm)
     }
 
     #[pyfunction]
     fn pack_into(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgMemoryBuffer,
         offset: isize,
-        args: PosArgs,
+        values: PosArgs<PyObjectRef, NameValues>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = fmt.cached_format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
-        buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
+        buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], values.into_vec(), vm))
     }
 
     #[pyfunction]
@@ -381,19 +385,24 @@ pub(crate) mod _struct {
     }
 
     impl Initializer for PyStruct {
-        type Args = FuncArgs;
+        type Args = StructArgs;
 
-        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf = zelf.try_to_ref::<Self>(vm)?;
             if !zelf.init_called.load()
                 && Self::uses_struct_init(zelf.class(), vm)
-                && format.is_some()
+                && zelf.inner.read().is_some()
             {
                 // The implicit __init__ must not reinterpret a custom __new__'s arguments.
                 zelf.init_called.store(true);
                 return Ok(());
             }
             let args = StructArgs::bind(args, vm)?;
+            Self::init(zelf, args, vm)
+        }
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
             if let Some(format) = format {
                 if Self::same_format(&format, &args.format) {
                     zelf.init_called.store(true);
@@ -445,8 +454,12 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn pack(zelf: &Py<Self>, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            zelf.ready(vm)?.spec.pack(args.into_vec(), vm)
+        fn pack(
+            zelf: &Py<Self>,
+            values: PosArgs<PyObjectRef, NameValues>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
+            zelf.ready(vm)?.spec.pack(values.into_vec(), vm)
         }
 
         #[pymethod]
@@ -454,7 +467,7 @@ pub(crate) mod _struct {
             zelf: &Py<Self>,
             buffer: ArgMemoryBuffer,
             offset: isize,
-            args: PosArgs,
+            values: PosArgs<PyObjectRef, NameValues>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let inner = zelf.ready(vm)?;
@@ -462,7 +475,7 @@ pub(crate) mod _struct {
             buffer.with_ref(|data| {
                 inner
                     .spec
-                    .pack_into(&mut data[offset..], args.into_vec(), vm)
+                    .pack_into(&mut data[offset..], values.into_vec(), vm)
             })
         }
 
@@ -526,5 +539,49 @@ pub(crate) mod _struct {
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         struct_error_type(vm).to_owned()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::vm::class::PyClassImpl;
+
+        #[test]
+        fn struct_constructor_signature_metadata() {
+            assert!(
+                <PyStruct as PyClassImpl>::INTERNAL_DOC
+                    .text
+                    .unwrap()
+                    .starts_with("Struct(format)\n--\n\n")
+            );
+        }
+
+        #[test]
+        fn struct_pack_signature_metadata() {
+            for (methods, name, expected) in [
+                (METHOD_DEFS, "pack", "pack($module, format, /, *values)"),
+                (
+                    METHOD_DEFS,
+                    "pack_into",
+                    "pack_into($module, format, buffer, offset, /, *values)",
+                ),
+                (
+                    <PyStruct as PyClassImpl>::METHOD_DEFS,
+                    "pack",
+                    "pack($self, /, *values)",
+                ),
+                (
+                    <PyStruct as PyClassImpl>::METHOD_DEFS,
+                    "pack_into",
+                    "pack_into($self, buffer, offset, /, *values)",
+                ),
+            ] {
+                let method = methods.iter().find(|method| method.name == name).unwrap();
+                assert_eq!(
+                    method.doc.unwrap().split_once("\n--\n\n").unwrap().0,
+                    expected
+                );
+            }
+        }
     }
 }
