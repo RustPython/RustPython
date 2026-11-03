@@ -9,7 +9,7 @@ mod _queue {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::ArgIntoFloat,
+        function::{ArgIntoFloat, OptionalArg},
         protocol::PyNumberMethods,
         types::{AsNumber, Constructor, Representable},
     };
@@ -204,26 +204,25 @@ mod _queue {
     struct PutArgs {
         #[pyarg(any)]
         item: PyObjectRef,
-        #[expect(
-            dead_code,
-            reason = "Intentional. Provide compatibility with the Queue class"
-        )]
-        #[pyarg(any, default = true)]
-        block: bool,
-        #[expect(
-            dead_code,
-            reason = "Intentional. Provide compatibility with the Queue class"
-        )]
+        #[pyarg(any, optional, py_default = "True")]
+        block: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         timeout: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetArgs {
-        #[pyarg(any, default = true)]
-        block: bool,
+        #[pyarg(any, optional, py_default = "True")]
+        block: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         timeout: Option<PyObjectRef>,
+    }
+
+    fn is_blocking(block: &OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
+        match block {
+            OptionalArg::Present(value) => value.try_to_bool(vm),
+            OptionalArg::Missing => Ok(true),
+        }
     }
 
     #[pyclass(
@@ -248,9 +247,16 @@ mod _queue {
         }
 
         #[pymethod]
-        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) {
-            let PutArgs { item, .. } = args;
+        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let PutArgs {
+                item,
+                block,
+                timeout,
+            } = args;
+            is_blocking(&block, vm)?;
             zelf.push(item, vm);
+            drop(timeout);
+            Ok(())
         }
 
         #[pymethod]
@@ -261,9 +267,10 @@ mod _queue {
         #[pymethod]
         fn get(zelf: &Py<Self>, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let GetArgs { block, timeout } = args;
+            let blocking = is_blocking(&block, vm)?;
 
             // Non-blocking: just try once
-            if !block {
+            if !blocking {
                 return Self::get_nowait(zelf, vm);
             }
 
@@ -314,7 +321,7 @@ mod _queue {
 
             #[cfg(feature = "threading")]
             {
-                if !zelf.sem.acquire(block, deadline, vm)? {
+                if !zelf.sem.acquire(blocking, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
