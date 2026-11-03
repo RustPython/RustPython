@@ -264,7 +264,7 @@ mod _queue {
 
             // Non-blocking: just try once
             if !block {
-                return Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm));
+                return Self::get_nowait(zelf, vm);
             }
 
             #[cfg_attr(
