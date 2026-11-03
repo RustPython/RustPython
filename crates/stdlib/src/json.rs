@@ -5,13 +5,13 @@ mod _json {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyAnyDict, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyList, PyStr, PyStrRef,
-            PyTuple, PyType,
+            PyAnyDict, PyBaseExceptionRef, PyDict, PyDictRef, PyFloat, PyInt, PyList, PyListRef,
+            PyStr, PyStrRef, PyTuple, PyType,
         },
         convert::ToPyResult,
         function::{ArgIntoBool, IntoFuncArgs},
         protocol::PyIterReturn,
-        types::{Callable, Constructor, PyComparisonOp},
+        types::{Callable, Constructor},
     };
     use core::cell::RefCell;
     use core::str::FromStr;
@@ -20,7 +20,7 @@ mod _json {
         json,
         wtf8::{Wtf8, Wtf8Buf},
     };
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     /// Skip JSON whitespace characters (space, tab, newline, carriage return).
     /// Works with a byte slice and returns the number of bytes skipped.
@@ -789,8 +789,7 @@ mod _json {
     #[pyclass(name = "Encoder", traverse)]
     #[derive(Debug, PyPayload)]
     struct JsonEncoder {
-        #[pytraverse(skip)]
-        check_circular: bool,
+        markers: Option<PyDictRef>,
         default: PyObjectRef,
         encoder: PyObjectRef,
         #[pytraverse(skip)]
@@ -805,8 +804,6 @@ mod _json {
         skipkeys: bool,
         #[pytraverse(skip)]
         allow_nan: bool,
-        #[pytraverse(skip)]
-        markers: crate::vm::common::lock::PyMutex<HashSet<usize>>,
     }
 
     #[derive(FromArgs)]
@@ -824,11 +821,11 @@ mod _json {
         #[pyarg(any)]
         item_separator: PyStrRef,
         #[pyarg(any)]
-        sort_keys: PyObjectRef,
+        sort_keys: ArgIntoBool,
         #[pyarg(any)]
-        skipkeys: PyObjectRef,
+        skipkeys: ArgIntoBool,
         #[pyarg(any)]
-        allow_nan: PyObjectRef,
+        allow_nan: ArgIntoBool,
     }
 
     impl Constructor for JsonEncoder {
@@ -849,10 +846,10 @@ mod _json {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let check_circular = if vm.is_none(&markers) {
-                false
-            } else if markers.downcast_ref::<PyDict>().is_some() {
-                true
+            let markers = if vm.is_none(&markers) {
+                None
+            } else if let Ok(markers) = markers.clone().downcast::<PyDict>() {
+                Some(markers)
             } else {
                 return Err(vm.new_type_error(format!(
                     "make_encoder() argument 1 must be dict or None, not {}",
@@ -871,9 +868,9 @@ mod _json {
                 )));
             };
 
-            let sort_keys = sort_keys.try_to_bool(vm)?;
-            let skipkeys = skipkeys.try_to_bool(vm)?;
-            let allow_nan = allow_nan.try_to_bool(vm)?;
+            let sort_keys = sort_keys.into_bool();
+            let skipkeys = skipkeys.into_bool();
+            let allow_nan = allow_nan.into_bool();
 
             // Detect (by identity) whether `encoder` is one of our own
             // builtin string escapers, so the hot string-encoding path can
@@ -894,7 +891,7 @@ mod _json {
             };
 
             Ok(Self {
-                check_circular,
+                markers,
                 default,
                 encoder,
                 encoder_kind,
@@ -904,7 +901,6 @@ mod _json {
                 sort_keys,
                 skipkeys,
                 allow_nan,
-                markers: crate::vm::common::lock::PyMutex::new(HashSet::new()),
             })
         }
     }
@@ -922,27 +918,31 @@ mod _json {
 
     #[pyclass(with(Callable, Constructor))]
     impl JsonEncoder {
-        /// Push `obj`'s id onto the recursion-detection set (a stand-in for
-        /// CPython's `markers` dict -- nothing outside this call ever reads
-        /// that dict back, so we don't need to actually mutate a real
-        /// Python dict object). Returns the id to later pass to
-        /// `pop_marker`, or `None` if circular-reference checking is
-        /// disabled.
-        fn push_marker(&self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<usize>> {
-            if !self.check_circular {
-                return Ok(None);
-            }
-            let id = obj.get_id();
-            if !self.markers.lock().insert(id) {
-                return Err(vm.new_value_error("Circular reference detected"));
-            }
-            Ok(Some(id))
+        #[pygetset]
+        fn markers(zelf: &Py<Self>) -> Option<PyDictRef> {
+            zelf.markers.clone()
         }
 
-        fn pop_marker(&self, marker: Option<usize>) {
-            if let Some(id) = marker {
-                self.markers.lock().remove(&id);
+        // The caller owns this dict and callbacks can inspect or mutate it.
+        // Use native dict operations even for subclasses, as PyDict_* does.
+        fn push_marker(&self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(markers) = &self.markers {
+                let id = vm.ctx.new_int(obj.get_id());
+                if markers.inner_getitem_opt(id.as_object(), vm)?.is_some() {
+                    return Err(vm.new_value_error("Circular reference detected"));
+                }
+                markers.inner_setitem(id.as_object(), obj.to_owned(), vm)?;
             }
+            Ok(())
+        }
+
+        // CPython removes markers only after successful encoding. Keeping them
+        // on errors also keeps the referenced objects alive for the caller.
+        fn pop_marker(&self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(markers) = &self.markers {
+                markers.inner_delitem(vm.ctx.new_int(obj.get_id()).as_object(), vm)?;
+            }
+            Ok(())
         }
 
         /// `floatstr`: format a float per JSON rules, honouring `allow_nan`.
@@ -1084,30 +1084,6 @@ mod _json {
             )))
         }
 
-        /// `sorted(dct.items())`: sort dict items by key. Since dict keys
-        /// are unique, comparing keys alone reproduces tuple-comparison
-        /// semantics (the first differing element always decides).
-        fn sort_items(
-            &self,
-            mut items: Vec<(PyObjectRef, PyObjectRef)>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
-            // Use the VM's fallible timsort (the same one backing
-            // `list.sort`/`sorted`) instead of `Vec::sort_by`: a Python-level
-            // key comparison (`__lt__`) can raise partway through (e.g.
-            // comparing `str` and `int` keys), and `Vec::sort_by`'s
-            // comparator is infallible -- swallowing the error and reporting
-            // `Ordering::Equal` instead corrupts the sort's invariants and
-            // makes Rust's sort implementation panic with "comparison
-            // function does not correctly implement a total order",
-            // aborting the whole interpreter instead of propagating a
-            // catchable Python `TypeError` like CPython does.
-            crate::vm::sorting::timsort(&mut items, &mut |a, b| {
-                a.0.rich_compare_bool(&b.0, PyComparisonOp::Lt, vm)
-            })?;
-            Ok(items)
-        }
-
         /// Encode a `list` or `tuple`. `len`/`get` re-read the live
         /// collection on every step (rather than working off a
         /// pre-collected snapshot) so that a `default()`/nested-encoder
@@ -1129,7 +1105,7 @@ mod _json {
                 out.push_str("[]");
                 return Ok(());
             }
-            let marker = self.push_marker(obj, vm)?;
+            self.push_marker(obj, vm)?;
             out.push_char('[');
             let new_level = if self.indent.is_some() {
                 level + 1
@@ -1148,7 +1124,6 @@ mod _json {
                     self.push_newline_indent(out, new_level);
                 }
                 if let Err(e) = self.encode_value(&value, new_level, out, vm) {
-                    self.pop_marker(marker);
                     return Err(add_note(
                         e,
                         Wtf8Buf::from(format!("when serializing {} item {i}", obj.class().name())),
@@ -1157,37 +1132,69 @@ mod _json {
                 }
                 i += 1;
             }
+            self.pop_marker(obj, vm)?;
             self.push_newline_indent(out, level);
             out.push_char(']');
-            self.pop_marker(marker);
             Ok(())
         }
 
-        /// Fetch `dct.items()` for encoding. For an exact `dict` or `frozendict` this reads
-        /// the native table directly (matching CPython's fast path); for a
-        /// subclass (e.g. `collections.OrderedDict`) it calls the
-        /// real (possibly overridden) `.items()` method instead, so a
-        /// subclass's custom ordering/behavior is respected.
+        // Keep an exact items list alive rather than eagerly validating or
+        // copying its pairs: callbacks may change the next item or its length.
         fn dict_items(
             &self,
             obj: &PyObject,
             dict: &PyAnyDict,
             vm: &VirtualMachine,
-        ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
-            if obj.class().is(vm.ctx.types.dict_type)
+        ) -> PyResult<PyListRef> {
+            let items = if obj.class().is(vm.ctx.types.dict_type)
                 || obj.class().is(vm.ctx.types.frozendict_type)
             {
-                return Ok(dict.items_vec());
+                vm.ctx.new_list(
+                    dict.items_vec()
+                        .into_iter()
+                        .map(|(key, value)| vm.new_tuple((key, value)).into())
+                        .collect(),
+                )
+            } else {
+                obj.try_mapping(vm)?.items(vm)?.try_into_value(vm)?
+            };
+            if self.sort_keys {
+                // The mapping helper returns an exact list, so this uses the
+                // shared list sort including tuple comparison and mutation checks.
+                vm.call_method(items.as_object(), "sort", ())?;
             }
-            let items_obj = obj.get_attr("items", vm)?.call((), vm)?;
-            vm.extract_elements_with(&items_obj, |item| {
-                use crate::vm::builtins::PyTupleRef;
-                let tuple: PyTupleRef = item.try_into_value(vm)?;
-                if tuple.as_slice().len() != 2 {
-                    return Err(vm.new_value_error("items() must return 2-tuples"));
+            Ok(items)
+        }
+
+        fn encode_dict_item(
+            &self,
+            obj: &PyObject,
+            (key, value): (&PyObject, &PyObject),
+            first: &mut bool,
+            level: isize,
+            out: &mut Wtf8Buf,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let mut key_out = Wtf8Buf::new();
+            if !self.write_dict_key(key, &mut key_out, vm)? {
+                return Ok(());
+            }
+            if *first {
+                *first = false;
+                self.push_newline_indent(out, level);
+            } else {
+                out.push_wtf8(self.item_separator.as_wtf8());
+                self.push_newline_indent(out, level);
+            }
+            out.push_wtf8(&key_out);
+            out.push_wtf8(self.key_separator.as_wtf8());
+            self.encode_value(value, level, out, vm).map_err(|e| {
+                let mut note =
+                    Wtf8Buf::from(format!("when serializing {} item ", obj.class().name()));
+                if let Ok(r) = key.repr(vm) {
+                    note.push_wtf8(r.as_wtf8());
                 }
-                let slice = tuple.as_slice();
-                Ok((slice[0].clone(), slice[1].clone()))
+                add_note(e, note, vm)
             })
         }
 
@@ -1203,21 +1210,7 @@ mod _json {
                 out.push_str("{}");
                 return Ok(());
             }
-            let mut items = self.dict_items(obj, dict, vm)?;
-            if items.is_empty() {
-                out.push_str("{}");
-                return Ok(());
-            }
-            let marker = self.push_marker(obj, vm)?;
-            if self.sort_keys {
-                items = match self.sort_items(items, vm) {
-                    Ok(items) => items,
-                    Err(e) => {
-                        self.pop_marker(marker);
-                        return Err(e);
-                    }
-                };
-            }
+            self.push_marker(obj, vm)?;
             out.push_char('{');
             let new_level = if self.indent.is_some() {
                 level + 1
@@ -1225,42 +1218,52 @@ mod _json {
                 level
             };
             let mut first = true;
-            for (key, value) in &items {
-                let mut key_out = Wtf8Buf::new();
-                let wrote = match self.write_dict_key(key, &mut key_out, vm) {
-                    Ok(wrote) => wrote,
-                    Err(e) => {
-                        self.pop_marker(marker);
-                        return Err(e);
-                    }
-                };
-                if !wrote {
-                    continue;
+            if self.sort_keys
+                || !(obj.class().is(vm.ctx.types.dict_type)
+                    || obj.class().is(vm.ctx.types.frozendict_type))
+            {
+                let items = self.dict_items(obj, dict, vm)?;
+                let mut index = 0;
+                loop {
+                    // Release the list guard before any user code. Owning the
+                    // tuple keeps its key/value alive even if the list shrinks.
+                    let item = items.borrow_vec().get(index).cloned();
+                    let Some(item) = item else { break };
+                    let pair = item
+                        .downcast_ref::<PyTuple>()
+                        .filter(|pair| pair.as_slice().len() == 2)
+                        .ok_or_else(|| vm.new_value_error("items must return 2-tuples"))?;
+                    self.encode_dict_item(
+                        obj,
+                        (&pair.as_slice()[0], &pair.as_slice()[1]),
+                        &mut first,
+                        new_level,
+                        out,
+                        vm,
+                    )?;
+                    index += 1;
                 }
-                if first {
-                    first = false;
-                    self.push_newline_indent(out, new_level);
-                } else {
-                    out.push_wtf8(self.item_separator.as_wtf8());
-                    self.push_newline_indent(out, new_level);
-                }
-                out.push_wtf8(&key_out);
-                out.push_wtf8(self.key_separator.as_wtf8());
-                if let Err(e) = self.encode_value(value, new_level, out, vm) {
-                    self.pop_marker(marker);
-                    let mut note =
-                        Wtf8Buf::from(format!("when serializing {} item ", obj.class().name()));
-                    if let Ok(r) = key.repr(vm) {
-                        note.push_wtf8(r.as_wtf8());
-                    }
-                    return Err(add_note(e, note, vm));
+            } else {
+                let mut position = 0;
+                // next_entry clones both references and releases the table
+                // lock before callbacks. Do not snapshot: later values and
+                // entries must reflect mutations made while encoding.
+                while let Some((next, key, value)) = dict.next_entry(position) {
+                    position = next;
+                    let result =
+                        self.encode_dict_item(obj, (&key, &value), &mut first, new_level, out, vm);
+                    // Match PyDict_Next's owned-reference release order even
+                    // when callbacks remove these objects from the dictionary.
+                    drop(key);
+                    drop(value);
+                    result?;
                 }
             }
+            self.pop_marker(obj, vm)?;
             if !first {
                 self.push_newline_indent(out, level);
             }
             out.push_char('}');
-            self.pop_marker(marker);
             Ok(())
         }
 
@@ -1271,23 +1274,18 @@ mod _json {
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let marker = self.push_marker(obj, vm)?;
-            let new_obj = match self.default.call((obj.to_owned(),), vm) {
-                Ok(v) => v,
-                Err(e) => {
-                    self.pop_marker(marker);
-                    return Err(e);
-                }
-            };
+            self.push_marker(obj, vm)?;
+            let new_obj = self.default.call((obj.to_owned(),), vm)?;
             let result = self.encode_value(&new_obj, level, out, vm);
-            self.pop_marker(marker);
+            drop(new_obj);
             result.map_err(|e| {
                 add_note(
                     e,
                     Wtf8Buf::from(format!("when serializing {} object", obj.class().name())),
                     vm,
                 )
-            })
+            })?;
+            self.pop_marker(obj, vm)
         }
 
         fn encode_value(
