@@ -1406,22 +1406,15 @@ fn build_callargs_with_paramflags(
         let is_in = (*direction & 1) != 0 || *direction == 0; // IN flag or default
 
         if is_out && !is_in {
-            // Pure OUT parameters do not consume a caller argument. A supplied
-            // default is converted through the argument type like an input.
-            if let Some(default) = default {
-                let (value, keep) = arg_type.convert_object(default.clone(), vm)?;
-                arguments.push(Argument { value, keep });
-                out_buffers.push(OutValue::Out(default.clone()));
-            } else {
-                let buffer = create_out_buffer(arg_type, vm)?;
-                let addr = get_buffer_addr(&buffer)
-                    .ok_or_else(|| vm.new_type_error("Cannot create OUT buffer for this type"))?;
-                arguments.push(Argument {
-                    keep: None,
-                    value: CArgValue::pointer(addr),
-                });
-                out_buffers.push(OutValue::Out(buffer));
-            }
+            // Pure OUT parameter: create buffer, don't consume caller arg
+            let buffer = create_out_buffer(arg_type, vm)?;
+            let addr = get_buffer_addr(&buffer)
+                .ok_or_else(|| vm.new_type_error("Cannot create OUT buffer for this type"))?;
+            arguments.push(Argument {
+                keep: None,
+                value: CArgValue::pointer(addr),
+            });
+            out_buffers.push(OutValue::Out(buffer));
         } else {
             // IN or IN|OUT: get from caller args or default
             let arg = if caller_arg_idx < args.args.len() {
