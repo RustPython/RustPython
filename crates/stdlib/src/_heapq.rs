@@ -130,7 +130,7 @@ mod _heapq {
     {
         let pos = {
             let mut vec = heap.borrow_vec_mut();
-            vec.push(item);
+            vec.push(item.clone());
             vec.len() - 1
         };
 
@@ -190,10 +190,13 @@ mod _heapq {
             let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
+                None => {
+                    drop(vec);
+                    return Err(vm.new_index_error("index out of range"));
+                }
             };
 
-            vec[0] = item;
+            vec[0] = item.clone();
             root
         };
 
@@ -241,7 +244,7 @@ mod _heapq {
                 }
             };
 
-            vec[0] = item;
+            vec[0] = item.clone();
             root
         };
 
@@ -487,7 +490,7 @@ mod _heapq {
                 }
             };
 
-            vec[0] = item;
+            vec[0] = item.clone();
             root
         };
 
