@@ -28,7 +28,7 @@ mod _socket {
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, FsPath,
+            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgSpec, ArgStrOrBytesLike, FsPath,
             FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
@@ -1894,6 +1894,61 @@ mod _socket {
         addr: Option<PyObjectRef>,
     }
 
+    struct ReceiveIntoArgs {
+        buffer: ArgMemoryBuffer,
+        nbytes: usize,
+        flags: i32,
+    }
+
+    impl ReceiveIntoArgs {
+        fn parse(
+            args: &FuncArgs,
+            name: &'static str,
+            too_small: &'static str,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            let buffer = core::cell::RefCell::new(None);
+            let nbytes = core::cell::Cell::new(0isize);
+            let flags = core::cell::Cell::new(0i32);
+            ArgSpec {
+                fname: name,
+                keywords: &["buffer", "nbytes", "flags"],
+                required: 1,
+                max_positional: 3,
+            }
+            .parse_with(
+                args,
+                |position, value, vm| {
+                    match position {
+                        0 => {
+                            let export = ArgMemoryBuffer::try_from_borrowed_object(vm, value)?;
+                            *buffer.borrow_mut() = Some(export);
+                        }
+                        1 => nbytes.set(value.try_index(vm)?.try_to_primitive::<isize>(vm)?),
+                        2 => flags.set(value.try_index(vm)?.try_to_primitive::<i32>(vm)?),
+                        _ => unreachable!(),
+                    }
+                    Ok(())
+                },
+                vm,
+            )?;
+            let buffer = buffer.into_inner().expect("required buffer was parsed");
+            let nbytes = usize::try_from(nbytes.get())
+                .map_err(|_| vm.new_value_error(format!("negative buffersize in {name}")))?;
+            let nbytes = if nbytes == 0 { buffer.len() } else { nbytes };
+            if nbytes > buffer.len() {
+                return Err(vm.new_value_error(too_small));
+            }
+            // Keep only the export alive during conversions and I/O, not a
+            // payload lock: index callbacks may write to this same buffer.
+            Ok(Self {
+                buffer,
+                nbytes,
+                flags: flags.get(),
+            })
+        }
+    }
+
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
@@ -2163,6 +2218,9 @@ mod _socket {
             let bufsize = bufsize
                 .to_usize()
                 .ok_or_else(|| vm.new_value_error("negative buffersize in recv"))?;
+            if bufsize == 0 {
+                return Ok(Vec::new());
+            }
             let mut buffer = alloc_recv_scratch(bufsize, flags, vm)?;
             let n = zelf.sock_op(vm, SockWaitKind::Read, || {
                 zelf.sock_snapshot()?
@@ -2177,27 +2235,23 @@ mod _socket {
         #[pymethod]
         fn recv_into(
             zelf: &Py<Self>,
-            buf: ArgMemoryBuffer,
-            nbytes: OptionalArg<isize>,
-            flags: OptionalArg<i32>,
+            args: FuncArgs,
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
-            let flags = flags.unwrap_or(0);
-
-            // Handle nbytes parameter
-            let read_len = if let OptionalArg::Present(nbytes) = nbytes {
-                let nbytes = nbytes
-                    .to_usize()
-                    .ok_or_else(|| vm.new_value_error("negative buffersize in recv_into"))?;
-                if nbytes > buf.len() {
-                    return Err(vm
-                        .new_value_error("buffer too small for requested bytes")
-                        .into());
-                }
-                if nbytes == 0 { buf.len() } else { nbytes }
-            } else {
-                buf.len()
-            };
+            let ReceiveIntoArgs {
+                buffer: buf,
+                nbytes: read_len,
+                flags,
+            } = ReceiveIntoArgs::parse(
+                &args,
+                "recv_into",
+                "buffer too small for requested bytes",
+                vm,
+            )?;
+            // Like recv(), an empty receive does not enter the socket wait.
+            if read_len == 0 {
+                return Ok(0);
+            }
 
             let mut scratch = alloc_recv_scratch(read_len, flags, vm)?;
             let n = zelf.sock_op(vm, SockWaitKind::Read, || {
@@ -2239,26 +2293,19 @@ mod _socket {
         #[pymethod]
         fn recvfrom_into(
             zelf: &Py<Self>,
-            buf: ArgMemoryBuffer,
-            nbytes: OptionalArg<isize>,
-            flags: OptionalArg<i32>,
+            args: FuncArgs,
             vm: &VirtualMachine,
         ) -> Result<(usize, PyObjectRef), IoOrPyException> {
-            let read_len = match nbytes {
-                OptionalArg::Present(i) => {
-                    let i = i.to_usize().ok_or_else(|| {
-                        vm.new_value_error("negative buffersize in recvfrom_into")
-                    })?;
-                    if i > buf.len() {
-                        return Err(vm
-                            .new_value_error("nbytes is greater than the length of the buffer")
-                            .into());
-                    }
-                    if i == 0 { buf.len() } else { i }
-                }
-                OptionalArg::Missing => buf.len(),
-            };
-            let flags = flags.unwrap_or(0);
+            let ReceiveIntoArgs {
+                buffer: buf,
+                nbytes: read_len,
+                flags,
+            } = ReceiveIntoArgs::parse(
+                &args,
+                "recvfrom_into",
+                "nbytes is greater than the length of the buffer",
+                vm,
+            )?;
             let mut scratch = alloc_recv_scratch(read_len, flags, vm)?;
             let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
                 zelf.sock_snapshot()?
@@ -2323,20 +2370,35 @@ mod _socket {
                     .new_type_error("sendto() takes no keyword arguments")
                     .into());
             }
-            let n = args.args.len();
-            let (bytes, flags, address) = match n {
-                2 => (args.args[0].clone(), 0, args.args[1].clone()),
-                3 => {
-                    let flags = args.args[1].try_index(vm)?.try_to_primitive::<i32>(vm)?;
-                    (args.args[0].clone(), flags, args.args[2].clone())
-                }
-                _ => {
-                    return Err(vm
-                        .new_type_error(format!("sendto() takes 2 or 3 arguments ({n} given)"))
-                        .into());
-                }
+            // This overload's diagnostic cannot be expressed by the binder's
+            // ordinary minimum/maximum arity messages.
+            let nargs = args.args.len();
+            if !(2..=3).contains(&nargs) {
+                return Err(vm
+                    .new_type_error(format!("sendto() takes 2 or 3 arguments ({nargs} given)"))
+                    .into());
+            }
+            #[expect(
+                clippy::redundant_clone,
+                reason = "Keep original arguments alive through callbacks and the socket operation"
+            )]
+            let (data, flags_or_address, address): (
+                PyObjectRef,
+                PyObjectRef,
+                OptionalArg<PyObjectRef>,
+            ) = args.clone().bind_for(vm, "sendto")?;
+            // Export before converting flags, but defer borrowing its data
+            // until all Python callbacks, including address conversion, finish.
+            let bytes = ArgBytesLike::try_from_object(vm, data)?;
+            let (flags, address) = match address {
+                OptionalArg::Missing => (0, flags_or_address),
+                OptionalArg::Present(address) => (
+                    flags_or_address
+                        .try_index(vm)?
+                        .try_to_primitive::<i32>(vm)?,
+                    address,
+                ),
             };
-            let bytes = ArgBytesLike::try_from_object(vm, bytes)?;
             let addr = zelf.extract_address(address, "sendto", vm)?;
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
@@ -2807,29 +2869,21 @@ mod _socket {
                     .new_type_error("setsockopt() takes no keyword arguments")
                     .into());
             }
-            let nargs = args.args.len();
-            if nargs < 3 {
-                return Err(vm
-                    .new_type_error(format!(
-                        "setsockopt() takes at least 3 arguments ({nargs} given)"
-                    ))
-                    .into());
-            }
-            if nargs > 4 {
-                return Err(vm
-                    .new_type_error(format!(
-                        "setsockopt() takes at most 4 arguments ({nargs} given)"
-                    ))
-                    .into());
-            }
+            #[expect(
+                clippy::redundant_clone,
+                reason = "Keep original arguments alive through callbacks and the socket operation"
+            )]
             let (level, name, value, optlen): (
-                i32,
-                i32,
+                PyObjectRef,
+                PyObjectRef,
                 Option<PyObjectRef>,
-                OptionalArg<ArgIndex>,
-            ) = args.bind(vm)?;
+                OptionalArg<PyObjectRef>,
+            ) = args.clone().bind_for(vm, "setsockopt")?;
+            let level = level.try_index(vm)?.try_to_primitive::<i32>(vm)?;
+            let name = name.try_index(vm)?.try_to_primitive::<i32>(vm)?;
             let optlen = match optlen {
                 OptionalArg::Present(index) => {
+                    let index = crate::vm::function::ArgIndex::try_from_object(vm, index)?;
                     OptionalArg::Present(index.as_unsigned_bitfield::<32>(vm)? as u32)
                 }
                 OptionalArg::Missing => OptionalArg::Missing,
