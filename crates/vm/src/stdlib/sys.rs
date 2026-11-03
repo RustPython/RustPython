@@ -1474,11 +1474,13 @@ pub mod sys {
     #[pyfunction]
     fn setprofile(function: PyObjectRef, vm: &VirtualMachine) {
         #[cfg(feature = "threading")]
-        if let Some(slot) = crate::vm::thread::current_thread_slot() {
-            *slot.profile_func.lock() = function.clone();
-        }
-        vm.profile_func.replace(function);
+        let old_slot = crate::vm::thread::current_thread_slot()
+            .map(|slot| core::mem::replace(&mut *slot.profile_func.lock(), function.clone()));
+        let old_vm = vm.profile_func.replace(function);
         update_use_tracing(vm);
+        #[cfg(feature = "threading")]
+        drop(old_slot);
+        drop(old_vm);
     }
 
     #[pyfunction]
@@ -1501,10 +1503,9 @@ pub mod sys {
     #[pyfunction]
     fn settrace(function: PyObjectRef, vm: &VirtualMachine) {
         #[cfg(feature = "threading")]
-        if let Some(slot) = crate::vm::thread::current_thread_slot() {
-            *slot.trace_func.lock() = function.clone();
-        }
-        vm.trace_func.replace(function);
+        let old_slot = crate::vm::thread::current_thread_slot()
+            .map(|slot| core::mem::replace(&mut *slot.trace_func.lock(), function.clone()));
+        let old_vm = vm.trace_func.replace(function);
         update_use_tracing(vm);
         // The rest of the current line already started before tracing was
         // enabled; sync prev_line so leftover opcodes on this line do not
@@ -1512,44 +1513,89 @@ pub mod sys {
         if let Some(frame) = vm.current_frame() {
             frame.iframe().sync_prev_line_from_lasti();
         }
+        #[cfg(feature = "threading")]
+        drop(old_slot);
+        drop(old_vm);
     }
 
     #[pyfunction]
-    fn _settraceallthreads(function: PyObjectRef, vm: &VirtualMachine) {
+    fn _settraceallthreads(function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let func = (!vm.is_none(&function)).then(|| function.clone());
-        *vm.state.global_trace_func.lock() = func;
+        // Retain replaced callbacks until every registry and slot lock has
+        // been released: their finalizers can reenter these APIs.
+        let old_global;
+        #[cfg(feature = "threading")]
+        let mut old_slots = Vec::new();
         #[cfg(feature = "threading")]
         {
             let registry = vm.state.thread_frames.lock();
+            if old_slots.try_reserve(registry.len()).is_err() {
+                drop(registry);
+                return Err(vm.no_memory_error());
+            }
+            old_global = core::mem::replace(&mut *vm.state.global_trace_func.lock(), func);
             #[expect(
                 clippy::iter_over_hash_type,
                 reason = "every thread slot, order is irrelevant"
             )]
             for slot in registry.values() {
-                *slot.trace_func.lock() = function.clone();
+                old_slots.push(core::mem::replace(
+                    &mut *slot.trace_func.lock(),
+                    function.clone(),
+                ));
             }
         }
-        vm.trace_func.replace(function);
+        #[cfg(not(feature = "threading"))]
+        {
+            old_global = core::mem::replace(&mut *vm.state.global_trace_func.lock(), func);
+        }
+        let old_vm = vm.trace_func.replace(function);
         update_use_tracing(vm);
+        drop(old_global);
+        #[cfg(feature = "threading")]
+        drop(old_slots);
+        drop(old_vm);
+        Ok(())
     }
 
     #[pyfunction]
-    fn _setprofileallthreads(function: PyObjectRef, vm: &VirtualMachine) {
+    fn _setprofileallthreads(function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let func = (!vm.is_none(&function)).then(|| function.clone());
-        *vm.state.global_profile_func.lock() = func;
+        // Retain replaced callbacks until every registry and slot lock has
+        // been released: their finalizers can reenter these APIs.
+        let old_global;
+        #[cfg(feature = "threading")]
+        let mut old_slots = Vec::new();
         #[cfg(feature = "threading")]
         {
             let registry = vm.state.thread_frames.lock();
+            if old_slots.try_reserve(registry.len()).is_err() {
+                drop(registry);
+                return Err(vm.no_memory_error());
+            }
+            old_global = core::mem::replace(&mut *vm.state.global_profile_func.lock(), func);
             #[expect(
                 clippy::iter_over_hash_type,
                 reason = "every thread slot, order is irrelevant"
             )]
             for slot in registry.values() {
-                *slot.profile_func.lock() = function.clone();
+                old_slots.push(core::mem::replace(
+                    &mut *slot.profile_func.lock(),
+                    function.clone(),
+                ));
             }
         }
-        vm.profile_func.replace(function);
+        #[cfg(not(feature = "threading"))]
+        {
+            old_global = core::mem::replace(&mut *vm.state.global_profile_func.lock(), func);
+        }
+        let old_vm = vm.profile_func.replace(function);
         update_use_tracing(vm);
+        drop(old_global);
+        #[cfg(feature = "threading")]
+        drop(old_slots);
+        drop(old_vm);
+        Ok(())
     }
 
     #[cfg(feature = "threading")]
