@@ -2192,9 +2192,9 @@ pub(super) mod _os {
         dst: crt_fd::Borrowed<'fd>,
         #[pyarg(any)]
         count: i64,
-        #[pyarg(any, default, py_default = "None")]
+        #[pyarg(any, default = None)]
         offset_src: Option<crt_fd::Offset>,
-        #[pyarg(any, default, py_default = "None")]
+        #[pyarg(any, default = None)]
         offset_dst: Option<crt_fd::Offset>,
     }
 
