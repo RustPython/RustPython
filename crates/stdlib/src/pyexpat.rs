@@ -1250,11 +1250,15 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetBase")]
-        fn set_base(zelf: &Py<Self>, base: PyStrRef) {
+        fn set_base(zelf: &Py<Self>, base: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+            if base.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
             // Store-only compatibility state for xml.sax locator APIs. The
             // xml-rs backend still does not perform Expat-style base URI
             // resolution for external entities.
-            *zelf.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
+            *zelf.base.write() = Some(base.as_str().to_owned());
+            Ok(())
         }
 
         #[pymethod(name = "GetBase")]
