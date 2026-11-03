@@ -694,7 +694,7 @@ mod tests {
             };
             let tokens = generate_field((0, &field)).unwrap().to_string();
             assert!(!tokens.contains("vm . ctx . none"));
-            assert!(tokens.contains("unwrap_or_else (| | None)"));
+            assert!(tokens.contains(&quote!(unwrap_or_else(|| None)).to_string()));
         }
     }
 
