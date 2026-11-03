@@ -145,15 +145,15 @@ mod decl {
     #[derive(FromArgs)]
     struct IterablePosArg {
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
     }
 
     #[derive(FromArgs)]
     struct CompressNewArgs {
         #[pyarg(any)]
-        data: PyIter,
+        data: PyObjectRef,
         #[pyarg(any)]
-        selectors: PyIter,
+        selectors: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsCompress {
@@ -162,9 +162,14 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { data, selectors }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(Self { data, selectors })
+            let data_iter = data.get_iter(vm)?;
+            let selectors_iter = selectors.get_iter(vm)?;
+            Ok(Self {
+                data: data_iter,
+                selectors: selectors_iter,
+            })
         }
     }
 
@@ -274,8 +279,8 @@ mod decl {
         type Args = IterablePosArg;
         const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            let iter = args.iterable;
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let iter = args.iterable.get_iter(vm)?;
             Ok(Self {
                 iter,
                 exhausted: AtomicBool::new(false),
@@ -417,7 +422,7 @@ mod decl {
         #[pyarg(positional)]
         function: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsStarmap {
@@ -427,9 +432,13 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { function, iterable }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(Self { function, iterable })
+            let iterator = iterable.get_iter(vm)?;
+            Ok(Self {
+                function,
+                iterable: iterator,
+            })
         }
     }
 
@@ -467,7 +476,7 @@ mod decl {
         #[pyarg(positional)]
         predicate: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsTakewhile {
@@ -480,11 +489,12 @@ mod decl {
                 predicate,
                 iterable,
             }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
                 predicate,
-                iterable,
+                iterable: iterator,
                 stop_flag: AtomicCell::new(false),
             })
         }
@@ -533,7 +543,7 @@ mod decl {
         #[pyarg(positional)]
         predicate: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsDropwhile {
@@ -546,11 +556,12 @@ mod decl {
                 predicate,
                 iterable,
             }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
                 predicate,
-                iterable,
+                iterable: iterator,
                 start_flag: AtomicCell::new(false),
             })
         }
@@ -629,7 +640,7 @@ mod decl {
     #[derive(FromArgs)]
     struct GroupByArgs {
         #[pyarg(any)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
         #[pyarg(any, optional)]
         key: Option<PyObjectRef>,
     }
@@ -640,10 +651,11 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { iterable, key }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
-                iterable,
+                iterable: iterator,
                 key_func: key,
                 state: PyMutex::new(GroupByState::default()),
             })
@@ -987,7 +999,7 @@ mod decl {
         #[pyarg(positional)]
         function: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsFilterFalse {
@@ -997,11 +1009,12 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { function, iterable }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
                 predicate: function,
-                iterable,
+                iterable: iterator,
             })
         }
     }
@@ -1048,7 +1061,7 @@ mod decl {
     #[derive(FromArgs)]
     struct AccumulateArgs {
         #[pyarg(any)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
         #[pyarg(any, optional)]
         func: Option<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -1058,9 +1071,10 @@ mod decl {
     impl Constructor for PyItertoolsAccumulate {
         type Args = AccumulateArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let iterator = args.iterable.get_iter(vm)?;
             Ok(Self {
-                iterable: args.iterable,
+                iterable: iterator,
                 bin_op: args.func,
                 has_initial: args.initial.is_some(),
                 initial: PyRwLock::new(args.initial),
@@ -1158,7 +1172,7 @@ mod decl {
         type Args = IterablePosArg;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let iterator = args.iterable;
+            let iterator = args.iterable.get_iter(vm)?;
             // An iterator that is already a tee shares its buffer rather than
             // getting one of its own.
             if let Some(tee) = iterator.as_object().downcast_ref::<Self>() {
@@ -1209,17 +1223,21 @@ mod decl {
     struct TeeArgs {
         #[pyarg(positional)]
         iterable: PyObjectRef,
-        #[pyarg(positional, default = 2)]
-        n: isize,
+        #[pyarg(positional, optional, py_default = "2")]
+        n: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
     fn tee(args: TeeArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let TeeArgs { iterable, n } = args;
-        if n < 0 {
+        let n_value = match &n {
+            OptionalArg::Present(value) => isize::try_from_borrowed_object(vm, value)?,
+            OptionalArg::Missing => 2,
+        };
+        if n_value < 0 {
             return Err(vm.new_value_error("n must be >= 0"));
         }
-        let n = n as usize;
+        let n = n_value as usize;
 
         let mut tee_vec: Vec<PyObjectRef> = Vec::new();
         tee_vec
@@ -1895,8 +1913,8 @@ mod decl {
 
         const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            let iterator = args.iterable;
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let iterator = args.iterable.get_iter(vm)?;
             Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),
