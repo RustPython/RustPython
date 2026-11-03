@@ -844,6 +844,9 @@ pub mod array {
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
         exports: AtomicUsize,
+        // Published before an export is retained, for bounds checks that must
+        // not reacquire the payload lock while a buffer is active.
+        export_len: AtomicUsize,
     }
 
     pub type PyArrayRef = PyRef<PyArray>;
@@ -853,6 +856,7 @@ pub mod array {
             Self {
                 array: PyRwLock::new(array),
                 exports: AtomicUsize::new(0),
+                export_len: AtomicUsize::new(0),
             }
         }
     }
@@ -1596,8 +1600,7 @@ pub mod array {
     }
 
     impl PyArray {
-        fn buffer_desc(&self) -> BufferDescriptor {
-            let array = self.read();
+        fn buffer_desc(array: &ArrayContentType) -> BufferDescriptor {
             BufferDescriptor::format(
                 array.len() * array.itemsize(),
                 false,
@@ -1620,17 +1623,22 @@ pub mod array {
             let zelf = zelf
                 .downcast_ref::<Self>()
                 .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
-            let desc = zelf.buffer_desc().projected(flags);
-            flags.check_writable(desc.readonly, "Object is not writable.", vm)?;
-            Ok(PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS))
+            flags.check_writable(false, "Object is not writable.", vm)?;
+            let array = zelf.read();
+            let desc = Self::buffer_desc(&array).projected(flags);
+            zelf.export_len.store(array.len(), atomic::Ordering::SeqCst);
+            let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
+            drop(array);
+            Ok(buffer)
         }
 
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
-            Ok(PyBuffer::new(
-                zelf.to_owned().into(),
-                zelf.buffer_desc(),
-                &BUFFER_METHODS,
-            ))
+            let array = zelf.read();
+            let desc = Self::buffer_desc(&array);
+            zelf.export_len.store(array.len(), atomic::Ordering::SeqCst);
+            let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
+            drop(array);
+            Ok(buffer)
         }
     }
 
@@ -1716,7 +1724,16 @@ pub mod array {
                         let item = ArrayContentType::item_from_object(typecode, value, vm)?;
                         zelf.write().setitem_by_item(i, item, vm)
                     } else {
-                        zelf.write().delitem_by_index(i, vm)
+                        if zelf.exports.load(atomic::Ordering::SeqCst) != 0 {
+                            let len = zelf.export_len.load(atomic::Ordering::SeqCst);
+                            if i.wrapped_at(len).is_none() {
+                                return Err(vm.new_index_error("assignment index out of range"));
+                            }
+                            return Err(vm.new_buffer_error(
+                                "cannot resize an array that is exporting buffers",
+                            ));
+                        }
+                        zelf.try_resizable(vm)?.delitem_by_index(i, vm)
                     }
                 }),
                 contains: atomic_func!(|seq, target, vm| {
@@ -1751,7 +1768,15 @@ pub mod array {
         fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             // An export is a borrow someone else still holds, so it is
             // answered before the lock rather than by waiting on it.
-            (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| self.write())
+            if self.exports.load(atomic::Ordering::SeqCst) != 0 {
+                return None;
+            }
+            let array = self.write();
+            if self.exports.load(atomic::Ordering::SeqCst) == 0 {
+                Some(array)
+            } else {
+                None
+            }
         }
 
         fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<Self::Resizable<'_>> {
