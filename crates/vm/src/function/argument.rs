@@ -688,6 +688,7 @@ arg_name! {
     NameIterables = "iterables",
     NameKeywords = "keywords",
     NameFields = "fields",
+    NameValues = "values",
 }
 
 #[derive(Clone, Debug)]
@@ -1035,8 +1036,9 @@ macro_rules! tuple_from_py_func_args {
                 let mut max = 0;
                 $(
                     let (start, end) = $T::arity().into_inner();
-                    min += start;
-                    // An unbounded `end` is `usize::MAX`, so the sum saturates.
+                    // Both custom required bounds and unbounded upper bounds
+                    // can reach `usize::MAX`; neither composition may overflow.
+                    min = usize::saturating_add(min, start);
                     max = usize::saturating_add(max, end);
                 )+
                 min..=max
@@ -1060,3 +1062,95 @@ tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 tuple_from_py_func_args!(A, B, C, D, E, F, G);
 tuple_from_py_func_args!(A, B, C, D, E, F, G, H);
+
+#[cfg(test)]
+mod arity_composition_tests {
+    use super::*;
+
+    struct Bounds<const MIN: usize, const MAX: usize>;
+
+    impl<const MIN: usize, const MAX: usize> FromArgs for Bounds<MIN, MAX> {
+        fn arity() -> RangeInclusive<usize> {
+            MIN..=MAX
+        }
+
+        fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            unreachable!("metadata-only fixture; no interpreter is constructed")
+        }
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Mixed {
+        #[pyarg(flatten)]
+        prefix: Bounds<2, 3>,
+        #[pyarg(positional)]
+        required: usize,
+        #[pyarg(positional, optional)]
+        optional: OptionalArg<usize>,
+        #[pyarg(positional, default = 0)]
+        defaulted: usize,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Nested(#[pyarg(flatten)] (Bounds<1, 2>, Bounds<0, 1>));
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct OptionalOnly {
+        #[pyarg(flatten)]
+        prefix: Bounds<0, 2>,
+        #[pyarg(positional, optional)]
+        optional: OptionalArg<usize>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Phantoms {
+        _phantom: core::marker::PhantomData<()>,
+        #[pyarg(flatten)]
+        _phantom_flattened: core::marker::PhantomData<()>,
+        #[pyarg(positional)]
+        required: usize,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Saturated {
+        #[pyarg(flatten)]
+        prefix: Bounds<{ usize::MAX }, { usize::MAX }>,
+        #[pyarg(positional)]
+        required: usize,
+    }
+
+    #[test]
+    fn derived_bounds_include_required_flattened_arguments() {
+        assert_eq!(Mixed::arity(), 3..=6);
+        assert_eq!(Nested::arity(), 1..=3);
+        assert_eq!(Phantoms::arity(), 1..=1);
+    }
+
+    #[test]
+    fn optional_only_flattening_preserves_zero_minimum() {
+        assert_eq!(OptionalOnly::arity(), 0..=3);
+        assert_eq!(<(Bounds<0, 2>, Bounds<0, 3>)>::arity(), 0..=5);
+        assert_eq!(
+            <(Bounds<2, 3>, (Bounds<1, 2>, Bounds<0, 1>))>::arity(),
+            3..=6
+        );
+    }
+
+    #[test]
+    fn both_tuple_and_derived_bounds_saturate() {
+        assert_eq!(
+            <(Bounds<1, 1>, Bounds<0, { usize::MAX }>)>::arity(),
+            1..=usize::MAX
+        );
+        assert_eq!(Saturated::arity(), usize::MAX..=usize::MAX);
+        assert_eq!(
+            <(Bounds<{ usize::MAX }, { usize::MAX }>, Bounds<1, 1>)>::arity(),
+            usize::MAX..=usize::MAX,
+        );
+    }
+}

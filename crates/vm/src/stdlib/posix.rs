@@ -2204,13 +2204,20 @@ pub mod module {
     }
 
     #[cfg(target_os = "linux")]
+    #[derive(FromArgs)]
+    struct PidfdOpenArgs {
+        #[pyarg(any)]
+        pid: libc::pid_t,
+        #[pyarg(any, default)]
+        flags: u32,
+    }
+
+    #[cfg(target_os = "linux")]
     #[pyfunction]
     fn pidfd_open(
-        pid: libc::pid_t,
-        flags: OptionalArg<u32>,
+        PidfdOpenArgs { pid, flags }: PidfdOpenArgs,
         vm: &VirtualMachine,
     ) -> PyResult<OwnedFd> {
-        let flags = flags.unwrap_or(0);
         rustpython_host_env::posix::pidfd_open(pid, flags).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -3068,8 +3075,20 @@ pub mod module {
     }
 
     #[cfg(target_os = "linux")]
+    #[derive(FromArgs)]
+    struct GetRandomArgs {
+        #[pyarg(any)]
+        size: isize,
+        #[pyarg(any, default)]
+        flags: core::ffi::c_int,
+    }
+
+    #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn getrandom(size: isize, flags: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn getrandom(
+        GetRandomArgs { size, flags }: GetRandomArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let size = usize::try_from(size)
             .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {size}")))?;
         let mut buf = Vec::with_capacity(size);
@@ -3077,7 +3096,7 @@ pub mod module {
             let len = rustpython_host_env::posix::getrandom(
                 buf.as_mut_ptr() as *mut libc::c_void,
                 size,
-                flags.unwrap_or(0),
+                flags as u32,
             )
             .map_err(|_| vm.new_last_os_error())?;
             buf.set_len(len);
@@ -3207,7 +3226,7 @@ mod posix_sched {
         pid: i32,
         #[pyarg(positional)]
         policy: i32,
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "param")]
         sched_param: PyObjectRef,
     }
 
@@ -3236,7 +3255,7 @@ mod posix_sched {
     struct SchedSetParamArgs {
         #[pyarg(positional)]
         pid: i32,
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "param")]
         sched_param: PyObjectRef,
     }
 

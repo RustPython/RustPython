@@ -395,7 +395,6 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertRaises(AttributeError):
             del self.con.isolation_level
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bpo37347(self):
         class Printer:
             def log(self, *args):
