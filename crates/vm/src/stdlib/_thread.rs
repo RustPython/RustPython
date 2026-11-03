@@ -31,6 +31,7 @@ pub(crate) mod _thread {
             OptionalArg, Param, ParamKind, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
+        stdlib::time::pytime,
         types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
     };
 
@@ -51,12 +52,6 @@ pub(crate) mod _thread {
         unix => Some("pthread"),
         any(target_os = "solaris", target_os = "illumos") => Some("solaris"),
         _ => None,
-    };
-
-    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = if cfg!(target_os = "windows") {
-        0xffffffff * 1_000
-    } else {
-        i64::MAX / 1_000
     };
 
     /// [CPython `SYSTEM_PAGE_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_obmalloc.h#L170)
@@ -81,7 +76,7 @@ pub(crate) mod _thread {
 
     // this is a value in seconds
     #[pyattr]
-    const TIMEOUT_MAX: f64 = (TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000) as f64;
+    const TIMEOUT_MAX: f64 = pytime::THREAD_TIMEOUT_MAX_SECONDS as f64;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
@@ -1940,44 +1935,11 @@ pub(crate) mod _thread {
             timeout_obj: Option<crate::PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Duration>> {
-            const JOIN_TIMEOUT_MAX_SECONDS: i64 = TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000;
             let Some(timeout_obj) = timeout_obj else {
                 return Ok(None);
             };
-
-            if let Some(t) = timeout_obj.try_index_opt(vm) {
-                let t: i64 = t?.try_to_primitive(vm).map_err(|_| {
-                    vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
-                })?;
-                if !(-JOIN_TIMEOUT_MAX_SECONDS..=JOIN_TIMEOUT_MAX_SECONDS).contains(&t) {
-                    return Err(
-                        vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
-                    );
-                }
-                if t < 0 {
-                    return Ok(None);
-                }
-                return Ok(Some(Duration::from_secs(t as u64)));
-            }
-
-            if let Some(t) = timeout_obj.try_float_opt(vm) {
-                let t = t?.to_f64();
-                if t.is_nan() {
-                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                }
-                if !t.is_finite() || !(-TIMEOUT_MAX..=TIMEOUT_MAX).contains(&t) {
-                    return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-                }
-                if t < 0.0 {
-                    return Ok(None);
-                }
-                return Ok(Some(Duration::from_secs_f64(t)));
-            }
-
-            Err(vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer or float",
-                timeout_obj.class().name()
-            )))
+            let nanoseconds = pytime::from_seconds_object(&timeout_obj, pytime::Round::Up, vm)?;
+            Ok((nanoseconds >= 0).then(|| Duration::from_nanos(nanoseconds as u64)))
         }
     }
 
