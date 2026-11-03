@@ -224,7 +224,9 @@ mod _heapq {
             }
         };
 
-        let cmp = top.rich_compare_bool(&item, PyComparisonOp::Lt, vm)?;
+        let cmp = top.rich_compare_bool(&item, PyComparisonOp::Lt, vm);
+        drop(top);
+        let cmp = cmp?;
         if !cmp {
             return Ok(item);
         }
@@ -233,7 +235,10 @@ mod _heapq {
             let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
+                None => {
+                    drop(vec);
+                    return Err(vm.new_index_error("index out of range"));
+                }
             };
 
             vec[0] = item;
@@ -465,7 +470,9 @@ mod _heapq {
             }
         };
 
-        let cmp = item.rich_compare_bool(&top, PyComparisonOp::Lt, vm)?;
+        let cmp = item.rich_compare_bool(&top, PyComparisonOp::Lt, vm);
+        drop(top);
+        let cmp = cmp?;
         if !cmp {
             return Ok(item);
         }
@@ -474,7 +481,10 @@ mod _heapq {
             let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
+                None => {
+                    drop(vec);
+                    return Err(vm.new_index_error("index out of range"));
+                }
             };
 
             vec[0] = item;
