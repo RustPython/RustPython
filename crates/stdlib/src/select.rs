@@ -485,13 +485,14 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        #[allow(dead_code)]
         struct EpollExitArgs {
-            #[pyarg(positional, default = None, name = "exc_type")]
-            _exc_type: Option<PyObjectRef>,
-            #[pyarg(positional, default = None, name = "exc_value")]
-            _exc_value: Option<PyObjectRef>,
-            #[pyarg(positional, default = None, name = "exc_tb")]
-            _exc_tb: Option<PyObjectRef>,
+            #[pyarg(positional, default = None)]
+            exc_type: Option<PyObjectRef>,
+            #[pyarg(positional, default = None)]
+            exc_value: Option<PyObjectRef>,
+            #[pyarg(positional, default = None)]
+            exc_tb: Option<PyObjectRef>,
         }
 
         #[pyclass(with(Constructor))]
