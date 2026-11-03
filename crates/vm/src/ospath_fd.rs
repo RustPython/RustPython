@@ -19,8 +19,7 @@ impl PathConverter {
         self.try_path_or_fd_allow_invalid(obj, vm)?.ok_or_else(|| {
             // Preserve the usual EBADF result for the -1 descriptor.
             unsafe { crt_fd::Borrowed::try_borrow_raw(-1) }
-                .err()
-                .expect("-1 is not a valid borrowed descriptor")
+                .expect_err("-1 is not a valid borrowed descriptor")
                 .into_pyexception(vm)
         })
     }
