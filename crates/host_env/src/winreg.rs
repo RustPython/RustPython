@@ -422,22 +422,25 @@ pub fn query_default_value(
 
 pub fn query_value_bytes(
     hkey: Registry::HKEY,
-    wide_name: &widestring::WideCStr,
+    wide_name: Option<&widestring::WideCStr>,
 ) -> Result<(Vec<u8>, u32), u32> {
     let mut buf_size: u32 = 0;
     let res = unsafe {
         query_value_ex(
             hkey,
-            Some(wide_name),
+            wide_name,
             core::ptr::null_mut(),
             core::ptr::null_mut(),
             &mut buf_size,
         )
     };
-    if res == Foundation::ERROR_MORE_DATA || buf_size == 0 {
+    if res == Foundation::ERROR_MORE_DATA {
         buf_size = 256;
     } else if res != 0 {
         return Err(res);
+    } else if buf_size == 0 {
+        // Keep a nonzero buffer so a value that grows between calls can retry.
+        buf_size = 256;
     }
 
     let mut ret_buf = vec![0u8; buf_size as usize];
@@ -448,7 +451,7 @@ pub fn query_value_bytes(
         let res = unsafe {
             query_value_ex(
                 hkey,
-                Some(wide_name),
+                wide_name,
                 &mut typ,
                 ret_buf.as_mut_ptr(),
                 &mut ret_size,
