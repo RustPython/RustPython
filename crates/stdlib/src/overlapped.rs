@@ -24,6 +24,30 @@ mod _overlapped {
         windows::ToWideString,
     };
 
+    #[derive(FromArgs)]
+    struct ReceiveFlags {
+        #[pyarg(positional, default)]
+        flags: u32,
+    }
+
+    #[derive(FromArgs)]
+    struct RegisterWaitArgs {
+        #[pyarg(positional, name = "Object")]
+        object: isize,
+        #[pyarg(positional, name = "CompletionPort")]
+        completion_port: isize,
+        #[pyarg(positional, name = "Overlapped")]
+        overlapped: usize,
+        #[pyarg(positional, name = "Timeout")]
+        timeout: u32,
+    }
+
+    #[derive(FromArgs)]
+    struct ResultWait {
+        #[pyarg(positional, default)]
+        wait: bool,
+    }
+
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         let _ = vm.import("_socket", 0)?;
         host_overlapped::initialize_winsock_extensions()
@@ -304,11 +328,14 @@ mod _overlapped {
         }
 
         #[pymethod]
-        fn getresult(zelf: &Py<Self>, wait: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
+        fn getresult(
+            zelf: &Py<Self>,
+            ResultWait { wait }: ResultWait,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             use host_winapi::{ERROR_BROKEN_PIPE, ERROR_MORE_DATA, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
-            let wait = wait.unwrap_or(false);
 
             // Check operation state
             if matches!(inner.data, OverlappedData::None) {
@@ -492,7 +519,7 @@ mod _overlapped {
             zelf: &Py<Self>,
             handle: isize,
             size: u32,
-            flags: OptionalArg<u32>,
+            ReceiveFlags { flags }: ReceiveFlags,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{
@@ -504,7 +531,7 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            let mut flags = flags.unwrap_or(0);
+            let mut flags = flags;
 
             #[cfg(target_pointer_width = "32")]
             let size = core::cmp::min(size, isize::MAX as u32);
@@ -691,8 +718,8 @@ mod _overlapped {
         #[pymethod]
         fn AcceptEx(
             zelf: &Py<Self>,
-            listen_socket: isize,
-            accept_socket: isize,
+            listen_handle: isize,
+            accept_handle: isize,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
@@ -707,12 +734,12 @@ mod _overlapped {
             let buf = vec![0u8; size * 2];
             let buf = vm.ctx.new_bytes(buf);
 
-            inner.handle = listen_socket as host_overlapped::Handle;
+            inner.handle = listen_handle as host_overlapped::Handle;
             inner.data = OverlappedData::Accept(buf.clone());
 
             let err = host_overlapped::start_accept_ex(
-                listen_socket as usize,
-                accept_socket as usize,
+                listen_handle as usize,
+                accept_handle as usize,
                 buf.as_bytes().as_ptr() as *mut u8,
                 size as u32,
                 &mut inner.overlapped,
@@ -732,8 +759,8 @@ mod _overlapped {
         #[pymethod]
         fn ConnectEx(
             zelf: &Py<Self>,
-            socket: isize,
-            address: PyTupleRef,
+            client_handle: isize,
+            address_as_bytes: PyTupleRef,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
@@ -743,9 +770,9 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            let (addr_bytes, addr_len) = parse_address(&address, vm)?;
+            let (addr_bytes, addr_len) = parse_address(&address_as_bytes, vm)?;
 
-            inner.handle = socket as host_overlapped::Handle;
+            inner.handle = client_handle as host_overlapped::Handle;
             // Store addr_bytes in OverlappedData to keep it alive during async operation
             inner.data = OverlappedData::Connect(addr_bytes);
 
@@ -756,7 +783,7 @@ mod _overlapped {
             };
 
             let err = host_overlapped::start_connect_ex(
-                socket as usize,
+                client_handle as usize,
                 addr_ptr as *const host_overlapped::SocketAddrRaw,
                 addr_len,
                 &mut inner.overlapped,
@@ -776,7 +803,7 @@ mod _overlapped {
         #[pymethod]
         fn DisconnectEx(
             zelf: &Py<Self>,
-            socket: isize,
+            handle: isize,
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -787,11 +814,11 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = socket as host_overlapped::Handle;
+            inner.handle = handle as host_overlapped::Handle;
             inner.data = OverlappedData::Disconnect;
 
             let err =
-                host_overlapped::start_disconnect_ex(socket as usize, flags, &mut inner.overlapped);
+                host_overlapped::start_disconnect_ex(handle as usize, flags, &mut inner.overlapped);
             inner.error = err;
 
             match err {
@@ -852,7 +879,7 @@ mod _overlapped {
 
         // ConnectNamedPipe
         #[pymethod]
-        fn ConnectNamedPipe(zelf: &Py<Self>, pipe: isize, vm: &VirtualMachine) -> PyResult<bool> {
+        fn ConnectNamedPipe(zelf: &Py<Self>, handle: isize, vm: &VirtualMachine) -> PyResult<bool> {
             use host_winapi::{ERROR_IO_PENDING, ERROR_PIPE_CONNECTED, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
@@ -860,11 +887,11 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = pipe as host_overlapped::Handle;
+            inner.handle = handle as host_overlapped::Handle;
             inner.data = OverlappedData::ConnectNamedPipe;
 
             let err = host_overlapped::start_connect_named_pipe(
-                pipe as host_overlapped::Handle,
+                handle as host_overlapped::Handle,
                 &mut inner.overlapped,
             );
             inner.error = err;
@@ -890,7 +917,7 @@ mod _overlapped {
             // y*, as _overlapped.Overlapped.WSASendTo takes
             buf: ArgBytesLike,
             flags: u32,
-            address: PyTupleRef,
+            address_as_bytes: PyTupleRef,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
@@ -901,7 +928,7 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            let (addr_bytes, addr_len) = parse_address(&address, vm)?;
+            let (addr_bytes, addr_len) = parse_address(&address_as_bytes, vm)?;
 
             inner.handle = handle as host_overlapped::Handle;
             let buf_len = buf.desc.len;
@@ -951,7 +978,7 @@ mod _overlapped {
             zelf: &Py<Self>,
             handle: isize,
             size: u32,
-            flags: OptionalArg<u32>,
+            ReceiveFlags { flags }: ReceiveFlags,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{
@@ -963,7 +990,7 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            let mut flags = flags.unwrap_or(0);
+            let mut flags = flags;
 
             #[cfg(target_pointer_width = "32")]
             let size = core::cmp::min(size, isize::MAX as u32);
@@ -1176,8 +1203,8 @@ mod _overlapped {
     }
 
     #[pyfunction]
-    fn ConnectPipe(address: String, vm: &VirtualMachine) -> PyResult<isize> {
-        host_overlapped::connect_pipe(&address)
+    fn ConnectPipe(addr: String, vm: &VirtualMachine) -> PyResult<isize> {
+        host_overlapped::connect_pipe(&addr)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
@@ -1226,10 +1253,12 @@ mod _overlapped {
 
     #[pyfunction]
     fn RegisterWaitWithQueue(
-        object: isize,
-        completion_port: isize,
-        overlapped: usize,
-        timeout: u32,
+        RegisterWaitArgs {
+            object,
+            completion_port,
+            overlapped,
+            timeout,
+        }: RegisterWaitArgs,
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
         host_overlapped::register_wait_with_queue(object, completion_port, overlapped, timeout)
@@ -1237,23 +1266,23 @@ mod _overlapped {
     }
 
     #[pyfunction]
-    fn UnregisterWait(wait_handle: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_overlapped::unregister_wait(wait_handle)
+    fn UnregisterWait(WaitHandle: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_overlapped::unregister_wait(WaitHandle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
-    fn UnregisterWaitEx(wait_handle: isize, event: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_overlapped::unregister_wait_ex(wait_handle, event)
+    fn UnregisterWaitEx(WaitHandle: isize, Event: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_overlapped::unregister_wait_ex(WaitHandle, Event)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
-    fn BindLocal(socket: isize, family: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn BindLocal(handle: isize, family: i32, vm: &VirtualMachine) -> PyResult<()> {
         if family != host_overlapped::AF_INET_FAMILY && family != host_overlapped::AF_INET6_FAMILY {
             return Err(vm.new_value_error("expected tuple of length 2 or 4"));
         }
-        host_overlapped::bind_local(socket, family)
+        host_overlapped::bind_local(handle, family)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
@@ -1263,10 +1292,14 @@ mod _overlapped {
     }
 
     #[pyfunction]
-    fn WSAConnect(socket: isize, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
-        let (addr_bytes, addr_len) = parse_address(&address, vm)?;
+    fn WSAConnect(
+        client_handle: isize,
+        address_as_bytes: PyTupleRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let (addr_bytes, addr_len) = parse_address(&address_as_bytes, vm)?;
         host_overlapped::wsa_connect(
-            socket,
+            client_handle,
             addr_bytes.as_ptr() as *const host_overlapped::SocketAddrRaw,
             addr_len,
         )
@@ -1275,33 +1308,33 @@ mod _overlapped {
 
     #[pyfunction]
     fn CreateEvent(
-        event_attributes: PyObjectRef,
-        manual_reset: bool,
-        initial_state: bool,
-        name: Option<String>,
+        EventAttributes: PyObjectRef,
+        ManualReset: bool,
+        InitialState: bool,
+        Name: Option<String>,
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
-        if !vm.is_none(&event_attributes) {
+        if !vm.is_none(&EventAttributes) {
             return Err(vm.new_value_error("EventAttributes must be None"));
         }
 
-        let name_wide: Option<widestring::WideCString> = name
+        let name_wide: Option<widestring::WideCString> = Name
             .map(|n| widestring::WideCString::from_str(&n).map_err(|err| err.to_pyexception(vm)))
             .transpose()?;
-        host_winapi::create_event_w(manual_reset, initial_state, name_wide.as_deref())
+        host_winapi::create_event_w(ManualReset, InitialState, name_wide.as_deref())
             .map(|h| h as isize)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
-    fn SetEvent(handle: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::set_event(handle as host_winapi::Handle)
+    fn SetEvent(Handle: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_winapi::set_event(Handle as host_winapi::Handle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
-    fn ResetEvent(handle: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::reset_event(handle as host_winapi::Handle)
+    fn ResetEvent(Handle: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_winapi::reset_event(Handle as host_winapi::Handle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
