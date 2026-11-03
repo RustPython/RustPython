@@ -720,8 +720,7 @@ mod winreg {
                     .iter()
                     .position(|&c| c == 0)
                     .unwrap_or(u16_slice.len());
-                let s = String::from_utf16(&u16_slice[..len])
-                    .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                let s = Wtf8Buf::from_wide(&u16_slice[..len]);
                 Ok(vm.ctx.new_str(s).into())
             }
             REG_MULTI_SZ => {
@@ -742,16 +741,14 @@ mod winreg {
                     let mut start = 0;
                     for i in 0..len {
                         if u16_slice[i] == 0 {
-                            let s = String::from_utf16(&u16_slice[start..i])
-                                .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                            let s = Wtf8Buf::from_wide(&u16_slice[start..i]);
                             strings.push(vm.ctx.new_str(s).into());
                             start = i + 1;
                         }
                     }
                     // Handle last string if not null-terminated
                     if start < len {
-                        let s = String::from_utf16(&u16_slice[start..len])
-                            .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                        let s = Wtf8Buf::from_wide(&u16_slice[start..len]);
                         strings.push(vm.ctx.new_str(s).into());
                     }
                     Ok(vm.ctx.new_list(strings).into())
