@@ -611,6 +611,7 @@ mod winreg {
     #[pyfunction]
     fn QueryInfoKey(key: HKEYArg, vm: &VirtualMachine) -> PyResult<PyRef<PyTuple>> {
         let key = key.0;
+        vm.audit("winreg.QueryInfoKey", || (key as isize,))?;
         let info = host_winreg::query_info_key_full(key)
             .map_err(|err| vm.new_os_error(format!("error code: {err}")))?;
         let tup: Vec<PyObjectRef> = vec![
@@ -622,8 +623,28 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryValue(key: HKEYArg, sub_key: Option<String>, vm: &VirtualMachine) -> PyResult<String> {
+    fn QueryValue(
+        key: HKEYArg,
+        sub_key: Option<PyRef<PyStr>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
         let hkey = key.0;
+
+        let sub_key = sub_key
+            .as_ref()
+            .map(|s| {
+                s.as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|_| nul_char_error(vm))
+            })
+            .transpose()?;
+        vm.audit("winreg.QueryValue", || {
+            let sub_key: PyObjectRef = sub_key.as_ref().map_or_else(
+                || vm.ctx.none(),
+                |s| vm.ctx.new_str(Wtf8Buf::from_wide(s.as_slice())).into(),
+            );
+            (hkey as isize, sub_key, vm.ctx.none())
+        })?;
 
         if hkey == host_winreg::HKEY_PERFORMANCE_DATA {
             return Err(os_error_from_windows_code(
@@ -632,10 +653,6 @@ mod winreg {
             ));
         }
 
-        let sub_key = sub_key
-            .map(WideCString::from_str)
-            .transpose()
-            .map_err(|e| e.to_pyexception(vm))?;
         host_winreg::query_default_value(hkey, sub_key.as_deref())
             .map_err(|err| err.to_pyexception(vm))
     }
