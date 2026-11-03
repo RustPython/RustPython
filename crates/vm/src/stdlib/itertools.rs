@@ -892,6 +892,21 @@ mod decl {
         }
     }
 
+    impl PyItertoolsIslice {
+        fn clear_iterable(&self) {
+            let previous = self.iterable.lock().take();
+            drop(previous);
+        }
+
+        fn next_source(&self, iterable: &PyIter, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let result = iterable.next(vm);
+            if !matches!(&result, Ok(PyIterReturn::Return(_))) {
+                self.clear_iterable();
+            }
+            result
+        }
+    }
+
     impl SelfIter for PyItertoolsIslice {}
 
     impl IterNext for PyItertoolsIslice {
@@ -902,27 +917,15 @@ mod decl {
             let stop = zelf.stop.unwrap_or(usize::MAX);
 
             while zelf.cur.load() < zelf.next.load() {
-                raise_if_stop!({
-                    let result = iterable.next(vm)?;
-                    if matches!(result, PyIterReturn::StopIteration(_)) {
-                        *zelf.iterable.lock() = None;
-                    }
-                    result
-                });
+                raise_if_stop!(zelf.next_source(&iterable, vm)?);
                 zelf.cur.fetch_add(1);
             }
             if zelf.cur.load() >= stop {
-                *zelf.iterable.lock() = None;
+                zelf.clear_iterable();
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
-            let obj = raise_if_stop!({
-                let result = iterable.next(vm)?;
-                if matches!(result, PyIterReturn::StopIteration(_)) {
-                    *zelf.iterable.lock() = None;
-                }
-                result
-            });
+            let obj = raise_if_stop!(zelf.next_source(&iterable, vm)?);
             zelf.cur.fetch_add(1);
             let oldnext = zelf.next.load();
             let (newnext, ovf) = oldnext.overflowing_add(zelf.step);
