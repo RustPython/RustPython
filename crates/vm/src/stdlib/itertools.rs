@@ -1799,6 +1799,8 @@ mod decl {
     struct PyItertoolsPairwise {
         iterator: PyIter,
         old: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        terminal: AtomicBool,
     }
 
     impl Constructor for PyItertoolsPairwise {
@@ -1811,6 +1813,7 @@ mod decl {
             Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),
+                terminal: AtomicBool::new(false),
             })
         }
     }
@@ -1820,18 +1823,40 @@ mod decl {
 
     impl SelfIter for PyItertoolsPairwise {}
 
+    impl PyItertoolsPairwise {
+        fn next_item(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            match self.iterator.next(vm) {
+                Ok(PyIterReturn::Return(obj)) => Ok(PyIterReturn::Return(obj)),
+                Ok(PyIterReturn::StopIteration(value)) => {
+                    self.terminal.store(true, Ordering::Release);
+                    Ok(PyIterReturn::StopIteration(value))
+                }
+                Err(err) => {
+                    self.terminal.store(true, Ordering::Release);
+                    Err(err)
+                }
+            }
+        }
+    }
+
     impl IterNext for PyItertoolsPairwise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            if zelf.terminal.load(Ordering::Acquire) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
             let old_clone = {
                 let guard = zelf.old.read();
                 guard.clone()
             };
             let old = match old_clone {
-                None => match zelf.iterator.next(vm)? {
+                None => match zelf.next_item(vm)? {
                     PyIterReturn::Return(obj) => {
                         // Needed for when we reenter
                         let previous = zelf.old.write().replace(obj.clone());
                         drop(previous);
+                        if zelf.terminal.load(Ordering::Acquire) {
+                            return Ok(PyIterReturn::StopIteration(None));
+                        }
                         obj
                     }
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -1839,7 +1864,7 @@ mod decl {
                 Some(obj) => obj,
             };
 
-            let new = raise_if_stop!(zelf.iterator.next(vm)?);
+            let new = raise_if_stop!(zelf.next_item(vm)?);
             let previous = zelf.old.write().replace(new.clone());
             drop(previous);
 
