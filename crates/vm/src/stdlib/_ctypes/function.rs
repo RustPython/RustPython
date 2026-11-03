@@ -1699,6 +1699,7 @@ fn build_result(
     // Convert the foreign-call result to a Python object
     let mut result = convert_raw_result(&call_result, call_info, vm)?;
 
+    // Apply errcheck if set
     // Clone before calling Python so the callback can change errcheck.
     let errcheck = zelf.errcheck.read().clone();
     if let Some(errcheck) = errcheck.as_ref() {
