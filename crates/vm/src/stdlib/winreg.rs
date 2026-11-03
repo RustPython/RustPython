@@ -822,34 +822,29 @@ mod winreg {
             }
             REG_MULTI_SZ => {
                 if vm.is_none(&value) {
-                    // Empty list = double null terminator
-                    return Ok(Some(vec![0u8, 0u8, 0u8, 0u8]));
+                    return Ok(Some(vec![0u8, 0u8]));
                 }
                 let list = value
                     .downcast::<crate::builtins::PyList>()
                     .map_err(|_| vm.new_type_error("value must be a list of strings"))?;
 
-                let mut encoded = Vec::new();
-                for item in list.borrow_vec().iter() {
-                    // The final vector is a list of NUL terminated strings. The list itself is
-                    // NUL terminated as well. Unlike REG_SZ, interior NULs are forbidden because
-                    // it would truncate the list.
-                    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
+                let items = list.borrow_vec();
+                for item in items.iter() {
+                    if !item.downcastable::<PyStr>() {
+                        return Err(vm.new_type_error("list items must be strings"));
+                    }
+                }
+                let mut encoded = Vec::<u8>::new();
+                for item in items.iter() {
                     let s = item
                         .downcast_ref::<PyStr>()
-                        .ok_or_else(|| vm.new_type_error("list items must be strings"))?
-                        .as_wtf8()
-                        .to_wide_cstring()
-                        .map(WideCString::into_vec_with_nul)
-                        .map_err(|e| e.to_pyexception(vm))?;
-                    encoded.extend(s);
+                        .expect("all list items were checked above");
+                    for unit in s.as_wtf8().encode_wide().chain([0u16]) {
+                        encoded.extend_from_slice(&unit.to_le_bytes());
+                    }
                 }
-                let bytes = encoded
-                    .into_iter()
-                    .flat_map(u16::to_le_bytes)
-                    .chain(0u16.to_le_bytes())
-                    .collect();
-                Ok(Some(bytes))
+                encoded.extend_from_slice(&0u16.to_le_bytes());
+                Ok(Some(encoded))
             }
             // REG_BINARY and other types
             _ => {
