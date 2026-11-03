@@ -2,8 +2,10 @@
 Tests common to genericpath, ntpath and posixpath
 """
 
+import copy
 import genericpath
 import os
+import pickle
 import sys
 import unittest
 import warnings
@@ -32,6 +34,10 @@ class GenericTest:
                                 .format(self.pathmodule.__name__, attr))
 
     def test_commonprefix(self):
+        with warnings_helper.check_warnings((".*commonpath().*", DeprecationWarning)):
+            self.do_test_commonprefix()
+
+    def do_test_commonprefix(self):
         commonprefix = self.pathmodule.commonprefix
         self.assertEqual(
             commonprefix([]),
@@ -320,6 +326,21 @@ class GenericTest:
                 fd2 = fp2.fileno()
                 self.assertTrue(self.pathmodule.sameopenfile(fd1, fd2))
 
+    def test_realpath_mode_values(self):
+        for name in 'ALL_BUT_LAST', 'ALLOW_MISSING':
+            with self.subTest(name):
+                mode = getattr(self.pathmodule, name)
+                self.assertEqual(repr(mode), 'os.path.' + name)
+                self.assertEqual(str(mode), 'os.path.' + name)
+                self.assertTrue(mode)
+                self.assertIs(copy.copy(mode), mode)
+                self.assertIs(copy.deepcopy(mode), mode)
+                for proto in range(pickle.HIGHEST_PROTOCOL+1):
+                    with self.subTest(protocol=proto):
+                        pickled = pickle.dumps(mode, proto)
+                        unpickled = pickle.loads(pickled)
+                        self.assertIs(unpickled, mode)
+
 
 class TestGenericTest(GenericTest, unittest.TestCase):
     # Issue 16852: GenericTest can't inherit from unittest.TestCase
@@ -589,8 +610,9 @@ class PathLikeTests(unittest.TestCase):
         self.assertPathEqual(os.path.isdir)
 
     def test_path_commonprefix(self):
-        self.assertEqual(os.path.commonprefix([self.file_path, self.file_name]),
-                         self.file_name)
+        with warnings_helper.check_warnings((".*commonpath().*", DeprecationWarning)):
+            self.assertEqual(os.path.commonprefix([self.file_path, self.file_name]),
+                             self.file_name)
 
     def test_path_getsize(self):
         self.assertPathEqual(os.path.getsize)

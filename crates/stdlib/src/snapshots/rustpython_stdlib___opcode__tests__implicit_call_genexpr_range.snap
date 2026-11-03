@@ -1,0 +1,131 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef implicit():\n    return list(x for x in range(10))\n\ndef explicit():\n    return list((x for x in range(10)))\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:37            LOAD_CONST               0 (<code object implicit at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:37            MAKE_FUNCTION
+1:0-2:37            STORE_NAME               0 (implicit)
+
+4:0-5:39            LOAD_CONST               1 (<code object explicit at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:39            MAKE_FUNCTION
+4:0-5:39            STORE_NAME               1 (explicit)
+4:0-5:39            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:39            RETURN_VALUE
+
+Disassembly of <code object implicit at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:11-2:15            LOAD_GLOBAL              0 (list)
+2:11-2:15            COPY                     1
+2:11-2:15            LOAD_COMMON_CONSTANT     5 (list)
+2:11-2:15            IS_OP                    0 (is)
+2:11-2:15            POP_JUMP_IF_FALSE       28 (to L3)
+2:11-2:15            NOT_TAKEN
+2:11-2:15            POP_TOP
+2:11-2:15            BUILD_LIST               0
+2:15-2:37            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 2>)
+2:15-2:37            MAKE_FUNCTION
+2:27-2:32            LOAD_GLOBAL              3 (range + NULL)
+2:33-2:35            LOAD_SMALL_INT          10
+2:27-2:36            CALL                     1
+2:15-2:37            CALL                     0
+2:11-2:15            PUSH_NULL
+2:11-2:15    L1:     FOR_ITER                 3 (to L2)
+2:11-2:15            LIST_APPEND              3
+2:11-2:15            JUMP_BACKWARD            5 (to L1)
+2:11-2:15    L2:     END_FOR
+2:11-2:15            POP_ITER
+2:4-2:37             RETURN_VALUE
+2:11-2:15    L3:     PUSH_NULL
+2:15-2:37            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 2>)
+2:15-2:37            MAKE_FUNCTION
+2:27-2:32            LOAD_GLOBAL              3 (range + NULL)
+2:33-2:35            LOAD_SMALL_INT          10
+2:27-2:36            CALL                     1
+2:15-2:37            CALL                     0
+2:11-2:37            CALL                     1
+2:4-2:37             RETURN_VALUE
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 2>:
+  --                 RESUME                   4
+
+2:27-2:36            LOAD_FAST                0 (.0)
+2:27-2:36            GET_ITER                 0
+2:?-2:?              RETURN_GENERATOR
+2:?-2:?              POP_TOP
+2:0-2:0      L1:     RESUME                   0
+2:27-2:36    L2:     FOR_ITER                 7 (to L3)
+2:22-2:23            STORE_FAST_LOAD_FAST    17 (x, x)
+2:16-2:17            YIELD_VALUE              0
+2:16-2:17            RESUME                   9
+2:16-2:17            POP_TOP
+2:16-2:17            JUMP_BACKWARD            9 (to L2)
+2:27-2:36    L3:     END_FOR
+2:27-2:36            POP_ITER
+2:27-2:36            LOAD_COMMON_CONSTANT     7 (None)
+2:27-2:36            RETURN_VALUE
+
+  --         L4:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L4 -> L4 [2] lasti
+
+Disassembly of <code object explicit at 0xdeadbeef, file "<?>", line 4>:
+4:0-4:0              RESUME                   0
+
+5:11-5:15            LOAD_GLOBAL              0 (list)
+5:11-5:15            COPY                     1
+5:11-5:15            LOAD_COMMON_CONSTANT     5 (list)
+5:11-5:15            IS_OP                    0 (is)
+5:11-5:15            POP_JUMP_IF_FALSE       28 (to L3)
+5:11-5:15            NOT_TAKEN
+5:11-5:15            POP_TOP
+5:11-5:15            BUILD_LIST               0
+5:16-5:38            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 5>)
+5:16-5:38            MAKE_FUNCTION
+5:28-5:33            LOAD_GLOBAL              3 (range + NULL)
+5:34-5:36            LOAD_SMALL_INT          10
+5:28-5:37            CALL                     1
+5:16-5:38            CALL                     0
+5:11-5:15            PUSH_NULL
+5:11-5:15    L1:     FOR_ITER                 3 (to L2)
+5:11-5:15            LIST_APPEND              3
+5:11-5:15            JUMP_BACKWARD            5 (to L1)
+5:11-5:15    L2:     END_FOR
+5:11-5:15            POP_ITER
+5:4-5:39             RETURN_VALUE
+5:11-5:15    L3:     PUSH_NULL
+5:16-5:38            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 5>)
+5:16-5:38            MAKE_FUNCTION
+5:28-5:33            LOAD_GLOBAL              3 (range + NULL)
+5:34-5:36            LOAD_SMALL_INT          10
+5:28-5:37            CALL                     1
+5:16-5:38            CALL                     0
+5:11-5:39            CALL                     1
+5:4-5:39             RETURN_VALUE
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 5>:
+  --                 RESUME                   4
+
+5:28-5:37            LOAD_FAST                0 (.0)
+5:28-5:37            GET_ITER                 0
+5:?-5:?              RETURN_GENERATOR
+5:?-5:?              POP_TOP
+5:0-5:0      L1:     RESUME                   0
+5:28-5:37    L2:     FOR_ITER                 7 (to L3)
+5:23-5:24            STORE_FAST_LOAD_FAST    17 (x, x)
+5:17-5:18            YIELD_VALUE              0
+5:17-5:18            RESUME                   9
+5:17-5:18            POP_TOP
+5:17-5:18            JUMP_BACKWARD            9 (to L2)
+5:28-5:37    L3:     END_FOR
+5:28-5:37            POP_ITER
+5:28-5:37            LOAD_COMMON_CONSTANT     7 (None)
+5:28-5:37            RETURN_VALUE
+
+  --         L4:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L4 -> L4 [2] lasti

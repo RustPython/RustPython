@@ -404,6 +404,16 @@ impl FormatCode {
                 continue;
             }
 
+            let c = if c == b'Z' {
+                match chars.next() {
+                    Some(b'f') => b'F',
+                    Some(b'd') => b'D',
+                    Some(0) => return Err(exceptions::NulError.to_string()),
+                    _ => return Err("bad char in struct format".to_owned()),
+                }
+            } else {
+                c
+            };
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {

@@ -19,7 +19,7 @@ pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
     UnsupportedFormatChar(CodePoint),
-    IncompleteFormat,
+    StrayModulo,
     WidthTooBig,
     PrecisionTooBig,
     // Unimplemented,
@@ -38,7 +38,7 @@ impl fmt::Display for CFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.typ {
             CFormatErrorType::UnmatchedKeyParentheses => write!(f, "incomplete format key"),
-            CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
+            CFormatErrorType::StrayModulo => write!(f, "stray % at position {}", self.index),
             CFormatErrorType::UnsupportedFormatChar(c) => write!(
                 f,
                 "unsupported format character '{}' ({:#x}) at index {}",
@@ -590,7 +590,7 @@ impl CFormatSpec {
     }
 }
 
-fn parse_spec_mapping_key<T, I>(iter: &mut ParseIter<I>) -> Result<Option<T>, ParsingError>
+pub fn parse_spec_mapping_key<T, I>(iter: &mut ParseIter<I>) -> Result<Option<T>, ParsingError>
 where
     T: FormatBuf,
     I: Iterator<Item = T::Char>,
@@ -604,7 +604,7 @@ where
     Ok(None)
 }
 
-fn parse_flags<C, I>(iter: &mut ParseIter<I>) -> CConversionFlags
+pub fn parse_flags<C, I>(iter: &mut ParseIter<I>) -> CConversionFlags
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -626,7 +626,7 @@ where
     flags
 }
 
-fn consume_length<C, I>(iter: &mut ParseIter<I>)
+pub fn consume_length<C, I>(iter: &mut ParseIter<I>)
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -634,7 +634,7 @@ where
     iter.next_if(|(_, c)| matches!(c.to_char_lossy(), 'h' | 'l' | 'L'));
 }
 
-fn parse_format_type<C, I>(
+pub fn parse_format_type<C, I>(
     iter: &mut ParseIter<I>,
     context: CFormatContext,
 ) -> Result<CFormatType, ParsingError>
@@ -644,7 +644,7 @@ where
 {
     let (index, c) = iter.next().ok_or_else(|| {
         (
-            CFormatErrorType::IncompleteFormat,
+            CFormatErrorType::StrayModulo,
             iter.peek().map_or(0, |x| x.0),
         )
     })?;
@@ -674,7 +674,7 @@ where
     })
 }
 
-fn parse_quantity<C, I>(
+pub fn parse_quantity<C, I>(
     iter: &mut ParseIter<I>,
     max_value: usize,
     too_big: CFormatErrorType,
@@ -709,7 +709,9 @@ where
     Ok(None)
 }
 
-fn parse_precision<C, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatPrecision>, ParsingError>
+pub fn parse_precision<C, I>(
+    iter: &mut ParseIter<I>,
+) -> Result<Option<CFormatPrecision>, ParsingError>
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -831,9 +833,14 @@ impl<S> CFormatStrOrBytes<S> {
                     }
 
                     let spec =
-                        CFormatSpecKeyed::parse(iter, context).map_err(|err| CFormatError {
-                            typ: err.0,
-                            index: err.1,
+                        CFormatSpecKeyed::parse(iter, context).map_err(|(typ, err_index)| {
+                            // A stray % is reported at the position of the %.
+                            let index = if typ == CFormatErrorType::StrayModulo {
+                                index
+                            } else {
+                                err_index
+                            };
+                            CFormatError { typ, index }
                         })?;
 
                     parts.push((index, CFormatPart::Spec(spec)));
@@ -842,8 +849,8 @@ impl<S> CFormatStrOrBytes<S> {
                     }
                 } else {
                     return Err(CFormatError {
-                        typ: CFormatErrorType::IncompleteFormat,
-                        index: index + 1,
+                        typ: CFormatErrorType::StrayModulo,
+                        index,
                     });
                 }
             } else {
@@ -991,8 +998,8 @@ mod tests {
         assert_eq!(
             "Hello %".parse::<CFormatString>(),
             Err(CFormatError {
-                typ: CFormatErrorType::IncompleteFormat,
-                index: 7
+                typ: CFormatErrorType::StrayModulo,
+                index: 6
             })
         );
     }

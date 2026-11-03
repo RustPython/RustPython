@@ -1,3 +1,5 @@
+// cspell: ignore sigalgs
+
 //! Wasm `_ssl` on the rustls-free `rustpython_host_env::ssl` surface.
 //!
 //! MemoryBIO, protocol constants, OID lookup, hostname checks, and ALPN
@@ -136,6 +138,8 @@ mod _ssl {
     const HAS_ALPN: bool = true;
     #[pyattr]
     const HAS_PSK: bool = false;
+    #[pyattr]
+    const HAS_PSK_TLS13: bool = false;
     #[pyattr]
     const HAS_SSLv2: bool = false;
     #[pyattr]
@@ -884,6 +888,11 @@ mod _ssl {
                 vm.ctx.new_str("").into(),
             ])
             .into()
+    }
+
+    #[pyfunction]
+    fn get_sigalgs(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Err(vm.new_not_implemented_error(UNAVAILABLE))
     }
 
     #[pyfunction]

@@ -4,9 +4,8 @@ import dataclasses
 import pathlib
 import re
 import subprocess
-import urllib.request
-
 import tomllib
+import urllib.request
 
 CPYTHON_VERSION = "3.15"
 

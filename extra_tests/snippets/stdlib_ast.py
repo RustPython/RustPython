@@ -179,3 +179,87 @@ for key in ("a'b", "line\nbreak"):
     assert str(exc.exception) == (
         f"ast.Name.__init__ got an unexpected keyword argument {key!r}"
     )
+
+
+# Explicit AST positions must survive normalized Rust navigation ranges.
+import dis
+
+
+def store_positions(tree):
+    code = compile(tree, "<ast-columns>", "exec").co_consts[0]
+    return [
+        tuple(instruction.positions)
+        for instruction in dis.get_instructions(code)
+        if instruction.opname == "STORE_FAST"
+    ]
+
+
+# These two nodes have the same normalized navigation range but different
+# semantic columns. Position metadata must therefore use node identity.
+tree = ast.parse("def f():\n x = 1\n y = 2\n")
+first, second = tree.body[0].body
+for statement in (first, second):
+    for node in ast.walk(statement):
+        if hasattr(node, "lineno"):
+            node.lineno = node.end_lineno = 2
+first.targets[0].col_offset = first.targets[0].end_col_offset = 0
+second.targets[0].col_offset = second.targets[0].end_col_offset = -1
+assert store_positions(tree) == [(2, 2, 0, 0), (2, 2, None, None)]
+
+
+def set_location(node, line, col, end_col):
+    node.lineno = node.end_lineno = line
+    node.col_offset = col
+    node.end_col_offset = end_col
+    return node
+
+
+# Outbound conversion must not merge or drop explicitly supplied literal nodes.
+values = [set_location(ast.Constant(value=s), 1, -1, -1) for s in ("a", "", "b")]
+joined = set_location(ast.JoinedStr(values=values), 1, 0, 8)
+result = compile(
+    ast.Expression(body=joined),
+    "<locations>",
+    "eval",
+    ast.PyCF_ONLY_AST | ast.PyCF_OPTIMIZED_AST,
+    optimize=0,
+)
+assert [node.value for node in result.body.values] == ["a", "", "b"]
+assert all(node.col_offset == node.end_col_offset == -1 for node in result.body.values)
+
+# The replacement Pass derives from the statement, not its string value.
+tree = ast.parse('def f():\n    "doc"\n')
+set_location(tree.body[0].body[0], 2, -1, -1)
+set_location(tree.body[0].body[0].value, 2, 4, 9)
+result = compile(
+    tree, "<locations>", "exec", ast.PyCF_ONLY_AST | ast.PyCF_OPTIMIZED_AST, optimize=2
+)
+replacement = result.body[0].body[0]
+assert isinstance(replacement, ast.Pass)
+assert (
+    replacement.lineno,
+    replacement.end_lineno,
+    replacement.col_offset,
+    replacement.end_col_offset,
+) == (2, 2, -1, 3)
+
+# The optimizer's generated format spec is an artificial Constant; the argument
+# and the outer expression retain their own distinct source locations.
+tree = ast.parse("'%3s' % (value,)", mode="eval")
+set_location(tree.body, 1, -1, -1)
+set_location(tree.body.right.elts[0], 1, 8, 13)
+result = compile(
+    tree, "<locations>", "eval", ast.PyCF_ONLY_AST | ast.PyCF_OPTIMIZED_AST, optimize=0
+)
+formatted = result.body.values[0]
+assert (result.body.col_offset, result.body.end_col_offset) == (-1, -1)
+assert (formatted.col_offset, formatted.end_col_offset) == (8, 13)
+assert isinstance(formatted.format_spec, ast.Constant)
+assert formatted.format_spec.value == ">3"
+spec = formatted.format_spec
+assert (spec.lineno, spec.end_lineno, spec.col_offset, spec.end_col_offset) == (
+    -1,
+    -1,
+    -1,
+    -1,
+)

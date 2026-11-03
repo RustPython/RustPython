@@ -29,7 +29,7 @@ pub(crate) mod _signal {
             use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
             use std::os::fd::AsFd;
-        },
+        }
         _ => {}
     }
 
@@ -47,20 +47,26 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
-            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool =
+                core::sync::atomic::AtomicBool::new(false);
 
             impl<'a> TryFromBorrowedObject<'a> for WakeupFd {
-                fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a crate::PyObject) -> PyResult<Self> {
+                fn try_from_borrowed_object(
+                    vm: &VirtualMachine,
+                    obj: &'a crate::PyObject,
+                ) -> PyResult<Self> {
                     use num_traits::One;
 
                     let fd: &crate::Py<crate::builtins::PyInt> = obj.try_to_value(vm)?;
                     match fd.try_to_primitive::<usize>(vm) {
                         Ok(fd) => Ok(Self(fd as _)),
-                        Err(e) => if (-fd.as_bigint()).is_one() {
-                            Ok(Self(INVALID_WAKEUP))
-                        } else {
-                            Err(e)
-                        },
+                        Err(e) => {
+                            if (-fd.as_bigint()).is_one() {
+                                Ok(Self(INVALID_WAKEUP))
+                            } else {
+                                Err(e)
+                            }
+                        }
                     }
                 }
             }
@@ -72,6 +78,14 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicI32 = atomic::AtomicI32::new(INVALID_WAKEUP);
         }
     }
+
+    static WARN_ON_FULL_BUFFER: atomic::AtomicBool = atomic::AtomicBool::new(true);
+
+    // Bounded pending-call storage: signal handlers cannot allocate or lock.
+    #[cfg(any(unix, windows))]
+    static WAKEUP_WRITE_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
+    #[cfg(windows)]
+    static WAKEUP_SEND_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[allow(unused_imports)]
@@ -344,12 +358,10 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        // TODO: implement warn_on_full_buffer
-        let _ = args.warn_on_full_buffer;
         let fd = cfg_select! {
-        windows => args.fd.0,
-        _ => args.fd,
-            };
+            windows => args.fd.0,
+            _ => args.fd,
+        };
 
         if !vm.is_main_thread() {
             return Err(vm.new_value_error(
@@ -381,6 +393,7 @@ pub(crate) mod _signal {
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
+        WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
 
         #[cfg(windows)]
         WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
@@ -397,12 +410,27 @@ pub(crate) mod _signal {
     use crate::function::OptionalArg;
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[derive(FromArgs)]
+    struct PidfdSendSignalArgs {
+        #[pyarg(positional)]
+        pidfd: i32,
+        #[pyarg(positional, name = "signalnum")]
+        sig: core::ffi::c_int,
+        #[pyarg(positional, optional, py_default = "None")]
+        siginfo: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, default)]
+        flags: core::ffi::c_int,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyfunction]
     fn pidfd_send_signal(
-        pidfd: i32,
-        sig: SignalNum,
-        siginfo: OptionalArg<PyObjectRef>,
-        flags: OptionalArg<u32>,
+        PidfdSendSignalArgs {
+            pidfd,
+            sig,
+            siginfo,
+            flags,
+        }: PidfdSendSignalArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let OptionalArg::Present(obj) = siginfo
@@ -411,8 +439,7 @@ pub(crate) mod _signal {
             return Err(vm.new_type_error("siginfo must be None"));
         }
 
-        let flags = flags.unwrap_or(0);
-        host_signal::pidfd_send_signal(pidfd, sig.into(), flags)
+        host_signal::pidfd_send_signal(pidfd, sig, flags as u32)
             .map_err(|_| vm.new_last_errno_error())
     }
 
@@ -426,12 +453,11 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
         let signalnum = SignalNum::try_from(signalnum).map_err(cfg_select! {
-            windows => {
-                |_| vm.new_errno_error(libc::EINVAL, "Invalid argument").upcast()
+            windows => |_| {
+                vm.new_errno_error(libc::EINVAL, "Invalid argument")
+                    .upcast()
             },
-            _ => {
-                |msg| vm.new_value_error(msg)
-            }
+            _ => |msg| vm.new_value_error(msg),
         })?;
 
         vm.allow_threads(|| host_signal::raise_signal(signalnum.into()))
@@ -529,16 +555,100 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     pub extern "C" fn run_signal(signum: i32) {
+        // Asynchronously executing signal handlers should not mutate errno
+        // under the feet of the interrupted code.
+        let save_errno = rustpython_host_env::os::get_errno();
+        trip_signal(signum);
+        rustpython_host_env::os::set_errno(save_errno);
+    }
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    fn trip_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
 
-        host_signal::notify_signal(
-            signum,
-            WAKEUP.load(Ordering::Relaxed),
-            #[cfg(windows)]
-            WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
-            #[cfg(windows)]
-            signal::get_sigint_event(),
+        #[cfg(target_os = "wasi")]
+        host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
+
+        #[cfg(any(unix, windows))]
+        {
+            let error = host_signal::notify_signal(
+                signum,
+                WAKEUP.load(Ordering::Relaxed),
+                #[cfg(windows)]
+                WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
+                #[cfg(windows)]
+                signal::get_sigint_event(),
+            );
+            if let Some(error) = error
+                && (WARN_ON_FULL_BUFFER.load(Ordering::Relaxed) || !error.is_would_block())
+            {
+                let (errors, errno) = match error {
+                    host_signal::WakeupError::Write(errno) => (&WAKEUP_WRITE_ERRORS, errno),
+                    #[cfg(windows)]
+                    host_signal::WakeupError::Send(errno) => (&WAKEUP_SEND_ERRORS, errno),
+                };
+                for pending in errors {
+                    if pending
+                        .compare_exchange(0, errno, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        // The VM may have handled the signal on another thread
+                        // before the failed wakeup write completed.
+                        signal::set_triggered();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    pub(crate) fn wakeup_errors_pending() -> bool {
+        let pending = WAKEUP_WRITE_ERRORS
+            .iter()
+            .any(|error| error.load(Ordering::Relaxed) != 0);
+        #[cfg(windows)]
+        let pending = pending
+            || WAKEUP_SEND_ERRORS
+                .iter()
+                .any(|error| error.load(Ordering::Relaxed) != 0);
+        pending
+    }
+
+    #[cfg(any(unix, windows))]
+    pub(crate) fn report_wakeup_errors(vm: &VirtualMachine) {
+        fn report(
+            errors: &[atomic::AtomicI32],
+            make_error: fn(i32) -> host_signal::WakeupError,
+            operation: &str,
+            vm: &VirtualMachine,
+        ) {
+            for pending in errors {
+                let errno = pending.swap(0, Ordering::Relaxed);
+                if errno != 0 {
+                    vm.run_unraisable(
+                        make_error(errno).into_io_error().into_pyexception(vm),
+                        Some(format!(
+                            "Exception ignored while trying to {operation} to the signal wakeup fd"
+                        )),
+                        vm.ctx.none(),
+                    );
+                }
+            }
+        }
+        report(
+            &WAKEUP_WRITE_ERRORS,
+            host_signal::WakeupError::Write,
+            "write",
+            vm,
+        );
+        #[cfg(windows)]
+        report(
+            &WAKEUP_SEND_ERRORS,
+            host_signal::WakeupError::Send,
+            "send",
+            vm,
         );
     }
 

@@ -55,8 +55,8 @@ impl VirtualMachine {
     }
 
     pub fn new_code(&self, code: impl IntoCodeObject) -> PyRef<PyCode> {
-        let code = code.into_code_object(self);
-        PyRef::new_ref(PyCode::new(code), self.ctx.types.code_type.to_owned(), None)
+        let code = code.into_pycode(self);
+        PyRef::new_ref(code, self.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
@@ -83,15 +83,16 @@ impl VirtualMachine {
     }
 
     pub fn new_scope_with_main(&self) -> PyResult<Scope> {
-        let scope = self.new_scope_with_builtins();
-        let main_module = self.new_module("__main__", scope.globals.clone(), None);
+        let globals = self.ctx.new_dict();
+        let scope = Scope::with_builtins(None, globals.clone(), self);
+        let main_module = self.new_module("__main__", globals.clone(), None);
 
         self.sys_module.get_attr("modules", self)?.set_item(
             "__main__",
             main_module.into(),
             self,
         )?;
-        self.set_main_builtin_importer(&scope.globals)?;
+        self.set_main_builtin_importer(&globals)?;
 
         Ok(scope)
     }
@@ -110,6 +111,19 @@ impl VirtualMachine {
             main_module
         };
         self.set_main_builtin_importer(&module.dict())?;
+        Ok(module)
+    }
+
+    /// PyImport_AddModuleRef("__main__")
+    pub fn add_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        if let Ok(module) = modules.get_item(identifier!(self, __main__), self)
+            && let Ok(module) = module.downcast::<PyModule>()
+        {
+            return Ok(module);
+        }
+        let module = self.new_module("__main__", self.ctx.new_dict(), None);
+        modules.set_item(identifier!(self, __main__), module.clone().into(), self)?;
         Ok(module)
     }
 
@@ -546,6 +560,19 @@ impl VirtualMachine {
                     self.ctx.exceptions.indentation_error
                 }
             }
+            // _is_end_of_source: the parser failed at the end of the input,
+            // where more input can still follow.
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error,
+                raw_location,
+                ..
+            }) if !matches!(error, ParseErrorType::Lexical(_))
+                && source
+                    .is_some_and(|source| raw_location.start().to_usize() >= source.len()) =>
+            {
+                incomplete_or_syntax(allow_incomplete)
+            }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
@@ -587,7 +614,16 @@ impl VirtualMachine {
         // Tokenizer/parser errors attach the current source line. Compiler
         // errors load that line with ProgramText, which is None when the
         // filename cannot be opened (compile of a string).
-        let mut statement = if matches!(error, crate::compiler::CompileError::Codegen(_)) {
+        let eof_token = match error {
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                eof_token: Some(eof_token),
+                ..
+            }) => Some(eof_token),
+            _ => None,
+        };
+        let mut statement = if let Some(eof_token) = eof_token {
+            Some(eof_token.line.clone())
+        } else if matches!(error, crate::compiler::CompileError::Codegen(_)) {
             self.program_text(error.source_path(), error.python_location().0)
         } else {
             source.and_then(|src| get_statement(src, error.location()))
@@ -621,16 +657,18 @@ impl VirtualMachine {
             feature = "parser" => {
                 match error {
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                        error: ParseErrorType::Lexical(
-                            LexicalErrorType::TabError
-                            | LexicalErrorType::TooDeepIndentation
-                            | LexicalErrorType::LineContinuationError
-                            | LexicalErrorType::UnclosedBracket { .. },
-                        ),
+                        error:
+                            ParseErrorType::Lexical(
+                                LexicalErrorType::TabError
+                                | LexicalErrorType::TooDeepIndentation
+                                | LexicalErrorType::LineContinuationError
+                                | LexicalErrorType::UnclosedBracket { .. },
+                            ),
                         ..
                     }) => Some(0),
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                        error: ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                        error:
+                            ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                             | ParseErrorType::UnexpectedIndentation,
                         ..
                     }) => Some(-1),
@@ -698,7 +736,9 @@ impl VirtualMachine {
                         .as_deref()
                         .and_then(|line| line.chars().next())
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
-            let (end_lineno, end_offset) = if no_end_offset {
+            let (end_lineno, end_offset) = if let Some(eof_token) = eof_token {
+                (eof_token.lineno, eof_token.end_offset())
+            } else if no_end_offset {
                 (end_lineno, -1)
             } else if let Some(end_offset) = tokenizer_end_offset {
                 (end_lineno, end_offset)

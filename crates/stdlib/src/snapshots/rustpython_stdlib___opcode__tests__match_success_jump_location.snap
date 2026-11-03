@@ -1,0 +1,44 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(self):\n    match 0:\n        case 0:\n            x = True\n        case 0:\n            x = False\n    self.assertIs(x, True)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-7:26            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-7:26            MAKE_FUNCTION
+1:0-7:26            STORE_NAME               0 (f)
+1:0-7:26            LOAD_COMMON_CONSTANT     7 (None)
+1:0-7:26            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:10-2:11            LOAD_SMALL_INT           0
+
+3:13-3:14            COPY                     1
+3:13-3:14            LOAD_SMALL_INT           0
+3:13-3:14            COMPARE_OP              88 (bool(==))
+3:13-3:14            POP_JUMP_IF_FALSE        5 (to L1)
+3:13-3:14            NOT_TAKEN
+
+4:16-4:20            POP_TOP
+4:16-4:20            LOAD_COMMON_CONSTANT     9 (True)
+4:12-4:13            STORE_FAST               1 (x)
+4:12-4:13            JUMP_FORWARD             8 (to L2)
+
+5:13-5:14    L1:     LOAD_SMALL_INT           0
+5:13-5:14            COMPARE_OP              88 (bool(==))
+5:13-5:14            POP_JUMP_IF_FALSE        3 (to L2)
+5:13-5:14            NOT_TAKEN
+
+6:16-6:21            LOAD_COMMON_CONSTANT    10 (False)
+6:12-6:13            STORE_FAST               1 (x)
+
+7:4-7:8      L2:     LOAD_FAST_BORROW         0 (self)
+7:4-7:17             LOAD_ATTR                1 (assertIs + NULL|self)
+7:18-7:19            LOAD_FAST_CHECK          1 (x)
+7:21-7:25            LOAD_COMMON_CONSTANT     9 (True)
+7:4-7:26             CALL                     2
+7:4-7:26             POP_TOP
+7:4-7:26             LOAD_COMMON_CONSTANT     7 (None)
+7:4-7:26             RETURN_VALUE

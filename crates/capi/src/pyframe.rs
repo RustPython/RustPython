@@ -2,9 +2,9 @@ use crate::PyObject;
 use crate::pystate::with_vm;
 use crate::util::FfiPtrExt;
 use core::ffi::c_int;
-use rustpython_vm::Py;
 use rustpython_vm::builtins::PyCode;
 use rustpython_vm::frame::FrameObject;
+use rustpython_vm::{Py, PyObjectRef};
 
 pub type PyFrameObject = Py<FrameObject>;
 pub type PyCodeObject = Py<PyCode>;
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn PyFrame_GetLocals(frame: *mut PyFrameObject) -> *mut Py
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetGlobals(frame: *mut PyFrameObject) -> *mut PyObject {
-    with_vm(|_vm| Ok(unsafe { frame.assume_borrowed() }.f_globals()))
+    with_vm(|_vm| PyObjectRef::from(unsafe { frame.assume_borrowed() }.f_globals()))
 }
 
 #[unsafe(no_mangle)]

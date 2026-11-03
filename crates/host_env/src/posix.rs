@@ -12,8 +12,13 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
 pub use super::posix_unix_like::*;
+pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 pub use libc::{c_char, pid_t};
+
+/// `<sys/param.h>` on glibc defines NODEV as `(dev_t)-1`.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub const NODEV: i32 = -1;
 
 /// `<sysexits.h>`. The `libc` crate does not bind these.
 pub const EX_OK: i32 = 0;
@@ -570,6 +575,67 @@ pub fn statvfs_fd(fd: i32) -> std::io::Result<StatVfsInfo> {
 }
 
 #[cfg(not(target_os = "redox"))]
+pub fn mkfifo(path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    let ret = unsafe { libc::mkfifo(path.as_ptr(), mode) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+type MkfifoAt = unsafe extern "C" fn(libc::c_int, *const libc::c_char, libc::mode_t) -> libc::c_int;
+
+#[cfg(target_vendor = "apple")]
+fn mkfifoat_symbol() -> Option<MkfifoAt> {
+    static MKFIFOAT: std::sync::OnceLock<Option<MkfifoAt>> = std::sync::OnceLock::new();
+    *MKFIFOAT.get_or_init(|| {
+        // mkfifoat was added in macOS 13 / iOS 16. Resolve it at runtime so
+        // ordinary mkfifo remains usable on older Apple systems.
+        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"mkfifoat".as_ptr()) };
+        if symbol.is_null() {
+            None
+        } else {
+            // SAFETY: the system symbol has the MkfifoAt signature and stays
+            // loaded for the lifetime of the process.
+            Some(unsafe { core::mem::transmute::<*mut libc::c_void, MkfifoAt>(symbol) })
+        }
+    })
+}
+
+#[cfg(not(target_os = "redox"))]
+pub fn has_mkfifoat() -> bool {
+    #[cfg(target_vendor = "apple")]
+    {
+        mkfifoat_symbol().is_some()
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        !cfg!(target_os = "android")
+    }
+}
+
+#[cfg(not(any(target_os = "redox", target_os = "android")))]
+pub fn mkfifoat(dir_fd: i32, path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    let mkfifoat = mkfifoat_symbol().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "mkfifoat unavailable on this platform",
+        )
+    })?;
+    #[cfg(not(target_vendor = "apple"))]
+    let mkfifoat = libc::mkfifoat;
+    let ret = unsafe { mkfifoat(dir_fd, path.as_ptr(), mode) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "redox"))]
 pub fn mknod(path: &CStr, mode: libc::mode_t, device: libc::dev_t) -> std::io::Result<()> {
     let ret = unsafe { libc::mknod(path.as_ptr(), mode, device) };
     if ret == 0 {
@@ -882,6 +948,7 @@ pub fn get_number_of_os_threads() -> isize {
     0
 }
 
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Permissions {
     pub is_readable: bool,
@@ -889,21 +956,8 @@ pub struct Permissions {
     pub is_executable: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AccessError {
-    InvalidMode,
-    Os(i32),
-}
-
-impl From<std::io::Error> for AccessError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Os(value.raw_os_error().unwrap_or(0))
-    }
-}
-
-pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
-
-fn get_permissions(mode: u32) -> Permissions {
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
+const fn get_permissions(mode: u32) -> Permissions {
     Permissions {
         is_readable: mode & 4 != 0,
         is_writable: mode & 2 != 0,
@@ -911,6 +965,7 @@ fn get_permissions(mode: u32) -> Permissions {
     }
 }
 
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
 pub fn get_right_permission(
     mode: u32,
     file_owner: u32,
@@ -966,29 +1021,37 @@ pub fn getgroups() -> std::io::Result<Vec<u32>> {
     Err(std::io::Error::from_raw_os_error(libc::EOPNOTSUPP))
 }
 
-pub fn check_access(path: &Path, mode: u8) -> Result<bool, AccessError> {
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
+pub fn check_access(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: &Path,
+    mode: u8,
+    effective_ids: bool,
+    follow_symlinks: bool,
+) -> bool {
     use std::os::unix::fs::MetadataExt;
 
     let Some(mode) = AccessMode::from_bits(mode) else {
-        return Err(AccessError::InvalidMode);
+        return false;
     };
 
-    let metadata = match crate::fs::metadata(path) {
-        Ok(m) => m,
-        Err(_) => return Ok(false),
+    let Ok(metadata) = crate::fs::metadata(path) else {
+        return false;
     };
 
     if mode.is_empty() {
-        return Ok(true);
+        return true;
     }
 
-    let perm = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid())?;
+    let Ok(perm) = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid()) else {
+        return false;
+    };
 
     let r_ok = !mode.contains(&crate::os::AccessFlag::R) || perm.is_readable;
     let w_ok = !mode.contains(&crate::os::AccessFlag::W) || perm.is_writable;
     let x_ok = !mode.contains(&crate::os::AccessFlag::X) || perm.is_executable;
 
-    Ok(r_ok && w_ok && x_ok)
+    r_ok && w_ok && x_ok
 }
 
 pub fn close_fds(above: i32, keep: &[BorrowedFd<'_>]) {
@@ -1087,13 +1150,22 @@ pub fn sync() {
     unsafe { libc::sync() };
 }
 
-pub fn getlogin() -> Option<CString> {
+pub fn getlogin() -> std::io::Result<CString> {
+    let old_errno = crate::os::get_errno();
+    crate::os::clear_errno();
     let ptr = unsafe { libc::getlogin() };
-    if ptr.is_null() {
-        None
+    let result = if ptr.is_null() {
+        let errno = crate::os::get_errno();
+        Err(if errno == 0 {
+            std::io::Error::other("unable to determine login name")
+        } else {
+            std::io::Error::from_raw_os_error(errno)
+        })
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_owned())
-    }
+        Ok(unsafe { CStr::from_ptr(ptr) }.to_owned())
+    };
+    crate::os::set_errno(old_errno);
+    result
 }
 
 pub fn restore_signals() {
@@ -1884,26 +1956,71 @@ pub fn posix_spawn(config: PosixSpawnConfig<'_>) -> std::io::Result<libc::pid_t>
 
 #[cfg(target_os = "linux")]
 pub fn sendfile(
-    out_fd: BorrowedFd<'_>,
-    in_fd: BorrowedFd<'_>,
-    offset: &mut crate::crt_fd::Offset,
+    out_fd: i32,
+    in_fd: i32,
+    offset: Option<&mut crate::crt_fd::Offset>,
     count: usize,
 ) -> std::io::Result<usize> {
-    nix::sys::sendfile::sendfile(out_fd, in_fd, Some(offset), count).map_err(std::io::Error::from)
+    let offset = offset.map_or(core::ptr::null_mut(), |offset| offset as *mut _);
+    // The syscall validates raw descriptor numbers; no Rust fd lifetime is claimed.
+    let result = unsafe { libc::sendfile(out_fd, in_fd, offset, count) };
+    if result < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(result as usize)
+    }
 }
 
 #[cfg(target_os = "macos")]
 pub fn sendfile(
-    in_fd: BorrowedFd<'_>,
-    out_fd: BorrowedFd<'_>,
+    in_fd: i32,
+    out_fd: i32,
     offset: crate::crt_fd::Offset,
-    count: i64,
+    written: &mut i64,
     headers: Option<&[&[u8]]>,
     trailers: Option<&[&[u8]]>,
-) -> (std::io::Result<()>, i64) {
-    let (res, written) =
-        nix::sys::sendfile::sendfile(in_fd, out_fd, offset, Some(count), headers, trailers);
-    (res.map_err(std::io::Error::from), written)
+    flags: i32,
+) -> std::io::Result<()> {
+    let header_count = headers.map_or(0, |buffers| buffers.len());
+    let trailer_count = trailers.map_or(0, |buffers| buffers.len());
+    let (Ok(header_count), Ok(trailer_count)) =
+        (i32::try_from(header_count), i32::try_from(trailer_count))
+    else {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    };
+    let iovecs = |buffers: Option<&[&[u8]]>| {
+        buffers
+            .unwrap_or_default()
+            .iter()
+            .map(|buffer| libc::iovec {
+                iov_base: buffer.as_ptr().cast_mut().cast(),
+                iov_len: buffer.len(),
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut headers = iovecs(headers);
+    let mut trailers = iovecs(trailers);
+    let mut hdtr = libc::sf_hdtr {
+        headers: if headers.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            headers.as_mut_ptr()
+        },
+        hdr_cnt: header_count,
+        trailers: if trailers.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            trailers.as_mut_ptr()
+        },
+        trl_cnt: trailer_count,
+    };
+    // The slices and both iovec arrays remain live for this synchronous call.
+    let result = unsafe { libc::sendfile(in_fd, out_fd, offset, written, &mut hdtr, flags) };
+    if result < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(any(

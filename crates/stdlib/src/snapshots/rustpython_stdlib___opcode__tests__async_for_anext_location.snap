@@ -1,0 +1,57 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nasync def f(source, buffer):\n    async for i1, i2 in source():\n        buffer.append(i1 + i2)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-3:30            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-3:30            MAKE_FUNCTION
+1:0-3:30            STORE_NAME               0 (f)
+1:0-3:30            LOAD_COMMON_CONSTANT     7 (None)
+1:0-3:30            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:?-1:?               RETURN_GENERATOR
+1:?-1:?               POP_TOP
+1:0-1:0       L1:     RESUME                   0
+
+2:24-2:30             LOAD_FAST_BORROW         0 (source)
+2:24-2:30             PUSH_NULL
+2:24-2:32             CALL                     0
+2:24-2:32             GET_AITER
+2:4-3:30      L2:     GET_ANEXT
+2:4-3:30              PUSH_NULL
+2:4-3:30              LOAD_COMMON_CONSTANT     7 (None)
+2:4-3:30      L3:     SEND                     4 (to L6)
+2:4-3:30      L4:     YIELD_VALUE              1
+2:4-3:30      L5:     RESUME                   3
+2:4-3:30              JUMP_BACKWARD_NO_INTERRUPT 6 (to L3)
+2:4-3:30      L6:     END_SEND
+2:4-3:30      L7:     NOT_TAKEN
+2:14-2:20             UNPACK_SEQUENCE          2
+2:14-2:16             STORE_FAST_STORE_FAST   35 (i1, i2)
+
+3:8-3:14              LOAD_FAST_BORROW         1 (buffer)
+3:8-3:21              LOAD_ATTR                1 (append + NULL|self)
+3:22-3:24             LOAD_FAST_BORROW_LOAD_FAST_BORROW 35 (i1, i2)
+3:22-3:29             BINARY_OP                0 (+)
+3:8-3:30              CALL                     1
+3:8-3:30              POP_TOP
+3:8-3:30              JUMP_BACKWARD           39 (to L2)
+
+2:4-3:30      L8:     CLEANUP_THROW
+2:4-3:30      L9:     JUMP_BACKWARD_NO_INTERRUPT 32 (to L6)
+2:24-2:32    L10:     END_ASYNC_FOR           33 (from L6)
+2:24-2:32             LOAD_COMMON_CONSTANT     7 (None)
+2:24-2:32             RETURN_VALUE
+
+  --         L11:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L11 [0] lasti
+  L2 to L4 -> L10 [1]
+  L4 to L5 -> L8 [4]
+  L5 to L7 -> L10 [1]
+  L7 to L8 -> L11 [0] lasti
+  L8 to L9 -> L10 [1]
+  L10 to L11 -> L11 [0] lasti

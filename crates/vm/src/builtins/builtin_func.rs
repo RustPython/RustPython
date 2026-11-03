@@ -78,7 +78,7 @@ impl PyNativeFunction {
         self.zelf.as_deref().or(self.module_object.as_deref())
     }
 
-    pub const fn as_func(&self) -> &'static dyn PyNativeFn {
+    pub const fn as_func(&self) -> &dyn PyNativeFn {
         self.value.func
     }
 }
@@ -140,7 +140,7 @@ impl Representable for PyNativeFunction {
         if let Some(bound) = zelf
             .zelf
             .as_ref()
-            .filter(|b| !b.class().is(vm.ctx.types.module_type))
+            .filter(|b| !b.class().is_subtype(vm.ctx.types.module_type))
         {
             Ok(format!(
                 "<built-in method {} of {} object at {:#x}>",
@@ -169,7 +169,7 @@ impl PyNativeFunction {
     fn __qualname__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let zelf = zelf.0;
         let qualname = if let Some(bound) = &zelf.zelf {
-            if bound.class().is(vm.ctx.types.module_type) {
+            if bound.class().is_subtype(vm.ctx.types.module_type) {
                 return Ok(vm.ctx.intern_str(zelf.value.name).to_owned());
             }
             let prefix = if bound.class().is(vm.ctx.types.type_type) {
@@ -195,13 +195,9 @@ impl PyNativeFunction {
     // meth_get__self__ in CPython
     #[pygetset]
     fn __self__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyObjectRef {
-        if let Some(bound) = &zelf.0.zelf {
-            return bound.clone();
-        }
-        if let Some(module) = &zelf.0.module_object {
-            return module.clone();
-        }
-        vm.ctx.none()
+        zelf.0
+            .get_self()
+            .map_or_else(|| vm.ctx.none(), ToOwned::to_owned)
     }
 
     // meth_reduce: the name when unbound or bound to a module, otherwise
@@ -215,7 +211,7 @@ impl PyNativeFunction {
             .as_ref()
             .filter(|bound| !bound.class().is_subtype(vm.ctx.types.module_type))
         {
-            let getattr = vm.builtins.get_attr("getattr", vm)?;
+            let getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
             Ok(vm
                 .new_tuple((getattr, (bound.clone(), zelf.value.name)))
                 .into())
@@ -243,10 +239,12 @@ impl PyNativeFunction {
     name = "builtin_method",
     module = false,
     base = PyNativeFunction,
-    ctx = "builtin_method_type"
+    ctx = "builtin_method_type",
+    traverse
 )]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
+    #[pytraverse(skip)]
     pub(crate) class: &'static Py<PyType>,
 }
 
@@ -333,6 +331,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_native_function));
+    context
+        .types
+        .builtin_function_or_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyNativeMethod::extend_class(context, context.types.builtin_method_type);
 }
 

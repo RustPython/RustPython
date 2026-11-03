@@ -1,0 +1,34 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(*args: *Ts): pass\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-1:23            LOAD_CONST               0 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:23            MAKE_FUNCTION
+1:0-1:23            LOAD_CONST               1 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:23            MAKE_FUNCTION
+1:0-1:23            SET_FUNCTION_ATTRIBUTE  16 (annotate)
+1:0-1:23            STORE_NAME               0 (f)
+1:0-1:23            LOAD_COMMON_CONSTANT     7 (None)
+1:0-1:23            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:0-1:23             LOAD_FAST_BORROW         0 (format)
+1:0-1:23             LOAD_SMALL_INT           2
+1:0-1:23             COMPARE_OP             132 (>)
+1:0-1:23             POP_JUMP_IF_FALSE        3 (to L1)
+1:0-1:23             NOT_TAKEN
+1:0-1:23             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:0-1:23             RAISE_VARARGS            1
+1:0-1:23     L1:     LOAD_CONST               1 ('args')
+1:14-1:16            LOAD_GLOBAL              0 (Ts)
+1:0-1:23             UNPACK_SEQUENCE          1
+1:0-1:23             BUILD_MAP                1
+1:0-1:23             RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:19-1:23            LOAD_COMMON_CONSTANT     7 (None)
+1:19-1:23            RETURN_VALUE

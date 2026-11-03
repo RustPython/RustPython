@@ -91,7 +91,7 @@ pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
 pub type TimeT = libc::time_t;
 
 #[cfg(windows)]
-pub type TimeT = libc::time_t;
+pub type TimeT = libc::time64_t;
 
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug)]
@@ -132,16 +132,18 @@ pub fn mktime(tm: &mut libc::tm) -> TimeT {
 
 #[cfg(windows)]
 unsafe extern "C" {
-    fn _gmtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
-    fn _localtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
+    fn _gmtime64_s(tm: *mut libc::tm, time: *const TimeT) -> libc::c_int;
+    fn _localtime64_s(tm: *mut libc::tm, time: *const TimeT) -> libc::c_int;
     #[link_name = "_mktime64"]
-    fn c_mktime(tm: *mut libc::tm) -> libc::time_t;
+    fn c_mktime(tm: *mut libc::tm) -> TimeT;
+    #[link_name = "_time64"]
+    fn c_time(time: *mut TimeT) -> TimeT;
 }
 
 #[cfg(windows)]
 #[cfg_attr(target_env = "musl", allow(deprecated))]
 pub fn current_time_t() -> TimeT {
-    unsafe { libc::time(core::ptr::null_mut()) }
+    unsafe { c_time(core::ptr::null_mut()) }
 }
 
 #[cfg(windows)]

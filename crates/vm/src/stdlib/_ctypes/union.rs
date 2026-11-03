@@ -3,12 +3,11 @@ use super::{PyCData, PyCField, StgInfo};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, ArgStrictInt, FuncArgs, OptionalArg, PySetterValue};
-use crate::protocol::{BufferDescriptor, PyBuffer};
+use crate::protocol::{BufferDescriptor, PyBuffer, PySequenceMethods};
 use crate::stdlib::_warnings;
-use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
+use crate::types::{AsBuffer, AsSequence, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
-use num_traits::ToPrimitive;
 
 /// Calculate Union type size from _fields_ (max field size)
 pub(super) fn calculate_union_size(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<usize> {
@@ -53,7 +52,7 @@ impl Constructor for PyCUnionType {
 
         // 4. Initialize StgInfo for the new type (initialized=false, to be set in init)
         let stg_info = StgInfo::default();
-        let _ = new_type.init_type_data(stg_info);
+        let _ = new_type.init_traced_type_data(stg_info);
 
         // Note: _fields_ processing moved to Initializer::init()
         Ok(new_class)
@@ -258,7 +257,7 @@ impl PyCUnionType {
                     has_bitfield = true;
                 }
                 // Collect the call layout for this field
-                field_layouts.push(super::base::type_layout(type_obj, &field_stg, vm));
+                field_layouts.push(super::base::type_layout(&field_stg));
             }
 
             // Mark field type as finalized (using type as field finalizes it)
@@ -269,7 +268,7 @@ impl PyCUnionType {
                     // Create StgInfo with FINAL flag if it doesn't exist
                     let mut stg_info = StgInfo::new(size, field_align);
                     stg_info.flags |= StgInfoFlags::DICTFLAG_FINAL;
-                    let _ = type_obj.init_type_data(stg_info);
+                    let _ = type_obj.init_traced_type_data(stg_info);
                 }
             }
 
@@ -282,11 +281,8 @@ impl PyCUnionType {
             // For unions, each field starts fresh (CPython: _layout.py)
             let c_field = if field_tuple.as_slice().len() > 2 {
                 let bit_size_obj = field_tuple.as_slice().get(2).expect("len checked");
-                let bit_size = bit_size_obj
-                    .try_int(vm)?
-                    .as_bigint()
-                    .to_u16()
-                    .ok_or_else(|| vm.new_value_error("number of bits invalid for bit field"))?;
+                let bit_size =
+                    PyCField::checked_bitfield_size(&name, &field_type_ref, bit_size_obj, vm)?;
                 has_bitfield = true;
 
                 // Union fields all start at offset 0, so bit_offset = 0
@@ -356,7 +352,7 @@ impl PyCUnionType {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Constructor, Initializer, SetAttr))]
+#[pyclass(flags(BASETYPE), with(AsSequence, Constructor, Initializer, SetAttr))]
 impl PyCUnionType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -534,9 +530,25 @@ impl SetAttr for PyCUnionType {
     }
 }
 
-#[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
+#[pyclass(
+    module = "_ctypes",
+    name = "Union",
+    base = PyCData,
+    metaclass = "PyCUnionType",
+    traverse = "manual"
+)]
 #[repr(transparent)]
 pub(crate) struct PyCUnion(pub PyCData);
+
+// SAFETY: this transparent wrapper owns exactly the references in its base.
+unsafe impl crate::object::Traverse for PyCUnion {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.0.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear(out);
+    }
+}
 
 impl core::fmt::Debug for PyCUnion {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -695,5 +707,11 @@ impl AsBuffer for PyCUnion {
             &CDATA_BUFFER_METHODS,
         );
         Ok(buf)
+    }
+}
+
+impl AsSequence for PyCUnionType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }

@@ -6,6 +6,9 @@ use syn::{
     Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Result, Token, Type, parse_quote,
 };
 
+#[cfg(test)]
+mod integer_alias_tests;
+
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
@@ -293,6 +296,7 @@ fn is_primitive_int(ty: &Type) -> bool {
                 | "i64"
                 | "i128"
                 | "isize"
+                | "PySsize"
                 | "u8"
                 | "u16"
                 | "u32"
@@ -601,7 +605,21 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         .iter()
         .map(ArgAttribute::try_from)
         .collect::<Result<Vec<_>>>()?;
-    let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
+    // Phantom fields are absent from both argument extraction and signatures.
+    let visible_attrs = struct_fields
+        .iter()
+        .filter(|field| !is_phantom(field))
+        .map(ArgAttribute::try_from)
+        .collect::<Result<Vec<_>>>()?;
+    let (min_arity, max_arity) = compute_arity_bounds(&visible_attrs);
+    // Flattened types contribute both bounds. Saturate each sum, including
+    // custom required bounds and an unbounded `PosArgs` upper bound.
+    let flattened = struct_fields
+        .iter()
+        .zip(&field_attrs)
+        .filter(|(field, attr)| !is_phantom(field) && attr.kind == ParameterKind::Flatten)
+        .map(|(field, _)| &field.ty)
+        .collect::<Vec<_>>();
 
     let mut params = Vec::new();
     for field in &struct_fields {
@@ -619,7 +637,14 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 Some(&[#(#params),*]);
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
-                #min_arity..=#max_arity
+                let min = #min_arity;
+                let max = #max_arity;
+                #(
+                    let (start, end) = <#flattened as ::rustpython_vm::function::FromArgs>::arity().into_inner();
+                    let min = min.saturating_add(start);
+                    let max = max.saturating_add(end);
+                )*
+                min..=max
             }
 
             fn from_args(
@@ -631,4 +656,74 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         }
     };
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_none_default_keeps_rust_value_and_metadata() {
+        let types: [Type; 2] = [
+            parse_quote!(Option<PyObjectRef>),
+            parse_quote!(Option<PyStrRef>),
+        ];
+        for ty in types {
+            let field: Field = parse_quote! {
+                #[pyarg(any, default = None)]
+                value: #ty
+            };
+            let tokens = generate_field((0, &field)).unwrap().to_string();
+            assert!(tokens.contains(&quote!(unwrap_or_else(|| None)).to_string()));
+            assert!(!tokens.contains("vm . ctx . none"));
+            let attr = ArgAttribute::try_from(&field).unwrap();
+            let repr = repr_path();
+            assert_eq!(
+                signature_default(&field, &attr).unwrap().to_string(),
+                quote!(Some(#repr::None)).to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn none_default_keeps_wrapped_argument_paths() {
+        let types: [Type; 3] = [
+            parse_quote!(Option<PyObjectRef>),
+            parse_quote!(OptionalArg<PyObjectRef>),
+            parse_quote!(OptionalOption<PyObjectRef>),
+        ];
+        for ty in types {
+            let field: Field = parse_quote! {
+                #[pyarg(any, default = None)]
+                value: #ty
+            };
+            let tokens = generate_field((0, &field)).unwrap().to_string();
+            assert!(!tokens.contains("vm . ctx . none"));
+            assert!(tokens.contains(&quote!(unwrap_or_else(|| None)).to_string()));
+        }
+    }
+
+    #[test]
+    fn none_is_not_a_python_object_literal() {
+        for expr in [parse_quote!(None), parse_quote!((None))] {
+            assert!(literal_object_expr(&expr).is_none());
+        }
+        for expr in [
+            parse_quote!("text"),
+            parse_quote!(b"bytes"),
+            parse_quote!(true),
+        ] {
+            assert_eq!(
+                literal_object_expr(&expr).unwrap().to_string(),
+                quote!(#expr).to_string()
+            );
+        }
+        let field: Field = parse_quote! {
+            #[pyarg(any, default = "text")]
+            value: PyStrRef
+        };
+        let tokens = generate_field((0, &field)).unwrap().to_string();
+        assert!(tokens.contains("< PyStrRef as :: rustpython_vm :: convert :: TryFromObject >"));
+        assert!(!tokens.contains("vm . ctx . none"));
+    }
 }

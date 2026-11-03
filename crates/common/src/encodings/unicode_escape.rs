@@ -68,6 +68,7 @@ where
 {
     let mut out = Wtf8Buf::new();
     let mut warning = None;
+    let mut consumed = ctx.full_data().len();
     loop {
         let rest = ctx.remaining_data();
         if rest.is_empty() {
@@ -84,6 +85,7 @@ where
         let escape_start = ctx.position();
         if rest.len() == 1 {
             if !final_decode {
+                consumed = ctx.position();
                 break;
             }
             let end = ctx.full_data().len();
@@ -163,6 +165,7 @@ where
                     _ => (8usize, "truncated \\UXXXXXXXX escape"),
                 };
                 if !final_decode && rest.len() < 2 + digits {
+                    consumed = ctx.position();
                     break;
                 }
                 ctx.advance(2);
@@ -194,6 +197,7 @@ where
             }
             b'N' => {
                 if rest.len() == 2 && !final_decode {
+                    consumed = ctx.position();
                     break;
                 }
                 if rest.len() >= 3 && rest[2] == b'{' {
@@ -204,6 +208,7 @@ where
                     }
                     if look >= rest.len() {
                         if !final_decode {
+                            consumed = ctx.position();
                             break;
                         }
                         let start = escape_start;
@@ -268,5 +273,5 @@ where
             }
         }
     }
-    Ok((out, ctx.position(), warning))
+    Ok((out, consumed, warning))
 }

@@ -272,7 +272,9 @@ mod _abc {
         let impl_data = get_impl(&cls, vm)?;
 
         // Get instance.__class__
-        let subclass = instance.get_attr("__class__", vm)?;
+        let subclass = vm
+            .get_attribute_opt(&instance, "__class__")?
+            .unwrap_or_else(|| instance.class().to_owned().into());
 
         // Check cache
         if in_weak_set(&impl_data.cache, &subclass, vm)? {

@@ -19,7 +19,7 @@ pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
     get_main_interpreter()
         .as_ref()
         .expect("Interpreter not initialized")
-        .enter(|vm| vm.new_thread())
+        .new_thread()
 }
 
 #[unsafe(no_mangle)]
@@ -122,5 +122,28 @@ mod tests {
         });
 
         assert!(unsafe { pyo3::ffi::Py_Version } >= 0x030d0000);
+    }
+
+    #[test]
+    fn requesting_thread_vm_does_not_attach() {
+        use rustpython_vm::vm::thread::{current_thread_slot, current_vm_is_set};
+
+        Python::attach(|py| {
+            let handle = std::thread::spawn(|| {
+                let before = (current_vm_is_set(), current_thread_slot().is_some());
+                let worker_vm = super::request_vm_from_interpreter();
+                let after = (current_vm_is_set(), current_thread_slot().is_some());
+                (worker_vm, before, after)
+            });
+            let (worker_vm, before, after) = py.detach(|| handle.join().unwrap());
+            // Drop cloned Python references under the parent interpreter context.
+            drop(worker_vm);
+            assert_eq!(before, (false, false), "worker must start outside any VM");
+            assert_eq!(
+                after,
+                (false, false),
+                "creating a worker VM must not attach under MAIN_INTERP"
+            );
+        });
     }
 }

@@ -21,6 +21,8 @@ mod c {
     unsafe extern "C" {
         #[link_name = "_chsize_s"]
         pub(super) fn ftruncate(fd: i32, len: i64) -> i32;
+        pub(super) fn _get_doserrno(value: *mut c_ulong) -> c_int;
+        pub(super) fn _set_doserrno(value: c_ulong) -> c_int;
     }
 }
 
@@ -317,7 +319,10 @@ impl AsRawFd for Borrowed<'_> {
 
 #[inline]
 fn ebadf() -> io::Error {
-    io::Error::from_raw_os_error(c::EBADF)
+    cfg_select! {
+        windows => crate::os::io_error_from_errno(c::EBADF),
+        _ => io::Error::from_raw_os_error(c::EBADF),
+    }
 }
 
 pub fn open(path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
@@ -331,7 +336,13 @@ pub fn wopen(path: &widestring::WideCStr, flags: i32, mode: i32) -> io::Result<O
 
 #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
 pub fn openat(dir: Borrowed<'_>, path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
-    cvt_fd(unsafe { c::openat(dir.as_raw(), path.as_ptr(), flags, mode) })
+    openat_raw(dir.as_raw(), path, flags, mode)
+}
+
+#[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
+// Accept a descriptor number without asserting it stays open across calls.
+pub fn openat_raw(dir: Raw, path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
+    cvt_fd(unsafe { c::openat(dir, path.as_ptr(), flags, mode) })
 }
 
 pub fn fsync(fd: Borrowed<'_>) -> io::Result<()> {
@@ -389,7 +400,12 @@ fn close_range_slow(low: Raw, high: Raw) {
 }
 
 pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
-    let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
+    ftruncate_raw(fd.as_raw(), len)
+}
+
+/// Truncate a caller-supplied descriptor, letting the CRT validate its value.
+pub fn ftruncate_raw(fd: Raw, len: Offset) -> io::Result<()> {
+    let ret = unsafe { suppress_iph!(c::ftruncate(fd, len)) };
     // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.
     // On other platforms, ftruncate returns 0 on success, or -1 on failure with errno set.
     cfg_select! {
@@ -421,14 +437,82 @@ pub fn as_handle(fd: Borrowed<'_>) -> io::Result<BorrowedHandle<'_>> {
 
 fn _write(fd: Raw, buf: &[u8]) -> io::Result<usize> {
     let count = cmp::min(buf.len(), MAX_RW);
-    let n = cvt(unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, count as _)) })?;
-    Ok(n as usize)
+    write_errno(fd, &buf[..count]).map_err(|errno| {
+        cfg_select! {
+            windows => crate::os::io_error_from_errno(errno),
+            _ => io::Error::from_raw_os_error(errno),
+        }
+    })
+}
+
+/// `_Py_write_noraise`: retry on EINTR and return the errno on failure
+/// without allocating, so the OS signal handler can use it.
+pub fn write_noraise(fd: Raw, buf: &[u8]) -> Result<usize, i32> {
+    let count = cmp::min(buf.len(), MAX_RW);
+    loop {
+        match write_errno(fd, &buf[..count]) {
+            Err(libc::EINTR) => continue,
+            result => return result,
+        }
+    }
+}
+
+fn write_errno(fd: Raw, buf: &[u8]) -> Result<usize, i32> {
+    #[cfg(windows)]
+    {
+        let mut count = buf.len();
+        loop {
+            unsafe { c::_set_doserrno(0) };
+            let n = unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, count as _)) };
+            if n >= 0 {
+                return Ok(n as usize);
+            }
+            let errno = crate::os::get_errno();
+            // The CRT reports a successful zero-byte WriteFile as ENOSPC.
+            // A nonblocking pipe may still accept a smaller prefix.
+            if errno != libc::ENOSPC || dos_error() != 0 {
+                return Err(errno);
+            }
+            count /= 2;
+            if count == 0 {
+                return Err(libc::EAGAIN);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let n = unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, buf.len() as _)) };
+        if n < 0 {
+            Err(crate::os::get_errno())
+        } else {
+            Ok(n as usize)
+        }
+    }
 }
 
 fn _read(fd: Raw, buf: &mut [u8]) -> io::Result<usize> {
     let count = cmp::min(buf.len(), MAX_RW);
-    let n = cvt(unsafe { suppress_iph!(libc::read(fd, buf.as_mut_ptr() as _, count as _)) })?;
-    Ok(n as usize)
+    #[cfg(windows)]
+    unsafe {
+        c::_set_doserrno(0);
+    }
+    let n = unsafe { suppress_iph!(libc::read(fd, buf.as_mut_ptr() as _, count as _)) };
+    #[cfg(windows)]
+    if n < 0
+        && crate::os::get_errno() == libc::EINVAL
+        && dos_error() == windows_sys::Win32::Foundation::ERROR_NO_DATA
+    {
+        return Err(crate::os::io_error_from_errno(libc::EAGAIN));
+    }
+    cvt(n).map(|n| n as usize)
+}
+
+#[cfg(windows)]
+fn dos_error() -> u32 {
+    let mut error = 0;
+    // SAFETY: the CRT writes to a valid unsigned long on the current thread.
+    unsafe { c::_get_doserrno(&mut error) };
+    error
 }
 
 pub fn write(fd: Borrowed<'_>, buf: &[u8]) -> io::Result<usize> {

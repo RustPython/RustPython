@@ -40,12 +40,14 @@ pub struct TypeZoo {
     pub float_type: &'static Py<PyType>,
     pub frame_type: &'static Py<PyType>,
     pub frame_locals_proxy_type: &'static Py<PyType>,
+    pub frozendict_type: &'static Py<PyType>,
     pub frozenset_type: &'static Py<PyType>,
     pub generator_type: &'static Py<PyType>,
     pub int_type: &'static Py<PyType>,
     pub iter_type: &'static Py<PyType>,
     pub reverse_iter_type: &'static Py<PyType>,
     pub complex_type: &'static Py<PyType>,
+    pub lazy_import_type: &'static Py<PyType>,
     pub list_type: &'static Py<PyType>,
     pub list_iterator_type: &'static Py<PyType>,
     pub list_reverseiterator_type: &'static Py<PyType>,
@@ -139,8 +141,10 @@ impl TypeZoo {
             dict_type: dict::PyDict::init_builtin_type(),
             enumerate_type: enumerate::PyEnumerate::init_builtin_type(),
             float_type: float::PyFloat::init_builtin_type(),
+            frozendict_type: dict::PyFrozenDict::init_builtin_type(),
             frozenset_type: set::PyFrozenSet::init_builtin_type(),
             filter_type: filter::PyFilter::init_builtin_type(),
+            lazy_import_type: crate::lazy_import::PyLazyImport::init_builtin_type(),
             list_type: list::PyList::init_builtin_type(),
             map_type: map::PyMap::init_builtin_type(),
             memoryview_type: memory::PyMemoryView::init_builtin_type(),
@@ -235,6 +239,7 @@ impl TypeZoo {
         set::init(context);
         tuple::init(context);
         dict::init(context);
+        crate::lazy_import::init_type(context);
         builtin_func::init(context);
         function::init(context);
         staticmethod::init(context);

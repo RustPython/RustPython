@@ -241,23 +241,26 @@ impl CodecsRegistry {
             return;
         }
 
-        for (i, item) in inner.search_path.iter().enumerate() {
-            if item.get_id() == search_function.get_id() {
-                if !inner.search_cache.is_empty() {
-                    inner.search_cache.clear();
-                }
-                inner.search_path.remove(i);
-                return;
-            }
+        if let Some(i) = inner
+            .search_path
+            .iter()
+            .position(|item| item.get_id() == search_function.get_id())
+        {
+            let cache = core::mem::take(&mut inner.search_cache);
+            let function = inner.search_path.remove(i);
+            drop(inner);
+            drop((cache, function));
         }
     }
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
         let name = normalize_registry_name(name);
-        self.inner
+        let previous = self
+            .inner
             .write()
             .search_cache
             .insert(name.into_owned(), codec);
+        drop(previous);
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
@@ -277,13 +280,17 @@ impl CodecsRegistry {
             let res = func.call((encoding.clone(),), vm)?;
             let res: Option<PyCodec> = res.try_into_value(vm)?;
             if let Some(codec) = res {
-                let mut inner = self.inner.write();
-                // someone might have raced us to this, so use theirs
-                let codec = inner
-                    .search_cache
-                    .entry(encoding.as_str().to_owned())
-                    .or_insert(codec);
-                return Ok(codec.clone());
+                let cached = {
+                    let mut inner = self.inner.write();
+                    // someone might have raced us to this, so use theirs
+                    // Keep our tuple alive until the registry lock is released.
+                    inner
+                        .search_cache
+                        .entry(encoding.as_str().to_owned())
+                        .or_insert_with(|| codec.clone())
+                        .clone()
+                };
+                return Ok(cached);
             }
         }
 
@@ -537,7 +544,8 @@ impl CodecsRegistry {
                 "cannot un-register built-in error handler '{name}'"
             )));
         }
-        Ok(self.inner.write().errors.remove(name).is_some())
+        let handler = self.inner.write().errors.remove(name);
+        Ok(handler.is_some())
     }
 
     pub fn lookup_error_opt(&self, name: &str) -> Option<PyObjectRef> {

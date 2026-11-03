@@ -1,0 +1,24 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(a):\n    return (\n        'x'\n        f'y{a}z'\n        'w'\n    )\n\"#,\ntrue)"
+---
+0:0-1:0            RESUME                   0
+
+1:0-6:5            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-6:5            MAKE_FUNCTION
+1:0-6:5            STORE_NAME               0 (f)
+1:0-6:5            LOAD_COMMON_CONSTANT     7 (None)
+1:0-6:5            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+3:8-4:11             LOAD_CONST               0 ('xy')
+
+4:12-4:13            LOAD_FAST_BORROW         0 (a)
+4:11-4:14            FORMAT_SIMPLE
+4:14-5:11            LOAD_CONST               1 ('zw')
+
+3:8-5:11             BUILD_STRING             3
+
+2:4-6:5              RETURN_VALUE

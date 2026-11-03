@@ -39,6 +39,10 @@ pub use windows_sys::Win32::{
     },
     System::{
         Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
+        EventLog::{
+            EVENTLOG_AUDIT_FAILURE, EVENTLOG_AUDIT_SUCCESS, EVENTLOG_ERROR_TYPE,
+            EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS, EVENTLOG_WARNING_TYPE,
+        },
         Memory::{
             FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE,
             MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE, PAGE_EXECUTE,
@@ -85,6 +89,44 @@ pub const LCMAP_BYTEREV_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_BYT
 pub const LCMAP_HASH_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_HASH;
 pub const LCMAP_SORTHANDLE_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_SORTHANDLE;
 pub const LCMAP_SORTKEY_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_SORTKEY;
+
+pub fn register_event_source_w(
+    server: Option<&widestring::WideCStr>,
+    source: &widestring::WideCStr,
+) -> io::Result<HANDLE> {
+    let server = server.map_or(core::ptr::null(), |name| name.as_ptr());
+    unsafe { windows_sys::Win32::System::EventLog::RegisterEventSourceW(server, source.as_ptr()) }
+        .check_nonnull()
+}
+
+pub fn deregister_event_source(handle: HANDLE) -> io::Result<()> {
+    unsafe { windows_sys::Win32::System::EventLog::DeregisterEventSource(handle) }
+        .check_win32_bool()
+}
+
+pub fn report_event_w(
+    handle: HANDLE,
+    event_type: u16,
+    category: u16,
+    event_id: u32,
+    message: &widestring::WideCStr,
+) -> io::Result<()> {
+    let message = message.as_ptr();
+    unsafe {
+        windows_sys::Win32::System::EventLog::ReportEventW(
+            handle,
+            event_type,
+            category,
+            event_id,
+            core::ptr::null_mut(),
+            1,
+            0,
+            &message,
+            core::ptr::null(),
+        )
+    }
+    .check_win32_bool()
+}
 
 pub struct PeekNamedPipeResult {
     pub data: Option<Vec<u8>>,

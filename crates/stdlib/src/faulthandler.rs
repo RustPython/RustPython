@@ -224,6 +224,8 @@ mod decl {
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = true)]
         all_threads: bool,
+        #[pyarg(named, default = 100)]
+        max_threads: isize,
     }
 
     #[pyfunction]
@@ -233,7 +235,7 @@ mod decl {
         #[cfg(any(unix, windows))]
         {
             if args.all_threads {
-                dump_all_threads(fd, vm);
+                dump_all_threads(fd, args.max_threads, vm);
             } else {
                 puts(fd, "Stack (most recent call first):\n");
                 dump_live_frames(fd);
@@ -242,7 +244,7 @@ mod decl {
 
         #[cfg(not(any(unix, windows)))]
         {
-            let _ = (fd, args.all_threads);
+            let _ = (fd, args.all_threads, args.max_threads);
         }
 
         Ok(())
@@ -250,12 +252,25 @@ mod decl {
 
     /// Dump tracebacks of all threads.
     #[cfg(any(unix, windows))]
-    fn dump_all_threads(fd: i32, vm: &VirtualMachine) {
+    fn dump_all_threads(fd: i32, max_threads: isize, vm: &VirtualMachine) {
+        let max_threads = if max_threads == 0 { 100 } else { max_threads };
+        let mut nthreads = 0;
+        let mut begin_thread_dump = || {
+            if nthreads != 0 {
+                puts(fd, "\n");
+            }
+            if nthreads >= max_threads {
+                puts(fd, "...\n");
+                return false;
+            }
+            nthreads += 1;
+            true
+        };
         // Get all threads' frame stacks from the shared registry
-        // unix: stop-the-world so every other thread is parked at a safepoint
+        // Stop the world so every other thread is parked at a safepoint
         // and its frame chain is quiescent and alive while we walk it (matches
         // faulthandler.dump_traceback running with the GIL held).
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         {
             use core::sync::atomic::Ordering;
             let current_tid = rustpython_vm::stdlib::_thread::get_ident();
@@ -270,6 +285,9 @@ mod decl {
                 for (&tid, slot) in registry.iter() {
                     if tid == current_tid {
                         continue;
+                    }
+                    if !begin_thread_dump() {
+                        return;
                     }
                     // Under STW, all other threads are suspended so their
                     // stack-allocated iframes are stable. Walk via top_iframe
@@ -292,55 +310,14 @@ mod decl {
                             puts(fd, "  ...\n");
                         }
                     }
-                    puts(fd, "\n");
                 }
             }
 
             // Now dump current thread from its live frame chain
             // (includes stack-allocated iframes without FrameObject).
-            write_thread_id(fd, current_tid, true);
-            dump_live_frames(fd);
-        }
-
-        #[cfg(all(not(unix), feature = "threading"))]
-        {
-            let current_tid = rustpython_vm::stdlib::_thread::get_ident();
-            let registry = vm.state.thread_frames.lock();
-
-            // Dump non-current threads using top_iframe, which includes
-            // both FrameObject and stack-allocated frames.
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for (&tid, slot) in registry.iter() {
-                if tid == current_tid {
-                    continue;
-                }
-
-                let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
-                    as *const rustpython_vm::frame::InterpreterFrame;
-                write_thread_id(fd, tid, false);
-                if iframe_ptr.is_null() {
-                    puts(fd, "  <no Python frame>\n");
-                } else {
-                    let mut cur = iframe_ptr;
-                    let mut depth = 0;
-                    while !cur.is_null() && depth < 100 {
-                        let iframe = unsafe { &*cur };
-                        dump_iframe(fd, iframe);
-                        depth += 1;
-                        cur = iframe.previous();
-                    }
-                    if depth >= 100 && !cur.is_null() {
-                        puts(fd, "  ...\n");
-                    }
-                }
-                puts(fd, "\n");
+            if !begin_thread_dump() {
+                return;
             }
-
-            // Now dump current thread from its live frame chain
-            // (includes stack-allocated iframes without FrameObject).
             write_thread_id(fd, current_tid, true);
             dump_live_frames(fd);
         }
@@ -348,6 +325,9 @@ mod decl {
         #[cfg(not(feature = "threading"))]
         {
             let _ = vm;
+            if !begin_thread_dump() {
+                return;
+            }
             write_thread_id(fd, current_thread_id(), true);
             dump_live_frames(fd);
         }
@@ -451,7 +431,7 @@ mod decl {
         host_faulthandler::signal_default_and_raise(signum);
 
         // Fallback
-        rustpython_host_env::os::exit(1);
+        rustpython_host_env::os::exit_immediately(1);
     }
 
     // Windows vectored exception handler (faulthandler.c:417-480)
@@ -679,10 +659,9 @@ mod decl {
                             // frames are still alive because the target thread
                             // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
-                                let iframe_ptr = slot
-                                    .top_iframe
-                                    .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                let iframe_ptr =
+                                    slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
                                 write_thread_id(fd, *tid, false);
                                 if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");
@@ -703,10 +682,9 @@ mod decl {
                         }
                         all(not(unix), feature = "threading") => {
                             for (tid, slot) in &thread_frame_slots {
-                                let iframe_ptr = slot
-                                    .top_iframe
-                                    .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                let iframe_ptr =
+                                    slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
                                 write_thread_id(fd, *tid, false);
                                 if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");
@@ -732,7 +710,7 @@ mod decl {
                     }
 
                     if exit {
-                        rustpython_host_env::os::exit(1);
+                        rustpython_host_env::os::exit_immediately(1);
                     }
                 }
             }

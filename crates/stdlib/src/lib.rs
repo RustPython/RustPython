@@ -174,7 +174,6 @@ mod termios;
     not(any(
         target_os = "android",
         target_os = "ios",
-        target_os = "windows",
         target_arch = "wasm32",
         target_os = "redox",
     ))
@@ -232,6 +231,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         locale::module_def(ctx),
         lzma::module_def(ctx),
         math::module_def(ctx),
+        math::integer_module_def(ctx),
         md5::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, windows)))]
         mmap::module_def(ctx),
@@ -317,7 +317,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(any(
                 target_os = "android",
                 target_os = "ios",
-                target_os = "windows",
                 target_arch = "wasm32",
                 target_os = "redox"
             ))

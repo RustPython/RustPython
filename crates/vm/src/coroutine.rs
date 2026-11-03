@@ -31,6 +31,15 @@ impl ExecutionResult {
     }
 }
 
+// Inspection must exclude execution without appearing to execute Python code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum FrameAccess {
+    Idle,
+    Executing,
+    Inspecting,
+}
+
 #[derive(Debug)]
 pub struct Coro {
     /// Generator iframe, like `gi_iframe`. Cleared to `None` by take_ownership
@@ -39,7 +48,9 @@ pub struct Coro {
     /// `f_executable`; survives `_PyFrame_ClearExceptCode`.
     code: PyRef<PyCode>,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
-    running: AtomicCell<bool>,
+    access: AtomicCell<FrameAccess>,
+    /// Whether execution has resumed beyond the eager creation preamble.
+    started: AtomicCell<bool>,
     // _weakreflist
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -62,7 +73,7 @@ unsafe impl Traverse for Coro {
 
 /// An exclusive claim on a generator's frame, released when dropped.
 ///
-/// Only the holder may look at the frame or resume it. Resuming decides from
+/// This excludes both inspectors and other executors. Resuming decides from
 /// the frame state whether the sent value goes on the value stack, so a state
 /// read taken before the claim can be answered by a frame that another thread
 /// then advances: resuming it leaves the stack short of what the code after
@@ -71,7 +82,17 @@ struct RunningGuard<'a>(&'a Coro);
 
 impl Drop for RunningGuard<'_> {
     fn drop(&mut self) {
-        self.0.running.store(false);
+        self.0.access.store(FrameAccess::Idle);
+    }
+}
+
+// No Python callbacks, safepoints, or owned-reference drops may occur while
+// this guard is held. Contenders can therefore wait without parking its owner.
+struct InspectionGuard<'a>(&'a Coro);
+
+impl Drop for InspectionGuard<'_> {
+    fn drop(&mut self) {
+        self.0.access.store(FrameAccess::Idle);
     }
 }
 
@@ -159,16 +180,16 @@ pub(crate) fn flat_resume_enter(
     if coro.closed.load() {
         return Ok(FlatEnter::Exhausted);
     }
-    let value = if coro.frame_opt().is_some_and(|f| f.lasti() > 0) {
-        Some(value)
-    } else if !vm.is_none(&value) {
+    if !coro.started() && !vm.is_none(&value) {
         return Err(vm.new_type_error(format!(
             "can't send non-None value to a just-started {}",
             gen_name(&jen, vm),
         )));
-    } else {
-        None
-    };
+    }
+    let value = coro
+        .frame_opt()
+        .is_some_and(|f| f.lasti() > 0)
+        .then_some(value);
     // SAFETY: exclusive access guaranteed by the claim
     let gen_exc = unsafe { coro.exception.swap(None) };
     let frame_ref = coro.frame();
@@ -184,6 +205,7 @@ pub(crate) fn flat_resume_enter(
             return Err(exc);
         }
     };
+    coro.started.store(true);
     // The claim outlives this scope; `flat_resume_exit` drops it.
     core::mem::forget(_claim);
     Ok(FlatEnter::Entered {
@@ -233,7 +255,8 @@ impl Coro {
             frame: Some(frame).into(),
             code,
             closed: AtomicCell::new(false),
-            running: AtomicCell::new(false),
+            access: AtomicCell::new(FrameAccess::Idle),
+            started: AtomicCell::new(false),
             exception: PyAtomicRef::from(None),
             name: PyMutex::new(name),
             qualname: PyMutex::new(qualname),
@@ -286,10 +309,51 @@ impl Coro {
     /// What the resume depends on -- whether the generator is closed, and
     /// whether it has started -- has to be read from here onwards.
     fn claim(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<RunningGuard<'_>> {
-        if self.running.compare_exchange(false, true).is_err() {
+        if !self.try_claim_execution() {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
         Ok(RunningGuard(self))
+    }
+
+    fn try_claim_execution(&self) -> bool {
+        loop {
+            match self
+                .access
+                .compare_exchange(FrameAccess::Idle, FrameAccess::Executing)
+            {
+                Ok(_) => return true,
+                Err(FrameAccess::Executing) => return false,
+                Err(FrameAccess::Inspecting) => std::thread::yield_now(),
+                Err(FrameAccess::Idle) => continue,
+            }
+        }
+    }
+
+    pub(crate) fn yield_from_target(&self) -> Option<PyObjectRef> {
+        let claim = loop {
+            match self
+                .access
+                .compare_exchange(FrameAccess::Idle, FrameAccess::Inspecting)
+            {
+                Ok(_) => break InspectionGuard(self),
+                Err(FrameAccess::Executing) => return None,
+                Err(FrameAccess::Inspecting) => std::thread::yield_now(),
+                Err(FrameAccess::Idle) => continue,
+            }
+        };
+        // clear_frame releases its execution claim before clearing the frame.
+        // Its closed flag prevents inspectors from touching that retired frame.
+        let result = if self.closed.load() {
+            None
+        } else {
+            self.frame.deref().and_then(|frame| {
+                // SAFETY: inspection excludes resume/close and other inspectors.
+                // This only reads the suspended stack and increments its target.
+                unsafe { frame.yield_from_target() }
+            })
+        };
+        drop(claim);
+        result
     }
 
     fn run_claimed<F>(
@@ -307,6 +371,7 @@ impl Coro {
 
         let frame = self.frame();
         vm.resume_gen_frame(&frame, gen_exc, |f| {
+            self.started.store(true);
             let result = func(f);
             // SAFETY: exclusive access guaranteed by the claim
             let _old = unsafe { (*exception_ptr).swap(vm.current_exception()) };
@@ -401,16 +466,16 @@ impl Coro {
         if self.closed.load() {
             return Self::send_when_closed(jen, vm);
         }
-        let value = if self.frame_opt().is_some_and(|f| f.lasti() > 0) {
-            Some(value)
-        } else if !vm.is_none(&value) {
+        if !self.started() && !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
                 "can't send non-None value to a just-started {}",
                 gen_name(jen, vm),
             )));
-        } else {
-            None
-        };
+        }
+        let value = self
+            .frame_opt()
+            .is_some_and(|f| f.lasti() > 0)
+            .then_some(value);
         let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
         self.maybe_close(&result, &claim);
         drop(claim);
@@ -462,7 +527,7 @@ impl Coro {
             return Ok(vm.ctx.none());
         }
         // FRAME_CREATED: mark finished and clear the iframe.
-        if self.frame_opt().is_none_or(|f| f.lasti() == 0) {
+        if !self.started() {
             self.closed.store(true);
             self.clear_except_code();
             return Ok(vm.ctx.none());
@@ -490,20 +555,59 @@ impl Coro {
         }
     }
 
+    /// Clear a created generator frame without resuming its body.
+    pub(crate) fn clear_frame(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if self.closed.load() {
+            return Ok(());
+        }
+        if !self.try_claim_execution() {
+            return Err(vm.new_runtime_error("cannot clear an executing frame"));
+        }
+        let claim = RunningGuard(self);
+        if self.closed.load() {
+            return Ok(());
+        }
+        if self.started() {
+            return Err(vm.new_runtime_error("cannot clear a suspended frame"));
+        }
+        self.closed.store(true);
+        // Closed owners cannot resume. Publish that state and release the
+        // running claim before a warning hook can observe or clear us again.
+        drop(claim);
+        if jen.class().is(vm.ctx.types.coroutine_type) {
+            crate::warn::warn_unawaited_coroutine(jen, &self.qualname(), vm);
+        }
+        self.clear_except_code();
+        Ok(())
+    }
+
     /// Whether the frame has run at all, i.e. is stopped at a `yield` rather
     /// than at its start.
     pub(crate) fn started(&self) -> bool {
-        self.frame_opt().is_some_and(|f| f.lasti() > 0)
+        self.started.load()
+    }
+
+    pub(crate) fn state_name(&self, names: [&'static str; 4]) -> &'static str {
+        // Closing publishes the terminal state before releasing frame locals,
+        // whose finalizers can observe us while the running claim is held.
+        let index = if self.closed() {
+            3
+        } else if self.running() {
+            1
+        } else if self.started() {
+            2
+        } else {
+            0
+        };
+        names[index]
     }
 
     pub fn suspended(&self) -> bool {
-        !self.closed.load()
-            && !self.running.load()
-            && self.frame_opt().is_some_and(|f| f.lasti() > 0)
+        !self.closed.load() && !self.running() && self.started()
     }
 
     pub fn running(&self) -> bool {
-        self.running.load()
+        self.access.load() == FrameAccess::Executing
     }
 
     pub fn closed(&self) -> bool {
@@ -632,12 +736,16 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error("__await__() returned a coroutine"));
+            return Err(vm.new_type_error(format!(
+                "{}.__await__() must return an iterator, not coroutine",
+                obj.class().fully_qualified_name(vm)?
+            )));
         }
         if !PyIter::check(&result) {
             return Err(vm.new_type_error(format!(
-                "__await__() returned non-iterator of type '{}'",
-                result.class().name()
+                "{}.__await__() must return an iterator, not {}",
+                obj.class().fully_qualified_name(vm)?,
+                result.class().fully_qualified_name(vm)?
             )));
         }
         return Ok(result);

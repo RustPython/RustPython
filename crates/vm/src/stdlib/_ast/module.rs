@@ -1,6 +1,6 @@
+use super::AstSourceContext;
 use super::*;
 use crate::stdlib::_ast::type_ignore::TypeIgnore;
-use rustpython_compiler_core::SourceFile;
 
 /// Represents the different types of Python module structures.
 ///
@@ -26,7 +26,7 @@ pub(super) enum Mod {
 
 // sum
 impl Node for Mod {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self {
             Self::Module(cons) => cons.ast_to_object(vm, source_file),
             Self::Interactive(cons) => cons.ast_to_object(vm, source_file),
@@ -37,7 +37,7 @@ impl Node for Mod {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
@@ -74,7 +74,7 @@ pub(super) struct ModModule {
 
 // constructor
 impl Node for ModModule {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
             module,
             type_ignores,
@@ -105,7 +105,7 @@ impl Node for ModModule {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
@@ -132,7 +132,7 @@ pub(super) struct ModInteractive {
 
 // constructor
 impl Node for ModInteractive {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
             body,
             range: _,
@@ -152,7 +152,7 @@ impl Node for ModInteractive {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
@@ -168,7 +168,7 @@ impl Node for ModInteractive {
 
 // constructor
 impl Node for ast::ModExpression {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
             node_index: _,
             body,
@@ -185,7 +185,7 @@ impl Node for ast::ModExpression {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
@@ -204,7 +204,7 @@ pub(super) struct ModFunctionType {
 
 // constructor
 impl Node for ModFunctionType {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
             argtypes,
             returns,
@@ -226,7 +226,7 @@ impl Node for ModFunctionType {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let argtypes: Vec<Option<ast::Expr>> =

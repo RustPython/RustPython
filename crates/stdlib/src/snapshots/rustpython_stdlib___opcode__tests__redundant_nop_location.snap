@@ -1,0 +1,65 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(x, y, z):\n    while x:\n        if y:\n            pass\n        elif z:\n            if y < 0:\n                return y\n            if z:\n                y = y + 1\n        elif y:\n            return 1\n    return -1\n\"#,\ntrue)"
+---
+0:0-1:0              RESUME                   0
+
+1:0-12:13            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-12:13            MAKE_FUNCTION
+1:0-12:13            STORE_NAME               0 (f)
+1:0-12:13            LOAD_COMMON_CONSTANT     7 (None)
+1:0-12:13            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0                RESUME                   0
+
+2:10-2:11      L1:     LOAD_FAST_BORROW         0 (x)
+2:10-2:11              TO_BOOL
+2:10-2:11              POP_JUMP_IF_FALSE       61 (to L7)
+2:10-2:11              NOT_TAKEN
+
+3:11-3:12              LOAD_FAST_BORROW         1 (y)
+3:11-3:12              TO_BOOL
+3:11-3:12              POP_JUMP_IF_FALSE        3 (to L2)
+3:11-3:12              NOT_TAKEN
+
+4:12-4:16              JUMP_BACKWARD           18 (to L1)
+
+5:13-5:14      L2:     LOAD_FAST_BORROW         2 (z)
+5:13-5:14              TO_BOOL
+5:13-5:14              POP_JUMP_IF_FALSE       31 (to L5)
+5:13-5:14              NOT_TAKEN
+
+6:15-6:16              LOAD_FAST_BORROW         1 (y)
+6:19-6:20              LOAD_SMALL_INT           0
+6:15-6:20              COMPARE_OP              18 (bool(<))
+6:15-6:20              POP_JUMP_IF_FALSE        3 (to L3)
+6:15-6:20              NOT_TAKEN
+
+7:23-7:24              LOAD_FAST_BORROW         1 (y)
+7:16-7:24              RETURN_VALUE
+
+8:15-8:16      L3:     LOAD_FAST_BORROW         2 (z)
+8:15-8:16              TO_BOOL
+8:15-8:16              POP_JUMP_IF_FALSE       12 (to L4)
+8:15-8:16              NOT_TAKEN
+
+9:20-9:21              LOAD_FAST_BORROW         1 (y)
+9:24-9:25              LOAD_SMALL_INT           1
+9:20-9:25              BINARY_OP                0 (+)
+9:16-9:17              STORE_FAST               1 (y)
+9:16-9:17              JUMP_BACKWARD           54 (to L1)
+
+8:15-8:16      L4:     JUMP_BACKWARD           56 (to L1)
+
+10:13-10:14    L5:     LOAD_FAST_BORROW         1 (y)
+10:13-10:14            TO_BOOL
+10:13-10:14            POP_JUMP_IF_TRUE         3 (to L6)
+10:13-10:14            NOT_TAKEN
+10:13-10:14            JUMP_BACKWARD           66 (to L1)
+
+11:19-11:20    L6:     LOAD_SMALL_INT           1
+11:19-11:20            RETURN_VALUE
+
+12:11-12:13    L7:     LOAD_COMMON_CONSTANT    11 (-1)
+12:4-12:13             RETURN_VALUE

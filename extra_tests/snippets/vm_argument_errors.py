@@ -10,7 +10,7 @@ import operator
 import typing
 import weakref
 
-from testutils import assert_raises
+from testutils import TestFailingIter, assert_raises
 
 
 def check(exc_type, message, fn, *args, **kwargs):
@@ -150,6 +150,23 @@ def test_a_keyword_check_of_its_own_says_the_same_thing():
     )
 
 
+def test_too_many_arguments_are_counted_before_any_is_converted():
+    class FailingIndex:
+        def __index__(self):
+            raise RuntimeError
+
+    check(
+        TypeError,
+        "filter expected 2 arguments, got 3",
+        filter,
+        None,
+        TestFailingIter(),
+        0,
+    )
+    with assert_raises(TypeError):
+        hex(FailingIndex(), 1)
+
+
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
@@ -158,3 +175,4 @@ test_a_parameter_a_call_may_name_is_named_back()
 test_a_type_is_named_by_the_type_it_builds()
 test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
 test_a_keyword_check_of_its_own_says_the_same_thing()
+test_too_many_arguments_are_counted_before_any_is_converted()

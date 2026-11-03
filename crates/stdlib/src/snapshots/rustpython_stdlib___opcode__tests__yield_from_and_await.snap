@@ -1,0 +1,66 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(xs):\n    yield from xs\n\nasync def g(xs):\n    return await xs\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:17            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:17            MAKE_FUNCTION
+1:0-2:17            STORE_NAME               0 (f)
+
+4:0-5:19            LOAD_CONST               1 (<code object g at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:19            MAKE_FUNCTION
+4:0-5:19            STORE_NAME               1 (g)
+4:0-5:19            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:19            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:?-1:?              RETURN_GENERATOR
+1:?-1:?              POP_TOP
+1:0-1:0      L1:     RESUME                   0
+
+2:15-2:17            LOAD_FAST                0 (xs)
+2:4-2:17             GET_ITER                 3
+2:4-2:17             LOAD_COMMON_CONSTANT     7 (None)
+2:4-2:17     L2:     SEND                     4 (to L5)
+2:4-2:17     L3:     YIELD_VALUE              1
+2:4-2:17     L4:     RESUME                   2
+2:4-2:17             JUMP_BACKWARD_NO_INTERRUPT 6 (to L2)
+2:4-2:17     L5:     END_SEND
+2:4-2:17             POP_TOP
+2:4-2:17             LOAD_COMMON_CONSTANT     7 (None)
+2:4-2:17             RETURN_VALUE
+2:4-2:17     L6:     CLEANUP_THROW
+2:4-2:17     L7:     JUMP_BACKWARD_NO_INTERRUPT 6 (to L5)
+
+  --         L8:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L3 -> L8 [0] lasti
+  L3 to L4 -> L6 [3]
+  L4 to L7 -> L8 [0] lasti
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 4>:
+4:?-4:?              RETURN_GENERATOR
+4:?-4:?              POP_TOP
+4:0-4:0      L1:     RESUME                   0
+
+5:17-5:19            LOAD_FAST_BORROW         0 (xs)
+5:11-5:19            GET_AWAITABLE            0
+5:11-5:19            PUSH_NULL
+5:11-5:19            LOAD_COMMON_CONSTANT     7 (None)
+5:11-5:19    L2:     SEND                     4 (to L5)
+5:11-5:19    L3:     YIELD_VALUE              1
+5:11-5:19    L4:     RESUME                   3
+5:11-5:19            JUMP_BACKWARD_NO_INTERRUPT 6 (to L2)
+5:11-5:19    L5:     END_SEND
+5:4-5:19             RETURN_VALUE
+5:11-5:19    L6:     CLEANUP_THROW
+5:11-5:19    L7:     JUMP_BACKWARD_NO_INTERRUPT 4 (to L5)
+
+  --         L8:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L3 -> L8 [0] lasti
+  L3 to L4 -> L6 [3]
+  L4 to L7 -> L8 [0] lasti

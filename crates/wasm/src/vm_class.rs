@@ -83,7 +83,11 @@ impl StoredVirtualMachine {
             let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
             builder = builder
                 .add_native_modules(&defs)
-                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB);
+                .add_frozen_modules_with_resources(
+                    rustpython_pylib::FROZEN_STDLIB,
+                    rustpython_pylib::FROZEN_STDLIB_RESOURCES,
+                )
+                .expect("validated embedded standard-library resources");
         }
 
         // Browser rustls `_ssl` overrides the rustls-free stdlib `_ssl`.

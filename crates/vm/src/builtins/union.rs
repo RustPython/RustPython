@@ -1,5 +1,5 @@
 use super::{genericalias, type_};
-use crate::common::lock::LazyLock;
+use crate::common::lock::{LazyLock, PyMutex};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -24,7 +24,7 @@ pub struct PyUnion {
     hashable_args: Option<PyRef<PyFrozenSet>>,
     /// Tuple of initially unhashable args, or None if all args were hashable
     unhashable_args: Option<PyTupleRef>,
-    parameters: PyTupleRef,
+    parameters: PyMutex<Option<PyTupleRef>>,
 }
 
 impl fmt::Debug for PyUnion {
@@ -42,14 +42,13 @@ impl PyPayload for PyUnion {
 
 impl PyUnion {
     /// Create a new union from dedup result (internal use)
-    fn from_components(result: UnionComponents, vm: &VirtualMachine) -> PyResult<Self> {
-        let parameters = make_parameters(&result.args, vm)?;
-        Ok(Self {
+    fn from_components(result: UnionComponents) -> Self {
+        Self {
             args: result.args,
             hashable_args: result.hashable_args,
             unhashable_args: result.unhashable_args,
-            parameters,
-        })
+            parameters: PyMutex::new(None),
+        }
     }
 
     /// Direct access to args field (_Py_union_args)
@@ -127,8 +126,8 @@ impl Py<PyUnion> {
     }
 
     #[pygetset]
-    fn __parameters__(&self) -> PyObjectRef {
-        self.parameters.clone().into()
+    fn __parameters__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        genericalias::cached_parameters(&self.parameters, &self.args, vm)
     }
 
     #[pymethod]
@@ -237,12 +236,6 @@ pub(crate) fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) 
     let right = type_check(other, vm)?;
     let tuple = PyTuple::new_ref(vec![left, right], &vm.ctx);
     make_union(&tuple, vm)
-}
-
-fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-    let parameters = genericalias::make_parameters(args, vm)?;
-    let result = dedup_and_flatten_args(&parameters, vm)?;
-    Ok(result.args)
 }
 
 fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
@@ -372,19 +365,15 @@ pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult {
     let result = dedup_and_flatten_args(args, vm)?;
     Ok(match result.args.as_slice().len() {
         1 => result.args.as_slice()[0].to_owned(),
-        _ => PyUnion::from_components(result, vm)?.to_pyobject(vm),
+        _ => PyUnion::from_components(result).to_pyobject(vm),
     })
 }
 
 impl PyUnion {
     fn getitem(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let new_args = genericalias::subs_parameters(
-            zelf.as_object(),
-            &zelf.args,
-            &zelf.parameters,
-            needle,
-            vm,
-        )?;
+        let parameters = genericalias::cached_parameters(&zelf.parameters, &zelf.args, vm)?;
+        let new_args =
+            genericalias::subs_parameters(zelf.as_object(), &zelf.args, &parameters, needle, vm)?;
 
         Ok(if new_args.as_slice().is_empty() {
             make_union(&new_args, vm)?

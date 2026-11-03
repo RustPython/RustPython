@@ -21,7 +21,7 @@ mod _queue {
             use parking_lot::{Condvar, Mutex, MutexGuard};
 
             type Buf = Mutex<BufInner>;
-        },
+        }
         _ => {
             use crate::common::lock::PyMutex;
 
@@ -231,6 +231,12 @@ mod _queue {
         flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
     )]
     impl PySimpleQueue {
+        #[pymethod]
+        fn __sizeof__(zelf: &Py<Self>) -> usize {
+            core::mem::size_of::<Self>()
+                + zelf.buf.lock().capacity() * core::mem::size_of::<PyObjectRef>()
+        }
+
         #[pymethod]
         fn empty(zelf: &Py<Self>) -> bool {
             zelf.buf.lock().is_empty()

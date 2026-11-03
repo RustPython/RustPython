@@ -1,14 +1,14 @@
+use super::AstSourceContext;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 pub(super) fn ast_to_object(
     clause: ast::ElifElseClause,
     mut rest: alloc::vec::IntoIter<ast::ElifElseClause>,
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
 ) -> PyObjectRef {
     let ast::ElifElseClause {
-        node_index: _,
+        node_index,
         range,
         test,
         body,
@@ -57,15 +57,15 @@ pub(super) fn ast_to_object(
     };
     dict.set_item("orelse", orelse, vm).unwrap();
 
-    node_add_location(&dict, range, vm, source_file);
+    node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
     node.into()
 }
 
 pub(super) fn ast_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-    range: TextRange,
+    range: AstNodeRange,
 ) -> PyResult<ast::StmtIf> {
     let test = get_required_node_field(vm, source_file, object, "test", "If")?;
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(vm, source_file, object, "body", "If")?;
@@ -81,7 +81,7 @@ pub(super) fn ast_from_object_with_range(
     } else if let [ast::Stmt::If(_)] = &*orelse {
         let Some(ast::Stmt::If(ast::StmtIf {
             node_index,
-            range,
+            range: nested_range,
             test,
             body,
             mut elif_else_clauses,
@@ -95,7 +95,7 @@ pub(super) fn ast_from_object_with_range(
             0,
             ast::ElifElseClause {
                 node_index,
-                range,
+                range: nested_range,
                 test: Some(*test),
                 body,
                 runtime_body,
@@ -105,8 +105,8 @@ pub(super) fn ast_from_object_with_range(
         elif_else_clauses
     } else {
         vec![ast::ElifElseClause {
-            node_index: Default::default(),
-            range,
+            node_index: range.node_index(),
+            range: range.range,
             test: None,
             body: orelse,
             runtime_body: runtime_orelse,
@@ -115,11 +115,11 @@ pub(super) fn ast_from_object_with_range(
     };
 
     Ok(ast::StmtIf {
-        node_index: Default::default(),
+        node_index: range.node_index(),
         test,
         body,
         elif_else_clauses,
-        range,
+        range: range.range,
         runtime_body,
     })
 }

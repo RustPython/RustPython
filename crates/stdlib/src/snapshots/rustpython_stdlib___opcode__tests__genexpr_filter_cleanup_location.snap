@@ -1,0 +1,104 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef simple(names):\n    return (x for x in names if not _ishidden(x))\n\ndef boolop(fields):\n    return (f for f in fields if f.init and not f.kw_only)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:49            LOAD_CONST               0 (<code object simple at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:49            MAKE_FUNCTION
+1:0-2:49            STORE_NAME               0 (simple)
+
+4:0-5:58            LOAD_CONST               1 (<code object boolop at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:58            MAKE_FUNCTION
+4:0-5:58            STORE_NAME               1 (boolop)
+4:0-5:58            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:58            RETURN_VALUE
+
+Disassembly of <code object simple at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:11-2:49            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 2>)
+2:11-2:49            MAKE_FUNCTION
+2:23-2:28            LOAD_FAST_BORROW         0 (names)
+2:11-2:49            CALL                     0
+2:4-2:49             RETURN_VALUE
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 2>:
+  --                 RESUME                   4
+
+2:23-2:28            LOAD_FAST                0 (.0)
+2:23-2:28            GET_ITER                 0
+2:?-2:?              RETURN_GENERATOR
+2:?-2:?              POP_TOP
+2:0-2:0      L1:     RESUME                   0
+2:23-2:28    L2:     FOR_ITER                27 (to L5)
+2:18-2:19            STORE_FAST               1 (x)
+2:36-2:45            LOAD_GLOBAL              1 (_ishidden + NULL)
+2:46-2:47            LOAD_FAST_BORROW         1 (x)
+2:36-2:48            CALL                     1
+2:36-2:48            TO_BOOL
+2:12-2:13    L3:     POP_JUMP_IF_FALSE        3 (to L4)
+2:12-2:13            NOT_TAKEN
+2:12-2:13            JUMP_BACKWARD           22 (to L2)
+2:12-2:13    L4:     LOAD_FAST_BORROW         1 (x)
+2:12-2:13            YIELD_VALUE              0
+2:12-2:13            RESUME                   9
+2:12-2:13            POP_TOP
+2:12-2:13            JUMP_BACKWARD           29 (to L2)
+2:23-2:28    L5:     END_FOR
+2:23-2:28            POP_ITER
+2:23-2:28            LOAD_COMMON_CONSTANT     7 (None)
+2:23-2:28            RETURN_VALUE
+
+  --         L6:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L3 -> L6 [2] lasti
+  L4 to L6 -> L6 [2] lasti
+
+Disassembly of <code object boolop at 0xdeadbeef, file "<?>", line 4>:
+4:0-4:0              RESUME                   0
+
+5:11-5:58            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 5>)
+5:11-5:58            MAKE_FUNCTION
+5:23-5:29            LOAD_FAST_BORROW         0 (fields)
+5:11-5:58            CALL                     0
+5:4-5:58             RETURN_VALUE
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 5>:
+  --                 RESUME                   4
+
+5:23-5:29            LOAD_FAST                0 (.0)
+5:23-5:29            GET_ITER                 0
+5:?-5:?              RETURN_GENERATOR
+5:?-5:?              POP_TOP
+5:0-5:0      L1:     RESUME                   0
+5:23-5:29    L2:     FOR_ITER                47 (to L7)
+5:18-5:19            STORE_FAST_LOAD_FAST    17 (f, f)
+5:33-5:39            LOAD_ATTR                0 (init)
+5:33-5:39            TO_BOOL
+5:12-5:13    L3:     POP_JUMP_IF_TRUE         3 (to L4)
+5:12-5:13            NOT_TAKEN
+5:12-5:13            JUMP_BACKWARD           22 (to L2)
+5:48-5:49    L4:     LOAD_FAST_BORROW         1 (f)
+5:48-5:57            LOAD_ATTR                2 (kw_only)
+5:48-5:57            TO_BOOL
+5:12-5:13    L5:     POP_JUMP_IF_FALSE        3 (to L6)
+5:12-5:13            NOT_TAKEN
+5:12-5:13            JUMP_BACKWARD           42 (to L2)
+5:12-5:13    L6:     LOAD_FAST_BORROW         1 (f)
+5:12-5:13            YIELD_VALUE              0
+5:12-5:13            RESUME                   9
+5:12-5:13            POP_TOP
+5:12-5:13            JUMP_BACKWARD           49 (to L2)
+5:23-5:29    L7:     END_FOR
+5:23-5:29            POP_ITER
+5:23-5:29            LOAD_COMMON_CONSTANT     7 (None)
+5:23-5:29            RETURN_VALUE
+
+  --         L8:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L3 -> L8 [2] lasti
+  L4 to L5 -> L8 [2] lasti
+  L6 to L8 -> L8 [2] lasti

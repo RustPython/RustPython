@@ -12,6 +12,7 @@ extern crate alloc;
 pub mod case;
 pub mod classify;
 pub mod data;
+pub mod grapheme;
 pub mod identifier;
 pub mod normalize;
 

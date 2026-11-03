@@ -1,0 +1,48 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ntype A[T] = T\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-1:13            LOAD_CONST               0 (<code object <generic parameters of A> at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:13            MAKE_FUNCTION
+1:0-1:13            PUSH_NULL
+1:0-1:13            CALL                     0
+1:0-1:13            STORE_NAME               0 (A)
+1:0-1:13            LOAD_COMMON_CONSTANT     7 (None)
+1:0-1:13            RETURN_VALUE
+
+Disassembly of <code object <generic parameters of A> at 0xdeadbeef, file "<?>", line 1>:
+  --                MAKE_CELL                0 (T)
+
+1:0-1:0             RESUME                   0
+1:0-1:13            LOAD_CONST               0 ('A')
+1:7-1:8             LOAD_CONST               1 ('T')
+1:7-1:8             CALL_INTRINSIC_1         7 (INTRINSIC_TYPEVAR)
+1:7-1:8             COPY                     1
+1:7-1:8             STORE_DEREF              0 (T)
+1:7-1:8             BUILD_TUPLE              1
+1:0-1:13            LOAD_CONST               2 ((1,))
+1:0-1:13            LOAD_FAST_BORROW         0 (T)
+1:0-1:13            BUILD_TUPLE              1
+1:0-1:13            LOAD_CONST               3 (<code object A at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:13            MAKE_FUNCTION
+1:0-1:13            SET_FUNCTION_ATTRIBUTE   8 (closure)
+1:0-1:13            SET_FUNCTION_ATTRIBUTE   1 (defaults)
+1:0-1:13            BUILD_TUPLE              3
+1:0-1:13            CALL_INTRINSIC_1        11 (INTRINSIC_TYPEALIAS)
+1:0-1:13            RETURN_VALUE
+
+Disassembly of <code object A at 0xdeadbeef, file "<?>", line 1>:
+  --                 COPY_FREE_VARS           1
+
+1:0-1:0              RESUME                   0
+1:0-1:13             LOAD_FAST_BORROW         0 (.format)
+1:0-1:13             LOAD_SMALL_INT           2
+1:0-1:13             COMPARE_OP             132 (>)
+1:0-1:13             POP_JUMP_IF_FALSE        3 (to L1)
+1:0-1:13             NOT_TAKEN
+1:0-1:13             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:0-1:13             RAISE_VARARGS            1
+1:12-1:13    L1:     LOAD_DEREF               1 (T)
+1:0-1:13             RETURN_VALUE

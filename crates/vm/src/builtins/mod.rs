@@ -20,7 +20,7 @@ pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
 pub(crate) mod dict;
-pub use dict::{PyDict, PyDictRef};
+pub use dict::{PyAnyDict, PyDict, PyDictRef, PyFrozenDict};
 pub(crate) mod enumerate;
 pub use enumerate::PyEnumerate;
 pub(crate) mod filter;
@@ -107,6 +107,7 @@ pub use descriptor::{
 };
 
 pub use float::float_from_string as parse_float_from_string;
+pub use float::invalid_float_literal_error;
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
 

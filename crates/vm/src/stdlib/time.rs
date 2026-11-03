@@ -5,8 +5,10 @@
 // https://docs.python.org/3/library/time.html
 
 pub use decl::time;
+pub(crate) mod pytime;
 
 pub(crate) use decl::module_def;
+pub(crate) use decl::perf_counter_ns as profiler_time;
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
@@ -32,7 +34,6 @@ mod decl {
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
     use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
-    use num_traits::ToPrimitive;
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -127,39 +128,9 @@ mod decl {
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
-        let overflow = || vm.new_overflow_error("timestamp out of range for C PyTime_t");
-        let nanoseconds = if object.number().is_index() {
-            let seconds = object.try_index(vm).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
-                    overflow()
-                } else {
-                    e
-                }
-            })?;
-            seconds
-                .as_bigint()
-                .to_i64()
-                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
-                .ok_or_else(overflow)?
-        } else {
-            let seconds = object.try_float(vm)?.to_f64();
-            if seconds.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-            }
-            // _PyTime_ROUND_TIMEOUT rounds away from zero.
-            let nanoseconds = seconds * SEC_TO_NS as f64;
-            let nanoseconds = if nanoseconds >= 0.0 {
-                nanoseconds.ceil()
-            } else {
-                nanoseconds.floor()
-            };
-            let minimum = i64::MIN as f64;
-            // The signed maximum rounds up to 2**63 as a double.
-            if !(minimum..-minimum).contains(&nanoseconds) {
-                return Err(overflow());
-            }
-            nanoseconds as i64
-        };
+        // _PyTime_ROUND_TIMEOUT rounds away from zero.
+        let nanoseconds =
+            super::pytime::from_seconds_object(&object, super::pytime::Round::Up, vm)?;
         if nanoseconds < 0 {
             return Err(vm.new_value_error("sleep length must be non-negative"));
         }
@@ -262,7 +233,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+    pub(crate) fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
@@ -927,7 +898,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     #[cfg_attr(target_env = "musl", allow(deprecated))]
-    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<libc::time_t> {
+    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<host_time::TimeT> {
         match value {
             Either::A(float) => {
                 if !float.is_finite() {
@@ -935,19 +906,19 @@ mod decl {
                 }
                 let secs = float.floor();
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                let minimum = libc::time_t::MIN as f64;
+                let minimum = host_time::TimeT::MIN as f64;
                 // The signed maximum rounds up when represented by f64.
                 if !(minimum..-minimum).contains(&secs) {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                Ok(secs as libc::time_t)
+                Ok(secs as host_time::TimeT)
             }
             Either::B(int) => {
                 // try_into is needed on 32-bit platforms where time_t != i64
                 #[allow(clippy::useless_conversion)]
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                let ts: libc::time_t = int.try_into().map_err(|_| {
+                let ts: host_time::TimeT = int.try_into().map_err(|_| {
                     vm.new_overflow_error("timestamp out of range for platform time_t")
                 })?;
                 Ok(ts)

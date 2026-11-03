@@ -2,9 +2,10 @@ use super::{
     PositionIterInternal, PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
     locked_next,
 };
+use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::common::lock::LazyLock;
 use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
-use crate::object::{Traverse, TraverseFn};
+use crate::object::{PyTypedRefTarget, Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
@@ -25,40 +26,55 @@ use crate::{
 };
 use alloc::fmt;
 use core::cell::{Cell, UnsafeCell};
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
+#[repr(C)]
 pub struct PyTuple<R = PyObjectRef> {
     elements: TupleElements<R>,
+    hash: PyAtomic<PyHash>,
 }
 
 /// Tuple storage is immutable after publication, but marshal must publish a
 /// tuple in its reference table before recursively reading its children.
 /// This mirrors CPython's `PyTuple_New` followed by `PyTuple_SET_ITEM`.
-struct TupleElements<R>(UnsafeCell<Box<[R]>>);
+// Every allocation stores erased owners, including when borrowed through a
+// typed tuple view. The marker preserves the old storage's invariance and
+// ownership relationship to R.
+// Safe constructors and checked view conversions only admit R = PyRef<T>,
+// and establish each element's target invariant before publishing that view.
+#[repr(transparent)]
+struct TupleElements<R>(UnsafeCell<Box<[PyObjectRef]>>, PhantomData<UnsafeCell<R>>);
 
 unsafe impl<R: Send> Send for TupleElements<R> {}
 unsafe impl<R: Sync> Sync for TupleElements<R> {}
 
 impl<R> TupleElements<R> {
-    const fn new(elements: Box<[R]>) -> Self {
-        Self(UnsafeCell::new(elements))
-    }
-
     fn as_slice(&self) -> &[R] {
-        // SAFETY: initialization writes happen only while the tuple is owned by
-        // the synchronous marshal decoder; afterwards the storage is immutable.
-        unsafe { &*self.0.get() }
+        // SAFETY: all admitted R are transparent PyRef owners with the same
+        // size/alignment as PyObjectRef. Their element invariants were proven
+        // by construction or checked conversion. Published elements cannot be
+        // replaced, and the returned shared slice borrows this storage.
+        let elements = unsafe { &*self.0.get() };
+        unsafe { core::slice::from_raw_parts(elements.as_ptr().cast(), elements.len()) }
+    }
+}
+
+impl TupleElements<PyObjectRef> {
+    const fn new(elements: Box<[PyObjectRef]>) -> Self {
+        Self(UnsafeCell::new(elements), PhantomData)
     }
 
-    fn get_mut(&mut self) -> &mut Box<[R]> {
+    fn get_mut(&mut self) -> &mut Box<[PyObjectRef]> {
         self.0.get_mut()
     }
 
     /// # Safety
     /// The tuple must still be in its private initialization phase, and each
     /// placeholder index must be replaced at most once before it is observable.
-    unsafe fn set_initializing(&self, index: usize, value: R) {
+    unsafe fn set_initializing(&self, index: usize, value: PyObjectRef) {
         unsafe { (*self.0.get())[index] = value };
     }
 }
@@ -293,6 +309,7 @@ impl PyTuple {
     fn from_elements(elements: Vec<PyObjectRef>) -> Self {
         Self {
             elements: TupleElements::new(elements.into_boxed_slice()),
+            hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
         }
     }
 }
@@ -346,6 +363,7 @@ impl PyTuple<PyObjectRef> {
             PyRef::new_ref(
                 Self {
                     elements: TupleElements::new(elements),
+                    hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
                 },
                 ctx.types.tuple_type.to_owned(),
                 None,
@@ -360,6 +378,7 @@ impl PyTuple<PyObjectRef> {
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self {
             elements: TupleElements::new(elements),
+            hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
         }
     }
 
@@ -384,6 +403,7 @@ impl PyTuple<PyObjectRef> {
             let elements = v.into_boxed_slice();
             Self {
                 elements: TupleElements::new(elements),
+                hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
             }
             .into_ref(&vm.ctx)
         })
@@ -398,6 +418,38 @@ impl<R> Py<PyTuple<R>> {
 }
 
 impl Py<PyTuple> {
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, needle)? {
+            SequenceIndex::Int(i) => {
+                let index = self
+                    .elements
+                    .wrap_index(i)
+                    .ok_or_else(|| vm.new_index_error("tuple index out of range"))?;
+                Ok(self.elements[index].clone())
+            }
+            SequenceIndex::Slice(slice) => {
+                let len = self.as_slice().len();
+                let (range, step, slice_len) = slice.adjust_indices(len);
+                if slice_len != 0
+                    && range.start == 0
+                    && step == 1
+                    && slice_len == len
+                    && self.class().is(vm.ctx.types.tuple_type)
+                {
+                    Ok(self.to_owned().into())
+                } else {
+                    self.elements
+                        .getitem_by_slice(vm, slice)
+                        .map(|x| vm.ctx.new_tuple(x).into())
+                }
+            }
+        }
+    }
+
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
+    }
+
     pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {
         T::from_pytuple(self, vm)
     }
@@ -410,8 +462,14 @@ impl<T> PyTuple<PyRef<T>> {
     ) -> PyRef<Self> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef.
         unsafe {
-            let elements: Vec<PyObjectRef> =
-                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let mut elements = ManuallyDrop::new(elements);
+            // Preserve the buffer, length and capacity without assuming Vec's
+            // field order. Each transparent owner transfers its one reference.
+            let elements = Vec::from_raw_parts(
+                elements.as_mut_ptr().cast::<PyObjectRef>(),
+                elements.len(),
+                elements.capacity(),
+            );
             let tuple = PyRef::new_ref(
                 PyTuple::new_unchecked(elements.into_boxed_slice()),
                 tuple_type,
@@ -424,8 +482,14 @@ impl<T> PyTuple<PyRef<T>> {
     pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
-            let elements: Vec<PyObjectRef> =
-                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let mut elements = ManuallyDrop::new(elements);
+            // Preserve the buffer, length and capacity without assuming Vec's
+            // field order. Each transparent owner transfers its one reference.
+            let elements = Vec::from_raw_parts(
+                elements.as_mut_ptr().cast::<PyObjectRef>(),
+                elements.len(),
+                elements.capacity(),
+            );
             let tuple = PyTuple::<PyObjectRef>::new_ref(elements, ctx);
             core::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
         }
@@ -452,6 +516,7 @@ impl PyTuple {
                     .collect::<Box<[_]>>();
                 Self {
                     elements: TupleElements::new(elements),
+                    hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
                 }
                 .into_ref(&vm.ctx)
             }
@@ -467,26 +532,6 @@ impl PyTuple {
 
     fn __mul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value, vm)
-    }
-
-    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, needle)? {
-            SequenceIndex::Int(i) => {
-                let index = self
-                    .elements
-                    .wrap_index(i)
-                    .ok_or_else(|| vm.new_index_error("tuple index out of range"))?;
-                Ok(self.elements[index].clone())
-            }
-            SequenceIndex::Slice(slice) => self
-                .elements
-                .getitem_by_slice(vm, slice)
-                .map(|x| vm.ctx.new_tuple(x).into()),
-        }
-    }
-
-    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        self._getitem(needle, vm)
     }
 
     fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -505,7 +550,7 @@ impl PyTuple {
 
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
     with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl Py<PyTuple> {
@@ -565,9 +610,9 @@ impl AsMapping for PyTuple {
             length: atomic_func!(|mapping, _vm| {
                 Ok(PyTuple::mapping_downcast(mapping).as_slice().len())
             }),
-            subscript: atomic_func!(|mapping, needle, vm| PyTuple::mapping_downcast(mapping)
-                .payload
-                ._getitem(needle, vm)),
+            subscript: atomic_func!(
+                |mapping, needle, vm| PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
+            ),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
@@ -622,7 +667,13 @@ impl AsNumber for PyTuple {
 impl Hashable for PyTuple {
     #[inline]
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        tuple_hash(zelf.as_slice(), vm)
+        let cached = Radium::load(&zelf.hash, Ordering::Relaxed);
+        if cached != hash::SENTINEL {
+            return Ok(cached);
+        }
+        let hash = tuple_hash(zelf.as_slice(), vm)?;
+        Radium::store(&zelf.hash, hash, Ordering::Relaxed);
+        Ok(hash)
     }
 }
 
@@ -686,35 +737,42 @@ impl Representable for PyTuple {
 }
 
 impl PyRef<PyTuple<PyObjectRef>> {
-    pub fn try_into_typed<T: PyPayload>(
+    pub fn try_into_typed<T: PyTypedRefTarget>(
         self,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyTuple<PyRef<T>>>> {
+    ) -> PyResult<PyRef<PyTuple<PyRef<T>>>>
+    where
+        PyRef<T>: TransmuteFromObject,
+    {
         // Check that all elements are of the correct type
         for elem in self.as_slice() {
             <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
         }
-        // SAFETY: We just verified all elements are of type T
+        // SAFETY: every element satisfies T's view invariant. C-layout
+        // tuple payloads retain the same erased storage and hash for every marker;
+        // this transfers the owner without changing its allocation or count.
         Ok(unsafe { core::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
 }
 
-impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
+impl<T: PyTypedRefTarget> PyRef<PyTuple<PyRef<T>>> {
     #[must_use]
     pub fn into_untyped(self) -> PyRef<PyTuple> {
-        // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
+        // SAFETY: C-layout tuple payloads have identical erased storage and hash;
+        // forgetting the element guarantee does not change the allocation.
         unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }
     }
 }
 
-impl<T: PyPayload> Py<PyTuple<PyRef<T>>> {
+impl<T: PyTypedRefTarget> Py<PyTuple<PyRef<T>>> {
     pub fn as_untyped(&self) -> &Py<PyTuple> {
-        // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
+        // SAFETY: C-layout tuple payloads have identical erased storage and hash;
+        // forgetting the element guarantee does not change the allocation.
         unsafe { core::mem::transmute::<&Self, &Py<PyTuple>>(self) }
     }
 }
 
-impl<T: PyPayload> From<PyRef<PyTuple<PyRef<T>>>> for PyTupleRef {
+impl<T: PyTypedRefTarget> From<PyRef<PyTuple<PyRef<T>>>> for PyTupleRef {
     #[inline]
     fn from(tup: PyRef<PyTuple<PyRef<T>>>) -> Self {
         tup.into_untyped()
@@ -807,7 +865,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .tuple_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_tuple));
 }
 

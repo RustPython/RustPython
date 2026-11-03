@@ -5,7 +5,6 @@
 use std::env;
 
 use rustls::crypto::ring;
-use rustpython_pylib::FROZEN_STDLIB;
 use rustpython_stdlib::{ssl::providers::CryptoExt, stdlib_module_defs};
 use rustpython_vm::Interpreter;
 
@@ -56,7 +55,11 @@ fn main() {
     let defs = stdlib_module_defs(&builder.ctx);
     let result = builder
         .add_native_modules(&defs)
-        .add_frozen_modules(FROZEN_STDLIB)
+        .add_frozen_modules_with_resources(
+            rustpython_pylib::FROZEN_STDLIB,
+            rustpython_pylib::FROZEN_STDLIB_RESOURCES,
+        )
+        .expect("validated embedded standard-library resources")
         .build()
         .run(|vm| {
             let scope = vm.new_scope_with_builtins();

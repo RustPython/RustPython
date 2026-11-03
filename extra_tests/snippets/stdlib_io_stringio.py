@@ -1,5 +1,7 @@
 from io import StringIO
 
+from testutils import assert_raises
+
 
 def test_01():
     """
@@ -84,6 +86,17 @@ def test_06():
         assert False
 
 
+def test_07():
+    """
+    Test that newline is validated before initial_value
+    """
+    assert_raises(ValueError, StringIO, True, "7")
+    with assert_raises(TypeError) as cm:
+        StringIO(True)
+    assert str(cm.exception) == "initial_value must be str or None, not bool"
+    assert StringIO(None, "\r").getvalue() == ""
+
+
 if __name__ == "__main__":
     test_01()
     test_02()
@@ -91,3 +104,4 @@ if __name__ == "__main__":
     test_04()
     test_05()
     test_06()
+    test_07()

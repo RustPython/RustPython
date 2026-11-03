@@ -22,7 +22,8 @@ use crate::{
     windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned},
 };
 use libc::intptr_t;
-use widestring::WideCString;
+
+use widestring::{WideCStr, WideCString};
 use windows_sys::{
     Win32::{
         Foundation::{
@@ -74,6 +75,25 @@ pub use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
     FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
 };
+
+pub fn get_blocking(fd: crt_fd::Borrowed<'_>) -> io::Result<bool> {
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    Ok(mode & windows_sys::Win32::System::Pipes::PIPE_NOWAIT == 0)
+}
+
+pub fn set_blocking(fd: crt_fd::Borrowed<'_>, blocking: bool) -> io::Result<()> {
+    use windows_sys::Win32::System::Pipes::PIPE_NOWAIT;
+
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    let mode = if blocking {
+        mode & !PIPE_NOWAIT
+    } else {
+        mode | PIPE_NOWAIT
+    };
+    crate::winapi::set_named_pipe_handle_state(handle.as_raw_handle(), Some(mode), None, None)
+}
 
 pub type Handle = HANDLE;
 pub const MAX_PATH_USIZE: usize = MAX_PATH as usize;
@@ -129,16 +149,16 @@ struct FileAttributeTagInfo {
     reparse_tag: u32,
 }
 
-const fn win32_large_integer_to_time(li: i64) -> (libc::time_t, i32) {
+const fn win32_large_integer_to_time(li: i64) -> (crate::time::TimeT, i32) {
     let nsec = ((li % 10_000_000) * 100) as i32;
-    let sec = (li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
-const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
+const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (crate::time::TimeT, i32) {
     let ticks = ((ft_high as i64) << 32) | (ft_low as i64);
     let nsec = ((ticks % 10_000_000) * 100) as i32;
-    let sec = (ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
@@ -245,11 +265,8 @@ pub enum ReadConsoleError {
     BufferTooSmall { available: usize, required: usize },
 }
 
-pub fn access(path: &Path, mode: u8) -> bool {
-    let Ok(wide) = WideCString::from_os_str(path.as_os_str()) else {
-        return false;
-    };
-    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
+pub fn access(path: &WideCStr, mode: u8) -> bool {
+    let attr = unsafe { GetFileAttributesW(path.as_ptr()) };
     attr != INVALID_FILE_ATTRIBUTES
         && (mode & 2 == 0
             || attr & FILE_ATTRIBUTE_READONLY == 0
@@ -591,10 +608,10 @@ impl ScandirEntry {
         if reparse_tag == IO_REPARSE_TAG_SYMLINK {
             mode = (mode & !libc::S_IFMT) | S_IFLNK;
         }
-        let to_time = |ticks: u64| -> (libc::time_t, i32) {
+        let to_time = |ticks: u64| -> (crate::time::TimeT, i32) {
             let ticks = ticks as i64;
             (
-                (ticks / 10_000_000 - SECS_BETWEEN_EPOCHS) as libc::time_t,
+                ticks / 10_000_000 - SECS_BETWEEN_EPOCHS,
                 ((ticks % 10_000_000) * 100) as i32,
             )
         };
@@ -645,7 +662,20 @@ impl core::fmt::Debug for Scandir {
 /// `rposix_scandir.opendir`: join `*.*` onto the directory and open the walk.
 pub fn scandir(path: &widestring::WideCStr) -> io::Result<Scandir> {
     let dir = path.as_slice().to_vec();
-    let mut mask = join_path_filename(&dir, &[b'*' as u16, b'.' as u16, b'*' as u16]);
+    // Normalize before appending the wildcard, as CPython does. Otherwise a
+    // trailing space becomes an interior path component and is not stripped.
+    // Extended paths deliberately retain their literal spelling.
+    let normalized;
+    let search_dir = if !dir.is_empty()
+        && !dir.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
+    {
+        use std::os::windows::ffi::OsStrExt;
+        normalized = getfullpathname(path)?.encode_wide().collect::<Vec<_>>();
+        &normalized
+    } else {
+        &dir
+    };
+    let mut mask = join_path_filename(search_dir, &[b'*' as u16, b'.' as u16, b'*' as u16]);
     mask.push(0);
     let mut data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
     let handle = unsafe { FindFirstFileW(mask.as_ptr(), &mut data) };
@@ -2476,6 +2506,24 @@ pub fn execve(
         Err(crate::os::errno_io_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod scandir_tests {
+    use super::*;
+
+    #[test]
+    fn trailing_space_is_normalized_except_in_extended_paths() {
+        let mut path = getfullpathname(widestring::widecstr!(".")).unwrap();
+        path.push(" ");
+        let wide = WideCString::from_os_str(&path).unwrap();
+        assert!(scandir(&wide).is_ok());
+
+        let mut extended = OsString::from("\\\\?\\");
+        extended.push(path);
+        let wide = WideCString::from_os_str(&extended).unwrap();
+        assert!(scandir(&wide).is_err());
     }
 }
 

@@ -1,7 +1,6 @@
 // spell-checker:ignore ddfe DTSF
 use core::ops::Deref;
 use core::{cmp, str::FromStr};
-use itertools::{Itertools, PeekingNext};
 use malachite_base::num::basic::floats::PrimitiveFloat;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
@@ -1354,9 +1353,12 @@ pub enum FormatParseError {
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
     InvalidFormatSpecifier,
-    UnknownConversion,
+    MissingConversion,
+    MissingConversionColon,
+    UnexpectedStartBracket,
     EmptyAttribute,
     MissingRightBracket,
+    MissingRightSquareBracket,
     InvalidCharacterAfterRightBracket,
     TooManyDecimalDigits,
 }
@@ -1375,43 +1377,56 @@ pub enum FieldNamePart {
     StringIndex(Wtf8Buf),
 }
 
-impl FieldNamePart {
-    fn parse_part(
-        chars: &mut impl PeekingNext<Item = CodePoint>,
-    ) -> Result<Option<Self>, FormatParseError> {
-        chars
-            .next()
-            .map(|ch| match ch.to_char_lossy() {
-                '.' => {
-                    let mut attribute = Wtf8Buf::new();
-                    for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
-                        attribute.push(ch);
+/// Lazily parse field suffixes so each lookup can happen before the next parse.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FieldNameParts {
+    text: Wtf8Buf,
+    cursor: usize,
+}
+
+impl Iterator for FieldNameParts {
+    type Item = Result<FieldNamePart, FormatParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ch = self.text[self.cursor..].code_points().next()?;
+        self.cursor += ch.len_wtf8();
+        let start = self.cursor;
+        Some(match ch.to_char_lossy() {
+            '.' => {
+                while let Some(ch) = self.text[self.cursor..].code_points().next() {
+                    if ch == '.' || ch == '[' {
+                        break;
                     }
-                    if attribute.is_empty() {
-                        Err(FormatParseError::EmptyAttribute)
-                    } else {
-                        Ok(Self::Attribute(attribute))
+                    self.cursor += ch.len_wtf8();
+                }
+                if self.cursor == start {
+                    Err(FormatParseError::EmptyAttribute)
+                } else {
+                    Ok(FieldNamePart::Attribute(
+                        self.text[start..self.cursor].to_owned(),
+                    ))
+                }
+            }
+            '[' => {
+                while let Some(ch) = self.text[self.cursor..].code_points().next() {
+                    let end = self.cursor;
+                    self.cursor += ch.len_wtf8();
+                    if ch == ']' {
+                        let index = &self.text[start..end];
+                        return Some(if index.is_empty() {
+                            Err(FormatParseError::EmptyAttribute)
+                        } else {
+                            parse_field_index(index).map(|number| match number {
+                                Some(index) => FieldNamePart::Index(index),
+                                None => FieldNamePart::StringIndex(index.to_owned()),
+                            })
+                        });
                     }
                 }
-                '[' => {
-                    let mut index = Wtf8Buf::new();
-                    for ch in chars {
-                        if ch == ']' {
-                            return if index.is_empty() {
-                                Err(FormatParseError::EmptyAttribute)
-                            } else if let Some(index) = parse_usize(&index) {
-                                Ok(Self::Index(index))
-                            } else {
-                                Ok(Self::StringIndex(index))
-                            };
-                        }
-                        index.push(ch);
-                    }
-                    Err(FormatParseError::MissingRightBracket)
-                }
-                _ => Err(FormatParseError::InvalidCharacterAfterRightBracket),
-            })
-            .transpose()
+                Err(FormatParseError::MissingRightSquareBracket)
+            }
+            _ => Err(FormatParseError::InvalidCharacterAfterRightBracket),
+        })
     }
 }
 
@@ -1432,38 +1447,51 @@ fn parse_usize(s: &Wtf8) -> Option<usize> {
     s.as_str().ok().and_then(|s| s.parse().ok())
 }
 
-impl FieldName {
-    pub fn parse(text: &Wtf8) -> Result<Self, FormatParseError> {
-        let mut chars = text.code_points().peekable();
-        let first: Wtf8Buf = chars
-            .peeking_take_while(|ch| *ch != '.' && *ch != '[')
-            .collect();
+fn parse_field_index(text: &Wtf8) -> Result<Option<usize>, FormatParseError> {
+    if let Some(index) = parse_usize(text) {
+        if index > isize::MAX as usize {
+            return Err(FormatParseError::TooManyDecimalDigits);
+        }
+        Ok(Some(index))
+    } else if text
+        .as_str()
+        .is_ok_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
+    {
+        Err(FormatParseError::TooManyDecimalDigits)
+    } else {
+        Ok(None)
+    }
+}
 
+impl FieldName {
+    pub fn split(text: &Wtf8) -> Result<(FieldType, FieldNameParts), FormatParseError> {
+        let split = text
+            .code_point_indices()
+            .find(|(_, ch)| *ch == '.' || *ch == '[')
+            .map_or(text.len(), |(index, _)| index);
+        let first = &text[..split];
         let field_type = if first.is_empty() {
             FieldType::Auto
-        } else if let Some(index) = parse_usize(&first) {
-            // Match CPython's get_integer: digits-only segment must fit in
-            // Py_ssize_t. Above that, raise ValueError at parse time.
-            if index > isize::MAX as usize {
-                return Err(FormatParseError::TooManyDecimalDigits);
-            }
+        } else if let Some(index) = parse_field_index(first)? {
             FieldType::Index(index)
-        } else if first
-            .as_str()
-            .is_ok_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
-        {
-            // All-digit segment whose value overflows usize itself.
-            return Err(FormatParseError::TooManyDecimalDigits);
         } else {
-            FieldType::Keyword(first)
+            FieldType::Keyword(first.to_owned())
         };
+        Ok((
+            field_type,
+            FieldNameParts {
+                text: text[split..].to_owned(),
+                cursor: 0,
+            },
+        ))
+    }
 
-        let mut parts = Vec::new();
-        while let Some(part) = FieldNamePart::parse_part(&mut chars)? {
-            parts.push(part)
-        }
-
-        Ok(Self { field_type, parts })
+    pub fn parse(text: &Wtf8) -> Result<Self, FormatParseError> {
+        let (field_type, parts) = Self::split(text)?;
+        Ok(Self {
+            field_type,
+            parts: parts.collect::<Result<_, _>>()?,
+        })
     }
 }
 
@@ -1521,112 +1549,75 @@ impl FormatString {
         Ok((FormatPart::Literal(result_string), "".as_ref()))
     }
 
-    fn parse_part_in_brackets(text: &Wtf8) -> Result<FormatPart, FormatParseError> {
-        let mut chars = text.code_points().peekable();
+    fn parse_spec(text: &Wtf8) -> Result<(FormatPart, &Wtf8), FormatParseError> {
+        let mut chars = text.code_point_indices();
+        if chars.next().is_none_or(|(_, ch)| ch != '{') {
+            return Err(FormatParseError::MissingStartBracket);
+        }
+        if text.len() == 1 {
+            return Err(FormatParseError::UnescapedStartBracketInLiteral);
+        }
 
-        let mut left = Wtf8Buf::new();
-        let mut right = Wtf8Buf::new();
-
-        let mut split = false;
-        let mut selected = &mut left;
-        let mut inside_brackets = false;
-
-        while let Some(char) = chars.next() {
-            if char == '[' {
-                inside_brackets = true;
-
-                selected.push(char);
-
-                while let Some(next_char) = chars.next() {
-                    selected.push(next_char);
-
-                    if next_char == ']' {
-                        inside_brackets = false;
-                        break;
-                    }
-                    if chars.peek().is_none() {
+        // Braces, colons and conversion markers inside an item key are data.
+        let (field_end, mut delimiter) = loop {
+            let Some((index, ch)) = chars.next() else {
+                return Err(FormatParseError::UnmatchedBracket);
+            };
+            match ch.to_char_lossy() {
+                '[' => {
+                    if !chars.any(|(_, ch)| ch == ']') {
                         return Err(FormatParseError::MissingRightBracket);
                     }
                 }
-            } else if char == ':' && !split && !inside_brackets {
-                split = true;
-                selected = &mut right;
-            } else {
-                selected.push(char);
+                '{' => return Err(FormatParseError::UnexpectedStartBracket),
+                '!' | ':' | '}' => break (index, ch),
+                _ => {}
             }
+        };
+        let field_name = text[1..field_end].to_owned();
+        let mut delimiter_index = field_end;
+        let mut conversion_spec = None;
+        if delimiter == '!' {
+            conversion_spec = Some(chars.next().ok_or(FormatParseError::MissingConversion)?.1);
+            let Some((index, ch)) = chars.next() else {
+                return Err(FormatParseError::InvalidFormatSpecifier);
+            };
+            if ch != ':' && ch != '}' {
+                return Err(FormatParseError::MissingConversionColon);
+            }
+            delimiter_index = index;
+            delimiter = ch;
         }
 
-        // before the comma is a keyword or arg index, after the comma is maybe a spec.
-        let arg_part: &Wtf8 = &left;
-
-        let format_spec = if split { right } else { Wtf8Buf::new() };
-
-        // left can still be the conversion (!r, !s, !a)
-        let parts: Vec<&Wtf8> = arg_part.splitn(2, "!".as_ref()).collect();
-        // before the bang is a keyword or arg index, after the comma is maybe a conversion spec.
-        let arg_part = parts[0];
-
-        let conversion_spec = parts
-            .get(1)
-            .map(|conversion| {
-                // conversions are only every one character
-                conversion
-                    .code_points()
-                    .exactly_one()
-                    .map_err(|_| FormatParseError::UnknownConversion)
-            })
-            .transpose()?;
-
-        Ok(FormatPart::Field {
-            field_name: arg_part.to_owned(),
-            conversion_spec,
-            format_spec,
-        })
-    }
-
-    fn parse_spec(text: &Wtf8) -> Result<(FormatPart, &Wtf8), FormatParseError> {
-        let mut nested = false;
-        let mut end_bracket_pos = None;
-        let mut left = Wtf8Buf::new();
-
-        // There may be one layer nesting brackets in spec
-        for (idx, c) in text.code_point_indices() {
-            if idx == 0 {
-                if c != '{' {
-                    return Err(FormatParseError::MissingStartBracket);
-                }
-            } else if c == '{' {
-                if nested {
+        let mut format_spec = Wtf8Buf::new();
+        if delimiter == ':' {
+            let spec_start = delimiter_index + 1;
+            let mut depth = 1usize;
+            let spec_end = loop {
+                let Some((index, ch)) = chars.next() else {
                     return Err(FormatParseError::InvalidFormatSpecifier);
+                };
+                if ch == '{' {
+                    depth += 1;
+                } else if ch == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break index;
+                    }
                 }
-                nested = true;
-                left.push(c);
-                continue;
-            } else if c == '}' {
-                if nested {
-                    nested = false;
-                    left.push(c);
-                    continue;
-                }
-                end_bracket_pos = Some(idx);
-                break;
-            } else {
-                left.push(c);
-            }
+            };
+            text[spec_start..spec_end].clone_into(&mut format_spec);
+            delimiter_index = spec_end;
         }
-        if let Some(pos) = end_bracket_pos {
-            let right = &text[pos..];
-            let format_part = Self::parse_part_in_brackets(&left)?;
-            Ok((format_part, &right[1..]))
-        } else if text.len() == 1 {
-            // Nothing follows the brace, so it is a stray one rather than a field
-            // that was left open: CPython separates "{" and "a{" from "{0" and
-            // "a{b" the same way. `{` is one byte, so a length of one is the brace
-            // on its own.
-            Err(FormatParseError::UnescapedStartBracketInLiteral)
-        } else {
-            Err(FormatParseError::UnmatchedBracket)
-        }
+
+        Ok((
+            FormatPart::Field {
+                field_name,
+                conversion_spec,
+                format_spec,
+            },
+            &text[delimiter_index + 1..],
+        ))
     }
 }
 
@@ -2478,7 +2469,10 @@ mod tests {
         );
         assert_eq!(parse("key.."), Err(FormatParseError::EmptyAttribute));
         assert_eq!(parse("key[]"), Err(FormatParseError::EmptyAttribute));
-        assert_eq!(parse("key["), Err(FormatParseError::MissingRightBracket));
+        assert_eq!(
+            parse("key["),
+            Err(FormatParseError::MissingRightSquareBracket)
+        );
         assert_eq!(
             parse("key[0]after"),
             Err(FormatParseError::InvalidCharacterAfterRightBracket)

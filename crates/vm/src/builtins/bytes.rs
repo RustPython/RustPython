@@ -235,7 +235,7 @@ impl PyBytes {
 
 #[pyclass(
     itemsize = 1,
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, BYTES_SUBCLASS),
     with(
         Py,
         PyRef,
@@ -491,21 +491,6 @@ impl Py<PyBytes> {
     }
 
     #[pymethod]
-    fn strip(&self, options: ByteInnerStripOptions) -> PyBytes {
-        self.inner.strip(options.bytes).into()
-    }
-
-    #[pymethod]
-    fn removeprefix(&self, prefix: PyBytesInner) -> PyBytes {
-        self.inner.removeprefix(prefix).into()
-    }
-
-    #[pymethod]
-    fn removesuffix(&self, suffix: PyBytesInner) -> PyBytes {
-        self.inner.removesuffix(suffix).into()
-    }
-
-    #[pymethod]
     fn split(
         &self,
         options: ByteInnerSplitOptions,
@@ -556,8 +541,12 @@ impl Py<PyBytes> {
     }
 
     #[pymethod]
-    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> PyBytes {
-        self.inner.expandtabs(options).into()
+    fn expandtabs(
+        &self,
+        options: anystr::ExpandTabsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
+        self.inner.expandtabs(options, vm).map(Into::into)
     }
 
     #[pymethod]
@@ -572,24 +561,50 @@ impl Py<PyBytes> {
     }
 
     #[pymethod]
-    fn replace(&self, options: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        Ok(self.inner.replace(options, vm)?.into())
-    }
-
-    #[pymethod]
     fn title(&self) -> PyBytes {
         self.inner.title().into()
-    }
-
-    #[pymethod]
-    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
-        PyTuple::new_ref(param, &vm.ctx)
     }
 }
 
 #[pyclass]
 impl PyRef<PyBytes> {
+    // These operations return a subslice, so equal lengths mean unchanged contents.
+    fn result_from_slice(&self, result: &[u8], vm: &VirtualMachine) -> Self {
+        if result.len() == self.as_bytes().len() && self.class().is(vm.ctx.types.bytes_type) {
+            self.clone()
+        } else {
+            vm.ctx.new_bytes(result.to_vec())
+        }
+    }
+
+    #[pymethod]
+    fn __getnewargs__(self, vm: &VirtualMachine) -> PyTupleRef {
+        vm.new_tuple((self.result_from_slice(self.as_bytes(), vm),))
+    }
+
+    #[pymethod]
+    fn strip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
+        self.result_from_slice(self.inner.strip(options.bytes), vm)
+    }
+
+    #[pymethod]
+    fn removeprefix(self, prefix: PyBytesInner, vm: &VirtualMachine) -> Self {
+        self.result_from_slice(self.inner.removeprefix(prefix), vm)
+    }
+
+    #[pymethod]
+    fn removesuffix(self, suffix: PyBytesInner, vm: &VirtualMachine) -> Self {
+        self.result_from_slice(self.inner.removesuffix(suffix), vm)
+    }
+
+    #[pymethod]
+    fn replace(self, options: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(match self.inner.replace(options, vm)? {
+            alloc::borrow::Cow::Borrowed(result) => self.result_from_slice(result, vm),
+            alloc::borrow::Cow::Owned(result) => vm.ctx.new_bytes(result),
+        })
+    }
+
     #[pymethod]
     fn __bytes__(self, vm: &VirtualMachine) -> Self {
         if self.is(vm.ctx.types.bytes_type) {
@@ -601,22 +616,12 @@ impl PyRef<PyBytes> {
 
     #[pymethod]
     fn lstrip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
-        let stripped = self.payload.inner.lstrip(options.bytes);
-        if stripped == self.as_bytes() {
-            self
-        } else {
-            vm.ctx.new_bytes(stripped.to_vec())
-        }
+        self.result_from_slice(self.inner.lstrip(options.bytes), vm)
     }
 
     #[pymethod]
     fn rstrip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
-        let stripped = self.payload.inner.rstrip(options.bytes);
-        if stripped == self.as_bytes() {
-            self
-        } else {
-            vm.ctx.new_bytes(stripped.to_vec())
-        }
+        self.result_from_slice(self.inner.rstrip(options.bytes), vm)
     }
 
     // currently, only 'utf-8' and 'ascii' implemented

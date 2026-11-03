@@ -8,9 +8,8 @@ import os
 import pathlib
 import subprocess
 import sys
-import typing
-
 import tomllib
+import typing
 
 from cpython import Analysis, get_analysis, get_stack_effect
 from opcodes import OpcodeInfo

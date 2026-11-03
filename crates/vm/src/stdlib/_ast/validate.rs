@@ -118,6 +118,21 @@ fn validate_nonempty_seq(
     Ok(())
 }
 
+fn validate_import_names(
+    vm: &VirtualMachine,
+    names: &[ast::Alias],
+    owner: &'static str,
+) -> PyResult<()> {
+    validate_nonempty_seq(vm, names.len(), "names", owner)?;
+    for alias in names {
+        validate_name(vm, alias.name.id())?;
+        if let Some(asname) = &alias.asname {
+            validate_name(vm, asname.id())?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_assignlist(
     vm: &VirtualMachine,
     targets: &[ast::Expr],
@@ -176,6 +191,13 @@ fn validate_interpolated_elements<'a>(
 }
 
 fn ensure_literal_number(expr: &ast::Expr, allow_real: bool, allow_imaginary: bool) -> bool {
+    if let Some(constant) = ast_constant_value(expr) {
+        return match constant {
+            ConstantData::Integer { .. } | ConstantData::Float { .. } => allow_real,
+            ConstantData::Complex { .. } => allow_imaginary,
+            _ => false,
+        };
+    }
     let ast::Expr::NumberLiteral(number) = expr else {
         return false;
     };
@@ -185,11 +207,11 @@ fn ensure_literal_number(expr: &ast::Expr, allow_real: bool, allow_imaginary: bo
     }
 }
 
-fn ensure_literal_negative(expr: &ast::Expr, allow_real: bool, allow_imaginary: bool) -> bool {
+fn ensure_literal_signed(expr: &ast::Expr, allow_real: bool, allow_imaginary: bool) -> bool {
     let ast::Expr::UnaryOp(unary) = expr else {
         return false;
     };
-    if unary.op != ast::UnaryOp::USub {
+    if !matches!(unary.op, ast::UnaryOp::UAdd | ast::UnaryOp::USub) {
         return false;
     }
     ensure_literal_number(&unary.operand, allow_real, allow_imaginary)
@@ -203,7 +225,7 @@ fn ensure_literal_complex(expr: &ast::Expr) -> bool {
         return false;
     }
     let real_left = ensure_literal_number(&bin.left, true, false)
-        || ensure_literal_negative(&bin.left, true, false);
+        || ensure_literal_signed(&bin.left, true, false);
     real_left && ensure_literal_number(&bin.right, false, true)
 }
 
@@ -229,7 +251,7 @@ fn validate_pattern_match_value(vm: &VirtualMachine, expr: &ast::Expr) -> PyResu
             Ok(())
         }
         ast::Expr::Attribute(_) => Ok(()),
-        ast::Expr::UnaryOp(_) if ensure_literal_negative(expr, true, true) => Ok(()),
+        ast::Expr::UnaryOp(_) if ensure_literal_signed(expr, true, true) => Ok(()),
         ast::Expr::BinOp(_) if ensure_literal_complex(expr) => Ok(()),
         ast::Expr::FString(_) | ast::Expr::TString(_) => Ok(()),
         ast::Expr::BooleanLiteral(_)
@@ -593,10 +615,9 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
         }
         ast::Expr::DictComp(dict) => {
             validate_comprehension(vm, &dict.generators)?;
-            let key = dict.key.as_deref().ok_or_else(|| {
-                vm.new_value_error("field 'key' is required for DictComp".to_owned())
-            })?;
-            validate_expr(vm, key, ast::ExprContext::Load)?;
+            if let Some(key) = &dict.key {
+                validate_expr(vm, key, ast::ExprContext::Load)?;
+            }
             validate_expr(vm, &dict.value, ast::ExprContext::Load)
         }
         ast::Expr::Generator(generator) => {
@@ -739,6 +760,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 "FunctionDef"
             };
             validate_body(vm, &func.body, func.runtime_body.as_ref(), owner)?;
+            validate_name(vm, func.name.id())?;
             validate_type_params(vm, func.type_params.as_deref())?;
             validate_parameters(vm, &func.parameters)?;
             validate_runtime_expr_list_slots(
@@ -759,6 +781,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 class_def.runtime_body.as_ref(),
                 "ClassDef",
             )?;
+            validate_name(vm, class_def.name.id())?;
             validate_type_params(vm, class_def.type_params.as_deref())?;
             if let Some(arguments) = &class_def.arguments {
                 validate_runtime_expr_list_slots(
@@ -909,6 +932,11 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 if let Some(type_expr) = &handler.type_ {
                     validate_expr(vm, type_expr, ast::ExprContext::Load)?;
                 }
+                if !try_stmt.is_star
+                    && let Some(name) = &handler.name
+                {
+                    validate_name(vm, name.id())?;
+                }
                 validate_body(
                     vm,
                     &handler.body,
@@ -928,18 +956,14 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
             }
             Ok(())
         }
-        ast::Stmt::Import(import) => {
-            validate_nonempty_seq(vm, import.names.len(), "names", "Import")?;
-            Ok(())
-        }
+        ast::Stmt::Import(import) => validate_import_names(vm, &import.names, "Import"),
         ast::Stmt::ImportFrom(import) => {
             if let Some(level) = import.runtime_level
                 && level < 0
             {
                 return Err(vm.new_value_error("Negative ImportFrom level"));
             }
-            validate_nonempty_seq(vm, import.names.len(), "names", "ImportFrom")?;
-            Ok(())
+            validate_import_names(vm, &import.names, "ImportFrom")
         }
         ast::Stmt::Global(global) => {
             validate_nonempty_seq(vm, global.names.len(), "names", "Global")?;

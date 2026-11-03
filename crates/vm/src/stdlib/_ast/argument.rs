@@ -1,5 +1,5 @@
+use super::AstSourceContext;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
     range: TextRange,
@@ -14,7 +14,7 @@ enum PositionalArgumentsKind {
 impl PositionalArguments {
     pub(super) fn ast_from_field(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: &PyObject,
         field: &'static str,
         typ: &str,
@@ -63,7 +63,7 @@ impl PositionalArguments {
 }
 
 impl Node for PositionalArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self.kind {
             PositionalArgumentsKind::Args(args) => args.ast_to_object(vm, source_file),
             PositionalArgumentsKind::RuntimeValues(values) => values.ast_to_object(vm, source_file),
@@ -72,7 +72,7 @@ impl Node for PositionalArguments {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let args: thin_vec::ThinVec<_> = Node::ast_from_object(vm, source_file, object)?;
@@ -88,7 +88,7 @@ pub(super) struct KeywordArguments {
 impl KeywordArguments {
     pub(super) fn ast_from_field(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: &PyObject,
         field: &'static str,
         typ: &str,
@@ -101,7 +101,7 @@ impl KeywordArguments {
 }
 
 impl Node for KeywordArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self { keywords, range: _ } = self;
         // TODO: use range
         BoxedSlice(keywords).ast_to_object(vm, source_file)
@@ -109,7 +109,7 @@ impl Node for KeywordArguments {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;

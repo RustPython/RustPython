@@ -1,0 +1,74 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(xs):\n    for x in xs:\n        return x\n\nasync def g(xs):\n    async for x in xs:\n        return x\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-3:16            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-3:16            MAKE_FUNCTION
+1:0-3:16            STORE_NAME               0 (f)
+
+5:0-7:16            LOAD_CONST               1 (<code object g at 0xdeadbeef, file "<?>", line 5>)
+5:0-7:16            MAKE_FUNCTION
+5:0-7:16            STORE_NAME               1 (g)
+5:0-7:16            LOAD_COMMON_CONSTANT     7 (None)
+5:0-7:16            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:13-2:15            LOAD_FAST                0 (xs)
+2:13-2:15            GET_ITER                 0
+2:13-2:15            FOR_ITER                 6 (to L1)
+2:8-2:9              STORE_FAST               1 (x)
+
+3:15-3:16            LOAD_FAST_BORROW         1 (x)
+3:8-3:16             SWAP                     3
+3:8-3:16             POP_TOP
+3:8-3:16             POP_TOP
+3:8-3:16             RETURN_VALUE
+
+2:13-2:15    L1:     END_FOR
+2:13-2:15            POP_ITER
+2:13-2:15            LOAD_COMMON_CONSTANT     7 (None)
+2:13-2:15            RETURN_VALUE
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 5>:
+5:?-5:?               RETURN_GENERATOR
+5:?-5:?               POP_TOP
+5:0-5:0       L1:     RESUME                   0
+
+6:19-6:21             LOAD_FAST_BORROW         0 (xs)
+6:19-6:21             GET_AITER
+6:4-7:16      L2:     GET_ANEXT
+6:4-7:16              PUSH_NULL
+6:4-7:16              LOAD_COMMON_CONSTANT     7 (None)
+6:4-7:16      L3:     SEND                     4 (to L6)
+6:4-7:16      L4:     YIELD_VALUE              1
+6:4-7:16      L5:     RESUME                   3
+6:4-7:16              JUMP_BACKWARD_NO_INTERRUPT 6 (to L3)
+6:4-7:16      L6:     END_SEND
+6:4-7:16      L7:     NOT_TAKEN
+6:14-6:15             STORE_FAST               1 (x)
+
+7:15-7:16             LOAD_FAST_BORROW         1 (x)
+7:8-7:16              SWAP                     2
+7:8-7:16              POP_TOP
+7:8-7:16              RETURN_VALUE
+
+6:4-7:16      L8:     CLEANUP_THROW
+6:4-7:16      L9:     JUMP_BACKWARD_NO_INTERRUPT 9 (to L6)
+6:19-6:21    L10:     END_ASYNC_FOR           10 (from L6)
+6:19-6:21             LOAD_COMMON_CONSTANT     7 (None)
+6:19-6:21             RETURN_VALUE
+
+  --         L11:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L11 [0] lasti
+  L2 to L4 -> L10 [1]
+  L4 to L5 -> L8 [4]
+  L5 to L7 -> L10 [1]
+  L7 to L8 -> L11 [0] lasti
+  L8 to L9 -> L10 [1]
+  L10 to L11 -> L11 [0] lasti

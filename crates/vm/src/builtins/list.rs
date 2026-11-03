@@ -417,7 +417,7 @@ impl PyList {
         AsSequence,
         Representable
     ),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF)
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF, LIST_SUBCLASS)
 )]
 impl Py<PyList> {
     #[pymethod]
@@ -1202,7 +1202,10 @@ fn vectorcall_list(
 pub(crate) fn init(context: &'static Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
-    list_type.slots.vectorcall.store(Some(vectorcall_list));
+    list_type
+        .slots
+        .constructor_vectorcall
+        .store(Some(vectorcall_list));
 
     PyListIterator::extend_class(context, context.types.list_iterator_type);
     PyListReverseIterator::extend_class(context, context.types.list_reverseiterator_type);

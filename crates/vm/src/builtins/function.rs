@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr, PyStrRef,
-    PyTuple, PyTupleRef, PyType, object,
+    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -66,7 +66,7 @@ fn format_missing_args(
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
     #[pymember(name = "__globals__")]
-    pub(crate) globals: PyDictRef,
+    pub(crate) globals: PyRef<PyAnyDict>,
     #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
     #[pymember(name = "__closure__")]
@@ -179,15 +179,17 @@ impl PyFunction {
     #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
-        globals: PyDictRef,
+        globals: PyRef<PyAnyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let name = PyMutex::new(code.obj_name.to_owned());
-        let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-        let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
-            // If not in globals, inherit from current execution context
-            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
-        });
+        let name = PyMutex::new(code.co_name.clone());
+        let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
+        let builtins = globals
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .unwrap_or_else(|| {
+                // If not in globals, inherit from current execution context.
+                crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
+            });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
             module.dict().into()
@@ -205,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,
@@ -621,7 +623,7 @@ impl Py<PyFunction> {
             } else if let Some(locals) = locals {
                 Some(locals)
             } else {
-                Some(ArgMapping::from_dict_exact(self.globals.clone()))
+                Some(ArgMapping::from_anydict_exact(self.globals.clone()))
             };
             let use_datastack = !is_gen && !is_coro && !is_async_gen;
             let frame = FrameObject::new_ref(
@@ -635,6 +637,7 @@ impl Py<PyFunction> {
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
+                vm.with_generator_frame(frame.clone(), |f| f.prepare_generator(vm))?;
                 return Ok(self.make_generator_or_coro(frame, vm));
             }
             // Tracing active: use heap frame with full trace support.
@@ -654,7 +657,7 @@ impl Py<PyFunction> {
         } else if let Some(locals) = locals {
             crate::frame::FrameLocals::with_locals(locals)
         } else {
-            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
@@ -805,7 +808,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         let frame = FrameObject::new_ref(
@@ -842,7 +845,7 @@ impl Py<PyFunction> {
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    ) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -862,7 +865,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         // Heap-backed: the frame outlives the call that made it.
@@ -884,7 +887,8 @@ impl Py<PyFunction> {
             }
         }
 
-        self.make_generator_or_coro(frame, vm)
+        vm.with_generator_frame(frame.clone(), |f| f.prepare_generator(vm))?;
+        Ok(self.make_generator_or_coro(frame, vm))
     }
 
     pub(crate) fn invoke_prepared_exact_args(
@@ -897,7 +901,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             crate::frame::FrameLocals::lazy()
         } else {
-            crate::frame::FrameLocals::with_locals(ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
@@ -944,7 +948,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(args.into_iter(), vm));
+            return self.make_generator_exact_args(args.into_iter(), vm);
         }
         self.invoke_prepared_exact_args(args.into_iter(), vm)
     }
@@ -966,7 +970,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(taken, vm));
+            return self.make_generator_exact_args(taken, vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
     }
@@ -1015,6 +1019,21 @@ impl Py<PyFunction> {
                 n_closure,
                 n_free,
             )));
+        }
+        let mask = bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR;
+        let old_flags = self.code.flags;
+        let new_flags = code.flags;
+        if (old_flags & mask) != (new_flags & mask) {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "Assigning a code object of non-matching type is deprecated \
+                 (e.g., from a generator to a plain function)"
+                    .to_owned(),
+                1,
+                vm,
+            )?;
         }
         #[cfg(feature = "jit")]
         let mut jit_guard = self.jitted_code.lock();
@@ -1091,24 +1110,28 @@ impl Py<PyFunction> {
         // Release locks before calling __annotate__ to avoid deadlock
         if let Some(annotate_fn) = annotate_fn {
             let one = vm.ctx.new_int(1);
-            let ann_dict = annotate_fn.call((one,), vm)?;
-            let ann_dict = ann_dict
-                .downcast::<crate::builtins::PyDict>()
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "__annotate__ returned non-dict of type '{}'",
-                        obj.class().name()
-                    ))
-                })?;
+            let result = annotate_fn.call((one,), vm);
+            drop(annotate_fn);
+            let ann_dict = match result?.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__() must return a dict, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+            };
 
             // Cache the result
-            *self.annotations.lock() = Some(ann_dict.clone());
+            let old_annotations = self.annotations.lock().replace(ann_dict.clone());
+            drop(old_annotations);
             return Ok(ann_dict);
         }
 
         // No __annotate__ or not callable, create empty dict
         let new_dict = vm.ctx.new_dict();
-        *self.annotations.lock() = Some(new_dict.clone());
+        let old_annotations = self.annotations.lock().replace(new_dict.clone());
+        drop(old_annotations);
         Ok(new_dict)
     }
 
@@ -1118,23 +1141,19 @@ impl Py<PyFunction> {
         value: PySetterValue<Option<PyObjectRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match value {
+        let annotations = match value {
             PySetterValue::Assign(Some(value)) => {
                 let annotations = value.downcast::<crate::builtins::PyDict>().map_err(|_| {
                     vm.new_type_error("__annotations__ must be set to a dict object")
                 })?;
-                *self.annotations.lock() = Some(annotations);
-                *self.annotate.lock() = None;
+                Some(annotations)
             }
-            PySetterValue::Assign(None) => {
-                *self.annotations.lock() = None;
-                *self.annotate.lock() = None;
-            }
-            PySetterValue::Delete => {
-                // del only clears cached annotations; __annotate__ is preserved
-                *self.annotations.lock() = None;
-            }
-        }
+            PySetterValue::Assign(None) | PySetterValue::Delete => None,
+        };
+        let old_annotations = core::mem::replace(&mut *self.annotations.lock(), annotations);
+        drop(old_annotations);
+        let old_annotate = self.annotate.lock().take();
+        drop(old_annotate);
         Ok(())
     }
 
@@ -1167,8 +1186,6 @@ impl Py<PyFunction> {
                 if !value.is_callable() {
                     return Err(vm.new_type_error("__annotate__ must be callable or None"));
                 }
-                // Clear cached __annotations__ when __annotate__ is set
-                *self.annotations.lock() = None;
                 Some(value)
             }
             PySetterValue::Assign(None) => None,
@@ -1176,7 +1193,13 @@ impl Py<PyFunction> {
                 return Err(vm.new_type_error("__annotate__ cannot be deleted"));
             }
         };
-        *self.annotate.lock() = annotate;
+        let clear_annotations = annotate.is_some();
+        let old_annotate = core::mem::replace(&mut *self.annotate.lock(), annotate);
+        drop(old_annotate);
+        if clear_annotations {
+            let old_annotations = self.annotations.lock().take();
+            drop(old_annotations);
+        }
         Ok(())
     }
 
@@ -1284,7 +1307,7 @@ pub struct PyFunctionNewArgs {
     #[pyarg(positional)]
     globals: PyDictRef,
     #[pyarg(any, optional, error_msg = "arg 3 (name) must be None or string")]
-    name: OptionalArg<PyStrRef>,
+    name: Option<PyStrRef>,
     #[pyarg(any, optional, error_msg = "arg 4 (defaults) must be None or tuple")]
     argdefs: Option<PyTupleRef>,
     #[pyarg(any, optional, error_msg = "arg 5 (closure) must be None or tuple")]
@@ -1318,9 +1341,9 @@ impl Constructor for PyFunction {
             None
         };
 
-        let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
+        let mut func = Self::new(args.code.clone(), args.globals.clone().into(), vm)?;
         // Set function name if provided
-        if let Some(name) = args.name.into_option() {
+        if let Some(name) = args.name {
             *func.name.lock() = name;
         }
         // Now set additional attributes directly
@@ -1470,9 +1493,28 @@ impl Py<PyBoundMethod> {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         let func_self = self.object.clone();
-        let func_name = self.function.get_attr("__name__", vm)?;
+        let mut func_name = self.function.get_attr("__name__", vm)?;
+        if let Some(name) = func_name.downcast_ref::<PyStr>()
+            && name.as_bytes().starts_with(b"__")
+            && !name.as_bytes().ends_with(b"__")
+            && !name.as_bytes().contains(&b'.')
+        {
+            let class = func_self
+                .downcast_ref::<PyType>()
+                .unwrap_or_else(|| func_self.class());
+            let class_name = class.__name__(vm);
+            let class_name = class_name
+                .as_wtf8()
+                .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+            if !class_name.is_empty() {
+                func_name = vm
+                    .ctx
+                    .new_str(wtf8_concat!("_", class_name, name.as_wtf8()))
+                    .into();
+            }
+        }
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         Ok((builtins_getattr, (func_self, func_name)))
     }
 
@@ -1777,7 +1819,7 @@ pub(crate) fn vectorcall_function(
         // is called in, and a fresh `MAKE_FUNCTION` each time keeps those out
         // of the call-site specialization that would otherwise catch it.
         args.truncate(nargs);
-        return Ok(zelf.make_generator_exact_args(args.into_iter(), vm));
+        return zelf.make_generator_exact_args(args.into_iter(), vm);
     }
 
     if !has_kwargs && base_simple && nargs == code.arg_count as usize {
@@ -1849,6 +1891,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_function));
+    context
+        .types
+        .function_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyBoundMethod::extend_class(context, context.types.bound_method_type);
     context
@@ -1857,6 +1905,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_bound_method));
+    context
+        .types
+        .bound_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
 
     PyCell::extend_class(context, context.types.cell_type);
 }

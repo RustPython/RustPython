@@ -4,7 +4,7 @@ pub(crate) use _operator::module_def;
 mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         class::PyClassDef,
         common::wtf8::{Wtf8, Wtf8Buf},
         function::{ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, Param},
@@ -223,25 +223,16 @@ mod _operator {
     struct LengthHintArgs {
         #[pyarg(positional)]
         obj: PyObjectRef,
-        // The value is checked as an exact int.
         #[pyarg(positional, default = 0)]
-        default: PyObjectRef,
+        default: isize,
     }
 
     #[pyfunction]
-    fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<usize> {
+    fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<isize> {
         let LengthHintArgs { obj, default } = args;
-        if !default.fast_isinstance(vm.ctx.types.int_type) {
-            return Err(vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                default.class().name()
-            )));
-        }
-        let default: usize = default
-            .downcast_ref::<PyInt>()
-            .unwrap()
-            .try_to_primitive(vm)?;
-        obj.length_hint(default, vm)
+        Ok(vm
+            .length_hint_opt(obj)?
+            .map_or(default, |hint| hint as isize))
     }
 
     // Inplace Operators

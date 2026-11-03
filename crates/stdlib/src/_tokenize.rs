@@ -11,8 +11,10 @@ mod _tokenize {
             function::ArgCallable,
             protocol::PyIterReturn,
             types::{Constructor, IterNext, Iterable, SelfIter},
+            vm::thread::PyOperation,
         },
     };
+    use alloc::sync::Arc;
     use core::fmt;
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::token::{Token, TokenKind};
@@ -35,6 +37,7 @@ mod _tokenize {
         readline: ArgCallable,
         extra_tokens: bool,
         encoding: Option<String>,
+        operation: PyOperation,
         state: PyRwLock<TokenizerState>,
     }
 
@@ -82,7 +85,7 @@ mod _tokenize {
     impl Constructor for PyTokenizerIter {
         type Args = PyTokenizerIterArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let Self::Args {
                 readline,
                 extra_tokens,
@@ -93,6 +96,7 @@ mod _tokenize {
                 readline,
                 extra_tokens,
                 encoding: encoding.map(|s| s.to_string()),
+                operation: PyOperation::new(vm),
                 state: PyRwLock::new(TokenizerState {
                     phase: TokenizerPhase::Reading {
                         source: String::new(),
@@ -106,43 +110,66 @@ mod _tokenize {
 
     impl IterNext for PyTokenizerIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let mut state = zelf.state.read().clone();
-
-            loop {
-                match &mut state.phase {
-                    TokenizerPhase::Reading { source } => {
+            zelf.operation.with(vm, || {
+                loop {
+                    // No payload borrow survives readline, codec callbacks, or Python
+                    // object construction. The operation can suspend or be reentered.
+                    let reading = matches!(zelf.state.read().phase, TokenizerPhase::Reading { .. });
+                    if reading {
                         let line = zelf.readline(vm)?;
-                        if line.is_empty() {
-                            let accumulated = core::mem::take(source);
-                            let parsed = parse_unchecked_source(&accumulated, PySourceType::Python);
-                            let tokens: Vec<Token> = parsed.tokens().iter().copied().collect();
-                            let errors: Vec<ParseError> = parsed.errors().to_vec();
-                            let line_index = LineIndex::from_source_text(&accumulated);
-                            let implicit_nl = !accumulated.ends_with('\n');
-                            state.phase = TokenizerPhase::Yielding {
-                                source: accumulated,
-                                tokens,
-                                errors,
-                                index: 0,
-                                line_index,
-                                need_implicit_nl: implicit_nl,
-                                pending_fstring_parts: Vec::new(),
-                                pending_empty_fstring_middle: None,
-                            };
-                        } else {
-                            source.push_str(&line);
+                        let mut state = zelf.state.write();
+                        // Another next() may have completed input while readline ran.
+                        // Keep its frozen token snapshot and cursor; EOF is sticky.
+                        // This remains an eager tokenizer, not CPython's streaming
+                        // buffer/line-metadata model for reentrant callbacks.
+                        if let TokenizerPhase::Reading { source } = &mut state.phase {
+                            if line.is_empty() {
+                                let accumulated = core::mem::take(source);
+                                let parsed =
+                                    parse_unchecked_source(&accumulated, PySourceType::Python);
+                                let tokens = parsed.tokens().iter().copied().collect();
+                                let errors = parsed.errors().to_vec();
+                                let line_index = LineIndex::from_source_text(&accumulated);
+                                let implicit_nl = !accumulated.ends_with('\n');
+                                state.phase = TokenizerPhase::Yielding {
+                                    data: Arc::new(TokenizedSource {
+                                        source: accumulated,
+                                        tokens,
+                                        errors,
+                                        line_index,
+                                    }),
+                                    index: 0,
+                                    need_implicit_nl: implicit_nl,
+                                    pending_fstring_parts: None,
+                                    pending_empty_fstring_middle: None,
+                                };
+                            } else {
+                                source.push_str(&line);
+                            }
                         }
+                        continue;
                     }
-                    TokenizerPhase::Yielding { .. } => {
-                        let result = emit_next_token(&mut state, zelf.extra_tokens, vm)?;
-                        *zelf.state.write() = state;
-                        return Ok(result);
-                    }
-                    TokenizerPhase::Done => {
-                        return Ok(PyIterReturn::StopIteration(None));
-                    }
+                    let result = {
+                        let mut shared = zelf.state.write();
+                        match shared.phase {
+                            TokenizerPhase::Reading { .. } => continue,
+                            TokenizerPhase::Done => return Ok(PyIterReturn::StopIteration(None)),
+                            TokenizerPhase::Yielding { .. } => {}
+                        }
+                        // This native-only transaction never crosses a callback.
+                        // Preserve the existing cursor on lexical errors.
+                        let mut next = shared.clone();
+                        let result = emit_next_token(&mut next, zelf.extra_tokens);
+                        if result.is_ok() {
+                            *shared = next;
+                        }
+                        result
+                    };
+                    return result
+                        .map(|token| PyIterReturn::Return(token.into_object(vm)))
+                        .map_err(|error| error.into_exception(vm));
                 }
-            }
+            })
         }
     }
 
@@ -150,14 +177,10 @@ mod _tokenize {
     fn emit_next_token(
         state: &mut TokenizerState,
         extra_tokens: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyIterReturn> {
+    ) -> Result<TokenData, TokenError> {
         let TokenizerPhase::Yielding {
-            source,
-            tokens,
-            errors,
+            data,
             index,
-            line_index,
             need_implicit_nl,
             pending_fstring_parts,
             pending_empty_fstring_middle,
@@ -165,13 +188,18 @@ mod _tokenize {
         else {
             unreachable!()
         };
+        let TokenizedSource {
+            source,
+            tokens,
+            errors,
+            line_index,
+        } = data.as_ref();
 
         // Emit pending empty FSTRING_MIDDLE (for format spec nesting)
         if let Some((mid_type, mid_line, mid_col, mid_line_str)) =
             pending_empty_fstring_middle.take()
         {
-            return Ok(PyIterReturn::Return(make_token_tuple(
-                vm,
+            return Ok(TokenData::new(
                 mid_type,
                 "",
                 mid_line,
@@ -179,30 +207,77 @@ mod _tokenize {
                 mid_line,
                 mid_col as isize,
                 &mid_line_str,
-            )));
+            ));
         }
 
         // Emit any pending fstring sub-tokens first
-        if let Some((tok_type, tok_str, sl, sc, el, ec)) = pending_fstring_parts.pop() {
-            let offset: usize = source
-                .lines()
-                .take(sl.saturating_sub(1))
-                .map(|l| l.len() + 1)
-                .sum();
-            let full_line = source.full_line_str(TextSize::from(offset.min(source.len()) as u32));
-            return Ok(PyIterReturn::Return(make_token_tuple(
-                vm,
-                tok_type,
-                &tok_str,
-                sl,
-                sc as isize,
-                el,
-                ec as isize,
+        if let Some(pending) = pending_fstring_parts {
+            let (tok_type, tok_str, sl, sc, el, ec) = &pending.parts[pending.index];
+            let full_line = source.full_line_str(line_index.line_starts()[sl - 1]);
+            let token = TokenData::new(
+                *tok_type,
+                tok_str,
+                *sl,
+                *sc as isize,
+                *el,
+                *ec as isize,
                 full_line,
-            )));
+            );
+            pending.index += 1;
+            if pending.index == pending.parts.len() {
+                *pending_fstring_parts = None;
+            }
+            return Ok(token);
         }
 
         let source_len = TextSize::from(source.len() as u32);
+
+        // Ruff has no NL token for a final indentation-only line without a LF.
+        if extra_tokens
+            && *need_implicit_nl
+            && !source.is_empty()
+            && errors.is_empty()
+            && tokens[*index..]
+                .iter()
+                .all(|t| matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
+        {
+            let final_line = last_physical_line(source);
+            if !final_line.is_empty()
+                && final_line
+                    .bytes()
+                    .all(|b| matches!(b, b' ' | b'\t' | b'\x0c'))
+            {
+                *need_implicit_nl = false;
+                let end_lc = line_index.line_column(source_len, source);
+                let line = end_lc.line.get();
+                let column = end_lc.column.to_zero_indexed() as isize;
+                return Ok(TokenData::new(
+                    TOKEN_NL,
+                    "",
+                    line,
+                    column,
+                    line,
+                    column + 1,
+                    final_line,
+                ));
+            }
+        }
+
+        // A comment's implicit NL precedes the terminal DEDENT sequence.
+        if extra_tokens
+            && *need_implicit_nl
+            && tokens
+                .get(*index)
+                .is_some_and(|t| t.kind() == TokenKind::Dedent)
+            && tokens[*index..]
+                .iter()
+                .all(|t| matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
+            && let Some(comment) =
+                last_non_dedent_token(tokens).filter(|t| t.kind() == TokenKind::Comment)
+        {
+            *need_implicit_nl = false;
+            return Ok(implicit_comment_newline(comment, source, line_index));
+        }
 
         while *index < tokens.len() {
             let token = tokens[*index];
@@ -225,7 +300,54 @@ mod _tokenize {
                         )
                 })
             {
-                return Err(raise_indentation_error(vm, err, source, line_index));
+                return Err(TokenError::Indentation {
+                    error: err.clone(),
+                    data: Arc::clone(data),
+                });
+            }
+
+            // Ruff emits an empty Unknown and a synthetic tail when recovering
+            // from an open bracket at EOF. They are not source tokens.
+            if kind == TokenKind::Unknown
+                && range.is_empty()
+                && range.start() == source_len
+                && has_unclosed_brackets(tokens, source)
+                && errors.iter().any(|err| {
+                    let ParseErrorType::Lexical(LexicalErrorType::UnclosedBracket {
+                        opening,
+                        incomplete: true,
+                    }) = &err.error
+                    else {
+                        return false;
+                    };
+                    tokens.iter().any(|opener| {
+                        !opener.range().is_empty()
+                            && opener.range().start() == err.location.start()
+                            && matches!(
+                                (*opening, opener.kind()),
+                                ('(', TokenKind::Lpar)
+                                    | ('[', TokenKind::Lsqb)
+                                    | ('{', TokenKind::Lbrace)
+                            )
+                    })
+                })
+            {
+                *index = tokens.len();
+                if extra_tokens && core::mem::take(need_implicit_nl) {
+                    let end = line_index.line_column(source_len, source);
+                    let line = end.line.get();
+                    let column = end.column.to_zero_indexed() as isize;
+                    return Ok(TokenData::new(
+                        TOKEN_NL,
+                        "",
+                        line,
+                        column,
+                        line,
+                        column + 1,
+                        last_physical_line(source),
+                    ));
+                }
+                break;
             }
 
             if kind == TokenKind::EndOfFile {
@@ -237,7 +359,21 @@ mod _tokenize {
             }
 
             let raw_type = token_kind_value(kind);
-            let token_type = if extra_tokens
+            let leading_zero_number = extra_tokens
+                && kind == TokenKind::Unknown
+                && errors.iter().any(|err| {
+                    matches!(
+                        err.error,
+                        ParseErrorType::Lexical(LexicalErrorType::LeadingZerosInDecimalInteger)
+                    ) && err.location.start() == range.start()
+                        && err.location.end() > range.start()
+                        && err.location.end() < range.end()
+                });
+            // Ruff diagnoses the zero prefix but retains the complete numeric token.
+            // CPython accepts that token as NUMBER only in extra-token mode.
+            let token_type = if leading_zero_number {
+                token_kind_value(TokenKind::Int)
+            } else if extra_tokens
                 && (kind == TokenKind::Unknown || (raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP))
             {
                 TOKEN_OP
@@ -246,15 +382,30 @@ mod _tokenize {
             };
 
             let (token_str, start_line, start_col, end_line, end_col, line_str) =
-                if kind == TokenKind::Dedent {
+                if !extra_tokens && kind == TokenKind::Indent {
+                    // Explicit continuations can span the indentation range.
+                    // CPython reports the line reached after consuming it.
+                    let line = line_index.line_column(range.end(), source).line.get();
+                    ("", line, 0, line, 0, source.full_line_str(range.end()))
+                } else if kind == TokenKind::Dedent {
                     let last_line = source.lines().count();
                     let default_pos = if extra_tokens {
                         (last_line + 1, 0)
                     } else {
                         (last_line, 0)
                     };
-                    let (pos, dedent_line) =
-                        next_non_dedent_info(tokens, *index, source, line_index, default_pos);
+                    let default_line = if extra_tokens {
+                        ""
+                    } else {
+                        non_extra_eof_line(tokens, source, line_index)
+                    };
+                    let (pos, dedent_line) = next_non_dedent_info(
+                        tokens,
+                        *index,
+                        source,
+                        line_index,
+                        (default_pos, default_line),
+                    );
                     ("", pos.0, pos.1, pos.0, pos.1, dedent_line)
                 } else {
                     let start_lc = line_index.line_column(range.start(), source);
@@ -280,13 +431,23 @@ mod _tokenize {
                         }
                     } else if kind == TokenKind::NonLogicalNewline {
                         let s = if in_source { &source[range] } else { "" };
-                        (s, start_line, start_col + s.len())
+                        if range.end() == source_len && s == "\r" && *need_implicit_nl {
+                            // CPython appends LF to a readline chunk ending in bare CR.
+                            *need_implicit_nl = false;
+                            ("", start_line, start_col + 2)
+                        } else {
+                            (s, start_line, start_col + s.len())
+                        }
                     } else {
                         let end_lc = line_index.line_column(range.end(), source);
                         let s = if in_source { &source[range] } else { "" };
                         (s, end_lc.line.get(), end_lc.column.to_zero_indexed())
                     };
-                    let line_str = source.full_line_str(range.start());
+                    let line_str = if kind == TokenKind::String && in_source {
+                        source.full_lines_str(range)
+                    } else {
+                        source.full_line_str(range.start())
+                    };
                     (s, start_line, start_col, el, ec, line_str)
                 };
 
@@ -298,11 +459,11 @@ mod _tokenize {
                     split_fstring_middle(token_str, token_type, start_line, start_col).into_iter();
                 let (tt, ts, sl, sc, el, ec) = parts.next().unwrap();
                 let rest: Vec<_> = parts.collect();
-                for p in rest.into_iter().rev() {
-                    pending_fstring_parts.push(p);
-                }
-                return Ok(PyIterReturn::Return(make_token_tuple(
-                    vm,
+                *pending_fstring_parts = (!rest.is_empty()).then(|| PendingFStringParts {
+                    parts: rest.into(),
+                    index: 0,
+                });
+                return Ok(TokenData::new(
                     tt,
                     &ts,
                     sl,
@@ -310,7 +471,7 @@ mod _tokenize {
                     el,
                     ec as isize,
                     line_str,
-                )));
+                ));
             }
 
             // After emitting a Rbrace inside an fstring, check if the
@@ -326,16 +487,17 @@ mod _tokenize {
                     Some((mid_type, end_line, end_col, line_str.to_string()));
             }
 
-            return Ok(PyIterReturn::Return(make_token_tuple(
-                vm,
-                token_type,
-                token_str,
-                start_line,
-                start_col as isize,
-                end_line,
-                end_col as isize,
-                line_str,
-            )));
+            // The non-extra tokenizer leaves INDENT/DEDENT token pointers unset.
+            let (token_str, start_col, end_col) =
+                if !extra_tokens && matches!(kind, TokenKind::Indent | TokenKind::Dedent) {
+                    ("", -1, -1)
+                } else {
+                    (token_str, start_col as isize, end_col as isize)
+                };
+
+            return Ok(TokenData::new(
+                token_type, token_str, start_line, start_col, end_line, end_col, line_str,
+            ));
         }
 
         // Emit implicit NL before ENDMARKER if source
@@ -346,48 +508,16 @@ mod _tokenize {
                 .rev()
                 .find(|t| t.kind() != TokenKind::EndOfFile);
             if let Some(last) = last_tok.filter(|t| t.kind() == TokenKind::Comment) {
-                let end_lc = line_index.line_column(last.range().end(), source);
-                let nl_line = end_lc.line.get();
-                let nl_col = end_lc.column.to_zero_indexed();
-                return Ok(PyIterReturn::Return(make_token_tuple(
-                    vm,
-                    TOKEN_NL,
-                    "",
-                    nl_line,
-                    nl_col as isize,
-                    nl_line,
-                    nl_col as isize + 1,
-                    source.full_line_str(last.range().start()),
-                )));
+                return Ok(implicit_comment_newline(last, source, line_index));
             }
         }
 
         // Check for unclosed brackets before ENDMARKER — CPython's tokenizer
-        // raises SyntaxError("EOF in multi-line statement") in this case.
+        // raises SyntaxError("unexpected EOF in multi-line statement") in this case.
         {
-            let bracket_count: i32 = tokens
-                .iter()
-                .map(|t| match t.kind() {
-                    TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => 1,
-                    TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => -1,
-                    // `$` inside an f-string interpolation is Unknown, and the
-                    // matching `}` is then also Unknown rather than Rbrace.
-                    TokenKind::Unknown => match &source[t.range()] {
-                        "(" | "[" | "{" => 1,
-                        ")" | "]" | "}" => -1,
-                        _ => 0,
-                    },
-                    _ => 0,
-                })
-                .sum();
-            if bracket_count > 0 {
+            if has_unclosed_brackets(tokens, source) {
                 let last_line = source.lines().count();
-                return Err(raise_syntax_error(
-                    vm,
-                    "EOF in multi-line statement",
-                    last_line + 1,
-                    0,
-                ));
+                return Err(TokenError::UnclosedBrackets { line: last_line });
             }
         }
 
@@ -396,13 +526,14 @@ mod _tokenize {
         let (em_line, em_col, em_line_str): (usize, isize, &str) = if extra_tokens {
             (last_line + 1, 0, "")
         } else {
-            let last_line_text =
-                source.full_line_str(TextSize::from(source.len().saturating_sub(1) as u32));
-            (last_line, -1, last_line_text)
+            (
+                last_line,
+                -1,
+                non_extra_eof_line(tokens, source, line_index),
+            )
         };
 
-        let result = make_token_tuple(
-            vm,
+        let result = TokenData::new(
             TOKEN_ENDMARKER,
             "",
             em_line,
@@ -412,7 +543,26 @@ mod _tokenize {
             em_line_str,
         );
         state.phase = TokenizerPhase::Done;
-        Ok(PyIterReturn::Return(result))
+        Ok(result)
+    }
+
+    fn has_unclosed_brackets(tokens: &[Token], source: &str) -> bool {
+        let bracket_count: i32 = tokens
+            .iter()
+            .map(|t| match t.kind() {
+                TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => 1,
+                TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => -1,
+                // `$` inside an f-string interpolation is Unknown, and the
+                // matching `}` is then also Unknown rather than Rbrace.
+                TokenKind::Unknown => match &source[t.range()] {
+                    "(" | "[" | "{" => 1,
+                    ")" | "]" | "}" => -1,
+                    _ => 0,
+                },
+                _ => 0,
+            })
+            .sum();
+        bracket_count > 0
     }
 
     /// Determine whether to emit FSTRING_MIDDLE (60) or TSTRING_MIDDLE (63)
@@ -440,6 +590,62 @@ mod _tokenize {
         60 // default to FSTRING_MIDDLE
     }
 
+    fn last_physical_line(source: &str) -> &str {
+        source.char_indices().next_back().map_or("", |(offset, _)| {
+            source.full_line_str(TextSize::from(offset as u32))
+        })
+    }
+
+    fn last_non_dedent_token(tokens: &[Token]) -> Option<&Token> {
+        tokens
+            .iter()
+            .rev()
+            .find(|t| !matches!(t.kind(), TokenKind::Dedent | TokenKind::EndOfFile))
+    }
+
+    fn non_extra_eof_line<'a>(
+        tokens: &[Token],
+        source: &'a str,
+        line_index: &LineIndex,
+    ) -> &'a str {
+        let Some(last) = last_non_dedent_token(tokens) else {
+            return "";
+        };
+        if matches!(
+            last.kind(),
+            TokenKind::Comment | TokenKind::NonLogicalNewline
+        ) || line_index
+            .line_column(last.range().start(), source)
+            .line
+            .get()
+            != source.lines().count()
+        {
+            // Ignored trailing lines never populated the non-extra line cache.
+            ""
+        } else {
+            last_physical_line(source)
+        }
+    }
+
+    fn implicit_comment_newline(
+        comment: &Token,
+        source: &str,
+        line_index: &LineIndex,
+    ) -> TokenData {
+        let end_lc = line_index.line_column(comment.range().end(), source);
+        let line = end_lc.line.get();
+        let column = end_lc.column.to_zero_indexed() as isize;
+        TokenData::new(
+            TOKEN_NL,
+            "",
+            line,
+            column,
+            line,
+            column + 1,
+            source.full_line_str(comment.range().start()),
+        )
+    }
+
     /// Find the next non-DEDENT token's position and source line.
     /// Returns ((line, col), line_str).
     fn next_non_dedent_info<'a>(
@@ -447,12 +653,12 @@ mod _tokenize {
         index: usize,
         source: &'a str,
         line_index: &LineIndex,
-        default_pos: (usize, usize),
+        default_info: ((usize, usize), &'a str),
     ) -> ((usize, usize), &'a str) {
         for future in &tokens[index..] {
             match future.kind() {
                 TokenKind::Dedent => continue,
-                TokenKind::EndOfFile => return (default_pos, ""),
+                TokenKind::EndOfFile => return default_info,
                 _ => {
                     let flc = line_index.line_column(future.range().start(), source);
                     let pos = (flc.line.get(), flc.column.to_zero_indexed());
@@ -460,7 +666,7 @@ mod _tokenize {
                 }
             }
         }
-        (default_pos, "")
+        default_info
     }
 
     /// Raise a SyntaxError with the given message and position.
@@ -517,7 +723,7 @@ mod _tokenize {
         token_type: u8,
         start_line: usize,
         start_col: usize,
-    ) -> Vec<(u8, String, usize, usize, usize, usize)> {
+    ) -> Vec<FStringPart> {
         let mut parts = Vec::new();
         let mut current = String::new();
         // Track source position (line, col) — these correspond to the
@@ -598,30 +804,87 @@ mod _tokenize {
         parts
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn make_token_tuple(
-        vm: &VirtualMachine,
+    struct TokenData {
         token_type: u8,
-        string: &str,
-        start_line: usize,
-        start_col: isize,
-        end_line: usize,
-        end_col: isize,
-        line: &str,
-    ) -> PyObjectRef {
-        vm.ctx
-            .new_tuple(vec![
-                token_type.to_pyobject(vm),
-                vm.ctx.new_str(string).into(),
-                vm.ctx
-                    .new_tuple(vec![start_line.to_pyobject(vm), start_col.to_pyobject(vm)])
-                    .into(),
-                vm.ctx
-                    .new_tuple(vec![end_line.to_pyobject(vm), end_col.to_pyobject(vm)])
-                    .into(),
-                vm.ctx.new_str(line).into(),
-            ])
-            .into()
+        string: String,
+        start: (usize, isize),
+        end: (usize, isize),
+        line: String,
+    }
+
+    impl TokenData {
+        #[allow(clippy::too_many_arguments)]
+        fn new(
+            token_type: u8,
+            string: &str,
+            start_line: usize,
+            start_col: isize,
+            end_line: usize,
+            end_col: isize,
+            line: &str,
+        ) -> Self {
+            Self {
+                token_type,
+                string: string.to_owned(),
+                start: (start_line, start_col),
+                end: (end_line, end_col),
+                line: line.to_owned(),
+            }
+        }
+
+        fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx
+                .new_tuple(vec![
+                    self.token_type.to_pyobject(vm),
+                    vm.ctx.new_str(self.string).into(),
+                    vm.ctx
+                        .new_tuple(vec![
+                            self.start.0.to_pyobject(vm),
+                            self.start.1.to_pyobject(vm),
+                        ])
+                        .into(),
+                    vm.ctx
+                        .new_tuple(vec![self.end.0.to_pyobject(vm), self.end.1.to_pyobject(vm)])
+                        .into(),
+                    vm.ctx.new_str(self.line).into(),
+                ])
+                .into()
+        }
+    }
+
+    enum TokenError {
+        Indentation {
+            error: ParseError,
+            data: Arc<TokenizedSource>,
+        },
+        UnclosedBrackets {
+            line: usize,
+        },
+    }
+
+    impl TokenError {
+        fn into_exception(
+            self,
+            vm: &VirtualMachine,
+        ) -> rustpython_vm::builtins::PyBaseExceptionRef {
+            match self {
+                Self::Indentation { error, data } => {
+                    raise_indentation_error(vm, &error, &data.source, &data.line_index)
+                }
+                Self::UnclosedBrackets { line } => {
+                    let exc =
+                        raise_syntax_error(vm, "unexpected EOF in multi-line statement", line, 0);
+                    // PyErr_SyntaxLocationObject sets the end line to the current line.
+                    if let Err(error) =
+                        exc.as_object()
+                            .set_attr("end_lineno", vm.ctx.new_int(line), vm)
+                    {
+                        return error;
+                    }
+                    exc
+                }
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -639,20 +902,33 @@ mod _tokenize {
         phase: TokenizerPhase,
     }
 
+    type FStringPart = (u8, String, usize, usize, usize, usize);
+
+    #[derive(Clone, Debug)]
+    struct PendingFStringParts {
+        parts: Arc<[FStringPart]>,
+        index: usize,
+    }
+
+    #[derive(Debug)]
+    struct TokenizedSource {
+        source: String,
+        tokens: Vec<Token>,
+        errors: Vec<ParseError>,
+        line_index: LineIndex,
+    }
+
     #[derive(Clone, Debug)]
     enum TokenizerPhase {
         Reading {
             source: String,
         },
         Yielding {
-            source: String,
-            tokens: Vec<Token>,
-            errors: Vec<ParseError>,
+            data: Arc<TokenizedSource>,
             index: usize,
-            line_index: LineIndex,
             need_implicit_nl: bool,
             /// Pending sub-tokens from FSTRING_MIDDLE splitting
-            pending_fstring_parts: Vec<(u8, String, usize, usize, usize, usize)>,
+            pending_fstring_parts: Option<PendingFStringParts>,
             /// Pending empty FSTRING_MIDDLE for format spec nesting:
             /// (type, line, col, line_str)
             pending_empty_fstring_middle: Option<(u8, usize, usize, String)>,
@@ -664,6 +940,7 @@ mod _tokenize {
         match kind {
             TokenKind::EndOfFile => 0,
             TokenKind::Identifier
+            | TokenKind::Lazy
             | TokenKind::For
             | TokenKind::In
             | TokenKind::Pass
@@ -764,7 +1041,6 @@ mod _tokenize {
             TokenKind::TStringMiddle => 63,
             TokenKind::TStringEnd => 64,
             TokenKind::IpyEscapeCommand | TokenKind::Question | TokenKind::Unknown => 67, // ERRORTOKEN
-            TokenKind::Lazy => u8::MAX, // Placeholder: RustPython Doesn't support `lazy imports` yet
         }
     }
 }

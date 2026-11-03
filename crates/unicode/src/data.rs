@@ -19,20 +19,46 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
+// Latest Unicode
+include!(concat!(env!("OUT_DIR"), "/generated/blocks.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/name_lookups.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/numeric_value_3_2.rs"));
+
+// Unicode 3.2.0
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/bidi_class_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/binary_props_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(
     env!("OUT_DIR"),
     "/generated/combining_class_3_2.rs"
 ));
-include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/eaw_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/gen_cat_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/membership_3_2.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/numeric_value_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/num_type_3_2.rs"));
+
+#[cfg(not(feature = "ucd_3_2_0"))]
+const BIDI_CLASS_DIFF: &[(u32, u32, BidiClass)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const BIDI_MIRRORED: &[(u32, u32)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const COMBINING_CLASS: &[(u32, u32, CanonicalCombiningClass)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const EAST_ASIAN_WIDTH: &[(u32, u32, EastAsianWidth)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const GENERAL_CATEGORY: &[(u32, u32, GeneralCategory)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const MEMBERSHIP_3_2: &[(u32, u32)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const NUMERIC_TYPE_DIFF: &[(u32, u32, NumericType)] = &[];
 
 #[derive(Clone, Copy)]
 enum DecompositionType {
@@ -205,12 +231,14 @@ fn lookup_property_diff<T: Copy>(
 /// library (`unicodedata.unidata_version`).
 #[must_use]
 pub fn unicode_version() -> String {
-    format!(
-        "{}.{}.{}",
-        char::UNICODE_VERSION.0,
-        char::UNICODE_VERSION.1,
-        char::UNICODE_VERSION.2
-    )
+    // Report the vendored database version, not the compiler's Unicode version.
+    include_str!("../unicode/latest/NameAliases.txt")
+        .lines()
+        .next()
+        .and_then(|header| header.strip_prefix("# NameAliases-"))
+        .and_then(|header| header.strip_suffix(".txt"))
+        .expect("vendored NameAliases.txt must start with its Unicode version")
+        .into()
 }
 
 /// Look up a name in the latest UCD (`unicodedata.lookup`).
@@ -239,6 +267,23 @@ pub fn character_name(ch: char) -> Option<String> {
     unicode_names2::name(ch)
         .map(|name| name.to_string())
         .or_else(|| lookup_table(ALGO_NAMES, ch).map(|v| v.to_name(ch)))
+}
+
+/// Unicode block name, including ranges containing surrogates or unassigned points.
+#[must_use]
+pub fn block(c: CodePoint) -> &'static str {
+    let c = c.to_u32();
+    BLOCKS
+        .binary_search_by(|&(start, end, _)| {
+            if c > end {
+                Ordering::Less
+            } else if c < start {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        })
+        .map_or("No_Block", |i| BLOCKS[i].2)
 }
 
 /// A view over the Unicode character database at a fixed version.
@@ -276,7 +321,20 @@ impl Ucd {
         if let Some(ch) = unicode_names2::character(search_name)
             .or_else(|| AlgorithmicName::check_name(search_name))
         {
-            return self.membership(ch).then_some(LookupResult::Character(ch));
+            if self.modern {
+                return Some(LookupResult::Character(ch));
+            }
+            cold_path();
+
+            if !self.membership(ch) {
+                return None;
+            }
+
+            // 3.2.0 doesn't have aliases but unicode_names2 supports aliases so reject them.
+            if lookup_alias(search_name).is_some() {
+                return None;
+            }
+            return Some(LookupResult::Character(ch));
         }
         if !self.modern {
             return None;
@@ -498,6 +556,12 @@ mod tests {
     }
 
     #[test]
+    fn version_matches_vendored_database() {
+        assert_eq!(super::unicode_version(), "17.0.0");
+        assert_eq!(Ucd::new(true).unidata_version(), "17.0.0");
+    }
+
+    #[test]
     fn data_queries_match_unicodedata_behavior() {
         let ucd = Ucd::new(true);
         assert_eq!(ucd.category(cp('A')), "Lu");
@@ -511,12 +575,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ucd_3_2_0")]
     fn ucd_3_2_0_view_differs_from_modern() {
         let legacy = Ucd::new(false);
         assert_eq!(legacy.unidata_version(), "3.2.0");
     }
 
     #[test]
+    #[cfg(feature = "ucd_3_2_0")]
     fn name_aliases_resolve_and_do_not_replace_the_official_name() {
         assert_eq!(
             lookup_character("LATIN CAPITAL LETTER GHA"),
@@ -534,6 +600,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ucd_3_2_0")]
     fn named_sequences_resolve_only_on_the_modern_view() {
         assert_eq!(
             lookup_name("LATIN SMALL LETTER R WITH TILDE"),

@@ -19,7 +19,7 @@ pub struct PyInterpolation {
     #[pymember(type = "object_ex")]
     pub value: PyObjectRef,
     #[pymember(type = "object_ex")]
-    pub expression: PyStrRef,
+    pub expression: PyObjectRef,
     #[pymember(type = "object_ex")]
     pub conversion: PyObjectRef, // None or 's', 'r', 'a'
     #[pymember(type = "object_ex")]
@@ -36,7 +36,7 @@ impl PyPayload for PyInterpolation {
 impl PyInterpolation {
     pub fn new(
         value: PyObjectRef,
-        expression: PyStrRef,
+        expression: PyObjectRef,
         conversion: PyObjectRef,
         format_spec: PyStrRef,
         vm: &VirtualMachine,
@@ -80,7 +80,7 @@ impl Constructor for PyInterpolation {
             vm.ctx.none()
         };
 
-        let expression = args.expression;
+        let expression = args.expression.into();
         let format_spec = args.format_spec;
 
         Ok(Self {
@@ -188,7 +188,7 @@ impl Representable for PyInterpolation {
         let mut result = Wtf8Buf::from("Interpolation(");
         result.push_wtf8(value_repr.as_wtf8());
         result.push_str(", ");
-        result.push_str(&expr_repr);
+        result.push_wtf8(expr_repr.as_wtf8());
         result.push_str(", ");
         if vm.is_none(&zelf.conversion) {
             result.push_str("None");

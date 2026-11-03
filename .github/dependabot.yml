@@ -161,7 +161,8 @@ updates:
     cooldown:
       default-days: 7
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - "wasm/*"
     schedule:
       interval: weekly
     cooldown:

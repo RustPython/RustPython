@@ -138,13 +138,14 @@ impl TryFromObject for PyIter<PyObjectRef> {
     fn try_from_object(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult<Self> {
         let get_iter = iter_target.class().slots().iter.load();
         if let Some(get_iter) = get_iter {
-            let iter = get_iter(iter_target, vm)?;
+            let iter = get_iter(iter_target.clone(), vm)?;
             if Self::check(&iter) {
                 Ok(Self(iter))
             } else {
                 Err(vm.new_type_error(format!(
-                    "iter() returned non-iterator of type '{}'",
-                    iter.class().slot_name()
+                    "{}.__iter__() must return an iterator, not {}",
+                    iter_target.class().fully_qualified_name(vm)?,
+                    iter.class().fully_qualified_name(vm)?
                 )))
             }
         } else if let Ok(seq_iter) = PySequenceIterator::new(iter_target.clone(), vm) {

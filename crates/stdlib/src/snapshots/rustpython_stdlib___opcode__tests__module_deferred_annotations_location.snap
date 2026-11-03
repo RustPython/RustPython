@@ -1,0 +1,63 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nimport os\nX: int\nY: str\n\"#, true)"
+---
+  --               MAKE_CELL                0 (__conditional_annotations__)
+
+0:0-1:0            RESUME                   0
+
+1:0-1:9            LOAD_CONST               1 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:9            MAKE_FUNCTION
+1:0-1:9            STORE_NAME               2 (__annotate__)
+1:0-1:9            BUILD_SET                0
+1:0-1:9            STORE_NAME               0 (__conditional_annotations__)
+1:0-1:9            LOAD_SMALL_INT           0
+1:0-1:9            LOAD_COMMON_CONSTANT     7 (None)
+1:0-1:9            IMPORT_NAME              4 (os)
+1:0-1:9            STORE_NAME               1 (os)
+
+2:0-2:6            LOAD_NAME                0 (__conditional_annotations__)
+2:0-2:6            LOAD_SMALL_INT           0
+2:0-2:6            SET_ADD                  1
+2:0-2:6            POP_TOP
+
+3:0-3:6            LOAD_NAME                0 (__conditional_annotations__)
+3:0-3:6            LOAD_SMALL_INT           1
+3:0-3:6            SET_ADD                  1
+3:0-3:6            POP_TOP
+3:0-3:6            LOAD_COMMON_CONSTANT     7 (None)
+3:0-3:6            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0            RESUME                   0
+1:0-1:9            LOAD_FAST_BORROW         0 (format)
+1:0-1:9            LOAD_SMALL_INT           2
+1:0-1:9            COMPARE_OP             132 (>)
+1:0-1:9            POP_JUMP_IF_FALSE        3 (to L1)
+1:0-1:9            NOT_TAKEN
+1:0-1:9            LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:0-1:9            RAISE_VARARGS            1
+1:0-1:9    L1:     BUILD_MAP                0
+
+2:0-2:6            LOAD_SMALL_INT           0
+2:0-2:6            LOAD_GLOBAL              0 (__conditional_annotations__)
+2:0-2:6            CONTAINS_OP              0 (in)
+2:0-2:6            POP_JUMP_IF_FALSE       10 (to L2)
+2:0-2:6            NOT_TAKEN
+2:3-2:6            LOAD_GLOBAL              2 (int)
+2:0-2:6            COPY                     2
+2:0-2:6            LOAD_CONST               1 ('X')
+
+1:0-1:9            STORE_SUBSCR
+
+3:0-3:6    L2:     LOAD_SMALL_INT           1
+3:0-3:6            LOAD_GLOBAL              0 (__conditional_annotations__)
+3:0-3:6            CONTAINS_OP              0 (in)
+3:0-3:6            POP_JUMP_IF_FALSE       10 (to L3)
+3:0-3:6            NOT_TAKEN
+3:3-3:6            LOAD_GLOBAL              4 (str)
+3:0-3:6            COPY                     2
+3:0-3:6            LOAD_CONST               2 ('Y')
+
+1:0-1:9            STORE_SUBSCR
+1:0-1:9    L3:     RETURN_VALUE

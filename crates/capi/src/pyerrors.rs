@@ -2,10 +2,9 @@ use crate::object::define_py_check;
 use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
-use core::ffi::{c_char, c_int};
+use core::ffi::{VaList, c_char, c_int};
 use core::slice;
 use rustpython_vm::builtins::{PyBaseException, PyTraceback, PyTuple, PyType};
-use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
 use rustpython_vm::{AsObject, PyResult};
 
@@ -102,7 +101,7 @@ define_py_check!(fn PyExceptionInstance_Check, exceptions.base_exception_type);
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
     with_vm(|vm| {
-        vm.current_exception()
+        vm.raised_exception()
             .map(|exc| exc.class().as_object().as_raw())
             .unwrap_or_default()
     })
@@ -122,7 +121,7 @@ pub unsafe extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
     with_vm(|vm| {
         let exception =
             unsafe { exc.assume_owned_or_opt() }.map(|exc| unsafe { exc.downcast_unchecked() });
-        vm.set_exception(exception);
+        vm.set_raised_exception(exception);
     })
 }
 
@@ -132,6 +131,15 @@ pub unsafe extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut P
         let exc_type = unsafe { exception.assume_borrowed() }.to_owned();
         let exc_val = unsafe { value.assume_borrowed() }.to_owned();
 
+        if let Some(cls) = exc_type.downcast_ref::<PyType>()
+            && cls.fast_issubclass(vm.ctx.exceptions.base_exception_type)
+            && !exc_val
+                .downcast_ref::<PyBaseException>()
+                .is_some_and(|exc| exc.fast_isinstance(cls))
+        {
+            // Exception constructors must run without a pending C error.
+            vm.set_raised_exception(None);
+        }
         let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
         Err(normalized)
     })
@@ -143,6 +151,7 @@ pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *con
         let exc_type = unsafe { exception.assume_borrowed_and_cast::<PyType>(vm) }?;
         let message = unsafe { message.try_as_str(vm) }?;
 
+        vm.set_raised_exception(None);
         let exc = vm.invoke_exception(exc_type, vec![vm.ctx.new_str(message).into_object()])?;
 
         Err(exc)
@@ -370,6 +379,45 @@ pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut P
         exc.set_traceback(traceback);
         Ok(())
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyOS_snprintf(
+    str: *mut c_char,
+    size: usize,
+    format: *const c_char,
+    args: ...
+) -> c_int {
+    unsafe { PyOS_vsnprintf(str, size, format, args) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyOS_vsnprintf(
+    str: *mut c_char,
+    size: usize,
+    format: *const c_char,
+    args: VaList<'_>,
+) -> c_int {
+    unsafe extern "C" {
+        fn vsnprintf(
+            str: *mut c_char,
+            size: usize,
+            format: *const c_char,
+            args: VaList<'_>,
+        ) -> c_int;
+    }
+
+    let len = if size > (c_int::MAX as usize - 1) {
+        -666
+    } else {
+        unsafe { vsnprintf(str, size, format, args) }
+    };
+
+    if size > 0 && !str.is_null() {
+        unsafe { *str.add(size - 1) = 0 };
+    }
+
+    len
 }
 
 #[cfg(test)]

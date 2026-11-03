@@ -1,0 +1,65 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\n\nclass C:\n    \"doc\"\n    x: int\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-3:10            LOAD_BUILD_CLASS
+1:0-3:10            PUSH_NULL
+1:0-3:10            LOAD_CONST               0 (<code object C at 0xdeadbeef, file "<?>", line 1>)
+1:0-3:10            MAKE_FUNCTION
+1:0-3:10            LOAD_CONST               1 ('C')
+1:0-3:10            CALL                     2
+1:0-3:10            STORE_NAME               0 (C)
+1:0-3:10            LOAD_COMMON_CONSTANT     7 (None)
+1:0-3:10            RETURN_VALUE
+
+Disassembly of <code object C at 0xdeadbeef, file "<?>", line 1>:
+  --               MAKE_CELL                0 (__classdict__)
+
+1:0-1:0            RESUME                   0
+1:0-1:0            LOAD_NAME                0 (__name__)
+1:0-1:0            STORE_NAME               1 (__module__)
+1:0-1:0            LOAD_CONST               0 ('C')
+1:0-1:0            STORE_NAME               2 (__qualname__)
+1:0-1:0            LOAD_SMALL_INT           1
+1:0-1:0            STORE_NAME               3 (__firstlineno__)
+1:0-1:0            LOAD_LOCALS
+1:0-1:0            STORE_DEREF              0 (__classdict__)
+
+2:4-2:9            LOAD_CONST               1 ('doc')
+2:4-2:9            STORE_NAME               4 (__doc__)
+
+1:0-1:0            LOAD_FAST_BORROW         0 (__classdict__)
+1:0-1:0            BUILD_TUPLE              1
+1:0-1:0            LOAD_CONST               2 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:0            MAKE_FUNCTION
+1:0-1:0            SET_FUNCTION_ATTRIBUTE   8 (closure)
+1:0-1:0            STORE_NAME               5 (__annotate_func__)
+1:0-1:0            LOAD_CONST               3 (())
+1:0-1:0            STORE_NAME               6 (__static_attributes__)
+1:0-1:0            LOAD_FAST_BORROW         0 (__classdict__)
+1:0-1:0            STORE_NAME               7 (__classdictcell__)
+1:0-1:0            LOAD_COMMON_CONSTANT     7 (None)
+1:0-1:0            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 1>:
+  --                COPY_FREE_VARS           1
+
+1:0-1:0             RESUME                   0
+1:0-1:0             LOAD_FAST_BORROW         0 (format)
+1:0-1:0             LOAD_SMALL_INT           2
+1:0-1:0             COMPARE_OP             132 (>)
+1:0-1:0             POP_JUMP_IF_FALSE        3 (to L1)
+1:0-1:0             NOT_TAKEN
+1:0-1:0             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:0-1:0             RAISE_VARARGS            1
+1:0-1:0     L1:     BUILD_MAP                0
+
+3:7-3:10            LOAD_DEREF               1 (__classdict__)
+3:7-3:10            LOAD_FROM_DICT_OR_GLOBALS 0 (int)
+3:4-3:10            COPY                     2
+3:4-3:10            LOAD_CONST               1 ('x')
+
+1:0-1:0             STORE_SUBSCR
+1:0-1:0             RETURN_VALUE

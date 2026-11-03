@@ -11,8 +11,8 @@ cfg_select! {
     _ => {
         pub use ruff_python_parser as parser;
 
-        pub use rustpython_compiler_core::Mode;
         pub use rustpython_compiler_core as core;
+        pub use rustpython_compiler_core::Mode;
     }
 }
 

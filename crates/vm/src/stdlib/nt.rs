@@ -13,7 +13,7 @@ pub(crate) mod module {
         function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
+        stdlib::os::{_os, AccessArgs, DirFd, SupportFunc, SymlinkArgs},
     };
     use core::hint::cold_path;
     use libc::intptr_t;
@@ -23,6 +23,18 @@ pub(crate) mod module {
     use rustpython_host_env::winapi as host_winapi;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
+
+    #[pyfunction]
+    fn get_blocking(fd: crt_fd::Borrowed<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        vm.allow_threads(|| host_nt::get_blocking(fd))
+            .map_err(|err| err.to_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn set_blocking(fd: crt_fd::Borrowed<'_>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
+        vm.allow_threads(|| host_nt::set_blocking(fd, blocking))
+            .map_err(|err| err.to_pyexception(vm))
+    }
 
     #[pyattr]
     use rustpython_host_env::os::{
@@ -64,9 +76,21 @@ pub(crate) mod module {
     };
 
     #[pyfunction]
-    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        let _ = path.to_wide_cstring(vm)?;
-        Ok(host_nt::access(path.as_ref(), mode))
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        if !args.follow_symlinks.0 {
+            return Err(vm.new_not_implemented_error(
+                "access: follow_symlinks unavailable on this platform",
+            ));
+        }
+        if args.effective_ids {
+            return Err(
+                vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
+            );
+        }
+        let wide = args.path.to_wide_cstring(vm)?;
+
+        Ok(host_nt::access(&wide, args.mode))
     }
 
     #[pyfunction]
@@ -306,8 +330,9 @@ pub(crate) mod module {
 
     // return _testFileType(path, PY_IFDIR)
     #[pyfunction]
-    fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
+    fn _path_isdir(path: PyObjectRef, vm: &VirtualMachine) -> bool {
+        PathArg { path }
+            .to_path_or_fd(vm)
             .is_some_and(|p| _test_file_type(&p, PY_IFDIR))
     }
 
@@ -354,8 +379,8 @@ pub(crate) mod module {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
-        let (pid, status) = host_nt::cwait(pid, opt).map_err(|_| vm.new_last_errno_error())?;
+    fn waitpid(pid: intptr_t, options: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
+        let (pid, status) = host_nt::cwait(pid, options).map_err(|_| vm.new_last_errno_error())?;
         // Cast to unsigned to handle large exit codes (like 0xC000013A)
         // then shift left by 8 to match POSIX waitpid format
         let ustatus = (status as u32) as u64;
@@ -369,8 +394,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_nt::kill(pid as u32, sig as u32).map_err(|err| err.to_pyexception(vm))
+    fn kill(pid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_nt::kill(pid as u32, signal as u32).map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -397,8 +422,15 @@ pub(crate) mod module {
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            let fspath = FsPath::try_from_path_like(obj, true, vm)?;
-            fspath.to_wide_cstring(vm)
+            FsPath::try_from_path_like(obj, true, vm)
+                .and_then(|fspath| fspath.to_wide_cstring(vm))
+                .map_err(|err| {
+                    if err.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error("spawnv() arg 2 must contain only strings")
+                    } else {
+                        err
+                    }
+                })
         })?;
 
         let first = argv
@@ -1137,5 +1169,38 @@ pub(crate) mod module {
             show_cmd,
         )
         .map_err(|err| OSErrorBuilder::with_filename(&err, args.filepath, vm))
+    }
+
+    #[cfg(test)]
+    #[cfg(target_env = "msvc")]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn spawnv_argument_errors_preserve_non_type_errors() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for (arg, expected_type) in [
+                    (vm.ctx.new_int(123).into(), vm.ctx.exceptions.type_error),
+                    (
+                        vm.ctx.new_str("embedded\0null").into(),
+                        vm.ctx.exceptions.value_error,
+                    ),
+                ] {
+                    let argv = vm.ctx.new_list(vec![vm.ctx.new_str("unused").into(), arg]);
+                    let err =
+                        spawnv(0, OsPath::new_str("unused"), Either::A(argv), vm).unwrap_err();
+                    assert!(err.fast_isinstance(expected_type));
+                    if expected_type.is(vm.ctx.exceptions.type_error) {
+                        assert_eq!(
+                            err.args().as_slice()[0]
+                                .downcast_ref::<PyStr>()
+                                .unwrap()
+                                .as_wtf8(),
+                            "spawnv() arg 2 must contain only strings",
+                        );
+                    }
+                }
+            });
+        }
     }
 }

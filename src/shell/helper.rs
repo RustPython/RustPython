@@ -1,14 +1,14 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 use rustpython_vm::{
-    AsObject, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyDictRef, PyStrRef},
+    AsObject, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyAnyDict, PyStrRef},
     function::ArgIterable,
     identifier,
 };
 
 pub(super) struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
-    globals: PyDictRef,
+    globals: PyRef<PyAnyDict>,
 }
 
 fn reverse_string(s: &mut String) {
@@ -54,7 +54,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
 }
 
 impl<'vm> ShellHelper<'vm> {
-    pub(super) const fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+    pub(super) const fn new(vm: &'vm VirtualMachine, globals: PyRef<PyAnyDict>) -> Self {
         ShellHelper { vm, globals }
     }
 
@@ -149,8 +149,8 @@ impl<'vm> ShellHelper<'vm> {
 cfg_select! {
     not(target_arch = "wasm32") => {
         use rustyline::{
-            completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator, Context,
-            Helper,
+            Context, Helper, completion::Completer, highlight::Highlighter, hint::Hinter,
+            validate::Validator,
         };
         impl Completer for ShellHelper<'_> {
             type Candidate = String;

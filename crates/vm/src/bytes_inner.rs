@@ -21,6 +21,7 @@ use crate::{
 /// [`crate::byte::bytearray_from_object`].
 pub(crate) type FromObject = fn(&VirtualMachine, &PyObject) -> PyResult<Vec<u8>>;
 
+use alloc::borrow::Cow;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -225,12 +226,24 @@ impl ByteInnerNewOptions {
     /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
     /// it is.
     pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        match (self.source, self.encoding, self.errors) {
+        self.get_inner_with_zero_count(from_object, vm)
+            .map(|(inner, _)| inner)
+    }
+
+    pub(crate) fn get_inner_with_zero_count(
+        self,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyBytesInner, bool)> {
+        let mut zero_count = false;
+        let inner = match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(&index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm).inspect(|inner| {
+                            zero_count = inner.elements.is_empty();
+                        }),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
@@ -266,7 +279,8 @@ impl ByteInnerNewOptions {
             (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
                 Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned()))
             }
-        }
+        }?;
+        Ok((inner, zero_count))
     }
 }
 
@@ -302,7 +316,7 @@ impl ByteInnerSub {
         }
     }
 
-    fn into_vec(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub(crate) fn into_vec(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         Ok(match self {
             Self::Buffer(buffer) => buffer.elements,
             Self::Byte(int) => vec![int.as_bigint().byte_or(vm)?],
@@ -321,6 +335,15 @@ pub struct ByteInnerFindOptions {
 }
 
 impl ByteInnerFindOptions {
+    pub(crate) fn parts(&self, len: usize) -> (&PyObject, core::ops::Range<usize>) {
+        let range = anystr::adjust_indices(
+            self.start.as_ref().map(AsRef::as_ref),
+            self.end.as_ref().map(AsRef::as_ref),
+            len,
+        );
+        (&self.sub, range)
+    }
+
     pub fn get_value(
         self,
         len: usize,
@@ -347,7 +370,7 @@ pub struct ByteInnerPaddingOptions {
 }
 
 impl ByteInnerPaddingOptions {
-    fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
+    pub(crate) fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
         let fillchar = {
             let v = self.fillchar;
             try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
@@ -368,9 +391,9 @@ impl ByteInnerPaddingOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
-    table: Option<PyObjectRef>,
+    pub(crate) table: Option<PyObjectRef>,
     #[pyarg(any, default = b"")]
-    delete: PyObjectRef,
+    pub(crate) delete: PyObjectRef,
 }
 
 impl ByteInnerTranslateOptions {
@@ -397,17 +420,24 @@ impl ByteInnerTranslateOptions {
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
-fn bytearray_repr_char_len(ch: u8) -> usize {
+fn bytearray_repr_char_len(ch: u8, quote: u8) -> usize {
+    if ch == quote {
+        return 2;
+    }
     match ch {
-        b'\'' | b'\\' | b'\t' | b'\r' | b'\n' => 2,
+        b'\\' | b'\t' | b'\r' | b'\n' => 2,
         0x20..=0x7e => 1,
         _ => 4, // \xHH
     }
 }
 
-fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
+fn write_bytearray_repr_char(ch: u8, quote: u8, buf: &mut String) {
+    if ch == quote {
+        buf.push('\\');
+        buf.push(ch as char);
+        return;
+    }
     match ch {
-        b'\'' => buf.push_str(r#"\'"#),
         b'\\' => buf.push_str(r#"\\"#),
         b'\t' => buf.push_str(r#"\t"#),
         b'\n' => buf.push_str(r#"\n"#),
@@ -455,7 +485,7 @@ impl PyBytesInner {
             .elements
             .iter()
             .try_fold(0usize, |len, &ch| {
-                len.checked_add(bytearray_repr_char_len(ch))
+                len.checked_add(bytearray_repr_char_len(ch, quote as u8))
             })
             .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
         let len = class_name
@@ -469,7 +499,7 @@ impl PyBytesInner {
         buf.push('b');
         buf.push(quote);
         for &ch in &self.elements {
-            write_bytearray_repr_char(ch, &mut buf);
+            write_bytearray_repr_char(ch, quote as u8, &mut buf);
         }
         buf.push(quote);
         buf.push(')');
@@ -708,6 +738,16 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
+        self.pad_with(width, fillchar, pad, vm)
+    }
+
+    pub(crate) fn pad_with(
+        &self,
+        width: isize,
+        fillchar: u8,
+        pad: PadFn,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let len = self.len();
         if len as isize >= width {
             return Ok(Vec::from(&self.elements[..]));
@@ -783,7 +823,10 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (table, delete) = options.get_value(vm)?;
+        Ok(self.translate_with(&table, &delete))
+    }
 
+    pub(crate) fn translate_with(&self, table: &[u8], delete: &[u8]) -> Vec<u8> {
         let mut res = if delete.is_empty() {
             Vec::with_capacity(self.elements.len())
         } else {
@@ -796,17 +839,15 @@ impl PyBytesInner {
             }
         }
 
-        Ok(res)
+        res
     }
 
-    pub fn strip(&self, chars: Option<Self>) -> Vec<u8> {
-        self.elements
-            .py_strip(
-                chars,
-                |s, chars| s.trim_with(|c| chars.contains(&(c as u8))),
-                |s| s.trim(),
-            )
-            .to_vec()
+    pub fn strip(&self, chars: Option<Self>) -> &[u8] {
+        self.elements.py_strip(
+            chars,
+            |s, chars| s.trim_with(|c| chars.contains(&(c as u8))),
+            |s| s.trim(),
+        )
     }
 
     pub fn lstrip(&self, chars: Option<Self>) -> &[u8] {
@@ -826,21 +867,19 @@ impl PyBytesInner {
     }
 
     // new in Python 3.9
-    pub fn removeprefix(&self, prefix: Self) -> Vec<u8> {
+    pub fn removeprefix(&self, prefix: Self) -> &[u8] {
         self.elements
             .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
                 s.starts_with(p)
             })
-            .to_vec()
     }
 
     // new in Python 3.9
-    pub fn removesuffix(&self, suffix: Self) -> Vec<u8> {
+    pub fn removesuffix(&self, suffix: Self) -> &[u8] {
         self.elements
             .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
                 s.ends_with(p)
             })
-            .to_vec()
     }
 
     pub fn split<F>(
@@ -904,24 +943,31 @@ impl PyBytesInner {
         )
     }
 
-    pub fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Vec<u8> {
+    pub fn expandtabs(
+        &self,
+        options: anystr::ExpandTabsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let tabsize = options.tabsize();
         let mut counter: usize = 0;
-        let mut res = vec![];
-
-        if tabsize == 0 {
-            return self
-                .elements
-                .iter()
-                .copied()
-                .filter(|x| *x != b'\t')
-                .collect();
-        }
+        let capacity = anystr::checked_expandtabs_len(
+            self.len(),
+            self.elements.iter().copied().map(u32::from),
+            tabsize,
+        )
+        .ok_or_else(|| vm.new_overflow_error("result too long"))?;
+        let mut res = Vec::new();
+        res.try_reserve_exact(capacity)
+            .map_err(|_| vm.new_memory_error(""))?;
 
         for i in &self.elements {
             if *i == b'\t' {
-                let len = tabsize - counter % tabsize;
-                res.extend_from_slice(&vec![b' '; len]);
+                let len = if tabsize == 0 {
+                    0
+                } else {
+                    tabsize - counter % tabsize
+                };
+                res.resize(res.len() + len, b' ');
                 counter += len;
             } else {
                 res.push(*i);
@@ -933,7 +979,7 @@ impl PyBytesInner {
             }
         }
 
-        res
+        Ok(res)
     }
 
     pub fn splitlines<FW, W>(&self, options: anystr::SplitLinesArgs, into_wrapper: FW) -> Vec<W>
@@ -950,10 +996,17 @@ impl PyBytesInner {
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1
-    fn replace_interleave(&self, to: Self, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_interleave(
+        &self,
+        to: Self,
+        max_count: Option<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let place_count = self.elements.len() + 1;
-        let count = max_count.map_or(place_count, |v| core::cmp::min(v, place_count)) - 1;
-        let capacity = self.elements.len() + count * to.len();
+        let insertions = max_count.map_or(place_count, |v| core::cmp::min(v, place_count));
+        let capacity = anystr::checked_replace_len(self.len(), 0, to.len(), insertions)
+            .ok_or_else(|| vm.new_overflow_error("replace bytes is too long"))?;
+        let count = insertions - 1;
         let mut result = Vec::with_capacity(capacity);
         let to_slice = to.elements.as_slice();
         result.extend_from_slice(to_slice);
@@ -962,10 +1015,10 @@ impl PyBytesInner {
             result.extend_from_slice(to_slice);
         }
         result.extend_from_slice(&self.elements[count..]);
-        result
+        Ok(result)
     }
 
-    fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Cow<'_, [u8]> {
         let count = count_substring(
             self.elements.as_slice(),
             from.elements.as_slice(),
@@ -973,7 +1026,7 @@ impl PyBytesInner {
         );
         if count == 0 {
             // no matches
-            return self.elements.clone();
+            return Cow::Borrowed(&self.elements);
         }
 
         let result_len = self.len() - (count * from.len());
@@ -991,10 +1044,15 @@ impl PyBytesInner {
             }
         }
         result.extend_from_slice(&self.elements[last_end..]);
-        result
+        Cow::Owned(result)
     }
 
-    pub fn replace_in_place(&self, from: Self, to: Self, max_count: Option<usize>) -> Vec<u8> {
+    pub fn replace_in_place(
+        &self,
+        from: Self,
+        to: Self,
+        max_count: Option<usize>,
+    ) -> Cow<'_, [u8]> {
         let len = from.len();
         let mut iter = self.elements.find_iter(&from.elements);
 
@@ -1002,11 +1060,11 @@ impl PyBytesInner {
             let mut new = self.elements.clone();
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             if max_count == Some(1) {
-                return new;
+                return Cow::Owned(new);
             }
             new
         } else {
-            return self.elements.clone();
+            return Cow::Borrowed(&self.elements);
         };
 
         let mut count = max_count.unwrap_or(usize::MAX) - 1;
@@ -1017,7 +1075,7 @@ impl PyBytesInner {
                 break;
             }
         }
-        new
+        Cow::Owned(new)
     }
 
     fn replace_general(
@@ -1026,7 +1084,7 @@ impl PyBytesInner {
         to: Self,
         max_count: Option<usize>,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    ) -> PyResult<Cow<'_, [u8]>> {
         let count = count_substring(
             self.elements.as_slice(),
             from.elements.as_slice(),
@@ -1034,20 +1092,14 @@ impl PyBytesInner {
         );
         if count == 0 {
             // no matches, return unchanged
-            return Ok(self.elements.clone());
+            return Ok(Cow::Borrowed(&self.elements));
         }
 
         // Check for overflow
         //    result_len = self_len + count * (to_len-from_len)
         debug_assert!(count > 0);
-        if to.len() as isize - from.len() as isize
-            > (isize::MAX - self.elements.len() as isize) / count as isize
-        {
-            return Err(vm.new_overflow_error("replace bytes is too long"));
-        }
-        let result_len = (self.elements.len() as isize
-            + count as isize * (to.len() as isize - from.len() as isize))
-            as usize;
+        let result_len = anystr::checked_replace_len(self.len(), from.len(), to.len(), count)
+            .ok_or_else(|| vm.new_overflow_error("replace bytes is too long"))?;
 
         let mut result = Vec::with_capacity(result_len);
         let mut last_end = 0;
@@ -1062,10 +1114,14 @@ impl PyBytesInner {
             }
         }
         result.extend_from_slice(&self.elements[last_end..]);
-        Ok(result)
+        Ok(Cow::Owned(result))
     }
 
-    pub fn replace(&self, args: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn replace(
+        &self,
+        args: ByteInnerReplaceOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Cow<'_, [u8]>> {
         let ByteInnerReplaceOptions {
             old: from,
             new: to,
@@ -1075,9 +1131,9 @@ impl PyBytesInner {
         let max_count = if max_count >= 0 {
             if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
                 // nothing to do; return the original bytes
-                return Ok(self.elements.clone());
+                return Ok(Cow::Borrowed(&self.elements));
             } else if self.elements.is_empty() && from.is_empty() {
-                return Ok(to.elements);
+                return Ok(Cow::Owned(to.elements));
             }
             Some(max_count as usize)
         } else {
@@ -1088,19 +1144,19 @@ impl PyBytesInner {
         if from.elements.is_empty() {
             if to.elements.is_empty() {
                 // nothing to do; return the original bytes
-                return Ok(self.elements.clone());
+                return Ok(Cow::Borrowed(&self.elements));
             }
             // insert the 'to' bytes everywhere.
             //     >>> b"Python".replace(b"", b".")
             //     b'.P.y.t.h.o.n.'
-            return Ok(self.replace_interleave(to, max_count));
+            return self.replace_interleave(to, max_count, vm).map(Cow::Owned);
         }
 
         // Except for b"".replace(b"", b"A") == b"A" there is no way beyond this
         // point for an empty self bytes to generate a non-empty bytes
         // Special case so the remaining code always gets a non-empty bytes
         if self.elements.is_empty() {
-            return Ok(self.elements.clone());
+            return Ok(Cow::Borrowed(&self.elements));
         }
 
         if to.elements.is_empty() {
@@ -1313,7 +1369,7 @@ pub struct ByteInnerReplaceOptions {
     old: PyBytesInner,
     #[pyarg(positional)]
     new: PyBytesInner,
-    #[pyarg(positional, default = -1)]
+    #[pyarg(any, default = -1)]
     count: isize,
 }
 
@@ -1396,7 +1452,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     let len = bytes.len();
 
     let buf = if bytes_per_sep < 0 {
-        let bytes_per_sep = core::cmp::min(len, (-bytes_per_sep) as usize);
+        let bytes_per_sep = core::cmp::min(len, bytes_per_sep.unsigned_abs());
         let chunks = (len - 1) / bytes_per_sep;
         let chunked = chunks * bytes_per_sep;
         let unchunked = len - chunked;

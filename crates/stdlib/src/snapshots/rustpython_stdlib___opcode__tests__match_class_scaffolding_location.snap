@@ -1,0 +1,39 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(x):\n    match x:\n        case bool(z):\n            y = 0\n    return y, z\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-5:15            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-5:15            MAKE_FUNCTION
+1:0-5:15            STORE_NAME               0 (f)
+1:0-5:15            LOAD_COMMON_CONSTANT     7 (None)
+1:0-5:15            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:10-2:11            LOAD_FAST_BORROW         0 (x)
+
+3:13-3:17            LOAD_GLOBAL              0 (bool)
+3:13-3:20            LOAD_CONST               0 (())
+3:13-3:20            MATCH_CLASS              1
+3:13-3:20            COPY                     1
+3:13-3:20            POP_JUMP_IF_NONE         9 (to L1)
+3:13-3:20            NOT_TAKEN
+3:13-3:20            UNPACK_SEQUENCE          1
+3:13-3:20            STORE_FAST               1 (z)
+
+4:16-4:17            LOAD_SMALL_INT           0
+4:12-4:13            STORE_FAST               2 (y)
+
+5:11-5:12            LOAD_FAST_BORROW_LOAD_FAST_BORROW 33 (y, z)
+5:11-5:15            BUILD_TUPLE              2
+5:4-5:15             RETURN_VALUE
+
+3:13-3:20    L1:     POP_TOP
+
+5:11-5:12            LOAD_FAST_CHECK          2 (y)
+5:14-5:15            LOAD_FAST_CHECK          1 (z)
+5:11-5:15            BUILD_TUPLE              2
+5:4-5:15             RETURN_VALUE

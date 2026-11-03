@@ -1,0 +1,48 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nasync def f(xs):\n    async for x in xs:\n        pass\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-3:12            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-3:12            MAKE_FUNCTION
+1:0-3:12            STORE_NAME               0 (f)
+1:0-3:12            LOAD_COMMON_CONSTANT     7 (None)
+1:0-3:12            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:?-1:?               RETURN_GENERATOR
+1:?-1:?               POP_TOP
+1:0-1:0       L1:     RESUME                   0
+
+2:19-2:21             LOAD_FAST_BORROW         0 (xs)
+2:19-2:21             GET_AITER
+2:4-3:12      L2:     GET_ANEXT
+2:4-3:12              PUSH_NULL
+2:4-3:12              LOAD_COMMON_CONSTANT     7 (None)
+2:4-3:12      L3:     SEND                     4 (to L6)
+2:4-3:12      L4:     YIELD_VALUE              1
+2:4-3:12      L5:     RESUME                   3
+2:4-3:12              JUMP_BACKWARD_NO_INTERRUPT 6 (to L3)
+2:4-3:12      L6:     END_SEND
+2:4-3:12      L7:     NOT_TAKEN
+2:14-2:15             STORE_FAST               1 (x)
+
+3:8-3:12              JUMP_BACKWARD           14 (to L2)
+
+2:4-3:12      L8:     CLEANUP_THROW
+2:4-3:12      L9:     JUMP_BACKWARD_NO_INTERRUPT 7 (to L6)
+2:19-2:21    L10:     END_ASYNC_FOR            8 (from L6)
+2:19-2:21             LOAD_COMMON_CONSTANT     7 (None)
+2:19-2:21             RETURN_VALUE
+
+  --         L11:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L11 [0] lasti
+  L2 to L4 -> L10 [1]
+  L4 to L5 -> L8 [4]
+  L5 to L7 -> L10 [1]
+  L7 to L8 -> L11 [0] lasti
+  L8 to L9 -> L10 [1]
+  L10 to L11 -> L11 [0] lasti

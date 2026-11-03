@@ -1,17 +1,17 @@
+use super::AstSourceContext;
 use super::*;
 use crate::builtins::PyIntRef;
 use rustpython_codegen::compile::ruff_int_to_bigint;
-use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::Identifier {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &AstSourceContext) -> PyObjectRef {
         let id = self.as_str();
         vm.ctx.intern_str(id).to_object()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_file: &SourceFile,
+        _source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         if !object.class().is(vm.ctx.types.str_type) {
@@ -24,13 +24,13 @@ impl Node for ast::Identifier {
 }
 
 impl Node for ast::Int {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &AstSourceContext) -> PyObjectRef {
         vm.ctx.new_int(ruff_int_to_bigint(&self).unwrap()).into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_file: &SourceFile,
+        _source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let value: PyIntRef = object.try_into_value(vm)?;
@@ -40,13 +40,13 @@ impl Node for ast::Int {
 }
 
 impl Node for bool {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &AstSourceContext) -> PyObjectRef {
         vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_file: &SourceFile,
+        _source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         node_object_to_i32(vm, &object).map(|i| i != 0)

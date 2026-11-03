@@ -3,10 +3,11 @@ use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ast::str_prefix::StringLiteralPrefix;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_common::wtf8::Wtf8Buf;
-use rustpython_compiler_core::{SourceFile, bytecode::ConstantData};
+use rustpython_compiler_core::bytecode::ConstantData;
 
 #[derive(Debug)]
 pub(super) struct Constant {
+    pub(super) node_index: ast::AtomicNodeIndex,
     pub(super) range: TextRange,
     pub(super) value: ConstantLiteral,
     kind: Option<Box<str>>,
@@ -21,6 +22,7 @@ impl Constant {
     ) -> Self {
         let value = value.into();
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Str { value, prefix },
             kind: None,
@@ -30,6 +32,7 @@ impl Constant {
 
     pub(super) const fn new_int(value: ast::Int, range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Int(value),
             kind: None,
@@ -39,6 +42,7 @@ impl Constant {
 
     pub(super) const fn new_float(value: f64, range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Float(value),
             kind: None,
@@ -48,6 +52,7 @@ impl Constant {
 
     pub(super) const fn new_complex(real: f64, imag: f64, range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Complex { real, imag },
             kind: None,
@@ -57,6 +62,7 @@ impl Constant {
 
     pub(super) const fn new_bytes(value: Box<[u8]>, range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Bytes(value),
             kind: None,
@@ -66,6 +72,7 @@ impl Constant {
 
     pub(super) const fn new_bool(value: bool, range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Bool(value),
             kind: None,
@@ -75,6 +82,7 @@ impl Constant {
 
     pub(super) const fn new_none(range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::None,
             kind: None,
@@ -84,6 +92,7 @@ impl Constant {
 
     pub(super) const fn new_ellipsis(range: TextRange) -> Self {
         Self {
+            node_index: ast::AtomicNodeIndex::NONE,
             range,
             value: ConstantLiteral::Ellipsis,
             kind: None,
@@ -93,13 +102,14 @@ impl Constant {
 
     pub(crate) fn into_expr(self) -> ast::Expr {
         let Self {
+            node_index,
             range,
             value,
             kind,
             invalid_type,
         } = self;
         ast::Expr::Constant(ast::ExprConstant {
-            node_index: Default::default(),
+            node_index,
             range,
             value: constant_data_to_ast_constant_value(constant_literal_to_constant_data(&value)),
             kind: kind.or_else(|| constant_literal_kind(&value)),
@@ -152,11 +162,11 @@ pub(super) fn runtime_string_object(
 
 pub(super) fn expr_constant_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     expr: ast::ExprConstant,
 ) -> PyObjectRef {
     let ast::ExprConstant {
-        node_index: _,
+        node_index,
         range,
         value,
         kind,
@@ -171,7 +181,7 @@ pub(super) fn expr_constant_to_object(
         .unwrap();
     let kind = kind.map_or_else(|| vm.ctx.none(), |kind| vm.ctx.new_str(kind).into());
     dict.set_item("kind", kind, vm).unwrap();
-    node_add_location(&dict, range, vm, source_file);
+    node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
     node.into()
 }
 
@@ -306,7 +316,7 @@ pub(super) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
 
 pub(super) fn constant_object_to_constant_data(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     value_object: PyObjectRef,
 ) -> PyResult<ConstantData> {
     let value = ConstantLiteral::ast_from_object(vm, source_file, value_object)?;
@@ -442,9 +452,9 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
 // constructor
 pub(super) fn constant_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-    range: TextRange,
+    range: AstNodeRange,
 ) -> PyResult<Constant> {
     let value_object = get_node_field(vm, object, "value", "Constant")?;
     let (value, invalid_type) =
@@ -465,7 +475,8 @@ pub(super) fn constant_from_object_with_range(
         .transpose()?;
 
     Ok(Constant {
-        range,
+        node_index: range.node_index(),
+        range: range.range,
         value,
         kind,
         invalid_type,
@@ -473,8 +484,9 @@ pub(super) fn constant_from_object_with_range(
 }
 
 impl Node for Constant {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
+            node_index,
             range,
             value,
             kind,
@@ -490,13 +502,13 @@ impl Node for Constant {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, vm).unwrap();
         dict.set_item("kind", kind, vm).unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, &object, "Constant")?;
@@ -505,7 +517,7 @@ impl Node for Constant {
 }
 
 impl Node for ConstantLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self {
             Self::None => vm.ctx.none(),
             Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
@@ -536,7 +548,7 @@ impl Node for ConstantLiteral {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         value_object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = value_object.class();
@@ -626,30 +638,31 @@ impl Node for ConstantLiteral {
 
 pub(super) fn number_literal_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     constant: ast::ExprNumberLiteral,
 ) -> PyObjectRef {
     let ast::ExprNumberLiteral {
-        node_index: _,
+        node_index,
         range,
         value,
         ..
     } = constant;
-    let c = match value {
+    let mut c = match value {
         ast::Number::Int(n) => Constant::new_int(n, range),
         ast::Number::Float(n) => Constant::new_float(n, range),
         ast::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
     };
+    c.node_index = node_index;
     c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn string_literal_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     constant: ast::ExprStringLiteral,
 ) -> PyObjectRef {
     let ast::ExprStringLiteral {
-        node_index: _,
+        node_index,
         range,
         value,
         ..
@@ -659,65 +672,66 @@ pub(super) fn string_literal_to_object(
         .next()
         .map_or(StringLiteralPrefix::Empty, |part| part.flags.prefix());
     let value = rustpython_codegen::string_literal_value(source_file, &value);
-    let c = Constant::new_str(value, prefix, range);
+    let mut c = Constant::new_str(value, prefix, range);
+    c.node_index = node_index;
     c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn bytes_literal_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     constant: ast::ExprBytesLiteral,
 ) -> PyObjectRef {
     let ast::ExprBytesLiteral {
-        node_index: _,
+        node_index,
         range,
         value,
         ..
     } = constant;
     let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
-    let c = Constant::new_bytes(bytes.copied().collect(), range);
+    let mut c = Constant::new_bytes(bytes.copied().collect(), range);
+    c.node_index = node_index;
     c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn boolean_literal_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     constant: ast::ExprBooleanLiteral,
 ) -> PyObjectRef {
     let ast::ExprBooleanLiteral {
-        node_index: _,
+        node_index,
         range,
         value,
         ..
     } = constant;
-    let c = Constant::new_bool(value, range);
+    let mut c = Constant::new_bool(value, range);
+    c.node_index = node_index;
     c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn none_literal_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     constant: ast::ExprNoneLiteral,
 ) -> PyObjectRef {
     let ast::ExprNoneLiteral {
-        node_index: _,
-        range,
-        ..
+        node_index, range, ..
     } = constant;
-    let c = Constant::new_none(range);
+    let mut c = Constant::new_none(range);
+    c.node_index = node_index;
     c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn ellipsis_literal_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     constant: ast::ExprEllipsisLiteral,
 ) -> PyObjectRef {
     let ast::ExprEllipsisLiteral {
-        node_index: _,
-        range,
-        ..
+        node_index, range, ..
     } = constant;
-    let c = Constant::new_ellipsis(range);
+    let mut c = Constant::new_ellipsis(range);
+    c.node_index = node_index;
     c.ast_to_object(vm, source_file)
 }

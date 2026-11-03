@@ -9,6 +9,23 @@ use crate::{
 
 /// PyObject support
 impl VirtualMachine {
+    /// PyObject_Dump
+    ///
+    /// Write a description of `obj` to the process stderr, bypassing
+    /// `sys.stderr`.
+    pub fn dump_object(&self, obj: &PyObject) {
+        let class = obj.class();
+        eprintln!("object address  : {obj:p}");
+        eprintln!("object refcount : {}", obj.strong_count());
+        eprintln!("object type     : {class:p}");
+        eprintln!("object type name: {}", class.slot_name());
+        eprint!("object repr     : ");
+        if let Ok(repr) = obj.repr(self) {
+            eprint!("{}", repr.as_wtf8());
+        }
+        eprintln!();
+    }
+
     #[track_caller]
     #[cold]
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {

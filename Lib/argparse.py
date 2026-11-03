@@ -64,7 +64,6 @@ considered public as object names -- the API of the formatter objects is
 still considered an implementation detail.)
 """
 
-__version__ = '1.1'
 __all__ = [
     'ArgumentParser',
     'ArgumentError',
@@ -90,8 +89,10 @@ __all__ = [
 import os as _os
 import re as _re
 import sys as _sys
+from gettext import gettext as _
+from gettext import ngettext
 
-from gettext import gettext as _, ngettext
+lazy import _colorize
 
 SUPPRESS = '==SUPPRESS=='
 
@@ -157,6 +158,17 @@ def _identity(value):
 # Formatting Help
 # ===============
 
+class _ColorlessTheme:
+    # A 'fake' theme for no colors
+    def __getattr__(self, name):
+        # _colorize's no_color themes are just all empty strings
+        # by directly using empty strings the import is avoided
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return ""
+
+_colorless_theme = _ColorlessTheme()
+
 
 class HelpFormatter(object):
     """Formatter for generating usage messages and argument help strings.
@@ -171,7 +183,6 @@ class HelpFormatter(object):
         indent_increment=2,
         max_help_position=24,
         width=None,
-        color=True,
     ):
         # default setting for width
         if width is None:
@@ -179,7 +190,6 @@ class HelpFormatter(object):
             width = shutil.get_terminal_size().columns
             width -= 2
 
-        self._set_color(color)
         self._prog = prog
         self._indent_increment = indent_increment
         self._max_help_position = min(max_help_position,
@@ -196,15 +206,35 @@ class HelpFormatter(object):
         self._whitespace_matcher = _re.compile(r'\s+', _re.ASCII)
         self._long_break_matcher = _re.compile(r'\n\n\n+')
 
-    def _set_color(self, color):
-        from _colorize import can_colorize, decolor, get_theme
+        self._set_color(False)
 
-        if color and can_colorize():
-            self._theme = get_theme(force_color=True).argparse
-            self._decolor = decolor
+    def _set_color(self, color, *, file=None):
+        # Set a new color setting and file, clear caches for theme and decolor
+        self._theme_color = color
+        self._theme_file = file
+        self._cached_theme = None
+        self._cached_decolor = None
+
+    def _get_theme_and_decolor(self):
+        # If self._theme_color is false, this prevents _colorize from importing
+        if self._theme_color and _colorize.can_colorize(file=self._theme_file):
+            self._cached_theme = _colorize.get_theme(force_color=True).argparse
+            self._cached_decolor = _colorize.decolor
         else:
-            self._theme = get_theme(force_no_color=True).argparse
-            self._decolor = _identity
+            self._cached_theme = _colorless_theme
+            self._cached_decolor = _identity
+
+    @property
+    def _theme(self):
+        if self._cached_theme is None:
+            self._get_theme_and_decolor()
+        return self._cached_theme
+
+    @property
+    def _decolor(self):
+        if self._cached_decolor is None:
+            self._get_theme_and_decolor()
+        return self._cached_decolor
 
     # ===============================
     # Section and indentation methods
@@ -522,7 +552,27 @@ class HelpFormatter(object):
             text = text % dict(prog=self._prog)
         text_width = max(self._width - self._current_indent, 11)
         indent = ' ' * self._current_indent
-        return self._fill_text(text, text_width, indent) + '\n\n'
+        text = self._fill_text(text, text_width, indent)
+        text = self._apply_text_markup(text)
+        return text + '\n\n'
+
+    def _apply_text_markup(self, text):
+        """Apply color markup to text.
+
+        Supported markup:
+          `...` or ``...`` - inline code (rendered with prog_extra color)
+
+        When colors are disabled, backticks are preserved as-is.
+        """
+        t = self._theme
+        if not t.reset:
+            return text
+        text = _re.sub(
+            r'(`{1,2})([^`]+)\1',
+            rf'{t.prog_extra}\2{t.reset}',
+            text,
+        )
+        return text
 
     def _format_action(self, action):
         # determine the required width and the entry label
@@ -661,9 +711,9 @@ class HelpFormatter(object):
         return result
 
     def _expand_help(self, action):
-        help_string = self._get_help_string(action)
+        help_string = str(self._get_help_string(action))
         if '%' not in help_string:
-            return help_string
+            return self._apply_text_markup(help_string)
         params = dict(vars(action), prog=self._prog)
         for name in list(params):
             value = params[name]
@@ -673,7 +723,43 @@ class HelpFormatter(object):
                 params[name] = value.__name__
         if params.get('choices') is not None:
             params['choices'] = ', '.join(map(str, params['choices']))
-        return help_string % params
+
+        t = self._theme
+
+        result = help_string % params
+
+        if not t.reset:
+            return result
+
+        # Match format specifiers like: %s, %d, %(key)s, etc.
+        fmt_spec = r'''
+            %
+            (?:
+                %                           # %% escape
+                |
+                (?:\((?P<key>[^)]*)\))?     # key
+                [-#0\ +]*                   # flags
+                (?:\*|\d+)?                 # width
+                (?:\.(?:\*|\d+))?           # precision
+                [hlL]?                      # length modifier
+                [diouxXeEfFgGcrsa]          # conversion type
+            )
+        '''
+
+        def colorize(match):
+            spec, key = match.group(0, 'key')
+            if spec == '%%':
+                return '%'
+            if key is not None:
+                # %(key)... - format and colorize
+                formatted = spec % {key: params[key]}
+                return f'{t.interpolated_value}{formatted}{t.reset}'
+            # bare %s etc. - format with full params dict, no colorization
+            return spec % params
+
+        return self._apply_text_markup(
+            _re.sub(fmt_spec, colorize, help_string, flags=_re.VERBOSE)
+        )
 
     def _iter_indented_subactions(self, action):
         try:
@@ -690,7 +776,35 @@ class HelpFormatter(object):
         # The textwrap module is used only for formatting help.
         # Delay its import for speeding up the common usage of argparse.
         import textwrap
-        return textwrap.wrap(text, width)
+        decolored = self._decolor(text)
+        if decolored == text:
+            return textwrap.wrap(text, width)
+
+        # gh-142035: colors inflate textwrap's length counts, so wrap
+        # the decolored text and re-apply colors per word; if textwrap
+        # split a word, keep the plain lines (colors can't be mapped).
+        plain = self._whitespace_matcher.sub(' ', decolored).strip()
+        if not plain:
+            # nothing visible to wrap (e.g. an empty interpolated value)
+            return [text]
+        plain_lines = textwrap.wrap(plain, width)
+        plain_words = plain.split()
+        colored_words = text.split()
+        # Drop escape-only tokens (e.g. an empty interpolated value).
+        if len(colored_words) != len(plain_words):
+            colored_words = [
+                word for word in colored_words if self._decolor(word)
+            ]
+        colored_lines = []
+        start = 0
+        for plain_line in plain_lines:
+            plain_line_words = plain_line.split()
+            end = start + len(plain_line_words)
+            if plain_words[start:end] != plain_line_words:
+                return plain_lines
+            colored_lines.append(' '.join(colored_words[start:end]))
+            start = end
+        return colored_lines
 
     def _fill_text(self, text, width, indent):
         text = self._whitespace_matcher.sub(' ', text).strip()
@@ -750,7 +864,14 @@ class ArgumentDefaultsHelpFormatter(HelpFormatter):
         ):
             defaulting_nargs = (OPTIONAL, ZERO_OR_MORE)
             if action.option_strings or action.nargs in defaulting_nargs:
-                help += _(' (default: %(default)s)')
+                t = self._theme
+                default_str = _(" (default: %(default)s)")
+                prefix, suffix = default_str.split("%(default)s")
+                help += (
+                    f" {t.default}{prefix.lstrip()}{t.reset}"
+                    f"%(default)s"
+                    f"{t.default}{suffix}{t.reset}"
+                )
         return help
 
 
@@ -934,15 +1055,26 @@ class BooleanOptionalAction(Action):
                  deprecated=False):
 
         _option_strings = []
+        neg_option_strings = []
         for option_string in option_strings:
             _option_strings.append(option_string)
 
-            if option_string.startswith('--'):
-                if option_string.startswith('--no-'):
+            if len(option_string) > 2 and option_string[0] == option_string[1]:
+                # two-dash long option: '--foo' -> '--no-foo'
+                if option_string.startswith('no-', 2):
                     raise ValueError(f'invalid option name {option_string!r} '
                                      f'for BooleanOptionalAction')
-                option_string = '--no-' + option_string[2:]
+                option_string = option_string[:2] + 'no-' + option_string[2:]
                 _option_strings.append(option_string)
+                neg_option_strings.append(option_string)
+            elif len(option_string) > 2 and option_string[0] != option_string[1]:
+                # single-dash long option: '-foo' -> '-nofoo'
+                if option_string.startswith('no', 1):
+                    raise ValueError(f'invalid option name {option_string!r} '
+                                     f'for BooleanOptionalAction')
+                option_string = option_string[:1] + 'no' + option_string[1:]
+                _option_strings.append(option_string)
+                neg_option_strings.append(option_string)
 
         super().__init__(
             option_strings=_option_strings,
@@ -952,11 +1084,12 @@ class BooleanOptionalAction(Action):
             required=required,
             help=help,
             deprecated=deprecated)
+        self.neg_option_strings = neg_option_strings
 
 
     def __call__(self, parser, namespace, values, option_string=None):
         if option_string in self.option_strings:
-            setattr(namespace, self.dest, not option_string.startswith('--no-'))
+            setattr(namespace, self.dest, option_string not in self.neg_option_strings)
 
     def format_usage(self):
         return ' | '.join(self.option_strings)
@@ -1662,29 +1795,35 @@ class _ActionsContainer(object):
     def _get_optional_kwargs(self, *args, **kwargs):
         # determine short and long option strings
         option_strings = []
-        long_option_strings = []
         for option_string in args:
             # error on strings that don't start with an appropriate prefix
-            if not option_string[0] in self.prefix_chars:
+            if option_string[0] not in self.prefix_chars:
                 raise ValueError(
                     f'invalid option string {option_string!r}: '
                     f'must start with a character {self.prefix_chars!r}')
-
-            # strings starting with two prefix characters are long options
             option_strings.append(option_string)
-            if len(option_string) > 1 and option_string[1] in self.prefix_chars:
-                long_option_strings.append(option_string)
 
         # infer destination, '--foo-bar' -> 'foo_bar' and '-x' -> 'x'
         dest = kwargs.pop('dest', None)
         if dest is None:
-            if long_option_strings:
-                dest_option_string = long_option_strings[0]
-            else:
-                dest_option_string = option_strings[0]
-            dest = dest_option_string.lstrip(self.prefix_chars)
+            priority = 0
+            for option_string in option_strings:
+                if len(option_string) <= 2:
+                    # short option: '-x' -> 'x'
+                    if priority < 1:
+                        dest = option_string.lstrip(self.prefix_chars)
+                        priority = 1
+                elif option_string[1] not in self.prefix_chars:
+                    # single-dash long option: '-foo' -> 'foo'
+                    if priority < 2:
+                        dest = option_string.lstrip(self.prefix_chars)
+                        priority = 2
+                else:
+                    # two-dash long option: '--foo' -> 'foo'
+                    dest = option_string.lstrip(self.prefix_chars)
+                    break
             if not dest:
-                msg = f'dest= is required for options like {option_string!r}'
+                msg = f'dest= is required for options like {repr(option_strings)[1:-1]}'
                 raise TypeError(msg)
             dest = dest.replace('-', '_')
 
@@ -1862,7 +2001,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
         - exit_on_error -- Determines whether or not ArgumentParser exits with
             error info when an error occurs
         - suggest_on_error - Enables suggestions for mistyped argument choices
-            and subparser names (default: ``False``)
+            and subparser names (default: ``True``)
         - color - Allow color output in help messages (default: ``False``)
     """
 
@@ -1881,7 +2020,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                  allow_abbrev=True,
                  exit_on_error=True,
                  *,
-                 suggest_on_error=False,
+                 suggest_on_error=True,
                  color=True,
                  ):
         superinit = super(ArgumentParser, self).__init__
@@ -1963,14 +2102,16 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
             self._subparsers = self._positionals
 
         # prog defaults to the usage message of this parser, skipping
-        # optional arguments and with no "usage:" prefix
+        # non-required optional arguments and with no "usage:" prefix
         if kwargs.get('prog') is None:
             # Create formatter without color to avoid storing ANSI codes in prog
             formatter = self.formatter_class(prog=self.prog)
             formatter._set_color(False)
             positionals = self._get_positional_actions()
+            required_optionals = [action for action in self._get_optional_actions()
+                                  if action.required]
             groups = self._mutually_exclusive_groups
-            formatter.add_usage(None, positionals, groups, '')
+            formatter.add_usage(None, required_optionals + positionals, groups, '')
             kwargs['prog'] = formatter.format_help().strip()
 
         # create the parsers action and add it to the positionals list
@@ -2437,7 +2578,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
             return None
 
         # if it doesn't start with a prefix, it was meant to be positional
-        if not arg_string[0] in self.prefix_chars:
+        if arg_string[0] not in self.prefix_chars:
             return None
 
         # if the option string is present in the parser, return the action
@@ -2546,7 +2687,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
 
         # allow any number of options or arguments
         elif nargs == REMAINDER:
-            nargs_pattern = '([AO]*)' if option else '(.*)'
+            nargs_pattern = '(.*)'
 
         # allow one argument followed by any number of options or arguments
         elif nargs == PARSER:
@@ -2699,14 +2840,16 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
     # Help-formatting methods
     # =======================
 
-    def format_usage(self):
-        formatter = self._get_formatter()
+    def format_usage(self, formatter=None):
+        if formatter is None:
+            formatter = self._get_formatter()
         formatter.add_usage(self.usage, self._actions,
                             self._mutually_exclusive_groups)
         return formatter.format_help()
 
-    def format_help(self):
-        formatter = self._get_formatter()
+    def format_help(self, formatter=None):
+        if formatter is None:
+            formatter = self._get_formatter()
 
         # usage
         formatter.add_usage(self.usage, self._actions,
@@ -2728,16 +2871,20 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
         # determine help from format above
         return formatter.format_help()
 
-    def _get_formatter(self):
+    def _get_formatter(self, file=None):
         formatter = self.formatter_class(prog=self.prog)
-        formatter._set_color(self.color)
+        formatter._set_color(self.color, file=file)
         return formatter
 
     def _get_validation_formatter(self):
         # Return cached formatter for read-only validation operations
         # (_expand_help and _format_args). Avoids repeated slow _set_color calls.
+        # Validation never renders output, so force color off to avoid
+        # importing _colorize during add_argument.
         if self._cached_formatter is None:
-            self._cached_formatter = self._get_formatter()
+            formatter = self.formatter_class(prog=self.prog)
+            formatter._set_color(False)
+            self._cached_formatter = formatter
         return self._cached_formatter
 
     # =====================
@@ -2747,12 +2894,26 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
     def print_usage(self, file=None):
         if file is None:
             file = _sys.stdout
-        self._print_message(self.format_usage(), file)
+        formatter = self._get_formatter(file=file)
+        try:
+            usage_text = self.format_usage(formatter=formatter)
+        except TypeError:
+            # Backward compatibility for formatter classes that
+            # do not accept the 'formatter' keyword argument.
+            usage_text = self.format_usage()
+        self._print_message(usage_text, file)
 
     def print_help(self, file=None):
         if file is None:
             file = _sys.stdout
-        self._print_message(self.format_help(), file)
+        formatter = self._get_formatter(file=file)
+        try:
+            help_text = self.format_help(formatter=formatter)
+        except TypeError:
+            # Backward compatibility for formatter classes that
+            # do not accept the 'formatter' keyword argument.
+            help_text = self.format_help()
+        self._print_message(help_text, file)
 
     def _print_message(self, message, file=None):
         if message:
@@ -2761,6 +2922,13 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                 file.write(message)
             except (AttributeError, OSError):
                 pass
+
+    def _get_theme(self, file=None):
+        # If self.color is False, _colorize is not imported
+        if self.color and _colorize.can_colorize(file=file):
+            return _colorize.get_theme(force_color=True).argparse
+        else:
+            return _colorless_theme
 
     # ===============
     # Exiting methods
@@ -2781,9 +2949,26 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
         should either exit or raise an exception.
         """
         self.print_usage(_sys.stderr)
+        theme = self._get_theme(file=_sys.stderr)
+        fmt = _('%(prog)s: error: %(message)s\n')
+        fmt = fmt.replace('error: %(message)s',
+                        f'{theme.error}error:{theme.reset} {theme.message}%(message)s{theme.reset}')
+
         args = {'prog': self.prog, 'message': message}
-        self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+        self.exit(2, fmt % args)
 
     def _warning(self, message):
+        theme = self._get_theme(file=_sys.stderr)
+        fmt = _('%(prog)s: warning: %(message)s\n')
+        fmt = fmt.replace('warning: %(message)s',
+                        f'{theme.warning}warning:{theme.reset} {theme.message}%(message)s{theme.reset}')
         args = {'prog': self.prog, 'message': message}
-        self._print_message(_('%(prog)s: warning: %(message)s\n') % args, _sys.stderr)
+        self._print_message(fmt % args, _sys.stderr)
+
+def __getattr__(name):
+    if name == "__version__":
+        from warnings import _deprecated
+
+        _deprecated("__version__", remove=(3, 20))
+        return "1.1"  # Do not change
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

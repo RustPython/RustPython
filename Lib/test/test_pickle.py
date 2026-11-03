@@ -52,8 +52,6 @@ class PyPickleTests(AbstractPickleModuleTests, unittest.TestCase):
     Unpickler = pickle._Unpickler
 
 
-
-
 class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
 
     unpickler = pickle._Unpickler
@@ -61,6 +59,8 @@ class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
     truncated_errors = (pickle.UnpicklingError, EOFError,
                         AttributeError, ValueError,
                         struct.error, IndexError, ImportError)
+    truncated_data_error = (EOFError, '')
+    size_overflow_error = (pickle.UnpicklingError, 'exceeds')
 
     def loads(self, buf, **kwds):
         f = io.BytesIO(buf)
@@ -80,9 +80,6 @@ class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
         return bytes(f.read())
 
 
-
-
-
 class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
 
     pickler = pickle._Pickler
@@ -100,15 +97,13 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
-
-
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c_methods(self):
         return super().test_c_methods()
 
-
-
+    @unittest.expectedFailureIf(sys.getrecursionlimit() == 256, "TODO: RUSTPYTHON; default debug recursion limit is 256")
+    def test_deep_nested_struct_frozendict(self):
+        return super().test_deep_nested_struct_frozendict()
 
 
 class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
@@ -118,6 +113,8 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     truncated_errors = (pickle.UnpicklingError, EOFError,
                         AttributeError, ValueError,
                         struct.error, IndexError, ImportError)
+    truncated_data_error = ((pickle.UnpicklingError, EOFError), '')
+    size_overflow_error = ((OverflowError, pickle.UnpicklingError), 'exceeds')
 
     def dumps(self, arg, protocol=None, **kwargs):
         return pickle.dumps(arg, protocol, **kwargs)
@@ -129,15 +126,9 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     test_find_class = None
     test_custom_find_class = None
 
-
-
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c_methods(self):
         return super().test_c_methods()
-
-
-
 
 
 class PersistentPicklerUnpicklerMixin(object):
@@ -400,6 +391,8 @@ if has_c_implementation:
         unpickler = _pickle.Unpickler
         bad_stack_errors = (pickle.UnpicklingError,)
         truncated_errors = (pickle.UnpicklingError,)
+        truncated_data_error = (pickle.UnpicklingError, 'truncated')
+        size_overflow_error = (OverflowError, 'exceeds')
 
     class CPicklingErrorTests(PyPicklingErrorTests):
         pickler = _pickle.Pickler
@@ -407,6 +400,10 @@ if has_c_implementation:
     class CPicklerTests(PyPicklerTests):
         pickler = _pickle.Pickler
         unpickler = _pickle.Unpickler
+
+        @unittest.expectedSuccess  # TODO: RUSTPYTHON; native pickler passes at the default debug recursion limit
+        def test_deep_nested_struct_frozendict(self):
+            return super().test_deep_nested_struct_frozendict()
 
     class CPersPicklerTests(PyPersPicklerTests):
         pickler = _pickle.Pickler
@@ -420,6 +417,10 @@ if has_c_implementation:
     class CDumpPickle_LoadPickle(PyPicklerTests):
         pickler = _pickle.Pickler
         unpickler = pickle._Unpickler
+
+        @unittest.expectedSuccess  # TODO: RUSTPYTHON; native pickler passes at the default debug recursion limit
+        def test_deep_nested_struct_frozendict(self):
+            return super().test_deep_nested_struct_frozendict()
 
     class DumpPickle_CLoadPickle(PyPicklerTests):
         pickler = pickle._Pickler
@@ -543,7 +544,7 @@ if has_c_implementation:
                 0)  # Write buffer is cleared after every dump().
 
         def test_unpickler(self):
-            basesize = support.calcobjsize('2P2n2P 2P2n2i5P 2P5n8P2n3i')
+            basesize = support.calcobjsize('2P2n3P 2P2n2i5P 2P5n8P2n3i')
             unpickler = _pickle.Unpickler
             P = struct.calcsize('P')  # Size of memo table entry.
             n = struct.calcsize('n')  # Size of mark table entry.

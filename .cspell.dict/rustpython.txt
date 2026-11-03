@@ -12,6 +12,7 @@ pyast
 pyattr
 pyclass
 pyclassmethod
+pycode
 pyexception
 pyfunction
 pygetset
@@ -36,6 +37,7 @@ pyperformance
 pytype
 qsbr
 rustix
+rustpythonw
 struc
 unscanned
 zelf

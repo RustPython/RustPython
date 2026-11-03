@@ -252,7 +252,7 @@ where
         let replace = ctx.handle_error(errors, range.clone(), Some(err_reason))?;
         match replace {
             EncodeReplace::Str(s) => {
-                if s.is_compatible_with(target_kind) {
+                if s.is_compatible_with(StrKind::Ascii) {
                     out.extend_from_slice(s.as_ref().as_bytes());
                 } else {
                     return Err(ctx.error_encoding(range, Some(err_reason)));
@@ -617,8 +617,8 @@ pub mod latin_1 {
         _errors: &E,
     ) -> Result<(Wtf8Buf, usize), Ctx::Error> {
         let out: String = ctx.remaining_data().iter().map(|c| *c as char).collect();
-        let out_len = out.len();
-        Ok((out.into(), out_len))
+        let consumed = ctx.full_data().len();
+        Ok((out.into(), consumed))
     }
 }
 

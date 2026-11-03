@@ -39,6 +39,13 @@ class Mailbox:
         self._path = os.path.abspath(os.path.expanduser(path))
         self._factory = factory
 
+    def __enter__(self):
+        self.lock()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
     def add(self, message):
         """Add message and return assigned key."""
         raise NotImplementedError('Method must be implemented by subclass')
@@ -2089,8 +2096,6 @@ class _ProxyFile:
         if not hasattr(self._file, 'closed'):
             return False
         return self._file.closed
-
-    __class_getitem__ = classmethod(GenericAlias)
 
 
 class _PartialFile(_ProxyFile):

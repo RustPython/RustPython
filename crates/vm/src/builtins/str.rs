@@ -1,5 +1,6 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyAnyDict, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType,
+    PyTypeRef,
     int::PyInt,
     iter::{IterStatus, builtins_iter},
 };
@@ -39,7 +40,6 @@ use itertools::Itertools;
 use memchr::memchr;
 use num_traits::ToPrimitive;
 use rustpython_common::{
-    ascii,
     atomic::{self, PyAtomic, Radium},
     format::{FormatString, FromTemplate},
     hash,
@@ -825,9 +825,18 @@ impl PyStr {
             })
         }
         let sep = zelf.as_wtf8();
-        let mut len = sep.len().saturating_mul(items.len().saturating_sub(1));
+        let mut len = 0usize;
+        let overflow = || vm.new_overflow_error("join() result is too long for a Python string");
         for (i, obj) in items.iter().enumerate() {
-            len = len.saturating_add(item_str(i, obj, vm)?.as_wtf8().len());
+            len = len
+                .checked_add(item_str(i, obj, vm)?.as_wtf8().len())
+                .ok_or_else(overflow)?;
+            if i > 0 {
+                len = len.checked_add(sep.len()).ok_or_else(overflow)?;
+            }
+            if isize::try_from(len).is_err() {
+                return Err(overflow());
+            }
         }
         if let [only] = items {
             let only = item_str(0, only, vm)?;
@@ -835,7 +844,10 @@ impl PyStr {
                 return Ok(only.to_owned());
             }
         }
-        let mut joined = Wtf8Buf::with_capacity(len);
+        let mut joined = Wtf8Buf::new();
+        joined
+            .try_reserve_exact(len)
+            .map_err(|_| vm.new_memory_error(""))?;
         for (i, obj) in items.iter().enumerate() {
             if i > 0 {
                 joined.push_wtf8(sep);
@@ -896,7 +908,7 @@ impl PyStr {
 }
 
 #[pyclass(
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, UNICODE_SUBCLASS),
     with(
         AsMapping,
         AsNumber,
@@ -909,6 +921,16 @@ impl PyStr {
     )
 )]
 impl Py<PyStr> {
+    // `part` is a slice of this string. A full-length slice needs no copy,
+    // except when the operation must return a base str for a subclass.
+    fn result_from_slice(&self, part: &Wtf8, vm: &VirtualMachine) -> PyStrRef {
+        if part.len() == self.byte_len() {
+            PyStr::result_unchanged(self.to_owned(), vm)
+        } else {
+            vm.ctx.new_str(part)
+        }
+    }
+
     #[pymethod]
     #[inline(always)]
     pub fn isascii(&self) -> bool {
@@ -1140,17 +1162,19 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn removeprefix(&self, prefix: PyStrRef) -> Wtf8Buf {
-        self.as_wtf8()
-            .py_removeprefix(prefix.as_wtf8(), prefix.byte_len(), |s, p| s.starts_with(p))
-            .to_owned()
+    fn removeprefix(&self, prefix: PyStrRef, vm: &VirtualMachine) -> PyStrRef {
+        let part = self
+            .as_wtf8()
+            .py_removeprefix(prefix.as_wtf8(), prefix.byte_len(), |s, p| s.starts_with(p));
+        self.result_from_slice(part, vm)
     }
 
     #[pymethod]
-    fn removesuffix(&self, suffix: PyStrRef) -> Wtf8Buf {
-        self.as_wtf8()
-            .py_removesuffix(suffix.as_wtf8(), suffix.byte_len(), |s, p| s.ends_with(p))
-            .to_owned()
+    fn removesuffix(&self, suffix: PyStrRef, vm: &VirtualMachine) -> PyStrRef {
+        let part = self
+            .as_wtf8()
+            .py_removesuffix(suffix.as_wtf8(), suffix.byte_len(), |s, p| s.ends_with(p));
+        self.result_from_slice(part, vm)
     }
 
     #[pymethod]
@@ -1238,10 +1262,14 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn replace(zelf: PyRef<PyStr>, args: ReplaceArgs, vm: &VirtualMachine) -> PyRef<PyStr> {
+    fn replace(
+        zelf: PyRef<PyStr>,
+        args: ReplaceArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
         let ReplaceArgs { old, new, count } = args;
         if count == 0 || old.byte_len() > zelf.byte_len() || old.as_wtf8() == new.as_wtf8() {
-            return PyStr::result_unchanged(zelf, vm);
+            return Ok(PyStr::result_unchanged(zelf, vm));
         }
 
         let s = zelf.as_wtf8();
@@ -1250,15 +1278,26 @@ impl Py<PyStr> {
         } else {
             count as usize
         };
+        let capacity = if new.byte_len() > old.byte_len() {
+            let matches = if old.is_empty() {
+                (zelf.char_len() + 1).min(limit)
+            } else {
+                s.find_iter(old.as_wtf8()).take(limit).count()
+            };
+            anystr::checked_replace_len(s.len(), old.byte_len(), new.byte_len(), matches)
+                .ok_or_else(|| vm.new_overflow_error("replace string is too long"))?
+        } else {
+            s.len()
+        };
         let replaced = if old.is_empty() {
             s.replacen(old.as_wtf8(), new.as_wtf8(), limit)
         } else {
             let mut matches = s.find_iter(old.as_wtf8()).take(limit);
             let Some(first) = matches.next() else {
                 drop(matches);
-                return PyStr::result_unchanged(zelf, vm);
+                return Ok(PyStr::result_unchanged(zelf, vm));
             };
-            let mut result = Vec::with_capacity(s.len());
+            let mut result = Vec::with_capacity(capacity);
             let mut last = 0;
             for start in core::iter::once(first).chain(matches) {
                 result.extend_from_slice(&s.as_bytes()[last..start]);
@@ -1269,7 +1308,7 @@ impl Py<PyStr> {
             // SAFETY: A nonempty WTF-8 needle matches only at code point boundaries.
             unsafe { Wtf8Buf::from_bytes_unchecked(result) }
         };
-        vm.ctx.new_str(replaced)
+        Ok(vm.ctx.new_str(replaced))
     }
 
     #[pymethod]
@@ -1380,40 +1419,41 @@ impl Py<PyStr> {
 
     #[pymethod]
     pub fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (front, has_mid, back) = self.as_wtf8().py_partition(
-            sep.as_wtf8(),
-            || self.as_wtf8().splitn(2, sep.as_wtf8()),
-            vm,
-        )?;
-        let partition = (
-            self.new_substr(front),
-            if has_mid {
-                sep
-            } else {
-                vm.ctx.new_str(ascii!(""))
-            },
-            self.new_substr(back),
-        );
-        Ok(partition.to_pyobject(vm))
+        self.partition_inner(sep, false, vm)
     }
 
     #[pymethod]
     pub fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (back, has_mid, front) = self.as_wtf8().py_partition(
-            sep.as_wtf8(),
-            || self.as_wtf8().rsplitn(2, sep.as_wtf8()),
-            vm,
-        )?;
-        Ok((
-            self.new_substr(front),
-            if has_mid {
-                sep
+        self.partition_inner(sep, true, vm)
+    }
+
+    fn partition_inner(&self, sep: PyStrRef, reverse: bool, vm: &VirtualMachine) -> PyResult {
+        if sep.is_empty() {
+            return Err(vm.new_value_error("empty separator"));
+        }
+        let text = self.as_wtf8();
+        let index = if reverse {
+            text.rfind(sep.as_wtf8())
+        } else {
+            text.find(sep.as_wtf8())
+        };
+        let parts = if let Some(index) = index {
+            (
+                vm.ctx.new_str(&text[..index]),
+                sep.clone(),
+                vm.ctx.new_str(&text[index + sep.byte_len()..]),
+            )
+        } else {
+            let empty = vm.ctx.empty_str.to_owned();
+            // partition preserves the original object, including a subclass,
+            // when there is no separator.
+            if reverse {
+                (empty.clone(), empty, self.to_owned())
             } else {
-                vm.ctx.empty_str.to_owned()
-            },
-            self.new_substr(back),
-        )
-            .to_pyobject(vm))
+                (self.to_owned(), empty.clone(), empty)
+            }
+        };
+        Ok(parts.to_pyobject(vm))
     }
 
     #[pymethod]
@@ -1487,8 +1527,19 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: anystr::ExpandTabsArgs) -> Wtf8Buf {
-        rustpython_common::str::expandtabs(self.as_wtf8(), args.tabsize())
+    fn expandtabs(&self, args: anystr::ExpandTabsArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let capacity = anystr::checked_expandtabs_len(
+            self.byte_len(),
+            self.as_wtf8().code_points().map(|ch| ch.to_u32()),
+            args.tabsize(),
+        )
+        .ok_or_else(|| vm.new_overflow_error("new string is too long"))?;
+        let mut result = Wtf8Buf::new();
+        result
+            .try_reserve_exact(capacity)
+            .map_err(|_| vm.new_memory_error(""))?;
+        rustpython_common::str::expandtabs_into(self.as_wtf8(), args.tabsize(), &mut result);
+        Ok(result)
     }
 
     #[pymethod]
@@ -1580,17 +1631,15 @@ impl Py<PyStr> {
                 )),
             }
         } else {
-            // dict_str must be a dict
-            match dict_or_str.downcast::<PyDict>() {
-                Ok(dict) => {
+            // The single-argument form accepts exact dict and frozendict objects.
+            match PyAnyDict::from_object(&dict_or_str).filter(|_| {
+                dict_or_str.class().is(vm.ctx.types.dict_type)
+                    || dict_or_str.class().is(vm.ctx.types.frozendict_type)
+            }) {
+                Some(dict) => {
                     for (key, val) in dict {
-                        // FIXME: ints are key-compatible
-                        if let Some(num) = key.downcast_ref::<PyInt>() {
-                            new_dict.set_item(
-                                &*num.as_bigint().to_i32().to_pyobject(vm),
-                                val,
-                                vm,
-                            )?;
+                        if key.downcast_ref::<PyInt>().is_some() {
+                            new_dict.set_item(&*key, val, vm)?;
                         } else if let Some(string) = key.downcast_ref::<PyStr>() {
                             if string.len() == 1 {
                                 let num_value =
@@ -1609,7 +1658,7 @@ impl Py<PyStr> {
                     }
                     Ok(new_dict.to_pyobject(vm))
                 }
-                _ => Err(vm.new_value_error(
+                _ => Err(vm.new_type_error(
                     "if you give only one argument to maketrans it must be a dict",
                 )),
             }
@@ -1960,7 +2009,7 @@ pub(crate) fn init(ctx: &'static Context) {
     ctx.types
         .str_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_str));
 
     PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);
@@ -2819,7 +2868,11 @@ mod tests {
                 .unwrap();
             table.set_item("b", vm.ctx.none(), vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), vm)
+                .set_item(
+                    "c",
+                    vm.ctx.new_str(rustpython_common::ascii!("xda")).into(),
+                    vm,
+                )
                 .unwrap();
             let translated = Py::<PyStr>::maketrans(
                 table.into(),

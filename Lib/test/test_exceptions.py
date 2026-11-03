@@ -232,6 +232,33 @@ class ExceptionTests(unittest.TestCase):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)
 
+    def testSyntaxErrorRange(self):
+        # gh-156894: the position was reported in bytes, not in characters,
+        # for the errors which cover a range
+        for source, offset, end_offset in [
+            ('abcd = 00010', 8, 11),
+            ('\u03b1\u03b2\u03b3\u03b4 = 00010', 8, 11),
+            ('a\u0301b\u0308c\u20d7d\u1ab0 = 00010', 12, 15),
+            ("abcd = ub'a'", 8, 10),
+            ("\u03b1\u03b2\u03b3\u03b4 = ub'a'", 8, 10),
+            ("a\u0301b\u0308c\u20d7d\u1ab0 = ub'a'", 12, 14),
+        ]:
+            with self.subTest(source=source):
+                with self.assertRaises(SyntaxError) as cm:
+                    compile(source, '<testcase>', 'exec')
+                self.assertEqual(cm.exception.offset, offset)
+                self.assertEqual(cm.exception.end_offset, end_offset)
+
+    def testSyntaxErrorNonUTF8Offset(self):
+        # gh-157378: the position was reported one column short for each
+        # multi-byte character preceding the invalid byte on the same line
+        check = self.check
+        check(b'X\x80', 1, 2, 1, 2)
+        check(b'\xc3\xa9X\x80', 1, 3, 1, 3)
+        check(b'\t\xc3\xa9X\x80', 1, 4, 1, 4)
+        check(b'a\xc3\xa9b\x80c', 1, 4, 1, 4)
+        check(b'a\n\xc3\xa9X\x80', 2, 3, 2, 3)
+
     def testSyntaxErrorOffset(self):
         check = self.check
         check('def fact(x):\n\treturn x!\n', 2, 10)
@@ -252,7 +279,16 @@ class ExceptionTests(unittest.TestCase):
         check('[\nfile\nfor str(file)\nin\n[]\n]', 3, 5)
         check('[file for\n str(file) in []]', 2, 2)
         check("ages = {'Alice'=22, 'Bob'=23}", 1, 9)
-        check('match ...:\n    case {**rest, "key": value}:\n        ...', 2, 19)
+        check(dedent("""\
+          match ...:
+            case {**rest1, "after": after}:
+              ...
+        """), 2, 11)
+        check(dedent("""\
+          match ...:
+            case {"before": before, **rest2, "after": after}:
+              ...
+        """), 2, 29)
         check("[a b c d e f]", 1, 2)
         check("for x yfff:", 1, 7)
         check("f(a for a in b, c)", 1, 3, 1, 15)
@@ -328,7 +364,6 @@ class ExceptionTests(unittest.TestCase):
         check('x=1\nfrom __future__ import division', 2, 1)
         check('foo(1=2)', 1, 5)
         check('def f():\n  x, y: int', 2, 3)
-        check('[*x for x in xs]', 1, 2)
         check('foo(x for x in range(10), 100)', 1, 5)
         check('for 1 in []: pass', 1, 5)
         check('(yield i) = 2', 1, 2)
@@ -1510,6 +1545,7 @@ class ExceptionTests(unittest.TestCase):
     @cpython_only
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     @force_not_colorized
+    @support.skip_if_huge_c_stack()
     def test_recursion_normalizing_infinite_exception(self):
         # Issue #30697. Test that a RecursionError is raised when
         # maximum recursion depth has been exceeded when creating
@@ -1576,11 +1612,7 @@ class ExceptionTests(unittest.TestCase):
             sys.setrecursionlimit(recursionlimit)
 
 
-    @cpython_only
-    # Python built with Py_TRACE_REFS fail with a fatal error in
-    # _PyRefchain_Trace() on memory allocation error.
-    @unittest.skipIf(support.Py_TRACE_REFS, 'cannot test Py_TRACE_REFS build')
-    @unittest.skipIf(_testcapi is None, "requires _testcapi")
+    @support.nomemtest
     def test_recursion_normalizing_with_no_memory(self):
         # Issue #30697. Test that in the abort that occurs when there is no
         # memory left and the size of the Python frames stack is greater than
@@ -1707,6 +1739,20 @@ class ExceptionTests(unittest.TestCase):
         gc_collect()  # For PyPy or other GCs.
         self.assertEqual(wr(), None)
 
+    def test_oserror_reinit_leak(self):
+        # gh-150988: Check for memory leak when re-initializing OSError.
+        # Previously, setting OSError attributes in a subclass
+        # before calling super().__init__() leaked memory.
+        class LeakingOSError(OSError):
+            def __init__(self, code, message, filename, filename2):
+                self.strerror = message
+                self.filename = filename
+                self.filename2 = filename2
+                super().__init__(code, message, filename, None, filename2)
+
+        exc = LeakingOSError(1, "some message", "filename.py", "filename2.py")
+        exc.__init__(2, "another message", "filename3.py", "filename4.py")
+
     def test_errno_ENOTDIR(self):
         # Issue #12802: "not a directory" errors are ENOTDIR even on Windows
         with self.assertRaises(OSError) as cm:
@@ -1753,11 +1799,7 @@ class ExceptionTests(unittest.TestCase):
                     self.assertIn("test message", report)
                 self.assertEndsWith(report, "\n")
 
-    @cpython_only
-    # Python built with Py_TRACE_REFS fail with a fatal error in
-    # _PyRefchain_Trace() on memory allocation error.
-    @unittest.skipIf(support.Py_TRACE_REFS, 'cannot test Py_TRACE_REFS build')
-    @unittest.skipIf(_testcapi is None, "requires _testcapi")
+    @support.nomemtest
     def test_memory_error_in_PyErr_PrintEx(self):
         code = """if 1:
             import _testcapi
@@ -1915,12 +1957,8 @@ class ExceptionTests(unittest.TestCase):
             exc2 = None
 
 
-    @cpython_only
-    # Python built with Py_TRACE_REFS fail with a fatal error in
-    # _PyRefchain_Trace() on memory allocation error.
-    @unittest.skipIf(support.Py_TRACE_REFS, 'cannot test Py_TRACE_REFS build')
+    @support.nomemtest
     def test_exec_set_nomemory_hang(self):
-        import_module("_testcapi")
         # gh-134163: A MemoryError inside code that was wrapped by a try/except
         # block would lead to an infinite loop.
 
@@ -2116,6 +2154,50 @@ class ImportErrorTests(unittest.TestCase):
                 self.assertEqual(exc.msg, 'test')
                 self.assertEqual(exc.name, orig.name)
                 self.assertEqual(exc.path, orig.path)
+
+    def test_repr(self):
+        exc = ImportError()
+        self.assertEqual(repr(exc), "ImportError()")
+
+        exc = ImportError('test')
+        self.assertEqual(repr(exc), "ImportError('test')")
+
+        exc = ImportError('test', 'case')
+        self.assertEqual(repr(exc), "ImportError('test', 'case')")
+
+        exc = ImportError(name='somemodule')
+        self.assertEqual(repr(exc), "ImportError(name='somemodule')")
+
+        exc = ImportError('test', name='somemodule')
+        self.assertEqual(repr(exc), "ImportError('test', name='somemodule')")
+
+        exc = ImportError(path='somepath')
+        self.assertEqual(repr(exc), "ImportError(path='somepath')")
+
+        exc = ImportError('test', path='somepath')
+        self.assertEqual(repr(exc), "ImportError('test', path='somepath')")
+
+        exc = ImportError(name='somename', path='somepath')
+        self.assertEqual(repr(exc),
+                "ImportError(name='somename', path='somepath')")
+
+        exc = ImportError('test', name='somename', path='somepath')
+        self.assertEqual(repr(exc),
+                "ImportError('test', name='somename', path='somepath')")
+
+        exc = ModuleNotFoundError('test', name='somename', path='somepath')
+        self.assertEqual(repr(exc),
+                "ModuleNotFoundError('test', name='somename', path='somepath')")
+
+    def test_ModuleNotFoundError_repr_with_failed_import(self):
+        with self.assertRaises(ModuleNotFoundError) as cm:
+            import does_not_exist  # type: ignore[import] # noqa: F401
+
+        self.assertEqual(cm.exception.name, "does_not_exist")
+        self.assertIsNone(cm.exception.path)
+
+        self.assertEqual(repr(cm.exception),
+            "ModuleNotFoundError(\"No module named 'does_not_exist'\", name='does_not_exist')")
 
 
 def run_script(source):
@@ -2373,7 +2455,6 @@ class SyntaxErrorTests(unittest.TestCase):
      ^^^^^
 """, err.getvalue())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_encodings(self):
         self.addCleanup(unlink, TESTFN)
         source = (
@@ -2382,7 +2463,8 @@ class SyntaxErrorTests(unittest.TestCase):
         )
         err = run_script(source.encode('cp437'))
         self.assertEqual(err[-3], '    "┬ó┬ó┬ó┬ó┬ó┬ó" + f(4, x for x in range(1))')
-        self.assertEqual(err[-2], '                            ^^^')
+        self.assertEqual(err[-2], '                          ^^^^^^^^^^^^^^^^^^^')
+        self.assertEqual(err[-1], 'SyntaxError: Generator expression must be parenthesized')
 
         # Check backwards tokenizer errors
         source = '# -*- coding: ascii -*-\n\n(\n'

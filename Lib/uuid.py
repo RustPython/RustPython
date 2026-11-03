@@ -737,6 +737,7 @@ def uuid1(node=None, clock_seq=None):
             is_safe = SafeUUID(safely_generated)
         except ValueError:
             is_safe = SafeUUID.unknown
+        # The version field is assumed to be handled by _generate_time_safe().
         return UUID(bytes=uuid_time, is_safe=is_safe)
 
     global _last_timestamp
@@ -954,7 +955,6 @@ def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description="Generate a UUID using the selected UUID function.",
-        color=True,
     )
     parser.add_argument("-u", "--uuid",
                         choices=uuid_funcs.keys(),
@@ -962,14 +962,14 @@ def main():
                         help="function to generate the UUID")
     parser.add_argument("-n", "--namespace",
                         metavar=f"{{any UUID,{','.join(namespaces)}}}",
-                        help="uuid3/uuid5 only: "
+                        help="`uuid3`/`uuid5` only: "
                         "a UUID, or a well-known predefined UUID addressed "
                         "by namespace name")
     parser.add_argument("-N", "--name",
-                        help="uuid3/uuid5 only: "
+                        help="`uuid3`/`uuid5` only: "
                         "name used as part of generating the UUID")
     parser.add_argument("-C", "--count", metavar="NUM", type=int, default=1,
-                        help="generate NUM fresh UUIDs")
+                        help="generate `NUM` fresh UUIDs")
 
     args = parser.parse_args()
     uuid_func = uuid_funcs[args.uuid]

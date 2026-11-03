@@ -1,9 +1,9 @@
+use crate::metadata::{AttributeDoc, PunctuatedNestedMeta, nested_meta};
 use crate::util::{ItemMeta, ItemMetaInner};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::Meta;
 use syn::{DeriveInput, Ident, Item, Result};
-use syn_ext::ext::{AttributeExt, AttributeIteratorExt, GetIdent};
-use syn_ext::types::{Meta, PunctuatedNestedMeta};
 
 // #[pystruct_sequence_data] - For Data structs
 
@@ -94,16 +94,12 @@ fn parse_fields(input: &mut DeriveInput) -> Result<FieldInfo> {
                 continue;
             }
 
-            let Ok(meta) = attr.parse_meta() else {
-                continue;
-            };
-
-            let Meta::List(l) = meta else {
+            let Meta::List(l) = &attr.meta else {
                 bail_span!(input, "Only #[pystruct_sequence(...)] form is allowed");
             };
 
-            let idents = l
-                .nested
+            let Ok(nested) = nested_meta(l) else { continue };
+            let idents = nested
                 .iter()
                 .filter_map(|n| n.get_ident())
                 .cloned()

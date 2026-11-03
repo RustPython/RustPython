@@ -14,3 +14,12 @@ pub const LIB_PATH: &str = match option_env!("win_lib_path") {
 #[cfg(feature = "freeze-stdlib")]
 pub const FROZEN_STDLIB: &rustpython_compiler_core::frozen::FrozenLib =
     rustpython_derive::py_freeze!(dir = "../Lib", crate_name = "rustpython_compiler_core");
+
+#[cfg(feature = "freeze-stdlib")]
+type FrozenResource = (&'static str, &'static [u8]);
+#[cfg(feature = "freeze-stdlib")]
+type FrozenResourceBundle = (&'static str, &'static [FrozenResource]);
+
+// Resource bytes are registered alongside the exact frozen module batch.
+#[cfg(feature = "freeze-stdlib")]
+include!(concat!(env!("OUT_DIR"), "/frozen_resources.rs"));

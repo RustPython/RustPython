@@ -17,6 +17,7 @@ bitflagset::bitflag! {
         Readable = 1,
         Writable = 2,
         Appending = 3,
+        Truncating = 4,
     }
 }
 
@@ -30,6 +31,7 @@ impl FileMode {
     pub const READABLE: Self = Self::from_element(FileModeFlag::Readable);
     pub const WRITABLE: Self = Self::from_element(FileModeFlag::Writable);
     pub const APPENDING: Self = Self::from_element(FileModeFlag::Appending);
+    pub const TRUNCATING: Self = Self::from_element(FileModeFlag::Truncating);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,7 +74,11 @@ impl FileMode {
             }
         } else if self.contains(&FileModeFlag::Readable) {
             if self.contains(&FileModeFlag::Writable) {
-                "rb+"
+                if self.contains(&FileModeFlag::Truncating) {
+                    "wb+"
+                } else {
+                    "rb+"
+                }
             } else {
                 "rb"
             }
@@ -109,7 +115,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode |= FileMode::WRITABLE;
+                mode |= FileMode::WRITABLE | FileMode::TRUNCATING;
                 flags |= os::O_CREAT | os::O_TRUNC;
             }
             b'a' => {

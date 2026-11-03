@@ -21,6 +21,13 @@ use crate::{
 use rustpython_common::lock::LazyLock;
 use rustpython_common::wtf8::Wtf8Buf;
 
+/// FrameLocalsProxy($frame)
+/// --
+///
+/// Create a write-through view of the locals dictionary for a frame.
+///
+///   frame
+///     the frame object to wrap.
 #[pyclass(
     module = false,
     name = "FrameLocalsProxy",
@@ -145,10 +152,10 @@ impl FrameLocalsProxy {
             return Ok(vm.ctx.not_implemented());
         }
         let result = self.snapshot(vm)?;
-        if other.downcast_ref::<PyDict>().is_some() {
+        if let Some(dict) = other.downcast_ref::<PyDict>() {
             // PyDict_Update reads a dict subclass's stored entries directly;
             // it does not dispatch to overridden mapping methods.
-            result.merge_dict(&other.downcast().unwrap(), true, vm)?;
+            result.merge_dict(dict, true, vm)?;
         } else {
             result.merge_object(other, vm)?;
         }

@@ -767,6 +767,26 @@ class SubBytes(bytes):
     pass
 
 
+# Unchanged operations reuse exact bytes but must not preserve a subclass.
+for method, args in (
+    ("strip", ()),
+    ("lstrip", ()),
+    ("rstrip", ()),
+    ("removeprefix", (b"!",)),
+    ("removesuffix", (b"!",)),
+    ("replace", (b"!", b"?")),
+    ("replace", (b"!", b"")),
+    ("replace", (b"!", b"longer")),
+    ("replace", (b"", b"")),
+    ("replace", (b"a", b"b", 0)),
+):
+    original = b"unchanged payload"
+    assert getattr(original, method)(*args) is original
+    result = getattr(SubBytes(original), method)(*args)
+    assert result == original
+    assert type(result) is bytes
+
+
 b = SubBytes(b"0123abc*&")
 assert id(b) == id(b)
 assert id(b) != id(b * -1)
@@ -911,3 +931,13 @@ out_of_range(lambda: bytes([-1]), "bytes must be in range(0, 256)")
 out_of_range(lambda: bytearray([256]), "byte must be in range(0, 256)")
 out_of_range(lambda: bytearray(iter([256])), "byte must be in range(0, 256)")
 out_of_range(lambda: bytearray().extend([256]), "byte must be in range(0, 256)")
+
+
+class NewArgsBytes(bytes):
+    pass
+
+
+for bytes_type in (bytes, NewArgsBytes):
+    newargs = bytes_type(b"a\x00b").__getnewargs__()
+    assert newargs == (b"a\x00b",)
+    assert type(newargs[0]) is bytes

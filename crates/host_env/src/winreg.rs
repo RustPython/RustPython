@@ -161,6 +161,11 @@ pub unsafe fn delete_value(key: Registry::HKEY, value_name: Option<&widestring::
     unsafe { Registry::RegDeleteValueW(key, name_ptr) }
 }
 
+pub unsafe fn delete_tree(key: Registry::HKEY, sub_key: Option<&widestring::WideCStr>) -> u32 {
+    let name_ptr = sub_key.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegDeleteTreeW(key, name_ptr) }
+}
+
 pub unsafe fn enum_key_ex(
     key: Registry::HKEY,
     index: u32,
@@ -280,12 +285,13 @@ pub unsafe fn load_key(
 
 pub unsafe fn open_key_ex(
     key: Registry::HKEY,
-    sub_key: &widestring::WideCStr,
+    sub_key: Option<&widestring::WideCStr>,
     options: u32,
     sam: u32,
     out_key: *mut Registry::HKEY,
 ) -> u32 {
-    unsafe { Registry::RegOpenKeyExW(key, sub_key.as_ptr(), options, sam, out_key) }
+    let name_ptr = sub_key.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegOpenKeyExW(key, name_ptr, options, sam, out_key) }
 }
 
 pub unsafe fn query_value_ex(
@@ -351,7 +357,15 @@ pub fn query_default_value(
 ) -> Result<String, QueryStringError> {
     let child_key = if let Some(sub_key) = sub_key.filter(|s| !s.is_empty()) {
         let mut out_key = core::ptr::null_mut();
-        let res = unsafe { open_key_ex(hkey, sub_key, 0, Registry::KEY_QUERY_VALUE, &mut out_key) };
+        let res = unsafe {
+            open_key_ex(
+                hkey,
+                Some(sub_key),
+                0,
+                Registry::KEY_QUERY_VALUE,
+                &mut out_key,
+            )
+        };
         if res != 0 {
             return Err(QueryStringError::Code(res));
         }

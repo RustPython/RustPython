@@ -15,6 +15,20 @@ use crate::{
     types::{Constructor, PyComparisonOp},
 };
 
+/// Converts an index key the way a sequence does before it refuses the
+/// operation, so an error from `__index__` or the size check wins.
+fn sequence_index_key(key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<isize>> {
+    let Some(index) = key.try_index_opt(vm) else {
+        return Ok(None);
+    };
+    index?.try_to_primitive(vm).map(Some).map_err(|_| {
+        vm.new_index_error(format!(
+            "cannot fit '{}' into an index-sized integer",
+            key.class().name()
+        ))
+    })
+}
+
 // RustPython doesn't need these items
 // PyObject *Py_NotImplemented
 // Py_RETURN_NOTIMPLEMENTED
@@ -812,6 +826,10 @@ impl PyObject {
             return f(seq, i, Some(value), vm);
         }
 
+        // Every heap type carries a sequence table.
+        if seq.slots().has_any() || self.class().heaptype_ext().is_some() {
+            sequence_index_key(&needle.to_pyobject(vm), vm)?;
+        }
         Err(vm.new_type_error(format!(
             "'{}' object does not support item assignment",
             self.class().slot_name()
@@ -836,8 +854,11 @@ impl PyObject {
 
         // A type carrying a sequence table turns the deletion down in
         // PySequence_DelItem's words instead; every heap type carries one.
+        let index_key = (seq.slots().has_any() || self.class().heaptype_ext().is_some())
+            && sequence_index_key(&needle.to_pyobject(vm), vm)?.is_some();
+        // Read the name only now: the key's __index__ may have renamed the type.
         let name = self.class().slot_name();
-        let msg = if seq.slots().has_any() || self.class().heaptype_ext().is_some() {
+        let msg = if index_key {
             format!("'{name}' object doesn't support item deletion")
         } else {
             format!("'{name}' object does not support item deletion")

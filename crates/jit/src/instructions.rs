@@ -663,6 +663,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(val);
                 Ok(())
             }
+            Instruction::LoadCommonConstant { idx } => {
+                let val = match idx.get(arg) {
+                    oparg::CommonConstant::None => JitValue::None,
+                    oparg::CommonConstant::True | oparg::CommonConstant::False => {
+                        let value = i64::from(idx.get(arg) == oparg::CommonConstant::True);
+                        JitValue::Bool(self.builder.ins().iconst(types::I8, value))
+                    }
+                    oparg::CommonConstant::MinusOne => {
+                        JitValue::Int(self.builder.ins().iconst(types::I64, -1))
+                    }
+                    _ => return Err(JitCompileError::NotSupported),
+                };
+                self.stack.push(val);
+                Ok(())
+            }
             Instruction::LoadSmallInt { i } => {
                 let small_int = i.get(arg) as i64;
                 let val = self.builder.ins().iconst(types::I64, small_int);

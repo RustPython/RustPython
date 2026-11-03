@@ -20,18 +20,20 @@ fn ruff_fstring_element_into_iter(
 
 fn push_ruff_fstring_element(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     flags: ast::AnyStringFlags,
     element: ast::InterpolatedStringElement,
     output: &mut Vec<JoinedStrPart>,
 ) {
     match element {
         ast::InterpolatedStringElement::Literal(literal) => {
-            output.push(JoinedStrPart::Constant(Constant::new_str(
+            let mut constant = Constant::new_str(
                 rustpython_codegen::interpolated_string_literal_value(source_file, &literal, flags),
                 ast::str_prefix::StringLiteralPrefix::Empty,
                 literal.range,
-            )));
+            );
+            constant.node_index = literal.node_index;
+            output.push(JoinedStrPart::Constant(constant));
         }
         ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
             range,
@@ -39,7 +41,7 @@ fn push_ruff_fstring_element(
             debug_text,
             mut conversion,
             format_spec,
-            node_index: _,
+            node_index,
             runtime_str: _,
             runtime_interpolation_format_spec: _,
             runtime_formatted_value_format_spec,
@@ -57,6 +59,7 @@ fn push_ruff_fstring_element(
                     .map(|joined_str| Box::new(joined_str.into_expr(false)))
             });
             output.push(JoinedStrPart::FormattedValue(FormattedValue {
+                node_index,
                 value: expression,
                 conversion,
                 format_spec: runtime_format_spec,
@@ -68,7 +71,7 @@ fn push_ruff_fstring_element(
 
 /// The literal an `{expr=}` interpolation puts in front of its value.
 fn interpolation_debug_constant(
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     debug_text: &ast::DebugText,
     expression_range: TextRange,
 ) -> Constant {
@@ -257,6 +260,9 @@ fn warn_invalid_escape_sequences_in_format_spec<E>(
                 }
                 true
             }
+            // CPython's string-parser prepass protects a backslash before a
+            // non-ASCII codepoint before invoking the escape decoder.
+            ch if !ch.is_ascii() => true,
             _ => false,
         };
         if !valid {
@@ -454,7 +460,7 @@ pub(super) fn emit_format_spec_warnings<E>(
 
 fn ruff_format_spec_to_joined_str(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     flags: ast::AnyStringFlags,
     format_spec: Option<Box<ast::InterpolatedStringFormatSpec>>,
 ) -> Option<Box<JoinedStr>> {
@@ -464,7 +470,7 @@ fn ruff_format_spec_to_joined_str(
             let ast::InterpolatedStringFormatSpec {
                 range,
                 elements,
-                node_index: _,
+                node_index,
             } = *format_spec;
             // The `:` that opens a format spec belongs to its range, and the
             // parser leaves it out of the outermost one.
@@ -474,7 +480,7 @@ fn ruff_format_spec_to_joined_str(
                 .get(..range.start().to_usize())
                 .and_then(<[u8]>::last)
                 == Some(&b':');
-            let range = if opened_by_colon {
+            let range = if opened_by_colon && source_file.location(node_index.load()).is_none() {
                 TextRange::new(
                     range.start() - ruff_text_size::TextSize::from(1),
                     range.end(),
@@ -486,8 +492,14 @@ fn ruff_format_spec_to_joined_str(
             for element in ruff_fstring_element_into_iter(elements) {
                 push_ruff_fstring_element(vm, source_file, flags, element, &mut values);
             }
-            let values = normalize_joined_str_parts(values).into_boxed_slice();
+            let values = if source_file.has_locations() {
+                values
+            } else {
+                normalize_joined_str_parts(values)
+            }
+            .into_boxed_slice();
             Some(Box::new(JoinedStr {
+                node_index,
                 range,
                 values,
                 runtime_values: None,
@@ -543,9 +555,11 @@ fn ruff_fstring_element_to_ruff_fstring_part(
             })
         }
         ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
-            range, ..
+            range,
+            ref node_index,
+            ..
         }) => ast::FStringPart::FString(ast::FString {
-            node_index: Default::default(),
+            node_index: node_index.clone(),
             range,
             elements: vec![element].into(),
             flags: ast::FStringFlags::empty(),
@@ -563,7 +577,7 @@ fn format_spec_expr_to_ruff_format_spec(
     let ast::ExprFString {
         range,
         ref mut value,
-        node_index: _,
+        node_index,
         runtime_joined_str: _,
         runtime_values: _,
     } = fstring;
@@ -573,11 +587,11 @@ fn format_spec_expr_to_ruff_format_spec(
             ast::FStringPart::Literal(ast::StringLiteral {
                 range,
                 value,
-                node_index: _,
+                node_index,
                 flags: _,
             }) => elements.push(ast::InterpolatedStringElement::Literal(
                 ast::InterpolatedStringLiteralElement {
-                    node_index: Default::default(),
+                    node_index,
                     range,
                     value,
                 },
@@ -591,7 +605,7 @@ fn format_spec_expr_to_ruff_format_spec(
         }
     }
     Some(Box::new(ast::InterpolatedStringFormatSpec {
-        node_index: Default::default(),
+        node_index,
         range,
         elements: elements.into(),
     }))
@@ -599,6 +613,7 @@ fn format_spec_expr_to_ruff_format_spec(
 
 #[derive(Debug)]
 pub(super) struct JoinedStr {
+    node_index: ast::AtomicNodeIndex,
     pub(super) range: TextRange,
     pub(super) values: Box<[JoinedStrPart]>,
     pub(super) runtime_values: Option<Vec<Option<ast::Expr>>>,
@@ -607,6 +622,7 @@ pub(super) struct JoinedStr {
 impl JoinedStr {
     pub(super) fn into_expr(self, from_ast_object: bool) -> ast::Expr {
         let Self {
+            node_index,
             range,
             values,
             runtime_values: mut raw_runtime_values,
@@ -635,11 +651,11 @@ impl JoinedStr {
                 }
             });
         ast::Expr::FString(ast::ExprFString {
-            node_index: Default::default(),
+            node_index: node_index.clone(),
             range,
             value: match values.len() {
                 0 => ast::FStringValue::single(ast::FString {
-                    node_index: Default::default(),
+                    node_index,
                     range,
                     elements: vec![].into(),
                     flags: ast::FStringFlags::empty(),
@@ -649,7 +665,7 @@ impl JoinedStr {
                         .map(|part| joined_str_part_to_ruff_fstring_element(from_ast_object, part))
                         .map(Option::unwrap)
                         .map(|element| ast::FString {
-                            node_index: Default::default(),
+                            node_index: node_index.clone(),
                             range,
                             elements: vec![element].into(),
                             flags: ast::FStringFlags::empty(),
@@ -700,7 +716,7 @@ fn joined_str_part_to_ruff_fstring_element(
                 .flatten();
             Some(ast::InterpolatedStringElement::Interpolation(
                 ast::InterpolatedElement {
-                    node_index: Default::default(),
+                    node_index: value.node_index.clone(),
                     range: value.range,
                     expression: value.value.clone(),
                     debug_text: None,
@@ -713,13 +729,18 @@ fn joined_str_part_to_ruff_fstring_element(
             ))
         }
         JoinedStrPart::Constant(value) => {
-            let Constant { range, value, .. } = value;
+            let Constant {
+                node_index,
+                range,
+                value,
+                ..
+            } = value;
             let ConstantLiteral::Str { value, .. } = value else {
                 return None;
             };
             Some(ast::InterpolatedStringElement::Literal(
                 ast::InterpolatedStringLiteralElement {
-                    node_index: Default::default(),
+                    node_index,
                     range,
                     value: value.to_string_lossy().into(),
                 },
@@ -731,22 +752,24 @@ fn joined_str_part_to_ruff_fstring_element(
 // constructor
 pub(super) fn joined_str_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-    range: TextRange,
+    range: AstNodeRange,
 ) -> PyResult<JoinedStr> {
     let values: Vec<Option<ast::Expr>> =
         get_node_list_field(vm, source_file, object, "values", "JoinedStr")?;
     Ok(JoinedStr {
+        node_index: range.node_index(),
         values: Vec::new().into_boxed_slice(),
         runtime_values: Some(values),
-        range,
+        range: range.range,
     })
 }
 
 impl Node for JoinedStr {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
+            node_index,
             values,
             runtime_values,
             range,
@@ -761,12 +784,12 @@ impl Node for JoinedStr {
             BoxedSlice(values).ast_to_object(vm, source_file)
         };
         dict.set_item("values", values, vm).unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
         node.into()
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, &object, "JoinedStr")?;
@@ -782,7 +805,7 @@ pub(super) enum JoinedStrPart {
 
 // constructor
 impl Node for JoinedStrPart {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self {
             Self::FormattedValue(value) => value.ast_to_object(vm, source_file),
             Self::Constant(value) => value.ast_to_object(vm, source_file),
@@ -790,7 +813,7 @@ impl Node for JoinedStrPart {
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         if is_node_instance(vm, &object, pyast::NodeExprFormattedValue::static_type())? {
@@ -811,6 +834,7 @@ impl Node for JoinedStrPart {
 
 #[derive(Debug)]
 pub(super) struct FormattedValue {
+    node_index: ast::AtomicNodeIndex,
     value: Box<ast::Expr>,
     conversion: ast::ConversionFlag,
     format_spec: Option<Box<ast::Expr>>,
@@ -820,11 +844,12 @@ pub(super) struct FormattedValue {
 // constructor
 pub(super) fn formatted_value_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-    range: TextRange,
+    range: AstNodeRange,
 ) -> PyResult<FormattedValue> {
     Ok(FormattedValue {
+        node_index: range.node_index(),
         value: get_required_node_field(vm, source_file, object, "value", "FormattedValue")?,
         conversion: Node::ast_from_object(
             vm,
@@ -834,13 +859,14 @@ pub(super) fn formatted_value_from_object_with_range(
         format_spec: get_node_field_opt(vm, object, "format_spec")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        range,
+        range: range.range,
     })
 }
 
 impl Node for FormattedValue {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
+            node_index,
             value,
             conversion,
             format_spec,
@@ -860,12 +886,12 @@ impl Node for FormattedValue {
             vm,
         )
         .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
         node.into()
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, &object, "FormattedValue")?;
@@ -878,7 +904,9 @@ pub(super) fn formatted_value_to_expr(
     formatted: FormattedValue,
 ) -> ast::Expr {
     let range = formatted.range;
+    let node_index = formatted.node_index.clone();
     JoinedStr {
+        node_index,
         range,
         values: vec![JoinedStrPart::FormattedValue(formatted)].into_boxed_slice(),
         runtime_values: None,
@@ -888,18 +916,19 @@ pub(super) fn formatted_value_to_expr(
 
 pub(super) fn fstring_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     expression: ast::ExprFString,
 ) -> PyObjectRef {
     let ast::ExprFString {
         range,
         mut value,
-        node_index: _,
+        node_index,
         runtime_joined_str,
         runtime_values,
     } = expression;
     if let Some(joined_str) = runtime_joined_str {
         return JoinedStr {
+            node_index,
             range,
             values: Vec::new().into_boxed_slice(),
             runtime_values: Some(joined_str.into_iter().map(Some).collect()),
@@ -909,6 +938,7 @@ pub(super) fn fstring_to_object(
 
     if let Some(values) = runtime_values {
         return JoinedStr {
+            node_index,
             range,
             values: Vec::new().into_boxed_slice(),
             runtime_values: Some(values),
@@ -920,11 +950,13 @@ pub(super) fn fstring_to_object(
     for part in &mut value {
         match take_fstring_part(part) {
             ast::FStringPart::Literal(literal) => {
-                values.push(JoinedStrPart::Constant(Constant::new_str(
+                let mut constant = Constant::new_str(
                     rustpython_codegen::string_literal_part_value(source_file, &literal),
                     literal.flags.prefix(),
                     literal.range,
-                )));
+                );
+                constant.node_index = literal.node_index;
+                values.push(JoinedStrPart::Constant(constant));
             }
             ast::FStringPart::FString(ast::FString {
                 range: _,
@@ -938,8 +970,13 @@ pub(super) fn fstring_to_object(
             }
         }
     }
-    let values = normalize_joined_str_parts(values);
+    let values = if source_file.has_locations() {
+        values
+    } else {
+        normalize_joined_str_parts(values)
+    };
     let c = JoinedStr {
+        node_index,
         range,
         values: values.into_boxed_slice(),
         runtime_values: None,
@@ -951,57 +988,56 @@ pub(super) fn fstring_to_object(
 
 fn push_ruff_tstring_element(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     flags: ast::AnyStringFlags,
     element: ast::InterpolatedStringElement,
     output: &mut Vec<TemplateStrPart>,
 ) {
     match element {
         ast::InterpolatedStringElement::Literal(literal) => {
-            output.push(TemplateStrPart::Constant(Constant::new_str(
+            let mut constant = Constant::new_str(
                 rustpython_codegen::interpolated_string_literal_value(source_file, &literal, flags),
                 ast::str_prefix::StringLiteralPrefix::Empty,
                 literal.range,
-            )));
+            );
+            constant.node_index = literal.node_index;
+            output.push(TemplateStrPart::Constant(constant));
         }
-        ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
-            range,
-            expression,
-            debug_text,
-            mut conversion,
-            format_spec,
-            node_index: _,
-            runtime_str,
-            runtime_interpolation_format_spec,
-            runtime_formatted_value_format_spec: _,
-        }) => {
-            let expr_range =
-                extend_expr_range_with_wrapping_parens(source_file, range, expression.range())
-                    .unwrap_or_else(|| expression.range());
-            let expr_str = if let Some(debug_text) = &debug_text {
+        ast::InterpolatedStringElement::Interpolation(interpolation) => {
+            let expr_str =
+                rustpython_codegen::interpolation_expression_text(source_file, &interpolation)
+                    .unwrap_or_else(|| {
+                        source_file
+                            .source_text()
+                            .slice(interpolation.expression.range())
+                            .to_owned()
+                    });
+            let ast::InterpolatedElement {
+                range,
+                expression,
+                debug_text,
+                mut conversion,
+                format_spec,
+                node_index,
+                runtime_str,
+                runtime_interpolation_format_spec,
+                ..
+            } = interpolation;
+            if let Some(debug_text) = &debug_text {
                 output.push(TemplateStrPart::Constant(interpolation_debug_constant(
                     source_file,
                     debug_text,
                     expression.range(),
                 )));
                 conversion = debug_conversion(conversion, format_spec.is_some());
-                let expr_source = source_file.source_text().slice(expr_range);
-                let mut expr_with_debug = String::with_capacity(
-                    debug_text.leading().len() + expr_source.len() + debug_text.trailing().len(),
-                );
-                expr_with_debug.push_str(debug_text.leading());
-                expr_with_debug.push_str(expr_source);
-                expr_with_debug.push_str(debug_text.trailing());
-                strip_interpolation_expr(&expr_with_debug)
-            } else {
-                tstring_interpolation_expr_str(source_file, range, expr_range)
-            };
+            }
             let runtime_interpolation = super::constant::runtime_interpolation_object(
                 vm,
                 runtime_str,
                 runtime_interpolation_format_spec,
             );
             output.push(TemplateStrPart::Interpolation(TStringInterpolation {
+                node_index,
                 value: expression,
                 str: runtime_interpolation
                     .as_ref()
@@ -1019,87 +1055,9 @@ fn push_ruff_tstring_element(
     }
 }
 
-fn tstring_interpolation_expr_str(
-    source_file: &SourceFile,
-    interpolation_range: TextRange,
-    expr_range: TextRange,
-) -> String {
-    let expr_range =
-        extend_expr_range_with_wrapping_parens(source_file, interpolation_range, expr_range)
-            .unwrap_or(expr_range);
-    let start = interpolation_range.start() + TextSize::from(1);
-    let start = if start > expr_range.end() {
-        expr_range.start()
-    } else {
-        start
-    };
-    let expr_source = source_file
-        .source_text()
-        .slice(TextRange::new(start, expr_range.end()));
-    strip_interpolation_expr(expr_source)
-}
-
-fn extend_expr_range_with_wrapping_parens(
-    source_file: &SourceFile,
-    interpolation_range: TextRange,
-    expr_range: TextRange,
-) -> Option<TextRange> {
-    let left_slice = source_file.source_text().slice(TextRange::new(
-        interpolation_range.start(),
-        expr_range.start(),
-    ));
-    let mut left_char: Option<(usize, char)> = None;
-    for (idx, ch) in left_slice
-        .char_indices()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-    {
-        if !ch.is_whitespace() {
-            left_char = Some((idx, ch));
-            break;
-        }
-    }
-    let (left_idx, left_ch) = left_char?;
-    if left_ch != '(' {
-        return None;
-    }
-
-    let right_slice = source_file
-        .source_text()
-        .slice(TextRange::new(expr_range.end(), interpolation_range.end()));
-    let mut right_char: Option<(usize, char)> = None;
-    for (idx, ch) in right_slice.char_indices() {
-        if !ch.is_whitespace() {
-            right_char = Some((idx, ch));
-            break;
-        }
-    }
-    let (right_idx, right_ch) = right_char?;
-    if right_ch != ')' {
-        return None;
-    }
-
-    let left_pos = interpolation_range.start() + TextSize::from(left_idx as u32);
-    let right_pos = expr_range.end() + TextSize::from(right_idx as u32);
-    Some(TextRange::new(left_pos, right_pos + TextSize::from(1)))
-}
-
-fn strip_interpolation_expr(expr_source: &str) -> String {
-    let mut end = expr_source.len();
-    for (idx, ch) in expr_source.char_indices().rev() {
-        if ch.is_whitespace() || ch == '=' {
-            end = idx;
-            continue;
-        }
-        end = idx + ch.len_utf8();
-        break;
-    }
-    expr_source[..end].to_owned()
-}
-
 #[derive(Debug)]
 pub(super) struct TemplateStr {
+    node_index: ast::AtomicNodeIndex,
     pub(super) range: TextRange,
     pub(super) values: Box<[TemplateStrPart]>,
     pub(super) runtime_values: Option<Vec<Option<ast::Expr>>>,
@@ -1107,10 +1065,11 @@ pub(super) struct TemplateStr {
 
 pub(super) fn template_str_to_expr(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     template: TemplateStr,
 ) -> PyResult<ast::Expr> {
     let TemplateStr {
+        node_index,
         range,
         values,
         runtime_values: raw_runtime_values,
@@ -1118,7 +1077,7 @@ pub(super) fn template_str_to_expr(
     let elements = template_parts_to_elements(vm, source_file, values)?;
     let tstring = ast::TString {
         range,
-        node_index: Default::default(),
+        node_index: node_index.clone(),
         elements,
         flags: ast::TStringFlags::empty(),
     };
@@ -1131,7 +1090,7 @@ pub(super) fn template_str_to_expr(
             }
         });
     Ok(ast::Expr::TString(ast::ExprTString {
-        node_index: Default::default(),
+        node_index,
         range,
         value: ast::TStringValue::single(tstring),
         runtime_template_str,
@@ -1141,20 +1100,21 @@ pub(super) fn template_str_to_expr(
 
 pub(super) fn interpolation_to_expr(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     interpolation: TStringInterpolation,
 ) -> PyResult<ast::Expr> {
     let range = interpolation.range;
+    let node_index = interpolation.node_index.clone();
     let part = TemplateStrPart::Interpolation(interpolation);
     let elements = template_parts_to_elements(vm, source_file, vec![part].into_boxed_slice())?;
     let tstring = ast::TString {
         range,
-        node_index: Default::default(),
+        node_index: node_index.clone(),
         elements,
         flags: ast::TStringFlags::empty(),
     };
     Ok(ast::Expr::TString(ast::ExprTString {
-        node_index: Default::default(),
+        node_index,
         range,
         value: ast::TStringValue::single(tstring),
         runtime_template_str: None,
@@ -1164,7 +1124,7 @@ pub(super) fn interpolation_to_expr(
 
 fn template_parts_to_elements(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     values: Box<[TemplateStrPart]>,
 ) -> PyResult<ast::InterpolatedStringElements> {
     let mut elements = Vec::with_capacity(values.len());
@@ -1176,7 +1136,7 @@ fn template_parts_to_elements(
 
 fn template_part_to_element(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     part: TemplateStrPart,
 ) -> PyResult<ast::InterpolatedStringElement> {
     match part {
@@ -1187,13 +1147,14 @@ fn template_part_to_element(
             Ok(ast::InterpolatedStringElement::Literal(
                 ast::InterpolatedStringLiteralElement {
                     range: constant.range,
-                    node_index: Default::default(),
+                    node_index: constant.node_index,
                     value: value.to_string_lossy().into(),
                 },
             ))
         }
         TemplateStrPart::Interpolation(interpolation) => {
             let TStringInterpolation {
+                node_index,
                 value,
                 str,
                 conversion,
@@ -1210,7 +1171,7 @@ fn template_part_to_element(
             Ok(ast::InterpolatedStringElement::Interpolation(
                 ast::InterpolatedElement {
                     range,
-                    node_index: Default::default(),
+                    node_index,
                     expression: value,
                     debug_text: None,
                     conversion,
@@ -1227,22 +1188,24 @@ fn template_part_to_element(
 // constructor
 pub(super) fn template_str_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-    range: TextRange,
+    range: AstNodeRange,
 ) -> PyResult<TemplateStr> {
     let values: Vec<Option<ast::Expr>> =
         get_node_list_field(vm, source_file, object, "values", "TemplateStr")?;
     Ok(TemplateStr {
+        node_index: range.node_index(),
         values: Vec::new().into_boxed_slice(),
         runtime_values: Some(values),
-        range,
+        range: range.range,
     })
 }
 
 impl Node for TemplateStr {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
+            node_index,
             values,
             runtime_values,
             range,
@@ -1257,12 +1220,12 @@ impl Node for TemplateStr {
             BoxedSlice(values).ast_to_object(vm, source_file)
         };
         dict.set_item("values", values, vm).unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
         node.into()
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, &object, "TemplateStr")?;
@@ -1278,7 +1241,7 @@ pub(super) enum TemplateStrPart {
 
 // constructor
 impl Node for TemplateStrPart {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self {
             Self::Interpolation(value) => value.ast_to_object(vm, source_file),
             Self::Constant(value) => value.ast_to_object(vm, source_file),
@@ -1286,7 +1249,7 @@ impl Node for TemplateStrPart {
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         if is_node_instance(vm, &object, pyast::NodeExprInterpolation::static_type())? {
@@ -1307,6 +1270,7 @@ impl Node for TemplateStrPart {
 
 #[derive(Debug)]
 pub(super) struct TStringInterpolation {
+    node_index: ast::AtomicNodeIndex,
     value: Box<ast::Expr>,
     str: PyObjectRef,
     conversion: ast::ConversionFlag,
@@ -1317,9 +1281,9 @@ pub(super) struct TStringInterpolation {
 // constructor
 pub(super) fn tstring_interpolation_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-    range: TextRange,
+    range: AstNodeRange,
 ) -> PyResult<TStringInterpolation> {
     let value = get_required_node_field(vm, source_file, object, "value", "Interpolation")?;
     let str = get_node_field(vm, object, "str", "Interpolation")?;
@@ -1332,17 +1296,19 @@ pub(super) fn tstring_interpolation_from_object_with_range(
         .map(|obj| Node::ast_from_object(vm, source_file, obj))
         .transpose()?;
     Ok(TStringInterpolation {
+        node_index: range.node_index(),
         value,
         str,
         conversion,
         format_spec,
-        range,
+        range: range.range,
     })
 }
 
 impl Node for TStringInterpolation {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
+            node_index,
             value,
             str,
             conversion,
@@ -1364,12 +1330,12 @@ impl Node for TStringInterpolation {
             vm,
         )
         .unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        node_add_location_for_node(&dict, range, vm, source_file, node_index.load());
         node.into()
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, &object, "Interpolation")?;
@@ -1379,18 +1345,19 @@ impl Node for TStringInterpolation {
 
 pub(super) fn tstring_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     expression: ast::ExprTString,
 ) -> PyObjectRef {
     let ast::ExprTString {
         range,
         mut value,
-        node_index: _,
+        node_index,
         runtime_template_str,
         runtime_values,
     } = expression;
     if let Some(template_str) = runtime_template_str {
         return TemplateStr {
+            node_index,
             range,
             values: Vec::new().into_boxed_slice(),
             runtime_values: Some(template_str.into_iter().map(Some).collect()),
@@ -1400,6 +1367,7 @@ pub(super) fn tstring_to_object(
 
     if let Some(values) = runtime_values {
         return TemplateStr {
+            node_index,
             range,
             values: Vec::new().into_boxed_slice(),
             runtime_values: Some(values),
@@ -1436,8 +1404,13 @@ pub(super) fn tstring_to_object(
             push_ruff_tstring_element(vm, source_file, flags, element, &mut values);
         }
     }
-    let values = normalize_template_str_parts(values);
+    let values = if source_file.has_locations() {
+        values
+    } else {
+        normalize_template_str_parts(values)
+    };
     let c = TemplateStr {
+        node_index,
         range,
         values: values.into_boxed_slice(),
         runtime_values: None,
@@ -1447,7 +1420,7 @@ pub(super) fn tstring_to_object(
 
 fn standalone_tstring_interpolation_to_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     value: &ast::TStringValue,
     str: PyObjectRef,
     format_spec: Option<Box<ast::Expr>>,
@@ -1463,6 +1436,7 @@ fn standalone_tstring_interpolation_to_object(
         return None;
     }
     let interpolation = TStringInterpolation {
+        node_index: interp.node_index.clone(),
         value: interp.expression.clone(),
         str,
         conversion: interp.conversion,

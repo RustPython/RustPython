@@ -1,7 +1,7 @@
 use crate::PyObject;
 use core::any::type_name;
 use core::convert::Infallible;
-use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
+use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong};
 use core::ptr::NonNull;
 use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
@@ -40,27 +40,19 @@ where
 
 impl<T> FfiResult<*mut Py<T>> for PyRef<T>
 where
-    Self: Into<PyObjectRef>,
+    T: rustpython_vm::object::PyRefTarget<Target = Py<T>>,
 {
     const ERR_VALUE: *mut Py<T> = core::ptr::null_mut();
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut Py<T> {
-        self.into().into_raw().as_ptr().cast()
+        PyObjectRef::from(self).into_raw().as_ptr().cast()
     }
 }
 
-impl FfiResult<*mut PyObject> for PyObjectRef {
-    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
+impl<T> FfiResult for *mut T {
+    const ERR_VALUE: *mut T = core::ptr::null_mut();
 
-    fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
-        self.into_raw().as_ptr()
-    }
-}
-
-impl FfiResult for *mut PyObject {
-    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
-
-    fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
+    fn into_output(self, _vm: &VirtualMachine) -> *mut T {
         self
     }
 }
@@ -70,14 +62,6 @@ impl FfiResult<*mut PyObject> for *const PyObject {
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.cast_mut()
-    }
-}
-
-impl FfiResult for *mut c_void {
-    const ERR_VALUE: *mut c_void = core::ptr::null_mut();
-
-    fn into_output(self, _vm: &VirtualMachine) -> *mut c_void {
-        self
     }
 }
 
@@ -202,7 +186,7 @@ impl FfiResult<()> for PyResult<Infallible> {
 
     fn into_output(self, vm: &VirtualMachine) {
         match self {
-            Err(err) => vm.set_exception(Some(err)),
+            Err(err) => vm.set_raised_exception(Some(err)),
         }
     }
 }
@@ -216,7 +200,7 @@ where
     fn into_output(self, vm: &VirtualMachine) -> Output {
         self.map_or_else(
             |err| {
-                vm.set_exception(Some(err));
+                vm.set_raised_exception(Some(err));
                 T::ERR_VALUE
             },
             |obj| obj.into_output(vm),
@@ -324,7 +308,7 @@ impl<T: PyPayload> FfiPtrExt for *mut Py<T> {
             "Attempted to dereference NULL {}",
             type_name::<Self>()
         );
-        unsafe { PyRef::from_raw(self.cast_const()) }
+        unsafe { PyRef::<T>::from_raw(self.cast_const()) }
     }
 
     #[inline]
@@ -383,6 +367,14 @@ mod tests {
     use core::any::type_name;
     use core::ffi::{c_longlong, c_ulonglong};
     use core::fmt::Debug;
+
+    #[test]
+    fn pyref_object_ffi_targets() {
+        use rustpython_vm::builtins::PyInt;
+        static_assertions::assert_impl_all!(PyObjectRef: FfiResult<*mut PyObject>);
+        static_assertions::assert_impl_all!(PyRef<PyInt>: FfiResult<*mut PyObject>, FfiResult<*mut Py<PyInt>>);
+        static_assertions::assert_not_impl_any!(PyObjectRef: FfiResult<*mut Py<PyObject>>);
+    }
 
     #[test]
     fn ffi_result_err_value() {

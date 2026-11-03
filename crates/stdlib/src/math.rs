@@ -1,3 +1,4 @@
+pub(crate) use _math_integer::module_def as integer_module_def;
 pub(crate) use math::module_def;
 
 use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
@@ -5,18 +6,28 @@ use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 #[pymodule]
 mod math {
     use crate::vm::{
-        AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
-        builtins::{PyFloat, PyInt, PyIntRef, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint},
-        function::{
-            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, NameIntegers,
-            OptionalArg, PosArgs,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+        builtins::{
+            PyFloat, PyInt, PyIntRef, PyModule, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint,
         },
+        function::{ArgIndex, ArgIntoFloat, ArgIterable, NameCoordinates, OptionalArg, PosArgs},
         identifier,
     };
     use malachite_bigint::BigInt;
-    use num_traits::{Signed, ToPrimitive};
 
     use super::{float_repr, pymath_exception};
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        let integer = vm.import("_math_integer", 0)?;
+        for name in super::INTEGER_FUNCTIONS {
+            module.set_attr(name, integer.get_attr(name, vm)?, vm)?;
+        }
+        vm.sys_module
+            .get_attr("modules", vm)?
+            .set_item("math.integer", integer.clone(), vm)?;
+        module.set_attr("integer", integer, vm)
+    }
 
     // Constants
     #[pyattr]
@@ -46,6 +57,36 @@ mod math {
     #[pyfunction]
     fn isnan(x: ArgIntoFloat) -> bool {
         pymath::math::isnan(x.into_float())
+    }
+
+    /// Return True if x is normal, and False otherwise.
+    #[pyfunction]
+    fn isnormal(x: ArgIntoFloat) -> bool {
+        pymath::math::isnormal(x.into_float())
+    }
+
+    /// Return True if x is subnormal, and False otherwise.
+    #[pyfunction]
+    fn issubnormal(x: ArgIntoFloat) -> bool {
+        pymath::math::issubnormal(x.into_float())
+    }
+
+    /// Return True if the sign of x is negative and False otherwise.
+    #[pyfunction]
+    fn signbit(x: ArgIntoFloat) -> bool {
+        pymath::math::signbit(x.into_float())
+    }
+
+    /// Return the larger of two floating-point arguments.
+    #[pyfunction]
+    fn fmax(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
+        pymath::math::fmax(x.into_float(), y.into_float())
+    }
+
+    /// Return the smaller of two floating-point arguments.
+    #[pyfunction]
+    fn fmin(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
+        pymath::math::fmin(x.into_float(), y.into_float())
     }
 
     #[derive(FromArgs)]
@@ -414,7 +455,7 @@ mod math {
     #[derive(FromArgs)]
     struct LdexpArgs {
         #[pyarg(positional)]
-        x: Either<PyRef<PyFloat>, PyIntRef>,
+        x: ArgIntoFloat,
         // Refuses anything that is not an `int`, including objects with `__index__`.
         #[pyarg(positional, error_msg = "Expected an int as second argument to ldexp.")]
         i: PyIntRef,
@@ -423,11 +464,8 @@ mod math {
     #[pyfunction]
     fn ldexp(args: LdexpArgs, vm: &VirtualMachine) -> PyResult<f64> {
         let LdexpArgs { x, i } = args;
-        let value = match x {
-            Either::A(f) => f.to_f64(),
-            Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
-        };
-        pymath::math::ldexp_bigint(value, i.as_bigint()).map_err(|err| pymath_exception(err, vm))
+        pymath::math::ldexp_bigint(x.into_float(), i.as_bigint())
+            .map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
@@ -773,7 +811,18 @@ mod math {
             pymath::Error::ERANGE => vm.new_overflow_error("overflow in fma"),
         })
     }
+}
 
+const INTEGER_FUNCTIONS: [&str; 6] = ["comb", "factorial", "gcd", "isqrt", "lcm", "perm"];
+
+#[pymodule(sub, name = "math")]
+mod integer_functions {
+    use crate::vm::{
+        PyResult, VirtualMachine,
+        function::{ArgIndex, NameIntegers, PosArgs},
+    };
+    use malachite_bigint::BigInt;
+    use num_traits::{Signed, ToPrimitive};
     // Integer functions:
 
     #[pyfunction]
@@ -958,5 +1007,23 @@ fn float_repr(value: f64) -> String {
         } else {
             s
         }
+    }
+}
+
+/// This module provides access to integer related mathematical functions.
+#[pymodule(with(integer_functions))]
+mod _math_integer {
+    use crate::vm::{Py, PyResult, VirtualMachine, builtins::PyModule};
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        let name = vm.ctx.new_str("math.integer");
+        module.set_attr("__name__", name.clone(), vm)?;
+        for function_name in super::INTEGER_FUNCTIONS {
+            module
+                .get_attr(function_name, vm)?
+                .set_attr("__module__", name.clone(), vm)?;
+        }
+        Ok(())
     }
 }

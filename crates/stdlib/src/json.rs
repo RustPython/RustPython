@@ -5,10 +5,11 @@ mod _json {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyList, PyStr, PyStrRef, PyTuple, PyType,
+            PyAnyDict, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyList, PyStr, PyStrRef,
+            PyTuple, PyType,
         },
         convert::ToPyResult,
-        function::{IntoFuncArgs, OptionalArg},
+        function::{ArgIntoBool, IntoFuncArgs},
         protocol::PyIterReturn,
         types::{Callable, Constructor, PyComparisonOp},
     };
@@ -51,6 +52,7 @@ mod _json {
         strict: bool,
         object_hook: Option<PyObjectRef>,
         object_pairs_hook: Option<PyObjectRef>,
+        array_hook: Option<PyObjectRef>,
         parse_float: Option<PyObjectRef>,
         parse_int: Option<PyObjectRef>,
         parse_constant: PyObjectRef,
@@ -64,6 +66,7 @@ mod _json {
             let strict = ctx.get_attr("strict", vm)?.try_to_bool(vm)?;
             let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
             let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
+            let array_hook = vm.option_if_none(ctx.get_attr("array_hook", vm)?);
             let parse_float = ctx.get_attr("parse_float", vm)?;
             let parse_float = if vm.is_none(&parse_float) || parse_float.is(vm.ctx.types.float_type)
             {
@@ -83,6 +86,7 @@ mod _json {
                 strict,
                 object_hook,
                 object_pairs_hook,
+                array_hook,
                 parse_float,
                 parse_int,
                 parse_constant,
@@ -93,6 +97,11 @@ mod _json {
 
     #[pyclass(with(Callable, Constructor))]
     impl JsonScanner {
+        #[pygetset]
+        fn array_hook(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.array_hook.clone()
+        }
+
         fn parse(
             &self,
             pystr: PyStrRef,
@@ -437,7 +446,7 @@ mod _json {
 
             // Check for empty array
             if bytes.get(byte_idx) == Some(&b']') {
-                return Ok((vm.ctx.new_list(vec![]).into(), char_idx + 1, byte_idx + 1));
+                return self.finalize_array(vec![], char_idx + 1, byte_idx + 1, vm);
             }
 
             let mut values: Vec<PyObjectRef> = Vec::new();
@@ -493,7 +502,23 @@ mod _json {
                 }
             }
 
-            Ok((vm.ctx.new_list(values).into(), char_idx, byte_idx))
+            self.finalize_array(values, char_idx, byte_idx, vm)
+        }
+
+        fn finalize_array(
+            &self,
+            values: Vec<PyObjectRef>,
+            end_char_idx: usize,
+            end_byte_idx: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, usize, usize)> {
+            let values = vm.ctx.new_list(values);
+            let result = if let Some(ref hook) = self.array_hook {
+                hook.call((values,), vm)?
+            } else {
+                values.into()
+            };
+            Ok((result, end_char_idx, end_byte_idx))
         }
 
         /// Finalize object construction with hooks.
@@ -694,13 +719,13 @@ mod _json {
     }
 
     #[pyfunction]
-    fn encode_basestring(object: PyStrRef) -> Wtf8Buf {
-        json::encode_string(object.as_wtf8(), false)
+    fn encode_basestring(pystr: PyStrRef) -> Wtf8Buf {
+        json::encode_string(pystr.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(object: PyStrRef) -> Wtf8Buf {
-        json::encode_string(object.as_wtf8(), true)
+    fn encode_basestring_ascii(pystr: PyStrRef) -> Wtf8Buf {
+        json::encode_string(pystr.as_wtf8(), true)
     }
 
     /// Which Rust-native string escaper (if any) the `encoder` callable is
@@ -784,34 +809,44 @@ mod _json {
         markers: crate::vm::common::lock::PyMutex<HashSet<usize>>,
     }
 
+    #[derive(FromArgs)]
+    struct EncoderArgs {
+        #[pyarg(any)]
+        markers: PyObjectRef,
+        #[pyarg(any)]
+        default: PyObjectRef,
+        #[pyarg(any)]
+        encoder: PyObjectRef,
+        #[pyarg(any)]
+        indent: PyObjectRef,
+        #[pyarg(any)]
+        key_separator: PyStrRef,
+        #[pyarg(any)]
+        item_separator: PyStrRef,
+        #[pyarg(any)]
+        sort_keys: PyObjectRef,
+        #[pyarg(any)]
+        skipkeys: PyObjectRef,
+        #[pyarg(any)]
+        allow_nan: PyObjectRef,
+    }
+
     impl Constructor for JsonEncoder {
-        // markers, default, encoder, indent, key_separator, item_separator,
-        // sort_keys, skipkeys, allow_nan -- exactly as `encoder.py` calls
-        // `c_make_encoder`.
-        // Nested tuple: `FromArgs` is only implemented up to 8-tuples, and
-        // nested tuples count as a single top-level slot while still
-        // consuming their own positional arguments in order.
-        type Args = (
-            PyObjectRef,
-            PyObjectRef,
-            PyObjectRef,
-            PyObjectRef,
-            PyStrRef,
-            PyStrRef,
-            (PyObjectRef, PyObjectRef, PyObjectRef),
-        );
+        type Args = EncoderArgs;
 
         fn py_new(
             _cls: &Py<PyType>,
-            (
+            EncoderArgs {
                 markers,
                 default,
                 encoder,
                 indent,
                 key_separator,
                 item_separator,
-                (sort_keys, skipkeys, allow_nan),
-            ): Self::Args,
+                sort_keys,
+                skipkeys,
+                allow_nan,
+            }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let check_circular = if vm.is_none(&markers) {
@@ -1077,7 +1112,7 @@ mod _json {
         /// collection on every step (rather than working off a
         /// pre-collected snapshot) so that a `default()`/nested-encoder
         /// callback that shrinks the list mid-encode is observed the same
-        /// way CPython's `PySequence_Fast`-free direct indexing observes it
+        /// way CPython's live sequence iteration observes it
         /// (see `test_encode_mutated`: deleting the last element on every
         /// callback call causes encoding to stop early once the shrinking
         /// list's length catches up with the read cursor).
@@ -1088,7 +1123,7 @@ mod _json {
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
             len: impl Fn() -> usize,
-            get: impl Fn(usize) -> PyObjectRef,
+            get: impl Fn(usize) -> Option<PyObjectRef>,
         ) -> PyResult<()> {
             if len() == 0 {
                 out.push_str("[]");
@@ -1103,7 +1138,9 @@ mod _json {
             };
             let mut i = 0;
             while i < len() {
-                let value = get(i);
+                let Some(value) = get(i) else {
+                    break;
+                };
                 if i == 0 {
                     self.push_newline_indent(out, new_level);
                 } else {
@@ -1126,18 +1163,20 @@ mod _json {
             Ok(())
         }
 
-        /// Fetch `dct.items()` for encoding. For an exact `dict` this reads
+        /// Fetch `dct.items()` for encoding. For an exact `dict` or `frozendict` this reads
         /// the native table directly (matching CPython's fast path); for a
-        /// `dict` subclass (e.g. `collections.OrderedDict`) it calls the
+        /// subclass (e.g. `collections.OrderedDict`) it calls the
         /// real (possibly overridden) `.items()` method instead, so a
         /// subclass's custom ordering/behavior is respected.
         fn dict_items(
             &self,
             obj: &PyObject,
-            dict: &Py<PyDict>,
+            dict: &PyAnyDict,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
-            if obj.class().is(vm.ctx.types.dict_type) {
+            if obj.class().is(vm.ctx.types.dict_type)
+                || obj.class().is(vm.ctx.types.frozendict_type)
+            {
                 return Ok(dict.items_vec());
             }
             let items_obj = obj.get_attr("items", vm)?.call((), vm)?;
@@ -1155,7 +1194,7 @@ mod _json {
         fn encode_dict(
             &self,
             obj: &PyObject,
-            dict: &Py<PyDict>,
+            dict: &PyAnyDict,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
@@ -1284,12 +1323,19 @@ mod _json {
                         out,
                         vm,
                         || list.borrow_vec().len(),
-                        |i| list.borrow_vec()[i].clone(),
+                        |i| list.borrow_vec().get(i).cloned(),
                     )
                 } else if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
                     let slice = tuple.as_slice();
-                    self.encode_list(obj, level, out, vm, || slice.len(), |i| slice[i].clone())
-                } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
+                    self.encode_list(
+                        obj,
+                        level,
+                        out,
+                        vm,
+                        || slice.len(),
+                        |i| slice.get(i).cloned(),
+                    )
+                } else if let Some(dict) = PyAnyDict::from_object(obj) {
                     self.encode_dict(obj, dict, level, out, vm)
                 } else {
                     self.encode_default(obj, level, out, vm)
@@ -1298,11 +1344,29 @@ mod _json {
         }
     }
 
-    impl Callable for JsonEncoder {
-        type Args = (PyObjectRef, PyObjectRef);
+    #[derive(FromArgs)]
+    struct EncoderCallArgs {
+        #[pyarg(any)]
+        obj: PyObjectRef,
+        #[pyarg(any)]
+        _current_indent_level: PyObjectRef,
+    }
 
-        fn call(zelf: &Py<Self>, (obj, indent_level): Self::Args, vm: &VirtualMachine) -> PyResult {
-            let level: isize = indent_level.try_index(vm)?.try_to_primitive(vm)?;
+    impl Callable for JsonEncoder {
+        type Args = EncoderCallArgs;
+
+        fn call(
+            zelf: &Py<Self>,
+            EncoderCallArgs {
+                obj,
+                _current_indent_level,
+            }: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let level: isize = _current_indent_level.try_index(vm)?.try_to_primitive(vm)?;
+            // CPython starts its indent cache with indent * initial_level;
+            // negative string repetition produces the same prefix as zero.
+            let level = level.max(0);
             let mut out = Wtf8Buf::new();
             zelf.encode_value(&obj, level, &mut out, vm)?;
             Ok(vm.new_tuple((out,)).into())
@@ -1324,13 +1388,23 @@ mod _json {
         }
     }
 
-    #[pyfunction]
-    fn scanstring(
-        s: PyStrRef,
+    #[derive(FromArgs)]
+    struct ScanStringArgs {
+        #[pyarg(positional)]
+        pystr: PyStrRef,
+        #[pyarg(positional)]
         end: isize,
-        strict: OptionalArg<bool>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Wtf8Buf, usize)> {
+        #[pyarg(positional, default = ArgIntoBool::TRUE)]
+        strict: ArgIntoBool,
+    }
+
+    #[pyfunction]
+    fn scanstring(args: ScanStringArgs, vm: &VirtualMachine) -> PyResult<(Wtf8Buf, usize)> {
+        let ScanStringArgs {
+            pystr: s,
+            end,
+            strict,
+        } = args;
         flame_guard!("_json::scanstring");
         let wtf8 = s.as_wtf8();
 
@@ -1349,7 +1423,7 @@ mod _json {
         };
 
         let (result, end_char_idx, _bytes_consumed) =
-            json::scan_string(&wtf8[byte_idx..], end, strict.unwrap_or(true))
+            json::scan_string(&wtf8[byte_idx..], end, strict.into_bool())
                 .map_err(|e| py_decode_error(e, s, vm))?;
 
         Ok((result, end_char_idx))

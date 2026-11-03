@@ -7,6 +7,19 @@ pub use libc::{
     RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK, c_long, rlim_t, rlimit, timeval,
 };
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "l4re",
+    target_os = "emscripten",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "aix",
+    target_os = "fuchsia",
+    target_os = "cygwin"
+))]
+pub use libc::{RLIM_SAVED_CUR, RLIM_SAVED_MAX};
+
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
 pub use libc::{RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_RTPRIO, RLIMIT_SIGPENDING};
 

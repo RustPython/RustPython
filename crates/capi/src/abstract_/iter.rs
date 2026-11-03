@@ -106,7 +106,7 @@ pub unsafe extern "C" fn PyIter_Send(
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyAnyMethods, PyIterator, PyList, PySendResult};
+    use pyo3::types::{PyAnyMethods, PyIterator, PyList, iterator::PySendResult};
 
     #[test]
     fn next_item() {

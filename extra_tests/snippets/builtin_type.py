@@ -241,6 +241,25 @@ class C(B, BB):
 assert C.mro() == [C, B, A, BB, AA, object]
 
 
+# Direct base order must also constrain ancestors shared with an earlier base.
+class D(B, AA, A):
+    pass
+
+
+assert D.mro() == [D, B, AA, A, object]
+
+
+class E(AA, A):
+    pass
+
+
+class F(D, E):
+    pass
+
+
+assert F.mro() == [F, D, B, E, AA, A, object]
+
+
 class TypeA:
     def __init__(self):
         self.a = 1

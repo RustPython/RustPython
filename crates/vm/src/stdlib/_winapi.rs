@@ -38,6 +38,8 @@ mod _winapi {
         ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA,
         ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES, ERROR_OPERATION_ABORTED,
         ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT,
+        EVENTLOG_AUDIT_FAILURE, EVENTLOG_AUDIT_SUCCESS, EVENTLOG_ERROR_TYPE,
+        EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS, EVENTLOG_WARNING_TYPE,
         FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
         FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE,
         FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN,
@@ -72,6 +74,50 @@ mod _winapi {
     #[pyfunction]
     fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
         WindowsSysResult(host_winapi::close_handle(handle.0))
+    }
+
+    #[pyfunction]
+    fn RegisterEventSource(
+        server: Option<PyStrRef>,
+        source: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        let server = server
+            .map(|server| server.as_wtf8().to_wide_cstring())
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        let source = source
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        vm.allow_threads(|| host_winapi::register_event_source_w(server.as_deref(), &source))
+            .map(WinHandle)
+            .map_err(|error| error.to_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn DeregisterEventSource(handle: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
+        vm.allow_threads(|| host_winapi::deregister_event_source(handle.0))
+            .map_err(|error| error.to_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn ReportEvent(
+        handle: WinHandle,
+        event_type: u16,
+        category: u16,
+        event_id: u32,
+        message: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let message = message
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        vm.allow_threads(|| {
+            host_winapi::report_event_w(handle.0, event_type, category, event_id, &message)
+        })
+        .map_err(|error| error.to_pyexception(vm))
     }
 
     /// CreateFile - Create or open a file or I/O device.
@@ -200,20 +246,25 @@ mod _winapi {
         args: CreateProcessArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
+        // Default failed startup attribute lookups as CPython does. Keep value
+        // conversion errors separate from lookup failures.
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
-                <Option<$t>>::try_from_object(
-                    vm,
-                    args.startup_info.get_attr(stringify!($attr), vm)?,
-                )?
-                .unwrap_or(0) as _
+                args.startup_info
+                    .get_attr(stringify!($attr), vm)
+                    .ok()
+                    .map(|obj| <Option<$t>>::try_from_object(vm, obj))
+                    .transpose()?
+                    .flatten()
+                    .unwrap_or(0) as _
             }};
             ($attr:ident) => {{
-                <Option<_>>::try_from_object(
-                    vm,
-                    args.startup_info.get_attr(stringify!($attr), vm)?,
-                )?
-                .unwrap_or(0)
+                args.startup_info
+                    .get_attr(stringify!($attr), vm)
+                    .ok()
+                    .map(|obj| TryFromObject::try_from_object(vm, obj))
+                    .transpose()?
+                    .unwrap_or(0)
             }};
         }
         let startup_info = host_winapi::StartupInfoData {
@@ -229,7 +280,13 @@ mod _winapi {
             .map(|m| getenvironment(m, vm))
             .transpose()?;
 
-        let handle_list = get_handle_list(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
+        let handle_list = args
+            .startup_info
+            .get_attr("lpAttributeList", vm)
+            .ok()
+            .map(|obj| get_handle_list(obj, vm))
+            .transpose()?
+            .flatten();
 
         // Validate no embedded null bytes in command name and command line
         // before handing the strings off; to_wide_cstring rejects interior NULs.
@@ -722,7 +779,8 @@ mod _winapi {
         if size > 0 {
             let result = host_winapi::peek_named_pipe(handle.0, Some(size as u32))
                 .map_err(|e| e.to_pyexception(vm))?;
-            let buf = result.data.unwrap_or_default();
+            let mut buf = result.data.unwrap_or_default();
+            buf.shrink_to_fit();
             let bytes: PyObjectRef = vm.ctx.new_bytes(buf).into();
             Ok(vm
                 .ctx
@@ -840,9 +898,10 @@ mod _winapi {
             return Ok(result.into());
         }
 
-        let result = vm
+        let mut result = vm
             .allow_threads(|| host_winapi::read_file(handle.0, size))
             .map_err(|e| e.to_pyexception(vm))?;
+        result.data.shrink_to_fit();
         Ok(vm
             .ctx
             .new_tuple(vec![

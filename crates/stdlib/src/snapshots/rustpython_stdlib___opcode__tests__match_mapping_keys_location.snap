@@ -1,0 +1,60 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(self):\n    x = {}\n    y = None\n    match x:\n        case {0: 0}:\n            y = 0\n    self.assertIs(y, None)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-7:26            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-7:26            MAKE_FUNCTION
+1:0-7:26            STORE_NAME               0 (f)
+1:0-7:26            LOAD_COMMON_CONSTANT     7 (None)
+1:0-7:26            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:8-2:10             BUILD_MAP                0
+2:4-2:5              STORE_FAST               1 (x)
+
+3:8-3:12             LOAD_COMMON_CONSTANT     7 (None)
+3:4-3:5              STORE_FAST               2 (y)
+
+4:10-4:11            LOAD_FAST                1 (x)
+
+5:13-5:19            MATCH_MAPPING
+5:13-5:19            POP_JUMP_IF_FALSE       29 (to L3)
+5:13-5:19            NOT_TAKEN
+5:13-5:19            GET_LEN
+5:13-5:19            LOAD_SMALL_INT           1
+5:13-5:19            COMPARE_OP             172 (>=)
+5:13-5:19            POP_JUMP_IF_FALSE       22 (to L3)
+5:13-5:19            NOT_TAKEN
+5:13-5:19            LOAD_CONST               1 ((0,))
+5:13-5:19            MATCH_KEYS
+5:13-5:19            COPY                     1
+5:13-5:19            POP_JUMP_IF_NONE        14 (to L1)
+5:13-5:19            NOT_TAKEN
+5:13-5:19            UNPACK_SEQUENCE          1
+5:17-5:18            LOAD_SMALL_INT           0
+5:17-5:18            COMPARE_OP              88 (bool(==))
+5:17-5:18            POP_JUMP_IF_FALSE        7 (to L2)
+5:17-5:18            NOT_TAKEN
+5:13-5:19            POP_TOP
+5:13-5:19            POP_TOP
+
+6:16-6:17            LOAD_SMALL_INT           0
+6:12-6:13            STORE_FAST               2 (y)
+6:12-6:13            JUMP_FORWARD             3 (to L4)
+
+5:13-5:19    L1:     POP_TOP
+5:13-5:19    L2:     POP_TOP
+5:13-5:19    L3:     POP_TOP
+
+7:4-7:8      L4:     LOAD_FAST_BORROW         0 (self)
+7:4-7:17             LOAD_ATTR                1 (assertIs + NULL|self)
+7:18-7:19            LOAD_FAST_BORROW         2 (y)
+7:21-7:25            LOAD_COMMON_CONSTANT     7 (None)
+7:4-7:26             CALL                     2
+7:4-7:26             POP_TOP
+7:4-7:26             LOAD_COMMON_CONSTANT     7 (None)
+7:4-7:26             RETURN_VALUE

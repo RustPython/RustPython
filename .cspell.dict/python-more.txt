@@ -127,6 +127,7 @@ isabstractmethod
 isbytes
 iscased
 isfinal
+issubnormal
 istext
 itemiterator
 itemsize

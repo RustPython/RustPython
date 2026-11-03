@@ -610,3 +610,83 @@ def test_dialect_lookup_and_conversion_order():
 
 
 test_dialect_lookup_and_conversion_order()
+
+
+def test_field_size_limit_types():
+    index_calls = []
+
+    class IntSubclass(int):
+        pass
+
+    class Index:
+        def __index__(self):
+            index_calls.append(True)
+            return 17
+
+    old_limit = csv.field_size_limit()
+    try:
+        assert csv.field_size_limit(23) == old_limit
+        for value in (True, IntSubclass(17), Index()):
+            with assert_raises(TypeError):
+                csv.field_size_limit(value)
+            assert csv.field_size_limit() == 23
+        assert index_calls == []
+        with assert_raises(OverflowError):
+            csv.field_size_limit(2**100)
+        assert csv.field_size_limit() == 23
+    finally:
+        csv.field_size_limit(old_limit)
+
+
+test_field_size_limit_types()
+
+
+def test_non_ascii_dialect_chars():
+    for kwargs in (
+        {"delimiter": "€"},
+        {"quotechar": "€"},
+        {"escapechar": "€", "quoting": csv.QUOTE_NONE},
+    ):
+        out = io.StringIO()
+        csv.writer(out, **kwargs).writerow(["a€b", 'é"x', "plain"])
+        out.seek(0)
+        assert list(csv.reader(out, **kwargs)) == [["a€b", 'é"x', "plain"]]
+
+    assert csv.writer(io.StringIO(), delimiter="€").dialect.delimiter == "€"
+    assert list(csv.reader(['a€b€"c€d"'], delimiter="€")) == [["a", "b", "c€d"]]
+
+    for bad in ("", "€€"):
+        with assert_raises(TypeError):
+            csv.writer(io.StringIO(), delimiter=bad)
+    with assert_raises(ValueError):
+        csv.writer(io.StringIO(), delimiter="€", quotechar="€")
+
+
+test_non_ascii_dialect_chars()
+
+
+def test_dialect_name_hashing():
+    class UnhashableName:
+        def __hash__(self):
+            raise ValueError("unhashable name")
+
+    with assert_raises(TypeError):
+        csv.get_dialect([])
+    with assert_raises(ValueError):
+        csv.get_dialect(UnhashableName())
+    with assert_raises(TypeError):
+        csv.unregister_dialect([])
+    with assert_raises(ValueError):
+        csv.unregister_dialect(UnhashableName())
+
+    # An empty registry misses before the name is hashed.
+    csv.unregister_dialect("excel")
+    csv.unregister_dialect("excel-tab")
+    csv.unregister_dialect("unix")
+    with assert_raises(csv.Error):
+        csv.unregister_dialect([])
+    with assert_raises(csv.Error):
+        csv.unregister_dialect(UnhashableName())
+
+
+test_dialect_name_hashing()

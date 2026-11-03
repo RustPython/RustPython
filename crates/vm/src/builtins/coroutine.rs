@@ -129,7 +129,7 @@ impl Py<PyCoroutine> {
 
     #[pygetset]
     fn cr_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame_opt().and_then(|f| f.yield_from_target())
+        self.inner.yield_from_target()
     }
     #[pygetset]
     fn cr_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
@@ -146,6 +146,15 @@ impl Py<PyCoroutine> {
     #[pygetset]
     fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.code()
+    }
+    #[pygetset]
+    fn cr_state(&self) -> &'static str {
+        self.inner.state_name([
+            "CORO_CREATED",
+            "CORO_RUNNING",
+            "CORO_SUSPENDED",
+            "CORO_CLOSED",
+        ])
     }
     #[pygetset]
     fn cr_suspended(&self, _vm: &VirtualMachine) -> bool {
@@ -174,7 +183,7 @@ impl Destructor for PyCoroutine {
         if zelf.inner.closed() || zelf.inner.running() {
             return Ok(());
         }
-        if zelf.inner.frame_opt().is_none_or(|f| f.lasti() == 0) {
+        if !zelf.inner.started() {
             crate::warn::warn_unawaited_coroutine(zelf.as_object(), &zelf.inner.qualname(), vm);
             zelf.inner.closed.store(true);
             return Ok(());

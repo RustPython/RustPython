@@ -268,17 +268,17 @@ Test setting attributes with a non-base type in mro() (gh-127773).
     ...
     >>> Base.value
     1
-    >>> WeirdClass.value  # TODO: RUSTPYTHON; AttributeError: type object 'WeirdClass' has no attribute 'value' # doctest: +SKIP
+    >>> WeirdClass.value
     1
     >>> Base.value = 2
     >>> Base.value
     2
-    >>> WeirdClass.value  # TODO: RUSTPYTHON; AttributeError: type object 'WeirdClass' has no attribute 'value' # doctest: +SKIP
+    >>> WeirdClass.value
     2
     >>> Base.value = 3
     >>> Base.value
     3
-    >>> WeirdClass.value  # TODO: RUSTPYTHON; AttributeError: type object 'WeirdClass' has no attribute 'value' # doctest: +SKIP
+    >>> WeirdClass.value
     3
 
 """
@@ -292,8 +292,7 @@ else:
     __test__ = {'doctests' : doctests}
 
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
-    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))
+    tests.addTest(doctest.DocTestSuite())
     return tests
 
 

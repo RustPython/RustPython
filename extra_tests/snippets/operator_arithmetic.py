@@ -1,4 +1,4 @@
-from operator import imul, mul
+from operator import iadd, imul, mul
 
 from testutils import assert_raises
 
@@ -253,3 +253,52 @@ for method, operation in (
     assert_raises(TypeError, operation, value)
     delattr(RepeatList, method)
     assert operation(value) == [1, 1]
+
+
+# Inherited sequence slots must leave reflected numeric dispatch its priority.
+class ReflectedCount(int):
+    def __rmul__(self, value):
+        return "reflected"
+
+
+class InheritedRepeat(list):
+    pass
+
+
+for operation in (mul, imul):
+    value = InheritedRepeat([1])
+    assert operation(value, ReflectedCount(2)) == "reflected"
+    assert value == [1]
+
+
+class RepeatMixin:
+    def __rmul__(self, value):
+        return "mixin"
+
+
+class MixedRepeat(list, RepeatMixin):
+    pass
+
+
+# A secondary base can supply the numeric slot even if list hides its method.
+assert mul(MixedRepeat([1]), ReflectedCount(2)) == [1, 1]
+assert imul(ReflectedCount(2), MixedRepeat([1])) == [1, 1]
+
+# Removing an override preserves an already installed numeric dispatcher.
+InheritedRepeat.__imul__ = lambda self, other: NotImplemented
+del InheritedRepeat.__imul__
+value = InheritedRepeat([1])
+assert imul(value, ReflectedCount(2)) is value
+assert value == [1, 1]
+
+
+class ReflectedAdd(list):
+    def __radd__(self, value):
+        return "reflected"
+
+
+InheritedRepeat.__iadd__ = lambda self, other: NotImplemented
+del InheritedRepeat.__iadd__
+value = InheritedRepeat([1])
+assert iadd(value, ReflectedAdd([2])) is value
+assert value == [1, 2]

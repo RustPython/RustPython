@@ -3,7 +3,8 @@
 pub(crate) use decl::module_def;
 
 use crate::vm::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyListRef},
 };
 use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
@@ -17,14 +18,20 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fno = obj.try_to_value(vm).or_else(|_| {
-            let meth = vm.get_method_or_type_error(
-                obj.clone(),
-                vm.ctx.interned_str("fileno").unwrap(),
-                || "select arg must be an int or object with a fileno() method".to_owned(),
-            )?;
-            meth.call((), vm)?.try_into_value(vm)
-        })?;
+        let fileno;
+        let fd = if let Some(fd) = obj.downcast_ref::<PyInt>() {
+            fd
+        } else {
+            let meth = vm.get_attribute_opt(&obj, "fileno")?.ok_or_else(|| {
+                vm.new_type_error("select arg must be an int or object with a fileno() method")
+            })?;
+            fileno = meth
+                .call((), vm)?
+                .downcast::<PyInt>()
+                .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?;
+            &fileno
+        };
+        let fno = fd.try_to_primitive(vm)?;
         Ok(Self { obj, fno })
     }
 }
@@ -437,13 +444,14 @@ mod decl {
             types::Constructor,
         };
         use core::ops::Deref;
-        use std::os::fd::{AsRawFd, OwnedFd};
+        use host_select::epoll::EpollFd;
+        use std::os::fd::AsRawFd;
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
         pub(crate) struct PyEpoll {
-            epoll_fd: PyRwLock<Option<OwnedFd>>,
+            epoll_fd: PyRwLock<Option<EpollFd>>,
         }
 
         #[derive(FromArgs)]
@@ -469,11 +477,55 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        struct EpollUnregisterArgs {
+            #[pyarg(any)]
+            fd: PyObjectRef,
+        }
+
+        #[derive(FromArgs)]
+        struct EpollModifyArgs {
+            #[pyarg(any)]
+            fd: PyObjectRef,
+            #[pyarg(any)]
+            eventmask: PyObjectRef,
+        }
+
+        fn epoll_eventmask(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+            use num_traits::ToPrimitive;
+
+            let value = obj.try_index(vm)?;
+            // Clinic's unsigned-int bitfield conversion accepts signed values too.
+            if !value
+                .as_bigint()
+                .to_i64()
+                .is_some_and(|value| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value))
+            {
+                crate::vm::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "integer value out of range".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
+            Ok(value.as_u32_mask())
+        }
+
+        #[derive(FromArgs)]
         struct EpollPollArgs {
-            #[pyarg(any, default)]
+            #[pyarg(any, default, py_default = "None")]
             timeout: poll::TimeoutArg<false>,
             #[pyarg(any, default = -1)]
             maxevents: i32,
+        }
+
+        #[derive(FromArgs)]
+        struct EpollExitArgs {
+            #[pyarg(positional, optional, name = "exc_type", py_default = "None")]
+            _exc_type: OptionalArg,
+            #[pyarg(positional, optional, name = "exc_value", py_default = "None")]
+            _exc_value: OptionalArg,
+            #[pyarg(positional, optional, name = "exc_tb", py_default = "None")]
+            _exc_tb: OptionalArg,
         }
 
         #[pyclass(with(Constructor))]
@@ -501,19 +553,22 @@ mod decl {
             fn get_epoll(
                 &self,
                 vm: &VirtualMachine,
-            ) -> PyResult<impl Deref<Target = OwnedFd> + '_> {
+            ) -> PyResult<impl Deref<Target = EpollFd> + '_> {
                 PyRwLockReadGuard::try_map(self.epoll_fd.read(), |x| x.as_ref())
                     .map_err(|_| vm.new_value_error("I/O operation on closed epoll object"))
             }
 
             #[pymethod]
             fn fileno(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
-                zelf.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw_fd())
+                zelf.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw())
             }
 
             #[pyclassmethod]
-            fn fromfd(cls: PyTypeRef, fd: OwnedFd, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-                let epoll_fd = Some(fd).into();
+            fn fromfd(cls: PyTypeRef, fd: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+                if fd == -1 {
+                    return Err(std::io::Error::from_raw_os_error(libc::EBADF).into_pyexception(vm));
+                }
+                let epoll_fd = Some(EpollFd::from_raw(fd)).into();
                 Self { epoll_fd }.into_ref_with_type(vm, cls)
             }
 
@@ -532,26 +587,36 @@ mod decl {
                         .bits(),
                 };
                 let epoll_fd = &*zelf.get_epoll(vm)?;
-                host_select::epoll::add(epoll_fd, fd, fd.as_raw_fd() as u64, events)
+                host_select::epoll::add(epoll_fd, fd.as_raw_fd(), fd.as_raw_fd() as u64, events)
                     .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn modify(
+            fn modify(zelf: &Py<Self>, args: EpollModifyArgs, vm: &VirtualMachine) -> PyResult<()> {
+                // Bind the full call before fileno(), __index__(), or warning hooks run.
+                let fd = Fildes::try_from_object(vm, args.fd)?;
+                let eventmask = epoll_eventmask(args.eventmask, vm)?;
+                let epoll_fd = &*zelf.get_epoll(vm)?;
+                host_select::epoll::modify(
+                    epoll_fd,
+                    fd.as_raw_fd(),
+                    fd.as_raw_fd() as u64,
+                    eventmask,
+                )
+                .map_err(|e| e.into_pyexception(vm))
+            }
+
+            #[pymethod]
+            fn unregister(
                 zelf: &Py<Self>,
-                fd: Fildes,
-                eventmask: u32,
+                args: EpollUnregisterArgs,
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
+                // Validate the argument shape before fileno() can run Python code.
+                let fd = Fildes::try_from_object(vm, args.fd)?;
                 let epoll_fd = &*zelf.get_epoll(vm)?;
-                host_select::epoll::modify(epoll_fd, fd, fd.as_raw_fd() as u64, eventmask)
+                host_select::epoll::delete(epoll_fd, fd.as_raw_fd())
                     .map_err(|e| e.into_pyexception(vm))
-            }
-
-            #[pymethod]
-            fn unregister(zelf: &Py<Self>, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let epoll_fd = &*zelf.get_epoll(vm)?;
-                host_select::epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
@@ -563,10 +628,13 @@ mod decl {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
-                let mut poll_timeout = timeout
-                    .map(host_select::epoll::Timespec::try_from)
-                    .transpose()
-                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
+                // epoll_wait takes signed milliseconds; round upward and reject
+                // overflow, matching CPython's epoll.poll conversion.
+                let to_millis = |timeout| {
+                    host_select::duration_as_millis_ceiling(timeout)
+                        .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                };
+                let mut poll_timeout = timeout.map(to_millis).transpose()?.unwrap_or(-1);
 
                 let deadline = timeout
                     .map(|d| {
@@ -591,7 +659,7 @@ mod decl {
 
                 loop {
                     match vm.allow_threads(|| {
-                        host_select::epoll::wait(epoll, &mut events, poll_timeout.as_ref())
+                        host_select::epoll::wait(epoll, &mut events, poll_timeout)
                     }) {
                         Ok(_) => break,
                         Err(host_select::epoll::WaitError::Interrupted) => vm.check_signals()?,
@@ -601,11 +669,7 @@ mod decl {
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {
-                            poll_timeout = Some(
-                                new_timeout
-                                    .try_into()
-                                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?,
-                            );
+                            poll_timeout = to_millis(new_timeout)?;
                         } else {
                             break;
                         }
@@ -614,7 +678,7 @@ mod decl {
 
                 let ret = events
                     .iter()
-                    .map(|ev| (ev.data.u64() as i32, { ev.flags }.bits()).to_pyobject(vm))
+                    .map(|ev| (ev.data() as i32, ev.flags()).to_pyobject(vm))
                     .collect();
 
                 Ok(vm.ctx.new_list(ret))
@@ -627,12 +691,7 @@ mod decl {
             }
 
             #[pymethod]
-            fn __exit__(
-                zelf: &Py<Self>,
-                _exc_type: OptionalArg,
-                _exc_value: OptionalArg,
-                _exc_tb: OptionalArg,
-            ) -> std::io::Result<()> {
+            fn __exit__(zelf: &Py<Self>, _args: EpollExitArgs) -> std::io::Result<()> {
                 Self::close(zelf)
             }
         }

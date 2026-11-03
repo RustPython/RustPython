@@ -1,0 +1,48 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f[T](x: int): ...\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-1:21            LOAD_CONST               0 (<code object <generic parameters of f> at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:21            MAKE_FUNCTION
+1:0-1:21            PUSH_NULL
+1:0-1:21            CALL                     0
+1:0-1:21            STORE_NAME               0 (f)
+1:0-1:21            LOAD_COMMON_CONSTANT     7 (None)
+1:0-1:21            RETURN_VALUE
+
+Disassembly of <code object <generic parameters of f> at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0             RESUME                   0
+1:6-1:7             LOAD_CONST               0 ('T')
+1:6-1:7             CALL_INTRINSIC_1         7 (INTRINSIC_TYPEVAR)
+1:6-1:7             COPY                     1
+1:6-1:7             STORE_FAST               1 (T)
+1:6-1:7             BUILD_TUPLE              1
+1:0-1:21            LOAD_CONST               1 (<code object __annotate__ at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:21            MAKE_FUNCTION
+1:0-1:21            LOAD_CONST               2 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:21            MAKE_FUNCTION
+1:0-1:21            SET_FUNCTION_ATTRIBUTE  16 (annotate)
+1:0-1:21            SWAP                     2
+1:0-1:21            CALL_INTRINSIC_2         4 (INTRINSIC_SET_FUNCTION_TYPE_PARAMS)
+1:0-1:21            RETURN_VALUE
+
+Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:0-1:21             LOAD_FAST_BORROW         0 (format)
+1:0-1:21             LOAD_SMALL_INT           2
+1:0-1:21             COMPARE_OP             132 (>)
+1:0-1:21             POP_JUMP_IF_FALSE        3 (to L1)
+1:0-1:21             NOT_TAKEN
+1:0-1:21             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:0-1:21             RAISE_VARARGS            1
+1:0-1:21     L1:     LOAD_CONST               1 ('x')
+1:12-1:15            LOAD_GLOBAL              0 (int)
+1:0-1:21             BUILD_MAP                1
+1:0-1:21             RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:18-1:21            LOAD_COMMON_CONSTANT     7 (None)
+1:18-1:21            RETURN_VALUE

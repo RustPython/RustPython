@@ -9,8 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) const TOOL_LIMIT: usize = 6;
 const EVENTS_COUNT: usize = 19;
-const LOCAL_EVENTS_COUNT: usize = 11;
-const UNGROUPED_EVENTS_COUNT: usize = 18;
+const UNGROUPED_EVENTS_COUNT: usize = 16;
 
 /// Event identifier (`PY_MONITORING_EVENT_*`), stored in `tstate->what_event`.
 /// `None` on the VM field is the `< 0` sentinel (not in a monitoring callback).
@@ -99,8 +98,11 @@ pub struct MonitoringState {
     pub global_events: [u32; TOOL_LIMIT],
     pub local_events: HashMap<(usize, usize), u32>,
     pub callbacks: HashMap<(usize, usize), PyObjectRef>,
-    /// Per-instruction disabled tools: (code_id, offset, tool)
-    pub disabled: HashSet<(usize, usize, usize)>,
+    // Legacy BRANCH callbacks also check whether the source instruction was
+    // disabled. Direct BRANCH_LEFT/RIGHT registrations bypass that check.
+    legacy_branch_callbacks: HashSet<(usize, usize)>,
+    /// Per-instruction disabled tools: (code_id, offset, event, tool)
+    pub disabled: HashSet<(usize, usize, usize, usize)>,
     /// Cached MISSING sentinel singleton
     pub missing: Option<PyObjectRef>,
     /// Cached DISABLE sentinel singleton
@@ -114,6 +116,7 @@ impl Default for MonitoringState {
             global_events: [0; TOOL_LIMIT],
             local_events: HashMap::new(),
             callbacks: HashMap::new(),
+            legacy_branch_callbacks: HashSet::new(),
             disabled: HashSet::new(),
             missing: None,
             disable: None,
@@ -204,6 +207,11 @@ fn parse_single_event(event: i32, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(event_id)
 }
 
+/// `PY_MONITORING_IS_INSTRUMENTED_EVENT`
+const fn is_instrumented_event(event_id: usize) -> bool {
+    event_id <= MonitoringEvent::StopIteration as usize
+}
+
 fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyResult<u32> {
     let kind = if local {
         "local event set"
@@ -232,7 +240,7 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
         event_set |= MonitoringEvent::BranchLeft.mask() | MonitoringEvent::BranchRight.mask();
     }
 
-    if local && event_set >= (1 << LOCAL_EVENTS_COUNT) {
+    if local && event_set >= (1 << UNGROUPED_EVENTS_COUNT) {
         return Err(vm.new_value_error(format!("invalid local event set 0x{event_set:x}")));
     }
 
@@ -279,23 +287,6 @@ fn opcode_event_is_active(
     events: u32,
 ) -> bool {
     event_for_opcode(op, oparg).is_some_and(|ev| events & ev.mask() != 0)
-}
-
-/// Walk real instructions, skipping specialization CACHE payloads.
-/// Cache slots may contain pointer bits that are not valid opcodes.
-fn for_each_instruction(
-    code: &Py<PyCode>,
-    mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
-) {
-    let len = code.code.instructions.len();
-    let mut i = 0;
-    while i < len {
-        let op = code.code.instructions.read_op(i);
-        let oparg = code.code.instructions.read_arg(i).as_u8();
-        let caches = op.deoptimize().cache_entries();
-        f(i, op, oparg);
-        i += 1 + caches;
-    }
 }
 
 /// Rewrite a code object's bytecode in-place with layered instrumentation.
@@ -402,26 +393,12 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     data.line_opcodes.resize(len, 0);
     data.per_instruction_opcodes.resize(len, 0);
 
-    // Find _co_firsttraceable: index of first RESUME instruction
-    let mut first_traceable = None;
-    for_each_instruction(code, |i, op, _| {
-        if first_traceable.is_none()
-            && matches!(
-                op,
-                Instruction::Resume { .. }
-                    | Instruction::ResumeCheck
-                    | Instruction::InstrumentedResume
-            )
-        {
-            first_traceable = Some(i);
-        }
-    });
-    let first_traceable = first_traceable.unwrap_or(0);
+    let first_traceable = code.first_traceable;
 
     // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
     // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
     {
-        let mut i = 0;
+        let mut i = first_traceable;
         while i < len {
             let op = code.code.instructions.read_op(i);
             let oparg = code.code.instructions.read_arg(i).as_u8();
@@ -469,6 +446,14 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     // Mirrors CPython's initialize_lines: first determine which positions
     // are line starts, then mark branch/jump targets, then place opcodes.
     if events & MonitoringEvent::Line.mask() != 0 {
+        let base_opcode = |i| {
+            let mut op = code.code.instructions.read_op(i);
+            if matches!(op, Instruction::InstrumentedInstruction) {
+                op = Instruction::try_from(data.per_instruction_opcodes[i])
+                    .expect("INSTRUMENTED_INSTRUCTION without original opcode");
+            }
+            op.to_base().unwrap_or(op)
+        };
         // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
         let mut is_line_start = vec![false; len];
         let line_locations = rustpython_compiler_core::marshal::linetable_to_locations(
@@ -482,16 +467,8 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
 
         // First pass: mark positions where the source line changes
         let mut prev_line: Option<u32> = None;
-        for (i, unit) in code
-            .code
-            .instructions
-            .iter()
-            .enumerate()
-            .take(len)
-            .skip(first_traceable)
-        {
-            let op = unit.op;
-            let base = op.to_base().unwrap_or(op);
+        for (i, is_start) in is_line_start.iter_mut().enumerate().skip(first_traceable) {
+            let base = base_opcode(i);
             if matches!(base, Instruction::ExtendedArg) {
                 continue;
             }
@@ -516,7 +493,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
                 let is_new = prev_line != Some(line);
                 prev_line = Some(line);
                 if is_new && line > 0 {
-                    is_line_start[i] = true;
+                    *is_start = true;
                 }
             }
         }
@@ -528,8 +505,8 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
         let mut arg_state = bytecode::OpArgState::default();
         let mut instr_idx = first_traceable;
         for unit in code.code.instructions[first_traceable..len].iter().copied() {
-            let (op, arg) = arg_state.get(unit);
-            let base = op.to_base().unwrap_or(op);
+            let (_, arg) = arg_state.get(unit);
+            let base = base_opcode(instr_idx);
 
             if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
                 instr_idx += 1;
@@ -563,8 +540,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
                 && !is_line_start[target_idx]
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
-                let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().unwrap_or(target_op);
+                let target_base = base_opcode(target_idx);
                 // Skip synthetic cleanup targets.
                 if matches!(target_base, Instruction::PopIter) {
                     instr_idx += 1;
@@ -586,8 +562,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
                 && !is_line_start[target_idx]
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
-                let target_op = code.code.instructions.read_op(target_idx);
-                let target_base = target_op.to_base().unwrap_or(target_op);
+                let target_base = base_opcode(target_idx);
                 if !matches!(target_base, Instruction::PopIter)
                     && let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
@@ -662,33 +637,44 @@ fn use_tool_id(tool_id: i32, name: &str, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 fn clear_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
-    let tool = check_valid_tool(tool_id, vm)?;
-    let mut state = vm.state.monitoring.lock();
-    if state.tool_names[tool].is_some() {
-        state.global_events[tool] = 0;
-        state
-            .local_events
-            .retain(|(local_tool, _), _| *local_tool != tool);
-        state.callbacks.retain(|(cb_tool, _), _| *cb_tool != tool);
-        state.disabled.retain(|&(_, _, t)| t != tool);
-    }
-    update_events_mask(vm, &state);
-    Ok(())
+    release_tool_callbacks(tool_id, false, vm)
 }
 
 fn free_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
+    release_tool_callbacks(tool_id, true, vm)
+}
+
+fn release_tool_callbacks(tool_id: i32, free: bool, vm: &VirtualMachine) -> PyResult<()> {
     let tool = check_valid_tool(tool_id, vm)?;
-    let mut state = vm.state.monitoring.lock();
-    if state.tool_names[tool].is_some() {
-        state.global_events[tool] = 0;
-        state
-            .local_events
-            .retain(|(local_tool, _), _| *local_tool != tool);
-        state.callbacks.retain(|(cb_tool, _), _| *cb_tool != tool);
-        state.disabled.retain(|&(_, _, t)| t != tool);
-        state.tool_names[tool] = None;
+    let callbacks = {
+        let mut state = vm.state.monitoring.lock();
+        let callbacks = if state.tool_names[tool].is_some() {
+            state.global_events[tool] = 0;
+            state
+                .local_events
+                .retain(|(local_tool, _), _| *local_tool != tool);
+            let callbacks: Vec<_> = state
+                .callbacks
+                .extract_if(|(cb_tool, _), _| *cb_tool == tool)
+                .map(|(_, callback)| callback)
+                .collect();
+            state.disabled.retain(|&(_, _, _, t)| t != tool);
+            state
+                .legacy_branch_callbacks
+                .retain(|(cb_tool, _)| *cb_tool != tool);
+            callbacks
+        } else {
+            Vec::new()
+        };
+        update_events_mask(vm, &state);
+        callbacks
+    };
+    // Callback finalizers may reenter monitoring; release owners after unlocking.
+    drop(callbacks);
+    // Keep the name visible during callback finalization, as CPython does.
+    if free {
+        vm.state.monitoring.lock().tool_names[tool] = None;
     }
-    update_events_mask(vm, &state);
     Ok(())
 }
 
@@ -709,28 +695,35 @@ fn register_callback(
 
     vm.audit("sys.monitoring.register_callback", || (func.clone(),))?;
 
-    let mut state = vm.state.monitoring.lock();
-    let prev = state
-        .callbacks
-        .remove(&(tool, event_id))
-        .unwrap_or_else(|| vm.ctx.none());
-    let branch_id = MonitoringEvent::Branch as usize;
-    let branch_left_id = MonitoringEvent::BranchLeft as usize;
-    let branch_right_id = MonitoringEvent::BranchRight as usize;
-    if !vm.is_none(&func) {
-        state.callbacks.insert((tool, event_id), func.clone());
-        // BRANCH is a composite event: also register for BRANCH_LEFT/RIGHT
-        if event_id == branch_id {
-            state.callbacks.insert((tool, branch_left_id), func.clone());
-            state.callbacks.insert((tool, branch_right_id), func);
+    let (prev, displaced) = {
+        let mut state = vm.state.monitoring.lock();
+        let prev = state
+            .callbacks
+            .remove(&(tool, event_id))
+            .unwrap_or_else(|| vm.ctx.none());
+        let mut displaced = Vec::new();
+        state.legacy_branch_callbacks.remove(&(tool, event_id));
+        if !vm.is_none(&func) {
+            state.callbacks.insert((tool, event_id), func.clone());
         }
-    } else {
-        // Also clear BRANCH_LEFT/RIGHT when clearing BRANCH
-        if event_id == branch_id {
-            state.callbacks.remove(&(tool, branch_left_id));
-            state.callbacks.remove(&(tool, branch_right_id));
+        // BRANCH replaces both edge registrations, including independently
+        // registered callbacks. Keep their owners alive until after unlocking.
+        if event_id == MonitoringEvent::Branch as usize {
+            for edge in [MonitoringEvent::BranchLeft, MonitoringEvent::BranchRight] {
+                let key = (tool, edge as usize);
+                let old = if vm.is_none(&func) {
+                    state.legacy_branch_callbacks.remove(&key);
+                    state.callbacks.remove(&key)
+                } else {
+                    state.legacy_branch_callbacks.insert(key);
+                    state.callbacks.insert(key, func.clone())
+                };
+                displaced.extend(old);
+            }
         }
-    }
+        (prev, displaced)
+    };
+    drop(displaced);
     Ok(prev)
 }
 
@@ -847,6 +840,19 @@ fn fire(
     offset: u32,
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
+    fire_at(vm, event, code, offset, offset, cb_extra)
+}
+
+// The physical instruction owns DISABLE state; branch callback source offsets
+// can differ from that instruction when NOT_TAKEN follows a branch or wrapper.
+fn fire_at(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    code: &Py<PyCode>,
+    offset: u32,
+    source_offset: u32,
+    cb_extra: &[PyObjectRef],
+) -> PyResult<()> {
     // Prevent recursive event firing
     if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
         return Ok(());
@@ -855,6 +861,11 @@ fn fire(
     let event_id = event as usize;
     let event_mask = event.mask();
     let code_id = code.get_id();
+    let disabled_event = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
+        MonitoringEvent::Call as usize
+    } else {
+        event_id
+    };
 
     // C_RETURN and C_RAISE are implicitly enabled when CALL is set.
     let check_bit = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
@@ -863,9 +874,18 @@ fn fire(
         event_mask
     };
 
-    // Collect callbacks and snapshot the DISABLE sentinel under a single lock.
-    let (callbacks, disable_sentinel): (Vec<(usize, PyObjectRef)>, Option<PyObjectRef>) = {
-        let state = vm.state.monitoring.lock();
+    let branch_source = if matches!(
+        event,
+        MonitoringEvent::BranchLeft | MonitoringEvent::BranchRight
+    ) {
+        Some(branch_source_events(code, source_offset))
+    } else {
+        None
+    };
+
+    // Collect callbacks without holding the monitoring lock across Python code.
+    let callbacks = {
+        let mut state = vm.state.monitoring.lock();
         let mut cbs = Vec::new();
         for tool in 0..TOOL_LIMIT {
             let global = state.global_events[tool];
@@ -877,14 +897,32 @@ fn fire(
             if ((global | local) & check_bit) == 0 {
                 continue;
             }
-            if state.disabled.contains(&(code_id, offset as usize, tool)) {
+            if state
+                .disabled
+                .contains(&(code_id, offset as usize, disabled_event, tool))
+            {
                 continue;
             }
-            if let Some(cb) = state.callbacks.get(&(tool, event_id)) {
-                cbs.push((tool, cb.clone()));
+            if state.callbacks.contains_key(&(tool, event_id)) {
+                let legacy_branch = state.legacy_branch_callbacks.contains(&(tool, event_id));
+                if legacy_branch
+                    && branch_source.as_ref().is_some_and(|events| {
+                        !events.iter().any(|source_event| {
+                            event_active_at(&state, code_id, source_offset, *source_event)
+                        })
+                    })
+                {
+                    // The legacy wrapper returns DISABLE without calling the
+                    // user when the source instruction is no longer instrumented.
+                    state
+                        .disabled
+                        .insert((code_id, offset as usize, event_id, tool));
+                    continue;
+                }
+                cbs.push((tool, state.callbacks[&(tool, event_id)].clone()));
             }
         }
-        (cbs, state.disable.clone())
+        cbs
     };
 
     if callbacks.is_empty() {
@@ -896,35 +934,126 @@ fn fire(
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
 
+    for (tool, cb) in callbacks {
+        if call_instrument(vm, event, &cb, args.clone())? {
+            if is_instrumented_event(event_id) {
+                let mut state = vm.state.monitoring.lock();
+                state
+                    .disabled
+                    .insert((code_id, offset as usize, event_id, tool));
+            } else if event_id < UNGROUPED_EVENTS_COUNT {
+                // Non-instrumented events are disabled for this whole code
+                // object by removing only the local subscription. Global
+                // subscriptions continue to fire, including for this code.
+                let mut state = vm.state.monitoring.lock();
+                if let Some(local) = state.local_events.get_mut(&(tool, code_id)) {
+                    *local &= !event_mask;
+                    if *local == 0 {
+                        state.local_events.remove(&(tool, code_id));
+                    }
+                    update_events_mask(vm, &state);
+                }
+            } else {
+                return Err(cannot_disable(vm, event, tool));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn event_active_at(
+    state: &MonitoringState,
+    code_id: usize,
+    offset: u32,
+    event: MonitoringEvent,
+) -> bool {
+    (0..TOOL_LIMIT).any(|tool| {
+        let active = state.global_events[tool]
+            | state
+                .local_events
+                .get(&(tool, code_id))
+                .copied()
+                .unwrap_or(0);
+        state.tool_names[tool].is_some()
+            && active & event.mask() != 0
+            && !state
+                .disabled
+                .contains(&(code_id, offset as usize, event as usize, tool))
+    })
+}
+
+pub(crate) fn is_event_active_at(
+    vm: &VirtualMachine,
+    code: &Py<PyCode>,
+    offset: u32,
+    event: MonitoringEvent,
+) -> bool {
+    event_active_at(&vm.state.monitoring.lock(), code.get_id(), offset, event)
+}
+
+// Model the source's instrumentation layers without changing its bytecode.
+// A layer stays instrumented until its last subscribed tool disables it.
+fn branch_source_events(code: &Py<PyCode>, offset: u32) -> Vec<MonitoringEvent> {
+    use rustpython_compiler_core::bytecode::Instruction;
+    let index = offset as usize / 2;
+    let data = code.monitoring_data.lock();
+    let mut events = Vec::with_capacity(3);
+    let mut op = code.code.instructions.read_op(index);
+    if let Some(data) = data.as_ref() {
+        if matches!(op, Instruction::InstrumentedLine) {
+            events.push(MonitoringEvent::Line);
+            op = Instruction::try_from(data.line_opcodes[index])
+                .expect("INSTRUMENTED_LINE without original opcode");
+        }
+        if matches!(op, Instruction::InstrumentedInstruction) {
+            events.push(MonitoringEvent::Instruction);
+            op = Instruction::try_from(data.per_instruction_opcodes[index])
+                .expect("INSTRUMENTED_INSTRUCTION without original opcode");
+        }
+    }
+    if let Some(event) = event_for_opcode(op, code.code.instructions.read_arg(index).as_u8()) {
+        events.push(event);
+    }
+    events
+}
+
+// Restore tracing state before processing a callback result or exception.
+fn call_instrument(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    callback: &PyObject,
+    args: FuncArgs,
+) -> PyResult<bool> {
+    if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
+        return Ok(false);
+    }
+    let disable_sentinel = vm.state.monitoring.lock().disable.clone();
     FIRING.with(|f| f.set(true));
     vm.enter_tracing();
     let old_what = vm.what_event.replace(Some(event));
-    let result = (|| {
-        for (tool, cb) in callbacks {
-            let result = cb.call(args.clone(), vm)?;
-            if disable_sentinel.as_ref().is_some_and(|d| result.is(d)) {
-                // Only local events (event_id < LOCAL_EVENTS_COUNT) can be disabled.
-                // Non-local events (RAISE, EXCEPTION_HANDLED, PY_UNWIND, etc.)
-                // cannot be disabled per code object.
-                if event_id >= LOCAL_EVENTS_COUNT {
-                    // Remove the callback.
-                    let mut state = vm.state.monitoring.lock();
-                    state.callbacks.remove(&(tool, event_id));
-                    return Err(vm.new_value_error(format!(
-                        "Cannot disable {} events. Callback removed.",
-                        EVENT_NAMES[event_id]
-                    )));
-                }
-                let mut state = vm.state.monitoring.lock();
-                state.disabled.insert((code_id, offset as usize, tool));
-            }
-        }
-        Ok(())
-    })();
+    let result = callback.call(args, vm);
     vm.what_event.set(old_what);
     vm.leave_tracing();
     FIRING.with(|f| f.set(false));
-    result
+    let result = result?;
+    let disable = disable_sentinel.as_ref().is_some_and(|d| result.is(d));
+    Ok(disable)
+}
+
+fn cannot_disable(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    tool: usize,
+) -> crate::builtins::PyBaseExceptionRef {
+    let callback = {
+        let mut state = vm.state.monitoring.lock();
+        state.callbacks.remove(&(tool, event as usize))
+    };
+    drop(callback);
+    vm.new_value_error(format!(
+        "Cannot disable {} events. Callback removed.",
+        EVENT_NAMES[event as usize]
+    ))
 }
 
 // Public dispatch functions (called from frame.rs)
@@ -1071,6 +1200,12 @@ pub(crate) fn fire_raise(
     )
 }
 
+/// End suppression when the exception reaches a handler or escapes a frame,
+/// independently of whether either lifecycle event has a registered callback.
+pub(crate) fn reset_reraise_pending() {
+    RERAISE_PENDING.with(|f| f.set(false));
+}
+
 /// Only fires if no RERAISE has been fired since the last EXCEPTION_HANDLED,
 /// preventing duplicate events from chained cleanup handlers.
 pub(crate) fn fire_reraise(
@@ -1102,7 +1237,7 @@ pub(crate) fn fire_exception_handled(
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    RERAISE_PENDING.with(|f| f.set(false));
+    reset_reraise_pending();
     fire(
         vm,
         MonitoringEvent::ExceptionHandled,
@@ -1118,7 +1253,7 @@ pub(crate) fn fire_py_unwind(
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    RERAISE_PENDING.with(|f| f.set(false));
+    reset_reraise_pending();
     fire(
         vm,
         MonitoringEvent::PyUnwind,
@@ -1186,13 +1321,15 @@ pub(crate) fn fire_jump(
 pub(crate) fn fire_branch_left(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
+    site: u32,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
-    fire(
+    fire_at(
         vm,
         MonitoringEvent::BranchLeft,
         code,
+        site,
         offset,
         &[
             vm.ctx.new_int(offset).into(),

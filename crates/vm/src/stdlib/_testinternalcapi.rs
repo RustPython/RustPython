@@ -27,29 +27,79 @@ pub(crate) fn note_func_modification() {
 #[pymodule]
 mod _testinternalcapi {
     use super::*;
+    use crate::vm::crossinterp::test_support::CrossinterpData;
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{
-            PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
+            PyBytesRef, PyCapsule, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
             descriptor::PyWrapper,
         },
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
         frame::FrameObject,
-        function::{OptionalArg, PyComparisonValue},
+        function::{FuncArgs, OptionalArg, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+        stdlib::time::pytime::{self, Round},
         types::{
-            AsMapping, AsSequence, Comparable, IterNext, Iterable, PyComparisonOp, PyTypeFlags,
-            SelfIter,
+            AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable, PyComparisonOp,
+            PyTypeFlags, SelfIter,
         },
     };
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::time::TimeT;
     use std::collections::HashMap;
+
+    #[cfg(not(any(unix, windows)))]
+    type TimeT = i64;
 
     // ADAPTIVE_WARMUP_VALUE + 1
     #[pyattr]
     const SPECIALIZATION_THRESHOLD: usize = 2;
+
+    #[pyattr]
+    #[pyclass(name, module = "_testcapi")]
+    #[derive(Debug, PyPayload)]
+    struct SelfInterruptingContextManager {
+        within: core::sync::atomic::AtomicBool,
+    }
+
+    impl Constructor for SelfInterruptingContextManager {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                within: core::sync::atomic::AtomicBool::new(false),
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
+    impl SelfInterruptingContextManager {
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            zelf.within.store(true, Ordering::Relaxed);
+            let Some(old) = vm.replace_async_exception(Some(
+                vm.ctx.exceptions.keyboard_interrupt.to_owned().into(),
+            )) else {
+                return Err(vm.new_runtime_error("the current thread state is being cleared"));
+            };
+            vm.notify_async_exception();
+            drop(old);
+            Ok(zelf)
+        }
+
+        #[pymethod]
+        fn within(zelf: &Py<Self>) -> bool {
+            zelf.within.load(Ordering::Relaxed)
+        }
+
+        #[pymethod]
+        fn __exit__(zelf: &Py<Self>, _args: crate::function::PosArgs<PyObjectRef>) {
+            zelf.within.store(false, Ordering::Relaxed);
+        }
+    }
 
     // ADAPTIVE_COOLDOWN_VALUE + 1
     #[pyattr]
@@ -69,7 +119,7 @@ mod _testinternalcapi {
     const SIZEOF_PYOBJECT: usize = core::mem::size_of::<crate::PyObject>();
 
     #[pyattr]
-    const SIZEOF_TIME_T: usize = 8;
+    const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
 
     // JUMP_BACKWARD_INITIAL_VALUE + 1
     #[pyattr]
@@ -146,6 +196,66 @@ mod _testinternalcapi {
     #[pyfunction]
     fn code_returns_only_none(code: PyRef<PyCode>, _vm: &VirtualMachine) -> bool {
         crate::vm::crossinterp::code_returns_only_none(&code)
+    }
+
+    static CROSSINTERP_DATA_TAG: u8 = 0;
+
+    fn crossinterp_data_tag() -> *mut core::ffi::c_void {
+        core::ptr::from_ref(&CROSSINTERP_DATA_TAG).cast_mut().cast()
+    }
+
+    unsafe extern "C" fn release_crossinterp_data(obj: *mut PyObject) {
+        // SAFETY: this is installed only as a PyCapsule destructor; the object
+        // remains alive for the duration of the call.
+        let Some(capsule) = (unsafe { &*obj }).downcast_ref::<PyCapsule>() else {
+            return;
+        };
+        if capsule.context() != crossinterp_data_tag() {
+            return;
+        }
+        let data = capsule.pointer().cast::<CrossinterpData>();
+        capsule.set_pointer(core::ptr::null_mut());
+        if !data.is_null() {
+            // SAFETY: get_crossinterp_data transferred this Box to the capsule.
+            // Clearing the pointer above prevents a second release.
+            drop(unsafe { Box::from_raw(data) });
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct GetCrossinterpDataArgs {
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        mode: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn get_crossinterp_data(args: GetCrossinterpDataArgs, vm: &VirtualMachine) -> PyResult {
+        let mode = args.mode.into_option();
+        let data = CrossinterpData::from_object(&args.obj, mode.as_deref(), vm)?;
+        let data = Box::into_raw(Box::new(data)).cast();
+        let capsule = vm
+            .ctx
+            .new_capsule(data, None, Some(release_crossinterp_data));
+        capsule.set_context(crossinterp_data_tag());
+        Ok(capsule.into())
+    }
+
+    #[pyfunction]
+    fn restore_crossinterp_data(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let invalid =
+            || vm.new_value_error("PyCapsule_GetPointer called with invalid PyCapsule object");
+        let capsule = obj.downcast_ref::<PyCapsule>().ok_or_else(invalid)?;
+        if capsule.name().is_some()
+            || capsule.context() != crossinterp_data_tag()
+            || capsule.pointer().is_null()
+        {
+            return Err(invalid());
+        }
+        // SAFETY: only get_crossinterp_data creates capsules with this context.
+        // `obj` owns the capsule during the clone, so the payload cannot be freed.
+        let data = unsafe { &*capsule.pointer().cast::<CrossinterpData>() }.clone();
+        data.into_object(vm)
     }
 
     #[pyfunction]
@@ -423,7 +533,7 @@ mod _testinternalcapi {
         global.set_item("dev_mode", vm.ctx.new_bool(settings.dev_mode).into(), vm)?;
         global.set_item("verbose", vm.ctx.new_int(settings.verbose).into(), vm)?;
         global.set_item("quiet", vm.ctx.new_bool(settings.quiet).into(), vm)?;
-        global.set_item("inspect", vm.ctx.new_bool(settings.inspect).into(), vm)?;
+        global.set_item("inspect", vm.ctx.new_bool(vm.config_inspect()).into(), vm)?;
         global.set_item(
             "interactive",
             vm.ctx.new_bool(settings.interactive).into(),
@@ -486,24 +596,186 @@ mod _testinternalcapi {
         }
     }
 
+    fn pytime_args<'a, const N: usize>(
+        args: &'a FuncArgs,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a [PyObjectRef; N]> {
+        // These CPython test helpers use METH_VARARGS, not keyword parsing.
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error(format!("{name}() takes no keyword arguments")));
+        }
+        args.args.as_slice().try_into().map_err(|_| {
+            vm.new_type_error(format!(
+                "function takes exactly {} argument{} ({} given)",
+                N,
+                if N == 1 { "" } else { "s" },
+                args.args.len()
+            ))
+        })
+    }
+
+    fn pytime_c_int(object: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
+        // PyArg_ParseTuple's "i" converts to C long before checking C int bounds.
+        let value: core::ffi::c_long = object
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        num_traits::ToPrimitive::to_i32(&value).ok_or_else(|| {
+            vm.new_overflow_error(if value < 0 {
+                "signed integer is less than minimum"
+            } else {
+                "signed integer is greater than maximum"
+            })
+        })
+    }
+
+    fn pytime_i64(object: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
+        object
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int64_t"))
+    }
+
+    fn pytime_pair(
+        value: i64,
+        denominator: i64,
+        minimum: i64,
+        maximum: i64,
+        clamp: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let seconds = value.div_euclid(denominator);
+        if !(minimum..=maximum).contains(&seconds) {
+            if !clamp {
+                return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+            }
+            return Ok((seconds.clamp(minimum, maximum), 0));
+        }
+        Ok((seconds, value.rem_euclid(denominator)))
+    }
+
     #[pyfunction(name = "_PyTime_AsTimespec")]
-    fn pytime_as_timespec(ns: i64) -> (i64, i64) {
-        let sec = ns.div_euclid(1_000_000_000);
-        let nsec = ns.rem_euclid(1_000_000_000);
-        (sec, nsec)
+    fn pytime_as_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec", vm)?;
+        pytime_pair(
+            pytime_i64(ns, vm)?,
+            1_000_000_000,
+            TimeT::MIN as _,
+            TimeT::MAX as _,
+            false,
+            vm,
+        )
     }
 
     #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
-    fn pytime_as_timespec_clamp(ns: i64) -> (i64, i64) {
-        pytime_as_timespec(ns)
+    fn pytime_as_timespec_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec_clamp", vm)?;
+        pytime_pair(
+            pytime_i64(ns, vm)?,
+            1_000_000_000,
+            TimeT::MIN as _,
+            TimeT::MAX as _,
+            true,
+            vm,
+        )
     }
 
     #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
-    fn pytime_as_timeval_clamp(ns: i64, _rnd: OptionalArg<i32>) -> (i64, i64) {
-        let us = ns.div_euclid(1000);
-        let sec = us.div_euclid(1_000_000);
-        let usec = us.rem_euclid(1_000_000);
-        (sec, usec)
+    fn pytime_as_timeval_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval_clamp", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        // Validate rounding before converting the timestamp, as the C wrapper does.
+        pytime_timeval(pytime_i64(ns, vm)?, round, true, vm)
+    }
+
+    fn pytime_timeval(
+        ns: i64,
+        round: Round,
+        clamp: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let us = round.divide(ns, 1_000);
+        // Windows timeval uses C long even though the host time_t is 64-bit.
+        #[cfg(windows)]
+        let (minimum, maximum): (i64, i64) =
+            (core::ffi::c_long::MIN as _, core::ffi::c_long::MAX as _);
+        #[cfg(not(windows))]
+        let (minimum, maximum): (i64, i64) = (TimeT::MIN as _, TimeT::MAX as _);
+        pytime_pair(us, 1_000_000, minimum, maximum, clamp, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_FromSeconds")]
+    fn pytime_from_seconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [seconds] = pytime_args::<1>(&args, "_PyTime_FromSeconds", vm)?;
+        Ok(pytime::from_seconds(pytime_c_int(seconds, vm)?))
+    }
+
+    #[pyfunction(name = "_PyTime_FromSecondsObject")]
+    fn pytime_from_seconds_object(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [object, round] = pytime_args::<2>(&args, "_PyTime_FromSecondsObject", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::from_seconds_object(object, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimeval")]
+    fn pytime_as_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime_timeval(pytime_i64(ns, vm)?, round, false, vm)
+    }
+
+    fn pytime_as_subseconds(
+        args: FuncArgs,
+        name: &str,
+        divisor: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<i64> {
+        let [ns, round] = pytime_args::<2>(&args, name, vm)?;
+        let round = pytime_c_int(round, vm)?;
+        // These two C wrappers convert the timestamp before validating the mode.
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, divisor))
+    }
+
+    #[pyfunction(name = "_PyTime_AsMilliseconds")]
+    fn pytime_as_milliseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        pytime_as_subseconds(args, "_PyTime_AsMilliseconds", 1_000_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsMicroseconds")]
+    fn pytime_as_microseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        pytime_as_subseconds(args, "_PyTime_AsMicroseconds", 1_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTime_t")]
+    fn pytime_object_to_time_t(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [object, round] = pytime_args::<2>(&args, "_PyTime_ObjectToTime_t", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_time_t(object, round, vm)
+    }
+
+    fn pytime_object_to_denominator(
+        args: FuncArgs,
+        name: &str,
+        denominator: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let [object, round] = pytime_args::<2>(&args, name, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_denominator(object, denominator, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimeval")]
+    fn pytime_object_to_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        pytime_object_to_denominator(args, "_PyTime_ObjectToTimeval", 1_000_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
+    fn pytime_object_to_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        pytime_object_to_denominator(args, "_PyTime_ObjectToTimespec", 1_000_000_000, vm)
     }
 
     #[pyfunction]
@@ -611,7 +883,18 @@ mod _testinternalcapi {
         }
     }
 
-    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
+    impl Constructor for Hamt {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::default())
+        }
+    }
+
+    #[pyclass(
+        flags(HAS_WEAKREF),
+        with(Constructor, AsMapping, AsSequence, Comparable, Iterable)
+    )]
     impl Py<Hamt> {
         #[pymethod]
         fn set(
@@ -837,13 +1120,17 @@ mod _testinternalcapi {
             ..rustpython_codegen::CompileOpts::default()
         };
         opts.future_features |= rustpython_codegen::preprocess::future_features(&converted.ast);
-        let output = rustpython_codegen::compile::compile_codegen(
-            converted.ast,
-            converted.source_file,
+        let output = rustpython_codegen::compile::compile_codegen_ast(
+            rustpython_codegen::compile::AstInput {
+                ast: converted.ast,
+                source_file: converted.source_file,
+                locations: converted.locations,
+            },
             mode,
             opts,
+            None,
         )
-        .map_err(|err| vm.new_syntax_error(&crate::compiler::CompileError::from(err), None))?;
+        .map_err(|err| crate::stdlib::_ast::codegen_exception(vm, err, None))?;
         let seq = PyInstructionSequence::from_rust(output.seq, vm);
         let metadata = vm.ctx.new_dict();
         metadata.set_item("argcount", vm.ctx.new_int(output.argcount).into(), vm)?;
@@ -950,7 +1237,16 @@ mod _testinternalcapi {
     }
 
     #[cfg(feature = "codegen")]
-    #[pyclass(with(Py))]
+    impl Constructor for PyInstructionSequence {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::empty())
+        }
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyclass(with(Constructor, Py))]
     impl PyInstructionSequence {}
 
     #[cfg(feature = "codegen")]
@@ -1125,11 +1421,16 @@ fn expandtabs(input: &str, tab_size: usize) -> String {
     expanded
 }
 
-type CodeNamespaces = (PyRef<PyCode>, Option<PyRef<PyDict>>, Option<PyRef<PyDict>>);
+type CodeNamespaces = (
+    PyRef<PyCode>,
+    Option<PyRef<crate::builtins::PyAnyDict>>,
+    Option<PyRef<crate::builtins::PyAnyDict>>,
+);
 
 fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespaces> {
     if let Ok(func) = obj.to_owned().downcast::<PyFunction>() {
-        let builtins = func.builtins.clone().downcast::<PyDict>().ok();
+        let builtins =
+            crate::builtins::PyAnyDict::from_object(&func.builtins).map(ToOwned::to_owned);
         return Ok((
             (*func.code).to_owned(),
             Some(func.globals.clone()),
@@ -1142,19 +1443,22 @@ fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespa
     Err(vm.new_type_error("argument must be a code object or a function"))
 }
 
-fn optional_dict(
+fn optional_dict<T: From<PyRef<PyDict>>>(
     override_ns: OptionalArg<PyObjectRef>,
-    default: Option<PyRef<PyDict>>,
+    default: Option<T>,
     name: &str,
     vm: &VirtualMachine,
-) -> PyResult<Option<PyRef<PyDict>>> {
+) -> PyResult<Option<T>> {
     match override_ns.into_option() {
-        Some(obj) => obj.downcast::<PyDict>().map(Some).map_err(|obj| {
-            vm.new_type_error(format!(
-                "expected a dict for \"{name}\", got {}",
-                obj.class().name()
-            ))
-        }),
+        Some(obj) => obj
+            .downcast::<PyDict>()
+            .map(|dict| Some(dict.into()))
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "expected a dict for \"{name}\", got {}",
+                    obj.class().name()
+                ))
+            }),
         None => Ok(default),
     }
 }
@@ -1280,8 +1584,8 @@ fn set_unbound_var_counts(
     counts: &mut VarCounts,
     globalnames: Option<PyObjectRef>,
     attrnames: Option<PyObjectRef>,
-    globalsns: Option<&Py<PyDict>>,
-    builtinsns: Option<&Py<PyDict>>,
+    globalsns: Option<&crate::builtins::PyAnyDict>,
+    builtinsns: Option<&crate::builtins::PyAnyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let globalnames = optional_set(globalnames, "globalnames", vm)?;
@@ -1317,8 +1621,8 @@ fn identify_unbound_names(
     code: &Py<PyCode>,
     globalnames: Option<PyRef<PySet>>,
     attrnames: Option<PyRef<PySet>>,
-    globalsns: Option<&Py<PyDict>>,
-    builtinsns: Option<&Py<PyDict>>,
+    globalsns: Option<&crate::builtins::PyAnyDict>,
+    builtinsns: Option<&crate::builtins::PyAnyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<(UnboundCounts, i32)> {
     let mut seen_globals = HashSet::new();
@@ -1801,16 +2105,96 @@ fn py_to_constant_data(
     }
     if let Ok(code) = obj.clone().downcast::<PyCode>() {
         return Ok(ConstantData::Code {
-            code: Box::new(
-                code.code
-                    .map_clone_bag(&rustpython_compiler_core::bytecode::BasicBag),
-            ),
+            code: Box::new(snapshot_code_constant(&code, vm)?),
         });
     }
     Err(vm.new_type_error(format!(
         "cannot convert {} to a code constant",
         obj.class().name()
     )))
+}
+
+#[cfg(feature = "codegen")]
+fn snapshot_code_constant(
+    code: &Py<PyCode>,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_compiler_core::bytecode::CodeObject> {
+    use rustpython_compiler_core::bytecode::{BasicBag, CodeObject, CodeUnits, ConstantBag};
+
+    // get_code resolves monitoring wrappers under the owning code's lock and
+    // omits execution caches. Release that lock before visiting nested code.
+    let instructions = CodeUnits::try_from(code.get_code(vm).as_bytes())
+        .map_err(|err| vm.new_value_error(format!("invalid bytecode: {err}")))?;
+    let source = &code.code;
+    let constants = source
+        .constants
+        .iter()
+        .map(|constant| snapshot_literal_constant(constant, vm))
+        .collect::<PyResult<Vec<_>>>()?;
+    let map_name =
+        |name: &PyStrInterned| -> String { BasicBag.make_name(AsRef::<str>::as_ref(name)) };
+    let map_names = |names: &[&PyStrInterned]| -> Box<[String]> {
+        names.iter().map(|name| map_name(name)).collect()
+    };
+    Ok(CodeObject {
+        instructions,
+        constants: constants.into_iter().collect(),
+        names: map_names(&source.names),
+        varnames: map_names(&source.varnames),
+        cellvars: map_names(&source.cellvars),
+        freevars: map_names(&source.freevars),
+        source_path: map_name(code.source_path()),
+        obj_name: map_name(source.obj_name),
+        qualname: map_name(source.qualname),
+        locations: source.locations.clone(),
+        flags: source.flags,
+        posonlyarg_count: source.posonlyarg_count,
+        arg_count: source.arg_count,
+        kwonlyarg_count: source.kwonlyarg_count,
+        first_line_number: source.first_line_number,
+        max_stackdepth: source.max_stackdepth,
+        localspluskinds: source.localspluskinds.clone(),
+        linetable: source.linetable.clone(),
+        exceptiontable: source.exceptiontable.clone(),
+    })
+}
+
+#[cfg(feature = "codegen")]
+fn snapshot_literal_constant(
+    constant: &crate::builtins::code::Literal,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_compiler_core::bytecode::ConstantData> {
+    use rustpython_compiler_core::bytecode::{BorrowedConstant, Constant, ConstantData};
+
+    // Do not erase a live PyCode's owner through BorrowedConstant::Code.
+    let object: PyObjectRef = constant.clone().into();
+    if let Some(code) = object.downcast_ref::<PyCode>() {
+        return Ok(ConstantData::Code {
+            code: Box::new(snapshot_code_constant(code, vm)?),
+        });
+    }
+    Ok(match constant.borrow_constant() {
+        BorrowedConstant::Tuple { elements } => ConstantData::Tuple {
+            elements: elements
+                .iter()
+                .map(|item| snapshot_literal_constant(item, vm))
+                .collect::<PyResult<Vec<_>>>()?,
+        },
+        BorrowedConstant::Frozenset { elements } => ConstantData::Frozenset {
+            elements: elements
+                .iter()
+                .map(|item| snapshot_literal_constant(item, vm))
+                .collect::<PyResult<Vec<_>>>()?,
+        },
+        BorrowedConstant::Slice { elements } => ConstantData::Slice {
+            elements: Box::new([
+                snapshot_literal_constant(&elements[0], vm)?,
+                snapshot_literal_constant(&elements[1], vm)?,
+                snapshot_literal_constant(&elements[2], vm)?,
+            ]),
+        },
+        scalar => scalar.to_owned(),
+    })
 }
 
 #[cfg(feature = "codegen")]

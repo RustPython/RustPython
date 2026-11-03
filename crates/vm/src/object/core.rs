@@ -1,15 +1,3 @@
-//! Essential types for object models
-//!
-//! +-------------------------+--------------+-----------------------+
-//! |       Management        |       Typed      |      Untyped      |
-//! +-------------------------+------------------+-------------------+
-//! | Interpreter-independent | [`Py<T>`]        | [`PyObject`]      |
-//! | Reference-counted       | [`PyRef<T>`]     | [`PyObjectRef`]   |
-//! | Weak                    | [`PyWeakRef<T>`] | [`PyRef<PyWeak>`] |
-//! +-------------------------+--------------+-----------------------+
-//!
-//! [`PyRef<PyWeak>`] may looking like to be called as PyObjectWeak by the rule,
-//! but not to do to remember it is a PyRef object.
 use super::{
     PyAtomicRef,
     ext::{AsObject, PyRefExact, PyResult},
@@ -156,12 +144,44 @@ mod trashcan {
                     item
                 };
                 if let Some((obj, dealloc)) = next {
+                    // A queued deallocator may defer more objects, but its
+                    // end() must not start another drain.
+                    t.depth.set(1);
+                    let _draining = scopeguard::guard((), |()| t.depth.set(0));
                     unsafe { dealloc(obj) };
                 } else {
                     break;
                 }
             }
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        unsafe fn assert_guarded_dealloc(_: *mut super::super::PyObject) {
+            assert!(TRASHCAN.with(|t| t.depth.get() > 0));
+        }
+
+        #[test]
+        fn deferred_deallocations_remain_guarded() {
+            // This callback never dereferences its opaque object pointer.
+            let obj = core::ptr::null_mut();
+            unsafe {
+                for _ in 0..TRASHCAN_LIMIT {
+                    assert!(begin(obj, assert_guarded_dealloc));
+                }
+                assert!(!begin(obj, assert_guarded_dealloc));
+                for _ in 0..TRASHCAN_LIMIT {
+                    end();
+                }
+            }
+            TRASHCAN.with(|t| {
+                assert_eq!(t.depth.get(), 0);
+                assert!(t.queue.take().is_empty());
+            });
+        }
     }
 }
 
@@ -210,7 +230,9 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
     // instead of extracting them, so user code (`__del__`) may run here.
     let mut edges = Vec::new();
-    if let Some(clear_fn) = vtable.clear {
+    if (T::CLEAR_ON_DEALLOC || T::HAS_FREELIST)
+        && let Some(clear_fn) = vtable.clear
+    {
         unsafe { clear_fn(obj, &mut edges) };
     }
     // Drop extracted child references - may trigger recursive destruction.
@@ -593,6 +615,9 @@ unsafe impl Traverse for PyObject {
 }
 
 // === Stripe lock for weakref list protection (WEAKREF_LIST_LOCK) ===
+// Like CPython's _Py_LOCK_DONT_DETACH weakref stripes, these critical sections
+// must not run Python, release Python references, or suspend an attached thread.
+// Traversal visitors must not recursively acquire a weakref stripe.
 
 #[cfg(feature = "threading")]
 mod weakref_lock {
@@ -602,27 +627,44 @@ mod weakref_lock {
 
     static LOCKS: [AtomicU8; NUM_WEAKREF_LOCKS] = [const { AtomicU8::new(0) }; NUM_WEAKREF_LOCKS];
 
+    #[derive(Debug)]
+    pub(super) struct WeakrefLock {
+        lock: &'static AtomicU8,
+    }
+
     pub(super) struct WeakrefLockGuard {
-        idx: usize,
+        lock: &'static AtomicU8,
     }
 
     impl Drop for WeakrefLockGuard {
         fn drop(&mut self) {
-            LOCKS[self.idx].store(0, Ordering::Release);
+            self.lock.store(0, Ordering::Release);
+        }
+    }
+
+    impl WeakrefLock {
+        pub(super) fn lock(&self) -> WeakrefLockGuard {
+            loop {
+                if self
+                    .lock
+                    .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    return WeakrefLockGuard { lock: self.lock };
+                }
+                core::hint::spin_loop();
+            }
+        }
+    }
+
+    pub(super) fn select(addr: usize) -> WeakrefLock {
+        WeakrefLock {
+            lock: &LOCKS[(addr >> 4) % NUM_WEAKREF_LOCKS],
         }
     }
 
     pub(super) fn lock(addr: usize) -> WeakrefLockGuard {
-        let idx = (addr >> 4) % NUM_WEAKREF_LOCKS;
-        loop {
-            if LOCKS[idx]
-                .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-                .is_ok()
-            {
-                return WeakrefLockGuard { idx };
-            }
-            core::hint::spin_loop();
-        }
+        select(addr).lock()
     }
 
     /// Reset all weakref stripe locks after fork in child process.
@@ -637,14 +679,27 @@ mod weakref_lock {
 
 #[cfg(not(feature = "threading"))]
 mod weakref_lock {
+    #[derive(Debug)]
+    pub(super) struct WeakrefLock;
+
     pub(super) struct WeakrefLockGuard;
 
     impl Drop for WeakrefLockGuard {
         fn drop(&mut self) {}
     }
 
-    pub(super) fn lock(_addr: usize) -> WeakrefLockGuard {
-        WeakrefLockGuard
+    impl WeakrefLock {
+        pub(super) fn lock(&self) -> WeakrefLockGuard {
+            WeakrefLockGuard
+        }
+    }
+
+    pub(super) fn select(_addr: usize) -> WeakrefLock {
+        WeakrefLock
+    }
+
+    pub(super) fn lock(addr: usize) -> WeakrefLockGuard {
+        select(addr).lock()
     }
 }
 
@@ -708,7 +763,7 @@ unsafe fn try_reuse_weakref(ptr: *mut Py<PyWeak>) -> Option<PyRef<PyWeak>> {
     let node = unsafe { &*ptr };
     node.ref_count
         .safe_inc()
-        .then(|| unsafe { PyRef::from_raw(ptr) })
+        .then(|| unsafe { PyRef::<PyWeak>::from_raw(ptr) })
 }
 
 impl WeakRefList {
@@ -747,12 +802,13 @@ impl WeakRefList {
             }
         }
 
-        // Allocate OUTSIDE the stripe lock. PyRef::new_ref may trigger
-        // maybe_collect → GC → WeakRefList::clear on another object that
-        // hashes to the same stripe, which would deadlock on the spinlock.
+        // Allocate untracked: gc.get_objects() must not expose this node
+        // before its referent is published. Tracking below can trigger GC,
+        // so it must also happen outside the stripe lock.
         let weak_payload = PyWeak {
             pointers: Pointers::new(),
-            wr_object: Radium::new(obj as *const PyObject as *mut PyObject),
+            wr_object: Radium::new(ptr::null_mut()),
+            weakrefs_lock: weakref_lock::select(obj as *const PyObject as usize),
             callback: UnsafeCell::new(callback),
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
@@ -772,7 +828,7 @@ impl WeakRefList {
             None
         };
         if let Some(existing) = existing {
-            // Nullify wr_object so drop_inner won't unlink an
+            // Nullify wr_object so clear_ref won't unlink an
             // un-inserted node (which would corrupt the list head).
             weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
             return existing;
@@ -796,6 +852,16 @@ impl WeakRefList {
         if is_generic {
             self.generic.store(node_ptr.as_ptr(), Ordering::Relaxed);
         }
+        // Only linked nodes may advertise a referent: an allocation unwind
+        // must never try to unlink an unpublished node.
+        weak.wr_object
+            .store(obj as *const PyObject as *mut PyObject, Ordering::Release);
+
+        drop(_lock);
+        // SAFETY: this fresh allocation opted out of automatic tracking.
+        // Our strong reference keeps it alive, and it cannot enter a GC
+        // candidate list before tracking, so its gc_bits are still zero.
+        unsafe { crate::gc_state::track_new_object(NonNull::from(weak.as_object())) };
 
         weak
     }
@@ -840,7 +906,8 @@ impl WeakRefList {
         match NonNull::new(candidate_ptr) {
             Some(candidate) => {
                 let node = unsafe { candidate.as_ref() };
-                let has_callback = unsafe { (&*node.payload.callback.get()).is_some() };
+                // SAFETY: the referent stripe is held by the caller.
+                let has_callback = unsafe { &*node.payload.callback.get() }.is_some();
                 let node_cls = node.class();
                 // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
                 // the canonical proxy type; subclasses and callback-less ref
@@ -861,97 +928,97 @@ impl WeakRefList {
     /// Called when the owner object is being dropped.
     // PyObject_ClearWeakRefs
     fn clear(&self, obj: &PyObject) {
-        let obj_addr = obj as *const PyObject as usize;
-        let _lock = weakref_lock::lock(obj_addr);
-
-        // Clear generic cache
+        // Owners precede the guard so unwinding also drops them after unlock.
+        let mut callbacks: Vec<(PyRef<PyWeak>, Option<PyObjectRef>)> = Vec::new();
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
         self.generic.store(ptr::null_mut(), Ordering::Relaxed);
-
-        // Walk the list, collecting weakrefs with callbacks
-        let mut callbacks: Vec<(PyRef<PyWeak>, PyObjectRef)> = Vec::new();
         let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
         while let Some(node) = current {
             let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
-
             let wr = unsafe { node.as_ref() };
-
-            // Mark weakref as dead
+            // Reserve before acquiring a Python owner; push cannot then unwind.
+            callbacks.reserve(1);
+            if wr.ref_count.safe_inc() {
+                let owner = unsafe { PyRef::<PyWeak>::from_raw(wr as *const Py<PyWeak>) };
+                callbacks.push((owner, None));
+                // Keep the owner in the outer batch before taking its callback.
+                let entry = callbacks.last_mut().unwrap();
+                // SAFETY: the referent stripe protects the callback as well.
+                entry.1 = unsafe { &mut *wr.payload.callback.get() }.take();
+            }
+            unsafe { unlink_weakref(self, node) };
+            // Publish death only after unlinking, while the original stripe
+            // still protects this node from a concurrent deallocator.
             wr.payload
                 .wr_object
-                .store(ptr::null_mut(), Ordering::Relaxed);
-
-            // Unlink from list
-            unsafe {
-                let mut ptrs = WeakLink::pointers(node);
-                ptrs.as_mut().set_prev(None);
-                ptrs.as_mut().set_next(None);
-            }
-
-            // Collect callback only if we can still acquire a strong ref.
-            if wr.ref_count.safe_inc() {
-                let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
-                let cb = unsafe { wr.payload.callback.get().replace(None) };
-                if let Some(cb) = cb {
-                    callbacks.push((wr_ref, cb));
-                }
-            }
-
+                .store(ptr::null_mut(), Ordering::Release);
             current = next;
         }
-        self.head.store(ptr::null_mut(), Ordering::Relaxed);
-
-        // Invoke callbacks outside the lock
         drop(_lock);
-        for (wr, cb) in callbacks {
-            crate::vm::thread::with_vm(&cb, |vm| {
-                let _ = cb.call((wr.clone(),), vm);
-            });
+        for (wr, callback) in callbacks {
+            if let Some(cb) = callback {
+                crate::vm::thread::with_vm(&cb, |vm| {
+                    let _raised = vm.preserve_raised_exception();
+                    let _ = cb.call((wr.clone(),), vm);
+                });
+            }
         }
     }
 
-    /// Clear all weakrefs but DON'T call callbacks. Instead, return them for later invocation.
-    /// Used by GC to ensure ALL weakrefs are cleared BEFORE any callbacks are invoked.
-    /// handle_weakrefs() clears all weakrefs first, then invokes callbacks.
-    fn clear_for_gc_collect_callbacks(&self, obj: &PyObject) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
-        let obj_addr = obj as *const PyObject as usize;
-        let _lock = weakref_lock::lock(obj_addr);
-
-        // Clear generic cache
-        self.generic.store(ptr::null_mut(), Ordering::Relaxed);
-
+    /// Clear callback-bearing weakrefs before finalizers. Retain callback
+    /// ownership on each weakref until its later tp_clear or deallocation.
+    fn clear_for_gc_collect_callbacks(
+        &self,
+        obj: &PyObject,
+        is_unreachable: &impl Fn(&PyObject) -> bool,
+    ) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
+        let mut owners: Vec<PyRef<PyWeak>> = Vec::new();
         let mut callbacks = Vec::new();
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
         let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
         while let Some(node) = current {
             let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
-
             let wr = unsafe { node.as_ref() };
-
-            // Mark weakref as dead
-            wr.payload
-                .wr_object
-                .store(ptr::null_mut(), Ordering::Relaxed);
-
-            // Unlink from list
-            unsafe {
-                let mut ptrs = WeakLink::pointers(node);
-                ptrs.as_mut().set_prev(None);
-                ptrs.as_mut().set_next(None);
-            }
-
-            // Collect callback without invoking only if we can keep weakref alive.
-            if wr.ref_count.safe_inc() {
-                let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
-                let cb = unsafe { wr.payload.callback.get().replace(None) };
-                if let Some(cb) = cb {
-                    callbacks.push((wr_ref, cb));
+            // SAFETY: the referent stripe protects this borrowed callback.
+            let callback = unsafe { &*wr.payload.callback.get() };
+            if callback.is_some() {
+                owners.reserve(1);
+                callbacks.reserve(1);
+                if !is_unreachable(wr.as_object()) && wr.ref_count.safe_inc() {
+                    let owner = unsafe { PyRef::<PyWeak>::from_raw(wr as *const Py<PyWeak>) };
+                    owners.push(owner);
+                    let callback = callback.clone();
+                    if let Some(callback) = callback {
+                        callbacks.push((owners.last().unwrap().clone(), callback));
+                    }
                 }
+                unsafe { unlink_weakref(self, node) };
+                // No node access after publishing null without a strong pin.
+                wr.payload
+                    .wr_object
+                    .store(ptr::null_mut(), Ordering::Release);
             }
-
             current = next;
         }
-        self.head.store(ptr::null_mut(), Ordering::Relaxed);
-
+        drop(_lock);
         callbacks
+    }
+
+    /// Unlink remaining weakrefs without invoking or releasing callbacks.
+    fn clear_for_gc(&self, obj: &PyObject) {
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+        self.generic.store(ptr::null_mut(), Ordering::Relaxed);
+        let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
+        while let Some(node) = current {
+            let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
+            let wr = unsafe { node.as_ref() };
+            unsafe { unlink_weakref(self, node) };
+            // Publishing null is the final access to this unpinned node.
+            wr.payload
+                .wr_object
+                .store(ptr::null_mut(), Ordering::Release);
+            current = next;
+        }
     }
 
     fn count(&self, obj: &PyObject) -> usize {
@@ -968,13 +1035,14 @@ impl WeakRefList {
     }
 
     fn get_weak_references(&self, obj: &PyObject) -> Vec<PyRef<PyWeak>> {
-        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
         let mut v = Vec::new();
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
         let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
         while let Some(node) = current {
             let wr = unsafe { node.as_ref() };
+            v.reserve(1);
             if wr.ref_count.safe_inc() {
-                v.push(unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) });
+                v.push(unsafe { PyRef::<PyWeak>::from_raw(wr as *const Py<PyWeak>) });
             }
             current = unsafe { WeakLink::pointers(node).as_ref().get_next() };
         }
@@ -1001,7 +1069,7 @@ unsafe impl Link for WeakLink {
 
     #[inline(always)]
     unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self::Handle {
-        unsafe { PyRef::from_raw(ptr.as_ptr()) }
+        unsafe { PyRef::<PyWeak>::from_raw(ptr.as_ptr()) }
     }
 
     #[inline(always)]
@@ -1012,20 +1080,27 @@ unsafe impl Link for WeakLink {
 }
 
 // PyWeakReference: each weakref holds a direct pointer to its referent.
-#[pyclass(name = "ReferenceType", module = "weakref")]
+#[pyclass(name = "ReferenceType", module = "weakref", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<Py<Self>>,
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
     wr_object: PyAtomic<*mut PyObject>,
-    /// Protected by stripe lock (keyed on wr_object address).
+    /// Handle to the original static referent stripe, like CPython's
+    /// weakrefs_lock. The same stripe protects the callback even after
+    /// wr_object becomes null and the referent is freed.
+    weakrefs_lock: weakref_lock::WeakrefLock,
+    /// Owned callback edge, protected by the original referent stripe.
+    /// GC can retain this edge after unlinking the weakref.
     callback: UnsafeCell<Option<PyObjectRef>>,
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
 
 cfg_select! {
     feature = "threading" => {
+        // SAFETY: mutable callback and list access is serialized by the
+        // original referent stripe; referent and hash reads are atomic.
         unsafe impl Send for PyWeak {}
         unsafe impl Sync for PyWeak {}
     }
@@ -1060,42 +1135,40 @@ impl PyWeak {
         self.wr_object.load(Ordering::Acquire).is_null()
     }
 
-    /// Get the callback associated with this weak reference.
-    /// Returns `None` if there is no callback or if the referent has been
-    /// collected (at which point the callback was already consumed).
+    /// Get the owned callback, which GC can retain after clearing the referent.
     pub(crate) fn get_callback(&self) -> Option<PyObjectRef> {
-        let obj_ptr = self.wr_object.load(Ordering::Acquire);
-        if obj_ptr.is_null() {
-            // Dead weakref: callback was consumed during clear
-            return None;
-        }
-
-        let _lock = weakref_lock::lock(obj_ptr as usize);
-
-        // Double-check under lock (clear may have run between our check and lock)
-        let obj_ptr = self.wr_object.load(Ordering::Relaxed);
-        if obj_ptr.is_null() {
-            return None;
-        }
-
-        // Safety: we hold the stripe lock that protects the callback field
-        let callback = unsafe { &*self.callback.get() };
-        callback.clone()
+        let _lock = self.weakrefs_lock.lock();
+        // SAFETY: the original referent stripe protects the callback.
+        unsafe { &*self.callback.get() }.clone()
     }
 
-    /// weakref_dealloc: remove from list if still linked.
-    fn drop_inner(&self) {
-        let obj_ptr = self.wr_object.load(Ordering::Acquire);
-        if obj_ptr.is_null() {
-            return; // Already cleared by WeakRefList::clear()
+    /// Unlink and steal the callback under the original referent stripe.
+    /// Return ownership so callers release it only after unlocking.
+    fn clear(&self) -> Option<PyObjectRef> {
+        let _lock = self.weakrefs_lock.lock();
+        // SAFETY: the original referent stripe protects both fields, including
+        // callbacks retained by GC after the weakref was already unlinked.
+        unsafe {
+            self.clear_ref_lock_held();
+            (&mut *self.callback.get()).take()
         }
+    }
 
-        let _lock = weakref_lock::lock(obj_ptr as usize);
+    /// _PyWeakref_ClearRef: unlink without releasing the callback.
+    fn clear_ref(&self) {
+        let _lock = self.weakrefs_lock.lock();
+        // SAFETY: the original referent stripe is held.
+        unsafe { self.clear_ref_lock_held() };
+    }
 
-        // Double-check under lock
+    /// Unlink without releasing the callback.
+    ///
+    /// # Safety
+    /// The original referent stripe must be held.
+    unsafe fn clear_ref_lock_held(&self) {
         let obj_ptr = self.wr_object.load(Ordering::Relaxed);
         if obj_ptr.is_null() {
-            return; // Cleared between our check and lock acquisition
+            return;
         }
 
         let obj = unsafe { &*obj_ptr };
@@ -1118,12 +1191,31 @@ impl PyWeak {
     }
 }
 
+// SAFETY: the callback is the only owned Python edge; wr_object is borrowed.
+unsafe impl Traverse for PyWeak {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        // Stripe critical sections never suspend or run Python, so a stopped
+        // thread cannot own this lock. Also synchronize gc.get_referents(),
+        // which traverses while other threads are running.
+        let _lock = self.weakrefs_lock.lock();
+        // SAFETY: the original referent stripe protects the callback.
+        unsafe { &*self.callback.get() }.traverse(tracer_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        let callback = Self::clear(self);
+        if let Some(callback) = callback {
+            out.push(callback);
+        }
+    }
+}
+
 impl Drop for PyWeak {
     #[inline(always)]
     fn drop(&mut self) {
         // we do NOT have actual exclusive access!
         let me: &Self = self;
-        me.drop_inner();
+        drop(me.clear());
     }
 }
 
@@ -1513,37 +1605,10 @@ impl<T: PyPayload> core::ops::DerefMut for FreeList<T> {
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-#[repr(transparent)]
-pub struct PyObjectRef {
-    ptr: NonNull<PyObject>,
-}
-
-impl Clone for PyObjectRef {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        (**self).to_owned()
-    }
-}
-
-cfg_select! {
-    feature = "threading" => {
-        unsafe impl Send for PyObjectRef {}
-        unsafe impl Sync for PyObjectRef {}
-    }
-    _ => {}
-}
+pub type PyObjectRef = PyRef<PyObject>;
 
 #[repr(transparent)]
 pub struct PyObject(Py<Erased>);
-
-impl Deref for PyObjectRef {
-    type Target = PyObject;
-
-    #[inline(always)]
-    fn deref(&self) -> &PyObject {
-        unsafe { self.ptr.as_ref() }
-    }
-}
 
 impl ToOwned for PyObject {
     type Owned = PyObjectRef;
@@ -1552,7 +1617,8 @@ impl ToOwned for PyObject {
     fn to_owned(&self) -> Self::Owned {
         self.0.ref_count.inc();
         PyObjectRef {
-            ptr: NonNull::from(self),
+            ptr: NonNull::from(self).cast(),
+            marker: PhantomData,
         }
     }
 }
@@ -1566,7 +1632,8 @@ impl PyObject {
     pub fn try_to_owned(&self) -> Option<PyObjectRef> {
         if self.0.ref_count.safe_inc() {
             Some(PyObjectRef {
-                ptr: NonNull::from(self),
+                ptr: NonNull::from(self).cast(),
+                marker: PhantomData,
             })
         } else {
             None
@@ -1590,6 +1657,7 @@ impl PyObject {
         if ref_count.safe_inc() {
             Some(PyObjectRef {
                 ptr: unsafe { NonNull::new_unchecked(ptr) },
+                marker: PhantomData,
             })
         } else {
             None
@@ -1621,7 +1689,10 @@ impl PyObjectRef {
     #[inline(always)]
     #[must_use]
     pub const unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
-        Self { ptr }
+        Self {
+            ptr: ptr.cast(),
+            marker: PhantomData,
+        }
     }
 
     /// Attempt to downcast this reference to a subclass.
@@ -1653,7 +1724,8 @@ impl PyObjectRef {
         // manual impl to avoid assertion
         let obj = ManuallyDrop::new(self);
         PyRef {
-            ptr: obj.ptr.cast(),
+            ptr: obj.ptr,
+            marker: PhantomData,
         }
     }
 
@@ -1698,7 +1770,7 @@ impl PyObject {
         } else {
             let head = unsafe { &*head_ptr };
             if head.ref_count.safe_inc() {
-                Some(unsafe { PyRef::from_raw(head_ptr) }.into())
+                Some(unsafe { PyRef::<PyWeak>::from_raw(head_ptr) }.into())
             } else {
                 None
             }
@@ -2117,13 +2189,16 @@ impl PyObject {
                 // during __del__, preventing safe_inc from seeing 0.
                 zelf.0.ref_count.inc_by(2);
 
-                let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
-                if let Err(e) = slot_del(zelf, vm) {
-                    let msg = del_method
-                        .repr(vm)
-                        .ok()
-                        .map(|r| format!("Exception ignored while calling deallocator {r}"));
-                    vm.run_unraisable(e, msg, del_method);
+                {
+                    let _raised = vm.preserve_raised_exception();
+                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
+                    if let Err(e) = slot_del(zelf, vm) {
+                        let msg = del_method
+                            .repr(vm)
+                            .ok()
+                            .map(|r| format!("Exception ignored while calling deallocator {r}"));
+                        vm.run_unraisable(e, msg, del_method);
+                    }
                 }
 
                 // Undo the temporary resurrection. Always remove both
@@ -2165,7 +2240,7 @@ impl PyObject {
         }
 
         // Clear weak refs AFTER __del__.
-        // Note: This differs from GC behavior which clears weakrefs before finalizers,
+        // GC clears callback-bearing weakrefs before finalizers and the rest later,
         // but for direct deallocation (drop_slow_inner), we need to allow the finalizer
         // to run without triggering use-after-free from WeakRefList operations.
         if let Some(wrl) = self.weak_ref_list() {
@@ -2249,6 +2324,15 @@ impl PyObject {
         GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::TRACKED)
     }
 
+    /// Whether this object's payload or instance storage can own GC edges.
+    /// Unlike is_gc_tracked, this also covers temporarily untracked objects.
+    #[inline]
+    pub(crate) fn gc_may_have_edges(&self) -> bool {
+        self.0.vtable.trace.is_some()
+            || self.class().heaptype_ext.is_some()
+            || self.0.ext_ref().is_some()
+    }
+
     /// Get the referents (objects directly referenced) of this object.
     /// Uses the full traverse including dict and slots.
     pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
@@ -2278,6 +2362,7 @@ impl PyObject {
             // This ensures drop_slow_inner() won't call __del__ again
             self.set_gc_finalized();
             let result = crate::vm::thread::with_vm(self, |vm| {
+                let _raised = vm.preserve_raised_exception();
                 if let Err(e) = slot_del(self, vm)
                     && let Some(del_method) = self.get_class_attr(identifier!(vm, __del__))
                 {
@@ -2292,15 +2377,27 @@ impl PyObject {
         }
     }
 
-    /// Clear weakrefs but collect callbacks instead of calling them.
-    /// This is used by GC to ensure ALL weakrefs are cleared BEFORE any callbacks run.
-    /// Returns collected callbacks as (PyRef<PyWeak>, callback) pairs.
-    // = handle_weakrefs
-    pub fn gc_clear_weakrefs_collect_callbacks(&self) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
+    /// Clear callback-bearing weakrefs before finalizers and return callbacks
+    /// belonging to reachable weakrefs for invocation outside the list lock.
+    pub fn gc_clear_weakrefs_collect_callbacks(
+        &self,
+        is_unreachable: &impl Fn(&Self) -> bool,
+    ) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
         if let Some(wrl) = self.weak_ref_list() {
-            wrl.clear_for_gc_collect_callbacks(self)
+            wrl.clear_for_gc_collect_callbacks(self, is_unreachable)
         } else {
             vec![]
+        }
+    }
+
+    /// Clear weakrefs both in and pointing into the final unreachable set.
+    /// Callback edges remain owned until tp_clear or deallocation.
+    pub(crate) fn gc_clear_weakrefs(&self) {
+        if let Some(weakref) = self.downcast_ref::<PyWeak>() {
+            weakref.clear_ref();
+        }
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear_for_gc(self);
         }
     }
 
@@ -2400,33 +2497,10 @@ impl PyObject {
     }
 }
 
-impl Borrow<PyObject> for PyObjectRef {
-    #[inline(always)]
-    fn borrow(&self) -> &PyObject {
-        self
-    }
-}
-
-impl AsRef<PyObject> for PyObjectRef {
-    #[inline(always)]
-    fn as_ref(&self) -> &PyObject {
-        self
-    }
-}
-
 impl<'a, T: PyPayload> From<&'a Py<T>> for &'a PyObject {
     #[inline(always)]
     fn from(py_ref: &'a Py<T>) -> Self {
         py_ref.as_object()
-    }
-}
-
-impl Drop for PyObjectRef {
-    #[inline]
-    fn drop(&mut self) {
-        if self.0.ref_count.dec() {
-            unsafe { PyObject::drop_slow(self.ptr) }
-        }
     }
 }
 
@@ -2435,12 +2509,6 @@ impl fmt::Debug for PyObject {
         // SAFETY: the vtable contains functions that accept payload types that always match up
         // with the payload of the object
         unsafe { (self.0.vtable.debug)(self, f) }
-    }
-}
-
-impl fmt::Debug for PyObjectRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_object().fmt(f)
     }
 }
 
@@ -2655,14 +2723,15 @@ impl<T: PyPayload> Py<T> {
     }
 }
 
-impl<T> ToOwned for Py<T> {
+impl<T: PyRefTarget<Target = Self>> ToOwned for Py<T> {
     type Owned = PyRef<T>;
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
         self.ref_count.inc();
         PyRef {
-            ptr: NonNull::from(self),
+            ptr: NonNull::from(self).cast(),
+            marker: PhantomData,
         }
     }
 }
@@ -2721,6 +2790,69 @@ impl<T: PyPayload + core::fmt::Debug> fmt::Debug for Py<T> {
     }
 }
 
+mod ref_target_sealed {
+    pub trait Sealed {}
+    impl<T: super::PyPayload> Sealed for T {}
+    impl Sealed for super::PyObject {}
+    impl Sealed for crate::builtins::set::PyAnySet {}
+    impl Sealed for crate::builtins::PyAnyDict {}
+    impl<T: super::PyTypedRefTarget> Sealed for super::PyTuple<super::PyRef<T>> {}
+}
+
+/// Selects the borrowed view of a Python reference.
+///
+/// Payloads borrow `Py<T>`; `PyObject` borrows the erased object itself.
+/// This trait is sealed so safe code cannot choose an unrelated layout.
+/// Typed tuples are immutable views of the ordinary tuple allocation.
+/// Internal union views borrow an erased header and dispatch on the payload;
+/// they must not assume that their alternative payloads have the same layout.
+///
+/// An arbitrary borrowed layout cannot be registered by downstream code:
+///
+/// ```compile_fail
+/// use rustpython_vm::object::PyRefTarget;
+/// struct Unrelated;
+/// impl PyRefTarget for Unrelated {
+///     type Target = u8;
+/// }
+/// ```
+pub trait PyRefTarget: ref_target_sealed::Sealed {
+    type Target;
+}
+
+impl<T: PyPayload> PyRefTarget for T {
+    type Target = Py<T>;
+}
+
+impl PyRefTarget for PyObject {
+    type Target = Self;
+}
+
+/// A non-erased reference target that can be an element of a typed tuple view.
+///
+/// This is sealed through [`PyRefTarget`]. Payloads, registered union views and
+/// recursively typed tuples qualify; `PyObject` does not, since ordinary tuples
+/// already implement [`PyPayload`]. This marker selects a layout, not a runtime
+/// type check: checked element conversion still requires
+/// [`crate::convert::TransmuteFromObject`].
+pub trait PyTypedRefTarget: PyRefTarget {}
+
+impl<T: PyRefTarget<Target = Py<T>>> PyTypedRefTarget for T {}
+impl PyTypedRefTarget for crate::builtins::set::PyAnySet {}
+impl PyTypedRefTarget for crate::builtins::PyAnyDict {}
+
+impl PyRefTarget for crate::builtins::PyAnyDict {
+    type Target = Self;
+}
+
+impl PyRefTarget for crate::builtins::set::PyAnySet {
+    type Target = Self;
+}
+
+impl<T: PyTypedRefTarget> PyRefTarget for PyTuple<PyRef<T>> {
+    type Target = Py<Self>;
+}
+
 /// A reference to a Python object.
 ///
 /// Note that a `PyRef<T>` can only deref to a shared / immutable reference.
@@ -2732,7 +2864,9 @@ impl<T: PyPayload + core::fmt::Debug> fmt::Debug for Py<T> {
 /// where a reference to the same object must be returned.
 #[repr(transparent)]
 pub struct PyRef<T> {
-    ptr: NonNull<Py<T>>,
+    ptr: NonNull<PyObject>,
+    // Preserve the variance and auto traits of the former typed pointer.
+    marker: PhantomData<NonNull<Py<T>>>,
 }
 
 cfg_select! {
@@ -2743,17 +2877,17 @@ cfg_select! {
     _ => {}
 }
 
-impl<T: fmt::Debug> fmt::Debug for PyRef<T> {
+impl<T> fmt::Debug for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (**self).fmt(f)
+        self.as_ref().fmt(f)
     }
 }
 
 impl<T> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
-        if self.ref_count.dec() {
-            unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
+        if unsafe { self.ptr.as_ref() }.0.ref_count.dec() {
+            unsafe { PyObject::drop_slow(self.ptr) }
         }
     }
 }
@@ -2761,14 +2895,48 @@ impl<T> Drop for PyRef<T> {
 impl<T> Clone for PyRef<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
-        (**self).to_owned()
+        unsafe { self.ptr.as_ref() }.0.ref_count.inc();
+        Self {
+            ptr: self.ptr,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<T: PyRefTarget> PyRef<T> {
+    /// Transfers ownership from an erased reference to a registered view.
+    ///
+    /// # Safety
+    /// The object must satisfy all invariants of `T::Target`, including its
+    /// payload restrictions. Registering a target establishes its layout only;
+    /// the caller must validate this particular object before the transfer.
+    #[inline]
+    pub(crate) unsafe fn from_object_unchecked(object: PyObjectRef) -> Self {
+        let object = ManuallyDrop::new(object);
+        Self {
+            ptr: object.ptr,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<T> PyRef<T> {
+    /// Erases the borrowed view, transferring the existing strong reference.
+    #[inline]
+    #[must_use]
+    pub fn into_object(self) -> PyObjectRef {
+        let object = ManuallyDrop::new(self);
+        PyObjectRef {
+            ptr: object.ptr,
+            marker: PhantomData,
+        }
     }
 }
 
 impl<T: PyPayload> PyRef<T> {
     #[inline(always)]
     pub(super) const fn into_non_null(self) -> NonNull<Py<T>> {
-        let ptr = self.ptr;
+        let ptr = self.ptr.cast();
         core::mem::forget(self);
         ptr
     }
@@ -2778,7 +2946,10 @@ impl<T: PyPayload> PyRef<T> {
     #[must_use]
     #[inline(always)]
     pub const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
-        Self { ptr }
+        Self {
+            ptr: ptr.cast(),
+            marker: PhantomData,
+        }
     }
 
     /// # Safety
@@ -2792,15 +2963,13 @@ impl<T: PyPayload> PyRef<T> {
     #[inline(always)]
     unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
         debug_assert!(obj.downcast_ref::<T>().is_some());
-        let obj = ManuallyDrop::new(obj);
-        Self {
-            ptr: obj.ptr.cast(),
-        }
+        // SAFETY: the caller guarantees the payload type.
+        unsafe { Self::from_object_unchecked(obj) }
     }
 
     #[must_use]
     pub const fn leak(pyref: Self) -> &'static Py<T> {
-        let ptr = pyref.ptr;
+        let ptr = pyref.ptr.cast::<Py<T>>();
         core::mem::forget(pyref);
         unsafe { ptr.as_ref() }
     }
@@ -2809,8 +2978,40 @@ impl<T: PyPayload> PyRef<T> {
 impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
+        Self::new_ref_impl(payload, typ, dict, true)
+    }
+
+    /// Allocate and track internal storage without running collection during
+    /// publication. The next ordinary tracked allocation still checks thresholds.
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    pub(crate) fn new_ref_without_collection(
+        payload: T,
+        typ: crate::builtins::PyTypeRef,
+        dict: Option<PyDictRef>,
+    ) -> Self {
+        Self::new_ref_impl(payload, typ, dict, false)
+    }
+
+    #[inline(always)]
+    fn new_ref_impl(
+        payload: T,
+        typ: crate::builtins::PyTypeRef,
+        dict: Option<PyDictRef>,
+        allow_collection: bool,
+    ) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
+        let track = !T::NEW_REF_UNTRACKED
+            && (has_dict || is_heaptype || (T::HAS_TRAVERSE && payload.needs_gc(&typ)));
 
         // Try to reuse from freelist (no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
@@ -2843,22 +3044,23 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         };
 
         // Track object if:
-        // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
+        // - HAS_TRAVERSE is true and the payload needs cyclic GC, OR
         // - has instance dict (user-defined class instances), OR
         // - heap type (all heap type instances are GC-tracked, like Py_TPFLAGS_HAVE_GC)
         // unless the payload opts out via NEW_REF_UNTRACKED (e.g. call frames,
         // which are tracked lazily only on escape).
-        if (<T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype)
-            && !T::NEW_REF_UNTRACKED
-        {
-            // Tracks under the interpreter running now and collects if this
-            // allocation pushed gen0 past its threshold.
+        if track {
+            // Tracks under the interpreter running now and, when allowed,
+            // collects if this allocation pushed gen0 past its threshold.
             unsafe {
-                crate::gc_state::track_new_object(ptr.cast());
+                crate::gc_state::track_new_object_impl(ptr.cast(), allow_collection);
             }
         }
 
-        Self { ptr }
+        Self {
+            ptr: ptr.cast(),
+            marker: PhantomData,
+        }
     }
 }
 
@@ -2867,15 +3069,16 @@ where
     T::Base: core::fmt::Debug,
 {
     /// Converts this reference to the base type (ownership transfer).
-    /// # Safety
-    /// T and T::Base must have compatible layouts in size_of::<T::Base>() bytes.
     #[inline]
     #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
-        let obj: PyObjectRef = self.into();
-        match obj.downcast() {
-            Ok(base_ref) => base_ref,
-            Err(_) => unsafe { core::hint::unreachable_unchecked() },
+        // PySubclass establishes the physical prefix; Python may have changed
+        // the object's class or MRO since this typed reference was constructed.
+        let ptr = self.ptr.cast();
+        core::mem::forget(self);
+        PyRef {
+            ptr,
+            marker: PhantomData,
         }
     }
     #[inline]
@@ -2897,9 +3100,8 @@ impl<T: crate::class::PySubclass> Py<T> {
     /// Converts `&Py<T>` to `&Py<T::Base>`.
     #[inline]
     pub fn to_base(&self) -> &Py<T::Base> {
-        debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
-        // SAFETY: T is #[repr(transparent)] over T::Base,
-        // so Py<T> and Py<T::Base> have the same layout.
+        // SAFETY: PySubclass guarantees a valid base prefix with matching
+        // payload offsets and compatible object alignment.
         unsafe { &*(self as *const Self as *const Py<T::Base>) }
     }
 
@@ -2915,54 +3117,47 @@ impl<T: crate::class::PySubclass> Py<T> {
     }
 }
 
-impl<T> Borrow<PyObject> for PyRef<T>
-where
-    T: PyPayload,
-{
+impl<T> Borrow<PyObject> for PyRef<T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
-        (**self).as_object()
+        unsafe { self.ptr.as_ref() }
     }
 }
 
-impl<T> AsRef<PyObject> for PyRef<T>
-where
-    T: PyPayload,
-{
+impl<T> AsRef<PyObject> for PyRef<T> {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self.borrow()
     }
 }
 
-impl<T> From<PyRef<T>> for PyObjectRef {
+impl<T: PyRefTarget<Target = Py<T>>> From<PyRef<T>> for PyObjectRef {
     #[inline]
     fn from(value: PyRef<T>) -> Self {
-        let me = ManuallyDrop::new(value);
-        Self { ptr: me.ptr.cast() }
+        value.into_object()
     }
 }
 
-impl<T> Borrow<Py<T>> for PyRef<T> {
+impl<T: PyRefTarget<Target = Py<T>>> Borrow<Py<T>> for PyRef<T> {
     #[inline(always)]
     fn borrow(&self) -> &Py<T> {
         self
     }
 }
 
-impl<T> AsRef<Py<T>> for PyRef<T> {
+impl<T: PyRefTarget<Target = Py<T>>> AsRef<Py<T>> for PyRef<T> {
     #[inline(always)]
     fn as_ref(&self) -> &Py<T> {
         self
     }
 }
 
-impl<T> Deref for PyRef<T> {
-    type Target = Py<T>;
+impl<T: PyRefTarget> Deref for PyRef<T> {
+    type Target = T::Target;
 
     #[inline(always)]
-    fn deref(&self) -> &Py<T> {
-        unsafe { self.ptr.as_ref() }
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.ptr.cast::<T::Target>().as_ref() }
     }
 }
 
@@ -3060,12 +3255,12 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
     }
 
     unsafe fn initial_ref<T: PyPayload>(ptr: *mut Py<T>) -> PyRef<T> {
-        unsafe { PyRef::from_raw(ptr.cast()) }
+        unsafe { PyRef::<T>::from_raw(ptr.cast()) }
     }
 
     unsafe fn clone_raw_ref<T: PyPayload>(ptr: *mut Py<T>) -> PyRef<T> {
         unsafe { &*ptr::addr_of!((*ptr).ref_count) }.inc();
-        unsafe { PyRef::from_raw(ptr.cast()) }
+        unsafe { PyRef::<T>::from_raw(ptr.cast()) }
     }
 
     unsafe fn into_type_tuple(tuple: PyTupleRef) -> PyTypeTupleRef {
@@ -3129,6 +3324,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: PyType::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
     let object_payload = PyType {
         base: unsafe { PyAtomicRef::from_optional_ref_without_retag(None) },
@@ -3139,6 +3335,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: object::PyBaseObject::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
     let tuple_payload = PyType {
         base: unsafe {
@@ -3153,6 +3350,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: tuple::PyTuple::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
 
     let object_element =
@@ -3200,6 +3398,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        tp_versions_used: core::sync::atomic::AtomicU16::new(0),
     };
     let weakref_type = PyRef::new_ref(weakref_payload, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)
@@ -3244,6 +3443,172 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct RefProbe(alloc::sync::Arc<core::sync::atomic::AtomicUsize>);
+
+    impl MaybeTraverse for RefProbe {
+        fn try_traverse(&self, _traverse_fn: &mut TraverseFn<'_>) {}
+    }
+
+    impl PyPayload for RefProbe {
+        fn class(ctx: &crate::Context) -> &'static Py<PyType> {
+            ctx.types.object_type
+        }
+    }
+
+    impl Drop for RefProbe {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn pyref_object_layout_and_views() {
+        static_assertions::assert_type_eq_all!(PyObjectRef, PyRef<PyObject>);
+        static_assertions::assert_not_impl_any!(PyObject: PyPayload);
+        static_assertions::assert_impl_all!(PyRef<core::marker::PhantomPinned>: Unpin);
+        static_assertions::assert_eq_size!(
+            PyObjectRef,
+            NonNull<PyObject>,
+            Option<PyObjectRef>,
+            PyRef<RefProbe>,
+            Option<PyRef<RefProbe>>,
+            PyRef<PyTuple<PyRef<RefProbe>>>
+        );
+        static_assertions::assert_eq_align!(
+            PyObjectRef,
+            NonNull<PyObject>,
+            PyRef<RefProbe>,
+            PyRef<PyTuple<PyRef<RefProbe>>>
+        );
+        #[cfg(feature = "threading")]
+        static_assertions::assert_impl_all!(PyRef<PyObject>: Send, Sync);
+        #[cfg(not(feature = "threading"))]
+        static_assertions::assert_not_impl_any!(PyRef<PyObject>: Send, Sync);
+
+        fn erased_view(reference: &PyRef<PyObject>) -> &PyObject {
+            reference
+        }
+        fn payload_view(reference: &PyRef<RefProbe>) -> &Py<RefProbe> {
+            reference
+        }
+        fn tuple_view(
+            reference: &PyRef<PyTuple<PyRef<RefProbe>>>,
+        ) -> &Py<PyTuple<PyRef<RefProbe>>> {
+            reference
+        }
+        type NestedTuple = PyTuple<PyRef<PyTuple<PyRef<RefProbe>>>>;
+        fn nested_view(reference: &PyRef<NestedTuple>) -> &Py<NestedTuple> {
+            reference
+        }
+        fn covariance<'long: 'short, 'short>(reference: PyRef<&'long ()>) -> PyRef<&'short ()> {
+            reference
+        }
+        fn into_object<T: Into<PyObjectRef>>() {}
+        into_object::<PyRef<NestedTuple>>();
+        let _ = (
+            erased_view,
+            payload_view,
+            tuple_view,
+            nested_view,
+            covariance,
+        );
+    }
+
+    #[test]
+    fn pyref_object_ownership_and_raw_roundtrip() {
+        let drops = alloc::sync::Arc::new(core::sync::atomic::AtomicUsize::new(0));
+        let ctx = crate::Context::genesis();
+        let typed = PyRef::new_ref(
+            RefProbe(drops.clone()),
+            ctx.types.object_type.to_owned(),
+            None,
+        );
+        let pointer = typed.as_object() as *const PyObject;
+        assert_eq!(typed.as_object().strong_count(), 1);
+        let erased: PyRef<PyObject> = typed.clone().into();
+        assert_eq!(erased.strong_count(), 2);
+        assert!(core::ptr::eq(&*erased, pointer));
+        let raw = erased.into_raw();
+        assert_eq!(typed.as_object().strong_count(), 2);
+        let erased = unsafe { PyRef::<PyObject>::from_raw(raw) };
+        let erased = erased.downcast::<crate::builtins::PyBytes>().unwrap_err();
+        assert_eq!(erased.strong_count(), 2);
+        let restored = erased.downcast::<RefProbe>().unwrap();
+        assert!(core::ptr::eq(&*typed, &*restored));
+        let raw = restored.into_non_null();
+        let restored = unsafe { PyRef::<RefProbe>::from_non_null(raw) };
+        drop(typed);
+        assert_eq!(restored.as_object().strong_count(), 1);
+        assert_eq!(drops.load(core::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        assert_eq!(drops.load(core::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn pyref_typed_tuple_erased_storage_drops_once() {
+        let ctx = crate::Context::genesis();
+        // Both constructors transfer a Vec allocation into erased tuple storage.
+        for explicit_type in [false, true] {
+            let drops = alloc::sync::Arc::new(core::sync::atomic::AtomicUsize::new(0));
+            let item = PyRef::new_ref(
+                RefProbe(drops.clone()),
+                ctx.types.object_type.to_owned(),
+                None,
+            );
+            let mut elements = Vec::with_capacity(4);
+            elements.push(item.clone());
+            let tuple = if explicit_type {
+                PyTuple::new_ref_typed_with_type(elements, ctx.types.tuple_type.to_owned())
+            } else {
+                PyTuple::new_ref_typed(elements, ctx)
+            };
+            assert_eq!(tuple.as_slice()[0].as_object().strong_count(), 2);
+            let copy = (*tuple).to_owned();
+            let object: PyObjectRef = tuple.into();
+            let untyped = copy.into_untyped();
+            assert_eq!(object.strong_count(), 2);
+            assert!(core::ptr::eq(untyped.as_object(), &*object));
+            assert_eq!(untyped.as_slice()[0].strong_count(), 2);
+            drop(object);
+            drop(item);
+            assert_eq!(drops.load(core::sync::atomic::Ordering::SeqCst), 0);
+            drop(untyped);
+            assert_eq!(drops.load(core::sync::atomic::Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn native_base_conversions_ignore_python_mro() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let class = vm.ctx.new_class(
+                None,
+                "HiddenOSErrorBase",
+                vm.ctx.exceptions.os_error.to_owned(),
+                Default::default(),
+            );
+            let marker: PyObjectRef = vm.ctx.new_int(42).into();
+            let error = vm.new_os_subtype_error(class.clone(), None, marker.clone());
+            // A custom MRO can omit native bases without changing the allocation.
+            *class.mro.write() = vec![class.clone(), vm.ctx.types.object_type.to_owned()];
+            assert!(
+                !error
+                    .as_object()
+                    .downcastable::<crate::exceptions::types::PyException>()
+            );
+
+            assert!(error.to_base().to_base().get_arg(0).unwrap().is(&marker));
+            assert!(
+                error
+                    .into_base()
+                    .into_base()
+                    .get_arg(0)
+                    .unwrap()
+                    .is(&marker)
+            );
+        });
+    }
 
     #[test]
     fn native_type_basicsize_includes_payload_padding() {
@@ -3386,6 +3751,78 @@ mod tests {
         let ctx = crate::Context::genesis();
         let obj = ctx.new_bytes(b"dfghjkl".to_vec());
         drop(obj);
+    }
+
+    #[test]
+    fn weakref_allocation_defers_gc_tracking_until_publication() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let target = vm.ctx.new_class(
+                None,
+                "WeakrefTarget",
+                vm.ctx.types.object_type.to_owned(),
+                Default::default(),
+            );
+            let subclass = vm.ctx.new_class(
+                None,
+                "WeakrefSubclass",
+                vm.ctx.types.weakref_type.to_owned(),
+                Default::default(),
+            );
+            for class in [
+                vm.ctx.types.weakref_type.to_owned(),
+                vm.ctx.types.weakproxy_type.to_owned(),
+                vm.ctx.types.weakcallableproxy_type.to_owned(),
+                subclass,
+            ] {
+                let dict = class
+                    .slots
+                    .flags
+                    .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                    .then(|| vm.ctx.new_dict());
+                // Exercise the allocator boundary directly: an uninitialized
+                // weakref must not be published through GC generation lists.
+                let unpublished = PyRef::new_ref(
+                    PyWeak {
+                        pointers: Pointers::new(),
+                        wr_object: Radium::new(ptr::null_mut()),
+                        weakrefs_lock: weakref_lock::select(
+                            target.as_object() as *const PyObject as usize
+                        ),
+                        callback: UnsafeCell::new(None),
+                        hash: Radium::new(crate::common::hash::SENTINEL),
+                    },
+                    class.clone(),
+                    dict,
+                );
+                assert_eq!(unpublished.as_object().0.gc_bits.load(Ordering::Relaxed), 0);
+                assert!(!unpublished.as_object().is_gc_tracked());
+                assert!(
+                    !vm.state
+                        .gc
+                        .get_objects(None)
+                        .iter()
+                        .any(|object| object.is(unpublished.as_object()))
+                );
+                drop(unpublished);
+
+                let published = target
+                    .as_object()
+                    .downgrade_with_typ(None, class, vm)
+                    .unwrap();
+                assert!(published.as_object().is_gc_tracked());
+                assert!(
+                    vm.state
+                        .gc
+                        .get_objects(None)
+                        .iter()
+                        .any(|object| object.is(published.as_object()))
+                );
+                assert_eq!(
+                    published.wr_object.load(Ordering::Acquire),
+                    target.as_object() as *const PyObject as *mut PyObject,
+                );
+            }
+        });
     }
 
     /// A weakref node stays linked into its target's list until its own

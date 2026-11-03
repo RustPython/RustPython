@@ -1,0 +1,129 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nasync def f(xs):\n    return list(x async for x in xs)\n\nasync def g(xs):\n    return set(x async for x in xs)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:36            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:36            MAKE_FUNCTION
+1:0-2:36            STORE_NAME               0 (f)
+
+4:0-5:35            LOAD_CONST               1 (<code object g at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:35            MAKE_FUNCTION
+4:0-5:35            STORE_NAME               1 (g)
+4:0-5:35            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:35            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:?-1:?              RETURN_GENERATOR
+1:?-1:?              POP_TOP
+1:0-1:0      L1:     RESUME                   0
+
+2:11-2:15            LOAD_GLOBAL              1 (list + NULL)
+2:15-2:36            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 2>)
+2:15-2:36            MAKE_FUNCTION
+2:33-2:35            LOAD_FAST_BORROW         0 (xs)
+2:15-2:36            CALL                     0
+2:11-2:36            CALL                     1
+2:4-2:36             RETURN_VALUE
+
+  --         L2:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L2 [0] lasti
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 2>:
+  --                  RESUME                   4
+
+2:33-2:35             LOAD_FAST_BORROW         0 (.0)
+2:33-2:35             GET_AITER
+2:?-2:?               RETURN_GENERATOR
+2:?-2:?               POP_TOP
+2:0-2:0       L1:     RESUME                   0
+2:15-2:36     L2:     GET_ANEXT
+2:15-2:36             PUSH_NULL
+2:15-2:36             LOAD_COMMON_CONSTANT     7 (None)
+2:15-2:36     L3:     SEND                     4 (to L6)
+2:15-2:36     L4:     YIELD_VALUE              1
+2:15-2:36     L5:     RESUME                   3
+2:15-2:36             JUMP_BACKWARD_NO_INTERRUPT 6 (to L3)
+2:15-2:36     L6:     END_SEND
+2:28-2:29     L7:     STORE_FAST_LOAD_FAST    17 (x, x)
+2:16-2:17             CALL_INTRINSIC_1         4 (INTRINSIC_ASYNC_GEN_WRAP)
+2:16-2:17             YIELD_VALUE              0
+2:16-2:17             RESUME                   9
+2:16-2:17             POP_TOP
+2:16-2:17             JUMP_BACKWARD           18 (to L2)
+2:15-2:36     L8:     CLEANUP_THROW
+2:15-2:36     L9:     JUMP_BACKWARD_NO_INTERRUPT 11 (to L6)
+2:15-2:36    L10:     END_ASYNC_FOR           12 (from L6)
+2:15-2:36             LOAD_COMMON_CONSTANT     7 (None)
+2:15-2:36             RETURN_VALUE
+
+  --         L11:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L11 [1] lasti
+  L2 to L4 -> L10 [1]
+  L4 to L5 -> L8 [4]
+  L5 to L7 -> L10 [1]
+  L7 to L8 -> L11 [1] lasti
+  L8 to L9 -> L10 [1]
+  L10 to L11 -> L11 [1] lasti
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 4>:
+4:?-4:?              RETURN_GENERATOR
+4:?-4:?              POP_TOP
+4:0-4:0      L1:     RESUME                   0
+
+5:11-5:14            LOAD_GLOBAL              1 (set + NULL)
+5:14-5:35            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 5>)
+5:14-5:35            MAKE_FUNCTION
+5:32-5:34            LOAD_FAST_BORROW         0 (xs)
+5:14-5:35            CALL                     0
+5:11-5:35            CALL                     1
+5:4-5:35             RETURN_VALUE
+
+  --         L2:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L2 [0] lasti
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 5>:
+  --                  RESUME                   4
+
+5:32-5:34             LOAD_FAST_BORROW         0 (.0)
+5:32-5:34             GET_AITER
+5:?-5:?               RETURN_GENERATOR
+5:?-5:?               POP_TOP
+5:0-5:0       L1:     RESUME                   0
+5:14-5:35     L2:     GET_ANEXT
+5:14-5:35             PUSH_NULL
+5:14-5:35             LOAD_COMMON_CONSTANT     7 (None)
+5:14-5:35     L3:     SEND                     4 (to L6)
+5:14-5:35     L4:     YIELD_VALUE              1
+5:14-5:35     L5:     RESUME                   3
+5:14-5:35             JUMP_BACKWARD_NO_INTERRUPT 6 (to L3)
+5:14-5:35     L6:     END_SEND
+5:27-5:28     L7:     STORE_FAST_LOAD_FAST    17 (x, x)
+5:15-5:16             CALL_INTRINSIC_1         4 (INTRINSIC_ASYNC_GEN_WRAP)
+5:15-5:16             YIELD_VALUE              0
+5:15-5:16             RESUME                   9
+5:15-5:16             POP_TOP
+5:15-5:16             JUMP_BACKWARD           18 (to L2)
+5:14-5:35     L8:     CLEANUP_THROW
+5:14-5:35     L9:     JUMP_BACKWARD_NO_INTERRUPT 11 (to L6)
+5:14-5:35    L10:     END_ASYNC_FOR           12 (from L6)
+5:14-5:35             LOAD_COMMON_CONSTANT     7 (None)
+5:14-5:35             RETURN_VALUE
+
+  --         L11:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L11 [1] lasti
+  L2 to L4 -> L10 [1]
+  L4 to L5 -> L8 [4]
+  L5 to L7 -> L10 [1]
+  L7 to L8 -> L11 [1] lasti
+  L8 to L9 -> L10 [1]
+  L10 to L11 -> L11 [1] lasti

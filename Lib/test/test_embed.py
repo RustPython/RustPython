@@ -68,6 +68,9 @@ STDLIB_INSTALL = os.path.join(sys.prefix, sys.platlibdir,
 if not os.path.isfile(os.path.join(STDLIB_INSTALL, 'os.py')):
     STDLIB_INSTALL = None
 
+CODE_EXITCODE_123 = 'raise SystemExit(123)'
+
+
 def debug_build(program):
     program = os.path.basename(program)
     name = os.path.splitext(program)[0]
@@ -117,12 +120,16 @@ class EmbeddingTestsMixin:
             env = env.copy()
             env['SYSTEMROOT'] = os.environ['SYSTEMROOT']
 
-        p = subprocess.Popen(cmd,
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE,
-                             universal_newlines=True,
-                             env=env,
-                             cwd=cwd)
+        kwargs = dict(
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            env=env,
+            cwd=cwd,
+        )
+        if input is not None:
+            kwargs['stdin'] = subprocess.PIPE
+        p = subprocess.Popen(cmd, **kwargs)
         try:
             (out, err) = p.communicate(input=input, timeout=timeout)
         except:
@@ -239,6 +246,17 @@ class EmbeddingTests(EmbeddingTestsMixin, unittest.TestCase):
         lines = "\n".join(lines) + "\n"
         self.assertEqual(out, lines)
 
+    def test_create_module_from_initfunc(self):
+        out, err = self.run_embedded_interpreter("test_create_module_from_initfunc")
+        self.assertEqual(self._nogil_filtered_err(err, "embedded_ext"), "")
+        self.assertEqual(out,
+                         "<module 'my_test_extension' (static-extension)>\n"
+                         "my_test_extension.executed='yes'\n"
+                         "my_test_extension.exec_slot_ran='yes'\n"
+                         "<module 'embedded_ext' (static-extension)>\n"
+                         "embedded_ext.executed='yes'\n"
+                         )
+
     def test_inittab_submodule_multiphase(self):
         out, err = self.run_embedded_interpreter("test_inittab_submodule_multiphase")
         self.assertEqual(err, "")
@@ -316,7 +334,7 @@ class EmbeddingTests(EmbeddingTestsMixin, unittest.TestCase):
         if MS_WINDOWS:
             expected_path = self.test_exe
         else:
-            expected_path = os.path.join(os.getcwd(), "spam")
+            expected_path = os.path.join(os.getcwd(), "_testembed")
         expected_output = f"sys.executable: {expected_path}\n"
         self.assertIn(expected_output, out)
         self.assertEqual(err, '')
@@ -554,6 +572,55 @@ class EmbeddingTests(EmbeddingTestsMixin, unittest.TestCase):
         ]
         return "\n".join(filtered_err_lines)
 
+    def check_program_exitcode(self, *args, check_stderr=True, **kwargs):
+        out, err = self.run_embedded_interpreter(*args, **kwargs)
+        self.assertEqual(out.rstrip(), 'ok! Py_RunMain() returned 123')
+        if check_stderr:
+            self.assertEqual(err, '')
+
+    def test_init_run_main_code_exitcode(self):
+        code = CODE_EXITCODE_123
+        self.check_program_exitcode("test_init_run_main_code_exitcode", code)
+
+    def test_init_run_main_script_exitcode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, 'script.py')
+            with open(filename, 'w') as fp:
+                fp.write(CODE_EXITCODE_123)
+
+            self.check_program_exitcode("test_init_run_main_script_exitcode",
+                                        filename)
+
+    def test_init_run_main_interactive_exitcode(self):
+        code = CODE_EXITCODE_123
+        self.check_program_exitcode("test_init_run_main_interactive_exitcode",
+                                    input=code,
+                                    check_stderr=False)
+
+    def test_init_run_main_startup_exitcode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, 'startup.py')
+            with open(filename, 'x') as fp:
+                fp.write(CODE_EXITCODE_123)
+
+            env = dict(os.environ)
+            env['PYTHONSTARTUP'] = filename
+            self.check_program_exitcode("test_init_run_main_interactive_exitcode",
+                                        env=env,
+                                        check_stderr=False)
+
+    def test_init_run_main_module_exitcode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            modname = '_testembed_testmodule'
+            filename = os.path.join(tmpdir, modname + '.py')
+            with open(filename, 'x', encoding='utf8') as fp:
+                fp.write(CODE_EXITCODE_123)
+
+            env = dict(os.environ)
+            env['PYTHONPATH'] = tmpdir
+            self.check_program_exitcode("test_init_run_main_module_exitcode",
+                                        modname, env=env)
+
 
 def config_dev_mode(preconfig, config):
     preconfig['allocator'] = PYMEM_ALLOCATOR_DEBUG
@@ -581,7 +648,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'configure_locale': True,
         'coerce_c_locale': False,
         'coerce_c_locale_warn': False,
-        'utf8_mode': False,
+        'utf8_mode': True,
     }
     if MS_WINDOWS:
         PRE_CONFIG_COMPAT.update({
@@ -598,7 +665,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         configure_locale=False,
         isolated=True,
         use_environment=False,
-        utf8_mode=False,
+        utf8_mode=True,
         dev_mode=False,
         coerce_c_locale=False,
     )
@@ -624,6 +691,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'tracemalloc': 0,
         'perf_profiling': 0,
         'import_time': 0,
+        'lazy_imports': -1,
         'thread_inherit_context': DEFAULT_THREAD_INHERIT_CONTEXT,
         'context_aware_warnings': DEFAULT_CONTEXT_AWARE_WARNINGS,
         'code_debug_ranges': True,
@@ -631,6 +699,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'dump_refs': False,
         'dump_refs_file': None,
         'malloc_stats': False,
+        'pymalloc_hugepages': False,
 
         'filesystem_encoding': GET_DEFAULT_CONFIG,
         'filesystem_errors': GET_DEFAULT_CONFIG,
@@ -843,12 +912,6 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
                         'stdio_encoding', 'stdio_errors'):
                 expected[key] = self.IGNORE_CONFIG
 
-        if not expected_preconfig['configure_locale']:
-            # UTF-8 Mode depends on the locale. There is no easy way
-            # to guess if UTF-8 Mode will be enabled or not if the locale
-            # is not configured.
-            expected_preconfig['utf8_mode'] = self.IGNORE_CONFIG
-
         if expected_preconfig['utf8_mode'] == 1:
             if expected['filesystem_encoding'] is self.GET_DEFAULT_CONFIG:
                 expected['filesystem_encoding'] = 'utf-8'
@@ -1007,7 +1070,6 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'utf8_mode': True,
         }
         config = {
-            'program_name': './globalvar',
             'site_import': False,
             'bytes_warning': True,
             'warnoptions': ['default::BytesWarning'],
@@ -1040,6 +1102,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'code_debug_ranges': False,
             'show_ref_count': True,
             'malloc_stats': True,
+            'pymalloc_hugepages': True,
 
             'stdio_encoding': 'iso8859-1',
             'stdio_errors': 'replace',
@@ -1105,6 +1168,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'import_time': 1,
             'code_debug_ranges': False,
             'malloc_stats': True,
+            'pymalloc_hugepages': True,
             'inspect': True,
             'optimization_level': 2,
             'pythonpath_env': '/my/path',
@@ -1141,6 +1205,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'import_time': 1,
             'code_debug_ranges': False,
             'malloc_stats': True,
+            'pymalloc_hugepages': True,
             'inspect': True,
             'optimization_level': 2,
             'pythonpath_env': '/my/path',
@@ -1277,21 +1342,6 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         self.check_all_configs("test_init_dont_configure_locale", {}, preconfig,
                                api=API_PYTHON)
 
-    @unittest.skip('as of 3.11 this test no longer works because '
-                   'path calculations do not occur on read')
-    def test_init_read_set(self):
-        config = {
-            'program_name': './init_read_set',
-            'executable': 'my_executable',
-            'base_executable': 'my_executable',
-        }
-        def modify_path(path):
-            path.insert(1, "test_path_insert1")
-            path.append("test_path_append")
-        self.check_all_configs("test_init_read_set", config,
-                               api=API_PYTHON,
-                               modify_path_cb=modify_path)
-
     def test_init_sys_add(self):
         config = {
             'faulthandler': 1,
@@ -1324,6 +1374,24 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'sys_path_0': '',
         }
         self.check_all_configs("test_init_run_main", config, api=API_PYTHON)
+
+    def test_init_main(self):
+        code = ('import _testinternalcapi, json; '
+                'print(json.dumps(_testinternalcapi.get_configs()))')
+        config = {
+            'argv': ['-c', 'arg2'],
+            'orig_argv': ['python3',
+                          '-c', code,
+                          'arg2'],
+            'program_name': './python3',
+            'run_command': code + '\n',
+            'parse_argv': True,
+            '_init_main': False,
+            'sys_path_0': '',
+        }
+        self.check_all_configs("test_init_main", config,
+                               api=API_PYTHON,
+                               stderr="Run Python code before _Py_InitializeMain")
 
     def test_init_parse_argv(self):
         config = {
@@ -1417,7 +1485,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         if prefix is None:
             prefix = config['config']['prefix']
         if exec_prefix is None:
-            exec_prefix = config['config']['prefix']
+            exec_prefix = config['config']['exec_prefix']
         if MS_WINDOWS:
             return config['config']['module_search_paths']
         else:
@@ -1497,8 +1565,12 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         }
         self.default_program_name(config)
         env = {'TESTHOME': home, 'PYTHONPATH': paths_str}
+        # When running from source, TESTHOME will be the build directory, which
+        # isn't a valid home unless _is_python_build is set. getpath will then
+        # fail to find the standard library and show a warning, so we need to
+        # ignore stderr.
         self.check_all_configs("test_init_setpythonhome", config,
-                               api=API_COMPAT, env=env)
+                               api=API_COMPAT, env=env, ignore_stderr=True)
 
     def test_init_is_python_build_with_home(self):
         # Test _Py_path_config._is_python_build configuration (gh-91985)
@@ -1534,15 +1606,26 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             'exec_prefix': exec_prefix,
             'base_exec_prefix': exec_prefix,
             'pythonpath_env': paths_str,
-            'stdlib_dir': stdlib,
+            'stdlib_dir': stdlib,  # Only correct on _is_python_build==0!
         }
         # The code above is taken from test_init_setpythonhome()
         env = {'TESTHOME': home, 'PYTHONPATH': paths_str}
 
         env['NEGATIVE_ISPYTHONBUILD'] = '1'
         config['_is_python_build'] = 0
+        # This configuration doesn't set a valid stdlibdir/plststdlibdir because
+        # with _is_python_build=0 getpath doesn't check for the build directory
+        # landmarks in PYTHONHOME/Py_SetPythonHome.
+        # getpath correctly shows a warning, which messes up check_all_configs,
+        # so we need to ignore stderr.
         self.check_all_configs("test_init_is_python_build", config,
-                               api=API_COMPAT, env=env)
+                               api=API_COMPAT, env=env, ignore_stderr=True)
+
+        # config['stdlib_dir'] = os.path.join(home, 'Lib')
+        # FIXME: This test does not check if stdlib_dir is calculated correctly.
+        #        test_init_is_python_build runs the initialization twice,
+        #        setting stdlib_dir in _Py_path_config on the first run, which
+        #        then overrides the stdlib_dir calculation (as of GH-108730).
 
         env['NEGATIVE_ISPYTHONBUILD'] = '0'
         config['_is_python_build'] = 1
@@ -1551,14 +1634,22 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             expected_paths[1 if MS_WINDOWS else 2] = os.path.normpath(
                 os.path.join(exedir, f'{f.read()}\n$'.splitlines()[0]))
         if not MS_WINDOWS:
-            # PREFIX (default) is set when running in build directory
-            prefix = exec_prefix = sys.prefix
+            # PREFIX and EXEC_PREFIX (defaults) are set when running in the
+            # build directory and may differ with --exec-prefix (gh-151096).
+            prefix = sys.prefix
+            exec_prefix = sys.exec_prefix
             # stdlib calculation (/Lib) is not yet supported
             expected_paths[0] = self.module_search_paths(prefix=prefix)[0]
             config.update(prefix=prefix, base_prefix=prefix,
                           exec_prefix=exec_prefix, base_exec_prefix=exec_prefix)
+        # This also shows the bad stdlib warning, getpath is run twice. The
+        # first time with _is_python_build=0, which results in the warning just
+        # as explained above. However, the second time a valid standard library
+        # should be found, but the stdlib_dir is cached in _Py_path_config from
+        # the first run, which ovewrites it, so it also shows the warning.
+        # Also ignore stderr.
         self.check_all_configs("test_init_is_python_build", config,
-                               api=API_COMPAT, env=env)
+                               api=API_COMPAT, env=env, ignore_stderr=True)
 
     def copy_paths_by_env(self, config):
         all_configs = self._get_expected_config()
@@ -1618,6 +1709,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
             prefix = os.path.normpath(os.path.join(tmpdir, vpath))
             # The stdlib dir is dirname(executable) + VPATH + 'Lib'
             stdlibdir = os.path.normpath(os.path.join(tmpdir, vpath, 'Lib'))
+            os.mkdir(stdlibdir)
 
             filename = os.path.join(tmpdir, 'pybuilddir.txt')
             with open(filename, "w", encoding="utf8") as fp:
@@ -1896,6 +1988,12 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         out, err = self.run_embedded_interpreter("test_init_in_background_thread")
         self.assertEqual(err, "")
 
+    def test_isinitialized_false_during_site_import(self):
+        # gh-146302: Py_IsInitialized() must not return true during site import.
+        out, err = self.run_embedded_interpreter(
+            "test_isinitialized_false_during_site_import")
+        self.assertEqual(err, "")
+
 
 class AuditingTests(EmbeddingTestsMixin, unittest.TestCase):
     def test_open_code_hook(self):
@@ -1952,6 +2050,21 @@ class AuditingTests(EmbeddingTestsMixin, unittest.TestCase):
 
     def test_get_incomplete_frame(self):
         self.run_embedded_interpreter("test_get_incomplete_frame")
+
+    def test_gilstate_after_finalization(self):
+        self.run_embedded_interpreter("test_gilstate_after_finalization")
+
+    def test_thread_state_ensure(self):
+        self.run_embedded_interpreter("test_thread_state_ensure")
+
+    def test_main_interpreter_view(self):
+        self.run_embedded_interpreter("test_main_interpreter_view")
+
+    def test_thread_state_ensure_from_view(self):
+        self.run_embedded_interpreter("test_thread_state_ensure_from_view")
+
+    def test_concurrent_finalization_stress(self):
+        self.run_embedded_interpreter("test_concurrent_finalization_stress")
 
 
 class MiscTests(EmbeddingTestsMixin, unittest.TestCase):
@@ -2013,7 +2126,7 @@ class MiscTests(EmbeddingTestsMixin, unittest.TestCase):
     def test_presite(self):
         cmd = [
             sys.executable,
-            "-I", "-X", "presite=test._test_embed_structseq",
+            "-I", "-X", "presite=test._test_embed_structseq:main",
             "-c", "print('unique-python-message')",
         ]
         proc = subprocess.run(

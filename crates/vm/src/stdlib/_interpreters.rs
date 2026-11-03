@@ -672,7 +672,7 @@ pub(crate) mod _interpreters {
             args,
             |i, obj, vm| match i {
                 1 => second_check(obj, vm),
-                2 => check_dict(obj, func, "argument 3", vm),
+                2 => check_dict(obj, func, "argument 'shared'", vm),
                 _ => Ok(()),
             },
             vm,
@@ -910,7 +910,7 @@ pub(crate) mod _interpreters {
         .parse_with(
             &args,
             |i, obj, vm| match i {
-                1 => check_dict(obj, FUNCNAME, "argument 2", vm),
+                1 => check_dict(obj, FUNCNAME, "argument 'updates'", vm),
                 _ => Ok(()),
             },
             vm,
