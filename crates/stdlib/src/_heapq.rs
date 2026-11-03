@@ -19,32 +19,40 @@ mod _heapq {
     ) -> PyResult<()> {
         let size = heap.__len__();
 
-        let newitem = match heap.borrow_vec().get(pos) {
-            Some(v) => v.clone(),
-            None => return Err(vm.new_index_error("index out of range")),
-        };
+        if pos >= size {
+            return Err(vm.new_index_error("index out of range"));
+        }
 
-        // Follow the path to the root, moving parents down until finding
-        // a place newitem fits.
+        // Re-read both entries after each comparison: user code can replace
+        // elements without changing the list's size.
         while pos > startpos {
             let parentpos = (pos - 1) >> 1;
-            let parent = {
+            let (newitem, parent) = {
                 let vec = heap.borrow_vec();
-                vec[parentpos].clone()
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
+                (vec[pos].clone(), vec[parentpos].clone())
             };
 
-            let cmp = newitem.rich_compare_bool(&parent, PyComparisonOp::Lt, vm)?;
-
-            if size != heap.__len__() {
-                return Err(vm.new_runtime_error("list changed size during iteration"));
-            }
+            let cmp = newitem.rich_compare_bool(&parent, PyComparisonOp::Lt, vm);
+            drop(parent);
+            drop(newitem);
+            let cmp = cmp?;
 
             if !cmp {
+                if heap.__len__() != size {
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 break;
             }
-
             {
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, parentpos);
             }
 
@@ -318,32 +326,40 @@ mod _heapq {
     ) -> PyResult<()> {
         let size = heap.__len__();
 
-        let newitem = match heap.borrow_vec().get(pos) {
-            Some(v) => v.clone(),
-            None => return Err(vm.new_index_error("index out of range")),
-        };
+        if pos >= size {
+            return Err(vm.new_index_error("index out of range"));
+        }
 
-        // Follow the path to the root, moving parents down until finding
-        // a place newitem fits.
+        // Re-read both entries after each comparison: user code can replace
+        // elements without changing the list's size.
         while pos > startpos {
             let parentpos = (pos - 1) >> 1;
-            let parent = {
+            let (newitem, parent) = {
                 let vec = heap.borrow_vec();
-                vec[parentpos].clone()
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
+                (vec[pos].clone(), vec[parentpos].clone())
             };
 
-            let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm)?;
-
-            if size != heap.__len__() {
-                return Err(vm.new_runtime_error("list changed size during iteration"));
-            }
+            let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm);
+            drop(parent);
+            drop(newitem);
+            let cmp = cmp?;
 
             if !cmp {
+                if heap.__len__() != size {
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 break;
             }
-
             {
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, parentpos);
             }
 
