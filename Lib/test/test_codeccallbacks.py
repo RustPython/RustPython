@@ -797,7 +797,6 @@ class CodecCallbackTest(unittest.TestCase):
             codecs.lookup_error("namereplace")
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_encode_nonascii_replacement(self):
         def handle(exc):
             if isinstance(exc, UnicodeEncodeError):
