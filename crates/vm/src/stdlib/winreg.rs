@@ -36,6 +36,21 @@ mod winreg {
     /// Wrapper type for HKEY that can be created from PyHkey or int
     struct HKEYArg(host_winreg::HKEY);
 
+    // Keep the object alive while snapshotting its handle before later
+    // arguments can invoke Python code.
+    struct SnapshotHkey {
+        _key: PyRef<PyHkey>,
+        handle: host_winreg::HKEY,
+    }
+
+    impl TryFromObject for SnapshotHkey {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let key = PyRef::<PyHkey>::try_from_object(vm, obj)?;
+            let handle = key.hkey.load();
+            Ok(Self { _key: key, handle })
+        }
+    }
+
     impl TryFromObject for HKEYArg {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             // Try PyHkey first
@@ -430,7 +445,9 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn EnumKey(key: PyRef<PyHkey>, index: i32, vm: &VirtualMachine) -> PyResult<String> {
+    fn EnumKey(key: SnapshotHkey, index: i32, vm: &VirtualMachine) -> PyResult<String> {
+        let hkey = key.handle;
+        vm.audit("winreg.EnumKey", || (hkey as isize, index))?;
         // The Windows docs claim that the max key name length is 255
         // characters, plus a terminating nul character.  However,
         // empirical testing demonstrates that it is possible to
@@ -439,9 +456,8 @@ mod winreg {
         // retrieve such a key name.
         let mut tmpbuf = [0u16; 257];
         let mut len = tmpbuf.len() as u32;
-        let res = unsafe {
-            host_winreg::enum_key_ex(key.hkey.load(), index as u32, tmpbuf.as_mut_ptr(), &mut len)
-        };
+        let res =
+            unsafe { host_winreg::enum_key_ex(hkey, index as u32, tmpbuf.as_mut_ptr(), &mut len) };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
