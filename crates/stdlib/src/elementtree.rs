@@ -1002,29 +1002,35 @@ pub(crate) mod _elementtree {
                 }
                 SequenceIndex::Slice(slice) => {
                     let items: Vec<PyObjectRef> = value.try_to_value(vm)?;
-                    for item in &items {
-                        check_element(item, vm)?;
-                    }
+                    // This check cannot call Python. Delay reporting it until
+                    // after the extended-slice length check.
+                    let invalid = items.iter().find(|item| !item.downcastable::<PyElement>());
                     let mut inner = self.inner.write();
                     let (range, step, slice_len) = slice.adjust_indices(inner.children.len());
+                    if step != 1 && slice_len != items.len() {
+                        let new_len = items.len();
+                        drop(inner);
+                        drop(items);
+                        return Err(vm.new_value_error(format!(
+                            "attempt to assign sequence of size {} to extended slice of size {}",
+                            new_len, slice_len
+                        )));
+                    }
+                    if let Some(item) = invalid {
+                        drop(inner);
+                        return reject_element(item, vm);
+                    }
                     if step == 1 {
                         recycle.extend(inner.children.splice(range, items));
-                        Ok(())
-                    } else if slice_len == items.len() {
+                    } else {
                         let iter = crate::vm::sliceable::SaturatedSliceIter::from_adjust_indices(
                             range, step, slice_len,
                         );
                         for (pos, item) in iter.zip(items) {
                             recycle.push(core::mem::replace(&mut inner.children[pos], item));
                         }
-                        Ok(())
-                    } else {
-                        Err(vm.new_value_error(format!(
-                            "attempt to assign sequence of size {} to extended slice of size {}",
-                            items.len(),
-                            slice_len
-                        )))
                     }
+                    Ok(())
                 }
             }
         }
