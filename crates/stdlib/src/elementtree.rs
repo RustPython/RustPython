@@ -465,16 +465,20 @@ pub(crate) mod _elementtree {
             let attrib = attrib.filter(|d| !d.is_empty()).map(Into::into);
             let _recycle = {
                 let mut inner = zelf.inner.write();
-                let old_attrib = if attrib.is_some() {
-                    core::mem::replace(&mut inner.attrib, attrib)
+                let (old_attrib, old_children) = if let Some(attrib) = attrib {
+                    (
+                        inner.attrib.replace(attrib),
+                        core::mem::take(&mut inner.children),
+                    )
                 } else {
-                    None
+                    (None, Vec::new())
                 };
                 (
                     core::mem::replace(&mut inner.tag, tag),
                     core::mem::replace(&mut inner.text, Joined::plain(vm.ctx.none())),
                     core::mem::replace(&mut inner.tail, Joined::plain(vm.ctx.none())),
                     old_attrib,
+                    old_children,
                 )
             };
             Ok(())
