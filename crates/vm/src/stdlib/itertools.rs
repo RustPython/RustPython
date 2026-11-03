@@ -987,7 +987,9 @@ mod decl {
     struct PyItertoolsAccumulate {
         iterable: PyIter,
         bin_op: Option<PyObjectRef>,
-        initial: Option<PyObjectRef>,
+        initial: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        has_initial: bool,
         acc_value: PyRwLock<Option<PyObjectRef>>,
     }
 
@@ -1008,7 +1010,8 @@ mod decl {
             Ok(Self {
                 iterable: args.iterable,
                 bin_op: args.func,
-                initial: args.initial,
+                has_initial: args.initial.is_some(),
+                initial: PyRwLock::new(args.initial),
                 acc_value: PyRwLock::new(None),
             })
         }
@@ -1024,12 +1027,22 @@ mod decl {
             let iterable = &zelf.iterable;
 
             let acc_value = zelf.acc_value.read().clone();
+            let acc_value = if acc_value.is_none() && zelf.has_initial {
+                let mut acc = zelf.acc_value.write();
+                if acc.is_none() {
+                    let initial = zelf.initial.write().take();
+                    if let Some(initial) = initial {
+                        *acc = Some(initial.clone());
+                        return Ok(PyIterReturn::Return(initial));
+                    }
+                }
+                acc.clone()
+            } else {
+                acc_value
+            };
 
             let next_acc_value = match acc_value {
-                None => match &zelf.initial {
-                    None => raise_if_stop!(iterable.next(vm)?),
-                    Some(obj) => obj.clone(),
-                },
+                None => raise_if_stop!(iterable.next(vm)?),
                 Some(value) => {
                     let obj = raise_if_stop!(iterable.next(vm)?);
                     match &zelf.bin_op {
