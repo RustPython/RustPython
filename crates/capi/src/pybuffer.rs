@@ -385,6 +385,16 @@ mod tests {
                 b'C' as _,
             );
         }
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                0,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                2,
+                b'C' as _,
+            );
+        }
     }
 
     #[test]
