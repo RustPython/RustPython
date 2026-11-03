@@ -1848,8 +1848,12 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(&self) -> Option<PyObjectRef> {
-        self.restype.read().clone()
+    fn restype(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        zelf.restype.read().clone().or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_restype_"))
+        })
     }
 
     #[pygetset(setter)]
