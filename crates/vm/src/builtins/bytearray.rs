@@ -21,8 +21,8 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, ArgumentError, FromArgs, FuncArgs, Param, PyComparisonValue,
-        PySsize,
+        ArgBytesLike, ArgIndex, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param,
+        PyComparisonValue, PySsize,
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -496,8 +496,8 @@ impl PyByteArray {}
 
 #[derive(FromArgs)]
 struct ByteArrayReduceExArgs {
-    #[pyarg(positional, default = 0)]
-    proto: ArgIndex,
+    #[pyarg(positional, optional, py_default = "0")]
+    proto: OptionalArg<ArgIndex>,
 }
 
 #[cfg(test)]
@@ -505,7 +505,7 @@ struct ByteArrayReduceExArgs {
 fn reduce_ex_default_metadata_comes_from_its_value() {
     use crate::function::{DefaultRepr, FromArgs};
     let params = ByteArrayReduceExArgs::PARAMS.expect("known reduce-ex parameters");
-    assert!(matches!(params[0].default, Some(DefaultRepr::Int(0))));
+    assert!(matches!(params[0].default, Some(DefaultRepr::Raw("0"))));
 }
 
 #[derive(FromArgs)]
@@ -700,12 +700,14 @@ impl Py<PyByteArray> {
         args: ByteArrayReduceExArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
-        let proto = args
-            .proto
-            .as_ref()
-            .as_bigint()
-            .to_i32()
-            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))?;
+        let proto = match args.proto {
+            OptionalArg::Present(proto) => {
+                proto.as_ref().as_bigint().to_i32().ok_or_else(|| {
+                    vm.new_overflow_error("Python int too large to convert to C int")
+                })?
+            }
+            OptionalArg::Missing => 0,
+        };
         self.common_reduce(proto, vm)
     }
 
