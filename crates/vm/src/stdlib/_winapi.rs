@@ -245,22 +245,24 @@ mod _winapi {
 
     #[derive(FromArgs)]
     struct CreateProcessArgs {
-        #[pyarg(positional, name = "application_name")]
-        name: Option<PyStrRef>,
+        #[pyarg(positional)]
+        application_name: Option<PyStrRef>,
         #[pyarg(positional)]
         command_line: Option<PyStrRef>,
-        #[pyarg(positional, name = "proc_attrs")]
-        _proc_attrs: PyObjectRef,
-        #[pyarg(positional, name = "thread_attrs")]
-        _thread_attrs: PyObjectRef,
+        #[pyarg(positional)]
+        #[allow(dead_code)]
+        proc_attrs: PyObjectRef,
+        #[pyarg(positional)]
+        #[allow(dead_code)]
+        thread_attrs: PyObjectRef,
         #[pyarg(positional)]
         inherit_handles: i32,
         #[pyarg(positional)]
         creation_flags: u32,
         #[pyarg(positional)]
         env_mapping: Option<ArgMapping>,
-        #[pyarg(positional, name = "current_directory")]
-        current_dir: Option<PyStrRef>,
+        #[pyarg(positional)]
+        current_directory: Option<PyStrRef>,
         #[pyarg(positional)]
         startup_info: PyObjectRef,
     }
@@ -319,8 +321,8 @@ mod _winapi {
                 .to_wide_cstring()
                 .map_err(|_| nul_char_error(vm))
         };
-        let app_name = args.name.map(wcstring).transpose()?;
-        let current_dir = args.current_dir.map(wcstring).transpose()?;
+        let app_name = args.application_name.map(wcstring).transpose()?;
+        let current_dir = args.current_directory.map(wcstring).transpose()?;
         let mut command_line = args
             .command_line
             .map(|s| wcstring(s).map(widestring::WideCString::into_vec_with_nul))
@@ -634,8 +636,9 @@ mod _winapi {
         in_buffer_size: u32,
         #[pyarg(positional)]
         default_timeout: u32,
-        #[pyarg(positional, name = "security_attributes")]
-        _security_attributes: PyObjectRef, // Ignored, can be None
+        #[pyarg(positional)]
+        #[allow(dead_code)]
+        security_attributes: PyObjectRef, // Ignored, can be None
     }
 
     // CreateNamedPipe - Create a named pipe
