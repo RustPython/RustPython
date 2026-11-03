@@ -10,7 +10,7 @@ mod _overlapped {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyBaseExceptionRef, PyBytesRef, PyInt, PyModule, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
@@ -54,7 +54,7 @@ mod _overlapped {
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
 
     #[pyattr]
-    const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
+    const INVALID_HANDLE_VALUE: usize = usize::MAX;
 
     #[pyattr]
     const NULL: isize = 0;
@@ -1114,13 +1114,33 @@ mod _overlapped {
         }
     }
 
+    #[derive(FromArgs)]
+    struct OverlappedArgs {
+        #[pyarg(any, optional, py_default = "_overlapped.INVALID_HANDLE_VALUE")]
+        event: OptionalArg<PyObjectRef>,
+    }
+
     impl Constructor for Overlapped {
-        type Args = (OptionalArg<isize>,);
+        type Args = OverlappedArgs;
 
-        fn py_new(_cls: &Py<PyType>, (event,): Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let mut event = event.unwrap_or(INVALID_HANDLE_VALUE);
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            // PyLong_AsVoidPtr accepts actual integers, not arbitrary __index__ objects.
+            // Borrow the integer payload to avoid boxing int subclasses.
+            let mut event = match &args.event {
+                OptionalArg::Missing => host_overlapped::INVALID_HANDLE_VALUE_ISIZE,
+                OptionalArg::Present(event) => {
+                    let int = event
+                        .downcast_ref::<PyInt>()
+                        .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+                    if int.as_bigint().sign() == malachite_bigint::Sign::Minus {
+                        int.try_to_primitive_in_range::<isize>(vm)?
+                    } else {
+                        int.try_to_primitive_in_range::<usize>(vm)? as isize
+                    }
+                }
+            };
 
-            if event == INVALID_HANDLE_VALUE {
+            if event == host_overlapped::INVALID_HANDLE_VALUE_ISIZE {
                 event = host_winapi::create_event_w(true, false, None)
                     .map(|handle| handle as isize)
                     .map_err(|err| {
