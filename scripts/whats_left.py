@@ -423,6 +423,7 @@ def gen_modules():
     # check name because modules listed have side effects on import,
     # e.g. printing something or opening a webpage
     modules = {}
+    failed = {}
     for mod_name in sorted(scan_modules(), key=name_sort_key):
         if mod_name in IGNORED_MODULES:
             continue
@@ -430,8 +431,9 @@ def gen_modules():
         if mod_name == "decimal":
             module = import_module(mod_name)
             if isinstance(module, Exception):
+                failed[mod_name] = f"{type(module).__name__}: {str(module)}"
                 print(
-                    f"!!! {mod_name} skipped because {type(module).__name__}: {str(module)}",
+                    f"!!! {mod_name} skipped because {failed[mod_name]}",
                     file=sys.stderr,
                 )
                 continue
@@ -440,10 +442,8 @@ def gen_modules():
         # when generating CPython list, ignore items defined by other modules
         dir_result = dir_of_mod_or_error(mod_name, keep_other=False)
         if isinstance(dir_result, Exception):
-            print(
-                f"!!! {mod_name} skipped because {type(dir_result).__name__}: {str(dir_result)}",
-                file=sys.stderr,
-            )
+            failed[mod_name] = f"{type(dir_result).__name__}: {str(dir_result)}"
+            print(f"!!! {mod_name} skipped because {failed[mod_name]}", file=sys.stderr)
             continue
         module = import_module(mod_name)
         for item_name in list(dir_result):
@@ -457,7 +457,7 @@ def gen_modules():
                 for attr, info in own_attrs(item):
                     dir_result[f"{item_name}.{attr}"] = info
         modules[mod_name] = dir_result
-    return modules
+    return modules, failed
 
 
 output = """\
@@ -470,8 +470,10 @@ output = """\
 """
 
 output += gen_methods()
+cpymods, cpython_failed_imports = gen_modules()
 output += f"""
-cpymods = {gen_modules()!r}
+cpymods = {cpymods!r}
+cpython_failed_imports = {cpython_failed_imports!r}
 libdir = {os.path.abspath("Lib/").encode("utf8")!r}
 
 """
@@ -490,6 +492,7 @@ for fn in REUSED:
 # Prevent missing variable linter errors from compare()
 expected_methods = {}
 cpymods = {}
+cpython_failed_imports = {}
 libdir = ""
 
 
@@ -630,6 +633,14 @@ def compare():
                 result["implemented"][modname] = None
 
     result["cpython_modules"] = cpymods
+    result["cpython_failed_imports"] = cpython_failed_imports
+    result["cpython_builtin_signatures"] = {
+        name: {
+            "type": real_value["sig"],
+            "methods": {method: info["sig"] for method, info in methods},
+        }
+        for name, (_, real_value, methods) in expected_methods.items()
+    }
     result["not_implementeds"] = not_implementeds
 
     print(json.dumps(result))
