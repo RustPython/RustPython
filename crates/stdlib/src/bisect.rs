@@ -117,11 +117,13 @@ mod _bisect {
                 x: needle,
                 lo,
                 hi,
-                key,
+                key: key.clone(),
             },
             vm,
         )?;
-        vm.call_method(&a, "insert", (index, x))
+        let result = vm.call_method(&a, "insert", (index, x.clone()))?;
+        drop(result);
+        Ok(vm.ctx.none())
     }
 
     #[pyfunction]
@@ -137,10 +139,12 @@ mod _bisect {
                 x: needle,
                 lo,
                 hi,
-                key,
+                key: key.clone(),
             },
             vm,
         )?;
-        vm.call_method(&a, "insert", (index, x))
+        let result = vm.call_method(&a, "insert", (index, x.clone()))?;
+        drop(result);
+        Ok(vm.ctx.none())
     }
 }
