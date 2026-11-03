@@ -19,6 +19,26 @@ impl WinHandle {
         callee: &str,
         argument: &str,
     ) -> PyResult<Self> {
+        let value = Self::parse_bitfield::<{ usize::BITS }>(obj, vm, callee, argument)?;
+        Ok(Self(value as host_nt::Handle))
+    }
+
+    /// Convert a Windows `unsigned long` (`k`) after argument binding.
+    pub(crate) fn unsigned_long_bitfield(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+        callee: &str,
+        argument: &str,
+    ) -> PyResult<u32> {
+        Ok(Self::parse_bitfield::<32>(obj, vm, callee, argument)? as u32)
+    }
+
+    fn parse_bitfield<const WIDTH: u32>(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+        callee: &str,
+        argument: &str,
+    ) -> PyResult<usize> {
         let (handle, fits) = {
             let owned;
             let int = if let Some(int) = obj.downcast_ref::<PyInt>() {
@@ -51,16 +71,20 @@ impl WinHandle {
                     }
                 });
             };
-            if let Some(value) = int.as_bigint().to_isize() {
+            if WIDTH == 32 {
+                if let Some(value) = int.as_bigint().to_i32() {
+                    (value as u32 as usize, true)
+                } else if let Some(value) = int.as_bigint().to_u32() {
+                    (value as usize, true)
+                } else {
+                    (int.as_u32_mask() as usize, false)
+                }
+            } else if let Some(value) = int.as_bigint().to_isize() {
                 (value as usize, true)
             } else if let Some(value) = int.as_bigint().to_usize() {
                 (value, true)
             } else {
-                #[cfg(target_pointer_width = "64")]
-                let value = int.as_u64_mask() as usize;
-                #[cfg(target_pointer_width = "32")]
-                let value = int.as_u32_mask() as usize;
-                (value, false)
+                (int.as_u64_mask() as usize, false)
             }
         };
         if !fits {
@@ -71,7 +95,7 @@ impl WinHandle {
                 vm,
             )?;
         }
-        Ok(Self(handle as host_nt::Handle))
+        Ok(handle)
     }
 }
 

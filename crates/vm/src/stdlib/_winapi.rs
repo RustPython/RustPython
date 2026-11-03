@@ -9,7 +9,7 @@ mod _winapi {
         Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
         common::lock::{PyMutex, PyMutexGuard},
-        convert::ToPyException,
+        convert::{ToPyException, ToPyObject},
         exceptions::nul_char_error,
         function::{ArgMapping, ArgSequence, OptionalArg},
         types::Constructor,
@@ -156,13 +156,12 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetStdHandle(
-        std_handle: host_winapi::StdHandle,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<WinHandle>> {
-        host_winapi::get_std_handle(std_handle)
+    fn GetStdHandle(std_handle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::unsigned_long_bitfield(&std_handle, vm, "GetStdHandle", "argument")?;
+        let handle = host_winapi::get_std_handle(value)
             .map(|handle| handle.map(WinHandle))
-            .map_err(|e| e.to_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))?;
+        Ok(handle.to_pyobject(vm))
     }
 
     #[pyfunction]
