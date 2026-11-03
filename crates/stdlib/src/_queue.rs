@@ -85,15 +85,6 @@ mod _queue {
             vm.allow_threads(|| self.mutex.lock())
         }
 
-        fn release(&self, vm: &VirtualMachine) {
-            {
-                let mut count = self.lock_count(vm);
-                *count += 1;
-            } // lock dropped. now we can notify a waiting thread
-
-            self.cond.notify_one();
-        }
-
         /// `Ok(true)` if acquired, `Ok(false)` on timeout, `Err` if a signal
         /// handler raised (e.g. `KeyboardInterrupt`) while we were waiting.
         fn acquire(
@@ -167,10 +158,21 @@ mod _queue {
             expect(unused_variables, reason = "only the semaphore needs the vm")
         )]
         fn push(&self, item: PyObjectRef, vm: &VirtualMachine) {
-            self.buf.lock().push_back(item);
-
             #[cfg(feature = "threading")]
-            self.sem.release(vm);
+            {
+                // Publish the permit before unlocking the buffer, so another
+                // thread cannot observe an item that no getter can claim.
+                let mut count = self.sem.lock_count(vm);
+                {
+                    let mut buf = self.buf.lock();
+                    buf.push_back(item);
+                    *count += 1;
+                }
+                drop(count);
+                self.sem.cond.notify_one();
+            }
+            #[cfg(not(feature = "threading"))]
+            self.buf.lock().push_back(item);
         }
 
         /// Returns a strong reference from the head of the buffer.
@@ -326,7 +328,11 @@ mod _queue {
                 }
             }
 
-            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
+            let item = {
+                let mut buf = zelf.buf.lock();
+                Self::get_inner(&mut buf)
+            };
+            item.ok_or_else(|| empty_error(vm))
         }
 
         #[pymethod]
@@ -338,7 +344,11 @@ mod _queue {
                 }
             }
 
-            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
+            let item = {
+                let mut buf = zelf.buf.lock();
+                Self::get_inner(&mut buf)
+            };
+            item.ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]
