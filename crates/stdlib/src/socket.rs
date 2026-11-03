@@ -2390,7 +2390,7 @@ mod _socket {
                     .collect::<PyResult<Vec<_>>>()?;
                 control_buf = Self::pack_cmsgs_to_send(&cmsgs, vm)?;
                 if !control_buf.is_empty() {
-                    msg = msg.with_control(&control_buf);
+                    msg = msg.with_control(control_buf.as_bytes());
                 }
             }
 
@@ -2590,10 +2590,7 @@ mod _socket {
         fn pack_cmsgs_to_send(
             cmsgs: &[(i32, i32, ArgBytesLike)],
             vm: &VirtualMachine,
-        ) -> PyResult<Vec<u8>> {
-            if cmsgs.is_empty() {
-                return Ok(vec![]);
-            }
+        ) -> PyResult<host_socket::AlignedAncillaryBuffer> {
             let data = cmsgs
                 .iter()
                 .map(|(lvl, typ, buf)| {
@@ -2606,7 +2603,8 @@ mod _socket {
                 .map(|(lvl, typ, data)| (*lvl, *typ, data.as_slice()))
                 .collect::<Vec<_>>();
 
-            host_socket::pack_ancillary_messages(&data_refs).map_err(|err| err.to_pyexception(vm))
+            host_socket::pack_ancillary_messages_aligned(&data_refs)
+                .map_err(|err| err.to_pyexception(vm))
         }
 
         #[pymethod]

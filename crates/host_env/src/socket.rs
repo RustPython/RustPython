@@ -921,42 +921,171 @@ pub fn checked_cmsg_space(len: usize) -> Option<usize> {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-pub fn pack_ancillary_messages(cmsgs: &[(i32, i32, &[u8])]) -> Result<Vec<u8>, AncillaryPackError> {
-    use core::{mem, ptr};
+fn ancillary_capacity(cmsgs: &[(i32, i32, &[u8])]) -> Result<usize, AncillaryPackError> {
+    cmsgs.iter().try_fold(0usize, |sum, (_, _, data)| {
+        let space = checked_cmsg_space(data.len()).ok_or(AncillaryPackError::ItemTooLarge)?;
+        sum.checked_add(space)
+            // POSIX permits msg_controllen to be a signed integer, and some
+            // targets expose a narrower field than usize.
+            .filter(|&len| i32::try_from(len).is_ok())
+            .ok_or(AncillaryPackError::TooMuchData)
+    })
+}
 
-    if cmsgs.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let capacity = cmsgs
-        .iter()
-        .map(|(_, _, buf)| buf.len())
-        .try_fold(0usize, |sum, len| {
-            let space = checked_cmsg_space(len).ok_or(AncillaryPackError::ItemTooLarge)?;
-            usize::checked_add(sum, space).ok_or(AncillaryPackError::TooMuchData)
-        })?;
-
-    let mut cmsg_buffer = vec![0u8; capacity];
-    let mut mhdr = unsafe { mem::zeroed::<libc::msghdr>() };
-    mhdr.msg_control = cmsg_buffer.as_mut_ptr().cast();
-    mhdr.msg_controllen = capacity as _;
-
-    let mut pmhdr: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(&mhdr) };
-    for (lvl, typ, data) in cmsgs {
-        if pmhdr.is_null() {
-            return Err(AncillaryPackError::UnexpectedNullHeader);
+#[cfg(all(unix, not(target_os = "redox")))]
+fn encode_ancillary_messages(
+    cmsgs: &[(i32, i32, &[u8])],
+    control: &mut [u8],
+) -> Result<(), AncillaryPackError> {
+    let data_offset = checked_cmsg_len(0).ok_or(AncillaryPackError::ItemTooLarge)?;
+    let mut offset = 0usize;
+    for (level, kind, data) in cmsgs {
+        let length = checked_cmsg_len(data.len()).ok_or(AncillaryPackError::ItemTooLarge)?;
+        let space = checked_cmsg_space(data.len()).ok_or(AncillaryPackError::ItemTooLarge)?;
+        let end = offset
+            .checked_add(space)
+            .ok_or(AncillaryPackError::TooMuchData)?;
+        let slot = control
+            .get_mut(offset..end)
+            .ok_or(AncillaryPackError::TooMuchData)?;
+        let payload_end = data_offset
+            .checked_add(data.len())
+            .ok_or(AncillaryPackError::ItemTooLarge)?;
+        if slot.len() < core::mem::size_of::<libc::cmsghdr>()
+            || payload_end != length
+            || payload_end > slot.len()
+        {
+            return Err(AncillaryPackError::ItemTooLarge);
         }
-        let cmsg_len = checked_cmsg_len(data.len()).ok_or(AncillaryPackError::ItemTooLarge)?;
+        let header = slot.as_mut_ptr().cast::<libc::cmsghdr>();
+        // SAFETY: The slot contains a complete header. Field pointers may be
+        // unaligned, including on targets without padding between messages.
         unsafe {
-            (*pmhdr).cmsg_level = *lvl;
-            (*pmhdr).cmsg_type = *typ;
-            (*pmhdr).cmsg_len = cmsg_len as _;
-            ptr::copy_nonoverlapping(data.as_ptr(), libc::CMSG_DATA(pmhdr), data.len());
-            pmhdr = libc::CMSG_NXTHDR(&mhdr, pmhdr);
+            core::ptr::addr_of_mut!((*header).cmsg_level).write_unaligned(*level);
+            core::ptr::addr_of_mut!((*header).cmsg_type).write_unaligned(*kind);
+            core::ptr::addr_of_mut!((*header).cmsg_len).write_unaligned(length as _);
         }
+        slot[data_offset..payload_end].copy_from_slice(data);
+        offset = end;
+    }
+    Ok(())
+}
+
+/// A control buffer with enough alignment for platform CMSG layouts.
+#[cfg(all(unix, not(target_os = "redox")))]
+pub struct AlignedAncillaryBuffer {
+    chunks: Vec<AncillaryChunk>,
+    len: usize,
+}
+
+// Some supported platforms require 16-byte CMSG alignment, even when
+// cmsghdr itself has a smaller Rust alignment.
+#[cfg(all(unix, not(target_os = "redox")))]
+#[repr(C, align(16))]
+#[derive(Clone)]
+struct AncillaryChunk {
+    _bytes: [u8; 16],
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl AlignedAncillaryBuffer {
+    pub fn as_bytes(&self) -> &[u8] {
+        // SAFETY: Every byte in each chunk is initialized. The logical length
+        // is at most the size of the allocation and the chunks outlive the slice.
+        unsafe { core::slice::from_raw_parts(self.chunks.as_ptr().cast(), self.len) }
     }
 
-    Ok(cmsg_buffer)
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn pack_ancillary_messages_aligned(
+    cmsgs: &[(i32, i32, &[u8])],
+) -> Result<AlignedAncillaryBuffer, AncillaryPackError> {
+    let len = ancillary_capacity(cmsgs)?;
+    let count = len.div_ceil(core::mem::size_of::<AncillaryChunk>());
+    count
+        .checked_mul(core::mem::size_of::<AncillaryChunk>())
+        .filter(|&size| isize::try_from(size).is_ok())
+        .ok_or(AncillaryPackError::TooMuchData)?;
+    let mut chunks = vec![AncillaryChunk { _bytes: [0; 16] }; count];
+    // SAFETY: All chunks are initialized, and len fits in their allocation.
+    let control = unsafe { core::slice::from_raw_parts_mut(chunks.as_mut_ptr().cast::<u8>(), len) };
+    encode_ancillary_messages(cmsgs, control)?;
+    Ok(AlignedAncillaryBuffer { chunks, len })
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+/// Encode control messages as bytes. The returned allocation does not promise
+/// CMSG alignment; use `pack_ancillary_messages_aligned` for a syscall buffer.
+pub fn pack_ancillary_messages(cmsgs: &[(i32, i32, &[u8])]) -> Result<Vec<u8>, AncillaryPackError> {
+    let len = ancillary_capacity(cmsgs)?;
+    let mut control = vec![0; len];
+    encode_ancillary_messages(cmsgs, &mut control)?;
+    Ok(control)
+}
+
+#[cfg(all(test, unix, not(target_os = "redox")))]
+mod ancillary_pack_tests {
+    use super::{
+        checked_cmsg_len, checked_cmsg_space, encode_ancillary_messages, pack_ancillary_messages,
+        pack_ancillary_messages_aligned,
+    };
+
+    #[test]
+    fn encodes_aligned_and_unaligned_storage_identically() {
+        let messages: &[(i32, i32, &[u8])] = &[(1, 2, b""), (3, 4, b"abc"), (5, 6, b"z")];
+        let aligned = pack_ancillary_messages_aligned(messages).unwrap();
+        let bytes = aligned.as_bytes();
+        assert_eq!(bytes.as_ptr() as usize % 16, 0);
+        assert_eq!(pack_ancillary_messages(messages).unwrap().as_slice(), bytes);
+
+        let mut offset = 0;
+        let data_offset = checked_cmsg_len(0).unwrap();
+        for (level, kind, data) in messages {
+            let length = checked_cmsg_len(data.len()).unwrap();
+            let space = checked_cmsg_space(data.len()).unwrap();
+            assert!(offset + core::mem::size_of::<libc::cmsghdr>() <= bytes.len());
+            // SAFETY: Each slot contains a complete header, which may be
+            // unaligned on platforms that do not pad between messages.
+            let header = unsafe {
+                bytes
+                    .as_ptr()
+                    .add(offset)
+                    .cast::<libc::cmsghdr>()
+                    .read_unaligned()
+            };
+            assert_eq!((header.cmsg_level, header.cmsg_type), (*level, *kind));
+            assert_eq!(header.cmsg_len as usize, length);
+            assert_eq!(&bytes[offset + data_offset..offset + length], *data);
+            assert!(
+                bytes[offset + length..offset + space]
+                    .iter()
+                    .all(|&b| b == 0)
+            );
+            offset += space;
+        }
+        assert_eq!(offset, bytes.len());
+
+        let align = core::mem::align_of::<libc::cmsghdr>();
+        let mut storage = vec![0u8; bytes.len() + align];
+        let shift = (0..align)
+            .find(|&n| (storage.as_ptr() as usize + n) % align != 0)
+            .unwrap_or(0);
+        let unaligned = &mut storage[shift..shift + bytes.len()];
+        encode_ancillary_messages(messages, unaligned).unwrap();
+        assert_eq!(&*unaligned, bytes);
+    }
+
+    #[test]
+    fn empty_control_buffers_are_empty() {
+        assert!(pack_ancillary_messages(&[]).unwrap().is_empty());
+        let aligned = pack_ancillary_messages_aligned(&[]).unwrap();
+        assert!(aligned.is_empty());
+        assert!(aligned.as_bytes().is_empty());
+    }
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
