@@ -63,6 +63,11 @@ def parse_args():
         help="print output as JSON (instead of line by line)",
     )
     parser.add_argument(
+        "--json-output",
+        metavar="PATH",
+        help="also write the complete comparison as JSON to PATH",
+    )
+    parser.add_argument(
         "--no-default-features",
         action="store_true",
         help="disable default features when building RustPython",
@@ -683,7 +688,13 @@ result = subprocess.run(
 # The last line should be json output, the rest of the lines can contain noise
 # because importing certain modules can print stuff to stdout/stderr
 print(result.stderr, file=sys.stderr)
+result.check_returncode()
 result = json.loads(result.stdout.splitlines()[-1])
+
+if args.json_output:
+    with open(args.json_output, "w", encoding="utf-8") as f:
+        json.dump(result, f)
+        f.write("\n")
 
 if args.json:
     print(json.dumps(result))
