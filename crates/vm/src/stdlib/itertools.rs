@@ -9,7 +9,7 @@ mod decl {
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock},
         convert::ToPyObject,
-        function::{ArgIndex, FuncArgs, NameIterables, PosArgs},
+        function::{FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
@@ -19,7 +19,7 @@ mod decl {
     use rustpython_common::wtf8::Wtf8Buf;
 
     use alloc::fmt;
-    use num_traits::{Signed, ToPrimitive};
+    use num_traits::ToPrimitive;
 
     #[pyattr]
     #[pyclass(name = "chain", traverse)]
@@ -1440,7 +1440,25 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any)]
-        r: ArgIndex,
+        r: PyObjectRef,
+    }
+
+    fn combinations_r(r: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+        let index;
+        let int = if let Some(int) = r.downcast_ref::<PyInt>() {
+            int
+        } else {
+            index = r.try_index(vm)?;
+            &index
+        };
+        let value = int
+            .as_bigint()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C ssize_t"))?;
+        if value < 0 {
+            return Err(vm.new_value_error("r cannot be negative"));
+        }
+        Ok(value as usize)
     }
 
     impl Constructor for PyItertoolsCombinations {
@@ -1451,17 +1469,9 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let r_value = combinations_r(&r, vm)?;
             let pool: Vec<_> = iterable.try_to_value(vm)?;
-
-            let r = r.into_int_ref();
-            let r = r.as_bigint();
-            if r.is_negative() {
-                return Err(vm.new_value_error("r must be non-negative"));
-            }
-            let r = r.to_isize().ok_or_else(|| {
-                vm.new_overflow_error("Python int too large to convert to C ssize_t")
-            })? as usize;
-
+            let r = r_value;
             let n = pool.len();
 
             let mut indices = Vec::new();
@@ -1565,16 +1575,9 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let r_value = combinations_r(&r, vm)?;
             let pool: Vec<_> = iterable.try_to_value(vm)?;
-            let r = r.into_int_ref();
-            let r = r.as_bigint();
-            if r.is_negative() {
-                return Err(vm.new_value_error("r must be non-negative"));
-            }
-            let r = r.to_isize().ok_or_else(|| {
-                vm.new_overflow_error("Python int too large to convert to C ssize_t")
-            })? as usize;
-
+            let r = r_value;
             let n = pool.len();
 
             let mut indices = Vec::new();
@@ -1680,19 +1683,20 @@ mod decl {
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.
             // If None, it behaves the same as if it was not provided.
-            let r = match r {
+            let r = match &r {
                 Some(r) => {
-                    let val = r
+                    let value = r
                         .downcast_ref::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("Expected int as r"))?
-                        .as_bigint();
-
-                    if val.is_negative() {
+                        .as_bigint()
+                        .to_isize()
+                        .ok_or_else(|| {
+                            vm.new_overflow_error("Python int too large to convert to C ssize_t")
+                        })?;
+                    if value < 0 {
                         return Err(vm.new_value_error("r must be non-negative"));
                     }
-                    val.to_isize().ok_or_else(|| {
-                        vm.new_overflow_error("Python int too large to convert to C ssize_t")
-                    })? as usize
+                    value as usize
                 }
                 None => n,
             };
