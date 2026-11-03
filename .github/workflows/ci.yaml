@@ -812,7 +812,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@af4d4fcb6922b8e6f65c0426947125fcc38794ce # v3.0.2
+        uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
         with:
           cache: false
           show-verbose-logs: false
