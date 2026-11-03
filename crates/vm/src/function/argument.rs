@@ -684,6 +684,7 @@ arg_name! {
     NameKwds = "kwds",
     NameKws = "kws",
     NameObjs = "objs",
+    NameObjects = "objects",
     NameIterables = "iterables",
     NameKeywords = "keywords",
     NameFields = "fields",
