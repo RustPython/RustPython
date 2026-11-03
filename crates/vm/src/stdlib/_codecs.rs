@@ -771,7 +771,7 @@ mod _codecs_windows {
 
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "str")]
         s: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
@@ -887,7 +887,7 @@ mod _codecs_windows {
 
     #[derive(FromArgs)]
     struct OemEncodeArgs {
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "str")]
         s: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
@@ -1006,7 +1006,7 @@ mod _codecs_windows {
     struct CodePageEncodeArgs {
         #[pyarg(positional)]
         code_page: i32,
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "str")]
         s: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
@@ -1281,7 +1281,7 @@ mod _codecs_windows {
 
     #[derive(FromArgs)]
     struct CodePageDecodeArgs {
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "codepage")]
         code_page: i32,
         #[pyarg(positional)]
         data: ArgBytesLike,
