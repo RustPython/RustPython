@@ -264,10 +264,12 @@ mod _pyexpat {
         // drain.
         #[pytraverse(skip)]
         busy: AtomicBool,
-        // Set once EndDocument has been observed, so further Parse() calls
-        // become harmless no-ops instead of starting a new document.
+        // Prevent creating another backend after finalization or fork failure.
         #[pytraverse(skip)]
         finished: AtomicBool,
+        // Distinguish successful completion from the existing failure paths.
+        #[pytraverse(skip)]
+        completed: AtomicBool,
         #[pytraverse(skip)]
         namespace_stack: PyRwLock<Vec<(xml::namespace::Namespace, Vec<String>)>>,
         #[pytraverse(skip)]
@@ -946,6 +948,7 @@ mod _pyexpat {
                 backend: PyRwLock::new(None),
                 busy: AtomicBool::new(false),
                 finished: AtomicBool::new(false),
+                completed: AtomicBool::new(false),
                 namespace_stack: PyRwLock::new(Vec::new()),
                 reparse_deferral_enabled: AtomicBool::new(true),
                 parameter_entity_parsing: AtomicI32::new(XML_PARAM_ENTITY_PARSING_NEVER),
@@ -1636,6 +1639,7 @@ mod _pyexpat {
                         continue;
                     }
                     ParserMsg::Finished => {
+                        self.completed.store(true, Ordering::SeqCst);
                         self.finished.store(true, Ordering::SeqCst);
                         self.teardown_backend();
                         return Ok(());
@@ -1751,14 +1755,23 @@ mod _pyexpat {
                 }
             }
             if isfinal {
-                // The caller has declared there is no more data coming, so
-                // (whether or not this re-parse actually reached
-                // `EndDocument`) further Parse()/ParseFile() calls become
-                // no-ops, matching libexpat/`Backend::Threaded`.
+                // Remember successful completion separately from errors;
+                // both close this backend, but only success means the parser
+                // should report XML_ERROR_FINISHED on a later call.
+                if result.is_ok() {
+                    self.completed.store(true, Ordering::SeqCst);
+                }
                 self.finished.store(true, Ordering::SeqCst);
                 self.teardown_backend();
             }
             result
+        }
+
+        fn check_completed(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.completed.load(Ordering::SeqCst) {
+                return Err(self.handler_error(vm, 36, "parsing finished")?);
+            }
+            Ok(())
         }
 
         /// Feed another chunk of the document to the (possibly newly
@@ -1804,9 +1817,8 @@ mod _pyexpat {
                 )));
             }
             self.started.store(true, Ordering::Relaxed);
+            self.check_completed(vm)?;
             if self.finished.load(Ordering::SeqCst) {
-                // The document already ended; further data is ignored, same
-                // as libexpat happily no-oping once XML_Parse has seen EOF.
                 return Ok(());
             }
             {
@@ -1870,7 +1882,11 @@ mod _pyexpat {
 
         #[pymethod(name = "ParseFile")]
         fn parse_file(zelf: &Py<Self>, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            let read_res = vm.call_method(&file, "read", ())?;
+            let read = vm
+                .get_attribute_opt(&file, "read")?
+                .ok_or_else(|| vm.new_type_error("argument must have 'read' attribute"))?;
+            zelf.check_completed(vm)?;
+            let read_res = read.call((), vm)?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             // `file.read()` with no argument reads to EOF, so this chunk is
