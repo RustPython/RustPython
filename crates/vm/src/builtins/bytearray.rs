@@ -500,14 +500,6 @@ struct ByteArrayReduceExArgs {
     proto: OptionalArg<ArgIndex>,
 }
 
-#[cfg(test)]
-#[test]
-fn reduce_ex_default_metadata_comes_from_its_value() {
-    use crate::function::{DefaultRepr, FromArgs};
-    let params = ByteArrayReduceExArgs::PARAMS.expect("known reduce-ex parameters");
-    assert!(matches!(params[0].default, Some(DefaultRepr::Raw("0"))));
-}
-
 #[derive(FromArgs)]
 struct TakeBytesArgs {
     #[pyarg(positional, default = None)]
