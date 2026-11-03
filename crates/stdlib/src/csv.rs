@@ -302,13 +302,12 @@ mod _csv {
         options: FormatOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Writer> {
-        let write = match vm.get_attribute_opt(&fileobj, "write")? {
-            Some(write_meth) => write_meth,
-            None if fileobj.is_callable() => fileobj,
-            None => {
-                return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
-            }
+        let Some(write) = vm.get_attribute_opt(&fileobj, "write")? else {
+            return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
         };
+        if !write.is_callable() {
+            return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
+        }
         let dialect = options.result(vm)?;
 
         Ok(Writer {
