@@ -6426,7 +6426,7 @@ mod fileio {
                         // Match FileIO's amortized growth while leaving at least
                         // one byte for the read that detects EOF.
                         let growth = if used > 65_536 { used >> 3 } else { used + 256 }.max(8192);
-                        let size = used.checked_add(growth).filter(|&n| n <= isize::MAX as usize)
+                        let size = used.checked_add(growth).filter(|&n| isize::try_from(n).is_ok())
                             .ok_or_else(|| vm.new_overflow_error(
                                 "unbounded read returned more bytes than a Python bytes object can hold"
                             ))?;
