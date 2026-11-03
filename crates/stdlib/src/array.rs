@@ -337,7 +337,11 @@ pub mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.setitem_by_slice(vm, slice, items)
+                            if items.is_empty() {
+                                elements.delitem_by_slice(vm, slice)
+                            } else {
+                                elements.setitem_by_slice(vm, slice, items)
+                            }
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -351,14 +355,18 @@ pub mod array {
                     slice: SaturatedSlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
-                ) -> PyResult<()> {
+                ) -> Option<PyResult<()>> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.setitem_by_slice_no_resize(vm, slice, items)
+                            if items.is_empty() {
+                                None
+                            } else {
+                                Some(elements.setitem_by_slice_no_resize(vm, slice, items))
+                            }
                         } else {
-                            Err(vm.new_type_error(
+                            Some(Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
-                            ))
+                            )))
                         },)*
                     }
                 }
@@ -1060,6 +1068,9 @@ pub mod array {
         #[pymethod]
         fn extend(zelf: &Py<Self>, bb: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.is(&bb) {
+                if zelf.empty_with_export() {
+                    return Ok(());
+                }
                 zelf.try_resizable(vm)?.imul(2, vm)
             } else if let Some(array) = bb.downcast_ref::<Self>() {
                 zelf.try_resizable(vm)?.iadd(&array.read(), vm)
@@ -1375,30 +1386,35 @@ pub mod array {
                     zelf.write().setitem_by_item(i, item, vm)
                 }
                 SequenceIndex::Slice(slice) => {
-                    let cloned;
-                    let guard;
-                    let items = if zelf.is(&value) {
-                        cloned = zelf.read().clone();
-                        &cloned
-                    } else {
-                        match value.downcast_ref::<Self>() {
-                            Some(array) => {
-                                guard = array.read();
-                                &*guard
+                    let outcome = {
+                        let cloned;
+                        let guard;
+                        let items = if zelf.is(&value) {
+                            cloned = zelf.read().clone();
+                            &cloned
+                        } else {
+                            match value.downcast_ref::<Self>() {
+                                Some(array) => {
+                                    guard = array.read();
+                                    &*guard
+                                }
+                                None => {
+                                    return Err(vm.new_type_error(format!(
+                                        "can only assign array (not \"{}\") to array slice",
+                                        value.class()
+                                    )));
+                                }
                             }
-                            None => {
-                                return Err(vm.new_type_error(format!(
-                                    "can only assign array (not \"{}\") to array slice",
-                                    value.class()
-                                )));
-                            }
+                        };
+                        if let Some(mut w) = zelf.try_resizable_opt() {
+                            Some(w.setitem_by_slice(slice, items, vm))
+                        } else {
+                            zelf.write().setitem_by_slice_no_resize(slice, items, vm)
                         }
                     };
-                    if let Ok(mut w) = zelf.try_resizable(vm) {
-                        w.setitem_by_slice(slice, items, vm)
-                    } else {
-                        zelf.write().setitem_by_slice_no_resize(slice, items, vm)
-                    }
+                    outcome.unwrap_or_else(|| {
+                        Err(vm.new_buffer_error("cannot resize an array that is exporting buffers"))
+                    })
                 }
             }
         }
@@ -1412,9 +1428,20 @@ pub mod array {
             Self::setitem_inner(zelf, needle, value, vm)
         }
 
+        fn delitem_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
+            if self.exports.load(atomic::Ordering::SeqCst) != 0 {
+                let len = self.export_len.load(atomic::Ordering::SeqCst);
+                if i.wrapped_at(len).is_none() {
+                    return Err(vm.new_index_error("assignment index out of range"));
+                }
+                return Err(vm.new_buffer_error("cannot resize an array that is exporting buffers"));
+            }
+            self.try_resizable(vm)?.delitem_by_index(i, vm)
+        }
+
         fn delitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
-                SequenceIndex::Int(i) => self.try_resizable(vm)?.delitem_by_index(i, vm),
+                SequenceIndex::Int(i) => self.delitem_index(i, vm),
                 SequenceIndex::Slice(slice) => self.try_resizable(vm)?.delitem_by_slice(slice, vm),
             }
         }
@@ -1442,7 +1469,9 @@ pub mod array {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             if zelf.is(other) {
-                zelf.try_resizable(vm)?.imul(2, vm)?;
+                if !zelf.empty_with_export() {
+                    zelf.try_resizable(vm)?.imul(2, vm)?;
+                }
             } else if let Some(other) = other.downcast_ref::<Self>() {
                 zelf.try_resizable(vm)?.iadd(&other.read(), vm)?;
             } else {
@@ -1461,8 +1490,15 @@ pub mod array {
         }
 
         fn __imul__(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            zelf.try_resizable(vm)?.imul(value, vm)?;
+            if value != 1 && !zelf.empty_with_export() {
+                zelf.try_resizable(vm)?.imul(value, vm)?;
+            }
             Ok(zelf)
+        }
+
+        fn empty_with_export(&self) -> bool {
+            self.exports.load(atomic::Ordering::SeqCst) != 0
+                && self.export_len.load(atomic::Ordering::SeqCst) == 0
         }
 
         pub(crate) fn __len__(&self) -> usize {
@@ -1724,16 +1760,7 @@ pub mod array {
                         let item = ArrayContentType::item_from_object(typecode, value, vm)?;
                         zelf.write().setitem_by_item(i, item, vm)
                     } else {
-                        if zelf.exports.load(atomic::Ordering::SeqCst) != 0 {
-                            let len = zelf.export_len.load(atomic::Ordering::SeqCst);
-                            if i.wrapped_at(len).is_none() {
-                                return Err(vm.new_index_error("assignment index out of range"));
-                            }
-                            return Err(vm.new_buffer_error(
-                                "cannot resize an array that is exporting buffers",
-                            ));
-                        }
-                        zelf.try_resizable(vm)?.delitem_by_index(i, vm)
+                        zelf.delitem_index(i, vm)
                     }
                 }),
                 contains: atomic_func!(|seq, target, vm| {
