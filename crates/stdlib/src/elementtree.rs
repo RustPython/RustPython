@@ -35,7 +35,7 @@ pub(crate) mod _elementtree {
             IterNext, Iterable, Representable, SelfIter,
         },
     };
-    use rustpython_common::lock::PyRwLock;
+    use rustpython_common::{lock::PyRwLock, wtf8::Wtf8Buf};
 
     // The per-module bookkeeping `_elementtree.c` keeps in its
     // `elementtreestate`: the `Comment`/`ProcessingInstruction` factories
@@ -883,12 +883,21 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let dict = state.downcast_ref::<PyDict>().ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "Don't know how to unpickle \"{}\" as an Element",
-                    state.repr(vm).map(|s| s.to_string()).unwrap_or_default()
-                ))
-            })?;
+            let Some(dict) = state
+                .downcast_ref::<PyDict>()
+                .filter(|_| state.class().is(vm.ctx.types.dict_type))
+            else {
+                let repr = state.repr(vm)?;
+                let end = repr
+                    .as_wtf8()
+                    .code_point_indices()
+                    .nth(200)
+                    .map_or(repr.byte_len(), |(offset, _)| offset);
+                let mut message = Wtf8Buf::from("Don't know how to unpickle \"");
+                message.push_wtf8(&repr.as_wtf8()[..end]);
+                message.push_str("\" as an Element");
+                return Err(vm.new_type_error(message));
+            };
             let tag = dict.get_item_opt("tag", vm)?;
             let attrib = dict.get_item_opt("attrib", vm)?;
             let text = dict.get_item_opt("text", vm)?;
