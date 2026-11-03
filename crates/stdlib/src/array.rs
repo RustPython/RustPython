@@ -1421,9 +1421,15 @@ pub mod array {
 
         fn __add__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if let Some(other) = other.downcast_ref::<Self>() {
-                self.read()
-                    .add(&other.read(), vm)
-                    .map(|array| Self::from(array).into_ref(&vm.ctx))
+                let result = {
+                    let array = self.read();
+                    if core::ptr::eq(self, &**other) {
+                        array.add(&array, vm)
+                    } else {
+                        array.add(&other.read(), vm)
+                    }
+                }?;
+                Ok(Self::from(result).into_ref(&vm.ctx))
             } else {
                 Err(vm.new_type_error(format!(
                     "can only append array (not \"{}\") to array",
@@ -1465,28 +1471,56 @@ pub mod array {
             self.read().len()
         }
 
-        fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
-            // we cannot use zelf.is(other) for shortcut because if we contenting a
-            // float value NaN we always return False even they are the same object.
-            if self.__len__() != other.__len__() {
-                return Ok(false);
-            }
-            let array_a = self.read();
-            let array_b = other.read();
-
-            // fast path for same ArrayContentType type
-            if let Ok(ord) = array_a.cmp(&array_b) {
+        fn equal_contents(
+            left: &ArrayContentType,
+            right: &ArrayContentType,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            if let Ok(ord) = left.cmp(right) {
                 return Ok(ord == Some(Ordering::Equal));
             }
-
-            let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
-
-            for (a, b) in iter {
+            for (a, b) in Iterator::zip(left.iter(vm), right.iter(vm)) {
                 if !vm.bool_eq(&*a?, &*b?)? {
                     return Ok(false);
                 }
             }
             Ok(true)
+        }
+
+        fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
+            // Reuse one guard for the same array, but still compare its contents:
+            // floating-point NaNs must not compare equal to themselves.
+            if core::ptr::eq(self, other) {
+                let array = self.read();
+                return Self::equal_contents(&array, &array, vm);
+            }
+            if self.__len__() != other.__len__() {
+                return Ok(false);
+            }
+            let array_a = self.read();
+            let array_b = other.read();
+            Self::equal_contents(&array_a, &array_b, vm)
+        }
+
+        fn order_contents(
+            left: &ArrayContentType,
+            right: &ArrayContentType,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            match left.cmp(right) {
+                Ok(partial_ord) => Ok(partial_ord.is_some_and(|ord| op.eval_ord(ord))),
+                Err(()) => {
+                    for (a, b) in Iterator::zip(left.iter(vm), right.iter(vm)) {
+                        let (a, b) = (a?, b?);
+                        if vm.bool_eq(&a, &b)? {
+                            continue;
+                        }
+                        return a.rich_compare_bool(&b, op, vm);
+                    }
+                    Ok(op.eval_ord(left.len().cmp(&right.len())))
+                }
+            }
         }
 
         #[pymethod]
@@ -1569,29 +1603,14 @@ pub mod array {
                 return Ok(x.into());
             }
 
+            if core::ptr::eq(zelf, other) {
+                let array = zelf.read();
+                return Self::order_contents(&array, &array, op, vm).map(Into::into);
+            }
+
             let array_a = zelf.read();
             let array_b = other.read();
-
-            let res = match array_a.cmp(&array_b) {
-                // fast path for same ArrayContentType type
-                Ok(partial_ord) => partial_ord.is_some_and(|ord| op.eval_ord(ord)),
-                Err(()) => {
-                    let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
-
-                    for (a, b) in iter {
-                        let (a, b) = (a?, b?);
-                        if vm.bool_eq(&a, &b)? {
-                            continue;
-                        }
-                        return a.rich_compare_bool(&b, op, vm).map(Into::into);
-                    }
-
-                    // fallback:
-                    op.eval_ord(array_a.len().cmp(&array_b.len()))
-                }
-            };
-
-            Ok(res.into())
+            Self::order_contents(&array_a, &array_b, op, vm).map(Into::into)
         }
     }
 
