@@ -966,6 +966,7 @@ impl Py<FrameObject> {
         };
         let was_unset = canonical.cold().trace.lock().is_none();
 
+        // Set on the materialized FrameObject.
         // Keep replaced traces alive until both copies are updated and no
         // trace lock is held: their finalizers can access this frame again.
         let previous = core::mem::replace(&mut *self.iframe().cold().trace.lock(), trace.clone());
