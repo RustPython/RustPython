@@ -3,8 +3,8 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
-        VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef,
+        TryFromBorrowedObject, TryFromObject, VirtualMachine,
         builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int},
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock},
@@ -17,8 +17,6 @@ mod decl {
     };
     use core::sync::atomic::{AtomicBool, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
-    use malachite_bigint::BigInt;
-    use num_traits::One;
     use rustpython_common::wtf8::Wtf8Buf;
 
     use alloc::fmt;
@@ -1985,9 +1983,9 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any)]
-        n: ArgIndex,
-        #[pyarg(named, default)]
-        strict: bool,
+        n: PyObjectRef,
+        #[pyarg(named, optional, py_default = "False")]
+        strict: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsBatched {
@@ -2002,21 +2000,21 @@ mod decl {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let n = n.into_int_ref();
-            let n = n.as_bigint();
-            if n.lt(&BigInt::one()) {
+            let n_value = isize::try_from_borrowed_object(vm, &n)?;
+            let strict_value = match &strict {
+                Some(value) => value.try_to_bool(vm)?,
+                None => false,
+            };
+            if n_value < 1 {
                 return Err(vm.new_value_error("n must be at least one"));
             }
-            let n = n
-                .to_usize()
-                .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
             let iterable = PyIter::try_from_object(vm, iterable)?;
 
             Ok(Self {
                 iterable,
-                n: AtomicCell::new(n),
+                n: AtomicCell::new(n_value as usize),
                 exhausted: AtomicCell::new(false),
-                strict: AtomicCell::new(strict),
+                strict: AtomicCell::new(strict_value),
             })
         }
     }
@@ -2034,13 +2032,20 @@ mod decl {
             let mut result: Vec<PyObjectRef> = Vec::new();
             let n = zelf.n.load();
             for _ in 0..n {
-                match zelf.iterable.next(vm)? {
-                    PyIterReturn::Return(obj) => {
+                match zelf.iterable.next(vm) {
+                    Ok(PyIterReturn::Return(obj)) => {
                         result.push(obj);
                     }
-                    PyIterReturn::StopIteration(_) => {
-                        zelf.exhausted.store(true);
+                    Ok(PyIterReturn::StopIteration(value)) => {
+                        drop(value);
+                        if result.is_empty() || zelf.strict.load() {
+                            zelf.exhausted.store(true);
+                        }
                         break;
+                    }
+                    Err(err) => {
+                        zelf.exhausted.store(true);
+                        return Err(err);
                     }
                 }
             }
@@ -2049,6 +2054,7 @@ mod decl {
                 0 => Ok(PyIterReturn::StopIteration(None)),
                 _ => {
                     if zelf.strict.load() && res_len != n {
+                        drop(result);
                         Err(vm.new_value_error("batched(): incomplete batch"))
                     } else {
                         Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
