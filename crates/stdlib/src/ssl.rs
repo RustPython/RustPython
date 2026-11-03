@@ -4605,27 +4605,32 @@ mod _ssl {
         }
     }
 
-    #[cfg(all(windows, test))]
-    #[test]
-    fn certificate_store_signature_metadata() {
-        use crate::vm::function::{FromArgs, ParamKind};
-        let params = CertificateStoreArgs::PARAMS.expect("known store parameters");
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0].name, "store_name");
-        assert!(matches!(params[0].kind, ParamKind::PositionalOrKeyword));
-        assert!(params[0].default.is_none());
-        for (name, signature) in [
-            (
-                "enum_certificates",
-                "enum_certificates($module, /, store_name)",
-            ),
-            ("enum_crls", "enum_crls($module, /, store_name)"),
-        ] {
-            let method = METHOD_DEFS
-                .iter()
-                .find(|method| method.name == name)
-                .unwrap();
-            assert_eq!(method.doc.unwrap().lines().next(), Some(signature));
+    #[cfg(windows)]
+    #[cfg(test)]
+    mod certificate_store_tests {
+        use super::*;
+
+        #[test]
+        fn certificate_store_signature_metadata() {
+            use crate::vm::function::{FromArgs, ParamKind};
+            let params = CertificateStoreArgs::PARAMS.expect("known store parameters");
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "store_name");
+            assert!(matches!(params[0].kind, ParamKind::PositionalOrKeyword));
+            assert!(params[0].default.is_none());
+            for (name, signature) in [
+                (
+                    "enum_certificates",
+                    "enum_certificates($module, /, store_name)",
+                ),
+                ("enum_crls", "enum_crls($module, /, store_name)"),
+            ] {
+                let method = METHOD_DEFS
+                    .iter()
+                    .find(|method| method.name == name)
+                    .unwrap();
+                assert_eq!(method.doc.unwrap().lines().next(), Some(signature));
+            }
         }
     }
 
