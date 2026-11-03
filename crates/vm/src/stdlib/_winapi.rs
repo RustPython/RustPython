@@ -72,8 +72,10 @@ mod _winapi {
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
 
     #[pyfunction]
-    fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
-        WindowsSysResult(host_winapi::close_handle(handle.0))
+    fn CloseHandle(handle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&handle, vm, "CloseHandle", "argument")?;
+        WindowsSysResult(host_winapi::close_handle(value.0)).into_pyresult(vm)?;
+        Ok(vm.ctx.none())
     }
 
     #[pyfunction]
@@ -96,9 +98,11 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn DeregisterEventSource(handle: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
-        vm.allow_threads(|| host_winapi::deregister_event_source(handle.0))
-            .map_err(|error| error.to_pyexception(vm))
+    fn DeregisterEventSource(handle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&handle, vm, "DeregisterEventSource", "argument")?;
+        vm.allow_threads(|| host_winapi::deregister_event_source(value.0))
+            .map_err(|error| error.to_pyexception(vm))?;
+        Ok(vm.ctx.none())
     }
 
     #[pyfunction]
@@ -444,8 +448,10 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetExitCodeProcess(h: WinHandle, vm: &VirtualMachine) -> PyResult<u32> {
-        host_winapi::get_exit_code_process(h.0).map_err(|e| e.to_pyexception(vm))
+    fn GetExitCodeProcess(h: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&h, vm, "GetExitCodeProcess", "argument")?;
+        let code = host_winapi::get_exit_code_process(value.0).map_err(|e| e.to_pyexception(vm))?;
+        Ok(vm.ctx.new_int(code).into())
     }
 
     #[pyfunction]
@@ -496,16 +502,17 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
+    fn GetModuleFileName(handle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&handle, vm, "GetModuleFileName", "argument")?;
         let mut path: Vec<u16> = vec![0; host_winapi::MAX_PATH_USIZE];
 
-        let length = host_winapi::get_module_file_name(handle as _, &mut path);
+        let length = host_winapi::get_module_file_name(value.0, &mut path);
         if length == 0 {
             return Err(vm.new_runtime_error("GetModuleFileName failed"));
         }
 
         let (path, _) = path.split_at(length as usize);
-        Ok(String::from_utf16(path).unwrap())
+        Ok(vm.ctx.new_str(String::from_utf16(path).unwrap()).into())
     }
 
     #[pyfunction]
@@ -1118,14 +1125,19 @@ mod _winapi {
 
     // UnmapViewOfFile - Unmap a mapped view of a file.
     #[pyfunction]
-    fn UnmapViewOfFile(address: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::unmap_view_of_file(address).map_err(|e| e.to_pyexception(vm))
+    fn UnmapViewOfFile(address: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&address, vm, "UnmapViewOfFile", "argument")?;
+        host_winapi::unmap_view_of_file(value.0 as isize).map_err(|e| e.to_pyexception(vm))?;
+        Ok(vm.ctx.none())
     }
 
     // VirtualQuerySize - Return the size of a memory region.
     #[pyfunction]
-    fn VirtualQuerySize(address: isize, vm: &VirtualMachine) -> PyResult<usize> {
-        host_winapi::virtual_query_size(address).map_err(|e| e.to_pyexception(vm))
+    fn VirtualQuerySize(address: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&address, vm, "VirtualQuerySize", "argument")?;
+        let size =
+            host_winapi::virtual_query_size(value.0 as isize).map_err(|e| e.to_pyexception(vm))?;
+        Ok(vm.ctx.new_int(size).into())
     }
 
     #[pyfunction]
