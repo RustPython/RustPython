@@ -1430,6 +1430,14 @@ fn build_callargs_with_paramflags(
         }
     }
 
+    if !arg_types.is_empty() && args.kwargs.is_empty() && caller_arg_idx < args.args.len() {
+        return Err(vm.new_type_error(format!(
+            "call takes exactly {} arguments ({} given)",
+            caller_arg_idx,
+            args.args.len(),
+        )));
+    }
+
     Ok((arguments, out_buffers))
 }
 
