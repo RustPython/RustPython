@@ -1868,11 +1868,12 @@ impl Py<PyCFuncPtr> {
 
     // argtypes getter/setter
     #[pygetset]
-    fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.argtypes
-            .read()
-            .clone()
-            .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
+    fn argtypes(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        zelf.argtypes.read().clone().or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_argtypes_"))
+        })
     }
 
     #[pygetset(name = "argtypes", setter)]
