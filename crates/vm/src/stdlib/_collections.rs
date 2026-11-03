@@ -25,7 +25,6 @@ mod _collections {
         object::{PyAtomicRef, Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
-        sequence::MutObjectSequenceOp,
         sliceable::SequenceIndexOp,
         types::{
             AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
@@ -312,13 +311,54 @@ mod _collections {
         }
 
         fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-            let start_state = self.state.load();
-            let ret = self.mut_contains(vm, needle)?;
-            if start_state != self.state.load() {
-                Err(vm.new_runtime_error("deque mutated during iteration"))
-            } else {
-                Ok(ret)
+            self.operation
+                .with(vm, || self.find_index(needle, 0, isize::MAX, vm))
+                .map(|index| index.is_some())
+        }
+
+        fn compare_item(
+            &self,
+            index: usize,
+            needle: &PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            let item = self.borrow_deque().get(index).cloned();
+            let item =
+                item.ok_or_else(|| vm.new_runtime_error("deque mutated during iteration"))?;
+            let equal = item.rich_compare_bool(needle, PyComparisonOp::Eq, vm);
+            // Releasing the comparison reference can also mutate the deque.
+            drop(item);
+            equal
+        }
+
+        // Called inside the deque's operation guard, without holding its data lock
+        // across comparisons or the finalizers of replaced comparison items.
+        fn find_index(
+            &self,
+            needle: &PyObject,
+            start: isize,
+            stop: isize,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
+            let (start, stop, state) = {
+                let data = self.data.read();
+                (
+                    start.saturated_at(data.items.len()),
+                    stop.saturated_at(data.items.len()),
+                    self.state.load(),
+                )
+            };
+            for index in start..stop {
+                // Both index() and containment accept a successful comparison
+                // before checking whether its callback changed the deque.
+                if self.compare_item(index, needle, vm)? {
+                    return Ok(Some(index));
+                }
+                if state != self.state.load() {
+                    return Err(vm.new_runtime_error("deque mutated during iteration"));
+                }
             }
+            Ok(None)
         }
 
         fn _mul(
@@ -534,13 +574,24 @@ mod _collections {
 
         #[pymethod]
         fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            let start_state = self.state.load();
-            let count = self.mut_count(vm, &value)?;
-
-            if start_state != self.state.load() {
-                return Err(vm.new_runtime_error("deque mutated during iteration"));
-            }
-            Ok(count)
+            self.operation.with(vm, || {
+                let (len, state) = {
+                    let data = self.data.read();
+                    (data.items.len(), self.state.load())
+                };
+                let mut count = 0;
+                for index in 0..len {
+                    if self.compare_item(index, &value, vm)? {
+                        count += 1;
+                    }
+                    // Unlike a search, count checks mutation after every result,
+                    // including a match, before comparing any further elements.
+                    if state != self.state.load() {
+                        return Err(vm.new_runtime_error("deque mutated during iteration"));
+                    }
+                }
+                Ok(count)
+            })
         }
 
         #[pymethod]
@@ -567,33 +618,13 @@ mod _collections {
                 OptionalArg::Missing => isize::MAX,
             };
             self.operation.with(vm, || {
-                let (start, stop, state) = {
-                    let data = self.data.read();
-                    (
-                        start.saturated_at(data.items.len()),
-                        stop.saturated_at(data.items.len()),
-                        self.state.load(),
-                    )
-                };
-                for index in start..stop {
-                    let item = self.borrow_deque().get(index).cloned();
-                    let item =
-                        item.ok_or_else(|| vm.new_runtime_error("deque mutated during iteration"))?;
-                    let equal = item.rich_compare_bool(&needle, PyComparisonOp::Eq, vm);
-                    drop(item);
-                    if equal? {
-                        return Ok(index);
-                    }
-                    if state != self.state.load() {
-                        return Err(vm.new_runtime_error("deque mutated during iteration"));
-                    }
-                }
-                Err(vm.new_value_error("deque.index(x): x not in deque"))
+                self.find_index(&needle, start, stop, vm)?
+                    .ok_or_else(|| vm.new_value_error("deque.index(x): x not in deque"))
             })
         }
 
         #[pymethod]
-        fn insert(&self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn insert(&self, index: PySsize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.operation.with(vm, || {
                 let mut value = Some(value);
                 let full = {
@@ -603,7 +634,7 @@ mod _collections {
                     } else {
                         let len = data.items.len();
                         let index = if index < 0 {
-                            len.saturating_sub(index.unsigned_abs() as usize)
+                            len.saturating_sub(index.unsigned_abs())
                         } else {
                             (index as usize).min(len)
                         };
@@ -755,18 +786,6 @@ mod _collections {
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, object, vm)
-        }
-    }
-
-    impl MutObjectSequenceOp for PyDeque {
-        type Inner = VecDeque<PyObjectRef>;
-
-        fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObject> {
-            inner.get(index).map(|r| r.as_ref())
-        }
-
-        fn do_lock(&self) -> impl core::ops::Deref<Target = Self::Inner> {
-            self.borrow_deque()
         }
     }
 
