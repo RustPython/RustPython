@@ -93,7 +93,7 @@ pub(crate) mod _thread {
         #[pyarg(any, default = true)]
         blocking: bool,
         // No timeout; blocks until the lock is acquired.
-        #[pyarg(any, default = -1)]
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0), py_default = "-1")]
         timeout: TimeoutSeconds,
     }
 
