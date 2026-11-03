@@ -7,9 +7,9 @@ mod _queue {
     use std::time::Instant;
 
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::TimeoutSeconds,
+        function::ArgIntoFloat,
         protocol::PyNumberMethods,
         types::{AsNumber, Constructor, Representable},
     };
@@ -223,7 +223,7 @@ mod _queue {
         #[pyarg(any, default = true)]
         block: bool,
         #[pyarg(any, optional)]
-        timeout: Option<TimeoutSeconds>,
+        timeout: Option<PyObjectRef>,
     }
 
     #[pyclass(
@@ -274,11 +274,41 @@ mod _queue {
                     reason = "We are still validating the 'timeout' arg even if we don't have threading"
                 )
             )]
-            let deadline = match timeout.map(|v| v.to_secs_f64()) {
-                Some(v) if v < 0.0 => {
-                    return Err(vm.new_value_error("'timeout' must be a non-negative number"));
+            let deadline = match timeout.as_ref() {
+                Some(value) => {
+                    let overflow =
+                        || vm.new_overflow_error("timestamp out of range for C PyTime_t");
+                    let nanos = if let Some(index) = value.try_index_opt(vm) {
+                        let index = index.map_err(|error| {
+                            if error.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                                overflow()
+                            } else {
+                                error
+                            }
+                        })?;
+                        let seconds: i64 = index.try_to_primitive(vm).map_err(|_| overflow())?;
+                        seconds.checked_mul(1_000_000_000).ok_or_else(overflow)?
+                    } else {
+                        let seconds =
+                            ArgIntoFloat::try_from_object(vm, value.clone())?.into_float();
+                        if seconds.is_nan() {
+                            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                        }
+                        let nanos = (seconds * 1_000_000_000.0).ceil();
+                        if !(i64::MIN as f64..-(i64::MIN as f64)).contains(&nanos) {
+                            return Err(overflow());
+                        }
+                        nanos as i64
+                    };
+                    if nanos < 0 {
+                        return Err(vm.new_value_error("'timeout' must be a non-negative number"));
+                    }
+                    Some(
+                        Instant::now()
+                            .checked_add(Duration::from_nanos(nanos as u64))
+                            .ok_or_else(overflow)?,
+                    )
                 }
-                Some(v) => Some(Instant::now() + Duration::from_secs_f64(v)),
                 None => None,
             };
 
