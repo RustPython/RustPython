@@ -519,7 +519,7 @@ mod winreg {
 
             // Slice the data buffer to the actual size returned.
             let data_slice = &ret_data_buf[..current_data_size as usize];
-            let py_data = reg_to_py(vm, data_slice, reg_type)?;
+            let py_data = reg_to_py(vm, data_slice, reg_type);
 
             // Return tuple (value_name, data, type)
             return Ok(vm
@@ -646,7 +646,7 @@ mod winreg {
         let wide_name = WideCString::from_str(name).map_err(|e| e.to_pyexception(vm))?;
         let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, &wide_name)
             .map_err(|err| os_error_from_windows_code(vm, err as i32))?;
-        let obj = reg_to_py(vm, &ret_buf, typ)?;
+        let obj = reg_to_py(vm, &ret_buf, typ);
         // Return tuple (value, type)
         Ok(vm.ctx.new_tuple(vec![obj, vm.ctx.new_int(typ).into()]))
     }
@@ -696,7 +696,7 @@ mod winreg {
         }
     }
 
-    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyResult {
+    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyObjectRef {
         match typ {
             REG_DWORD => {
                 // If there isn’t enough data, return 0.
@@ -704,14 +704,14 @@ mod winreg {
                     .first_chunk::<4>()
                     .copied()
                     .map_or(0, u32::from_ne_bytes);
-                Ok(vm.ctx.new_int(val).into())
+                vm.ctx.new_int(val).into()
             }
             REG_QWORD => {
                 let val = ret_data
                     .first_chunk::<8>()
                     .copied()
                     .map_or(0, u64::from_ne_bytes);
-                Ok(vm.ctx.new_int(val).into())
+                vm.ctx.new_int(val).into()
             }
             REG_SZ | REG_EXPAND_SZ => {
                 let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
@@ -721,11 +721,11 @@ mod winreg {
                     .position(|&c| c == 0)
                     .unwrap_or(u16_slice.len());
                 let s = Wtf8Buf::from_wide(&u16_slice[..len]);
-                Ok(vm.ctx.new_str(s).into())
+                vm.ctx.new_str(s).into()
             }
             REG_MULTI_SZ => {
                 if ret_data.is_empty() {
-                    Ok(vm.ctx.new_list(vec![]).into())
+                    vm.ctx.new_list(vec![]).into()
                 } else {
                     let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
                     let u16_count = u16_slice.len();
@@ -751,15 +751,15 @@ mod winreg {
                         let s = Wtf8Buf::from_wide(&u16_slice[start..len]);
                         strings.push(vm.ctx.new_str(s).into());
                     }
-                    Ok(vm.ctx.new_list(strings).into())
+                    vm.ctx.new_list(strings).into()
                 }
             }
             // For REG_BINARY and any other unknown types, return a bytes object if data exists.
             _ => {
                 if ret_data.is_empty() {
-                    Ok(vm.ctx.none())
+                    vm.ctx.none()
                 } else {
-                    Ok(vm.ctx.new_bytes(ret_data.to_vec()).into())
+                    vm.ctx.new_bytes(ret_data.to_vec()).into()
                 }
             }
         }
