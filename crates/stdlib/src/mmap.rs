@@ -1123,14 +1123,9 @@ mod mmap {
             let num_bytes = match args.n {
                 Some(obj) if !vm.is_none(&obj) => {
                     let index = obj.try_index_opt(vm).ok_or_else(|| {
-                        let mut name = obj.class().slot_name().to_string();
-                        if name.len() > 200 {
-                            let mut end = 200;
-                            while !name.is_char_boundary(end) {
-                                end -= 1;
-                            }
-                            name.truncate(end);
-                        }
+                        let class = obj.class();
+                        let name = class.slot_name();
+                        let name = &name[..name.floor_char_boundary(200)];
                         vm.new_type_error(format!(
                             "argument should be integer or None, not '{name}'"
                         ))
