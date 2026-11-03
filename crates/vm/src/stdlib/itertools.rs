@@ -1790,6 +1790,14 @@ mod decl {
                         Ok(PyIterReturn::StopIteration(value)) => {
                             drop(value);
                             zelf.exhausted[idx].store(true, Ordering::Release);
+                            if !saw_item
+                                && zelf.exhausted[idx + 1..]
+                                    .iter()
+                                    .all(|flag| flag.load(Ordering::Acquire))
+                            {
+                                zelf.terminal.store(true, Ordering::Release);
+                                return Ok(PyIterReturn::StopIteration(None));
+                            }
                             zelf.fillvalue.read().clone()
                         }
                         Err(err) => {
