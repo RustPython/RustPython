@@ -215,25 +215,109 @@ mod _lzma {
         spec: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<backend::FilterSpec> {
+        fn take_keyword(
+            dict: &PyDict,
+            key: &str,
+            remaining: &mut usize,
+            error: &str,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyObjectRef>> {
+            if *remaining == 0 {
+                return Ok(None);
+            }
+            let value = dict
+                .get_item_opt(key, vm)
+                .map_err(|_| vm.new_value_error(error))?;
+            if value.is_some() {
+                *remaining -= 1;
+            }
+            Ok(value)
+        }
+
+        fn field(
+            dict: &PyDict,
+            key: &str,
+            remaining: &mut usize,
+            error: &str,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<u32>> {
+            take_keyword(dict, key, remaining, error, vm)?
+                .map(|value| {
+                    value
+                        .try_into_value::<u32>(vm)
+                        .map_err(|_| vm.new_value_error(error))
+                })
+                .transpose()
+        }
+
         let mut parsed = filter_spec_with_id(spec, vm)?;
-        match parsed.id {
-            FILTER_LZMA1 => {
+        let dict = spec
+            .downcast_ref::<PyDict>()
+            .expect("filter ID was read from a dict");
+        let (max, error) = match parsed.id {
+            FILTER_LZMA1 | FILTER_LZMA2 => {
                 parsed.preset = get_dict_opt_u32(spec, "preset", vm)?;
-                parsed.lc = get_dict_opt_u32(spec, "lc", vm)?;
-                parsed.lp = get_dict_opt_u32(spec, "lp", vm)?;
-                parsed.pb = get_dict_opt_u32(spec, "pb", vm)?;
-                parsed.dict_size = get_dict_opt_u32(spec, "dict_size", vm)?;
+                if let Some(preset) = parsed.preset
+                    && preset & !PRESET_EXTREME > 9
+                {
+                    return Err(new_lzma_error(
+                        format!("Invalid compression preset: {preset}"),
+                        vm,
+                    ));
+                }
+                (10, "Invalid filter specifier for LZMA filter")
             }
-            FILTER_LZMA2 => {
-                parsed.preset = get_dict_opt_u32(spec, "preset", vm)?;
-                parsed.dict_size = get_dict_opt_u32(spec, "dict_size", vm)?;
-            }
-            FILTER_DELTA => parsed.dist = get_dict_opt_u32(spec, "dist", vm)?,
+            FILTER_DELTA => (2, "Invalid filter specifier for delta filter"),
             FILTER_X86 | FILTER_POWERPC | FILTER_IA64 | FILTER_ARM | FILTER_ARMTHUMB
-            | FILTER_SPARC => {
-                parsed.start_offset = get_dict_opt_u32(spec, "start_offset", vm)?;
+            | FILTER_SPARC => (2, "Invalid filter specifier for BCJ filter"),
+            _ => return Ok(parsed),
+        };
+        // PyArg_ParseTupleAndKeywords snapshots the keyword count and stops
+        // looking up optional fields when all of those keywords are consumed.
+        let mut remaining = dict.__len__();
+        if remaining > max {
+            return Err(vm.new_value_error(error));
+        }
+        let _ = take_keyword(dict, "id", &mut remaining, error, vm)?;
+        if matches!(parsed.id, FILTER_LZMA1 | FILTER_LZMA2) {
+            let _ = take_keyword(dict, "preset", &mut remaining, error, vm)?;
+            parsed.dict_size = field(dict, "dict_size", &mut remaining, error, vm)?;
+            parsed.lc = field(dict, "lc", &mut remaining, error, vm)?;
+            parsed.lp = field(dict, "lp", &mut remaining, error, vm)?;
+            parsed.pb = field(dict, "pb", &mut remaining, error, vm)?;
+            parsed.mode = field(dict, "mode", &mut remaining, error, vm)?;
+            parsed.nice_len = field(dict, "nice_len", &mut remaining, error, vm)?;
+            parsed.mf = field(dict, "mf", &mut remaining, error, vm)?;
+            parsed.depth = field(dict, "depth", &mut remaining, error, vm)?;
+            if remaining > 0 {
+                check_filter_spec_keys(
+                    spec,
+                    &[
+                        "id",
+                        "preset",
+                        "dict_size",
+                        "lc",
+                        "lp",
+                        "pb",
+                        "mode",
+                        "nice_len",
+                        "mf",
+                        "depth",
+                    ],
+                    error,
+                    vm,
+                )?;
             }
-            _ => {}
+        } else if parsed.id == FILTER_DELTA {
+            parsed.dist = field(dict, "dist", &mut remaining, error, vm)?;
+            if remaining > 0 {
+                check_filter_spec_keys(spec, &["id", "dist"], error, vm)?;
+            }
+        } else {
+            parsed.start_offset = field(dict, "start_offset", &mut remaining, error, vm)?;
+            if remaining > 0 {
+                check_filter_spec_keys(spec, &["id", "start_offset"], error, vm)?;
+            }
         }
         Ok(parsed)
     }
@@ -444,16 +528,10 @@ mod _lzma {
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             if args.format != FORMAT_XZ && args.check != -1 && args.check != CHECK_NONE {
-                return Err(new_lzma_error(
-                    "Integrity checks are only supported by FORMAT_XZ",
-                    vm,
-                ));
+                return Err(vm.new_value_error("Integrity checks are only supported by FORMAT_XZ"));
             }
             if args.preset.is_some() && args.filters.is_some() {
-                return Err(new_lzma_error(
-                    "Cannot specify both preset and filter chain",
-                    vm,
-                ));
+                return Err(vm.new_value_error("Cannot specify both preset and filter chain"));
             }
             let preset = match args.preset {
                 Some(preset) => preset.try_into_value::<u32>(vm)?,
