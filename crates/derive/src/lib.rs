@@ -20,15 +20,16 @@ use syn::punctuated::Punctuated;
 ///   The signature text is `0`, `False` or `0.0` for a primitive integer, `bool`
 ///   or float field, and `<unrepresentable>` otherwise, unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
-///   A string, byte-string, integer (optionally negated), float, bool, or `None` literal
+///   A string, byte-string, integer (optionally negated), float, or bool literal
 ///   on any field that is not a Rust primitive (`i8`..`i128`, `u8`..`u128`,
 ///   `isize`, `usize`, `f32`, `f64`, `bool`), `&'static str`, `Option<T>`, or
 ///   `OptionalArg<T>` is converted only when the argument is missing:
 ///   `<FieldTy as TryFromObject>::try_from_object(vm, ToPyObject::to_pyobject(LIT, vm))?`.
 ///   A byte-string literal becomes a Python `bytes` object.
-///   `None` becomes Python's None singleton and is validated by the field's
-///   converter only when omitted. Wrapped argument types retain their Rust
-///   default expressions; `default = None` does not mean `OptionalArg::Missing`.
+///   `default = None` on `Option<T>`, including `Option<PyObjectRef>`, stores
+///   Rust `None` and displays `None` in the signature without `py_default`.
+///   It does not construct Python's None object for an unwrapped field or
+///   mean `OptionalArg::Missing`.
 /// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
 ///   name, and the missing argument stores `Into::into(NAME)` (the leading
 ///   `::` is not Rust syntax for a local constant). A longer `::` path is a
