@@ -105,7 +105,7 @@ mod decl {
                             drop(previous);
                         }
                         Err(err) => {
-                            break Err(err);
+                            return Err(err);
                         }
                     }
                 } else {
