@@ -1,11 +1,15 @@
+use core::ffi::CStr;
 use std::io;
 
 use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
 use windows_sys::Win32::{
     Foundation::{CRYPT_E_NOT_FOUND, GetLastError},
     Security::Cryptography::{
-        CERT_CONTEXT, CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
-        PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+        CERT_CONTEXT, CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG, CERT_FIND_PROP_ONLY_ENHKEY_USAGE_FLAG,
+        CERT_STORE_PROV_SYSTEM_A, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_LOCAL_MACHINE,
+        CRL_CONTEXT, CTL_USAGE, CertCloseStore, CertEnumCRLsInStore, CertEnumCertificatesInStore,
+        CertFreeCertificateContext, CertGetEnhancedKeyUsage, CertOpenStore, CertOpenSystemStoreW,
+        HCERTSTORE, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
     },
 };
 
@@ -49,6 +53,158 @@ fn encoding_type(raw: u32) -> EncodingType {
     } else {
         EncodingType::Other(raw)
     }
+}
+
+fn encoding_type_exact(raw: u32) -> EncodingType {
+    match raw {
+        X509_ASN_ENCODING => EncodingType::X509Asn,
+        PKCS_7_ASN_ENCODING => EncodingType::Pkcs7Asn,
+        other => EncodingType::Other(other),
+    }
+}
+
+fn open_local_machine(store_name: &CStr) -> io::Result<HCERTSTORE> {
+    let store = unsafe {
+        CertOpenStore(
+            CERT_STORE_PROV_SYSTEM_A,
+            0,
+            0,
+            CERT_SYSTEM_STORE_LOCAL_MACHINE | CERT_STORE_READONLY_FLAG,
+            store_name.as_ptr().cast(),
+        )
+    };
+    if store.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(store)
+    }
+}
+
+unsafe fn certificate_uses_for_flags(
+    cert: *const CERT_CONTEXT,
+    flags: u32,
+) -> io::Result<Option<CertificateUses>> {
+    let mut size = 0;
+    if unsafe { CertGetEnhancedKeyUsage(cert, flags, core::ptr::null_mut(), &mut size) } == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(CRYPT_E_NOT_FOUND) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+
+    let words = (size as usize)
+        .max(core::mem::size_of::<CTL_USAGE>())
+        .div_ceil(core::mem::size_of::<usize>());
+    let mut buffer = vec![0usize; words];
+    let usage = buffer.as_mut_ptr().cast::<CTL_USAGE>();
+    if unsafe { CertGetEnhancedKeyUsage(cert, flags, usage, &mut size) } == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(CRYPT_E_NOT_FOUND) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+
+    let usage = unsafe { &*usage };
+    let mut oids = Vec::with_capacity(usage.cUsageIdentifier as usize);
+    for index in 0..usage.cUsageIdentifier as usize {
+        let oid = unsafe { *usage.rgpszUsageIdentifier.add(index) };
+        if !oid.is_null() {
+            oids.push(
+                unsafe { CStr::from_ptr(oid.cast()) }
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
+    }
+    Ok(Some(CertificateUses::Oids(oids)))
+}
+
+unsafe fn certificate_uses(cert: *const CERT_CONTEXT) -> io::Result<CertificateUses> {
+    if let Some(uses) =
+        unsafe { certificate_uses_for_flags(cert, CERT_FIND_PROP_ONLY_ENHKEY_USAGE_FLAG) }?
+    {
+        return Ok(uses);
+    }
+    Ok(
+        unsafe { certificate_uses_for_flags(cert, CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG) }?
+            .unwrap_or(CertificateUses::All),
+    )
+}
+
+/// Enumerate one read-only local-machine system store, matching the store
+/// selected by CPython's Windows SSL helpers. Opening and closing the store
+/// are both fallible; a close failure takes precedence over an enumeration
+/// failure because it happens last.
+pub fn enum_certificates_local_machine(store_name: &CStr) -> io::Result<Vec<CertificateEntry>> {
+    let store = open_local_machine(store_name)?;
+    let result = (|| {
+        let mut entries = Vec::new();
+        let mut context: *const CERT_CONTEXT = core::ptr::null();
+        loop {
+            context = unsafe { CertEnumCertificatesInStore(store, context) };
+            if context.is_null() {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(CRYPT_E_NOT_FOUND) {
+                    break;
+                }
+                return Err(error);
+            }
+            let cert = unsafe { &*context };
+            let valid_uses = unsafe { certificate_uses(context) };
+            if let Err(error) = valid_uses {
+                unsafe { CertFreeCertificateContext(context) };
+                return Err(error);
+            }
+            entries.push(CertificateEntry {
+                der: unsafe {
+                    core::slice::from_raw_parts(cert.pbCertEncoded, cert.cbCertEncoded as usize)
+                }
+                .to_vec(),
+                encoding: encoding_type_exact(cert.dwCertEncodingType),
+                valid_uses,
+            });
+        }
+        Ok(entries)
+    })();
+    if unsafe { CertCloseStore(store, 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    result
+}
+
+/// Enumerate certificate-revocation lists from one read-only local-machine
+/// system store.
+pub fn enum_crls_local_machine(store_name: &CStr) -> io::Result<Vec<CrlEntry>> {
+    let store = open_local_machine(store_name)?;
+    let result = (|| {
+        let mut entries = Vec::new();
+        let mut context: *const CRL_CONTEXT = core::ptr::null();
+        loop {
+            context = unsafe { CertEnumCRLsInStore(store, context) };
+            if context.is_null() {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(CRYPT_E_NOT_FOUND) {
+                    break;
+                }
+                return Err(error);
+            }
+            let crl = unsafe { &*context };
+            entries.push(CrlEntry {
+                der: unsafe {
+                    core::slice::from_raw_parts(crl.pbCrlEncoded, crl.cbCrlEncoded as usize)
+                }
+                .to_vec(),
+                encoding: encoding_type_exact(crl.dwCertEncodingType),
+            });
+        }
+        Ok(entries)
+    })();
+    if unsafe { CertCloseStore(store, 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    result
 }
 
 pub fn enum_certificates(store_name: &str) -> CertificateEntries {
