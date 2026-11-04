@@ -130,9 +130,9 @@ impl PyObjectRef {
             return Ok(Some(complex.to_owned()));
         }
 
-        let message = format!(
-            "{}.__complex__() must return a complex, not {}",
+        let message = wtf8_concat!(
             self.class().fully_qualified_name(vm)?,
+            ".__complex__() must return a complex, not ",
             result.class().fully_qualified_name(vm)?
         );
         let Some(complex) = result.downcast_ref::<PyComplex>() else {
@@ -140,10 +140,9 @@ impl PyObjectRef {
         };
         _warnings::warn(
             vm.ctx.exceptions.deprecation_warning,
-            format!(
-                "{message}.  \
-The ability to return an instance of a strict subclass of complex is deprecated, \
-and may be removed in a future version of Python."
+            wtf8_concat!(
+                message,
+                ".  The ability to return an instance of a strict subclass of complex is deprecated, and may be removed in a future version of Python."
             ),
             1,
             vm,
@@ -548,8 +547,8 @@ impl PyComplex {
         }
         match value.try_complex(vm)? {
             Some((value, _)) => Ok(Self::from(value)),
-            None => Err(vm.new_type_error(format!(
-                "complex() argument must be a string or a number, not {}",
+            None => Err(vm.new_type_error(wtf8_concat!(
+                "complex() argument must be a string or a number, not ",
                 value.class().fully_qualified_name(vm)?
             ))),
         }
