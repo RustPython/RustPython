@@ -160,9 +160,7 @@ mod _abc {
             let value = &elements[1];
 
             // Check if value has __isabstractmethod__ = True
-            if let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
-                && is_abstract.try_to_bool(vm)?
-            {
+            if value.is_abstract(vm)? {
                 abstracts.push(key.clone());
             }
         }
@@ -180,8 +178,7 @@ mod _abc {
                     // Try to get the attribute from cls - key should be a string
                     if let Some(key_str) = key.downcast_ref::<PyStr>()
                         && let Some(value) = vm.get_attribute_opt(cls, key_str)?
-                        && let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
-                        && is_abstract.try_to_bool(vm)?
+                        && value.is_abstract(vm)?
                     {
                         abstracts.push(key);
                     }
