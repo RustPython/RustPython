@@ -787,43 +787,47 @@ pub(crate) mod ordered_dict {
     fn odict_add_pairs(zelf: &PyObject, pairs: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // An iterator need not retain its iterable. Keep the container alive
         // until all pair callbacks and the outer iterator have finished.
-        let iter = PyIter::try_from_object(vm, pairs.clone())?;
-        for pair in iter.iter::<PyObjectRef>(vm)? {
-            let pair = pair?;
-            let mut pair_iter = None;
-            let mut key = None;
-            let mut value = None;
-            let result = (|| {
-                let iterator = pair_iter.insert(PyIter::try_from_object(vm, pair.clone())?);
-                // Unlike dict.update(), OrderedDict unpacks at most three
-                // values and never consults a pair's length hint.
-                let key = key.insert(match iterator.next(vm)? {
-                    PyIterReturn::Return(key) => key,
-                    PyIterReturn::StopIteration(_) => {
-                        return Err(vm.new_value_error("need more than 0 values to unpack"));
+        let result = (|| {
+            let iter = PyIter::try_from_object(vm, pairs.clone())?;
+            for pair in iter.iter::<PyObjectRef>(vm)? {
+                let pair = pair?;
+                let mut pair_iter = None;
+                let mut key = None;
+                let mut value = None;
+                let result = (|| {
+                    let iterator = pair_iter.insert(PyIter::try_from_object(vm, pair.clone())?);
+                    // Unlike dict.update(), OrderedDict unpacks at most three
+                    // values and never consults a pair's length hint.
+                    let key = key.insert(match iterator.next(vm)? {
+                        PyIterReturn::Return(key) => key,
+                        PyIterReturn::StopIteration(_) => {
+                            return Err(vm.new_value_error("need more than 0 values to unpack"));
+                        }
+                    });
+                    let value = value.insert(match iterator.next(vm)? {
+                        PyIterReturn::Return(value) => value,
+                        PyIterReturn::StopIteration(_) => {
+                            return Err(vm.new_value_error("need more than 1 value to unpack"));
+                        }
+                    });
+                    if let PyIterReturn::Return(unexpected) = iterator.next(vm)? {
+                        drop(unexpected);
+                        return Err(vm.new_value_error("too many values to unpack (expected 2)"));
                     }
-                });
-                let value = value.insert(match iterator.next(vm)? {
-                    PyIterReturn::Return(value) => value,
-                    PyIterReturn::StopIteration(_) => {
-                        return Err(vm.new_value_error("need more than 1 value to unpack"));
-                    }
-                });
-                if let PyIterReturn::Return(unexpected) = iterator.next(vm)? {
-                    drop(unexpected);
-                    return Err(vm.new_value_error("too many values to unpack (expected 2)"));
-                }
-                zelf.set_item(&**key, value.clone(), vm)
-            })();
-            // Finalizers may call back into the destination. Match the pair,
-            // iterator, key, value release order on both success and failure.
-            drop(pair);
-            drop(pair_iter);
-            drop(key);
-            drop(value);
-            result?;
-        }
-        Ok(())
+                    zelf.set_item(&**key, value.clone(), vm)
+                })();
+                // Finalizers may call back into the destination. Match the pair,
+                // iterator, key, value release order on both success and failure.
+                drop(pair);
+                drop(pair_iter);
+                drop(key);
+                drop(value);
+                result?;
+            }
+            Ok(())
+        })();
+        drop(pairs);
+        result
     }
 
     #[pyattr]
