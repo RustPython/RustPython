@@ -7,7 +7,6 @@ use crate::{
     common::hash::PyHash,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    stdlib::builtins::reversed,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Hashable,
         IterNext, Iterable, PyComparisonOp, Representable, SetAttr,
@@ -190,7 +189,7 @@ impl Py<PyWeakProxy> {
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.try_upgrade(vm)?;
-        reversed(obj, vm)
+        vm.call_method(&obj, identifier!(vm, __reversed__).as_str(), ())
     }
 }
 

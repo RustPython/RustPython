@@ -1,15 +1,15 @@
 use super::{
     PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
-    iter::{SequenceIter, SequenceIterDirection, builtins_reversed},
+    iter::{SequenceIter, SequenceIterDirection},
 };
 use crate::common::lock::PyRwLock;
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::ArgIndex,
+    function::{ArgIndex, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
-    types::{Constructor, IterNext, Iterable, SelfIter},
+    types::{Constructor, IterNext, Iterable, SelfIter, drop_kwargs_if_init_overridden},
 };
 use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -150,6 +150,44 @@ impl PyPayload for PyReverseSequenceIterator {
 }
 
 impl PyReverseSequenceIterator {
+    pub(crate) fn from_object(
+        cls: PyTypeRef,
+        sequence: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        // Keep the original sequence alive while binding, calling, and releasing
+        // the special method, including when it does not retain its receiver.
+        if let Some(method) = vm.get_method(sequence.clone(), identifier!(vm, __reversed__)) {
+            let method = method?;
+            if vm.is_none(&method) {
+                return Err(Self::not_reversible(sequence, vm));
+            }
+            let result = method.call((), vm);
+            drop(method);
+            return result;
+        }
+
+        Self::py_new(
+            &cls,
+            ReversedArgs {
+                object: sequence.clone(),
+            },
+            vm,
+        )?
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
+    }
+
+    fn not_reversible(
+        sequence: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> crate::builtins::PyBaseExceptionRef {
+        vm.new_type_error(format!(
+            "'{}' object is not reversible",
+            sequence.class().slot_name()
+        ))
+    }
+
     pub(crate) const fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len as isize - 1;
         Self {
@@ -158,7 +196,49 @@ impl PyReverseSequenceIterator {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
+#[derive(FromArgs)]
+pub(crate) struct ReversedArgs {
+    #[pyarg(positional)]
+    object: PyObjectRef,
+}
+
+impl Constructor for PyReverseSequenceIterator {
+    type Args = ReversedArgs;
+
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // A subtype's custom initializer may consume keywords, but the exact
+        // type and subtypes inheriting its initializer reject them first.
+        // Retain the original arguments through callbacks even if keywords
+        // are removed from the constructor's view of the call.
+        let constructor_args =
+            drop_kwargs_if_init_overridden(&cls, vm.ctx.types.reverse_iter_type, args.clone());
+        if !constructor_args.kwargs.is_empty() {
+            return Err(vm.new_type_error("reversed() takes no keyword arguments"));
+        }
+        let ReversedArgs { object } = constructor_args.bind_for(vm, "reversed")?;
+        let result = Self::from_object(cls, &object, vm);
+        drop(object);
+        drop(args);
+        result
+    }
+
+    fn py_new(
+        _cls: &Py<PyType>,
+        Self::Args { object }: Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        // The slot handles arbitrary __reversed__ results before constructing
+        // a payload. Checking sequence support must not bind __getitem__.
+        let protocol = object.sequence_unchecked();
+        if !protocol.check() {
+            return Err(Self::not_reversible(&object, vm));
+        }
+        let len = protocol.length(vm)?;
+        Ok(Self::new(object, len))
+    }
+}
+
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl Py<PyReverseSequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -176,7 +256,7 @@ impl Py<PyReverseSequenceIterator> {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let func = builtins_reversed(vm)?;
+        let func = self.class().to_owned().into();
         Ok(self.internal.reduce(func, vm))
     }
 }
