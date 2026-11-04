@@ -1230,21 +1230,29 @@ mod builtins {
             }
         }
 
-        let sep = options
-            .sep
-            .clone()
-            .unwrap_or_else(|| vm.ctx.new_str(" ").into());
-        let end = options
-            .end
-            .clone()
-            .unwrap_or_else(|| vm.ctx.new_str("\n").into());
+        let default_sep;
+        let sep = match options.sep.as_deref() {
+            Some(sep) => sep,
+            None => {
+                default_sep = vm.ctx.new_str(" ");
+                default_sep.as_object()
+            }
+        };
+        let default_end;
+        let end = match options.end.as_deref() {
+            Some(end) => end,
+            None => {
+                default_end = vm.ctx.new_str("\n");
+                default_end.as_object()
+            }
+        };
         for (i, object) in objects.iter().enumerate() {
             if i > 0 {
-                py_io::file_write_object(&file, &sep, vm)?;
+                py_io::file_write_object(&file, sep, vm)?;
             }
             py_io::file_write_object(&file, object, vm)?;
         }
-        py_io::file_write_object(&file, &end, vm)?;
+        py_io::file_write_object(&file, end, vm)?;
 
         if flush {
             vm.call_method(&file, "flush", ())?;
