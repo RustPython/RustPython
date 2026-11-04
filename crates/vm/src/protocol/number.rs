@@ -4,13 +4,12 @@ use rustpython_common::wtf8::wtf8_concat;
 use crossbeam_utils::atomic::AtomicCell;
 
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int,
     },
     common::{
-        int::{BytesToIntError, bytes_to_int},
+        int::BytesToIntError,
         str::{PyKindStr, transform_decimal_and_space_to_ascii},
     },
     function::ArgBytesLike,
@@ -71,40 +70,36 @@ impl PyObject {
     #[inline]
     pub fn try_index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         self.try_index_opt(vm).transpose()?.ok_or_else(|| {
+            let name = self.class().slot_name();
+            let name = &name[..name.floor_char_boundary(name.len().min(200))];
             vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                self.class().slot_name()
+                "'{name}' object cannot be interpreted as an integer"
             ))
         })
     }
 
     pub fn try_int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<PyIntRef> {
-            let base = 10;
-            let digit_limit = vm.state.int_max_str_digits.load();
-
-            let i = bytes_to_int(lit, base, digit_limit)
-                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))?;
-            Ok(PyInt::from(i).into_ref(&vm.ctx))
-        }
-
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
         } else if let Some(i) = self.number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Some(s) = self.downcast_ref::<PyStr>() {
-            try_convert(self, numeric_literal_from_str(s).as_bytes(), vm)
+            int::from_str_literal(s, 10, vm).map(|value| vm.ctx.new_int(value))
         } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
-            try_convert(self, bytes.as_bytes(), vm)
+            int::from_bytes_literal(bytes.as_bytes(), 10, vm).map(|value| vm.ctx.new_int(value))
         } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {
-            try_convert(self, &bytearray.borrow_buf(), vm)
+            int::from_bytes_literal(&bytearray.borrow_buf(), 10, vm)
+                .map(|value| vm.ctx.new_int(value))
         } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
-            // TODO: replace to PyBuffer
-            try_convert(self, &buffer.borrow_buf(), vm)
+            // Generic exporters are copied before parsing, as in PyNumber_Long.
+            // Do not call an exporter's repr while its buffer is borrowed.
+            let bytes = buffer.borrow_buf().to_vec();
+            int::from_bytes_literal(&bytes, 10, vm).map(|value| vm.ctx.new_int(value))
         } else {
+            let name = self.class().slot_name();
+            let name = &name[..name.floor_char_boundary(name.len().min(200))];
             Err(vm.new_type_error(format!(
-                "int() argument must be a string, a bytes-like object or a real number, not '{}'",
-                self.class().slot_name()
+                "int() argument must be a string, a bytes-like object or a real number, not '{name}'"
             )))
         }
     }
@@ -678,52 +673,46 @@ impl PyNumber<'_> {
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         self.class().slots().as_number.int.load().map(|f| {
-            let ret = f(self, vm)?;
-
-            if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
-                return Ok(ret.to_owned());
-            }
-
-            let ret_class = ret.class().to_owned();
-            if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                let msg = format!(
-                    "__int__ returned non-int (type {}).  \
-The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python.",
-                    ret_class.slot_name()
-                );
-                _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
-
-                Ok(ret.to_owned())
+            let ret = self.int_result(f(self, vm)?, "__int__", vm)?;
+            if ret.class().is(vm.ctx.types.int_type) {
+                Ok(ret)
             } else {
-                Err(vm.new_type_error(format!(
-                    "__int__ returned non-int (type {})",
-                    ret_class.slot_name()
-                )))
+                Ok(vm.ctx.new_bigint(ret.as_bigint()))
             }
         })
     }
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots().as_number.index.load().map(|f| {
-            let ret = f(self, vm)?;
+        self.class()
+            .slots()
+            .as_number
+            .index
+            .load()
+            .map(|f| self.int_result(f(self, vm)?, "__index__", vm))
+    }
 
-            if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
-                return Ok(ret.to_owned());
-            }
-
-            let ret_class = ret.class().to_owned();
-            let message = wtf8_concat!(self.class().fully_qualified_name(vm)?, ".__index__() must return an int, not ", ret_class.fully_qualified_name(vm)?);
-            if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                let msg = wtf8_concat!(message, ".  The ability to return an instance of a strict subclass of int is deprecated, and may be removed in a future version of Python.");
-                _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
-
-                Ok(ret.to_owned())
-            } else {
-                Err(vm.new_type_error(message))
-            }
-        })
+    fn int_result(self, ret: PyObjectRef, method: &str, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+        if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
+            return Ok(ret.to_owned());
+        }
+        let message = wtf8_concat!(
+            self.class().fully_qualified_name(vm)?,
+            ".",
+            method,
+            "() must return an int, not ",
+            ret.class().fully_qualified_name(vm)?
+        );
+        let Ok(ret) = ret.downcast::<PyInt>() else {
+            return Err(vm.new_type_error(message));
+        };
+        let warning = wtf8_concat!(
+            message,
+            ".  The ability to return an instance of a strict subclass of int ",
+            "is deprecated, and may be removed in a future version of Python."
+        );
+        _warnings::warn(vm.ctx.exceptions.deprecation_warning, warning, 1, vm)?;
+        Ok(ret)
     }
 
     #[inline]
@@ -770,7 +759,12 @@ pub fn handle_bytes_to_int_err(
                 Ok(v) => v,
                 Err(err) => return err,
             };
-            vm.new_value_error(format!("invalid literal for int() with base {base}: {v}"))
+            // %.200R is a code-point limit on the repr, not a UTF-8 byte limit.
+            let end = v.char_index_to_byte(200);
+            vm.new_value_error(wtf8_concat!(
+                format!("invalid literal for int() with base {base}: "),
+                &v.as_wtf8()[..end]
+            ))
         }
         BytesToIntError::InvalidBase => {
             vm.new_value_error("int() base must be >= 2 and <= 36, or 0")
