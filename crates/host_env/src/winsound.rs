@@ -40,14 +40,36 @@ pub fn play_sound(source: PlaySoundSource<'_>, flags: u32) -> Result<(), PlaySou
     if matches!(source, PlaySoundSource::Memory(_)) && flags & SND_ASYNC != 0 {
         return Err(PlaySoundError::MemoryAsyncRejected);
     }
-    // `SND_MEMORY` requires a `Memory(_)` source; an empty pointer would
-    // dereference garbage.
-    if !matches!(source, PlaySoundSource::Memory(_)) && flags & SND_MEMORY != 0 {
+    // `SND_MEMORY` with a name would reinterpret the name's UTF-16 allocation
+    // as a RIFF buffer. A null source is still the documented stop operation,
+    // for which the remaining flags are ignored.
+    if matches!(source, PlaySoundSource::Name(_)) && flags & SND_MEMORY != 0 {
         return Err(PlaySoundError::MemoryFlagWithoutBuffer);
     }
+    // Although WinMM spells the parameter as `LPCWSTR`, SND_MEMORY makes it
+    // point at a byte-oriented RIFF image. Copy it into aligned storage so an
+    // empty slice never exposes its dangling sentinel and the safe API does
+    // not rely on a `u8` allocation being suitably aligned for that spelling.
+    let aligned_memory = match &source {
+        PlaySoundSource::Memory(buf) => {
+            let mut units = vec![0u16; buf.len().div_ceil(2).max(1)];
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    buf.as_ptr(),
+                    units.as_mut_ptr().cast::<u8>(),
+                    buf.len(),
+                );
+            }
+            Some(units)
+        }
+        _ => None,
+    };
     let ptr: *const u16 = match source {
         PlaySoundSource::Stop => core::ptr::null(),
-        PlaySoundSource::Memory(buf) => buf.as_ptr().cast(),
+        PlaySoundSource::Memory(_) => aligned_memory
+            .as_ref()
+            .expect("memory source allocated aligned storage")
+            .as_ptr(),
         PlaySoundSource::Name(s) => s.as_ptr(),
     };
     let ok = unsafe { PlaySoundW(ptr, 0, flags) };
@@ -64,7 +86,7 @@ pub enum PlaySoundError {
     CallFailed,
     /// `Memory(_)` source cannot be combined with `SND_ASYNC` in the safe API.
     MemoryAsyncRejected,
-    /// `SND_MEMORY` set in `flags` but no `Memory(_)` buffer supplied.
+    /// `SND_MEMORY` set in `flags` for a named source.
     MemoryFlagWithoutBuffer,
 }
 
