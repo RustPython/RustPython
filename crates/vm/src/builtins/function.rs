@@ -1663,7 +1663,12 @@ impl Py<PyCell> {
         };
         // compare cells by contents; empty cells come before anything else
         match (zelf.get(), other.get()) {
-            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (Some(a), Some(b)) => {
+                let result = PyObject::rich_compare(&a, &b, op, vm).map(Either::A);
+                drop(a);
+                drop(b);
+                result
+            }
             (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
         }
     }
