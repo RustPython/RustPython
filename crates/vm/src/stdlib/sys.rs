@@ -1008,25 +1008,10 @@ pub mod sys {
             None => ("builtins", env_var.as_str()),
         };
 
-        let import_module = || {
-            let module_name = vm.ctx.new_str(module_path);
-            // Import for its side effects, with an empty list as the fromlist.
-            // __import__ may return a top-level package or an unrelated object;
-            // the hook belongs to the exact module registered in sys.modules.
-            let from_list = vm.ctx.new_list(vec![]);
-            let imported = vm.import_from(&module_name, from_list.clone(), 0)?;
-            drop(imported);
-            let module = vm
-                .sys_module
-                .dict()
-                .get_item("modules", vm)?
-                .get_item(&*module_name, vm);
-            // Import hooks may populate this list with finalizable values.
-            // Keep them until after lookup, but not through hook resolution.
-            drop(from_list);
-            module
-        };
-        let module = match import_module() {
+        let module_name = vm.ctx.new_str(module_path);
+        let module = crate::import::import_module(vm, &module_name);
+        drop(module_name);
+        let module = match module {
             Ok(module) => module,
             Err(err) if err.fast_isinstance(vm.ctx.exceptions.import_error) => {
                 drop(err);

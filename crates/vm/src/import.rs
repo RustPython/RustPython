@@ -11,6 +11,74 @@ use crate::{
 use core::{cell::Cell, sync::atomic::Ordering, time::Duration};
 use std::{io::Write, time::Instant};
 
+/// Import for side effects and return the exact named module (PyImport_Import).
+/// Unlike ordinary imports, this re-reads globals' builtins and passes globals
+/// as both namespace arguments to the selected importer.
+pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
+    let from_list = vm.ctx.new_list(vec![]);
+    let mut globals: Option<PyObjectRef> = crate::frame::current_globals().map(Into::into);
+    let has_globals = globals.is_some();
+    let mut builtins: Option<PyObjectRef> = None;
+    let mut importer: Option<PyObjectRef> = None;
+    let result = (|| {
+        let globals = globals.get_or_insert_with(|| vm.ctx.new_dict().into());
+        let builtins = builtins.insert(if has_globals {
+            globals.get_item(identifier!(vm, __builtins__), vm)?
+        } else {
+            // Bootstrap without calling this helper or the frame's importer.
+            let builtins = import_module_level(vm.ctx.intern_str("builtins"), None, None, 0, vm)?;
+            globals.set_item(identifier!(vm, __builtins__), builtins.clone(), vm)?;
+            builtins
+        });
+        let importer = importer.insert(if builtins.downcast_ref::<PyDict>().is_some() {
+            // Dict subclasses keep their subscription callbacks, but every
+            // lookup failure is replaced, not just KeyError.
+            builtins
+                .get_item(identifier!(vm, __import__), vm)
+                .map_err(|err| {
+                    let replacement =
+                        vm.new_key_error(identifier!(vm, __import__).to_owned().into());
+                    drop(err);
+                    replacement
+                })?
+        } else {
+            builtins.get_attr(identifier!(vm, __import__), vm)?
+        });
+        let imported = importer.call(
+            (
+                module_name.to_owned(),
+                globals.clone(),
+                globals.clone(),
+                from_list.clone(),
+                0,
+            ),
+            vm,
+        )?;
+        drop(imported);
+
+        // RustPython currently exposes the registry through sys' dictionary;
+        // unlike CPython's interpreter-owned registry, reassignment is visible.
+        let modules = vm.sys_module.dict().get_item("modules", vm)?;
+        let selected = match modules.get_item(module_name, vm) {
+            Ok(module) => Ok(Some(module)),
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                drop(err);
+                Ok(None)
+            }
+            Err(err) => Err(err),
+        };
+        drop(modules);
+        selected?.ok_or_else(|| vm.new_key_error(module_name.to_owned().into()))
+    })();
+    // Keep the selected module/error alive across callback-capable cleanup on
+    // every path, including lookup and invocation failures.
+    drop(globals);
+    drop(builtins);
+    drop(importer);
+    drop(from_list);
+    result
+}
+
 /// Return a module from `sys.modules`, creating it if absent or not a module.
 ///
 /// Exact dictionaries use conditional mutations so concurrent callers agree on
