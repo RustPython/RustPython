@@ -6,6 +6,8 @@ pub(crate) use _locale::module_def;
 mod _locale {
     use alloc::ffi::CString;
     use rustpython_host_env::locale as host_locale;
+    #[cfg(target_os = "linux")]
+    use rustpython_vm::builtins::{PyStr, PyStrRef};
     use rustpython_vm::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyListRef, PyTypeRef, PyUtf8StrRef},
@@ -90,7 +92,25 @@ mod _locale {
         Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)))
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    fn collation_string(
+        string: &PyStr,
+        vm: &VirtualMachine,
+    ) -> PyResult<host_locale::CollationString> {
+        host_locale::CollationString::new(string.as_wtf8())
+            .ok_or_else(|| vm.new_value_error("embedded null character"))
+    }
+
+    #[cfg(target_os = "linux")]
+    #[pyfunction]
+    fn strcoll(os1: PyStrRef, os2: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        // Bind both strings before checking for NULs, as Argument Clinic does.
+        let first = collation_string(&os1, vm)?;
+        let second = collation_string(&os2, vm)?;
+        Ok(vm.new_pyobj(first.compare(&second)))
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     #[pyfunction]
     fn strcoll(os1: PyUtf8StrRef, os2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         let cstr1 = CString::new(os1.as_str()).map_err(|e| e.to_pyexception(vm))?;
@@ -109,7 +129,18 @@ mod _locale {
         Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)))
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    #[pyfunction]
+    fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let string = collation_string(&string, vm)?;
+        let key = string.transform().map_err(|err| match err {
+            host_locale::CollationTransformError::Memory => vm.new_memory_error(""),
+            host_locale::CollationTransformError::Os(err) => err.to_pyexception(vm),
+        })?;
+        Ok(vm.ctx.new_str(key).into())
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     #[pyfunction]
     fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
