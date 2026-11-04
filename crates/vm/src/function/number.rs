@@ -6,7 +6,7 @@ use crate::{
 use core::ops::Deref;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::{PrimInt, ToPrimitive};
+use num_traits::PrimInt;
 
 /// A Python complex-like object.
 ///
@@ -184,30 +184,27 @@ impl TryFromObject for ArgIndex {
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct ArgCInt {
-    pub value: i32,
+    pub value: libc::c_int,
 }
 
 impl ArgCInt {
     #[inline]
     #[must_use]
-    pub fn into_primitive(self) -> i32 {
+    pub fn into_primitive(self) -> libc::c_int {
         self.value
     }
 }
 
-impl From<i32> for ArgCInt {
-    fn from(value: i32) -> Self {
+impl From<libc::c_int> for ArgCInt {
+    fn from(value: libc::c_int) -> Self {
         Self { value }
     }
 }
 
 impl TryFromObject for ArgCInt {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = obj
-            .try_index(vm)?
-            .as_bigint()
-            .to_i32()
-            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))?;
+        let value = libc::c_int::try_from(obj.try_index(vm)?.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))?;
         Ok(Self { value })
     }
 }
