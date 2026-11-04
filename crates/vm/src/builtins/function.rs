@@ -1053,12 +1053,16 @@ impl Py<PyFunction> {
     }
     #[pygetset(setter)]
     fn set___defaults__(&self, defaults: PySetterValue<Option<PyTupleRef>>) {
-        self.defaults_and_kwdefaults.lock().0 = match defaults {
+        let defaults = match defaults {
             PySetterValue::Assign(d) => d,
             PySetterValue::Delete => None,
         };
+        // The old tuple may run finalizers that access this function again.
+        // Invalidate the version before dropping it, with the lock released.
+        let old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().0, defaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
+        drop(old);
     }
 
     #[pygetset]
@@ -1067,12 +1071,14 @@ impl Py<PyFunction> {
     }
     #[pygetset(setter)]
     fn set___kwdefaults__(&self, kwdefaults: PySetterValue<Option<PyDictRef>>) {
-        self.defaults_and_kwdefaults.lock().1 = match kwdefaults {
+        let kwdefaults = match kwdefaults {
             PySetterValue::Assign(d) => d,
             PySetterValue::Delete => None,
         };
+        let old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().1, kwdefaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
+        drop(old);
     }
 
     #[pygetset]
@@ -1082,7 +1088,8 @@ impl Py<PyFunction> {
 
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
-        *self.name.lock() = name;
+        let old = core::mem::replace(&mut *self.name.lock(), name);
+        drop(old);
     }
 
     #[pygetset]
@@ -1215,7 +1222,8 @@ impl Py<PyFunction> {
                 let Ok(qualname) = value.downcast::<PyStr>() else {
                     return Err(vm.new_type_error("__qualname__ must be set to a string object"));
                 };
-                *self.qualname.lock() = qualname;
+                let old = core::mem::replace(&mut *self.qualname.lock(), qualname);
+                drop(old);
             }
             PySetterValue::Delete => {
                 return Err(vm.new_type_error("__qualname__ must be set to a string object"));
@@ -1237,7 +1245,8 @@ impl Py<PyFunction> {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                *self.type_params.lock() = value;
+                let old = core::mem::replace(&mut *self.type_params.lock(), value);
+                drop(old);
             }
             PySetterValue::Delete => {
                 return Err(vm.new_type_error("__type_params__ must be set to a tuple object"));

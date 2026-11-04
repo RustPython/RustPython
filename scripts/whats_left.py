@@ -478,6 +478,7 @@ REUSED = [
     dir_of_mod_or_error,
     import_module,
     is_child,
+    name_sort_key,
 ]
 for fn in REUSED:
     output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
@@ -556,7 +557,9 @@ def compare():
     ]
     mod_names += list(sys.builtin_module_names)
     # Remove easter egg modules
-    mod_names = sorted(set(mod_names) - {"this", "antigravity"})
+    # Match the reference scan's ordering for symbolic defaults that depend
+    # on previously imported modules.
+    mod_names = sorted(set(mod_names) - {"this", "antigravity"}, key=name_sort_key)
 
     rustpymods = {mod: dir_of_mod_or_error(mod) for mod in mod_names}
 
