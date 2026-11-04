@@ -1415,18 +1415,22 @@ impl VirtualMachine {
             async_exception: async_exception::PendingAsyncException::default(),
         };
 
-        vm.builtins.init_dict(
-            vm.ctx.intern_str("builtins"),
-            crate::function::plain_doc(stdlib::builtins::DOC)
-                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
-            &vm,
-        );
-        vm.sys_module.init_dict(
-            vm.ctx.intern_str("sys"),
-            crate::function::plain_doc(stdlib::sys::DOC)
-                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
-            &vm,
-        );
+        vm.builtins
+            .init_dict(
+                vm.ctx.intern_str("builtins"),
+                crate::function::plain_doc(stdlib::builtins::DOC)
+                    .map(|doc| vm.ctx.intern_str(doc).as_object()),
+                &vm,
+            )
+            .expect("Failed to initialize the fresh builtins dictionary");
+        vm.sys_module
+            .init_dict(
+                vm.ctx.intern_str("sys"),
+                crate::function::plain_doc(stdlib::sys::DOC)
+                    .map(|doc| vm.ctx.intern_str(doc).as_object()),
+                &vm,
+            )
+            .expect("Failed to initialize the fresh sys dictionary");
         // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();
         vm
     }

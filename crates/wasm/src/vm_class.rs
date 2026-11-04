@@ -388,7 +388,7 @@ impl WASMVirtualMachine {
             )
             .into_js(vm)?;
 
-            let module = vm.new_module(&name, attrs, None);
+            let module = vm.try_new_module(&name, attrs, None).into_js(vm)?;
 
             let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
             sys_modules.set_item(&name, module.into(), vm).into_js(vm)?;
