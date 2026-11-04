@@ -171,7 +171,8 @@ mod _pyexpat {
         builtins::{PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
         function::{
-            ArgBytesLike, ArgIndex, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgIndex, ArgStrOrBytesLike, FuncArgs, IntoFuncArgs, OptionalArg,
+            OptionalOption,
         },
         types::Constructor,
     };
@@ -273,6 +274,8 @@ mod _pyexpat {
         #[pytraverse(skip)]
         namespace_stack: PyRwLock<Vec<(xml::namespace::Namespace, Vec<String>)>>,
         #[pytraverse(skip)]
+        external_entities: PyRwLock<ExternalEntityMap>,
+        #[pytraverse(skip)]
         reparse_deferral_enabled: AtomicBool,
         #[pytraverse(skip)]
         parameter_entity_parsing: AtomicI32,
@@ -336,6 +339,19 @@ mod _pyexpat {
         Ok(())
     }
 
+    fn invoke_handler_args(
+        vm: &VirtualMachine,
+        handler: &MutableObject,
+        args: Vec<PyObjectRef>,
+    ) -> PyResult<()> {
+        let handler = handler.read().clone();
+        if vm.is_none(&handler) {
+            return Ok(());
+        }
+        handler.call(FuncArgs::from(args), vm)?;
+        Ok(())
+    }
+
     fn invoke_int_handler<T>(
         vm: &VirtualMachine,
         handler: &MutableObject,
@@ -373,15 +389,619 @@ mod _pyexpat {
         encoding: Option<String>,
     }
 
+    type ExternalEntityIds = (Option<String>, Option<String>);
+    type ExternalEntityMap = alloc::collections::BTreeMap<String, ExternalEntityIds>;
+
     struct Doctype {
+        syntax: String,
         name: String,
         system_id: Option<String>,
         public_id: Option<String>,
         has_internal_subset: bool,
+        has_parameter_entity_reference: bool,
+    }
+
+    enum DtdDeclaration {
+        Comment(String),
+        ProcessingInstruction(String, String),
+        Element(String, String),
+        Attlist(String, String, String, Option<String>, bool),
+        Notation(String, Option<String>, Option<String>),
+        Entity {
+            name: String,
+            parameter: bool,
+            value: Option<String>,
+            system_id: Option<String>,
+            public_id: Option<String>,
+            notation: Option<String>,
+        },
+    }
+
+    fn normalize_public_id(value: &str) -> String {
+        let mut normalized = String::with_capacity(value.len());
+        let mut pending_space = false;
+        for character in value.chars() {
+            if matches!(character, ' ' | '\t' | '\r' | '\n') {
+                pending_space = !normalized.is_empty();
+            } else {
+                if pending_space {
+                    normalized.push(' ');
+                    pending_space = false;
+                }
+                normalized.push(character);
+            }
+        }
+        normalized
+    }
+
+    fn decode_xml_entity_value(value: &str) -> String {
+        let mut output = String::with_capacity(value.len());
+        let mut rest = value;
+        while let Some(start) = rest.find("&#") {
+            output.push_str(&rest[..start]);
+            let after_start = &rest[start + 2..];
+            let Some(end) = after_start.find(';') else {
+                output.push_str(&rest[start..]);
+                return output;
+            };
+            let number = &after_start[..end];
+            let decoded = if let Some(digits) = number
+                .strip_prefix('x')
+                .or_else(|| number.strip_prefix('X'))
+            {
+                u32::from_str_radix(digits, 16).ok()
+            } else {
+                number.parse().ok()
+            }
+            .and_then(char::from_u32);
+            if let Some(character) = decoded {
+                output.push(character);
+            } else {
+                output.push_str(&rest[start..=(start + 2 + end)]);
+            }
+            rest = &after_start[end + 1..];
+        }
+        output.push_str(rest);
+        output
+    }
+
+    fn dtd_declarations(syntax: &str) -> Vec<DtdDeclaration> {
+        let Some((subset_start, subset_end)) = internal_subset_bounds(syntax) else {
+            return Vec::new();
+        };
+        let subset = &syntax[subset_start + 1..subset_end];
+        let mut declarations = Vec::new();
+        let mut offset = 0;
+        while let Some(relative) = subset[offset..].find('<') {
+            let start = offset + relative;
+            if subset[start..].starts_with("<!--") {
+                let Some(end) = subset[start + 4..].find("-->") else {
+                    break;
+                };
+                declarations.push(DtdDeclaration::Comment(
+                    subset[start + 4..start + 4 + end].to_owned(),
+                ));
+                offset = start + 4 + end + 3;
+                continue;
+            }
+            if subset[start..].starts_with("<?") {
+                let Some(end) = subset[start + 2..].find("?>") else {
+                    break;
+                };
+                let content = subset[start + 2..start + 2 + end].trim_start();
+                let split = content.find(char::is_whitespace).unwrap_or(content.len());
+                let target = content[..split].to_owned();
+                let data = content[split..].to_owned();
+                declarations.push(DtdDeclaration::ProcessingInstruction(target, data));
+                offset = start + 2 + end + 2;
+                continue;
+            }
+            if !subset[start..].starts_with("<!") {
+                offset = start + 1;
+                continue;
+            }
+            let rest = &subset[start + 2..];
+            let mut quote = None;
+            let Some(end) = rest.char_indices().find_map(|(index, character)| {
+                if let Some(delimiter) = quote {
+                    if character == delimiter {
+                        quote = None;
+                    }
+                } else if matches!(character, '\'' | '"') {
+                    quote = Some(character);
+                } else if character == '>' {
+                    return Some(index);
+                }
+                None
+            }) else {
+                break;
+            };
+            let declaration = rest[..end].trim();
+            let mut tokens = Vec::new();
+            let mut quoted_tokens = Vec::new();
+            let mut token = String::new();
+            let mut token_quote = None;
+            let mut group_depth = 0;
+            for character in declaration.chars() {
+                if let Some(delimiter) = token_quote {
+                    if character == delimiter {
+                        token_quote = None;
+                        tokens.push(core::mem::take(&mut token));
+                        quoted_tokens.push(true);
+                    } else {
+                        token.push(character);
+                    }
+                } else if matches!(character, '\'' | '"') {
+                    if !token.is_empty() {
+                        tokens.push(core::mem::take(&mut token));
+                        quoted_tokens.push(false);
+                    }
+                    token_quote = Some(character);
+                } else if character == '(' {
+                    group_depth += 1;
+                    token.push(character);
+                } else if character == ')' && group_depth > 0 {
+                    group_depth -= 1;
+                    token.push(character);
+                } else if character.is_whitespace() {
+                    if group_depth == 0 && !token.is_empty() {
+                        tokens.push(core::mem::take(&mut token));
+                        quoted_tokens.push(false);
+                    }
+                } else {
+                    token.push(character);
+                }
+            }
+            if !token.is_empty() {
+                tokens.push(token);
+                quoted_tokens.push(false);
+            }
+            match tokens.first().map(String::as_str) {
+                Some("ELEMENT") if tokens.len() >= 3 => declarations.push(DtdDeclaration::Element(
+                    tokens[1].clone(),
+                    tokens[2].clone(),
+                )),
+                Some("ATTLIST") if tokens.len() >= 5 => {
+                    let element = tokens[1].clone();
+                    let mut index = 2;
+                    while index + 2 < tokens.len() {
+                        let name = tokens[index].clone();
+                        let mut kind = tokens[index + 1].clone();
+                        let mut default_index = index + 2;
+                        if kind.starts_with('(') && !kind.ends_with(')') {
+                            while default_index < tokens.len() {
+                                kind.push_str(&tokens[default_index]);
+                                default_index += 1;
+                                if kind.ends_with(')') {
+                                    break;
+                                }
+                            }
+                        } else if kind == "NOTATION"
+                            && tokens
+                                .get(default_index)
+                                .is_some_and(|v| v.starts_with('('))
+                        {
+                            kind.push_str(&tokens[default_index]);
+                            default_index += 1;
+                            while default_index < tokens.len() && !kind.ends_with(')') {
+                                kind.push_str(&tokens[default_index]);
+                                default_index += 1;
+                            }
+                        }
+                        let Some(default_kind) = tokens.get(default_index) else {
+                            break;
+                        };
+                        let default_is_quoted = quoted_tokens.get(default_index) == Some(&true);
+                        let (default, required, next) = match default_kind.as_str() {
+                            "#REQUIRED" if !default_is_quoted => (None, true, default_index + 1),
+                            "#IMPLIED" if !default_is_quoted => (None, false, default_index + 1),
+                            "#FIXED" if !default_is_quoted && default_index + 1 < tokens.len() => (
+                                Some(tokens[default_index + 1].clone()),
+                                true,
+                                default_index + 2,
+                            ),
+                            value => (Some(value.to_owned()), false, default_index + 1),
+                        };
+                        declarations.push(DtdDeclaration::Attlist(
+                            element.clone(),
+                            name,
+                            kind,
+                            default,
+                            required,
+                        ));
+                        index = next;
+                    }
+                }
+                Some("NOTATION") if tokens.len() >= 4 => {
+                    let name = tokens[1].clone();
+                    let (public_id, system_id) = match tokens[2].as_str() {
+                        "SYSTEM" => (None, Some(tokens[3].clone())),
+                        "PUBLIC" => (
+                            Some(normalize_public_id(&tokens[3])),
+                            tokens
+                                .get(4)
+                                .filter(|value| !value.starts_with('>'))
+                                .cloned(),
+                        ),
+                        _ => (None, None),
+                    };
+                    declarations.push(DtdDeclaration::Notation(name, public_id, system_id));
+                }
+                Some("ENTITY") if tokens.len() >= 3 => {
+                    let parameter = tokens.get(1).is_some_and(|value| value == "%");
+                    let name_index = if parameter { 2 } else { 1 };
+                    let Some(name) = tokens.get(name_index).cloned() else {
+                        offset = start + end + 3;
+                        continue;
+                    };
+                    let value_index = name_index + 1;
+                    if let Some(value) = tokens.get(value_index)
+                        && (quoted_tokens.get(value_index) == Some(&true)
+                            || !matches!(value.as_str(), "SYSTEM" | "PUBLIC"))
+                    {
+                        declarations.push(DtdDeclaration::Entity {
+                            name,
+                            parameter,
+                            value: Some(value.clone()),
+                            system_id: None,
+                            public_id: None,
+                            notation: None,
+                        });
+                    } else {
+                        let (public_id, system_id, notation) =
+                            match tokens.get(value_index).map(String::as_str) {
+                                Some("SYSTEM") => (
+                                    None,
+                                    tokens.get(value_index + 1).cloned(),
+                                    tokens
+                                        .iter()
+                                        .position(|token| token == "NDATA")
+                                        .and_then(|position| tokens.get(position + 1).cloned()),
+                                ),
+                                Some("PUBLIC") => (
+                                    tokens
+                                        .get(value_index + 1)
+                                        .map(|value| normalize_public_id(value)),
+                                    tokens
+                                        .get(value_index + 2)
+                                        .map(|value| normalize_public_id(value)),
+                                    tokens
+                                        .iter()
+                                        .position(|token| token == "NDATA")
+                                        .and_then(|position| tokens.get(position + 1).cloned()),
+                                ),
+                                _ => (None, None, None),
+                            };
+                        declarations.push(DtdDeclaration::Entity {
+                            name,
+                            parameter,
+                            value: None,
+                            system_id,
+                            public_id,
+                            notation,
+                        });
+                    }
+                }
+                _ => {}
+            }
+            offset = start + end + 3;
+        }
+        declarations
+    }
+
+    fn internal_subset_bounds(syntax: &str) -> Option<(usize, usize)> {
+        let mut quote = None;
+        let mut open = None;
+        let bytes = syntax.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            if quote.is_none() && bytes[index..].starts_with(b"<!--") {
+                index = bytes[index + 4..]
+                    .windows(3)
+                    .position(|window| window == b"-->")
+                    .map_or(bytes.len(), |end| index + 4 + end + 3);
+                continue;
+            }
+            if quote.is_none() && bytes[index..].starts_with(b"<?") {
+                index = bytes[index + 2..]
+                    .windows(2)
+                    .position(|window| window == b"?>")
+                    .map_or(bytes.len(), |end| index + 2 + end + 2);
+                continue;
+            }
+            let character = syntax[index..].chars().next()?;
+            if let Some(delimiter) = quote {
+                if character == delimiter {
+                    quote = None;
+                }
+            } else if matches!(character, '\'' | '"') {
+                quote = Some(character);
+            } else if character == '[' && open.is_none() {
+                open = Some(index);
+            } else if character == ']' && open.is_some() {
+                return open.map(|start| (start, index));
+            }
+            index += character.len_utf8();
+        }
+        None
+    }
+
+    fn entity_marker(kind: char, name: &str) -> String {
+        format!("\0{kind}{name}\0")
+    }
+
+    fn remove_skipped_entity_markers(value: &str) -> String {
+        let mut output = String::with_capacity(value.len());
+        let mut rest = value;
+        while let Some(start) = rest.find("\0S") {
+            output.push_str(&rest[..start]);
+            let marker = &rest[start + 2..];
+            let Some(end) = marker.find('\0') else {
+                output.push_str(&rest[start..]);
+                return output;
+            };
+            rest = &marker[end + 1..];
+        }
+        output.push_str(rest);
+        output
+    }
+
+    fn dtd_entity_replacements(
+        syntax: &str,
+        references: impl IntoIterator<Item = String>,
+    ) -> Vec<(String, String)> {
+        let declarations = dtd_declarations(syntax);
+        let external_subset =
+            internal_subset_bounds(syntax).map_or(syntax, |(start, _)| &syntax[..start]);
+        let may_have_external_entities = external_subset_id(external_subset);
+        let mut declared = std::collections::HashSet::new();
+        let mut replacements = alloc::collections::BTreeMap::new();
+        for declaration in declarations {
+            if let DtdDeclaration::Entity {
+                name,
+                parameter,
+                value,
+                system_id,
+                notation,
+                ..
+            } = declaration
+            {
+                let first_declaration = parameter || declared.insert(name.clone());
+                if !parameter
+                    && first_declaration
+                    && value.is_none()
+                    && notation.is_none()
+                    && system_id.is_some()
+                {
+                    replacements.insert(name.clone(), entity_marker('E', &name));
+                }
+            }
+        }
+        for name in references {
+            if matches!(name.as_str(), "amp" | "lt" | "gt" | "apos" | "quot")
+                || name.starts_with('#')
+                || declared.contains(&name)
+            {
+                continue;
+            }
+            if may_have_external_entities {
+                replacements
+                    .entry(name.clone())
+                    .or_insert_with(|| entity_marker('S', &name));
+            }
+        }
+        replacements.into_iter().collect()
+    }
+
+    fn external_subset_id(header: &str) -> bool {
+        let Some(header) = header.strip_prefix("<!DOCTYPE") else {
+            return false;
+        };
+        let mut tokens = header.split_whitespace();
+        tokens.next();
+        matches!(tokens.next(), Some("SYSTEM" | "PUBLIC"))
+    }
+
+    fn has_parameter_entity_reference(syntax: &str) -> bool {
+        let bytes = syntax.as_bytes();
+        let mut quote = None;
+        let mut index = 0;
+        while index < bytes.len() {
+            if quote.is_none() && bytes[index..].starts_with(b"<!--") {
+                index = bytes[index + 4..]
+                    .windows(3)
+                    .position(|window| window == b"-->")
+                    .map_or(bytes.len(), |end| index + 4 + end + 3);
+                continue;
+            }
+            let byte = bytes[index];
+            if let Some(delimiter) = quote {
+                if byte == delimiter {
+                    quote = None;
+                }
+            } else if matches!(byte, b'\'' | b'"') {
+                quote = Some(byte);
+            } else if byte == b'%' {
+                let mut end = index + 1;
+                while bytes.get(end).is_some_and(|byte| {
+                    byte.is_ascii_alphanumeric()
+                        || !byte.is_ascii()
+                        || matches!(byte, b'_' | b'-' | b'.' | b':')
+                }) {
+                    end += 1;
+                }
+                if end > index + 1 && bytes.get(end) == Some(&b';') {
+                    return true;
+                }
+            }
+            index += 1;
+        }
+        false
+    }
+
+    #[derive(Debug)]
+    struct ContentModel {
+        kind: i32,
+        quantifier: i32,
+        name: Option<String>,
+        children: Vec<Self>,
+    }
+
+    fn element_content_model(source: &str) -> Option<ContentModel> {
+        struct Parser<'a> {
+            source: &'a [u8],
+            index: usize,
+        }
+        impl Parser<'_> {
+            fn whitespace(&mut self) {
+                while self
+                    .source
+                    .get(self.index)
+                    .is_some_and(u8::is_ascii_whitespace)
+                {
+                    self.index += 1;
+                }
+            }
+
+            fn model(&mut self, depth: usize) -> Option<ContentModel> {
+                if depth > 128 {
+                    return None;
+                }
+                self.whitespace();
+                if self.source.get(self.index) == Some(&b'(') {
+                    self.index += 1;
+                    self.whitespace();
+                    let mixed =
+                        self.source.get(self.index..self.index + 7) == Some(b"#PCDATA" as &[u8]);
+                    let mut children = Vec::new();
+                    let mut separator = None;
+                    loop {
+                        self.whitespace();
+                        if self.source.get(self.index) == Some(&b')') {
+                            self.index += 1;
+                            break;
+                        }
+                        let is_pcdata = mixed
+                            && self.source.get(self.index..self.index + 7)
+                                == Some(b"#PCDATA" as &[u8]);
+                        if is_pcdata {
+                            self.index += 7;
+                        } else {
+                            children.push(self.model(depth + 1)?);
+                        }
+                        self.whitespace();
+                        let delimiter = *self.source.get(self.index)?;
+                        if delimiter == b')' {
+                            self.index += 1;
+                            break;
+                        }
+                        if !matches!(delimiter, b',' | b'|')
+                            || separator.is_some_and(|old| old != delimiter)
+                        {
+                            return None;
+                        }
+                        separator = Some(delimiter);
+                        self.index += 1;
+                    }
+                    let quantifier = self.quantifier();
+                    Some(ContentModel {
+                        kind: if mixed {
+                            3
+                        } else if separator == Some(b'|') {
+                            5
+                        } else {
+                            6
+                        },
+                        quantifier,
+                        name: None,
+                        children,
+                    })
+                } else {
+                    let start = self.index;
+                    while self.source.get(self.index).is_some_and(|byte| {
+                        !byte.is_ascii_whitespace()
+                            && !matches!(byte, b',' | b'|' | b')' | b'?' | b'*' | b'+')
+                    }) {
+                        self.index += 1;
+                    }
+                    if start == self.index {
+                        return None;
+                    }
+                    let name = core::str::from_utf8(&self.source[start..self.index])
+                        .ok()?
+                        .to_owned();
+                    Some(ContentModel {
+                        kind: 4,
+                        quantifier: self.quantifier(),
+                        name: Some(name),
+                        children: Vec::new(),
+                    })
+                }
+            }
+
+            fn quantifier(&mut self) -> i32 {
+                let quantifier = match self.source.get(self.index) {
+                    Some(b'?') => 1,
+                    Some(b'*') => 2,
+                    Some(b'+') => 3,
+                    _ => 0,
+                };
+                if quantifier != 0 {
+                    self.index += 1;
+                }
+                quantifier
+            }
+        }
+        let mut parser = Parser {
+            source: source.as_bytes(),
+            index: 0,
+        };
+        let model = parser.model(0)?;
+        parser.whitespace();
+        (parser.index == parser.source.len()).then_some(model)
+    }
+
+    fn content_model_exceeds_depth(source: &str) -> bool {
+        let mut depth = 0usize;
+        for byte in source.bytes() {
+            match byte {
+                b'(' => {
+                    depth += 1;
+                    if depth > 128 {
+                        return true;
+                    }
+                }
+                b')' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn content_model_object(model: ContentModel, vm: &VirtualMachine) -> PyObjectRef {
+        let children = model
+            .children
+            .into_iter()
+            .map(|child| content_model_object(child, vm))
+            .collect();
+        vm.ctx
+            .new_tuple(vec![
+                vm.ctx.new_int(model.kind).into(),
+                vm.ctx.new_int(model.quantifier).into(),
+                model
+                    .name
+                    .map_or_else(|| vm.ctx.none(), |name| vm.ctx.new_str(name).into()),
+                vm.ctx.new_tuple(children).into(),
+            ])
+            .into()
     }
 
     impl Doctype {
-        fn from_reader<R: Read>(parser: &xml::EventReader<R>, event: &XmlEvent) -> Option<Self> {
+        fn from_reader<R: Read>(
+            parser: &xml::EventReader<R>,
+            event: &XmlEvent,
+            has_parameter_entity_reference: bool,
+        ) -> Option<Self> {
             let XmlEvent::Doctype { syntax } = event else {
                 return None;
             };
@@ -400,10 +1020,12 @@ mod _pyexpat {
                 false
             });
             Some(Self {
+                syntax: syntax.clone(),
                 name: ids.name().to_owned(),
                 system_id: ids.system_id().map(str::to_owned),
                 public_id: ids.public_id().map(str::to_owned),
                 has_internal_subset,
+                has_parameter_entity_reference,
             })
         }
     }
@@ -654,10 +1276,111 @@ mod _pyexpat {
     #[cfg(not(target_arch = "wasm32"))]
     struct PreparedEvent {
         event: XmlEvent,
-        doctype: Option<Doctype>,
+        doctype: Option<Box<Doctype>>,
+        xml_declaration: Option<XmlDeclarationInfo>,
         line: i64,
         column: i64,
         byte_index: i64,
+    }
+
+    #[derive(Clone, Debug)]
+    struct XmlDeclarationInfo {
+        encoding: Option<String>,
+        standalone: Option<bool>,
+    }
+
+    fn xml_decl_attribute(declaration: &[u8], name: &[u8]) -> Option<String> {
+        let mut cursor = 5;
+        while cursor < declaration.len() {
+            while declaration.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+                cursor += 1;
+            }
+            let start = cursor;
+            while declaration
+                .get(cursor)
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+            {
+                cursor += 1;
+            }
+            if start == cursor {
+                cursor += 1;
+                continue;
+            }
+            let attribute = &declaration[start..cursor];
+            while declaration.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+                cursor += 1;
+            }
+            if declaration.get(cursor) != Some(&b'=') {
+                continue;
+            }
+            cursor += 1;
+            while declaration.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+                cursor += 1;
+            }
+            let quote = *declaration.get(cursor)?;
+            if !matches!(quote, b'\'' | b'"') {
+                return None;
+            }
+            cursor += 1;
+            let value_start = cursor;
+            while declaration.get(cursor).is_some_and(|byte| *byte != quote) {
+                cursor += 1;
+            }
+            let value = core::str::from_utf8(&declaration[value_start..cursor]).ok()?;
+            if declaration.get(cursor).is_some() {
+                cursor += 1;
+            }
+            if attribute == name {
+                return Some(value.to_owned());
+            }
+        }
+        None
+    }
+
+    fn parse_xml_declaration(prefix: &[u8]) -> Option<XmlDeclarationInfo> {
+        let utf16_declaration = match prefix.get(..2) {
+            Some([0xff, 0xfe]) => Some((true, 2)),
+            Some([0xfe, 0xff]) => Some((false, 2)),
+            _ if prefix.starts_with(b"<\0?\0") => Some((true, 0)),
+            _ if prefix.starts_with(b"\0<\0?") => Some((false, 0)),
+            _ => None,
+        }
+        .and_then(|(little_endian, start)| {
+            let mut declaration = Vec::new();
+            let (pairs, _) = prefix[start..].as_chunks::<2>();
+            for pair in pairs {
+                let unit = if little_endian {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                };
+                if unit > u8::MAX as u16 {
+                    return None;
+                }
+                declaration.push(unit as u8);
+                if declaration.ends_with(b"?>") {
+                    break;
+                }
+            }
+            Some(declaration)
+        });
+        let declaration_start = prefix.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(prefix);
+        let declaration_start = utf16_declaration.as_deref().unwrap_or(declaration_start);
+        if !declaration_start.starts_with(b"<?xml")
+            || !declaration_start
+                .get(5)
+                .is_some_and(u8::is_ascii_whitespace)
+        {
+            return None;
+        }
+        let declaration_end = declaration_start
+            .windows(2)
+            .position(|window| window == b"?>")?;
+        let declaration = &declaration_start[..declaration_end];
+        Some(XmlDeclarationInfo {
+            encoding: xml_decl_attribute(declaration, b"encoding"),
+            standalone: xml_decl_attribute(declaration, b"standalone").map(|value| value == "yes"),
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -750,7 +1473,7 @@ mod _pyexpat {
         /// brand new parser thread there has been observed to reliably
         /// crash the process, so `Backend::new` falls back to `Backend::Sync`
         /// in that case too, exactly as if threads were unavailable.
-        fn try_spawn(config: xml::ParserConfig) -> Option<Self> {
+        fn try_spawn(config: xml::ParserConfig, parameter_entity_parsing: i32) -> Option<Self> {
             ensure_atfork_hook_registered();
             if post_fork_child() {
                 return None;
@@ -760,7 +1483,7 @@ mod _pyexpat {
             let thread_buf = alloc::sync::Arc::clone(&buf);
             let thread = std::thread::Builder::new()
                 .name("pyexpat-parser".into())
-                .spawn(move || run_parser_thread(config, thread_buf, tx))
+                .spawn(move || run_parser_thread(config, thread_buf, tx, parameter_entity_parsing))
                 .ok()?;
             Some(Self {
                 buf: core::mem::ManuallyDrop::new(buf),
@@ -818,6 +1541,7 @@ mod _pyexpat {
         config: xml::ParserConfig,
         buf: alloc::sync::Arc<FeedBuffer>,
         tx: std::sync::mpsc::Sender<ParserMsg>,
+        parameter_entity_parsing: i32,
     ) {
         let tracker = Rc::new(RefCell::new(LineTracker::new()));
         let reader = FeedReader {
@@ -825,6 +1549,7 @@ mod _pyexpat {
             tracker: Rc::clone(&tracker),
             events_tx: tx.clone(),
         };
+        let reader = DoctypeFilterReader::new(reader, parameter_entity_parsing);
         let mut parser = config.create_reader(std::io::BufReader::new(reader));
         loop {
             match parser.next() {
@@ -833,11 +1558,23 @@ mod _pyexpat {
                     break;
                 }
                 Ok(event) => {
+                    if let XmlEvent::Doctype { syntax } = &event {
+                        let references = parser.source().get_ref().entity_references();
+                        let replacements = dtd_entity_replacements(syntax, references);
+                        let _ = parser.add_entities(replacements);
+                    }
+                    let xml_declaration = parser.source().get_ref().xml_declaration();
                     let pos = parser.position();
                     let byte_index = tracker.borrow_mut().byte_index_for(pos);
                     let msg = ParserMsg::Event(PreparedEvent {
-                        doctype: Doctype::from_reader(&parser, &event),
+                        doctype: Doctype::from_reader(
+                            &parser,
+                            &event,
+                            parser.source().get_ref().has_parameter_entity_reference(),
+                        )
+                        .map(Box::new),
                         event,
+                        xml_declaration,
                         line: pos.row() as i64 + 1,
                         column: pos.column() as i64,
                         byte_index,
@@ -875,6 +1612,506 @@ mod _pyexpat {
         }
     }
 
+    /// Delays the first XML markup until it can distinguish a document with a
+    /// DTD from one without it. xml-rs rejects undeclared parameter-entity
+    /// references in an internal subset even when Expat's default parameter
+    /// entity mode would leave them unexpanded. Drop only those references
+    /// that have no parameter-entity declaration, preserving byte positions.
+    struct DoctypeFilterReader<R> {
+        inner: R,
+        prefix: Vec<u8>,
+        ready: VecDeque<u8>,
+        content: VecDeque<u8>,
+        reference_content: Vec<u8>,
+        has_parameter_entity_reference: bool,
+        xml_declaration: Option<XmlDeclarationInfo>,
+        initialized: bool,
+        scan_cursor: usize,
+        safe_cursor: usize,
+        scan_term: Option<ScanTerm>,
+        doctype_scan: Option<DoctypeScan>,
+        parameter_entity_parsing: i32,
+    }
+
+    #[derive(Clone, Copy)]
+    enum ScanTerm {
+        Comment,
+        ProcessingInstruction,
+        Declaration,
+    }
+
+    struct DoctypeScan {
+        cursor: usize,
+        quote: Option<u8>,
+        subset_depth: usize,
+        in_comment: bool,
+        comment_match: usize,
+        in_pi: bool,
+        pi_question: bool,
+    }
+
+    impl<R> DoctypeFilterReader<R> {
+        fn new(inner: R, parameter_entity_parsing: i32) -> Self {
+            Self {
+                inner,
+                prefix: Vec::new(),
+                ready: VecDeque::new(),
+                content: VecDeque::new(),
+                reference_content: Vec::new(),
+                has_parameter_entity_reference: false,
+                xml_declaration: None,
+                initialized: false,
+                scan_cursor: 0,
+                safe_cursor: 0,
+                scan_term: None,
+                doctype_scan: None,
+                parameter_entity_parsing,
+            }
+        }
+
+        fn first_markup(&mut self) -> Option<(usize, usize, bool)> {
+            let prefix = &self.prefix;
+            let utf16_declaration = if b"<\0?\0".starts_with(prefix) {
+                Some(b"?\0>\0".as_slice())
+            } else if b"\0<\0?".starts_with(prefix) {
+                Some(b"\0?\0>".as_slice())
+            } else if prefix.starts_with(b"<\0?\0") {
+                Some(b"?\0>\0".as_slice())
+            } else if prefix.starts_with(b"\0<\0?") {
+                Some(b"\0?\0>".as_slice())
+            } else {
+                None
+            };
+            if let Some(end_marker) = utf16_declaration
+                && (prefix.len() < 4 || !prefix.windows(end_marker.len()).any(|w| w == end_marker))
+            {
+                return None;
+            }
+            loop {
+                if let Some(term) = self.scan_term {
+                    let marker: &[u8] = match term {
+                        ScanTerm::Comment => b"-->",
+                        ScanTerm::ProcessingInstruction => b"?>",
+                        ScanTerm::Declaration => b">",
+                    };
+                    if let Some(relative) = prefix[self.scan_cursor..]
+                        .windows(marker.len())
+                        .position(|window| window == marker)
+                    {
+                        self.scan_cursor += relative + marker.len();
+                        self.safe_cursor = self.scan_cursor;
+                        self.scan_term = None;
+                        continue;
+                    }
+                    self.scan_cursor = prefix.len().saturating_sub(marker.len() - 1);
+                    return None;
+                }
+                let Some(relative) = prefix[self.scan_cursor..]
+                    .iter()
+                    .position(|byte| *byte == b'<')
+                else {
+                    self.scan_cursor = prefix.len();
+                    self.safe_cursor = prefix.len();
+                    return None;
+                };
+                let start = self.scan_cursor + relative;
+                let rest = &prefix[start..];
+                const TOKENS: [&[u8]; 3] = [b"<!--", b"<?", b"<!DOCTYPE"];
+                if TOKENS
+                    .iter()
+                    .any(|token| rest.len() < token.len() && token.starts_with(rest))
+                {
+                    self.scan_cursor = start;
+                    return None;
+                }
+                if rest.starts_with(b"<!--") {
+                    self.scan_cursor = start + b"<!--".len();
+                    self.scan_term = Some(ScanTerm::Comment);
+                } else if rest.starts_with(b"<?") {
+                    self.scan_cursor = start + b"<?".len();
+                    self.scan_term = Some(ScanTerm::ProcessingInstruction);
+                } else if rest.starts_with(b"<!DOCTYPE") {
+                    return Some((start, start + b"<!DOCTYPE".len(), true));
+                } else if rest.starts_with(b"<!") {
+                    self.scan_cursor = start + 2;
+                    self.scan_term = Some(ScanTerm::Declaration);
+                } else {
+                    return Some((start, start + 1, false));
+                }
+            }
+        }
+
+        fn doctype_end(&mut self, start: usize) -> Option<usize> {
+            let prefix = &self.prefix;
+            let scan = self.doctype_scan.get_or_insert(DoctypeScan {
+                cursor: start,
+                quote: None,
+                subset_depth: 0,
+                in_comment: false,
+                comment_match: 0,
+                in_pi: false,
+                pi_question: false,
+            });
+            while scan.cursor < prefix.len() {
+                if scan.in_pi {
+                    let byte = prefix[scan.cursor];
+                    scan.cursor += 1;
+                    if byte == b'>' && scan.pi_question {
+                        scan.in_pi = false;
+                    }
+                    scan.pi_question = byte == b'?';
+                    continue;
+                }
+                if scan.in_comment {
+                    let byte = prefix[scan.cursor];
+                    scan.cursor += 1;
+                    if byte == b'-' {
+                        scan.comment_match = (scan.comment_match + 1).min(2);
+                    } else if byte == b'>' && scan.comment_match == 2 {
+                        scan.in_comment = false;
+                        scan.comment_match = 0;
+                    } else {
+                        scan.comment_match = 0;
+                    }
+                    continue;
+                }
+                if scan.quote.is_none() && prefix[scan.cursor..].starts_with(b"<!--") {
+                    scan.in_comment = true;
+                    scan.cursor += 4;
+                    continue;
+                }
+                if scan.quote.is_none() && b"<!--".starts_with(&prefix[scan.cursor..]) {
+                    break;
+                }
+                if scan.quote.is_none() && prefix[scan.cursor..].starts_with(b"<?") {
+                    scan.in_pi = true;
+                    scan.pi_question = false;
+                    scan.cursor += 2;
+                    continue;
+                }
+                if scan.quote.is_none() && b"<?".starts_with(&prefix[scan.cursor..]) {
+                    break;
+                }
+                let byte = prefix[scan.cursor];
+                if let Some(delimiter) = scan.quote {
+                    if byte == delimiter {
+                        scan.quote = None;
+                    }
+                } else if matches!(byte, b'\'' | b'"') {
+                    scan.quote = Some(byte);
+                } else if byte == b'[' {
+                    scan.subset_depth += 1;
+                } else if byte == b']' {
+                    scan.subset_depth = scan.subset_depth.saturating_sub(1);
+                } else if byte == b'>' && scan.subset_depth == 0 {
+                    let end = scan.cursor + 1;
+                    self.doctype_scan = None;
+                    return Some(end);
+                }
+                scan.cursor += 1;
+            }
+            None
+        }
+
+        fn filter_undefined_parameter_references(
+            doctype: &mut [u8],
+            parameter_entity_parsing: i32,
+            standalone: bool,
+        ) {
+            let mut declared = std::collections::HashSet::new();
+            let mut index = 0;
+            while index < doctype.len() {
+                if doctype[index..].starts_with(b"<!--") {
+                    index = doctype[index + 4..]
+                        .windows(3)
+                        .position(|window| window == b"-->")
+                        .map_or(doctype.len(), |end| index + 4 + end + 3);
+                    continue;
+                }
+                if doctype[index..].starts_with(b"<!ENTITY") {
+                    index += b"<!ENTITY".len();
+                    while doctype.get(index).is_some_and(u8::is_ascii_whitespace) {
+                        index += 1;
+                    }
+                    if doctype.get(index) == Some(&b'%') {
+                        index += 1;
+                        while doctype.get(index).is_some_and(u8::is_ascii_whitespace) {
+                            index += 1;
+                        }
+                        let start = index;
+                        while doctype.get(index).is_some_and(|byte| {
+                            byte.is_ascii_alphanumeric()
+                                || !byte.is_ascii()
+                                || matches!(byte, b'_' | b'-' | b'.' | b':')
+                        }) {
+                            index += 1;
+                        }
+                        if start != index {
+                            declared.insert(doctype[start..index].to_vec());
+                        }
+                    }
+                }
+                index += 1;
+            }
+
+            let mut index = 0;
+            let mut quote = None;
+            while index < doctype.len() {
+                if quote.is_none() && doctype[index..].starts_with(b"<!--") {
+                    index = doctype[index + 4..]
+                        .windows(3)
+                        .position(|window| window == b"-->")
+                        .map_or(doctype.len(), |end| index + 4 + end + 3);
+                    continue;
+                }
+                let byte = doctype[index];
+                if let Some(delimiter) = quote {
+                    if byte == delimiter {
+                        quote = None;
+                    }
+                } else if matches!(byte, b'\'' | b'"') {
+                    quote = Some(byte);
+                } else if byte == b'%' {
+                    let start = index;
+                    let mut end = index + 1;
+                    while doctype.get(end).is_some_and(|byte| {
+                        byte.is_ascii_alphanumeric()
+                            || !byte.is_ascii()
+                            || matches!(byte, b'_' | b'-' | b'.' | b':')
+                    }) {
+                        end += 1;
+                    }
+                    if end > start + 1 && doctype.get(end) == Some(&b';') {
+                        let name = &doctype[start + 1..end];
+                        let parse_entities = parameter_entity_parsing
+                            == XML_PARAM_ENTITY_PARSING_ALWAYS
+                            || (parameter_entity_parsing
+                                == XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE
+                                && !standalone);
+                        let preserve_for_standalone_error = parameter_entity_parsing
+                            == XML_PARAM_ENTITY_PARSING_ALWAYS
+                            && standalone
+                            && !declared.contains(name);
+                        if !(declared.contains(name) && parse_entities)
+                            && !preserve_for_standalone_error
+                        {
+                            for byte in &mut doctype[start..=end] {
+                                if *byte != b'\n' && *byte != b'\r' {
+                                    *byte = b' ';
+                                }
+                            }
+                        }
+                        index = end;
+                    }
+                }
+                index += 1;
+            }
+        }
+
+        fn initialize(&mut self) -> std::io::Result<()>
+        where
+            R: Read,
+        {
+            if self.initialized {
+                return Ok(());
+            }
+            loop {
+                if let Some((start, end, is_doctype)) = self.first_markup() {
+                    if self.safe_cursor != 0 && self.safe_cursor <= start {
+                        if self.xml_declaration.is_none() {
+                            self.xml_declaration = parse_xml_declaration(&self.prefix);
+                        }
+                        self.ready.extend(self.prefix.drain(..self.safe_cursor));
+                        self.scan_cursor = start - self.safe_cursor;
+                        self.safe_cursor = 0;
+                        return Ok(());
+                    }
+                    if is_doctype {
+                        if let Some(doctype_end) = self.doctype_end(end) {
+                            self.initialized = true;
+                            self.has_parameter_entity_reference =
+                                core::str::from_utf8(&self.prefix[start..doctype_end])
+                                    .is_ok_and(has_parameter_entity_reference);
+                            let declaration_start = self
+                                .prefix
+                                .strip_prefix(&[0xef, 0xbb, 0xbf])
+                                .unwrap_or(&self.prefix);
+                            let declaration_start =
+                                declaration_start.strip_prefix(&b"<?xml"[..]).and_then(|_| {
+                                    let end = declaration_start
+                                        .windows(2)
+                                        .position(|window| window == b"?>")?;
+                                    Some(&declaration_start[..end + 2])
+                                });
+                            let standalone = self.xml_declaration.as_ref().map_or_else(
+                                || {
+                                    declaration_start
+                                        .and_then(|declaration| {
+                                            xml_decl_attribute(declaration, b"standalone")
+                                        })
+                                        .is_some_and(|value| value == "yes")
+                                },
+                                |declaration| declaration.standalone == Some(true),
+                            );
+                            Self::filter_undefined_parameter_references(
+                                &mut self.prefix[start..doctype_end],
+                                self.parameter_entity_parsing,
+                                standalone,
+                            );
+                            let tail = self.prefix.split_off(doctype_end);
+                            self.reference_content.extend_from_slice(&tail);
+                            self.content.extend(tail);
+                            break;
+                        }
+                    } else {
+                        self.initialized = true;
+                        let _ = end;
+                        break;
+                    }
+                }
+                if self.scan_term.is_none() && self.safe_cursor != 0 {
+                    if self.xml_declaration.is_none() {
+                        self.xml_declaration = parse_xml_declaration(&self.prefix);
+                    }
+                    self.ready.extend(self.prefix.drain(..self.safe_cursor));
+                    self.scan_cursor = 0;
+                    self.safe_cursor = 0;
+                    return Ok(());
+                }
+                let mut input = [0; 4096];
+                let count = self.inner.read(&mut input)?;
+                if count == 0 {
+                    self.initialized = true;
+                    break;
+                }
+                self.prefix.extend_from_slice(&input[..count]);
+            }
+            if self.xml_declaration.is_none() {
+                self.xml_declaration = parse_xml_declaration(&self.prefix);
+            }
+            if self.prefix.starts_with(b"<\0?\0") {
+                self.ready.extend([0xff, 0xfe]);
+            } else if self.prefix.starts_with(b"\0<\0?") {
+                self.ready.extend([0xfe, 0xff]);
+            }
+            self.ready.extend(self.prefix.drain(..));
+            Ok(())
+        }
+
+        fn xml_declaration(&self) -> Option<XmlDeclarationInfo> {
+            self.xml_declaration.clone()
+        }
+
+        fn has_parameter_entity_reference(&self) -> bool {
+            self.has_parameter_entity_reference
+        }
+
+        fn entity_references(&self) -> Vec<String> {
+            let content = &self.reference_content;
+            let mut names = Vec::new();
+            let mut index = 0;
+            while index < content.len() {
+                if content[index..].starts_with(b"<!--") {
+                    index = content[index + 4..]
+                        .windows(3)
+                        .position(|window| window == b"-->")
+                        .map_or(content.len(), |end| index + 4 + end + 3);
+                } else if content[index..].starts_with(b"<![CDATA[") {
+                    index = content[index + 9..]
+                        .windows(3)
+                        .position(|window| window == b"]]>")
+                        .map_or(content.len(), |end| index + 9 + end + 3);
+                } else if content[index..].starts_with(b"<?") {
+                    index = content[index + 2..]
+                        .windows(2)
+                        .position(|window| window == b"?>")
+                        .map_or(content.len(), |end| index + 2 + end + 2);
+                } else if content[index] == b'<' {
+                    let mut quote = None;
+                    index += 1;
+                    while index < content.len() {
+                        let byte = content[index];
+                        if let Some(delimiter) = quote {
+                            if byte == delimiter {
+                                quote = None;
+                            } else if byte == b'&' {
+                                let start = index + 1;
+                                if let Some(relative) =
+                                    content[start..].iter().position(|byte| *byte == b';')
+                                {
+                                    let end = start + relative;
+                                    if end > start
+                                        && content[start..end].iter().all(|byte| {
+                                            byte.is_ascii_alphanumeric()
+                                                || !byte.is_ascii()
+                                                || matches!(byte, b'_' | b'-' | b'.' | b':')
+                                        })
+                                    {
+                                        names.push(
+                                            String::from_utf8_lossy(&content[start..end])
+                                                .into_owned(),
+                                        );
+                                    }
+                                    index = end + 1;
+                                    continue;
+                                }
+                            }
+                        } else if matches!(byte, b'\'' | b'"') {
+                            quote = Some(byte);
+                        } else if byte == b'>' {
+                            index += 1;
+                            break;
+                        }
+                        index += 1;
+                    }
+                } else if content[index] == b'&' {
+                    let start = index + 1;
+                    if let Some(relative) = content[start..].iter().position(|byte| *byte == b';') {
+                        let end = start + relative;
+                        if end > start
+                            && content[start..end].iter().all(|byte| {
+                                byte.is_ascii_alphanumeric()
+                                    || !byte.is_ascii()
+                                    || matches!(byte, b'_' | b'-' | b'.' | b':')
+                            })
+                        {
+                            names.push(String::from_utf8_lossy(&content[start..end]).into_owned());
+                        }
+                        index = end + 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    index += 1;
+                }
+            }
+            names
+        }
+    }
+
+    impl<R: Read> Read for DoctypeFilterReader<R> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.initialize()?;
+            let n = out.len().min(self.ready.len());
+            for slot in &mut out[..n] {
+                *slot = self.ready.pop_front().unwrap();
+            }
+            if n != 0 {
+                return Ok(n);
+            }
+            let n = out.len().min(self.content.len());
+            for slot in &mut out[..n] {
+                *slot = self.content.pop_front().unwrap();
+            }
+            if n != 0 {
+                Ok(n)
+            } else {
+                let n = self.inner.read(out)?;
+                Ok(n)
+            }
+        }
+    }
+
     /// Single-threaded fallback backend, used on targets that cannot spawn
     /// an OS thread (e.g. `wasm32`) or if doing so failed at runtime. See
     /// the module doc comment for the accumulate-and-reparse strategy and
@@ -883,6 +2120,7 @@ mod _pyexpat {
     struct SyncParser {
         config: xml::ParserConfig,
         buffer: Vec<u8>,
+        parameter_entity_parsing: i32,
         /// Number of events (including the trailing `EndDocument`, once
         /// reached) already dispatched by a previous call, so a re-parse of
         /// the grown buffer only dispatches events at or beyond this index.
@@ -890,10 +2128,11 @@ mod _pyexpat {
     }
 
     impl SyncParser {
-        fn new(config: xml::ParserConfig) -> Self {
+        fn new(config: xml::ParserConfig, parameter_entity_parsing: i32) -> Self {
             Self {
                 config,
                 buffer: Vec::new(),
+                parameter_entity_parsing,
                 dispatched_events: 0,
             }
         }
@@ -914,14 +2153,16 @@ mod _pyexpat {
         /// fall back to the synchronous backend on targets that can't spawn
         /// threads (`wasm32`) or if spawning fails at runtime, so `Parse()`
         /// never panics for lack of threads.
-        fn new(config: xml::ParserConfig) -> Self {
+        fn new(config: xml::ParserConfig, parameter_entity_parsing: i32) -> Self {
             #[cfg(not(target_arch = "wasm32"))]
             {
-                if let Some(stream) = ParserStream::try_spawn(config.clone()) {
+                if let Some(stream) =
+                    ParserStream::try_spawn(config.clone(), parameter_entity_parsing)
+                {
                     return Self::Threaded(stream);
                 }
             }
-            Self::Sync(SyncParser::new(config))
+            Self::Sync(SyncParser::new(config, parameter_entity_parsing))
         }
     }
 
@@ -950,6 +2191,7 @@ mod _pyexpat {
                 finished: AtomicBool::new(false),
                 completed: AtomicBool::new(false),
                 namespace_stack: PyRwLock::new(Vec::new()),
+                external_entities: PyRwLock::new(alloc::collections::BTreeMap::new()),
                 reparse_deferral_enabled: AtomicBool::new(true),
                 parameter_entity_parsing: AtomicI32::new(XML_PARAM_ENTITY_PARSING_NEVER),
                 use_foreign_dtd: AtomicBool::new(false),
@@ -1307,25 +2549,124 @@ mod _pyexpat {
             }
         }
 
+        fn dispatch_character_data(&self, vm: &VirtualMachine, text: String) -> PyResult<()> {
+            let mut rest = text.as_str();
+            while let Some(start) = rest.find('\0') {
+                if start != 0 {
+                    let content = PyStr::from(rest[..start].to_owned()).into_ref(&vm.ctx);
+                    invoke_handler(vm, &self.character_data, (content,))?;
+                }
+                let marker_start = &rest[start + '\0'.len_utf8()..];
+                let Some(end) = marker_start.find('\0') else {
+                    let content = PyStr::from(rest.to_owned()).into_ref(&vm.ctx);
+                    return invoke_handler(vm, &self.character_data, (content,));
+                };
+                let marker = &marker_start[..end];
+                let mut chars = marker.chars();
+                let kind = chars.next();
+                let name: String = chars.collect();
+                let recognized = match kind {
+                    Some('E') => self.external_entities.read().contains_key(&name),
+                    Some('S') => {
+                        self.external_subset_handled.load(Ordering::Relaxed) && !name.is_empty()
+                    }
+                    _ => false,
+                };
+                if !recognized {
+                    let content = PyStr::from("\u{fdd0}").into_ref(&vm.ctx);
+                    invoke_handler(vm, &self.character_data, (content,))?;
+                    rest = &rest[start + '\0'.len_utf8()..];
+                    continue;
+                }
+                if kind == Some('S') && self.standalone.load(Ordering::Relaxed) {
+                    return Err(self.handler_error(vm, 11, "undefined entity")?);
+                }
+                match kind {
+                    Some('E') => {
+                        let ids = self.external_entities.read().get(&name).cloned();
+                        if let Some((system_id, public_id)) = ids {
+                            let base = self
+                                .base
+                                .read()
+                                .as_ref()
+                                .map(|base| vm.ctx.new_str(base.clone()));
+                            if invoke_int_handler(
+                                vm,
+                                &self.external_entity_ref,
+                                "ExternalEntityRef",
+                                (
+                                    vm.ctx.new_str(name.clone()),
+                                    base,
+                                    system_id.map(|value| vm.ctx.new_str(value)),
+                                    public_id.map(|value| vm.ctx.new_str(value)),
+                                ),
+                            )? == Some(0)
+                            {
+                                return Err(self.handler_error(
+                                    vm,
+                                    21,
+                                    "error in processing external entity reference",
+                                )?);
+                            }
+                        }
+                    }
+                    Some('S') if !vm.is_none(&self.skipped_entity.read()) => {
+                        invoke_handler(vm, &self.skipped_entity, (vm.ctx.new_str(name), 0))?;
+                    }
+                    Some('S') => {}
+                    _ => {}
+                }
+                rest = &marker_start[end + '\0'.len_utf8()..];
+            }
+            if !rest.is_empty() {
+                let content = PyStr::from(rest.to_owned()).into_ref(&vm.ctx);
+                invoke_handler(vm, &self.character_data, (content,))?;
+            }
+            Ok(())
+        }
+
         /// Dispatch a single parser event to the registered handlers. Runs on
         /// the calling thread only -- see the module doc comment.
         fn dispatch(
             &self,
             vm: &VirtualMachine,
             event: XmlEvent,
-            doctype: Option<Doctype>,
+            doctype: Option<Box<Doctype>>,
+            xml_declaration: Option<XmlDeclarationInfo>,
         ) -> PyResult<()> {
             match event {
-                XmlEvent::StartDocument { standalone, .. } => {
+                XmlEvent::StartDocument {
+                    version,
+                    encoding: _,
+                    standalone,
+                } => {
                     self.standalone
                         .store(standalone == Some(true), Ordering::Relaxed);
-                    Ok(())
+                    if let Some(declaration) = xml_declaration {
+                        invoke_handler(
+                            vm,
+                            &self.xml_decl,
+                            (
+                                vm.ctx.new_str(version.to_string()),
+                                declaration.encoding.map_or_else(
+                                    || vm.ctx.none(),
+                                    |encoding| vm.ctx.new_str(encoding).into(),
+                                ),
+                                declaration.standalone.map_or(-1, i32::from),
+                            ),
+                        )
+                    } else {
+                        Ok(())
+                    }
                 }
                 XmlEvent::Doctype { .. } => {
                     if let Some(doctype) = doctype {
+                        let doctype = *doctype;
+                        let has_parameter_entity_reference = doctype.has_parameter_entity_reference;
                         self.external_subset_handled.store(true, Ordering::Relaxed);
                         let parse_entities = self.parse_parameter_entities();
-                        if doctype.system_id.is_some()
+                        let has_external_subset = doctype.system_id.is_some();
+                        if has_external_subset
                             && !parse_entities
                             && !self.standalone.load(Ordering::Relaxed)
                             && invoke_int_handler(vm, &self.not_standalone, "NotStandalone", ())?
@@ -1350,6 +2691,187 @@ mod _pyexpat {
                                 i32::from(doctype.has_internal_subset),
                             ),
                         )?;
+                        let mut seen_entity_declarations = std::collections::HashSet::new();
+                        for declaration in dtd_declarations(&doctype.syntax) {
+                            match declaration {
+                                DtdDeclaration::Comment(text) => {
+                                    invoke_handler(vm, &self.comment, (vm.ctx.new_str(text),))?;
+                                }
+                                DtdDeclaration::ProcessingInstruction(target, data) => {
+                                    invoke_handler(
+                                        vm,
+                                        &self.processing_instruction,
+                                        (
+                                            vm.ctx.new_str(target),
+                                            vm.ctx.new_str(
+                                                data.trim_start_matches([' ', '\t', '\r', '\n']),
+                                            ),
+                                        ),
+                                    )?;
+                                }
+                                DtdDeclaration::Element(name, content_model) => {
+                                    let model = match content_model.as_str() {
+                                        "EMPTY" => content_model_object(
+                                            ContentModel {
+                                                kind: 1,
+                                                quantifier: 0,
+                                                name: None,
+                                                children: Vec::new(),
+                                            },
+                                            vm,
+                                        ),
+                                        "ANY" => content_model_object(
+                                            ContentModel {
+                                                kind: 2,
+                                                quantifier: 0,
+                                                name: None,
+                                                children: Vec::new(),
+                                            },
+                                            vm,
+                                        ),
+                                        _ => {
+                                            let Some(model) = element_content_model(&content_model)
+                                            else {
+                                                if content_model_exceeds_depth(&content_model) {
+                                                    return Err(vm.new_recursion_error(
+                                                        "content model is nested too deeply",
+                                                    ));
+                                                }
+                                                return Err(self.handler_error(
+                                                    vm,
+                                                    2,
+                                                    "syntax error",
+                                                )?);
+                                            };
+                                            content_model_object(model, vm)
+                                        }
+                                    };
+                                    invoke_handler(
+                                        vm,
+                                        &self.element_decl,
+                                        (vm.ctx.new_str(name), model),
+                                    )?;
+                                }
+                                DtdDeclaration::Attlist(element, name, kind, default, required) => {
+                                    invoke_handler(
+                                        vm,
+                                        &self.attlist_decl,
+                                        (
+                                            vm.ctx.new_str(element),
+                                            vm.ctx.new_str(name),
+                                            vm.ctx.new_str(kind),
+                                            default.map(|value| {
+                                                vm.ctx.new_str(decode_xml_entity_value(&value))
+                                            }),
+                                            i32::from(required),
+                                        ),
+                                    )?
+                                }
+                                DtdDeclaration::Notation(name, public_id, system_id) => {
+                                    let base = self
+                                        .base
+                                        .read()
+                                        .as_ref()
+                                        .map(|base| vm.ctx.new_str(base.clone()));
+                                    invoke_handler(
+                                        vm,
+                                        &self.notation_decl,
+                                        (
+                                            vm.ctx.new_str(name),
+                                            base,
+                                            system_id.map(|value| vm.ctx.new_str(value)),
+                                            public_id.map(|value| vm.ctx.new_str(value)),
+                                        ),
+                                    )?;
+                                }
+                                DtdDeclaration::Entity {
+                                    name,
+                                    parameter,
+                                    value,
+                                    system_id,
+                                    public_id,
+                                    notation,
+                                } => {
+                                    if !seen_entity_declarations.insert((parameter, name.clone())) {
+                                        continue;
+                                    }
+                                    if value.is_none()
+                                        && notation.is_none()
+                                        && let Some(system_id) = &system_id
+                                    {
+                                        self.external_entities
+                                            .write()
+                                            .entry(name.clone())
+                                            .or_insert_with(|| {
+                                                (Some(system_id.clone()), public_id.clone())
+                                            });
+                                    }
+                                    if notation.is_some() {
+                                        let base = self
+                                            .base
+                                            .read()
+                                            .as_ref()
+                                            .map(|base| vm.ctx.new_str(base.clone()));
+                                        invoke_handler(
+                                            vm,
+                                            &self.unparsed_entity_decl,
+                                            (
+                                                vm.ctx.new_str(name),
+                                                base,
+                                                system_id.map(|value| vm.ctx.new_str(value)),
+                                                public_id.map(|value| vm.ctx.new_str(value)),
+                                                notation.map(|value| vm.ctx.new_str(value)),
+                                            ),
+                                        )?;
+                                    } else {
+                                        let base = self
+                                            .base
+                                            .read()
+                                            .as_ref()
+                                            .map(|base| vm.ctx.new_str(base.clone()));
+                                        invoke_handler_args(
+                                            vm,
+                                            &self.entity_decl,
+                                            vec![
+                                                vm.ctx.new_str(name).into(),
+                                                vm.ctx.new_int(i32::from(parameter)).into(),
+                                                value
+                                                    .map(|value| {
+                                                        vm.ctx.new_str(decode_xml_entity_value(
+                                                            &value,
+                                                        ))
+                                                    })
+                                                    .map_or_else(|| vm.ctx.none(), Into::into),
+                                                base.map_or_else(
+                                                    || vm.ctx.none(),
+                                                    |base| base.into(),
+                                                ),
+                                                system_id
+                                                    .map(|value| vm.ctx.new_str(value))
+                                                    .map_or_else(|| vm.ctx.none(), Into::into),
+                                                public_id
+                                                    .map(|value| vm.ctx.new_str(value))
+                                                    .map_or_else(|| vm.ctx.none(), Into::into),
+                                                vm.ctx.none(),
+                                            ],
+                                        )?;
+                                    }
+                                }
+                            }
+                        }
+                        if has_external_subset
+                            && has_parameter_entity_reference
+                            && !parse_entities
+                            && !self.standalone.load(Ordering::Relaxed)
+                            && invoke_int_handler(vm, &self.not_standalone, "NotStandalone", ())?
+                                == Some(0)
+                        {
+                            return Err(self.handler_error(
+                                vm,
+                                22,
+                                "document is not standalone",
+                            )?);
+                        }
                         if parse_entities
                             && (system_id.is_some() || self.use_foreign_dtd.load(Ordering::Relaxed))
                         {
@@ -1361,9 +2883,25 @@ mod _pyexpat {
                 }
                 XmlEvent::StartElement {
                     name,
-                    attributes,
+                    mut attributes,
                     namespace,
                 } => {
+                    let external_entities = self.external_entities.read();
+                    if attributes.iter().any(|attribute| {
+                        external_entities
+                            .keys()
+                            .any(|entity| attribute.value.contains(&entity_marker('E', entity)))
+                    }) {
+                        return Err(self.handler_error(
+                            vm,
+                            16,
+                            "reference to external entity in attribute",
+                        )?);
+                    }
+                    drop(external_entities);
+                    for attribute in &mut attributes {
+                        attribute.value = remove_skipped_entity_markers(&attribute.value);
+                    }
                     if !self.external_subset_handled.swap(true, Ordering::Relaxed)
                         && self.parent.is_none()
                         && self.use_foreign_dtd.load(Ordering::Relaxed)
@@ -1446,10 +2984,7 @@ mod _pyexpat {
                     }
                     Ok(())
                 }
-                XmlEvent::Characters(chars) => {
-                    let str = PyStr::from(chars).into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.character_data, (str,))
-                }
+                XmlEvent::Characters(chars) => self.dispatch_character_data(vm, chars),
                 XmlEvent::ProcessingInstruction { name, data } => {
                     let name = PyStr::from(name).into_ref(&vm.ctx);
                     let data = data.unwrap_or_default();
@@ -1559,7 +3094,9 @@ mod _pyexpat {
                         && message.ends_with(" is redefined")
                     {
                         (8, "duplicate attribute")
-                    } else if message.starts_with("Undefined entity:") {
+                    } else if message.starts_with("Undefined entity:")
+                        || message.starts_with("Unexpected entity:")
+                    {
                         (11, "undefined entity")
                     } else if message.starts_with("Unclosed <![CDATA[") {
                         (20, "unclosed CDATA section")
@@ -1644,7 +3181,7 @@ mod _pyexpat {
                         *self.current_line.write() = ev.line;
                         *self.current_column.write() = ev.column;
                         *self.current_byte_index.write() = ev.byte_index;
-                        self.dispatch(vm, ev.event, ev.doctype)?;
+                        self.dispatch(vm, ev.event, ev.doctype, ev.xml_declaration)?;
                     }
                 }
             }
@@ -1669,7 +3206,7 @@ mod _pyexpat {
         /// buffer via `isfinal`, so it never reaches `EndDocument`
         /// prematurely).
         fn feed_sync(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
-            let (config, buffer, skip) = {
+            let (config, buffer, skip, parameter_entity_parsing) = {
                 let mut guard = self.backend.write();
                 let Some(Backend::Sync(sync)) = guard.as_mut() else {
                     // feed_inner only calls feed_sync once the backend has
@@ -1681,6 +3218,7 @@ mod _pyexpat {
                     sync.config.clone(),
                     sync.buffer.clone(),
                     sync.dispatched_events,
+                    sync.parameter_entity_parsing,
                 )
             };
 
@@ -1689,6 +3227,7 @@ mod _pyexpat {
                 inner: buffer.as_slice(),
                 tracker: Rc::clone(&tracker),
             };
+            let reader = DoctypeFilterReader::new(reader, parameter_entity_parsing);
             let mut parser = config.create_reader(reader);
 
             let mut index = 0usize;
@@ -1711,6 +3250,12 @@ mod _pyexpat {
                     // `EndDocument` uncounted is always safe.
                     Ok(XmlEvent::EndDocument) => break Ok(()),
                     Ok(event) => {
+                        if let XmlEvent::Doctype { syntax } = &event {
+                            let references = parser.source().entity_references();
+                            let replacements = dtd_entity_replacements(syntax, references);
+                            let _ = parser.add_entities(replacements);
+                        }
+                        let xml_declaration = parser.source().xml_declaration();
                         let this_index = index;
                         index += 1;
                         let pos = parser.position();
@@ -1721,8 +3266,13 @@ mod _pyexpat {
                         if this_index < skip {
                             continue;
                         }
-                        let doctype = Doctype::from_reader(&parser, &event);
-                        if let Err(e) = self.dispatch(vm, event, doctype) {
+                        let doctype = Doctype::from_reader(
+                            &parser,
+                            &event,
+                            parser.source().has_parameter_entity_reference(),
+                        )
+                        .map(Box::new);
+                        if let Err(e) = self.dispatch(vm, event, doctype, xml_declaration) {
                             // The handler for `this_index` was invoked (it
                             // raised, but it ran), so don't replay it next
                             // call -- mirrors `Backend::Threaded`, where an
@@ -1816,7 +3366,10 @@ mod _pyexpat {
             {
                 let mut guard = self.backend.write();
                 if guard.is_none() {
-                    *guard = Some(Backend::new(self.create_config()));
+                    *guard = Some(Backend::new(
+                        self.create_config(),
+                        self.parameter_entity_parsing.load(Ordering::Relaxed),
+                    ));
                 }
             }
             #[cfg(not(target_arch = "wasm32"))]
