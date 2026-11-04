@@ -2479,11 +2479,26 @@ pub(crate) fn set_view_number_and(
     };
     let other = ArgIterable::<PyObjectRef>::try_from_object(vm, other.to_owned())?;
     let result = PySet::default();
-    for item in other.iter(vm)? {
-        let item = item?;
-        if view.sequence_unchecked().contains(&item, vm)? {
-            result.add(item, vm)?;
+    let mut iterator = other.iter(vm)?;
+    let mut current = None;
+    let outcome = (|| -> PyResult<()> {
+        for item in iterator.by_ref() {
+            current = Some(item?);
+            let item = current.as_ref().unwrap();
+            if view.sequence_unchecked().contains(item, vm)? {
+                result.add(item.clone(), vm)?;
+            }
+            drop(current.take());
         }
+        Ok(())
+    })();
+    // On failure, release the iterator and partial result before the current
+    // item. Retain its owner through both membership and result insertion.
+    drop(iterator);
+    if let Err(exc) = outcome {
+        drop(result);
+        drop(current);
+        return Err(exc);
     }
     Ok(result.into_pyobject(vm))
 }
