@@ -433,6 +433,23 @@ pub struct CoMonitoringData {
     pub per_instruction_opcodes: Vec<u8>,
 }
 
+impl CoMonitoringData {
+    fn original_opcode(&self, i: usize, op: Instruction) -> Instruction {
+        let op = match op {
+            Instruction::InstrumentedLine => Instruction::try_from(self.line_opcodes[i])
+                .expect("INSTRUMENTED_LINE without original opcode"),
+            op => op,
+        };
+        match op {
+            Instruction::InstrumentedInstruction => {
+                Instruction::try_from(self.per_instruction_opcodes[i])
+                    .expect("INSTRUMENTED_INSTRUCTION without original opcode")
+            }
+            op => op,
+        }
+    }
+}
+
 /// `_PyCoCached`: objects created on first use.
 #[derive(Default)]
 struct CoCached {
@@ -754,21 +771,9 @@ impl PyCode {
     fn deopt_code(&self) -> Vec<u8> {
         let monitoring_data = self.monitoring_data.lock();
         self.code.instructions.original_bytes_with(|i, op| {
-            let Some(data) = monitoring_data.as_ref() else {
-                return op;
-            };
-            let op = match op {
-                Instruction::InstrumentedLine => Instruction::try_from(data.line_opcodes[i])
-                    .expect("INSTRUMENTED_LINE without original opcode"),
-                op => op,
-            };
-            match op {
-                Instruction::InstrumentedInstruction => {
-                    Instruction::try_from(data.per_instruction_opcodes[i])
-                        .expect("INSTRUMENTED_INSTRUCTION without original opcode")
-                }
-                op => op,
-            }
+            monitoring_data
+                .as_ref()
+                .map_or(op, |data| data.original_opcode(i, op))
         })
     }
 
@@ -1025,16 +1030,30 @@ impl Comparable for PyCode {
                 && a.kwonlyarg_count == b.kwonlyarg_count
                 && a.flags == b.flags
                 && a.first_line_number == b.first_line_number
+                && a.instructions.len() == b.instructions.len()
                 && zelf.get_code(vm).as_bytes() == other.get_code(vm).as_bytes()
-                && a.linetable == b.linetable
-                && a.exceptiontable == b.exceptiontable
-                && a.names == b.names
-                && a.varnames == b.varnames
-                && a.freevars == b.freevars
-                && a.cellvars == b.cellvars
+                && {
+                    let left = constant_key(Self::co_consts(zelf).as_object(), vm)?;
+                    let right = constant_key(Self::co_consts(other).as_object(), vm)?;
+                    let eq = vm.bool_eq(&left, &right);
+                    // Release both temporary keys in comparison order, including
+                    // on errors, before comparing the remaining code fields.
+                    drop(left);
+                    drop(right);
+                    eq?
+                }
+                && vm.bool_eq(zelf.co_names.as_object(), other.co_names.as_object())?
                 && vm.bool_eq(
-                    &*constant_key(zelf.co_consts().as_object(), vm)?,
-                    &*constant_key(other.co_consts().as_object(), vm)?,
+                    zelf.co_localsplusnames.as_object(),
+                    other.co_localsplusnames.as_object(),
+                )?
+                && vm.bool_eq(
+                    zelf.co_linetable.as_object(),
+                    other.co_linetable.as_object(),
+                )?
+                && vm.bool_eq(
+                    zelf.co_exceptiontable.as_object(),
+                    other.co_exceptiontable.as_object(),
                 )?;
             Ok(eq.into())
         })
@@ -1043,25 +1062,50 @@ impl Comparable for PyCode {
 
 impl Hashable for PyCode {
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
+        use crate::common::hash::{self, PyHash, PyUHash};
+
         let code = &zelf.code;
-        // Hash a tuple of key attributes, matching CPython's code_hash
-        let tuple = vm.ctx.new_tuple(vec![
-            zelf.co_name.clone().into(),
-            vm.ctx.new_int(code.arg_count).into(),
-            vm.ctx.new_int(code.posonlyarg_count).into(),
-            vm.ctx.new_int(code.kwonlyarg_count).into(),
-            vm.ctx.new_int(code.varnames.len()).into(),
-            vm.ctx.new_int(code.flags.bits()).into(),
-            vm.ctx
-                .new_int(code.first_line_number.map_or(0, |n| n.get()) as i64)
-                .into(),
-            zelf.get_code(vm).into(),
-            {
-                let consts: Vec<_> = code.constants.iter().map(|c| c.0.clone()).collect();
-                vm.ctx.new_tuple(consts).into()
-            },
-        ]);
-        tuple.as_object().hash(vm)
+        let mut hash: PyUHash = 20_221_211;
+        let mut scramble = |value: PyUHash| {
+            hash = (hash ^ value).wrapping_mul(hash::MULTIPLIER as PyUHash);
+        };
+
+        // Hash the retained Python objects in code_hash order: subclass hooks
+        // and exceptions must be observed before reading the instruction stream.
+        for field in [
+            zelf.co_name.as_object(),
+            Self::co_consts(zelf).as_object(),
+            zelf.co_names.as_object(),
+            zelf.co_localsplusnames.as_object(),
+            zelf.co_linetable.as_object(),
+            zelf.co_exceptiontable.as_object(),
+        ] {
+            scramble(field.hash(vm)? as PyUHash);
+        }
+        for value in [
+            code.arg_count as PyUHash,
+            code.posonlyarg_count as PyUHash,
+            code.kwonlyarg_count as PyUHash,
+            code.flags.bits() as PyUHash,
+            code.first_line_number.map_or(0, |n| n.get()) as PyUHash,
+            code.instructions.len() as PyUHash,
+        ] {
+            scramble(value);
+        }
+
+        // Share co_code's original instruction and cache traversal, without hashing
+        // adaptive counters or holding the monitoring lock across Python calls.
+        let monitoring_data = zelf.monitoring_data.lock();
+        let instructions = code.instructions.original_instructions_with(|i, op| {
+            monitoring_data
+                .as_ref()
+                .map_or(op, |data| data.original_opcode(i, op))
+        });
+        for unit in instructions {
+            scramble(u8::from(unit.op) as PyUHash);
+            scramble(u8::from(unit.arg) as PyUHash);
+        }
+        Ok(hash::fix_sentinel(hash as PyHash))
     }
 }
 
