@@ -2062,6 +2062,16 @@ pub fn sendfile(
     }
 }
 
+#[cfg(target_os = "linux")]
+/// Send from the input descriptor's current position and update that position.
+pub fn sendfile_no_offset(
+    out_fd: BorrowedFd<'_>,
+    in_fd: BorrowedFd<'_>,
+    count: usize,
+) -> std::io::Result<usize> {
+    nix::sys::sendfile::sendfile(out_fd, in_fd, None, count).map_err(std::io::Error::from)
+}
+
 #[cfg(target_os = "macos")]
 pub fn sendfile(
     in_fd: i32,
