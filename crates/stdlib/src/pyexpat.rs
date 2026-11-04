@@ -1903,11 +1903,39 @@ mod _pyexpat {
     #[derive(FromArgs)]
     struct ParserCreateArgs {
         #[pyarg(any, optional)]
-        encoding: Option<PyStrRef>,
+        encoding: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        namespace_separator: Option<PyUtf8StrRef>,
+        namespace_separator: Option<PyObjectRef>,
         #[pyarg(any, optional)]
         intern: OptionalOption<PyObjectRef>,
+    }
+
+    fn parser_create_string_arg(
+        value: Option<PyObjectRef>,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyUtf8StrRef>> {
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        let text = value.downcast::<PyStr>().map_err(|value| {
+            let actual = {
+                let actual = value.class().slot_name();
+                let mut end = actual.len().min(50);
+                while !actual.is_char_boundary(end) {
+                    end -= 1;
+                }
+                actual[..end].to_owned()
+            };
+            vm.new_type_error(format!(
+                "ParserCreate() argument '{name}' must be str or None, not {actual}"
+            ))
+        })?;
+        let text = text.try_into_utf8(vm)?;
+        if text.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        Ok(Some(text))
     }
 
     #[pyfunction(name = "ParserCreate")]
@@ -1915,24 +1943,28 @@ mod _pyexpat {
         args: ParserCreateArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyExpatLikeXmlParserRef> {
-        // Validate namespace_separator: must be at most one character
-        let ns_sep = match args.namespace_separator {
-            Some(ref s) => {
-                if s.as_str().chars().count() > 1 {
-                    return Err(vm.new_value_error(
-                        "namespace_separator must be at most one character, omitted, or None",
-                    ));
-                }
-                Some(s.as_str().to_owned())
-            }
-            None => None,
-        };
+        // Clinic converts both strings before the implementation validates
+        // the separator and the intern dictionary.
+        let encoding = parser_create_string_arg(args.encoding, "encoding", vm)?;
+        let ns_sep = parser_create_string_arg(args.namespace_separator, "namespace_separator", vm)?;
+        if ns_sep.as_ref().is_some_and(|sep| sep.as_str().len() > 1) {
+            return Err(vm.new_value_error(
+                "namespace_separator must be at most one character, omitted, or None",
+            ));
+        }
+        if let OptionalArg::Present(Some(ref intern)) = args.intern
+            && intern
+                .downcast_ref::<crate::vm::builtins::PyDict>()
+                .is_none()
+        {
+            return Err(vm.new_type_error("intern must be a dictionary"));
+        }
 
-        // encoding parameter is currently not used (xml-rs handles encoding from XML declaration)
-        let _ = args.encoding;
+        // Encoding selection is still handled by the xml-rs backend.
+        let _ = encoding;
 
         Ok(PyExpatLikeXmlParser::new(
-            ns_sep,
+            ns_sep.map(|sep| sep.as_str().to_owned()),
             args.intern,
             None,
             None,
