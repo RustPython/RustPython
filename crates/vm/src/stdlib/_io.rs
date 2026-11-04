@@ -6643,6 +6643,7 @@ mod winconsoleio {
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
+        exceptions::nul_char_error,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
@@ -6740,7 +6741,7 @@ mod winconsoleio {
                 OptionalArg::Missing => "r",
             };
             if mode_str.contains('\0') {
-                return Err(vm.new_value_error("embedded null character"));
+                return Err(nul_char_error(vm));
             }
 
             let nameobj = args.name;
