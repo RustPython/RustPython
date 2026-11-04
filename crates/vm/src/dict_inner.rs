@@ -703,20 +703,10 @@ impl<T: Clone> Dict<T> {
         key: &K,
         hash: HashValue,
     ) -> PyResult<Option<(T, Option<u16>)>> {
-        let ret = loop {
-            let (entry, index_index) = self.lookup(vm, key, hash, None)?;
-            if let Some(index) = entry.index() {
-                let inner = self.read();
-                if let Some(entry) = inner.get_entry_checked(index, index_index) {
-                    // The dict was not changed since we did lookup
-                    break Some((entry.value.clone(), u16::try_from(index).ok()));
-                }
-                // The dict was changed since we did lookup. Let's try again.
-            } else {
-                break None;
-            }
-        };
-        Ok(ret)
+        let ((entry, _), value) =
+            self.lookup_extract(vm, key, hash, None, |entry| entry.value.clone())?;
+        let hint = entry.index().and_then(|index| u16::try_from(index).ok());
+        Ok(value.map(|value| (value, hint)))
     }
 
     /// Replace the value at entry index `hint` if that entry's key is
@@ -751,29 +741,18 @@ impl<T: Clone> Dict<T> {
 
     /// Fast path lookup using a cached entry index (`hint`).
     ///
-    /// Returns `None` if the hint is stale or the key no longer matches.
+    /// Returns `None` if the hint is stale or its key is not identical to `key`.
     pub(crate) fn get_hint<K: DictKey + ?Sized>(
         &self,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
         key: &K,
         hint: usize,
     ) -> PyResult<Option<T>> {
-        let (entry_key, entry_value) = {
-            let inner = self.read();
-            let Some(Some(entry)) = inner.entries.get(hint) else {
-                return Ok(None);
-            };
-            if key.key_is(&entry.key) {
-                return Ok(Some(entry.value.clone()));
-            }
-            (entry.key.clone(), entry.value.clone())
+        let inner = self.read();
+        let Some(Some(entry)) = inner.entries.get(hint) else {
+            return Ok(None);
         };
-        // key_eq may run Python __eq__, so must be outside the lock.
-        if key.key_eq(vm, &entry_key)? {
-            Ok(Some(entry_value))
-        } else {
-            Ok(None)
-        }
+        Ok(key.key_is(&entry.key).then(|| entry.value.clone()))
     }
 
     /// Read an entry directly when a cached keys-version still describes the
