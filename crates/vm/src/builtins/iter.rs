@@ -6,7 +6,7 @@ use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::ArgCallable,
+    function::{ArgCallable, int_as_ssize},
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
     types::{IterNext, Iterable, PyComparisonOp, SelfIter},
@@ -384,11 +384,7 @@ impl SequenceIter {
     pub(crate) fn set_state(&self, state: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         // PyLong_AsSsize_t accepts int subclasses, not __index__. Convert even
         // when exhausted, and retain the original argument through callbacks.
-        let index = state
-            .downcast_ref::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("an integer is required"))?;
-        let index = isize::try_from(index.as_bigint())
-            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))?;
+        let index = int_as_ssize(state, vm)?;
         match self.direction {
             SequenceIterDirection::Forward => {
                 let mut state = self.state.lock();
