@@ -6776,7 +6776,7 @@ mod winconsoleio {
                     .as_wtf8()
                     .to_wide_cstring()
                     .map_err(|e| e.to_pyexception(vm))?;
-                let console_type = pyio_get_console_type(&decoded, vm);
+                let console_type = pyio_get_console_type(decoded.as_object(), vm);
                 Some((wide, console_type))
             } else {
                 None
