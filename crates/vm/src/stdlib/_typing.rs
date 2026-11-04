@@ -37,7 +37,7 @@ pub(crate) mod decl {
             PyFunction, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_,
         },
         common::wtf8::Wtf8Buf,
-        function::{FuncArgs, PySetterValue},
+        function::{FuncArgs, OptionalArg, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
     };
@@ -207,6 +207,18 @@ pub(crate) mod decl {
         module: crate::common::lock::PyMutex<Option<PyObjectRef>>,
         is_lazy: bool,
     }
+    #[derive(FromArgs)]
+    pub(crate) struct TypeAliasArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any)]
+        value: PyObjectRef,
+        #[pyarg(named, optional, py_default = "()")]
+        type_params: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "None")]
+        qualname: OptionalArg<PyObjectRef>,
+    }
+
     impl TypeAliasType {
         /// Create from intrinsic: compute_value is a callable that returns the value
         pub(crate) fn new(
@@ -263,40 +275,44 @@ pub(crate) mod decl {
             Ok(PyGenericAlias::new(origin, args_tuple, false, vm)?.into_pyobject(vm))
         }
 
-        /// Check type_params ordering: non-default params must precede default params.
-        /// Uses __default__ attribute to check if a type param has a default value,
-        /// comparing against typing.NoDefault sentinel (like get_type_param_default).
+        // Validate native type parameters before evaluating their defaults. Arbitrary
+        // objects with a __default__ attribute are not type parameters.
         fn check_type_params(
             type_params: &Py<PyTuple>,
             vm: &VirtualMachine,
-        ) -> PyResult<Option<PyTupleRef>> {
+        ) -> PyResult<PyTupleRef> {
             if type_params.as_slice().is_empty() {
-                return Ok(None);
+                return Ok(vm.ctx.empty_tuple.clone());
             }
             let no_default = &vm.ctx.typing_no_default;
             let mut default_seen = false;
             for param in type_params {
-                let dflt = param.get_attr("__default__", vm).map_err(|_| {
-                    vm.new_type_error(format!(
-                        "Expected a type param, got {}",
-                        param
-                            .repr(vm)
-                            .map_or_else(|_| "?".to_owned(), |s| s.to_string())
-                    ))
-                })?;
-                let is_no_default = dflt.is(no_default);
-                if is_no_default {
+                let class = param.class();
+                if !class.is(super::TypeVar::class(&vm.ctx))
+                    && !class.is(super::ParamSpec::class(&vm.ctx))
+                    && !class.is(super::TypeVarTuple::class(&vm.ctx))
+                {
+                    let repr = param.repr(vm)?;
+                    let mut message = Wtf8Buf::from("Expected a type param, got ");
+                    message.push_wtf8(repr.as_wtf8());
+                    return Err(vm.new_type_error(message));
+                }
+                // These immutable native types supply the default descriptor. Let
+                // a lazy default's exception propagate without reclassifying it.
+                let dflt = param.get_attr("__default__", vm)?;
+                if dflt.is(no_default) {
                     if default_seen {
-                        return Err(vm.new_type_error(format!(
-                            "non-default type parameter '{}' follows default type parameter",
-                            param.repr(vm)?
-                        )));
+                        let repr = param.repr(vm)?;
+                        let mut message = Wtf8Buf::from("non-default type parameter '");
+                        message.push_wtf8(repr.as_wtf8());
+                        message.push_str("' follows default type parameter");
+                        return Err(vm.new_type_error(message));
                     }
                 } else {
                     default_seen = true;
                 }
             }
-            Ok(Some(type_params.to_owned()))
+            Ok(type_params.to_owned())
         }
     }
 
@@ -369,59 +385,30 @@ pub(crate) mod decl {
     }
 
     impl Constructor for TypeAliasType {
-        type Args = FuncArgs;
+        type Args = TypeAliasArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind_for(vm, "typealias")?;
+            // Empty tuple subclasses are normalized away, but their finalizers
+            // must not run before the alias object has been allocated.
+            let original_type_params = match &args.type_params {
+                OptionalArg::Present(tp) => Some(tp.clone()),
+                OptionalArg::Missing => None,
+            };
+            let result = Self::py_new(&cls, args, vm)
+                .and_then(|payload| payload.into_ref_with_type(vm, cls).map(Into::into));
+            drop(original_type_params);
+            result
+        }
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            // name and value are positional-or-keyword; type_params and qualname are keyword-only.
-
-            // Reject unexpected keyword arguments.
-            for key in args.kwargs.keys() {
-                if !matches!(
-                    key.as_str(),
-                    Ok("name" | "value" | "type_params" | "qualname")
-                ) {
-                    return Err(
-                        vm.new_unexpected_keyword_type_error(Some("typealias"), &key.to_string())
-                    );
-                }
-            }
-
-            // Reject too many positional arguments
-            if args.args.len() > 2 {
-                return Err(vm.new_type_error(format!(
-                    "typealias() takes exactly 2 positional arguments ({} given)",
-                    args.args.len()
-                )));
-            }
-
-            // Resolve name: positional[0] or kwarg
-            let name = if !args.args.is_empty() {
-                if args.kwargs.contains_key("name") {
-                    return Err(vm.new_type_error(
-                        "argument for typealias() given by name ('name') and position (1)",
-                    ));
-                }
-                args.args[0].clone()
-            } else {
-                args.kwargs.get("name").cloned().ok_or_else(|| {
-                    vm.new_type_error("typealias() missing required argument 'name' (pos 1)")
-                })?
-            };
-
-            // Resolve value: positional[1] or kwarg
-            let value = if args.args.len() >= 2 {
-                if args.kwargs.contains_key("value") {
-                    return Err(vm.new_type_error(
-                        "argument for typealias() given by name ('value') and position (2)",
-                    ));
-                }
-                args.args[1].clone()
-            } else {
-                args.kwargs.get("value").cloned().ok_or_else(|| {
-                    vm.new_type_error("typealias() missing required argument 'value' (pos 2)")
-                })?
-            };
-
+            // Bind raw objects first, so call-shape errors precede conversion.
+            let TypeAliasArgs {
+                name,
+                value,
+                type_params,
+                qualname,
+            } = args;
             let name = name.downcast::<crate::builtins::PyStr>().map_err(|obj| {
                 vm.new_type_error(format!(
                     "typealias() argument 'name' must be str, not {}",
@@ -429,30 +416,38 @@ pub(crate) mod decl {
                 ))
             })?;
 
-            let type_params = if let Some(tp) = args.kwargs.get("type_params") {
-                let tp = tp
-                    .clone()
-                    .downcast::<crate::builtins::PyTuple>()
-                    .map_err(|_| vm.new_type_error("type_params must be a tuple"))?;
-                Self::check_type_params(&tp, vm)?;
-                tp
-            } else {
-                vm.ctx.empty_tuple.clone()
+            let checked_type_params = match &type_params {
+                OptionalArg::Present(tp) => {
+                    let tp = tp
+                        .clone()
+                        .downcast::<PyTuple>()
+                        .map_err(|_| vm.new_type_error("type_params must be a tuple"))?;
+                    Self::check_type_params(&tp, vm)?
+                }
+                OptionalArg::Missing => vm.ctx.empty_tuple.clone(),
             };
 
-            let qualname = match args.kwargs.get("qualname") {
-                Some(qualname) if !vm.is_none(qualname) => qualname
-                    .clone()
+            let qualname = match qualname {
+                OptionalArg::Present(qualname) if !vm.is_none(&qualname) => qualname
                     .downcast::<crate::builtins::PyStr>()
                     .map_err(|_| vm.new_type_error("qualname must be a string"))?,
                 _ => name.clone(),
             };
 
-            // Get caller's module name from frame globals, like typevar.rs caller()
-            let module =
-                crate::frame::current_globals().and_then(|g| g.get_item("__name__", vm).ok());
+            // Like CPython's caller(), use the function's cached module metadata,
+            // which can differ from the current globals' __name__ entry.
+            let function = vm
+                .current_frame()
+                .and_then(|frame| frame.iframe().func_obj().map(|obj| obj.to_owned()));
+            let module = function.and_then(|func| func.get_attr("__module__", vm).ok());
 
-            Ok(Self::new_eager(name, qualname, type_params, value, module))
+            Ok(Self::new_eager(
+                name,
+                qualname,
+                checked_type_params,
+                value,
+                module,
+            ))
         }
     }
 
