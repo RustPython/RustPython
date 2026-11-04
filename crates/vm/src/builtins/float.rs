@@ -290,26 +290,32 @@ impl Constructor for PyFloat {
 }
 
 pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
-    let (bytearray, buffer, buffer_lock, mapped_string);
-    let b = if let Some(s) = val.downcast_ref::<PyStr>() {
-        mapped_string = crate::protocol::numeric_literal_from_str(s);
-        mapped_string.as_bytes()
-    } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
-        bytes.as_bytes()
-    } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
-        bytearray = buf.borrow_buf();
-        &*bytearray
-    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
-        buffer = b;
-        buffer_lock = buffer.borrow_buf();
-        &*buffer_lock
-    } else {
-        return Err(vm.new_type_error(format!(
-            "float() argument must be a string or a real number, not '{}'",
-            val.class().slot_name()
-        )));
+    // Keep the buffer export alive through repr, but release data guards first
+    // so repr can mutate the original object.
+    let buffer;
+    let parsed = {
+        let (bytearray, buffer_lock, mapped_string);
+        let b = if let Some(s) = val.downcast_ref::<PyStr>() {
+            mapped_string = crate::protocol::numeric_literal_from_str(s);
+            mapped_string.as_bytes()
+        } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
+            bytes.as_bytes()
+        } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
+            bytearray = buf.borrow_buf();
+            &*bytearray
+        } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
+            buffer = b;
+            buffer_lock = buffer.borrow_buf();
+            &*buffer_lock
+        } else {
+            return Err(vm.new_type_error(format!(
+                "float() argument must be a string or a real number, not '{}'",
+                val.class().slot_name()
+            )));
+        };
+        crate::literal::float::parse_bytes(b)
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| invalid_float_literal_error(val, vm))
+    parsed.ok_or_else(|| invalid_float_literal_error(val, vm))
 }
 
 /// Build the existing float-conversion error after native parsing has failed.
