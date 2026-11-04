@@ -1710,7 +1710,9 @@ fn build_result(
     let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
-    if let Some(errcheck) = zelf.errcheck.read().as_ref() {
+    // Clone before calling Python so the callback can change errcheck.
+    let errcheck = zelf.errcheck.read().clone();
+    if let Some(errcheck) = errcheck.as_ref() {
         let args_tuple = PyTuple::new_ref(args.args.clone(), &vm.ctx);
         let func_obj = zelf.as_object().to_owned();
         let result_obj = result.clone().unwrap_or_else(|| vm.ctx.none());
@@ -1907,13 +1909,16 @@ impl Py<PyCFuncPtr> {
 
     #[pygetset(setter)]
     fn set_errcheck(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.is_none(&value) {
-            *self.errcheck.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else if value.is_callable() {
-            *self.errcheck.write() = Some(value);
+            Some(value)
         } else {
             return Err(vm.new_type_error("errcheck must be a callable or None"));
-        }
+        };
+        let old = core::mem::replace(&mut *self.errcheck.write(), value);
+        // Finalizers on the previous callable can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
