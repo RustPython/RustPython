@@ -1,6 +1,6 @@
 use super::argument::OptionalArg;
 use crate::{
-    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyFloat, PyInt, PyIntRef},
 };
 use core::ops::Deref;
@@ -181,6 +181,16 @@ impl TryFromObject for ArgIndex {
 pub type PySsize = isize;
 /// An unsigned size argument (`size_t`).
 pub type PySize = usize;
+
+// PyLong_AsSsize_t differs from index conversion: only actual ints (including
+// subclasses) are accepted, and overflow has a size-specific diagnostic.
+pub(crate) fn int_as_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySsize> {
+    let int = obj
+        .downcast_ref::<PyInt>()
+        .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+    PySsize::try_from(int.as_bigint())
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+}
 
 /// An `int` (or subclass, including `bool`) converted to a Rust primitive.
 ///

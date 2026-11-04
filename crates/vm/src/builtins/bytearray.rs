@@ -1,7 +1,8 @@
 //! Implementation of the python bytearray object.
+use super::native_iter::{NativeIterKind, NativeSequenceIter};
 use super::{
-    PositionIterInternal, PyBytes, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef, PyType,
-    PyTypeRef, iter::builtins_iter, locked_next,
+    PyBytes, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    iter::builtins_iter,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -1404,7 +1405,7 @@ impl AsNumber for PyByteArray {
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyByteArrayIterator {
-            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
+            internal: NativeSequenceIter::new(zelf, NativeIterKind::ByteArray, 0),
         }
         .into_pyobject(vm))
     }
@@ -1419,10 +1420,10 @@ impl Representable for PyByteArray {
     }
 }
 
-#[pyclass(module = false, name = "bytearray_iterator")]
+#[pyclass(module = false, name = "bytearray_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyByteArrayIterator {
-    internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
+    internal: NativeSequenceIter<PyByteArrayRef>,
 }
 
 impl PyPayload for PyByteArrayIterator {
@@ -1436,14 +1437,14 @@ impl PyPayload for PyByteArrayIterator {
 impl Py<PyByteArrayIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.__len__())
+        self.internal.length_hint(|obj| obj.__len__())
     }
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        Ok(self.internal.lock().reduce(
+        Ok(self.internal.reduce(
             func,
-            |x| x.clone().into(),
+            |x| x.into(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
         ))
@@ -1451,21 +1452,19 @@ impl Py<PyByteArrayIterator> {
 
     #[pymethod]
     fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal
-            .lock()
-            .set_state(&object, |obj, pos| pos.min(obj.__len__()), vm)
+        self.internal.set_state(&object, |obj| obj.__len__(), vm)
     }
 }
 
 impl SelfIter for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_next(&zelf.internal, |bytearray, pos| {
-            let buf = bytearray.borrow_buf();
-            Ok(PyIterReturn::from_result(
-                buf.get(pos).map(|&x| vm.new_pyobj(x)).ok_or(None),
-            ))
-        })
+        let byte = zelf
+            .internal
+            .next(|bytearray, pos| bytearray.borrow_buf().get(pos).copied());
+        Ok(PyIterReturn::from_result(
+            byte.map(|byte| vm.new_pyobj(byte)).ok_or(None),
+        ))
     }
 }
 
