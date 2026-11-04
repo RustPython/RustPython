@@ -1155,24 +1155,25 @@ fn compute_ret_spec(
 
 /// Extract call information (argtypes, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
+    // Clone before calling Python sequence methods, which can change argtypes.
+    let argtypes = zelf.argtypes.read().clone();
     // Get argtypes - first from instance, then from type's _argtypes_
-    let explicit_arg_types: Option<Vec<PyTypeRef>> =
-        if let Some(argtypes_obj) = zelf.argtypes.read().as_ref() {
-            if !vm.is_none(argtypes_obj) {
-                Some(extract_arg_types(argtypes_obj, vm)?)
-            } else {
-                None // argtypes is None -> use ConvParam
-            }
-        } else if let Some(class_argtypes) = zelf
-            .as_object()
-            .class()
-            .get_attr(vm.ctx.intern_str("_argtypes_"))
-            && !vm.is_none(&class_argtypes)
-        {
-            Some(extract_arg_types(&class_argtypes, vm)?)
+    let explicit_arg_types: Option<Vec<PyTypeRef>> = if let Some(argtypes_obj) = argtypes.as_ref() {
+        if !vm.is_none(argtypes_obj) {
+            Some(extract_arg_types(argtypes_obj, vm)?)
         } else {
-            None // No argtypes -> use ConvParam
-        };
+            None // argtypes is None -> use ConvParam
+        }
+    } else if let Some(class_argtypes) = zelf
+        .as_object()
+        .class()
+        .get_attr(vm.ctx.intern_str("_argtypes_"))
+        && !vm.is_none(&class_argtypes)
+    {
+        Some(extract_arg_types(&class_argtypes, vm)?)
+    } else {
+        None // No argtypes -> use ConvParam
+    };
 
     // Get restype - first from instance, then from class's _restype_
     let restype_obj = zelf.restype.read().clone().or_else(|| {
@@ -1709,7 +1710,9 @@ fn build_result(
     let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
-    if let Some(errcheck) = zelf.errcheck.read().as_ref() {
+    // Clone before calling Python so the callback can change errcheck.
+    let errcheck = zelf.errcheck.read().clone();
+    if let Some(errcheck) = errcheck.as_ref() {
         let args_tuple = PyTuple::new_ref(args.args.clone(), &vm.ctx);
         let func_obj = zelf.as_object().to_owned();
         let result_obj = result.clone().unwrap_or_else(|| vm.ctx.none());
@@ -1857,40 +1860,50 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(&self) -> Option<PyObjectRef> {
-        self.restype.read().clone()
+    fn restype(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let restype = zelf.restype.read().clone();
+        restype.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_restype_"))
+        })
     }
 
     #[pygetset(setter)]
     fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Must be type, callable, or None
-        if vm.is_none(&value) {
-            *self.restype.write() = None;
-        } else if value.downcast_ref::<PyType>().is_some() || value.is_callable() {
-            *self.restype.write() = Some(value);
-        } else {
+        if !vm.is_none(&value) && value.downcast_ref::<PyType>().is_none() && !value.is_callable() {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
         }
+        // An explicit None requests a void result; it is distinct from unset.
+        let old = self.restype.write().replace(value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
     // argtypes getter/setter
     #[pygetset]
-    fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.argtypes
-            .read()
-            .clone()
-            .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
+    fn argtypes(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let argtypes = zelf.argtypes.read().clone();
+        argtypes.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_argtypes_"))
+        })
     }
 
     #[pygetset(name = "argtypes", setter)]
     fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        if vm.is_none(&value) {
-            *self.argtypes.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else {
             // Store the argtypes object directly as it is
-            *self.argtypes.write() = Some(value);
-        }
+            Some(value)
+        };
+        let old = core::mem::replace(&mut *self.argtypes.write(), value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
     }
 
     // errcheck getter/setter
@@ -1901,13 +1914,16 @@ impl Py<PyCFuncPtr> {
 
     #[pygetset(setter)]
     fn set_errcheck(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.is_none(&value) {
-            *self.errcheck.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else if value.is_callable() {
-            *self.errcheck.write() = Some(value);
+            Some(value)
         } else {
             return Err(vm.new_type_error("errcheck must be a callable or None"));
-        }
+        };
+        let old = core::mem::replace(&mut *self.errcheck.write(), value);
+        // Finalizers on the previous callable can re-enter this setter.
+        drop(old);
         Ok(())
     }
 

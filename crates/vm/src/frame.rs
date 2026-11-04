@@ -4658,6 +4658,8 @@ impl ExecutingFrame<'_> {
             Instruction::CheckEgMatch => {
                 let match_type = self.pop_value();
                 let exc_value = self.pop_value();
+                let naked = !vm.is_none(&exc_value)
+                    && !exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group);
                 let (rest, matched) =
                     crate::exceptions::exception_group_match(&exc_value, &match_type, vm)?;
 
@@ -4666,6 +4668,21 @@ impl ExecutingFrame<'_> {
                 if !vm.is_none(&matched)
                     && let Some(exc) = matched.downcast_ref::<PyBaseException>()
                 {
+                    if naked {
+                        // CPython gives a newly wrapped exception its own
+                        // traceback at the except* handler, not the child's
+                        // original traceback.
+                        let idx = self.lasti().saturating_sub(1) as usize;
+                        if let Some((loc, _)) = self.code.locations.get(idx) {
+                            let tb = PyTraceback::new(
+                                None,
+                                self.frame_object(vm),
+                                idx as i32 * 2,
+                                loc.line,
+                            );
+                            exc.set_traceback(Some(tb.into_ref(&vm.ctx)));
+                        }
+                    }
                     vm.set_exception(Some(exc.to_owned()));
                 }
 

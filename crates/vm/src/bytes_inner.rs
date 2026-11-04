@@ -10,7 +10,9 @@ use crate::{
     cformat::cformat_bytes,
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
-    function::{ArgBytesLike, ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
+    function::{
+        ArgBytesLike, ArgBytesOrStr, ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue,
+    },
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -1459,7 +1461,7 @@ pub(crate) fn bytes_decode(
 #[derive(FromArgs)]
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
-    pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    pub sep: OptionalArg<ArgBytesOrStr>,
     #[pyarg(any, default = 1)]
     pub bytes_per_sep: isize,
 }
@@ -1475,24 +1477,12 @@ impl ByteInnerHexOptions {
             return Ok((None, bytes_per_sep));
         };
 
-        let s_guard;
-        let b_guard;
-        let (obj, bytes) = match &sep {
-            Either::A(s) => {
-                s_guard = s.as_wtf8();
-                (s.as_object(), s_guard.as_bytes())
-            }
-            Either::B(b) => {
-                b_guard = b.as_bytes();
-                (b.as_object(), b_guard)
-            }
-        };
-        if obj.length(vm)? != 1 {
+        if sep.as_object().length(vm)? != 1 {
             return Err(vm.new_value_error("sep must be length 1."));
         }
         // An object that claims a length it does not have separates with NUL,
         // which is what reading past the end of its data gives.
-        let sep = bytes.first().copied().unwrap_or(0);
+        let sep = sep.with_ref(|bytes| bytes.first().copied().unwrap_or(0));
         if sep > 127 {
             return Err(vm.new_value_error("sep must be ASCII."));
         }

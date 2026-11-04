@@ -1902,7 +1902,6 @@ class ArgsTestCase(BaseTestCase):
         self.assertRegex(output,
                          re.compile('%s timed out' % testname, re.MULTILINE))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; test_unraisable_exc (test_regrtest_noop39.Tests.test_unraisable_exc) ... ok
     def test_unraisable_exc(self):
         # --fail-env-changed must catch unraisable exception.
         # The exception must be displayed even if sys.stderr is redirected.

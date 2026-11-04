@@ -609,11 +609,7 @@ impl PyDict {
         self.entries.insert(vm, key, hash, value)
     }
 
-    pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
-        &self,
-        key: &K,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn inner_delitem<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult<()> {
         let hash = Self::hash_or_unhashable(key, vm)?;
         if self.entries.delete_if_exists(vm, key, hash)? {
             Ok(())

@@ -1,10 +1,13 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytesRef, PyComplex, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyComplex, PyTuple, PyTupleRef,
+        PyType, PyTypeRef,
+    },
     common::{lock::PyRwLock, rc::PyRc, static_cell, str::wchar_t},
     convert::ToPyObject,
     exceptions,
-    function::{ArgBytesLike, ArgIntoBool, ArgIntoComplex, ArgIntoFloat},
+    function::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgMemoryBuffer},
 };
 
 use rustpython_common::wtf8::Wtf8Buf;
@@ -17,7 +20,8 @@ use num_complex::Complex64;
 use num_traits::{PrimInt, ToPrimitive};
 use std::{collections::HashMap, os::raw};
 
-type PackFunc = fn(&VirtualMachine, FormatType, PyObjectRef, &mut [u8]) -> Result<(), PackError>;
+type PackFunc =
+    fn(&VirtualMachine, FormatType, PyObjectRef, &mut dyn FnMut(&[u8])) -> Result<(), PackError>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
 
 /// Why a value could not be packed.
@@ -519,6 +523,46 @@ impl FormatSpecCache {
     }
 }
 
+trait PackBuffer {
+    fn clear(&mut self, size: usize);
+    fn write(&mut self, offset: usize, data: &[u8]);
+    fn needs_source_snapshot(&self) -> bool {
+        false
+    }
+}
+
+impl PackBuffer for [u8] {
+    fn clear(&mut self, size: usize) {
+        self[..size].fill(0);
+    }
+
+    fn write(&mut self, offset: usize, data: &[u8]) {
+        self[offset..offset + data.len()].copy_from_slice(data);
+    }
+}
+
+struct MemoryPackBuffer<'a> {
+    buffer: &'a ArgMemoryBuffer,
+    offset: usize,
+}
+
+impl PackBuffer for MemoryPackBuffer<'_> {
+    fn needs_source_snapshot(&self) -> bool {
+        true
+    }
+
+    fn clear(&mut self, size: usize) {
+        self.buffer
+            .with_ref(|data| data[self.offset..self.offset + size].fill(0));
+    }
+
+    fn write(&mut self, offset: usize, bytes: &[u8]) {
+        let start = self.offset + offset;
+        self.buffer
+            .with_ref(|data| data[start..start + bytes.len()].copy_from_slice(bytes));
+    }
+}
+
 impl FormatSpec {
     pub fn parse(fmt: &[u8], vm: &VirtualMachine) -> PyResult<Self> {
         let mut chars = fmt.iter().copied().peekable();
@@ -568,11 +612,37 @@ impl FormatSpec {
             .map_err(|e| e.exception)
     }
 
+    pub fn pack_into_buffer(
+        &self,
+        buffer: &ArgMemoryBuffer,
+        offset: usize,
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.pack_to(
+            &mut MemoryPackBuffer { buffer, offset },
+            &args,
+            "pack_into",
+            vm,
+        )
+        .map_err(|e| e.exception)
+    }
+
     /// [`Self::pack_into`], keeping why a value could not be packed.
     pub fn try_pack_into(
         &self,
-        mut buffer: &mut [u8],
+        buffer: &mut [u8],
         args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Result<(), PackError> {
+        self.pack_to(buffer, &args, "pack", vm)
+    }
+
+    fn pack_to(
+        &self,
+        buffer: &mut (impl PackBuffer + ?Sized),
+        args: &[PyObjectRef],
+        operation: &str,
         vm: &VirtualMachine,
     ) -> Result<(), PackError> {
         if self.arg_count != args.len() {
@@ -580,44 +650,37 @@ impl FormatSpec {
                 PackErrorKind::Type,
                 vm,
                 format!(
-                    "pack expected {} items for packing (got {})",
-                    self.codes.len(),
+                    "{operation} expected {} items for packing (got {})",
+                    self.arg_count,
                     args.len()
                 ),
             ));
         }
 
-        let mut args = args.into_iter();
+        buffer.clear(self.size);
+        let mut args = args.iter();
+        let mut offset = 0;
         // Loop over all opcodes:
         for code in &self.codes {
-            buffer = &mut buffer[code.pre_padding..];
+            offset += code.pre_padding;
             debug!("code: {code:?}");
             match code.code {
-                FormatType::Str => {
-                    let (buf, rest) = buffer.split_at_mut(code.repeat);
-                    pack_string(vm, args.next().unwrap(), buf)
-                        .map_err(|e| PackError::from_exception(e, vm))?;
-                    buffer = rest;
-                }
-                FormatType::Pascal => {
-                    let (buf, rest) = buffer.split_at_mut(code.repeat);
-                    pack_pascal(vm, args.next().unwrap(), buf)
-                        .map_err(|e| PackError::from_exception(e, vm))?;
-                    buffer = rest;
+                FormatType::Str | FormatType::Pascal => {
+                    pack_string(vm, args.next().unwrap(), code, buffer, offset)?;
+                    offset += code.repeat;
                 }
                 FormatType::Pad => {
-                    let (pad_buf, rest) = buffer.split_at_mut(code.repeat);
-                    for el in pad_buf {
-                        *el = 0
-                    }
-                    buffer = rest;
+                    offset += code.repeat;
                 }
                 _ => {
                     let pack = code.info.pack.unwrap();
                     for arg in args.by_ref().take(code.repeat) {
-                        let (item_buf, rest) = buffer.split_at_mut(code.info.size);
-                        pack(vm, code.code, arg, item_buf)?;
-                        buffer = rest;
+                        let mut cursor = offset;
+                        pack(vm, code.code, arg.clone(), &mut |bytes| {
+                            buffer.write(cursor, bytes);
+                            cursor += bytes.len();
+                        })?;
+                        offset += code.info.size;
                     }
                 }
             }
@@ -684,22 +747,22 @@ trait Packable {
         vm: &VirtualMachine,
         code: FormatType,
         arg: PyObjectRef,
-        data: &mut [u8],
+        write: &mut dyn FnMut(&[u8]),
     ) -> Result<(), PackError>;
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef;
 }
 
 trait PackInt: PrimInt {
-    fn pack_int<E: ByteOrder>(self, data: &mut [u8]);
+    fn pack_int<E: ByteOrder>(self, write: &mut dyn FnMut(&[u8]));
     fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self;
 }
 
 macro_rules! make_pack_prim_int {
     ($T:ty) => {
         impl PackInt for $T {
-            fn pack_int<E: ByteOrder>(self, data: &mut [u8]) {
+            fn pack_int<E: ByteOrder>(self, write: &mut dyn FnMut(&[u8])) {
                 let i = E::convert(self);
-                data.copy_from_slice(&i.to_ne_bytes());
+                write(&i.to_ne_bytes());
             }
             #[inline]
             fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self {
@@ -714,10 +777,10 @@ macro_rules! make_pack_prim_int {
                 vm: &VirtualMachine,
                 code: FormatType,
                 arg: PyObjectRef,
-                data: &mut [u8],
+                write: &mut dyn FnMut(&[u8]),
             ) -> Result<(), PackError> {
                 let i: $T = get_int_or_index(vm, code, &arg)?;
-                i.pack_int::<E>(data);
+                i.pack_int::<E>(write);
                 Ok(())
             }
 
@@ -783,7 +846,7 @@ macro_rules! make_pack_float {
                 vm: &VirtualMachine,
                 _code: FormatType,
                 arg: PyObjectRef,
-                data: &mut [u8],
+                write: &mut dyn FnMut(&[u8]),
             ) -> Result<(), PackError> {
                 let f_64 = ArgIntoFloat::try_from_object(vm, arg)
                     .map_err(|e| PackError::from_exception(e, vm))?
@@ -799,7 +862,7 @@ macro_rules! make_pack_float {
                         )),
                     });
                 }
-                f.to_bits().pack_int::<E>(data);
+                f.to_bits().pack_int::<E>(write);
                 Ok(())
             }
 
@@ -827,7 +890,7 @@ macro_rules! make_pack_complex {
                 vm: &VirtualMachine,
                 _code: FormatType,
                 arg: PyObjectRef,
-                data: &mut [u8],
+                write: &mut dyn FnMut(&[u8]),
             ) -> Result<(), PackError> {
                 let c = if let Some(value) = arg.downcast_ref::<PyComplex>() {
                     value.as_complex()
@@ -842,10 +905,7 @@ macro_rules! make_pack_complex {
                         })?
                         .into_complex()
                 };
-                for (component, bytes) in [c.re, c.im]
-                    .into_iter()
-                    .zip(data.chunks_exact_mut(size_of::<$Elem>()))
-                {
+                for component in [c.re, c.im] {
                     let narrowed = component as $Elem;
                     // CPython uses native casts for matching-endian complex formats.
                     if E::convert(1u16) != 1 && narrowed.is_infinite() != component.is_infinite() {
@@ -858,7 +918,7 @@ macro_rules! make_pack_complex {
                             )),
                         });
                     }
-                    narrowed.to_bits().pack_int::<E>(bytes);
+                    narrowed.to_bits().pack_int::<E>(write);
                 }
                 Ok(())
             }
@@ -881,7 +941,7 @@ impl Packable for f16 {
         vm: &VirtualMachine,
         _code: FormatType,
         arg: PyObjectRef,
-        data: &mut [u8],
+        write: &mut dyn FnMut(&[u8]),
     ) -> Result<(), PackError> {
         let f_64 = ArgIntoFloat::try_from_object(vm, arg)
             .map_err(|e| PackError::from_exception(e, vm))?
@@ -894,7 +954,7 @@ impl Packable for f16 {
                 exception: vm.new_overflow_error("float too large to pack with e format"),
             });
         }
-        f_16.to_bits().pack_int::<E>(data);
+        f_16.to_bits().pack_int::<E>(write);
         Ok(())
     }
 
@@ -909,9 +969,9 @@ impl Packable for *mut raw::c_void {
         vm: &VirtualMachine,
         code: FormatType,
         arg: PyObjectRef,
-        data: &mut [u8],
+        write: &mut dyn FnMut(&[u8]),
     ) -> Result<(), PackError> {
-        usize::pack::<E>(vm, code, arg, data)
+        usize::pack::<E>(vm, code, arg, write)
     }
 
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
@@ -924,12 +984,12 @@ impl Packable for bool {
         vm: &VirtualMachine,
         _code: FormatType,
         arg: PyObjectRef,
-        data: &mut [u8],
+        write: &mut dyn FnMut(&[u8]),
     ) -> Result<(), PackError> {
         let v = ArgIntoBool::try_from_object(vm, arg)
             .map_err(PackError::raised)?
             .into_bool() as u8;
-        v.pack_int::<E>(data);
+        v.pack_int::<E>(write);
         Ok(())
     }
 
@@ -943,7 +1003,7 @@ fn pack_char(
     vm: &VirtualMachine,
     _code: FormatType,
     arg: PyObjectRef,
-    data: &mut [u8],
+    write: &mut dyn FnMut(&[u8]),
 ) -> Result<(), PackError> {
     let v = PyBytesRef::try_from_object(vm, arg).map_err(|e| PackError::from_exception(e, vm))?;
     let ch = *v.as_bytes().iter().exactly_one().map_err(|_| {
@@ -953,35 +1013,57 @@ fn pack_char(
             "char format requires a bytes object of length 1",
         )
     })?;
-    data[0] = ch;
+    write(&[ch]);
     Ok(())
 }
 
-fn pack_string(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResult<()> {
-    let b = ArgBytesLike::try_from_object(vm, arg)?;
-    b.with_ref(|data| write_string(buf, data));
-    Ok(())
-}
-
-fn pack_pascal(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResult<()> {
-    if buf.is_empty() {
-        return Ok(());
+fn pack_string(
+    vm: &VirtualMachine,
+    arg: &PyObject,
+    code: &FormatCode,
+    buffer: &mut (impl PackBuffer + ?Sized),
+    offset: usize,
+) -> Result<(), PackError> {
+    let pascal = code.code == FormatType::Pascal;
+    let capacity = if pascal {
+        code.repeat.saturating_sub(1)
+    } else {
+        code.repeat
+    };
+    let needs_snapshot = buffer.needs_source_snapshot();
+    let mut write = |data: &[u8]| {
+        let len = data.len().min(capacity);
+        let start = offset + usize::from(pascal);
+        if len != 0 {
+            buffer.write(start, &data[..len]);
+        }
+        if pascal && code.repeat != 0 {
+            buffer.write(offset, &[len.min(255) as u8]);
+        }
+    };
+    if let Some(bytes) = arg.downcast_ref::<PyBytes>() {
+        write(bytes.as_bytes());
+    } else if let Some(bytes) = arg.downcast_ref::<PyByteArray>() {
+        if needs_snapshot {
+            let data = {
+                let data = bytes.borrow_buf();
+                data[..data.len().min(capacity)].to_vec()
+            };
+            write(&data);
+        } else {
+            write(&bytes.borrow_buf());
+        }
+    } else {
+        return Err(PackError::new(
+            PackErrorKind::Type,
+            vm,
+            format!(
+                "argument for '{}' must be a bytes object",
+                code.code as u8 as char
+            ),
+        ));
     }
-    let b = ArgBytesLike::try_from_object(vm, arg)?;
-    b.with_ref(|data| {
-        let string_length = core::cmp::min(core::cmp::min(data.len(), 255), buf.len() - 1);
-        buf[0] = string_length as u8;
-        write_string(&mut buf[1..], data);
-    });
     Ok(())
-}
-
-fn write_string(buf: &mut [u8], data: &[u8]) {
-    let len_from_data = core::cmp::min(data.len(), buf.len());
-    buf[..len_from_data].copy_from_slice(&data[..len_from_data]);
-    for byte in &mut buf[len_from_data..] {
-        *byte = 0
-    }
 }
 
 fn unpack_char(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {

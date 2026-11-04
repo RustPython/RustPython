@@ -57,8 +57,29 @@ mod winreg {
             if let Some(hkey_obj) = obj.downcast_ref::<PyHkey>() {
                 return Ok(Self(hkey_obj.hkey.load()));
             }
-            // Then try int
-            let handle = usize::try_from_object(vm, obj)?;
+            if vm.is_none(&obj) {
+                return Err(vm.new_type_error("None is not a valid HKEY in this context"));
+            }
+            let Some(value) = obj.downcast_ref::<PyInt>() else {
+                return Err(vm.new_type_error("The object is not a PyHKEY object"));
+            };
+            let value = value.as_bigint();
+            let negative = value.sign() == Sign::Minus;
+            let handle = if negative {
+                value.to_isize().map(|v| v as usize)
+            } else {
+                value.to_usize()
+            }
+            .ok_or_else(|| {
+                let message = if cfg!(target_pointer_width = "64") {
+                    "int too big to convert"
+                } else if negative {
+                    "Python int too large to convert to C long"
+                } else {
+                    "Python int too large to convert to C unsigned long"
+                };
+                vm.new_overflow_error(message)
+            })?;
             Ok(Self(handle as host_winreg::HKEY))
         }
     }
@@ -540,7 +561,7 @@ mod winreg {
 
             // Slice the data buffer to the actual size returned.
             let data_slice = &ret_data_buf[..current_data_size as usize];
-            let py_data = reg_to_py(vm, data_slice, reg_type)?;
+            let py_data = reg_to_py(vm, data_slice, reg_type);
 
             // Return tuple (value_name, data, type)
             return Ok(vm
@@ -690,7 +711,7 @@ mod winreg {
         })?;
         let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, wide_name.as_deref())
             .map_err(|err| os_error_from_windows_code(vm, err as i32))?;
-        let obj = reg_to_py(vm, &ret_buf, typ)?;
+        let obj = reg_to_py(vm, &ret_buf, typ);
         // Return tuple (value, type)
         Ok(vm.ctx.new_tuple(vec![obj, vm.ctx.new_int(typ).into()]))
     }
@@ -740,7 +761,7 @@ mod winreg {
         }
     }
 
-    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyResult {
+    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyObjectRef {
         match typ {
             REG_DWORD => {
                 // If there isn’t enough data, return 0.
@@ -748,14 +769,14 @@ mod winreg {
                     .first_chunk::<4>()
                     .copied()
                     .map_or(0, u32::from_ne_bytes);
-                Ok(vm.ctx.new_int(val).into())
+                vm.ctx.new_int(val).into()
             }
             REG_QWORD => {
                 let val = ret_data
                     .first_chunk::<8>()
                     .copied()
                     .map_or(0, u64::from_ne_bytes);
-                Ok(vm.ctx.new_int(val).into())
+                vm.ctx.new_int(val).into()
             }
             REG_SZ | REG_EXPAND_SZ => {
                 let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
@@ -764,13 +785,12 @@ mod winreg {
                     .iter()
                     .position(|&c| c == 0)
                     .unwrap_or(u16_slice.len());
-                let s = String::from_utf16(&u16_slice[..len])
-                    .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
-                Ok(vm.ctx.new_str(s).into())
+                let s = Wtf8Buf::from_wide(&u16_slice[..len]);
+                vm.ctx.new_str(s).into()
             }
             REG_MULTI_SZ => {
                 if ret_data.is_empty() {
-                    Ok(vm.ctx.new_list(vec![]).into())
+                    vm.ctx.new_list(vec![]).into()
                 } else {
                     let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
                     let u16_count = u16_slice.len();
@@ -786,27 +806,25 @@ mod winreg {
                     let mut start = 0;
                     for i in 0..len {
                         if u16_slice[i] == 0 {
-                            let s = String::from_utf16(&u16_slice[start..i])
-                                .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                            let s = Wtf8Buf::from_wide(&u16_slice[start..i]);
                             strings.push(vm.ctx.new_str(s).into());
                             start = i + 1;
                         }
                     }
                     // Handle last string if not null-terminated
                     if start < len {
-                        let s = String::from_utf16(&u16_slice[start..len])
-                            .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                        let s = Wtf8Buf::from_wide(&u16_slice[start..len]);
                         strings.push(vm.ctx.new_str(s).into());
                     }
-                    Ok(vm.ctx.new_list(strings).into())
+                    vm.ctx.new_list(strings).into()
                 }
             }
             // For REG_BINARY and any other unknown types, return a bytes object if data exists.
             _ => {
                 if ret_data.is_empty() {
-                    Ok(vm.ctx.none())
+                    vm.ctx.none()
                 } else {
-                    Ok(vm.ctx.new_bytes(ret_data.to_vec()).into())
+                    vm.ctx.new_bytes(ret_data.to_vec()).into()
                 }
             }
         }
@@ -900,14 +918,21 @@ mod winreg {
                 if vm.is_none(&value) {
                     return Ok(None);
                 }
-                // Try to get bytes
-                if let Some(bytes) = value.downcast_ref::<crate::builtins::PyBytes>() {
+                // Exact bytes need no buffer acquisition; subclasses and other
+                // exporters must use their buffer protocol implementation.
+                if value.class().is(vm.ctx.types.bytes_type) {
+                    let bytes = value
+                        .downcast_ref::<crate::builtins::PyBytes>()
+                        .expect("the exact bytes type has a bytes payload");
                     return Ok(Some(bytes.as_bytes().to_vec()));
                 }
-                Err(vm.new_type_error(format!(
-                    "Objects of type '{}' can not be used as binary registry values",
-                    value.class().name()
-                )))
+                if !value.check_buffer() {
+                    return Err(vm.new_type_error(format!(
+                        "Objects of type '{}' can not be used as binary registry values",
+                        value.class().name()
+                    )));
+                }
+                value.try_bytes_like(vm, |bytes| Some(bytes.to_vec()))
             }
         }
     }
@@ -921,6 +946,7 @@ mod winreg {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let hkey = key.hkey.load();
         let value_name = value_name
             .map(WideCString::from_str)
             .transpose()
@@ -930,9 +956,8 @@ mod winreg {
             Some(v) => (v.as_ptr(), v.len() as u32),
             None => (core::ptr::null(), 0),
         };
-        let res = unsafe {
-            host_winreg::set_value_ex(key.hkey.load(), value_name.as_deref(), r#type, ptr, len)
-        };
+        let res =
+            unsafe { host_winreg::set_value_ex(hkey, value_name.as_deref(), r#type, ptr, len) };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
