@@ -1402,6 +1402,8 @@ mod builtins {
             drop(item);
             sum = result?;
         }
+        drop(items);
+        drop(start);
         Ok(sum)
     }
 
