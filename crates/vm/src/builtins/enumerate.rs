@@ -1,8 +1,8 @@
 use super::{
-    IterStatus, PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
-    iter::builtins_reversed, locked_rev_next,
+    PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
+    iter::{SequenceIter, SequenceIterDirection, builtins_reversed},
 };
-use crate::common::lock::{PyMutex, PyRwLock};
+use crate::common::lock::PyRwLock;
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -139,7 +139,7 @@ impl IterNext for PyEnumerate {
 #[pyclass(module = false, name = "reversed", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyReverseSequenceIterator {
-    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
+    internal: SequenceIter,
 }
 
 impl PyPayload for PyReverseSequenceIterator {
@@ -151,9 +151,9 @@ impl PyPayload for PyReverseSequenceIterator {
 
 impl PyReverseSequenceIterator {
     pub(crate) const fn new(obj: PyObjectRef, len: usize) -> Self {
-        let position = len.saturating_sub(1);
+        let position = len as isize - 1;
         Self {
-            internal: PyMutex::new(PositionIterInternal::new(obj, position)),
+            internal: SequenceIter::new(obj, position, SequenceIterDirection::Reverse),
         }
     }
 }
@@ -162,38 +162,29 @@ impl PyReverseSequenceIterator {
 impl Py<PyReverseSequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        let internal = self.internal.lock();
-        if let IterStatus::Active(obj) = &internal.status
-            && internal.position <= obj.length(vm)?
-        {
-            return Ok(internal.position + 1);
-        }
-        Ok(0)
+        vm.with_recursion(" in __length_hint__", || {
+            self.internal
+                .length_hint(vm)
+                .map(|length| length.unwrap_or(0))
+        })
     }
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(&state, |_, pos| pos, vm)
+        self.internal.set_state(&state, vm)
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_reversed(vm)?;
-        Ok(self.internal.lock().reduce(
-            func,
-            |x| x.clone(),
-            |vm| vm.ctx.empty_tuple.clone().into(),
-            vm,
-        ))
+        Ok(self.internal.reduce(func, vm))
     }
 }
 
 impl SelfIter for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_rev_next(&zelf.internal, |obj, pos| {
-            PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm)
-        })
+        zelf.internal.next(vm)
     }
 }
 
