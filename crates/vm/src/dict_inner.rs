@@ -860,7 +860,6 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Delete a key. Same hash contract as [`Self::insert`].
-    #[cfg(test)]
     pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K, hash: HashValue) -> PyResult<()>
     where
         K: DictKey + ?Sized,
@@ -1105,11 +1104,6 @@ impl<T: Clone> Dict<T> {
 
     pub(crate) fn len_from_entry_index(&self, position: EntryIndex) -> usize {
         self.read().entries.len().saturating_sub(position)
-    }
-
-    pub(crate) fn has_changed_size(&self, old: &DictSize) -> bool {
-        let current = self.read().size();
-        current != *old
     }
 
     /// Inspect keys without allocating or cloning their references.

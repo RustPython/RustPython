@@ -232,21 +232,14 @@ unsafe impl Traverse for PySetInner {
 }
 
 impl PySetInner {
-    pub(super) fn from_iter<T>(iter: T, vm: &VirtualMachine) -> PyResult<Self>
-    where
-        T: IntoIterator<Item = PyResult<PyObjectRef>>,
-    {
-        let set = Self::default();
-        for item in iter {
-            let item = item?;
-            set.add(&item, vm)?;
-        }
-        Ok(set)
-    }
-
     /// Build a set from an arbitrary object, reusing stored hashes when the
     /// source is a set/frozenset/dict/frozendict.
-    fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    pub(super) fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        if let Some(source) = extract_set(&iterable) {
+            // A fresh table can copy resident entries without comparing
+            // colliding keys or invoking a subclass's iterator.
+            return Ok(source.copy());
+        }
         let set = Self::default();
         set.update_internal(iterable, vm)?;
         Ok(set)
@@ -608,8 +601,15 @@ impl PySetInner {
         Ok(())
     }
 
-    fn merge_dict(&self, dict: &PyDict, vm: &VirtualMachine) -> PyResult<()> {
-        for (key, hash) in dict._as_dict_inner().keys_with_hashes() {
+    pub(super) fn merge_dict(&self, dict: &PyDict, vm: &VirtualMachine) -> PyResult<()> {
+        // Equality between colliding keys can change the source dictionary.
+        // Match the live _PyDict_Next traversal used by set_update_dict.
+        let mut position = 0;
+        while let Some((next_position, key, value, hash)) =
+            dict._as_dict_inner().next_entry_with_hash(position)
+        {
+            position = next_position;
+            drop(value);
             self.add_known_hash(&key, hash, vm)?;
         }
         Ok(())
