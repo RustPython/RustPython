@@ -384,7 +384,7 @@ pub(crate) mod typevar {
                 }
                 _ => None,
             };
-            let constraints = match constraints.len() {
+            let constraints = match constraints.as_ref().len() {
                 0 => vm.ctx.none(),
                 1 => return Err(vm.new_type_error("A single constraint is not allowed")),
                 _ if bound.is_some() => {
