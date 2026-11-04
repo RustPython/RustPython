@@ -637,7 +637,9 @@ impl Coro {
     }
 
     pub fn set_name(&self, name: PyStrRef) {
-        *self.name.lock() = name;
+        // A string subclass can run a finalizer that reenters this object.
+        let old = core::mem::replace(&mut *self.name.lock(), name);
+        drop(old);
     }
 
     pub fn qualname(&self) -> PyStrRef {
@@ -645,7 +647,8 @@ impl Coro {
     }
 
     pub fn set_qualname(&self, qualname: PyStrRef) {
-        *self.qualname.lock() = qualname;
+        let old = core::mem::replace(&mut *self.qualname.lock(), qualname);
+        drop(old);
     }
 
     pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
