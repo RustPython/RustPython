@@ -264,6 +264,8 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCycle {
         iter: PyIter,
+        #[pytraverse(skip)]
+        exhausted: AtomicBool,
         saved: PyRwLock<Vec<PyObjectRef>>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
@@ -277,6 +279,7 @@ mod decl {
             let iter = args.iterable;
             Ok(Self {
                 iter,
+                exhausted: AtomicBool::new(false),
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             })
@@ -290,27 +293,34 @@ mod decl {
 
     impl IterNext for PyItertoolsCycle {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let item = if let PyIterReturn::Return(item) = zelf.iter.next(vm)? {
-                zelf.saved.write().push(item.clone());
-                item
-            } else {
-                let saved = zelf.saved.read();
-                if saved.is_empty() {
-                    return Ok(PyIterReturn::StopIteration(None));
+            if !zelf.exhausted.load(Ordering::Acquire) {
+                match zelf.iter.next(vm)? {
+                    PyIterReturn::Return(item) => {
+                        zelf.saved.write().push(item.clone());
+                        return Ok(PyIterReturn::Return(item));
+                    }
+                    PyIterReturn::StopIteration(value) => {
+                        drop(value);
+                        zelf.exhausted.store(true, Ordering::Release);
+                    }
                 }
+            }
 
-                // Advance and wrap in a single atomic step. A separate
-                // fetch_add followed by a reset lets a second thread observe
-                // an index past the end of `saved`.
-                let last_index = match zelf.index.fetch_update(|index| {
-                    let next = index + 1;
-                    Some(if next < saved.len() { next } else { 0 })
-                }) {
-                    Ok(index) | Err(index) => index,
-                };
+            let saved = zelf.saved.read();
+            if saved.is_empty() {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
 
-                saved[last_index].clone()
+            // Advance and wrap in a single atomic step. A separate
+            // fetch_add followed by a reset lets a second thread observe
+            // an index past the end of `saved`.
+            let last_index = match zelf.index.fetch_update(|index| {
+                let next = index + 1;
+                Some(if next < saved.len() { next } else { 0 })
+            }) {
+                Ok(index) | Err(index) => index,
             };
+            let item = saved[last_index].clone();
 
             Ok(PyIterReturn::Return(item))
         }
@@ -884,6 +894,21 @@ mod decl {
         }
     }
 
+    impl PyItertoolsIslice {
+        fn clear_iterable(&self) {
+            let previous = self.iterable.lock().take();
+            drop(previous);
+        }
+
+        fn next_source(&self, iterable: &PyIter, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let result = iterable.next(vm);
+            if !matches!(&result, Ok(PyIterReturn::Return(_))) {
+                self.clear_iterable();
+            }
+            result
+        }
+    }
+
     impl SelfIter for PyItertoolsIslice {}
 
     impl IterNext for PyItertoolsIslice {
@@ -894,27 +919,15 @@ mod decl {
             let stop = zelf.stop.unwrap_or(usize::MAX);
 
             while zelf.cur.load() < zelf.next.load() {
-                raise_if_stop!({
-                    let result = iterable.next(vm)?;
-                    if matches!(result, PyIterReturn::StopIteration(_)) {
-                        *zelf.iterable.lock() = None;
-                    }
-                    result
-                });
+                raise_if_stop!(zelf.next_source(&iterable, vm)?);
                 zelf.cur.fetch_add(1);
             }
             if zelf.cur.load() >= stop {
-                *zelf.iterable.lock() = None;
+                zelf.clear_iterable();
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
-            let obj = raise_if_stop!({
-                let result = iterable.next(vm)?;
-                if matches!(result, PyIterReturn::StopIteration(_)) {
-                    *zelf.iterable.lock() = None;
-                }
-                result
-            });
+            let obj = raise_if_stop!(zelf.next_source(&iterable, vm)?);
             zelf.cur.fetch_add(1);
             let oldnext = zelf.next.load();
             let (newnext, ovf) = oldnext.overflowing_add(zelf.step);
@@ -1748,7 +1761,14 @@ mod decl {
         ) -> PyResult<Self> {
             let fillvalue = args.fillvalue.unwrap_or_else(|| vm.ctx.none());
             let iterators = iterators.into_vec();
+            let mut exhausted = Vec::new();
+            exhausted
+                .try_reserve_exact(iterators.len())
+                .map_err(|_| vm.no_memory_error())?;
+            exhausted.extend((0..iterators.len()).map(|_| AtomicBool::new(false)));
             Ok(Self {
+                exhausted,
+                terminal: AtomicBool::new(false),
                 iterators,
                 fillvalue: PyRwLock::new(fillvalue),
             })
@@ -1761,6 +1781,10 @@ mod decl {
     struct PyItertoolsZipLongest {
         iterators: Vec<PyIter>,
         fillvalue: PyRwLock<PyObjectRef>,
+        #[pytraverse(skip)]
+        exhausted: Vec<AtomicBool>,
+        #[pytraverse(skip)]
+        terminal: AtomicBool,
     }
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
@@ -1770,24 +1794,44 @@ mod decl {
 
     impl IterNext for PyItertoolsZipLongest {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            if zelf.iterators.is_empty() {
+            if zelf.terminal.load(Ordering::Acquire) {
                 return Ok(PyIterReturn::StopIteration(None));
             }
             let mut result: Vec<PyObjectRef> = Vec::new();
-            let mut num_active = zelf.iterators.len();
-
-            for idx in 0..zelf.iterators.len() {
-                let next_obj = match zelf.iterators[idx].next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => {
-                        num_active -= 1;
-                        if num_active == 0 {
-                            return Ok(PyIterReturn::StopIteration(v));
+            let mut saw_item = false;
+            for (idx, iter) in zelf.iterators.iter().enumerate() {
+                let next_obj = if !zelf.exhausted[idx].load(Ordering::Acquire) {
+                    match iter.next(vm) {
+                        Ok(PyIterReturn::Return(obj)) => {
+                            saw_item = true;
+                            obj
                         }
-                        zelf.fillvalue.read().clone()
+                        Ok(PyIterReturn::StopIteration(value)) => {
+                            drop(value);
+                            zelf.exhausted[idx].store(true, Ordering::Release);
+                            if !saw_item
+                                && zelf.exhausted[idx + 1..]
+                                    .iter()
+                                    .all(|flag| flag.load(Ordering::Acquire))
+                            {
+                                zelf.terminal.store(true, Ordering::Release);
+                                return Ok(PyIterReturn::StopIteration(None));
+                            }
+                            zelf.fillvalue.read().clone()
+                        }
+                        Err(err) => {
+                            zelf.terminal.store(true, Ordering::Release);
+                            return Err(err);
+                        }
                     }
+                } else {
+                    zelf.fillvalue.read().clone()
                 };
                 result.push(next_obj);
+            }
+            if !saw_item {
+                zelf.terminal.store(true, Ordering::Release);
+                return Ok(PyIterReturn::StopIteration(None));
             }
             Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
         }
