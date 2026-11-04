@@ -6,13 +6,10 @@ use num_traits::{One, ToPrimitive, Zero};
 #[must_use]
 pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
     let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
-    match rational.rounding_into(RoundingMode::Nearest) {
-        // returned value is $t::MAX but still less than the original
-        (val, core::cmp::Ordering::Less) if val == f64::MAX => f64::INFINITY,
-        // returned value is $t::MIN but still greater than the original
-        (val, core::cmp::Ordering::Greater) if val == f64::MIN => f64::NEG_INFINITY,
-        (val, _) => val,
-    }
+    // Nearest rounding can return the largest finite value for a quotient
+    // slightly beyond it; overflow starts at the halfway rounding boundary.
+    let (rounded, _) = rational.rounding_into(RoundingMode::Nearest);
+    rounded
 }
 
 #[must_use]
@@ -202,11 +199,16 @@ fn word_all_ascii_digits(word: u64) -> bool {
     (below | above) & 0x8080_8080_8080_8080 == 0
 }
 
-// num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
+/// Convert an integer to a finite float, or return None when it overflows.
 #[inline(always)]
 #[must_use]
 pub fn bigint_to_finite_float(int: &BigInt) -> Option<f64> {
-    int.to_f64().filter(|f| f.is_finite())
+    // malachite-bigint's ToPrimitive returns None when the input exceeds
+    // the largest finite magnitude, even when nearest rounding is finite.
+    let value = int
+        .to_f64()
+        .unwrap_or_else(|| true_div(int, &BigInt::one()));
+    value.is_finite().then_some(value)
 }
 
 #[cfg(test)]
