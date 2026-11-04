@@ -297,13 +297,47 @@ else:
     raise AssertionError("parsed declaration-looking PI data as an entity")
 assert entities == []
 
-# Deep content models fail with RecursionError instead of a fabricated name.
+# PUBLIC entity system identifiers retain their literal whitespace.
 parser = expat.ParserCreate()
-parser.ElementDeclHandler = lambda *_: None
-deep_model = "(" * 130 + "a" + ")" * 130
-try:
-    parser.Parse(f"<!DOCTYPE r [<!ELEMENT r {deep_model}>]><r/>", True)
-except RecursionError:
-    pass
-else:
-    raise AssertionError("accepted an over-deep content model callback")
+entities = []
+parser.EntityDeclHandler = lambda *args: entities.append(args)
+parser.Parse("<!DOCTYPE r [<!ENTITY e PUBLIC ' a  b ' '  system  id  '>]><r/>", True)
+assert entities[0][4:6] == ("  system  id  ", "a b")
+
+# Parameter entity references in DTD processing instructions are not scanned
+# or modified as declarations/references.
+parser = expat.ParserCreate()
+parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+pis = []
+parser.ProcessingInstructionHandler = lambda *args: pis.append(args)
+parser.Parse("<!DOCTYPE r SYSTEM 'x' [<?pi %missing;?>]><r/>", True)
+assert pis == [("pi", "%missing;")]
+
+# Undefined parameter entities in enabled parsing mode reach the skipped
+# entity handler with parameter-entity flag 1.
+parser = expat.ParserCreate()
+parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+skipped = []
+parser.SkippedEntityHandler = lambda *args: skipped.append(args)
+parser.Parse("<!DOCTYPE r [%missing;]><r/>", True)
+assert skipped == [("missing", 1)]
+
+# BOM-prefixed UTF-16 remains valid when the BOM arrives in its own Parse call.
+parser = expat.ParserCreate()
+declarations = []
+parser.XmlDeclHandler = lambda *args: declarations.append(args)
+utf16_document = '<?xml version="1.0" encoding="UTF-16LE"?><r/>'.encode("utf-16le")
+parser.Parse(b"\xff\xfe", False)
+parser.Parse(utf16_document, True)
+assert declarations == [("1.0", "UTF-16LE", -1)]
+
+# Parameter and general entities use separate declaration namespaces.
+parser = expat.ParserCreate()
+external = []
+parser.ExternalEntityRefHandler = lambda *args: external.append(args) or 1
+parser.Parse(
+    '<!DOCTYPE r [<!ENTITY % e SYSTEM "parameter.dtd">'
+    '<!ENTITY e SYSTEM "general.dtd">]><r>&e;</r>',
+    True,
+)
+assert external[0][2] == "general.dtd"

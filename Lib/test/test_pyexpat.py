@@ -264,7 +264,6 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_again(self):
         parser = expat.ParserCreate()
         file = BytesIO(data)
@@ -878,7 +877,6 @@ class ElementDeclHandlerTest(unittest.TestCase):
         parser.ElementDeclHandler = lambda _1, _2: None
         self.assertRaises(TypeError, parser.Parse, data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RecursionError not raised
     @support.skip_if_huge_c_stack(800_000)
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
