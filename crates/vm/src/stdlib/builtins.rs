@@ -800,22 +800,22 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn breakpoint(
-        args: PosArgs,
-        kws: KwArgs<PyObjectRef, NameKws>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let args = FuncArgs {
-            args: args.into_vec(),
-            kwargs: kws.into_default(),
-        };
-        match vm
+    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // PySys_GetAttr reads the dictionary, bypassing module attribute hooks.
+        // A present None is still selected and audited before the call fails.
+        let hook = vm
             .sys_module
-            .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
-        {
-            Ok(hook) => hook.as_ref().call(args, vm),
-            Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook")),
-        }
+            .dict()
+            .get_item_opt("breakpointhook", vm)?
+            .ok_or_else(|| vm.new_runtime_error("lost sys.breakpointhook"))?;
+        vm.audit("builtins.breakpoint", || (hook.clone(),))?;
+
+        // Audit callbacks can replace sys.breakpointhook. Invoke the selected
+        // hook, retaining the original arguments until that hook is released.
+        let result = hook.call(args.clone(), vm);
+        drop(hook);
+        drop(args);
+        result
     }
 
     #[pyfunction]
