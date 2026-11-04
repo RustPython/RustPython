@@ -1,4 +1,9 @@
-use crate::{PyObject, PyObjectRef, PyResult, types::PyComparisonOp, vm::VirtualMachine};
+use crate::{
+    PyObject, PyObjectRef, PyResult,
+    function::{Either, PyComparisonValue},
+    types::PyComparisonOp,
+    vm::VirtualMachine,
+};
 use itertools::Itertools;
 
 pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObject> + Sized {
@@ -21,32 +26,20 @@ pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObject> + Size
         other: impl PyExactSizeIterator<'a>,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        let less = match op {
-            PyComparisonOp::Eq => return PyExactSizeIterator::eq(self, other, vm),
-            PyComparisonOp::Ne => return PyExactSizeIterator::eq(self, other, vm).map(|eq| !eq),
-            PyComparisonOp::Lt | PyComparisonOp::Le => true,
-            PyComparisonOp::Gt | PyComparisonOp::Ge => false,
-        };
-
-        let lhs = self;
-        let rhs = other;
-        let lhs_len = lhs.len();
-        let rhs_len = rhs.len();
-        for (a, b) in lhs.zip(rhs) {
-            if vm.bool_eq(a, b)? {
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let lhs_len = self.len();
+        let rhs_len = other.len();
+        // Tuple comparison visits the common prefix even for unequal lengths.
+        for (a, b) in self.zip(other) {
+            if vm.identical_or_equal(a, b)? {
                 continue;
             }
-            let ret = if less {
-                vm.bool_seq_lt(a, b)?
-            } else {
-                vm.bool_seq_gt(a, b)?
+            return match op.eval_eq(|| false) {
+                Some(equal) => Ok(Either::B(equal.into())),
+                None => a.rich_compare(b, op, vm).map(Either::A),
             };
-            if let Some(v) = ret {
-                return Ok(v);
-            }
         }
-        Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
+        Ok(Either::B(op.eval_ord(lhs_len.cmp(&rhs_len)).into()))
     }
 }
 

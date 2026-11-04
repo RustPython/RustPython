@@ -591,14 +591,25 @@ fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>
     if vm.is_none(obj) {
         return Ok(None);
     }
-    let result = obj.try_index_opt(vm).unwrap_or_else(|| {
-        Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method"))
-    })?;
+    to_saturated_index(
+        vm,
+        obj,
+        "slice indices must be integers or None or have an __index__ method",
+    )
+    .map(Some)
+}
+
+pub(crate) fn to_saturated_index(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    type_error: &'static str,
+) -> PyResult<isize> {
+    let result = obj
+        .try_index_opt(vm)
+        .unwrap_or_else(|| Err(vm.new_type_error(type_error)))?;
     let value = result.as_bigint();
     let is_negative = value.is_negative();
-    Ok(Some(value.to_isize().unwrap_or(if is_negative {
-        isize::MIN
-    } else {
-        isize::MAX
-    })))
+    Ok(value
+        .to_isize()
+        .unwrap_or(if is_negative { isize::MIN } else { isize::MAX }))
 }

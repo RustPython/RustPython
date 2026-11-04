@@ -11,15 +11,15 @@ use crate::{
     atomic_func,
     class::{PyClassDef, PyClassImpl},
     convert::{ToPyObject, TransmuteFromObject},
-    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
+    function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{OptionalRangeArgs, SequenceExt},
     sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter,
+        AsMapping, AsNumber, AsSequence, Constructor, Hashable, IterNext, Iterable, PyComparisonOp,
+        Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -551,9 +551,32 @@ impl PyTuple {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
-    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
+    with(AsMapping, AsNumber, AsSequence, Hashable, Iterable, Constructor, Representable)
 )]
 impl Py<PyTuple> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyTuple>(),
+            other.downcast_ref::<PyTuple>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if let Some(equal) = op.identical_optimization(zelf, other) {
+            return Ok(Either::B(equal.into()));
+        }
+        zelf.as_slice().iter().map(|o| &**o).richcompare(
+            other.as_slice().iter().map(|o| &**o),
+            op,
+            vm,
+        )
+    }
+
     #[pymethod]
     fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
@@ -572,8 +595,14 @@ impl Py<PyTuple> {
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (start, stop) = range.saturate(self.as_slice().len(), vm)?;
-        for (index, element) in self.as_slice().iter().enumerate().take(stop).skip(start) {
+        let bounds = range.index_range(|| self.as_slice().len(), vm)?;
+        for (index, element) in self
+            .as_slice()
+            .iter()
+            .enumerate()
+            .take(bounds.end)
+            .skip(bounds.start)
+        {
             if vm.identical_or_equal(element, &value)? {
                 return Ok(index);
             }
@@ -674,25 +703,6 @@ impl Hashable for PyTuple {
         let hash = tuple_hash(zelf.as_slice(), vm)?;
         Radium::store(&zelf.hash, hash, Ordering::Relaxed);
         Ok(hash)
-    }
-}
-
-impl Comparable for PyTuple {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        if let Some(res) = op.identical_optimization(zelf, other) {
-            return Ok(res.into());
-        }
-        let other = class_or_notimplemented!(Self, other);
-        zelf.as_slice()
-            .iter()
-            .map(|o| &**o)
-            .richcompare(other.as_slice().iter().map(|o| &**o), op, vm)
-            .map(PyComparisonValue::Implemented)
     }
 }
 

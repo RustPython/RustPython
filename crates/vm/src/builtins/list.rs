@@ -20,8 +20,8 @@ use crate::{
     sliceable::{NameList, SaturatedSlice, SequenceIndex, SliceableSequenceOp},
     sorting::timsort,
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, RichCompareFunc, SelfIter,
+        AsMapping, AsSequence, Constructor, Initializer, IterNext, Iterable, PyComparisonOp,
+        Representable, RichCompareFunc, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -413,13 +413,74 @@ impl PyList {
         Initializer,
         AsMapping,
         Iterable,
-        Comparable,
         AsSequence,
         Representable
     ),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, LIST_SUBCLASS)
 )]
 impl Py<PyList> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyList>(),
+            other.downcast_ref::<PyList>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if let Some(equal) = op.identical_optimization(zelf, other) {
+            return Ok(Either::B(equal.into()));
+        }
+        if matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne)
+            && zelf.__len__() != other.__len__()
+        {
+            return Ok(Either::B((op == PyComparisonOp::Ne).into()));
+        }
+
+        let mut index = 0;
+        loop {
+            let a = zelf.borrow_vec().get(index).cloned();
+            let b = other.borrow_vec().get(index).cloned();
+            let (Some(a), Some(b)) = (a, b) else {
+                break;
+            };
+            let equal = vm.identical_or_equal(&a, &b);
+            // Equality and finalizers may replace, remove, or append elements.
+            // Release both roots before observing the lists again, left first.
+            drop(a);
+            drop(b);
+            if !equal? {
+                break;
+            }
+            index += 1;
+        }
+
+        let a_len = zelf.__len__();
+        let b_len = other.__len__();
+        if index >= a_len || index >= b_len {
+            return Ok(Either::B(op.eval_ord(a_len.cmp(&b_len)).into()));
+        }
+        if let Some(equal) = op.eval_eq(|| false) {
+            return Ok(Either::B(equal.into()));
+        }
+        // CPython reloads the first unequal pair after its equality callback.
+        let a = zelf.borrow_vec().get(index).cloned();
+        let b = other.borrow_vec().get(index).cloned();
+        let (Some(a), Some(b)) = (a, b) else {
+            return Ok(Either::B(
+                op.eval_ord(zelf.__len__().cmp(&other.__len__())).into(),
+            ));
+        };
+        let result = a.rich_compare(&b, op, vm);
+        drop(a);
+        drop(b);
+        result.map(Either::A)
+    }
+
     #[pymethod]
     pub(crate) fn append(&self, object: PyObjectRef) {
         self.payload.append(object)
@@ -544,12 +605,12 @@ impl Py<PyList> {
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (start, stop) = range.saturate(self.__len__(), vm)?;
-        let index = self.mut_index_range(vm, &value, start..stop)?;
+        let bounds = range.index_range(|| self.__len__(), vm)?;
+        let index = self.mut_index_range(vm, &value, bounds)?;
         if let Some(index) = index.into() {
             Ok(index)
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
+            Err(vm.new_value_error("list.index(x): x not in list"))
         }
     }
 
@@ -582,7 +643,7 @@ impl Py<PyList> {
             drop(removed);
             Ok(())
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
+            Err(vm.new_value_error("list.remove(x): x not in list"))
         }
     }
 
@@ -770,35 +831,6 @@ impl Iterable for PyList {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_pyobject(vm))
-    }
-}
-
-impl Comparable for PyList {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        if let Some(res) = op.identical_optimization(zelf, other) {
-            return Ok(res.into());
-        }
-        let other = class_or_notimplemented!(Self, other);
-        // Item comparison can mutate either list (clear, resize). Holding the
-        // element lock across that callback deadlocks on the write side.
-        crate::iter::richcompare_mutating_seqs(
-            |i| {
-                let a = zelf.borrow_vec();
-                (a.len(), a.get(i).cloned())
-            },
-            |i| {
-                let b = other.borrow_vec();
-                (b.len(), b.get(i).cloned())
-            },
-            op,
-            vm,
-        )
-        .map(PyComparisonValue::Implemented)
     }
 }
 

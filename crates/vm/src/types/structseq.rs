@@ -530,5 +530,4 @@ fn struct_sequence_richcompare(
         .iter()
         .map(|o| &**o)
         .richcompare(other_visible.iter().map(|o| &**o), op, vm)
-        .map(|v| Either::B(PyComparisonValue::Implemented(v)))
 }
