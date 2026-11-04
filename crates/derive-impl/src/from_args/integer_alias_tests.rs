@@ -25,7 +25,7 @@ fn integer_alias_literal_defaults_stay_native() {
             assert!(!tokens.contains("ToPyObject"));
             assert!(
                 tokens.contains(
-                    &quote!(::rustpython_vm::convert::TryFromObject::try_from_object(
+                    &quote!(::rustpython_vm::convert::TryFromObject::try_from_argument(
                         vm, x
                     ))
                     .to_string()

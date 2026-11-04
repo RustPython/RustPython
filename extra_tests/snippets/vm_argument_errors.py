@@ -3,6 +3,7 @@
 # plural. Every message here is the one CPython raises, so this file is run
 # against both.
 import array
+import codecs
 import collections
 import csv
 import itertools
@@ -182,6 +183,25 @@ def test_grouper_arguments():
     assert list(G(g, "a")) == ["a", "a"]
 
 
+def test_bad_argument_type():
+    check(TypeError, "lookup() argument must be str, not int", codecs.lookup, 1)
+    G = type(next(itertools.groupby("a"))[1])
+    check(
+        TypeError,
+        "_grouper() argument 1 must be itertools.groupby, not int",
+        G,
+        1,
+        "a",
+    )
+    check(TypeError, "lookup() argument must be str, not None", codecs.lookup, None)
+    check(
+        TypeError,
+        "tobytes() argument 'order' must be str or None, not int",
+        memoryview(b"a").tobytes,
+        1,
+    )
+
+
 def test_too_many_arguments_are_counted_before_any_is_converted():
     class FailingIndex:
         def __index__(self):
@@ -208,4 +228,5 @@ test_a_type_is_named_by_the_type_it_builds()
 test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
 test_a_keyword_check_of_its_own_says_the_same_thing()
 test_grouper_arguments()
+test_bad_argument_type()
 test_too_many_arguments_are_counted_before_any_is_converted()

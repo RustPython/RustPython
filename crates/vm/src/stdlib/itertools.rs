@@ -742,7 +742,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct GrouperArgs {
-        #[pyarg(positional, expected = "itertools.groupby")]
+        #[pyarg(positional)]
         parent: PyRef<PyItertoolsGroupBy>,
         #[pyarg(positional)]
         tgtkey: PyObjectRef,
