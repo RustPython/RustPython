@@ -1357,11 +1357,28 @@ libc.srand.argtypes = [MutatingConverter]
 MutatingConverter.from_param = None
 libc.srand(40)
 
-# 7. Reset argtypes
+# 7. In-place mutation of assigned argtypes list does not affect call snapshot
+assigned_list = [ctypes.c_uint]
+libc.srand.argtypes = assigned_list
+assigned_list.append(ctypes.c_int)
+# Function call uses assignment snapshot (1 argument), while getter preserves assigned list
+libc.srand(50)
+assert libc.srand.argtypes == assigned_list
+
+# 8. Callback argtypes validates ctypes types without querying from_param
+class CallbackArgType(ctypes.c_int):
+    @classmethod
+    def from_param(cls, val):
+        raise RuntimeError("should not be called during callback construction")
+
+
+CB = ctypes.CFUNCTYPE(None, CallbackArgType)
+
+# 9. Reset argtypes
 libc.srand.argtypes = [ctypes.c_uint]
 libc.srand(0)
 
-# 8. Windows-specific test for Issue #8341: custom converter returning a Structure
+# 10. Windows-specific test for Issue #8341: custom converter returning a Structure
 if _sys.platform == "win32":
     from ctypes import wintypes
 

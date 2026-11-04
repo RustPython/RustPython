@@ -1194,18 +1194,20 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
     };
 
     let (explicit_arg_types, explicit_converters) =
-        if let (Some(argtypes_obj), Some(converters_obj)) =
-            (&instance_argtypes, &instance_converters)
-        {
-            if !vm.is_none(argtypes_obj) && !vm.is_none(converters_obj) {
-                let seq_types = argtypes_obj.try_sequence(vm)?;
+        if let Some(converters_obj) = instance_converters.as_ref() {
+            if !vm.is_none(converters_obj) {
+                let pair = converters_obj.try_sequence(vm)?;
+                let types_obj = pair.get_item(0, vm)?;
+                let convs_obj = pair.get_item(1, vm)?;
+
+                let seq_types = types_obj.try_sequence(vm)?;
                 let len_types = seq_types.length(vm)?;
                 let mut types = Vec::with_capacity(len_types);
                 for i in 0..len_types {
                     types.push(seq_types.get_item(i as isize, vm)?);
                 }
 
-                let seq_conv = converters_obj.try_sequence(vm)?;
+                let seq_conv = convs_obj.try_sequence(vm)?;
                 let len_conv = seq_conv.length(vm)?;
                 let mut converters = Vec::with_capacity(len_conv);
                 for i in 0..len_conv {
@@ -1218,7 +1220,11 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
         } else if let Some(argtypes_obj) = instance_argtypes.as_ref() {
             if !vm.is_none(argtypes_obj) {
                 let (types, converters) = extract_arg_types_and_converters(argtypes_obj, vm)?;
-                *zelf.converters.write() = Some(vm.ctx.new_tuple(converters.clone()).into());
+                let snapshot = vm.ctx.new_tuple(vec![
+                    vm.ctx.new_tuple(types.clone()).into(),
+                    vm.ctx.new_tuple(converters.clone()).into(),
+                ]);
+                *zelf.converters.write() = Some(snapshot.into());
                 (Some(types), Some(converters))
             } else {
                 (None, None) // argtypes is None -> use ConvParam
@@ -1953,9 +1959,13 @@ impl Py<PyCFuncPtr> {
             *self.argtypes.write() = None;
             *self.converters.write() = None;
         } else {
-            let (_, converters) = extract_arg_types_and_converters(&value, vm)?;
+            let (types, converters) = extract_arg_types_and_converters(&value, vm)?;
+            let snapshot = vm.ctx.new_tuple(vec![
+                vm.ctx.new_tuple(types).into(),
+                vm.ctx.new_tuple(converters).into(),
+            ]);
             *self.argtypes.write() = Some(value);
-            *self.converters.write() = Some(vm.ctx.new_tuple(converters).into());
+            *self.converters.write() = Some(snapshot.into());
         }
         Ok(())
     }
@@ -2237,15 +2247,23 @@ impl PyCThunk {
     ) -> PyResult<Self> {
         let arg_type_vec: Vec<PyTypeRef> = match arg_types {
             Some(args) if !vm.is_none(args) => {
-                let (objects, _) = extract_arg_types_and_converters(args, vm)?;
-                let mut types = Vec::with_capacity(objects.len());
-                for item in objects {
-                    let ty = item
-                        .downcast::<PyType>()
-                        .map_err(|_| vm.new_type_error("callback argtypes must be ctypes types"))?;
+                let error = || vm.new_type_error("callback argtypes must be ctypes types");
+                let sequence = args
+                    .try_sequence(vm)
+                    .map_err(|_| vm.new_type_error("_argtypes_ must be a sequence of types"))?;
+                let length = sequence
+                    .length(vm)
+                    .map_err(|_| vm.new_type_error("_argtypes_ must be a sequence of types"))?;
+                let mut types = Vec::new();
+                types
+                    .try_reserve(length)
+                    .map_err(|_| vm.no_memory_error())?;
+                for index in 0..length {
+                    let item = sequence.get_item(index as isize, vm).map_err(|_| error())?;
+                    let ty = item.downcast::<PyType>().map_err(|_| error())?;
                     if !ty.fast_issubclass(PyCPointer::static_type()) && ty.type_code(vm).is_none()
                     {
-                        return Err(vm.new_type_error("callback argtypes must be ctypes types"));
+                        return Err(error());
                     }
                     types.push(ty);
                 }
