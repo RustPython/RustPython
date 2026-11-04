@@ -23,28 +23,32 @@ PYTHON_SYS_EXECUTABLE=python3.13 cargo bench
 
 ## Continuous benchmarking with CodSpeed
 
-The benchmarks are also run on every pull request by
-[CodSpeed](https://app.codspeed.io/RustPython/RustPython), which measures them with CPU simulation
-instead of wall time. `criterion` is aliased to `codspeed-criterion-compat`, so nothing changes for
-`cargo bench`: the compatibility layer only takes over when the CodSpeed runner drives the
-benchmarks.
+RustPython's performance is tracked on every pull request by
+[CodSpeed](https://app.codspeed.io/RustPython/RustPython) in wall-time mode on a CodSpeed Macro
+runner (dedicated hardware). The workflow in `.github/workflows/codspeed.yaml` builds the
+benchmark executables on a hosted runner and moves only those to the Macro runner. `criterion` is
+aliased to `codspeed-criterion-compat`, so nothing changes for `cargo bench`: the compatibility layer
+only takes over when the CodSpeed runner drives the benchmarks.
+
+CodSpeed measures two targets:
+
+- `pyperformance` (`benches/pyperformance.rs`): the upstream pyperformance benchmark programs,
+  vendored unmodified under `benches/pyperformance/`. See the README there for how they run and
+  which ones are included.
+- the `rustpython-sre_engine` benchmarks.
+
+The `execution` and `microbenchmarks` targets below are not run by CodSpeed. They link CPython
+through `pyo3` for the comparison, and an executable linked against one machine's `libpython`
+cannot be moved to another; they remain local tools.
 
 To reproduce a CodSpeed run locally, install [`cargo-codspeed`](https://crates.io/crates/cargo-codspeed)
-and the [CodSpeed CLI](https://codspeed.io/docs/cli), then run:
+(same major version as `codspeed-criterion-compat` in `Cargo.toml`) and the
+[CodSpeed CLI](https://codspeed.io/docs/cli), then run:
 
 ```shell
-cargo codspeed build -p rustpython -p rustpython-sre_engine
-codspeed run --mode simulation -- cargo codspeed run -p rustpython -p rustpython-sre_engine
+cargo codspeed build --measurement-mode walltime -p rustpython --bench pyperformance -p rustpython-sre_engine
+codspeed run --mode walltime -- cargo codspeed run -p rustpython --bench pyperformance -p rustpython-sre_engine
 ```
-
-Two things differ when the benchmarks run under CodSpeed:
-
-- The CPython comparison benchmarks are skipped. They are useful to compare RustPython against
-  CPython locally, but CodSpeed tracks the evolution of RustPython itself, and running them would
-  double the duration of an already slow instrumented run.
-- The microbenchmarks using `ITERATIONS` run with a single value of 1,000 instead of five sizes.
-  CodSpeed retains the existing benchmark names; local runs include the iteration count in each
-  benchmark id.
 
 ### Adding a benchmark
 
@@ -123,7 +127,6 @@ rustflags = [
 ## Benchmark source
 
 - <https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/nbody-python3-2.html>
-- The workloads marked as adapted from pyperformance come from
-  [python/pyperformance 1.14.0](https://github.com/python/pyperformance/tree/1.14.0/pyperformance/data-files/benchmarks).
-  Their `pyperf` runners and internal timers are removed so Criterion is the only measurement
-  harness, and some input sizes are reduced for CodSpeed simulation.
+- The pyperformance programs under `pyperformance/` come from
+  [python/pyperformance 1.14.0](https://github.com/python/pyperformance/tree/1.14.0/pyperformance/data-files/benchmarks)
+  and are not modified; see `pyperformance/README.md`.

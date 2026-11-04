@@ -67,6 +67,7 @@ pyo3 = { workspace = true, features = ["auto-initialize"] }
 rustls-graviola = { workspace = true }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
+toml = { workspace = true }
 
 # Only the criterion benchmarks below are measured. Without `bench = false`,
 # `cargo bench` (and `cargo codspeed build`) also builds the library and binary
@@ -81,6 +82,10 @@ harness = false
 
 [[bench]]
 name = "microbenchmarks"
+harness = false
+
+[[bench]]
+name = "pyperformance"
 harness = false
 
 [[bin]]
@@ -317,6 +322,7 @@ tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" 
 textwrap = { version = "0.16.2", default-features = false }
 termios = "0.3.3"
 thiserror = "2.0"
+toml = "1.1.2"
 thin-vec = "0.2.14"
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 icu_casemap = "2"

@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # CodSpeed Macro runners (https://codspeed.io/docs/instruments/walltime), used by codspeed.yaml.
+  labels:
+    - codspeed-macro
