@@ -154,7 +154,8 @@ impl PyCSimpleType {
 
         // Foreign-call values are always native endian, even for swapped types.
         let create_argument = || -> PyResult {
-            let (bytes, keep, hidden) = assignment_value(&type_code, &value, false, vm)?;
+            let (mut bytes, keep, hidden) = assignment_value(&type_code, &value, false, vm)?;
+            bytes.commit();
             let tag = code as u8;
             Ok(CArgObject {
                 tag,
@@ -430,7 +431,7 @@ fn create_swapped_types(
 ) -> PyResult<()> {
     // Types that don't support byte order swapping - no __ctype_le__/__ctype_be__
     // c_void_p (P), c_char_p (z), c_wchar_p (Z), c_wchar (u), py_object (O)
-    let unsupported_types = ["P", "z", "Z", "u", "O"];
+    let unsupported_types = ["P", "z", "Z", "X", "u", "O"];
     if unsupported_types.contains(&type_str) {
         return Ok(());
     }
@@ -599,9 +600,28 @@ pub(super) fn assignment_value(
             keep = (!vm.is_none(value)).then(|| value.to_owned());
             SimpleStorageValue::ObjectId(value.get_id())
         }
-        "z" | "Z" | "P" | "X" => {
-            // X preserves opaque-address/null writes. BSTR string assignment
-            // needs COM allocation and ownership, not a Z-style wide buffer.
+        #[cfg(windows)]
+        "X" => {
+            let units = if vm.is_none(value) {
+                None
+            } else {
+                let text = value.downcast_ref::<PyStr>().ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "unicode string expected instead of {} instance",
+                        value.class().name()
+                    ))
+                })?;
+                let units: Vec<u16> = text.as_wtf8().encode_wide().collect();
+                if u32::try_from(units.len()).is_err() {
+                    return Err(vm.new_value_error("String too long for BSTR"));
+                }
+                Some(units)
+            };
+            let bstr = rustpython_host_env::ctypes::BStr::new(units.as_deref())
+                .ok_or_else(|| vm.new_memory_error("could not allocate BSTR"))?;
+            return Ok((CDataBytes::BStr(bstr), None, None));
+        }
+        "z" | "Z" | "P" => {
             let address = if vm.is_none(value) {
                 0
             } else if type_code == "z"
@@ -838,7 +858,7 @@ impl Py<PyCSimple> {
 
         // Snapshot storage metadata before invoking any conversion callbacks.
         let swapped = is_swapped(cls);
-        let (buffer_bytes, keep, hidden) = assignment_value(&type_code, &value, swapped, vm)?;
+        let (mut buffer_bytes, keep, hidden) = assignment_value(&type_code, &value, swapped, vm)?;
 
         let write = if type_code == "O" {
             let size = zelf.0.buffer.read().len();
@@ -850,7 +870,7 @@ impl Py<PyCSimple> {
         write.publish(vm)?;
 
         // Write in place for borrowed storage and preserve any resized tail.
-        zelf.0.write_bytes_at_offset(0, &buffer_bytes);
+        zelf.0.write_value_at_offset(0, &mut buffer_bytes);
 
         // Raw z/Z addresses and None do not replace the old owner: the
         // address may still point into its buffer (CPython KeepRef(None)).

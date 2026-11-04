@@ -594,6 +594,8 @@ impl PyCArray {
             DecodedValue::Float(value) => vm.ctx.new_float(value).into(),
             DecodedValue::Signed(value) => vm.ctx.new_int(value).into(),
             DecodedValue::Unsigned(value) => vm.ctx.new_int(value).into(),
+            #[cfg(windows)]
+            DecodedValue::WideString(value) => vm.ctx.new_str(value).into(),
             DecodedValue::None => vm.ctx.none(),
             DecodedValue::Pointer(value) => vm.ctx.new_int(value).into(),
             DecodedValue::Bool(value) => vm.ctx.new_bool(value).into(),
@@ -633,7 +635,7 @@ impl PyCArray {
         } else {
             super::base::CDataWrite::default()
         };
-        let prepared = super::base::CDataValue::new(
+        let mut prepared = super::base::CDataValue::new(
             &element_type,
             value,
             element_size,
@@ -642,7 +644,7 @@ impl PyCArray {
         )?;
         write.publish(vm)?;
         zelf.0
-            .write_bytes_at_offset(index * element_size, &prepared.bytes);
+            .write_value_at_offset(index * element_size, &mut prepared.bytes);
         prepared.keep(&zelf.0, index, vm)
     }
 

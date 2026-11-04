@@ -1979,6 +1979,23 @@ fn ffi_to_python(
     }
 
     let type_code = ty.type_code(vm);
+    #[cfg(windows)]
+    if type_code.as_deref() == Some("X") && is_simple_subclass(ty, vm) {
+        // CPython constructs non-direct simple subclasses without arguments,
+        // then copies the slot. Decoding and reconstructing a BSTR would allocate
+        // a different COM string and lose the caller's pointer identity.
+        let rustpython_host_env::ctypes::DecodedValue::Pointer(address) =
+            (unsafe { rustpython_host_env::ctypes::callback_arg_value_at(Some("P"), args, index) })
+        else {
+            return Err(vm.new_type_error("invalid BSTR callback argument"));
+        };
+        let instance = ty.as_object().call((), vm)?;
+        let cdata = instance
+            .downcast_ref::<PyCData>()
+            .ok_or_else(|| vm.new_type_error("BSTR constructor returned a non-ctypes object"))?;
+        cdata.write_bytes_at_offset(0, &address.to_ne_bytes());
+        return Ok(instance);
+    }
     let raw_value: PyObjectRef = match unsafe {
         rustpython_host_env::ctypes::callback_arg_value_at(type_code.as_deref(), args, index)
     } {
@@ -1989,6 +2006,10 @@ fn ffi_to_python(
         rustpython_host_env::ctypes::DecodedValue::Bool(value) => vm.ctx.new_bool(value).into(),
         rustpython_host_env::ctypes::DecodedValue::Pointer(value) => vm.ctx.new_int(value).into(),
         rustpython_host_env::ctypes::DecodedValue::String(value) => vm.ctx.new_str(value).into(),
+        #[cfg(windows)]
+        rustpython_host_env::ctypes::DecodedValue::WideString(value) => {
+            vm.ctx.new_str(value).into()
+        }
         rustpython_host_env::ctypes::DecodedValue::None => vm.ctx.none(),
     };
 
@@ -2042,6 +2063,31 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                         rustpython_host_env::ctypes::CallbackResultValue::Float(f.to_f64()),
                     );
                 }
+            }
+        }
+        #[cfg(windows)]
+        Some("X") => {
+            match super::simple::assignment_value("X", &obj, false, vm) {
+                Ok((mut bytes, _, _)) => {
+                    let address = rustpython_host_env::ctypes::read_pointer_from_buffer(&bytes);
+                    // libffi's result slot is fresh storage, not a previous BSTR.
+                    bytes.commit();
+                    unsafe {
+                        rustpython_host_env::ctypes::write_callback_result(
+                            Some("X"),
+                            result,
+                            rustpython_host_env::ctypes::CallbackResultValue::Pointer(address),
+                        );
+                    }
+                }
+                Err(exc) => vm.run_unraisable(
+                    exc,
+                    Some(
+                        "Exception ignored while converting result of ctypes callback function"
+                            .to_owned(),
+                    ),
+                    obj,
+                ),
             }
         }
         Some("P" | "z" | "Z") => {

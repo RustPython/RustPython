@@ -596,7 +596,7 @@ impl PyCPointer {
         } else {
             super::base::CDataWrite::default()
         };
-        let prepared = super::base::CDataValue::new(
+        let mut prepared = super::base::CDataValue::new(
             &proto_type,
             &value,
             element_size,
@@ -607,6 +607,9 @@ impl PyCPointer {
         // SAFETY: pointer indexing has the same caller-provided valid-storage
         // requirement as reading the element. The source snapshot cannot overlap it.
         unsafe {
+            let previous =
+                rustpython_host_env::ctypes::borrow_memory(addr as *const u8, element_size);
+            prepared.bytes.replace(previous);
             rustpython_host_env::ctypes::copy_bytes_to_address(addr, &prepared.bytes, element_size);
         }
         prepared.keep(&zelf.0, index as usize, vm)
