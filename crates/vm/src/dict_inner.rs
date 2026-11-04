@@ -860,6 +860,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Delete a key. Same hash contract as [`Self::insert`].
+    #[cfg(test)]
     pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K, hash: HashValue) -> PyResult<()>
     where
         K: DictKey + ?Sized,
