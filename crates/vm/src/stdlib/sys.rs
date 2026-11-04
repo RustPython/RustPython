@@ -1519,6 +1519,13 @@ pub mod sys {
     }
 
     #[pyfunction]
+    #[cfg_attr(
+        not(feature = "threading"),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "threading builds can fail to reserve callback storage"
+        )
+    )]
     fn _settraceallthreads(function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let func = (!vm.is_none(&function)).then(|| function.clone());
         // Retain replaced callbacks until every registry and slot lock has
@@ -1559,6 +1566,13 @@ pub mod sys {
     }
 
     #[pyfunction]
+    #[cfg_attr(
+        not(feature = "threading"),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "threading builds can fail to reserve callback storage"
+        )
+    )]
     fn _setprofileallthreads(function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let func = (!vm.is_none(&function)).then(|| function.clone());
         // Retain replaced callbacks until every registry and slot lock has
