@@ -2727,7 +2727,6 @@ class ExecTests(unittest.TestCase):
 
     # See https://github.com/python/cpython/issues/137934 and the other
     # related issues for the reason why we cannot test this on Windows.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: MyEnv.__getitem__() takes 1 positional argument but 2 were given
     @unittest.skipIf(os.name == "nt", "POSIX-specific test")
     @unittest.skipUnless(unix_shell and os.path.exists(unix_shell),
                         "requires a shell")
