@@ -9,9 +9,10 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue},
+    iter::PyExactSizeIterator,
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{Constructor, Hashable, PyComparisonOp, Representable},
 };
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
@@ -111,17 +112,25 @@ impl PySlice {
         length: &BigInt,
         vm: &VirtualMachine,
     ) -> PyResult<(BigInt, BigInt, BigInt)> {
+        let index = |object: &PyObject| -> PyResult<BigInt> {
+            let value = object.try_index_opt(vm).transpose()?.ok_or_else(|| {
+                vm.new_type_error(
+                    "slice indices must be integers or None or have an __index__ method",
+                )
+            })?;
+            Ok(value.as_bigint().clone())
+        };
+
         // Calculate step
         let step: BigInt;
         if vm.is_none(self.step_ref(vm)) {
             step = One::one();
         } else {
             // Clone the value, not the reference.
-            let this_step = self.step_ref(vm).try_index(vm)?;
-            step = this_step.as_bigint().clone();
+            step = index(self.step_ref(vm))?;
 
             if step.is_zero() {
-                return Err(vm.new_value_error("slice step cannot be zero."));
+                return Err(vm.new_value_error("slice step cannot be zero"));
             }
         }
 
@@ -151,8 +160,7 @@ impl PySlice {
                 lower.clone()
             };
         } else {
-            let this_start = self.start_ref(vm).try_index(vm)?;
-            start = this_start.as_bigint().clone();
+            start = index(self.start_ref(vm))?;
 
             if start < Zero::zero() {
                 // From end of array
@@ -171,8 +179,7 @@ impl PySlice {
         if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
-            let this_stop = self.stop.try_index(vm)?;
-            stop = this_stop.as_bigint().clone();
+            stop = index(&self.stop)?;
 
             if stop < Zero::zero() {
                 // From end of array
@@ -189,8 +196,33 @@ impl PySlice {
     }
 }
 
-#[pyclass(with(Comparable, Representable, Hashable))]
+#[pyclass(with(Representable, Hashable))]
 impl Py<PySlice> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PySlice>(),
+            other.downcast_ref::<PySlice>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if zelf.is(other) {
+            return Ok(Either::B(op.eval_ord(core::cmp::Ordering::Equal).into()));
+        }
+        [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)]
+            .into_iter()
+            .richcompare(
+                [other.start_ref(vm), &other.stop, other.step_ref(vm)].into_iter(),
+                op,
+                vm,
+            )
+    }
+
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
@@ -201,6 +233,9 @@ impl Py<PySlice> {
     }
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("slice() takes no keyword arguments"));
+        }
         let slice: PySlice = match args.args.len() {
             0 => {
                 return Err(vm.new_arity_type_error(PySlice::NAME, 1..=3, 0));
@@ -227,14 +262,19 @@ impl Py<PySlice> {
     }
 
     #[pymethod]
-    fn indices(&self, object: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let length = object.into_int_ref();
-        let length = length.as_bigint();
-        if length.is_negative() {
-            return Err(vm.new_value_error("length should not be negative."));
-        }
-        let (start, stop, step) = self.inner_indices(length, vm)?;
-        Ok(vm.new_tuple((start, stop, step)))
+    fn indices(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        // Keep the original length alive while all slice components convert.
+        let result = (|| {
+            let length = object.try_index(vm)?;
+            let length = length.as_bigint();
+            if length.is_negative() {
+                return Err(vm.new_value_error("length should not be negative"));
+            }
+            let (start, stop, step) = self.inner_indices(length, vm)?;
+            Ok(vm.new_tuple((start, stop, step)))
+        })();
+        drop(object);
+        result
     }
 
     #[allow(clippy::type_complexity)]
@@ -296,50 +336,6 @@ impl Hashable for PySlice {
             return Ok(1546275796 as PyHash);
         }
         Ok(acc as PyHash)
-    }
-}
-
-impl Comparable for PySlice {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-
-        let ret = match op {
-            PyComparisonOp::Lt | PyComparisonOp::Le => None
-                .or_else(|| {
-                    vm.bool_seq_lt(zelf.start_ref(vm), other.start_ref(vm))
-                        .transpose()
-                })
-                .or_else(|| vm.bool_seq_lt(&zelf.stop, &other.stop).transpose())
-                .or_else(|| {
-                    vm.bool_seq_lt(zelf.step_ref(vm), other.step_ref(vm))
-                        .transpose()
-                })
-                .unwrap_or_else(|| Ok(op == PyComparisonOp::Le))?,
-            PyComparisonOp::Eq | PyComparisonOp::Ne => {
-                let eq = vm.identical_or_equal(zelf.start_ref(vm), other.start_ref(vm))?
-                    && vm.identical_or_equal(&zelf.stop, &other.stop)?
-                    && vm.identical_or_equal(zelf.step_ref(vm), other.step_ref(vm))?;
-                if op == PyComparisonOp::Ne { !eq } else { eq }
-            }
-            PyComparisonOp::Gt | PyComparisonOp::Ge => None
-                .or_else(|| {
-                    vm.bool_seq_gt(zelf.start_ref(vm), other.start_ref(vm))
-                        .transpose()
-                })
-                .or_else(|| vm.bool_seq_gt(&zelf.stop, &other.stop).transpose())
-                .or_else(|| {
-                    vm.bool_seq_gt(zelf.step_ref(vm), other.step_ref(vm))
-                        .transpose()
-                })
-                .unwrap_or_else(|| Ok(op == PyComparisonOp::Ge))?,
-        };
-
-        Ok(PyComparisonValue::Implemented(ret))
     }
 }
 
