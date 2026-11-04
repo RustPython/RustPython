@@ -30,6 +30,7 @@ use crate::{
 use bstr::ByteSlice;
 use core::{mem::size_of, ops::Deref};
 use memchr::memchr;
+use rustpython_common::wtf8::wtf8_concat;
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
@@ -134,8 +135,10 @@ impl Constructor for PyBytes {
                     obj.class().fully_qualified_name(vm),
                     result.class().fully_qualified_name(vm),
                 ) {
-                    (Ok(source), Ok(result)) => vm.new_type_error(format!(
-                        "{source}.__bytes__() must return a bytes, not {result}"
+                    (Ok(source), Ok(result)) => vm.new_type_error(wtf8_concat!(
+                        source,
+                        ".__bytes__() must return a bytes, not ",
+                        result
                     )),
                     (Err(error), _) | (_, Err(error)) => error,
                 }
