@@ -1234,7 +1234,7 @@ mod _zoneinfo {
                 let file = zelf
                     .file_repr
                     .as_ref()
-                    .map_or(Wtf8::new(""), |file| file.as_wtf8());
+                    .map_or_else(|| Wtf8::new(""), |file| file.as_wtf8());
                 return Ok(wtf8_concat!(name, ".from_file(", file, ")"));
             }
             let key = zelf.key.repr(vm)?.as_wtf8().to_owned();
@@ -1398,15 +1398,17 @@ mod _zoneinfo {
             from_cache: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let from_cache = {
+            let use_cache = {
                 let index = ArgIndex::try_from_object(vm, from_cache.clone())?;
                 index.as_unsigned_bitfield::<8>(vm)? != 0
             };
-            if from_cache {
+            let result = if use_cache {
                 cached_new(cls, key, vm)
             } else {
                 Ok(new_instance(cls, key, SOURCE_NOCACHE, vm)?.into())
-            }
+            };
+            drop(from_cache);
+            result
         }
 
         #[pyclassmethod]
