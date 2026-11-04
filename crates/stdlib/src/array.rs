@@ -1373,6 +1373,30 @@ pub mod array {
             self.getitem_inner(needle, vm)
         }
 
+        fn assign_item(
+            zelf: &Py<Self>,
+            i: isize,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let (index, typecode) = {
+                let array = zelf.read();
+                (i.wrapped_at(array.len()), array.typecode())
+            };
+            let index =
+                index.ok_or_else(|| vm.new_index_error("array assignment index out of range"))?;
+            let item = ArrayContentType::item_from_object(typecode, value.clone(), vm)?;
+            let mut array = zelf.write();
+            if index >= array.len() {
+                drop(array);
+                return Err(vm.new_index_error("array assignment index out of range"));
+            }
+            let result = array.setitem_by_item(index as isize, item, vm);
+            drop(array);
+            drop(value);
+            result
+        }
+
         fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
@@ -1380,11 +1404,7 @@ pub mod array {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
-                SequenceIndex::Int(i) => {
-                    let typecode = zelf.read().typecode();
-                    let item = ArrayContentType::item_from_object(typecode, value, vm)?;
-                    zelf.write().setitem_by_item(i, item, vm)
-                }
+                SequenceIndex::Int(i) => Self::assign_item(zelf, i, value, vm),
                 SequenceIndex::Slice(slice) => {
                     let outcome = {
                         let cloned;
@@ -1775,9 +1795,7 @@ pub mod array {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
                     if let Some(value) = value {
-                        let typecode = zelf.read().typecode();
-                        let item = ArrayContentType::item_from_object(typecode, value, vm)?;
-                        zelf.write().setitem_by_item(i, item, vm)
+                        PyArray::assign_item(zelf, i, value, vm)
                     } else {
                         zelf.delitem_index(i, vm)
                     }
