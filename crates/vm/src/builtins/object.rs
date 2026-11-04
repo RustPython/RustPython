@@ -1,4 +1,6 @@
-use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
+use super::{
+    PyAnyDict, PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef,
+};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
@@ -390,36 +392,18 @@ impl PyBaseObject {
 
     #[pymethod]
     pub fn __dir__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let mut names: Vec<PyObjectRef> = Vec::new();
-
-        match zelf.get_attr(identifier!(vm, __dict__), vm) {
-            Ok(obj) => {
-                if let Ok(dict) = obj.downcast::<PyDict>() {
-                    names.extend(
-                        dict.into_iter()
-                            .filter_map(|(k, _)| k.downcast_ref::<PyStr>().is_some().then_some(k)),
-                    );
-                }
-            }
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
-            Err(e) => return Err(e),
+        let dict = match vm.get_attribute_opt(&zelf, identifier!(vm, __dict__))? {
+            Some(obj) => match obj.downcast::<PyDict>() {
+                Ok(dict) => PyRef::<PyAnyDict>::from(dict).copy_as_dict(vm)?,
+                Err(_) => PyDict::default(),
+            },
+            None => PyDict::default(),
+        };
+        let class = vm.get_attribute_opt(&zelf, identifier!(vm, __class__))?;
+        if let Some(class) = &class {
+            merge_class_dict(&dict, class, vm)?;
         }
-
-        match zelf.get_attr(identifier!(vm, __class__), vm) {
-            Ok(cls_obj) => {
-                if let Some(cls) = cls_obj.downcast_ref::<PyType>() {
-                    for (name, _) in cls.get_attributes(&vm.ctx) {
-                        names.push(name.to_object());
-                    }
-                }
-            }
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
-            Err(e) => return Err(e),
-        }
-
-        let lst = PyList::from(names);
-        lst.sort(Default::default(), vm)?;
-        Ok(lst)
+        Ok(PyList::from(dict.keys_vec()))
     }
 
     #[pymethod]
@@ -532,6 +516,26 @@ impl PyBaseObject {
             .basicsize
             .saturating_sub(crate::object::SIZEOF_PYOBJECT_HEAD)
     }
+}
+
+pub(crate) fn merge_class_dict(
+    dict: &PyDict,
+    class: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    vm.with_recursion(" while collecting directory entries", || {
+        if let Some(class_dict) = vm.get_attribute_opt(class, identifier!(vm, __dict__))? {
+            dict.merge_mapping(class_dict, vm)?;
+        }
+        if let Some(bases) = vm.get_attribute_opt(class, identifier!(vm, __bases__))? {
+            let sequence = bases.sequence_unchecked();
+            for index in 0..sequence.length(vm)? {
+                let base = sequence.get_item(index as isize, vm)?;
+                merge_class_dict(dict, &base, vm)?;
+            }
+        }
+        Ok(())
+    })
 }
 
 pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
