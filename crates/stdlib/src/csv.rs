@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
+        function::{ArgIterable, FromArgs, FuncArgs, KwArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn, PyNumber},
         types::{Constructor, IterNext, Iterable, SelfIter},
         vm::thread::PyOperation,
@@ -195,11 +195,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn register_dialect(
-        name: PyObjectRef,
-        opts: FormatOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn register_dialect(name: PyObjectRef, opts: DialectArg, vm: &VirtualMachine) -> PyResult<()> {
         let name = name
             .downcast::<PyStr>()
             .map_err(|_| vm.new_type_error("argument 0 must be a string"))?;
@@ -283,7 +279,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn reader(iterable: PyIter, options: FormatOptions, vm: &VirtualMachine) -> PyResult<Reader> {
+    fn reader(iterable: PyIter, options: DialectArg, vm: &VirtualMachine) -> PyResult<Reader> {
         let dialect = options.result(vm)?;
         Ok(Reader {
             iter: iterable,
@@ -297,11 +293,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn writer(
-        fileobj: PyObjectRef,
-        options: FormatOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Writer> {
+    fn writer(fileobj: PyObjectRef, options: DialectArg, vm: &VirtualMachine) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(&fileobj, "write")? {
             Some(write_meth) => write_meth,
             None if fileobj.is_callable() => fileobj,
@@ -367,101 +359,79 @@ mod _csv {
         }
     }
 
-    #[derive(Default)]
-    struct FormatOptions {
-        dialect: Option<PyObjectRef>,
-        delimiter: Option<PyObjectRef>,
-        doublequote: Option<PyObjectRef>,
-        escapechar: Option<PyObjectRef>,
-        lineterminator: Option<PyObjectRef>,
-        quotechar: Option<PyObjectRef>,
-        quoting: Option<PyObjectRef>,
-        skipinitialspace: Option<PyObjectRef>,
-        strict: Option<PyObjectRef>,
+    #[derive(FromArgs)]
+    struct DialectArg {
+        #[pyarg(positional, optional)]
+        dialect: OptionalArg<PyObjectRef>,
+        #[pyarg(flatten)]
+        fmtparams: KwArgs,
     }
 
-    impl FromArgs for FormatOptions {
-        const PARAMS: Option<&'static [Param]> = Some(&[
-            Param {
-                name: "dialect",
-                kind: rustpython_vm::function::ParamKind::PositionalOrKeyword,
-                default: Some(rustpython_vm::function::DefaultRepr::Str("excel")),
-            },
-            Param::var_keyword("fmtparams"),
-        ]);
-
-        fn arity() -> core::ops::RangeInclusive<usize> {
-            0..=1
+    impl DialectArg {
+        fn result(self, vm: &VirtualMachine) -> PyResult<PyDialect> {
+            // Reader, writer and registration accept only one positional dialect.
+            // Its format parameters are bound by Dialect after their own inputs.
+            FuncArgs::new(
+                self.dialect.into_option().into_iter().collect::<Vec<_>>(),
+                self.fmtparams,
+            )
+            .bind::<FormatOptions>(vm)?
+            .result(vm)
         }
+    }
 
-        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            let res = Self {
-                dialect: args.take_positional_keyword("dialect"),
-                delimiter: args.kwargs.swap_remove("delimiter"),
-                doublequote: args.kwargs.swap_remove("doublequote"),
-                escapechar: args.kwargs.swap_remove("escapechar"),
-                lineterminator: args.kwargs.swap_remove("lineterminator"),
-                quotechar: args.kwargs.swap_remove("quotechar"),
-                quoting: args.kwargs.swap_remove("quoting"),
-                skipinitialspace: args.kwargs.swap_remove("skipinitialspace"),
-                strict: args.kwargs.swap_remove("strict"),
-            };
-
-            if let Some(last_arg) = args.kwargs.pop() {
-                // The dialect is parsed by a parser of its own, which has no
-                // name to give the message.
-                return Err(ArgumentError::Exception(
-                    vm.new_unexpected_keyword_type_error(None, &last_arg.0.to_string()),
-                ));
-            }
-            Ok(res)
-        }
+    #[derive(FromArgs)]
+    struct FormatOptions {
+        #[pyarg(any, optional)]
+        dialect: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        delimiter: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        doublequote: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        escapechar: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        lineterminator: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        quotechar: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        quoting: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        skipinitialspace: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        strict: OptionalArg<PyObjectRef>,
     }
 
     fn validate_dialect(vm: &VirtualMachine, dialect: &PyDialect) -> PyResult<()> {
-        let special = |name: &str, value: char| {
-            if matches!(value, '\r' | '\n') {
-                Err(vm.new_value_error(format!(
-                    "{name} must be a single character, not a line break"
-                )))
-            } else {
-                Ok(())
+        let check_char = |name: &str, value: Option<char>, allow_space: bool| {
+            let Some(value) = value else {
+                return Ok(());
+            };
+            if matches!(value, '\r' | '\n') || (value == ' ' && !allow_space) {
+                return Err(vm.new_value_error(format!("bad {name} value")));
             }
+            if dialect.lineterminator.contains(value) {
+                return Err(vm.new_value_error(format!("bad {name} or lineterminator value")));
+            }
+            Ok(())
         };
 
-        special("delimiter", dialect.delimiter)?;
-        if let Some(quotechar) = dialect.quotechar {
-            special("quotechar", quotechar)?;
-        }
-        if let Some(escapechar) = dialect.escapechar {
-            special("escapechar", escapechar)?;
-        }
+        check_char("delimiter", Some(dialect.delimiter), true)?;
+        check_char("escapechar", dialect.escapechar, !dialect.skipinitialspace)?;
+        check_char("quotechar", dialect.quotechar, !dialect.skipinitialspace)?;
 
-        if dialect.skipinitialspace
-            && (matches!(dialect.escapechar, Some(' ')) || matches!(dialect.quotechar, Some(' ')))
-        {
-            return Err(vm.new_value_error(
-                "escapechar or quotechar cannot be a space when skipinitialspace is enabled",
-            ));
-        }
-
-        let values: [(&str, Option<char>); 3] = [
+        let values = [
             ("delimiter", Some(dialect.delimiter)),
-            ("quotechar", dialect.quotechar),
             ("escapechar", dialect.escapechar),
+            ("quotechar", dialect.quotechar),
         ];
         for (index, (left_name, left)) in values.iter().enumerate() {
             for (right_name, right) in values.iter().skip(index + 1) {
                 if left.is_some() && left == right {
-                    return Err(vm.new_value_error(format!(
-                        "{left_name} and {right_name} cannot be the same"
-                    )));
+                    return Err(
+                        vm.new_value_error(format!("bad {left_name} or {right_name} value"))
+                    );
                 }
-            }
-            if left.is_some_and(|value| dialect.lineterminator.contains(value)) {
-                return Err(vm.new_value_error(format!(
-                    "{left_name} and lineterminator cannot be the same"
-                )));
             }
         }
         Ok(())
@@ -469,7 +439,9 @@ mod _csv {
 
     impl FormatOptions {
         fn result(mut self, vm: &VirtualMachine) -> PyResult<PyDialect> {
-            if let Some(obj) = self.dialect.take() {
+            if let OptionalArg::Present(obj) =
+                core::mem::replace(&mut self.dialect, OptionalArg::Missing)
+            {
                 let obj = if obj.downcast_ref::<PyStr>().is_some() {
                     get_dialect(DialectName { name: obj }, vm)?
                         .into_ref(&vm.ctx)
@@ -480,8 +452,9 @@ mod _csv {
                 // Read all non-overridden attributes before converting their values.
                 macro_rules! fill_from_dialect {
                     ($($name:ident),* $(,)?) => {
-                        $(if self.$name.is_none() {
-                            self.$name = vm.get_attribute_opt(&obj, stringify!($name))?;
+                        $(if self.$name.is_missing() {
+                            self.$name = vm.get_attribute_opt(&obj, stringify!($name))?
+                                .map_or(OptionalArg::Missing, OptionalArg::Present);
                         })*
                     };
                 }
@@ -495,23 +468,23 @@ mod _csv {
                     skipinitialspace,
                     strict,
                 );
-                self.dialect = Some(obj);
+                self.dialect = OptionalArg::Present(obj);
             }
 
             let delimiter = match &self.delimiter {
-                Some(obj) => parse_char(vm, obj, "delimiter", false)?.unwrap(),
-                None => ',',
+                OptionalArg::Present(obj) => parse_char(vm, obj, "delimiter", false)?.unwrap(),
+                OptionalArg::Missing => ',',
             };
             let doublequote = match &self.doublequote {
-                Some(obj) => obj.try_to_bool(vm)?,
-                None => true,
+                OptionalArg::Present(obj) => obj.try_to_bool(vm)?,
+                OptionalArg::Missing => true,
             };
             let escapechar = match &self.escapechar {
-                Some(obj) => parse_char(vm, obj, "escapechar", true)?,
-                None => None,
+                OptionalArg::Present(obj) => parse_char(vm, obj, "escapechar", true)?,
+                OptionalArg::Missing => None,
             };
             let lineterminator = match &self.lineterminator {
-                Some(obj) => {
+                OptionalArg::Present(obj) => {
                     let value = obj.downcast_ref::<PyStr>().ok_or_else(|| {
                         vm.new_type_error(format!(
                             r#""lineterminator" must be a string, not {}"#,
@@ -524,14 +497,14 @@ mod _csv {
                     // sentinel terminator (see `writerow`).
                     parse_lineterminator(vm, value)?.to_owned()
                 }
-                None => "\r\n".to_owned(),
+                OptionalArg::Missing => "\r\n".to_owned(),
             };
             let quotechar = match &self.quotechar {
-                Some(obj) => parse_char(vm, obj, "quotechar", true)?,
-                None => Some('"'),
+                OptionalArg::Present(obj) => parse_char(vm, obj, "quotechar", true)?,
+                OptionalArg::Missing => Some('"'),
             };
             let quoting = match &self.quoting {
-                Some(obj) => {
+                OptionalArg::Present(obj) => {
                     if !obj.class().is(vm.ctx.types.int_type) {
                         return Err(vm.new_type_error(format!(
                             r#""quoting" must be an integer, not {}"#,
@@ -542,21 +515,21 @@ mod _csv {
                         .unwrap()
                         .try_to_primitive::<i32>(vm)?
                 }
-                None => QuoteStyle::Minimal as i32,
+                OptionalArg::Missing => QuoteStyle::Minimal as i32,
             };
             let skipinitialspace = match &self.skipinitialspace {
-                Some(obj) => obj.try_to_bool(vm)?,
-                None => false,
+                OptionalArg::Present(obj) => obj.try_to_bool(vm)?,
+                OptionalArg::Missing => false,
             };
             let strict = match &self.strict {
-                Some(obj) => obj.try_to_bool(vm)?,
-                None => false,
+                OptionalArg::Present(obj) => obj.try_to_bool(vm)?,
+                OptionalArg::Missing => false,
             };
 
             // Validate the quoting value only after all field conversions.
             let quoting = QuoteStyle::try_from(quoting as isize)
                 .map_err(|_| vm.new_type_error(r#"bad "quoting" value"#))?;
-            let quoting = if quotechar.is_none() && self.quoting.is_none() {
+            let quoting = if quotechar.is_none() && self.quoting.is_missing() {
                 QuoteStyle::None
             } else {
                 quoting
