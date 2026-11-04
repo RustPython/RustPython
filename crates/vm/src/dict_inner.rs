@@ -1518,6 +1518,37 @@ impl<T: Clone> Dict<T> {
         }
     }
 
+    /// Retrieve a value while revalidating keys after equality callbacks.
+    /// Unlike a raw lookup result, the returned value cannot refer to a slot
+    /// cleared and recycled by reentrant Python code.
+    pub(crate) fn get_reentrant<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        self.with_entry_mut(vm, key, hash, |inner, index| {
+            inner.entries[index].as_ref().unwrap().value.clone()
+        })
+    }
+
+    /// Remove a verified entry, releasing its key after the table lock is gone.
+    pub(crate) fn pop_reentrant<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        let removed = self.with_entry_mut(vm, key, hash, |inner, index| {
+            self.invalidate_keys_version();
+            let entry = inner.entries[index].take().unwrap();
+            inner.indices[entry.index] = IndexEntry::DUMMY;
+            inner.used -= 1;
+            entry
+        })?;
+        Ok(removed.map(|entry| entry.value))
+    }
+
     /// Move an existing entry to the end and return its current value without
     /// making the key temporarily absent. Equality runs unlocked.
     pub(crate) fn move_to_end<K: DictKey + ?Sized>(

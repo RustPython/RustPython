@@ -749,11 +749,11 @@ mod _functools {
         hits: AtomicU64,
         misses: AtomicU64,
         /// Entries are kept in least-to-most-recently-used order: a hit moves its
-        /// entry to the end by removing and reinserting it, so the front of the dict
-        /// is always the next eviction candidate. Ordering is only maintained (at the
-        /// cost of the extra reinsert on a hit) when `maxsize` is `Some`.
+        /// entry to the end atomically, so the front of the dict is always the next
+        /// eviction candidate. Moving an entry preserves the original key and does
+        /// not invoke additional equality callbacks.
         /// Unbounded caches store results directly, without an LRU entry wrapper.
-        cache: PyRwLock<PyDictRef>,
+        cache: PyDictRef,
         /// Coarse-grained reentrant lock guarding the cache lookup/insert critical
         /// sections (not held while calling the user function), matching CPython.
         lock: RawRMutex,
@@ -782,7 +782,7 @@ mod _functools {
         #[pyarg(any)]
         user_function: PyObjectRef,
         #[pyarg(any)]
-        maxsize: Option<isize>,
+        maxsize: PyObjectRef,
         #[pyarg(any)]
         typed: ArgIntoBool,
         #[pyarg(any)]
@@ -796,9 +796,19 @@ mod _functools {
             if !args.user_function.is_callable() {
                 return Err(vm.new_type_error("the first argument must be callable"));
             }
-            // Negative maxsize is normalized to 0 by `functools.lru_cache` before
-            // reaching here, but clamp defensively to match that behavior exactly.
-            let maxsize = args.maxsize.map(|n| n.max(0) as usize);
+            // The binder has already converted typed's truthiness. Only now
+            // invoke __index__, after the callable check, as in CPython's OOpO
+            // constructor. Keep maxsize raw until then to preserve that order.
+            let maxsize = if vm.is_none(&args.maxsize) {
+                None
+            } else {
+                let size = args
+                    .maxsize
+                    .try_index_opt(vm)
+                    .ok_or_else(|| vm.new_type_error("maxsize should be integer or None"))??
+                    .try_to_primitive::<isize>(vm)?;
+                Some(size.max(0) as usize)
+            };
             Ok(Self {
                 func: args.user_function,
                 maxsize,
@@ -809,7 +819,7 @@ mod _functools {
                 cache_info_type: args.cache_info_type,
                 hits: AtomicU64::new(0),
                 misses: AtomicU64::new(0),
-                cache: PyRwLock::new(vm.ctx.new_dict()),
+                cache: vm.ctx.new_dict(),
                 lock: RawRMutex::INIT,
             })
         }
@@ -818,6 +828,14 @@ mod _functools {
     impl PyLruCacheWrapper {
         /// Build the cache key for a call, following `functools._make_key`.
         fn make_key(&self, args: &FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+            // CPython deliberately uses scalar keys only for exact int and str.
+            // In particular, (1.0,) and (True,) must not alias the scalar key 1.
+            if !self.typed && args.kwargs.is_empty() && args.args.len() == 1 {
+                let arg = &args.args[0];
+                if arg.class().is(vm.ctx.types.int_type) || arg.class().is(vm.ctx.types.str_type) {
+                    return arg.clone();
+                }
+            }
             let mut elements: Vec<PyObjectRef> = args.args.clone();
             if !args.kwargs.is_empty() {
                 elements.push(self.keyword_marker.clone());
@@ -838,37 +856,6 @@ mod _functools {
             }
             vm.ctx.new_tuple(elements).into()
         }
-
-        /// Refresh `key`'s recency by moving it to the end of `cache`'s insertion
-        /// order (removing then reinserting it). `hash` is the already-computed
-        /// hash of `key`, so `__hash__` is not called again.
-        fn touch_key(
-            key: &PyObject,
-            hash: PyHash,
-            value: &PyObject,
-            cache: &Py<PyDict>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            cache.del_item_known_hash(key, hash, vm)?;
-            cache.set_item_known_hash(key, hash, value.to_owned(), vm)?;
-            Ok(())
-        }
-
-        /// Evict the least-recently-used entry (the first item in `cache`'s
-        /// insertion order) if `cache` grew past `maxsize`.
-        fn evict_if_full(maxsize: usize, cache: &Py<PyDict>, vm: &VirtualMachine) -> PyResult<()> {
-            if cache.__len__() <= maxsize {
-                return Ok(());
-            }
-            let oldest = cache.into_iter().next();
-            if let Some((oldest_key, oldest_val)) = oldest {
-                let Some(elem) = oldest_val.downcast_ref::<PyLruListElem>() else {
-                    return Err(vm.new_type_error("lru cache entry is corrupted"));
-                };
-                cache.del_item_known_hash(oldest_key.as_object(), elem.hash, vm)?;
-            }
-            Ok(())
-        }
     }
 
     #[pyclass(
@@ -880,7 +867,7 @@ mod _functools {
         fn cache_info(&self, vm: &VirtualMachine) -> PyResult {
             let hits = self.hits.load(Ordering::Relaxed);
             let misses = self.misses.load(Ordering::Relaxed);
-            let currsize = self.cache.read().__len__();
+            let currsize = self.cache.__len__();
             let maxsize: PyObjectRef = match self.maxsize {
                 Some(n) => vm.ctx.new_int(n).into(),
                 None => vm.ctx.none(),
@@ -890,16 +877,14 @@ mod _functools {
         }
 
         #[pymethod]
-        fn cache_clear(&self, vm: &VirtualMachine) {
-            let new_cache = vm.ctx.new_dict();
-            let old_cache = {
-                let _guard = RMutexGuard::acquire(&self.lock);
-                let old_cache = core::mem::replace(&mut *self.cache.write(), new_cache);
-                self.hits.store(0, Ordering::Relaxed);
-                self.misses.store(0, Ordering::Relaxed);
-                old_cache
-            };
-            drop(old_cache);
+        fn cache_clear(&self) {
+            let _guard = RMutexGuard::acquire(&self.lock);
+            self.hits.store(0, Ordering::Relaxed);
+            self.misses.store(0, Ordering::Relaxed);
+            // Keep the dict identity: an equality callback can clear the cache
+            // while a lookup is in progress. DictContent restarts that lookup
+            // against the empty table and releases entries outside its own lock.
+            self.cache.clear();
         }
 
         #[pymethod]
@@ -908,12 +893,12 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __copy__(zelf: PyObjectRef) -> PyObjectRef {
+        fn __copy__(zelf: PyObjectRef, _args: PosArgs) -> PyObjectRef {
             zelf
         }
 
         #[pymethod]
-        fn __deepcopy__(zelf: PyObjectRef, _memo: PyObjectRef) -> PyObjectRef {
+        fn __deepcopy__(zelf: PyObjectRef, _args: PosArgs) -> PyObjectRef {
             zelf
         }
 
@@ -941,8 +926,13 @@ mod _functools {
 
             {
                 let _guard = RMutexGuard::acquire(&zelf.lock);
-                let cache = zelf.cache.read().clone();
-                if let Some(value) = cache.get_item_known_hash(key.as_object(), hash, vm)? {
+                let cache = &zelf.cache;
+                let value = if zelf.maxsize.is_some() {
+                    cache.entries.move_to_end(vm, key.as_object(), hash)?
+                } else {
+                    cache.entries.get_reentrant(vm, key.as_object(), hash)?
+                };
+                if let Some(value) = value {
                     let result = if zelf.maxsize.is_some() {
                         let Some(elem) = value.downcast_ref::<PyLruListElem>() else {
                             return Err(vm.new_type_error("lru cache entry is corrupted"));
@@ -952,9 +942,6 @@ mod _functools {
                         value.clone()
                     };
                     zelf.hits.fetch_add(1, Ordering::Relaxed);
-                    if zelf.maxsize.is_some() {
-                        Self::touch_key(&key, hash, &value, &cache, vm)?;
-                    }
                     return Ok(result);
                 }
                 zelf.misses.fetch_add(1, Ordering::Relaxed);
@@ -966,25 +953,64 @@ mod _functools {
 
             {
                 let _guard = RMutexGuard::acquire(&zelf.lock);
-                let cache = zelf.cache.read().clone();
-                // A reentrant or concurrent call may have already inserted this key
-                // (e.g. recursive lookups, or another thread finishing first); in that
-                // case keep the existing entry instead of creating orphan eviction
-                // links (see CPython issue gh-35780).
-                if !cache.contains_known_hash(key.as_object(), hash, vm)? {
-                    let entry = if zelf.maxsize.is_some() {
-                        PyLruListElem {
+                let cache = &zelf.cache;
+                if let Some(maxsize) = zelf.maxsize {
+                    // Only bounded caches preserve a result inserted by a
+                    // recursive call while the user function was running.
+                    // Revalidate equality callbacks here too, without moving
+                    // an existing entry or changing its recency.
+                    if cache
+                        .entries
+                        .get_reentrant(vm, key.as_object(), hash)?
+                        .is_none()
+                    {
+                        let entry = PyLruListElem {
                             hash,
                             result: result.clone(),
                         }
-                        .into_pyobject(vm)
-                    } else {
-                        result.clone()
-                    };
-                    cache.set_item_known_hash(key.as_object(), hash, entry, vm)?;
-                    if let Some(maxsize) = zelf.maxsize {
-                        Self::evict_if_full(maxsize, &cache, vm)?;
+                        .into_pyobject(vm);
+                        let evicted = if cache.__len__() >= maxsize {
+                            if let Some((oldest_key, oldest_value)) = cache.into_iter().next() {
+                                let Some(elem) = oldest_value.downcast_ref::<PyLruListElem>()
+                                else {
+                                    return Err(vm.new_type_error("lru cache entry is corrupted"));
+                                };
+                                // Pop can run equality for colliding keys. A
+                                // callback may clear the cache before it finds
+                                // the eviction candidate, leaving no entry.
+                                if cache
+                                    .entries
+                                    .pop_reentrant(vm, &*oldest_key, elem.hash)?
+                                    .is_none()
+                                {
+                                    return Ok(result);
+                                }
+                                Some((oldest_key, oldest_value))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        if let Err(error) =
+                            cache.set_item_known_hash(key.as_object(), hash, entry, vm)
+                        {
+                            // CPython releases the failed new entry before the
+                            // evicted key/result. Any of their finalizers can
+                            // reenter and inspect or repopulate the cache.
+                            drop(key);
+                            drop(result);
+                            drop(evicted);
+                            return Err(error);
+                        }
+                        // Neither keys nor results may be finalized between
+                        // eviction and insertion into the now-consistent cache.
+                        drop(evicted);
                     }
+                } else {
+                    // An unbounded cache always installs the newly computed
+                    // result, including after a recursive call for this key.
+                    cache.set_item_known_hash(key.as_object(), hash, result.clone(), vm)?;
                 }
             }
 
