@@ -19,6 +19,7 @@ mod winreg {
     use malachite_bigint::Sign;
     use num_traits::ToPrimitive;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::windows::ToWideString;
     use rustpython_host_env::winreg as host_winreg;
     use widestring::{WideCString, WideString};
 
