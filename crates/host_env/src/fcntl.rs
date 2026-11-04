@@ -151,7 +151,9 @@ pub fn lockf_type(cmd: i32) -> Result<libc::c_int, LockfError> {
         return Err(LockfError::InvalidCmd);
     };
 
-    Ok(l_type)
+    // Lock constants are c_short on BSD-family targets and c_int on Linux.
+    #[allow(clippy::unnecessary_cast)]
+    Ok(l_type as libc::c_int)
 }
 
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
