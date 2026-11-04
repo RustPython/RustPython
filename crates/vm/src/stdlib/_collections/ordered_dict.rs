@@ -359,11 +359,27 @@ pub(crate) mod ordered_dict {
         #[pymethod]
         fn clear(&self) {
             self.dict.clear();
-            let mut links = self.links.lock();
-            *links = ODictLinks {
-                state: links.state.wrapping_add(1),
-                ..ODictLinks::default()
+            let mut detached = {
+                let mut links = self.links.lock();
+                let replacement = ODictLinks {
+                    state: links.state,
+                    ..ODictLinks::default()
+                };
+                core::mem::replace(&mut *links, replacement)
             };
+            // Publish empty links before finalizers run, then release keys in
+            // linked order, which may differ from allocation/recycled slots.
+            let mut current = detached.first;
+            while let Some(idx) = current {
+                let Some(node) = detached.nodes.get_mut(idx).and_then(Option::take) else {
+                    break;
+                };
+                current = node.next;
+                drop(node);
+            }
+            drop(detached);
+            let mut links = self.links.lock();
+            links.state = links.state.wrapping_add(1);
         }
 
         #[pymethod]
@@ -484,6 +500,17 @@ pub(crate) mod ordered_dict {
         fn move_to_end(&self, args: ODictMoveToEndArgs, vm: &VirtualMachine) -> PyResult<()> {
             let key = args.key;
             let last = args.last;
+            {
+                let links = self.links.lock();
+                let endpoint = if last { links.last } else { links.first };
+                let Some(node) = endpoint.and_then(|idx| links.nodes.get(idx)?.as_ref()) else {
+                    drop(links);
+                    return Err(vm.new_key_error(key));
+                };
+                if node.key.is(&key) {
+                    return Ok(());
+                }
+            }
             let hash = key.key_hash(vm)?;
             let Some(idx) = self.find_node(&key, hash, vm)? else {
                 return Err(vm.new_key_error(key));
