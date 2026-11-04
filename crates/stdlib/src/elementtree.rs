@@ -925,14 +925,14 @@ pub(crate) mod _elementtree {
             };
             let new_text = match text {
                 Some(text) => {
-                    let pending = text.downcastable::<PyList>();
+                    let pending = text.class().is(vm.ctx.types.list_type);
                     Joined { obj: text, pending }
                 }
                 None => Joined::plain(vm.ctx.none()),
             };
             let new_tail = match tail {
                 Some(tail) => {
-                    let pending = tail.downcastable::<PyList>();
+                    let pending = tail.class().is(vm.ctx.types.list_type);
                     Joined { obj: tail, pending }
                 }
                 None => Joined::plain(vm.ctx.none()),
