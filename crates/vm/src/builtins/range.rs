@@ -16,6 +16,7 @@ use crate::{
     },
 };
 use core::cell::Cell;
+use core::ffi::c_long;
 use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
@@ -174,6 +175,61 @@ impl PyRange {
             Sign::NoSign => unreachable!(),
         }
     }
+
+    fn fast_iterator(&self, length: &BigInt, reverse: bool) -> Option<PyRangeIterator> {
+        // CPython uses C long, which can be narrower than isize on Windows.
+        let start = c_long::try_from(self.start.as_bigint()).ok()?;
+        let stop = c_long::try_from(self.stop.as_bigint()).ok()?;
+        let step = c_long::try_from(self.step.as_bigint()).ok()?;
+        let length = c_long::try_from(length).ok()?;
+        let (start, step) = if reverse {
+            let reverse_step = step.checked_neg()?;
+            let reverse_stop = start.checked_sub(step)?;
+            // The product may overflow even though the reversed start fits.
+            (
+                reverse_stop.wrapping_add(length.wrapping_mul(step)),
+                reverse_step,
+            )
+        } else {
+            if length != 0 {
+                // Reserve space for the exhausted position, as CPython does.
+                // Its conservative check uses stop, not the final item.
+                if step > 0 {
+                    stop.checked_add(step - 1)?;
+                } else {
+                    stop.checked_add(step + 1)?;
+                }
+            }
+            (start, step)
+        };
+        Some(PyRangeIterator {
+            index: AtomicCell::new(0),
+            start: start as isize,
+            step: step as isize,
+            length: length as usize,
+        })
+    }
+
+    fn iterator(&self, reverse: bool, vm: &VirtualMachine) -> PyObjectRef {
+        let length = self.compute_length();
+        if let Some(iter) = self.fast_iterator(&length, reverse) {
+            return iter.into_pyobject(vm);
+        }
+        let start = self.start.as_bigint();
+        let step = self.step.as_bigint();
+        let (start, step) = if reverse {
+            (start + (&length - 1) * step, -step)
+        } else {
+            (start.clone(), step.clone())
+        };
+        PyLongRangeIterator {
+            index: PyMutex::new(BigInt::zero()),
+            start,
+            step,
+            length,
+        }
+        .into_pyobject(vm)
+    }
 }
 
 // pub fn get_value(obj: &PyObject) -> PyRange {
@@ -289,36 +345,7 @@ impl Py<PyRange> {
 
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let start = self.start.as_bigint();
-        let step = self.step.as_bigint();
-
-        // Use CPython calculation for this:
-        let length = self.__len__();
-        let new_stop = start - step;
-        let start = &new_stop + length.clone() * step;
-        let step = -step;
-
-        if let (Some(start), Some(step), Some(_)) =
-            (start.to_isize(), step.to_isize(), new_stop.to_isize())
-        {
-            PyRangeIterator {
-                index: AtomicCell::new(0),
-                start,
-                step,
-                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
-                // always fit in a usize.
-                length: length.to_usize().unwrap_or(0),
-            }
-            .into_pyobject(vm)
-        } else {
-            PyLongRangeIterator {
-                index: PyMutex::new(BigInt::zero()),
-                start,
-                step,
-                length,
-            }
-            .into_pyobject(vm)
-        }
+        self.iterator(true, vm)
     }
 
     #[pymethod]
@@ -477,36 +504,7 @@ impl Comparable for PyRange {
 
 impl Iterable for PyRange {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let (start, stop, step, length) = (
-            zelf.start.as_bigint(),
-            zelf.stop.as_bigint(),
-            zelf.step.as_bigint(),
-            zelf.__len__(),
-        );
-        if let (Some(start), Some(step), Some(_), Some(_)) = (
-            start.to_isize(),
-            step.to_isize(),
-            stop.to_isize(),
-            (start + step).to_isize(),
-        ) {
-            Ok(PyRangeIterator {
-                index: AtomicCell::new(0),
-                start,
-                step,
-                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
-                // always fit in a usize.
-                length: length.to_usize().unwrap_or(0),
-            }
-            .into_pyobject(vm))
-        } else {
-            Ok(PyLongRangeIterator {
-                index: PyMutex::new(BigInt::zero()),
-                start: start.clone(),
-                step: step.clone(),
-                length,
-            }
-            .into_pyobject(vm))
-        }
+        Ok(zelf.iterator(false, vm))
     }
 }
 
@@ -553,8 +551,18 @@ impl Py<PyLongRangeIterator> {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let index = range_state(&self.length, &state, vm)?;
-        *self.index.lock() = index;
+        let Some(state) = state.downcast_ref_if_exact::<PyInt>(vm) else {
+            return Err(vm.new_type_error(format!(
+                "state must be an int, not {}",
+                state.class().fully_qualified_name(vm)?
+            )));
+        };
+        if state.as_bigint().is_positive() {
+            let mut index = self.index.lock();
+            let remaining = &self.length - &*index;
+            // State skips items from the current position; it cannot rewind.
+            *index += state.as_bigint().min(&remaining);
+        }
         Ok(())
     }
 
@@ -588,8 +596,8 @@ impl IterNext for PyLongRangeIterator {
     }
 }
 
-// When start, stop, step are isize, we can use a faster more compact representation
-// that only operates using isize to track values.
+// The compact iterator stores isize values for the FOR_ITER specialization.
+// Creation still checks the platform's C long bounds required by CPython.
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyRangeIterator {
@@ -616,11 +624,15 @@ impl Py<PyRangeIterator> {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.index.store(
-            range_state(&BigInt::from(self.length), &state, vm)?
-                .to_usize()
-                .unwrap(),
-        );
+        // Convert before updating the index: __index__ can advance this iterator.
+        // Keep the original state alive until after the update.
+        let index = ArgIndex::try_from_object(vm, state.clone())?;
+        let advance = c_long::try_from(index.as_ref().as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?
+            .max(0) as usize;
+        let _ = self
+            .index
+            .fetch_update(|index| Some(index.saturating_add(advance).min(self.length)));
         Ok(())
     }
 
@@ -680,15 +692,6 @@ fn range_iter_reduce(
         step: PyInt::from(step).into_ref(&vm.ctx),
     };
     Ok(vm.new_tuple((iter, (range,), vm.ctx.none())))
-}
-
-// Silently clips state (i.e index) in range [0, length].
-fn range_state(length: &BigInt, state: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
-    if let Some(i) = state.downcast_ref::<PyInt>() {
-        Ok(i.as_bigint().clone().clamp(BigInt::zero(), length.clone()))
-    } else {
-        Err(vm.new_type_error("an integer is required."))
-    }
 }
 
 pub(crate) enum RangeIndex {
