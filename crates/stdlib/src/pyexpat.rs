@@ -399,6 +399,7 @@ mod _pyexpat {
         public_id: Option<String>,
         has_internal_subset: bool,
         has_parameter_entity_reference: bool,
+        skipped_parameter_entities: Vec<String>,
     }
 
     enum DtdDeclaration {
@@ -662,9 +663,7 @@ mod _pyexpat {
                                     tokens
                                         .get(value_index + 1)
                                         .map(|value| normalize_public_id(value)),
-                                    tokens
-                                        .get(value_index + 2)
-                                        .map(|value| normalize_public_id(value)),
+                                    tokens.get(value_index + 2).cloned(),
                                     tokens
                                         .iter()
                                         .position(|token| token == "NDATA")
@@ -812,6 +811,13 @@ mod _pyexpat {
                     .windows(3)
                     .position(|window| window == b"-->")
                     .map_or(bytes.len(), |end| index + 4 + end + 3);
+                continue;
+            }
+            if quote.is_none() && bytes[index..].starts_with(b"<?") {
+                index = bytes[index + 2..]
+                    .windows(2)
+                    .position(|window| window == b"?>")
+                    .map_or(bytes.len(), |end| index + 2 + end + 2);
                 continue;
             }
             let byte = bytes[index];
@@ -1001,6 +1007,7 @@ mod _pyexpat {
             parser: &xml::EventReader<R>,
             event: &XmlEvent,
             has_parameter_entity_reference: bool,
+            skipped_parameter_entities: Vec<String>,
         ) -> Option<Self> {
             let XmlEvent::Doctype { syntax } = event else {
                 return None;
@@ -1026,6 +1033,7 @@ mod _pyexpat {
                 public_id: ids.public_id().map(str::to_owned),
                 has_internal_subset,
                 has_parameter_entity_reference,
+                skipped_parameter_entities,
             })
         }
     }
@@ -1571,6 +1579,7 @@ mod _pyexpat {
                             &parser,
                             &event,
                             parser.source().get_ref().has_parameter_entity_reference(),
+                            parser.source().get_ref().skipped_parameter_entities(),
                         )
                         .map(Box::new),
                         event,
@@ -1624,7 +1633,9 @@ mod _pyexpat {
         content: VecDeque<u8>,
         reference_content: Vec<u8>,
         has_parameter_entity_reference: bool,
+        skipped_parameter_entities: Vec<String>,
         xml_declaration: Option<XmlDeclarationInfo>,
+        has_bom: bool,
         initialized: bool,
         scan_cursor: usize,
         safe_cursor: usize,
@@ -1659,7 +1670,9 @@ mod _pyexpat {
                 content: VecDeque::new(),
                 reference_content: Vec::new(),
                 has_parameter_entity_reference: false,
+                skipped_parameter_entities: Vec::new(),
                 xml_declaration: None,
+                has_bom: false,
                 initialized: false,
                 scan_cursor: 0,
                 safe_cursor: 0,
@@ -1817,8 +1830,9 @@ mod _pyexpat {
             doctype: &mut [u8],
             parameter_entity_parsing: i32,
             standalone: bool,
-        ) {
+        ) -> Vec<String> {
             let mut declared = std::collections::HashSet::new();
+            let mut skipped = Vec::new();
             let mut index = 0;
             while index < doctype.len() {
                 if doctype[index..].starts_with(b"<!--") {
@@ -1826,6 +1840,13 @@ mod _pyexpat {
                         .windows(3)
                         .position(|window| window == b"-->")
                         .map_or(doctype.len(), |end| index + 4 + end + 3);
+                    continue;
+                }
+                if doctype[index..].starts_with(b"<?") {
+                    index = doctype[index + 2..]
+                        .windows(2)
+                        .position(|window| window == b"?>")
+                        .map_or(doctype.len(), |end| index + 2 + end + 2);
                     continue;
                 }
                 if doctype[index..].starts_with(b"<!ENTITY") {
@@ -1864,6 +1885,13 @@ mod _pyexpat {
                         .map_or(doctype.len(), |end| index + 4 + end + 3);
                     continue;
                 }
+                if quote.is_none() && doctype[index..].starts_with(b"<?") {
+                    index = doctype[index + 2..]
+                        .windows(2)
+                        .position(|window| window == b"?>")
+                        .map_or(doctype.len(), |end| index + 2 + end + 2);
+                    continue;
+                }
                 let byte = doctype[index];
                 if let Some(delimiter) = quote {
                     if byte == delimiter {
@@ -1892,6 +1920,9 @@ mod _pyexpat {
                             == XML_PARAM_ENTITY_PARSING_ALWAYS
                             && standalone
                             && !declared.contains(name);
+                        if parse_entities && !declared.contains(name) {
+                            skipped.push(String::from_utf8_lossy(name).into_owned());
+                        }
                         if !(declared.contains(name) && parse_entities)
                             && !preserve_for_standalone_error
                         {
@@ -1906,6 +1937,7 @@ mod _pyexpat {
                 }
                 index += 1;
             }
+            skipped
         }
 
         fn initialize(&mut self) -> std::io::Result<()>
@@ -1917,7 +1949,12 @@ mod _pyexpat {
             }
             loop {
                 if let Some((start, end, is_doctype)) = self.first_markup() {
-                    if self.safe_cursor != 0 && self.safe_cursor <= start {
+                    if self.safe_cursor != 0
+                        && self.safe_cursor <= start
+                        && !(self.has_bom
+                            && (self.prefix.starts_with(&[0xff, 0xfe])
+                                || self.prefix.starts_with(&[0xfe, 0xff])))
+                    {
                         if self.xml_declaration.is_none() {
                             self.xml_declaration = parse_xml_declaration(&self.prefix);
                         }
@@ -1953,11 +1990,12 @@ mod _pyexpat {
                                 },
                                 |declaration| declaration.standalone == Some(true),
                             );
-                            Self::filter_undefined_parameter_references(
-                                &mut self.prefix[start..doctype_end],
-                                self.parameter_entity_parsing,
-                                standalone,
-                            );
+                            self.skipped_parameter_entities =
+                                Self::filter_undefined_parameter_references(
+                                    &mut self.prefix[start..doctype_end],
+                                    self.parameter_entity_parsing,
+                                    standalone,
+                                );
                             let tail = self.prefix.split_off(doctype_end);
                             self.reference_content.extend_from_slice(&tail);
                             self.content.extend(tail);
@@ -1969,7 +2007,12 @@ mod _pyexpat {
                         break;
                     }
                 }
-                if self.scan_term.is_none() && self.safe_cursor != 0 {
+                if self.scan_term.is_none()
+                    && self.safe_cursor != 0
+                    && !(self.has_bom
+                        && (self.prefix.starts_with(&[0xff, 0xfe])
+                            || self.prefix.starts_with(&[0xfe, 0xff])))
+                {
                     if self.xml_declaration.is_none() {
                         self.xml_declaration = parse_xml_declaration(&self.prefix);
                     }
@@ -1984,14 +2027,24 @@ mod _pyexpat {
                     self.initialized = true;
                     break;
                 }
+                let waiting_after_bom = self.has_bom
+                    && self.prefix.len() == 2
+                    && (self.prefix.starts_with(&[0xff, 0xfe])
+                        || self.prefix.starts_with(&[0xfe, 0xff]));
                 self.prefix.extend_from_slice(&input[..count]);
+                self.has_bom |= self.prefix.starts_with(&[0xff, 0xfe])
+                    || self.prefix.starts_with(&[0xfe, 0xff]);
+                if waiting_after_bom {
+                    self.scan_cursor = 0;
+                    self.safe_cursor = 0;
+                }
             }
             if self.xml_declaration.is_none() {
                 self.xml_declaration = parse_xml_declaration(&self.prefix);
             }
-            if self.prefix.starts_with(b"<\0?\0") {
+            if !self.has_bom && self.prefix.starts_with(b"<\0?\0") {
                 self.ready.extend([0xff, 0xfe]);
-            } else if self.prefix.starts_with(b"\0<\0?") {
+            } else if !self.has_bom && self.prefix.starts_with(b"\0<\0?") {
                 self.ready.extend([0xfe, 0xff]);
             }
             self.ready.extend(self.prefix.drain(..));
@@ -2004,6 +2057,10 @@ mod _pyexpat {
 
         fn has_parameter_entity_reference(&self) -> bool {
             self.has_parameter_entity_reference
+        }
+
+        fn skipped_parameter_entities(&self) -> Vec<String> {
+            self.skipped_parameter_entities.clone()
         }
 
         fn entity_references(&self) -> Vec<String> {
@@ -2663,6 +2720,13 @@ mod _pyexpat {
                     if let Some(doctype) = doctype {
                         let doctype = *doctype;
                         let has_parameter_entity_reference = doctype.has_parameter_entity_reference;
+                        for name in &doctype.skipped_parameter_entities {
+                            invoke_handler(
+                                vm,
+                                &self.skipped_entity,
+                                (vm.ctx.new_str(name.as_str()), 1),
+                            )?;
+                        }
                         self.external_subset_handled.store(true, Ordering::Relaxed);
                         let parse_entities = self.parse_parameter_entities();
                         let has_external_subset = doctype.system_id.is_some();
@@ -2795,7 +2859,8 @@ mod _pyexpat {
                                     if !seen_entity_declarations.insert((parameter, name.clone())) {
                                         continue;
                                     }
-                                    if value.is_none()
+                                    if !parameter
+                                        && value.is_none()
                                         && notation.is_none()
                                         && let Some(system_id) = &system_id
                                     {
@@ -3270,6 +3335,7 @@ mod _pyexpat {
                             &parser,
                             &event,
                             parser.source().has_parameter_entity_reference(),
+                            parser.source().skipped_parameter_entities(),
                         )
                         .map(Box::new);
                         if let Err(e) = self.dispatch(vm, event, doctype, xml_declaration) {
