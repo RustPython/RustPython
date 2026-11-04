@@ -1037,7 +1037,8 @@ pub fn pack_ancillary_messages(cmsgs: &[(i32, i32, &[u8])]) -> Result<Vec<u8>, A
     Ok(control)
 }
 
-#[cfg(all(test, unix, not(target_os = "redox")))]
+#[cfg(test)]
+#[cfg(all(unix, not(target_os = "redox")))]
 mod ancillary_pack_tests {
     use super::{
         AlignedAncillaryBuffer, checked_cmsg_len, checked_cmsg_space, encode_ancillary_messages,
@@ -1068,7 +1069,12 @@ mod ancillary_pack_tests {
                     .read_unaligned()
             };
             assert_eq!((header.cmsg_level, header.cmsg_type), (*level, *kind));
-            assert_eq!(header.cmsg_len as usize, length);
+            #[allow(
+                clippy::unnecessary_cast,
+                reason = "cmsg_len is u32 on some Unix targets"
+            )]
+            let header_len = header.cmsg_len as usize;
+            assert_eq!(header_len, length);
             assert_eq!(&bytes[offset + data_offset..offset + length], *data);
             assert!(
                 bytes[offset + length..offset + space]
@@ -1082,7 +1088,7 @@ mod ancillary_pack_tests {
         let align = core::mem::align_of::<libc::cmsghdr>();
         let mut storage = vec![0u8; bytes.len() + align];
         let shift = (0..align)
-            .find(|&n| (storage.as_ptr() as usize + n) % align != 0)
+            .find(|&n| !(storage.as_ptr() as usize + n).is_multiple_of(align))
             .unwrap_or(0);
         let unaligned = &mut storage[shift..shift + bytes.len()];
         encode_ancillary_messages(messages, unaligned).unwrap();
