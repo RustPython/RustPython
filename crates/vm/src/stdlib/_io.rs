@@ -6681,13 +6681,24 @@ mod winconsoleio {
     /// Returns 'r' (input), 'w' (output), 'x' (generic CON), or '\0' (not a console).
     pub(super) fn pyio_get_console_type(path_or_fd: &PyObject, vm: &VirtualMachine) -> char {
         // Try as integer fd first
-        if let Ok(fd) = i32::try_from_object(vm, path_or_fd.to_owned()) {
+        if let Ok(fd) = i32::try_from_object(vm, path_or_fd.to_owned())
+            && fd >= 0
+        {
             return host_nt::console_type_from_fd(fd);
         }
 
         // Try as string path
-        let Ok(name) = path_or_fd.str(vm) else {
+        let Ok(path) = FsPath::try_from_path_like(path_or_fd.to_owned(), true, vm) else {
             return '\0';
+        };
+        let name = match &path {
+            FsPath::Str(name) => name.to_owned(),
+            FsPath::Bytes(_) => {
+                let Ok(path) = path.as_os_str(vm) else {
+                    return '\0';
+                };
+                vm.fsdecode(path.into_owned())
+            }
         };
         let Some(name_str) = name.to_str() else {
             // Surrogate strings can't be console device names
