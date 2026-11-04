@@ -14,6 +14,7 @@
 extern crate alloc;
 
 use alloc::string::FromUtf16Error;
+use rustpython_wtf8::Wtf8Buf;
 
 use windows_sys::Win32::{
     Foundation,
@@ -355,6 +356,23 @@ pub fn query_default_value(
     hkey: Registry::HKEY,
     sub_key: Option<&widestring::WideCStr>,
 ) -> Result<String, QueryStringError> {
+    query_default_value_with(hkey, sub_key, |value| {
+        String::from_utf16(value).map_err(QueryStringError::Utf16)
+    })
+}
+
+pub fn query_default_value_wtf8(
+    hkey: Registry::HKEY,
+    sub_key: Option<&widestring::WideCStr>,
+) -> Result<Wtf8Buf, QueryStringError> {
+    query_default_value_with(hkey, sub_key, |value| Ok(Wtf8Buf::from_wide(value)))
+}
+
+fn query_default_value_with<T>(
+    hkey: Registry::HKEY,
+    sub_key: Option<&widestring::WideCStr>,
+    decode: impl Fn(&[u16]) -> Result<T, QueryStringError>,
+) -> Result<T, QueryStringError> {
     let child_key = if let Some(sub_key) = sub_key.filter(|s| !s.is_empty()) {
         let mut out_key = core::ptr::null_mut();
         let res = unsafe {
@@ -396,7 +414,7 @@ pub fn query_default_value(
             continue;
         }
         if res == Foundation::ERROR_FILE_NOT_FOUND {
-            break Ok(String::new());
+            break decode(&[]);
         }
         if res != 0 {
             break Err(QueryStringError::Code(res));
@@ -410,7 +428,7 @@ pub fn query_default_value(
             .iter()
             .position(|&c| c == 0)
             .unwrap_or(u16_slice.len());
-        break String::from_utf16(&u16_slice[..len]).map_err(QueryStringError::Utf16);
+        break decode(&u16_slice[..len]);
     };
 
     if let Some(ck) = child_key {
