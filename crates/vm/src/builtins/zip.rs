@@ -1,9 +1,9 @@
 use super::PyType;
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
-    function::{ArgIntoBool, PosArgs},
+    function::{OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
@@ -27,9 +27,9 @@ impl PyPayload for PyZip {
 #[derive(FromArgs)]
 pub struct PyZipNewArgs {
     #[pyarg(flatten)]
-    iterables: PosArgs<PyIter, crate::function::NameIterables>,
-    #[pyarg(named, default)]
-    strict: bool,
+    iterables: PosArgs<PyObjectRef, crate::function::NameIterables>,
+    #[pyarg(named, default, py_default = "False")]
+    strict: OptionalArg<PyObjectRef>,
 }
 
 impl Constructor for PyZip {
@@ -37,12 +37,19 @@ impl Constructor for PyZip {
 
     fn py_new(
         _cls: &Py<PyType>,
-        PyZipNewArgs { iterables, strict }: Self::Args,
-        _vm: &VirtualMachine,
+        Self::Args { iterables, strict }: Self::Args,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let iterators = iterables.into_vec();
-        let strict = Radium::new(strict);
-        Ok(Self { iterators, strict })
+        let result = (|| {
+            let strict = strict_value(&strict, vm)?;
+            let iterators = get_iterators(iterables.iter(), vm)?;
+            Ok(Self {
+                iterators,
+                strict: Radium::new(strict),
+            })
+        })();
+        release_iterables(strict, iterables);
+        result
     }
 }
 
@@ -65,10 +72,10 @@ impl PyZip {
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) {
-        if let Ok(obj) = ArgIntoBool::try_from_object(vm, object) {
-            zelf.strict.store(obj.into(), atomic::Ordering::Release);
-        }
+    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let strict = object.try_to_bool(vm)?;
+        zelf.strict.store(strict, atomic::Ordering::Release);
+        Ok(())
     }
 }
 
@@ -80,39 +87,114 @@ impl IterNext for PyZip {
             return Ok(PyIterReturn::StopIteration(None));
         }
         let mut next_objs = Vec::with_capacity(zelf.iterators.len());
-        for (idx, iterator) in zelf.iterators.iter().enumerate() {
-            let item = match iterator.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => {
-                    if zelf.strict.load(atomic::Ordering::Acquire) {
-                        if idx > 0 {
-                            let plural = if idx == 1 { " " } else { "s 1-" };
-                            return Err(vm.new_value_error(format!(
-                                "zip() argument {} is shorter than argument{}{}",
-                                idx + 1,
-                                plural,
-                                idx
-                            )));
-                        }
-                        for (idx, iterator) in zelf.iterators[1..].iter().enumerate() {
-                            if let PyIterReturn::Return(_obj) = iterator.next(vm)? {
-                                let plural = if idx == 0 { " " } else { "s 1-" };
-                                return Err(vm.new_value_error(format!(
-                                    "zip() argument {} is longer than argument{}{}",
-                                    idx + 2,
-                                    plural,
-                                    idx + 1
-                                )));
-                            }
-                        }
-                    }
-                    return Ok(PyIterReturn::StopIteration(v));
-                }
-            };
+        for idx in 0..zelf.iterators.len() {
+            let item =
+                crate::raise_if_stop!(next_item(&zelf.iterators, idx, &zelf.strict, "zip", vm)?);
             next_objs.push(item);
         }
         Ok(PyIterReturn::Return(vm.ctx.new_tuple(next_objs).into()))
     }
+}
+
+pub(super) fn strict_value(
+    strict: &OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    strict
+        .as_ref()
+        .map(|value| value.try_to_bool(vm))
+        .transpose()
+        .map(|value| value.unwrap_or(false))
+}
+
+pub(super) fn get_iterators<'a>(
+    iterables: impl IntoIterator<Item = &'a PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<PyIter>> {
+    let iterables = iterables.into_iter();
+    let mut iterators = Vec::with_capacity(iterables.size_hint().0);
+    for obj in iterables {
+        match obj.get_iter(vm) {
+            Ok(iterator) => iterators.push(iterator),
+            Err(error) => {
+                while let Some(iterator) = iterators.pop() {
+                    drop(iterator);
+                }
+                return Err(error);
+            }
+        }
+    }
+    Ok(iterators)
+}
+
+// Constructor callbacks borrow the complete argument list. Release it only
+// afterwards, in call-stack order, including when conversion failed.
+pub(super) fn release_iterables(
+    strict: OptionalArg<PyObjectRef>,
+    iterables: PosArgs<PyObjectRef, crate::function::NameIterables>,
+) {
+    drop(strict);
+    iterables.into_iter().rev().for_each(drop);
+}
+
+// Read strict after the source callback, but before clearing a StopIteration
+// exception: either operation can run user code that changes the flag.
+pub(super) fn next_item(
+    iterators: &[PyIter],
+    index: usize,
+    strict: &PyAtomic<bool>,
+    name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<PyIterReturn> {
+    let result = iterators[index].next(vm);
+    if matches!(&result, Ok(PyIterReturn::Return(_))) || !strict.load(atomic::Ordering::Acquire) {
+        return result;
+    }
+    // Native iterators can surface StopIteration as an exception as well as
+    // the dedicated return variant (for example, a filter item's __bool__).
+    // Preserve the original exception in non-strict mode.
+    match result.or_else(|error| PyIterReturn::from_pyresult(Err(error), vm))? {
+        PyIterReturn::StopIteration(value) => {
+            drop(value);
+            strict_exhausted(iterators, index, name, vm)
+        }
+        item => Ok(item),
+    }
+}
+
+// Both map and zip check the remaining sources only when the first one stops.
+// Callers clear its StopIteration value before checking: strict exhaustion does
+// not propagate source return values, unlike ordinary shortest-input iteration.
+fn strict_exhausted(
+    iterators: &[PyIter],
+    stopped: usize,
+    name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<PyIterReturn> {
+    let (index, direction) = if stopped > 0 {
+        (stopped, "shorter")
+    } else {
+        let mut longer = None;
+        for (index, iterator) in iterators.iter().enumerate().skip(1) {
+            if let PyIterReturn::Return(item) = iterator
+                .next(vm)
+                .or_else(|error| PyIterReturn::from_pyresult(Err(error), vm))?
+            {
+                drop(item);
+                longer = Some(index);
+                break;
+            }
+        }
+        let Some(index) = longer else {
+            return Ok(PyIterReturn::StopIteration(None));
+        };
+        (index, "longer")
+    };
+    let plural = if index == 1 { " " } else { "s 1-" };
+    Err(vm.new_value_error(format!(
+        "{name}() argument {} is {direction} than argument{plural}{index}",
+        index + 1,
+    )))
 }
 
 pub(crate) fn init(ctx: &'static Context) {

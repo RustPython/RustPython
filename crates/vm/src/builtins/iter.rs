@@ -4,14 +4,14 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, SelfIter},
+    types::{IterNext, Iterable, PyComparisonOp, SelfIter},
 };
-use rustpython_common::lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
+use rustpython_common::lock::{PyMutex, PyRwLock};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -302,8 +302,7 @@ impl IterNext for PySequenceIterator {
 #[pyclass(module = false, name = "callable_iterator", traverse)]
 #[derive(Debug)]
 pub struct PyCallableIterator {
-    sentinel: PyObjectRef,
-    status: PyRwLock<IterStatus<ArgCallable>>,
+    status: PyRwLock<IterStatus<(ArgCallable, PyObjectRef)>>,
 }
 
 impl PyPayload for PyCallableIterator {
@@ -317,9 +316,18 @@ impl PyCallableIterator {
     #[must_use]
     pub const fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
-            sentinel,
-            status: PyRwLock::new(IterStatus::Active(callable)),
+            status: PyRwLock::new(IterStatus::Active((callable, sentinel))),
         }
+    }
+
+    fn exhaust(&self) {
+        let released = {
+            let mut status = self.status.write();
+            core::mem::replace(&mut *status, IterStatus::Exhausted)
+        };
+        // Dropping the callable or sentinel can invoke a finalizer that calls
+        // next() again, so both must be released after the state lock.
+        drop(released);
     }
 }
 
@@ -328,10 +336,19 @@ impl Py<PyCallableIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        let status = self.status.read();
-        if let IterStatus::Active(callable) = &*status {
-            let callable_obj: PyObjectRef = callable.clone().into();
-            Ok(vm.new_tuple((func, (callable_obj, self.sentinel.clone()))))
+        let active = {
+            let status = self.status.read();
+            match &*status {
+                IterStatus::Active((callable, sentinel)) => {
+                    let callable: PyObjectRef = callable.clone().into();
+                    Some((callable, sentinel.clone()))
+                }
+                IterStatus::Exhausted => None,
+            }
+        };
+        // Tuple allocation may collect objects whose finalizers re-enter next().
+        if let Some(args) = active {
+            Ok(vm.new_tuple((func, args)))
         } else {
             Ok(vm.new_tuple((func, (vm.ctx.empty_tuple.clone(),))))
         }
@@ -346,30 +363,42 @@ impl IterNext for PyCallableIterator {
         let callable = {
             let status = zelf.status.read();
             match &*status {
-                IterStatus::Active(callable) => callable.clone(),
+                IterStatus::Active((callable, _)) => callable.clone(),
                 IterStatus::Exhausted => return Ok(PyIterReturn::StopIteration(None)),
             }
         };
 
-        let ret = callable.invoke((), vm)?;
+        let ret = callable.invoke((), vm);
+        drop(callable);
+        let ret = match PyIterReturn::from_pyresult(ret, vm)? {
+            PyIterReturn::Return(ret) => ret,
+            PyIterReturn::StopIteration(value) => {
+                drop(value);
+                zelf.exhaust();
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+        };
 
-        // Re-check before comparing, but don't hold the lock while running
-        // sentinel equality. User __eq__ code can re-enter this iterator.
-        {
+        // Re-check after calling, and release the lock before equality: either
+        // callback can re-enter and exhaust this iterator.
+        let sentinel = {
             let status = zelf.status.read();
-            if !matches!(&*status, IterStatus::Active(_)) {
-                return Ok(PyIterReturn::StopIteration(None));
+            match &*status {
+                IterStatus::Active((_, sentinel)) => sentinel.clone(),
+                IterStatus::Exhausted => return Ok(PyIterReturn::StopIteration(None)),
             }
-        }
-
-        let is_sentinel = vm.identical_or_equal(&ret, &zelf.sentinel)?;
-
+        };
+        let is_sentinel = if sentinel.is(&ret) {
+            drop(sentinel);
+            true
+        } else {
+            // Consume the snapshot before truth conversion: __bool__ can
+            // exhaust us and observe the sentinel's finalizer immediately.
+            let comparison = sentinel.rich_compare(ret.clone(), PyComparisonOp::Eq, vm)?;
+            comparison.try_to_bool(vm)?
+        };
         if is_sentinel {
-            let status = zelf.status.upgradable_read();
-            if !matches!(&*status, IterStatus::Active(_)) {
-                return Ok(PyIterReturn::StopIteration(None));
-            }
-            *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
+            zelf.exhaust();
             Ok(PyIterReturn::StopIteration(None))
         } else {
             Ok(PyIterReturn::Return(ret))

@@ -1,9 +1,12 @@
-use super::{PyType, PyTypeRef};
+use super::{
+    PyType, PyTypeRef,
+    zip::{get_iterators, next_item, release_iterables, strict_value},
+};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
-    function::{ArgIntoBool, FuncArgs, PosArgs},
+    function::{FuncArgs, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
@@ -30,21 +33,21 @@ pub struct PyMapNewArgs {
     #[pyarg(positional)]
     function: PyObjectRef,
     #[pyarg(positional)]
-    iterable: PyIter,
+    iterable: PyObjectRef,
     #[pyarg(flatten)]
-    iterables: PosArgs<PyIter, crate::function::NameIterables>,
-    #[pyarg(named, default)]
-    strict: bool,
+    iterables: PosArgs<PyObjectRef, crate::function::NameIterables>,
+    #[pyarg(named, default, py_default = "False")]
+    strict: OptionalArg<PyObjectRef>,
 }
 
 #[derive(FromArgs)]
 struct MapCallArgs {
-    #[pyarg(positional)]
-    function: PyObjectRef,
+    #[pyarg(positional, optional)]
+    function: OptionalArg<PyObjectRef>,
     #[pyarg(flatten)]
-    iterables: PosArgs<PyIter, crate::function::NameIterables>,
-    #[pyarg(named, default)]
-    strict: bool,
+    iterables: PosArgs<PyObjectRef, crate::function::NameIterables>,
+    #[pyarg(named, default, py_default = "False")]
+    strict: OptionalArg<PyObjectRef>,
 }
 
 impl Constructor for PyMap {
@@ -52,31 +55,61 @@ impl Constructor for PyMap {
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let MapCallArgs {
-            function: mapper,
+            function,
             iterables,
             strict,
         } = args.bind_for(vm, "map")?;
-        let iterators = iterables.into_vec();
-        if iterators.is_empty() {
-            return Err(vm.new_type_error("map() must have at least two arguments."));
-        }
-        let payload = Self {
-            mapper,
-            iterators,
-            strict: Radium::new(strict),
-        };
-        payload.into_ref_with_type(vm, cls).map(Into::into)
+        let result = (|| {
+            let strict = strict_value(&strict, vm)?;
+            let mapper = function
+                .as_ref()
+                .into_option()
+                .filter(|_| !iterables.as_ref().is_empty())
+                .ok_or_else(|| vm.new_type_error("map() must have at least two arguments."))?;
+            let payload = Self::from_iterables(mapper, iterables.iter(), strict, vm)?;
+            payload.into_ref_with_type(vm, cls).map(Into::into)
+        })();
+        release_iterables(strict, iterables);
+        drop(function);
+        result
     }
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let PyMapNewArgs {
+        let Self::Args {
             function,
             iterable,
             iterables,
             strict,
         } = args;
-        let _ = (function, iterable, iterables, strict);
-        Err(vm.new_type_error("use slot_new"))
+        let result = (|| {
+            let strict = strict_value(&strict, vm)?;
+            Self::from_iterables(
+                &function,
+                core::iter::once(&iterable).chain(iterables.iter()),
+                strict,
+                vm,
+            )
+        })();
+        release_iterables(strict, iterables);
+        drop(iterable);
+        drop(function);
+        result
+    }
+}
+
+impl PyMap {
+    fn from_iterables<'a>(
+        mapper: &PyObjectRef,
+        iterables: impl IntoIterator<Item = &'a PyObjectRef>,
+        strict: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        let iterators = get_iterators(iterables, vm)?;
+        Ok(Self {
+            mapper: mapper.clone(),
+            iterators,
+            strict: Radium::new(strict),
+        })
     }
 }
 
@@ -96,10 +129,10 @@ impl PyMap {
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) {
-        if let Ok(obj) = ArgIntoBool::try_from_object(vm, object) {
-            zelf.strict.store(obj.into(), atomic::Ordering::Release);
-        }
+    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let strict = object.try_to_bool(vm)?;
+        zelf.strict.store(strict, atomic::Ordering::Release);
+        Ok(())
     }
 }
 
@@ -107,36 +140,10 @@ impl SelfIter for PyMap {}
 
 impl IterNext for PyMap {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let mut next_objs = Vec::new();
-        for (idx, iterator) in zelf.iterators.iter().enumerate() {
-            let item = match iterator.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => {
-                    if zelf.strict.load(atomic::Ordering::Acquire) {
-                        if idx > 0 {
-                            let plural = if idx == 1 { " " } else { "s 1-" };
-                            return Err(vm.new_value_error(format!(
-                                "map() argument {} is shorter than argument{}{}",
-                                idx + 1,
-                                plural,
-                                idx,
-                            )));
-                        }
-                        for (idx, iterator) in zelf.iterators[1..].iter().enumerate() {
-                            if let PyIterReturn::Return(_) = iterator.next(vm)? {
-                                let plural = if idx == 0 { " " } else { "s 1-" };
-                                return Err(vm.new_value_error(format!(
-                                    "map() argument {} is longer than argument{}{}",
-                                    idx + 2,
-                                    plural,
-                                    idx + 1,
-                                )));
-                            }
-                        }
-                    }
-                    return Ok(PyIterReturn::StopIteration(v));
-                }
-            };
+        let mut next_objs = Vec::with_capacity(zelf.iterators.len());
+        for idx in 0..zelf.iterators.len() {
+            let item =
+                crate::raise_if_stop!(next_item(&zelf.iterators, idx, &zelf.strict, "map", vm)?);
             next_objs.push(item);
         }
 

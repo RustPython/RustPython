@@ -1,6 +1,6 @@
 use super::{PyType, PyTypeRef};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
@@ -26,7 +26,7 @@ pub struct FilterArgs {
     #[pyarg(positional)]
     function: PyObjectRef,
     #[pyarg(positional)]
-    iterable: PyIter,
+    iterable: PyObjectRef,
 }
 
 impl Constructor for PyFilter {
@@ -35,25 +35,25 @@ impl Constructor for PyFilter {
 
     fn py_new(
         _cls: &Py<PyType>,
-        Self::Args {
-            function,
-            iterable: iterator,
-        }: Self::Args,
-        _vm: &VirtualMachine,
+        Self::Args { function, iterable }: Self::Args,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        Ok(Self {
-            predicate: function,
+        let result = iterable.get_iter(vm).map(|iterator| Self {
+            predicate: function.clone(),
             iterator,
-        })
+        });
+        drop(iterable);
+        drop(function);
+        result
     }
 }
 
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl Py<PyFilter> {
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+    fn __reduce__(&self) -> (PyTypeRef, (PyObjectRef, PyIter)) {
         (
-            vm.ctx.types.filter_type.to_owned(),
+            self.class().to_owned(),
             (self.predicate.clone(), self.iterator.clone()),
         )
     }
@@ -66,17 +66,18 @@ impl IterNext for PyFilter {
         let predicate = &zelf.predicate;
         loop {
             let next_obj = raise_if_stop!(zelf.iterator.next(vm)?);
-            let predicate_value = if vm.is_none(predicate) {
-                next_obj.clone()
+            let is_true = if vm.is_none(predicate) || predicate.is(vm.ctx.types.bool_type) {
+                next_obj.try_to_bool(vm)?
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter iteration
-                raise_if_stop!(PyIterReturn::from_pyresult(
+                let predicate_value = raise_if_stop!(PyIterReturn::from_pyresult(
                     predicate.call((next_obj.clone(),), vm),
                     vm
-                )?)
+                )?);
+                predicate_value.try_to_bool(vm)?
             };
 
-            if predicate_value.try_to_bool(vm)? {
+            if is_true {
                 return Ok(PyIterReturn::Return(next_obj));
             }
         }
