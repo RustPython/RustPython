@@ -1215,7 +1215,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<(PyObjectRef, Option<u16>)>> {
         if self.exact_dict(vm) {
-            if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
+            if let Some(value) = self.entries.get_hint(key, usize::from(hint)) {
                 return Ok(Some((value, None)));
             }
             let hash = PyDict::hash_or_unhashable(key, vm)?;

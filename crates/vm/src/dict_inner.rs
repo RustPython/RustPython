@@ -742,17 +742,10 @@ impl<T: Clone> Dict<T> {
     /// Fast path lookup using a cached entry index (`hint`).
     ///
     /// Returns `None` if the hint is stale or its key is not identical to `key`.
-    pub(crate) fn get_hint<K: DictKey + ?Sized>(
-        &self,
-        _vm: &VirtualMachine,
-        key: &K,
-        hint: usize,
-    ) -> PyResult<Option<T>> {
+    pub(crate) fn get_hint<K: DictKey + ?Sized>(&self, key: &K, hint: usize) -> Option<T> {
         let inner = self.read();
-        let Some(Some(entry)) = inner.entries.get(hint) else {
-            return Ok(None);
-        };
-        Ok(key.key_is(&entry.key).then(|| entry.value.clone()))
+        let entry = inner.entries.get(hint)?.as_ref()?;
+        key.key_is(&entry.key).then(|| entry.value.clone())
     }
 
     /// Read an entry directly when a cached keys-version still describes the
@@ -2298,7 +2291,7 @@ mod tests {
             assert_eq!(dict.values(), vec![0, 2, 1]);
             assert_eq!(dict.keys_version(), 0);
             assert_eq!(dict.get_index_if_keys_version(version, hint), None);
-            assert_eq!(dict.get_hint(vm, keys[1], hint).unwrap(), None);
+            assert_eq!(dict.get_hint(keys[1], hint), None);
             assert!(dict.next_entry_checked(0, &size, |_, v| *v).is_err());
             assert!(
                 dict.prev_entry_checked(size.entries_size - 1, &size, |_, v| *v)
