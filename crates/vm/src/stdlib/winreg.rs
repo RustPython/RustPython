@@ -627,7 +627,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryValue(key: HKEYArg, sub_key: Option<String>, vm: &VirtualMachine) -> PyResult<String> {
+    fn QueryValue(
+        key: HKEYArg,
+        sub_key: Option<String>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
         let hkey = key.0;
 
         if hkey == host_winreg::HKEY_PERFORMANCE_DATA {
@@ -641,15 +645,34 @@ mod winreg {
             .map(WideCString::from_str)
             .transpose()
             .map_err(|e| e.to_pyexception(vm))?;
-        host_winreg::query_default_value(hkey, sub_key.as_deref())
+        host_winreg::query_default_value_wtf8(hkey, sub_key.as_deref())
+            .map(|value| vm.ctx.new_str(value))
             .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
-    fn QueryValueEx(key: HKEYArg, name: String, vm: &VirtualMachine) -> PyResult<PyRef<PyTuple>> {
+    fn QueryValueEx(
+        key: HKEYArg,
+        name: Option<PyRef<PyStr>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyTuple>> {
         let hkey = key.0;
-        let wide_name = WideCString::from_str(name).map_err(|e| e.to_pyexception(vm))?;
-        let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, &wide_name)
+        let wide_name = name
+            .as_ref()
+            .map(|name| {
+                name.as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|_| nul_char_error(vm))
+            })
+            .transpose()?;
+        vm.audit("winreg.QueryValue", || {
+            let name: PyObjectRef = wide_name.as_ref().map_or_else(
+                || vm.ctx.none(),
+                |name| vm.ctx.new_str(Wtf8Buf::from_wide(name.as_slice())).into(),
+            );
+            (hkey as isize, vm.ctx.none(), name)
+        })?;
+        let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, wide_name.as_deref())
             .map_err(|err| os_error_from_windows_code(vm, err as i32))?;
         let obj = reg_to_py(vm, &ret_buf, typ)?;
         // Return tuple (value, type)
