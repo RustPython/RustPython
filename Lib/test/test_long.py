@@ -403,7 +403,6 @@ class LongTest(unittest.TestCase):
                "Got {}, expected {}.".format(n, actual, expected))
         self.assertEqual(actual, expected, msg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_IEEE_754
     def test_float_conversion(self):
 

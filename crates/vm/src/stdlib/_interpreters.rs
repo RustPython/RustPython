@@ -14,7 +14,7 @@ pub(crate) mod _interpreters {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyModule, PyStr},
         class::PyClassImpl,
-        function::{ArgSpec, FuncArgs},
+        function::{ArgSpec, ArgumentError, DefaultRepr, FromArgs, FuncArgs, Param, ParamKind},
         protocol::{BufferMethods, PyBuffer},
         types::{AsBuffer, Constructor},
         vm::{
@@ -395,8 +395,38 @@ pub(crate) mod _interpreters {
             .into()
     }
 
+    struct NewConfigArgs(FuncArgs);
+
+    impl FromArgs for NewConfigArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param {
+                name: "name",
+                kind: ParamKind::PositionalOnly,
+                default: Some(DefaultRepr::Str("isolated")),
+            },
+            Param::var_keyword("overrides"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
+    struct ListAllArgs(FuncArgs);
+
+    impl FromArgs for ListAllArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[Param::keyword_only(
+            "require_ready",
+            Some(DefaultRepr::Bool(false)),
+        )]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
     #[pyfunction]
-    fn new_config(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn new_config(NewConfigArgs(args): NewConfigArgs, vm: &VirtualMachine) -> PyResult {
         const FUNCNAME: &str = "_interpreters.new_config";
         if args.args.len() > 1 {
             return Err(vm.new_type_error(format!(
@@ -502,7 +532,7 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn list_all(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn list_all(ListAllArgs(args): ListAllArgs, vm: &VirtualMachine) -> PyResult {
         let parsed = ArgSpec {
             fname: "_interpreters.list_all",
             keywords: &["require_ready"],

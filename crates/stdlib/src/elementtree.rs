@@ -311,11 +311,15 @@ pub(crate) mod _elementtree {
         if obj.downcastable::<PyElement>() {
             Ok(())
         } else {
-            Err(vm.new_type_error(format!(
-                "expected an Element, not \"{}\"",
-                obj.class().name()
-            )))
+            reject_element(obj, vm)
         }
+    }
+
+    fn reject_element(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_type_error(format!(
+            "expected an Element, not \"{}\"",
+            obj.class().name()
+        )))
     }
 
     fn as_element<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<PyElement>> {
@@ -465,16 +469,20 @@ pub(crate) mod _elementtree {
             let attrib = attrib.filter(|d| !d.is_empty()).map(Into::into);
             let _recycle = {
                 let mut inner = zelf.inner.write();
-                let old_attrib = if attrib.is_some() {
-                    core::mem::replace(&mut inner.attrib, attrib)
+                let (old_attrib, old_children) = if let Some(attrib) = attrib {
+                    (
+                        inner.attrib.replace(attrib),
+                        core::mem::take(&mut inner.children),
+                    )
                 } else {
-                    None
+                    (None, Vec::new())
                 };
                 (
                     core::mem::replace(&mut inner.tag, tag),
                     core::mem::replace(&mut inner.text, Joined::plain(vm.ctx.none())),
                     core::mem::replace(&mut inner.tail, Joined::plain(vm.ctx.none())),
                     old_attrib,
+                    old_children,
                 )
             };
             Ok(())
@@ -925,14 +933,14 @@ pub(crate) mod _elementtree {
             };
             let new_text = match text {
                 Some(text) => {
-                    let pending = text.downcastable::<PyList>();
+                    let pending = text.class().is(vm.ctx.types.list_type);
                     Joined { obj: text, pending }
                 }
                 None => Joined::plain(vm.ctx.none()),
             };
             let new_tail = match tail {
                 Some(tail) => {
-                    let pending = tail.downcastable::<PyList>();
+                    let pending = tail.class().is(vm.ctx.types.list_type);
                     Joined { obj: tail, pending }
                 }
                 None => Joined::plain(vm.ctx.none()),
@@ -984,40 +992,49 @@ pub(crate) mod _elementtree {
             let mut recycle: Vec<PyObjectRef> = Vec::new();
             match sequence_index(vm, needle)? {
                 SequenceIndex::Int(i) => {
-                    check_element(&value, vm)?;
                     let mut inner = self.inner.write();
-                    let pos = inner
-                        .children
-                        .wrap_index(i)
-                        .ok_or_else(|| vm.new_index_error("child assignment index out of range"))?;
+                    let Some(pos) = inner.children.wrap_index(i) else {
+                        drop(inner);
+                        return Err(vm.new_index_error("child assignment index out of range"));
+                    };
+                    if !value.downcastable::<PyElement>() {
+                        drop(inner);
+                        return reject_element(&value, vm);
+                    }
                     recycle.push(core::mem::replace(&mut inner.children[pos], value));
                     Ok(())
                 }
                 SequenceIndex::Slice(slice) => {
                     let items: Vec<PyObjectRef> = value.try_to_value(vm)?;
-                    for item in &items {
-                        check_element(item, vm)?;
-                    }
+                    // This check cannot call Python. Delay reporting it until
+                    // after the extended-slice length check.
+                    let invalid = items.iter().find(|item| !item.downcastable::<PyElement>());
                     let mut inner = self.inner.write();
                     let (range, step, slice_len) = slice.adjust_indices(inner.children.len());
+                    if step != 1 && slice_len != items.len() {
+                        let new_len = items.len();
+                        drop(inner);
+                        drop(items);
+                        return Err(vm.new_value_error(format!(
+                            "attempt to assign sequence of size {} to extended slice of size {}",
+                            new_len, slice_len
+                        )));
+                    }
+                    if let Some(item) = invalid {
+                        drop(inner);
+                        return reject_element(item, vm);
+                    }
                     if step == 1 {
                         recycle.extend(inner.children.splice(range, items));
-                        Ok(())
-                    } else if slice_len == items.len() {
+                    } else {
                         let iter = crate::vm::sliceable::SaturatedSliceIter::from_adjust_indices(
                             range, step, slice_len,
                         );
                         for (pos, item) in iter.zip(items) {
                             recycle.push(core::mem::replace(&mut inner.children[pos], item));
                         }
-                        Ok(())
-                    } else {
-                        Err(vm.new_value_error(format!(
-                            "attempt to assign sequence of size {} to extended slice of size {}",
-                            items.len(),
-                            slice_len
-                        )))
                     }
+                    Ok(())
                 }
             }
         }
@@ -1232,19 +1249,21 @@ pub(crate) mod _elementtree {
                 }),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyElement::sequence_downcast(seq);
-                    let recycle = if let Some(value) = value {
-                        check_element(&value, vm)?;
+                    let recycle = {
                         let mut inner = zelf.inner.write();
-                        let pos = inner.children.wrap_index(i).ok_or_else(|| {
-                            vm.new_index_error("child assignment index out of range")
-                        })?;
-                        core::mem::replace(&mut inner.children[pos], value)
-                    } else {
-                        let mut inner = zelf.inner.write();
-                        let pos = inner.children.wrap_index(i).ok_or_else(|| {
-                            vm.new_index_error("child assignment index out of range")
-                        })?;
-                        inner.children.remove(pos)
+                        let Some(pos) = inner.children.wrap_index(i) else {
+                            drop(inner);
+                            return Err(vm.new_index_error("child assignment index out of range"));
+                        };
+                        if let Some(value) = value {
+                            if !value.downcastable::<PyElement>() {
+                                drop(inner);
+                                return reject_element(&value, vm);
+                            }
+                            core::mem::replace(&mut inner.children[pos], value)
+                        } else {
+                            inner.children.remove(pos)
+                        }
                     };
                     drop(recycle);
                     Ok(())
