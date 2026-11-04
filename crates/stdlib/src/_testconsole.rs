@@ -3,7 +3,7 @@ pub(crate) use _testconsole::module_def;
 #[pymodule]
 mod _testconsole {
     use crate::vm::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyTypeRef,
+        AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyTypeRef,
         convert::IntoPyException, function::ArgBytesLike,
     };
     use rustpython_host_env::testconsole as host_testconsole;
