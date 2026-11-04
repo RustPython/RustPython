@@ -105,6 +105,10 @@ mod _bisect {
     }
 
     #[pyfunction]
+    #[expect(
+        clippy::redundant_clone,
+        reason = "keep the original arguments alive until the insert result is released"
+    )]
     fn insort_left(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
         // The search runs on the key, the insert has to put back the item itself.
         let needle = match key {
@@ -127,6 +131,10 @@ mod _bisect {
     }
 
     #[pyfunction]
+    #[expect(
+        clippy::redundant_clone,
+        reason = "keep the original arguments alive until the insert result is released"
+    )]
     fn insort_right(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
         // The search runs on the key, the insert has to put back the item itself.
         let needle = match key {
