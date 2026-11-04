@@ -8,13 +8,14 @@ pub(crate) mod _signal {
 
     use crate::{
         Py, PyObjectRef, PyResult, VirtualMachine,
+        function::ArgIntoBool,
         signal::{self, SignalHandlers, SignalNum},
     };
     use core::sync::atomic::{self, Ordering};
 
     cfg_select! {
         any(unix, windows, target_os = "wasi") => {
-            use crate::convert::{IntoPyException, TryFromBorrowedObject};
+            use crate::{builtins::PyInt, convert::IntoPyException};
             use rustpython_host_env::signal as host_signal;
         }
         _ => {}
@@ -24,9 +25,9 @@ pub(crate) mod _signal {
         unix => {
             use crate::{
                 builtins::{PyBaseExceptionRef, PyTypeRef},
-                function::ArgIntoFloat,
+                stdlib::time::pytime::{self, Round},
             };
-            use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
+            use rustpython_host_env::signal::itimerval_to_tuple;
 
             use std::os::fd::AsFd;
         }
@@ -41,6 +42,8 @@ pub(crate) mod _signal {
 
     cfg_select! {
         windows => {
+            use crate::convert::TryFromBorrowedObject;
+
             type WakeupFdRaw = libc::SOCKET;
             struct WakeupFd(WakeupFdRaw);
             const INVALID_WAKEUP: libc::SOCKET = host_signal::INVALID_SOCKET;
@@ -55,19 +58,9 @@ pub(crate) mod _signal {
                     vm: &VirtualMachine,
                     obj: &'a crate::PyObject,
                 ) -> PyResult<Self> {
-                    use num_traits::One;
-
-                    let fd: &crate::Py<crate::builtins::PyInt> = obj.try_to_value(vm)?;
-                    match fd.try_to_primitive::<usize>(vm) {
-                        Ok(fd) => Ok(Self(fd as _)),
-                        Err(e) => {
-                            if (-fd.as_bigint()).is_one() {
-                                Ok(Self(INVALID_WAKEUP))
-                            } else {
-                                Err(e)
-                            }
-                        }
-                    }
+                    // PyLong_AsSocket_t converts through a signed pointer-sized
+                    // integer, including __index__, before casting to SOCKET.
+                    isize::try_from_borrowed_object(vm, obj).map(|fd| Self(fd as _))
                 }
             }
         }
@@ -166,8 +159,12 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    fn new_itimer_error(msg: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(itimer_error(vm), None, msg)
+    fn new_itimer_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let errno = err.raw_os_error();
+        let message = errno
+            .and_then(rustpython_host_env::errno::strerror_string)
+            .unwrap_or_else(|| err.to_string());
+        vm.new_os_subtype_error(itimer_error(vm), errno, message)
             .upcast()
     }
 
@@ -216,7 +213,8 @@ pub(crate) mod _signal {
                 .get_attr("default_int_handler", vm)
                 .expect("_signal does not have this attr?");
 
-            signal(SignalNum::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+            signal(SignalNum::SIGINT.into(), int_handler, vm)
+                .expect("Failed to set sigint handler");
         }
     }
 
@@ -233,15 +231,25 @@ pub(crate) mod _signal {
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyfunction]
     pub fn signal(
-        signalnum: SignalNum,
+        signalnum: i32,
         handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        if !vm.is_main_thread() {
+        #[cfg(windows)]
+        if !matches!(
+            signalnum,
+            SIGABRT | SIGBREAK | SIGFPE | SIGILL | SIGINT | SIGSEGV | SIGTERM
+        ) {
+            return Err(vm.new_value_error("invalid signal value"));
+        }
+
+        if !vm.is_main_thread() || !vm.state.is_main_interpreter() {
             return Err(
                 vm.new_value_error("signal only works in main thread of the main interpreter")
             );
         }
+
+        let signalnum = SignalNum::try_from(signalnum).map_err(|msg| vm.new_value_error(msg))?;
 
         let sig_handler = if handler.is_callable() {
             let callback = run_signal as *const () as sighandler_t;
@@ -253,8 +261,9 @@ pub(crate) mod _signal {
             const MSG: &str =
                 "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object";
 
-            let disposition = usize::try_from_borrowed_object(vm, &handler)
-                .ok()
+            let disposition = handler
+                .downcast_ref_if_exact::<PyInt>(vm)
+                .and_then(|value| value.try_to_primitive::<usize>(vm).ok())
                 .filter(|&v| matches!(v, SIG_DFL | SIG_IGN))
                 .ok_or_else(|| vm.new_type_error(MSG))?;
             cfg_select! {
@@ -289,8 +298,8 @@ pub(crate) mod _signal {
 
     #[cfg(unix)]
     #[pyfunction]
-    fn alarm(seconds: u32) -> u32 {
-        rustpython_host_env::signal::alarm(seconds)
+    fn alarm(seconds: i32) -> u32 {
+        rustpython_host_env::signal::alarm(seconds as u32)
     }
 
     #[cfg(unix)]
@@ -307,9 +316,9 @@ pub(crate) mod _signal {
         #[pyarg(positional)]
         which: i32,
         #[pyarg(positional)]
-        seconds: ArgIntoFloat,
-        #[pyarg(positional, default = 0.0)]
-        interval: ArgIntoFloat,
+        seconds: PyObjectRef,
+        #[pyarg(positional, optional)]
+        interval: crate::function::OptionalArg<PyObjectRef>,
     }
 
     #[cfg(unix)]
@@ -320,15 +329,35 @@ pub(crate) mod _signal {
             seconds,
             interval,
         } = args;
-        let seconds: f64 = seconds.into();
-        let interval: f64 = interval.into();
+        let it_value = timer_timeval(&seconds, vm)?;
+        let it_interval = match interval {
+            crate::function::OptionalArg::Present(interval) => timer_timeval(&interval, vm)?,
+            crate::function::OptionalArg::Missing => libc::timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
+        };
         let new = libc::itimerval {
-            it_value: double_to_timeval(seconds),
-            it_interval: double_to_timeval(interval),
+            it_value,
+            it_interval,
         };
         host_signal::setitimer(which, &new)
             .map(|old| itimerval_to_tuple(&old))
-            .map_err(|err| new_itimer_error(&err.to_string(), vm))
+            .map_err(|err| new_itimer_error(err, vm))
+    }
+
+    #[cfg(unix)]
+    fn timer_timeval(object: &crate::PyObject, vm: &VirtualMachine) -> PyResult<libc::timeval> {
+        let nanoseconds = pytime::from_seconds_object(object, Round::Ceiling, vm)?;
+        let microseconds = Round::Ceiling.divide(nanoseconds, 1_000);
+        let seconds = microseconds.div_euclid(1_000_000);
+        let tv_sec = seconds
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        Ok(libc::timeval {
+            tv_sec,
+            tv_usec: microseconds.rem_euclid(1_000_000) as _,
+        })
     }
 
     #[cfg(unix)]
@@ -336,34 +365,32 @@ pub(crate) mod _signal {
     fn getitimer(which: i32, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
         host_signal::getitimer(which)
             .map(|old| itimerval_to_tuple(&old))
-            .map_err(|err| new_itimer_error(&err.to_string(), vm))
+            .map_err(|err| new_itimer_error(err, vm))
     }
 
     #[pyfunction]
-    fn default_int_handler(
-        _signalnum: PyObjectRef,
-        _frame: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn default_int_handler(_signalnum: i32, _frame: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
     }
 
     #[derive(FromArgs)]
     struct SetWakeupFdArgs {
         #[pyarg(positional)]
-        fd: WakeupFd,
-        #[pyarg(named, default = true)]
-        warn_on_full_buffer: bool,
+        fd: PyObjectRef,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        warn_on_full_buffer: ArgIntoBool,
     }
 
     #[pyfunction]
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        // The keyword truth value is parsed before the fd conversion in CPython.
+        let fd = args.fd.try_to_value::<WakeupFd>(vm)?;
         let fd = cfg_select! {
-            windows => args.fd.0,
-            _ => args.fd,
+            windows => fd.0,
+            _ => fd,
         };
 
-        if !vm.is_main_thread() {
+        if !vm.is_main_thread() || !vm.state.is_main_interpreter() {
             return Err(vm.new_value_error(
                 "set_wakeup_fd only works in main thread of the main interpreter",
             ));
@@ -393,7 +420,7 @@ pub(crate) mod _signal {
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
-        WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
+        WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer.into_bool(), Ordering::Relaxed);
 
         #[cfg(windows)]
         WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
