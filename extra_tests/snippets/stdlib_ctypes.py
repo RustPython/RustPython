@@ -1373,12 +1373,25 @@ class CallbackArgType(ctypes.c_int):
 
 
 CB = ctypes.CFUNCTYPE(None, CallbackArgType)
+cb_inst = CB(lambda x: None)
 
-# 9. Reset argtypes
+# 9. Prototype with class-level _argtypes_ caches converters at instantiation
+class ProtoConverter:
+    @classmethod
+    def from_param(cls, val):
+        return int(val)
+
+
+Proto = ctypes.CFUNCTYPE(None, ProtoConverter)
+proto_func = Proto(ctypes.cast(libc.srand, ctypes.c_void_p).value)
+ProtoConverter.from_param = None
+proto_func(60)
+
+# 10. Reset argtypes
 libc.srand.argtypes = [ctypes.c_uint]
 libc.srand(0)
 
-# 10. Windows-specific test for Issue #8341: custom converter returning a Structure
+# 11. Windows-specific test for Issue #8341: custom converter returning a Structure
 if _sys.platform == "win32":
     from ctypes import wintypes
 

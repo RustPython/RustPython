@@ -823,6 +823,26 @@ impl Constructor for PyCFuncPtr {
 
         let first_arg = &args.args[0];
 
+        let class_argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
+        let class_restype = cls.get_attr(vm.ctx.intern_str("_restype_"));
+        let initial_converters = if let Some(ref argtypes) = class_argtypes
+            && !vm.is_none(argtypes)
+        {
+            if let Ok((types, converters)) = extract_arg_types_and_converters(argtypes, vm) {
+                let snapshot = vm.ctx.new_tuple(vec![
+                    vm.ctx.new_tuple(types).into(),
+                    vm.ctx.new_tuple(converters).into(),
+                ]);
+                Some(snapshot.into())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let make_converters = || PyRwLock::new(initial_converters.clone());
+
         // Check for COM method form: (index, name, [paramflags], [iid])
         // First arg is integer (vtable index), second arg is string (method name)
         if args.args.len() >= 2
@@ -853,7 +873,7 @@ impl Constructor for PyCFuncPtr {
                 _base: PyCData::from_bytes(vec![0u8; ptr_size], None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
                 checker: PyRwLock::new(None),
@@ -875,7 +895,7 @@ impl Constructor for PyCFuncPtr {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
                 checker: PyRwLock::new(None),
@@ -941,7 +961,7 @@ impl Constructor for PyCFuncPtr {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
                 checker: PyRwLock::new(None),
@@ -958,9 +978,6 @@ impl Constructor for PyCFuncPtr {
 
         // Check if first argument is a Python callable (callback creation)
         if first_arg.is_callable() {
-            // Get argument types and result type from the class
-            let class_argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
-            let class_restype = cls.get_attr(vm.ctx.intern_str("_restype_"));
             let class_flags = cls
                 .get_attr(vm.ctx.intern_str("_flags_"))
                 .and_then(|f| f.try_to_value::<u32>(vm).ok())
@@ -988,7 +1005,7 @@ impl Constructor for PyCFuncPtr {
                 _base: base,
                 thunk: PyRwLock::new(Some(thunk_ref)),
                 callable: PyRwLock::new(Some(first_arg.clone())),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(class_argtypes),
                 restype: PyRwLock::new(class_restype),
                 checker: PyRwLock::new(None),
@@ -1220,14 +1237,21 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
         } else if let Some(argtypes_obj) = instance_argtypes.as_ref() {
             if !vm.is_none(argtypes_obj) {
                 let (types, converters) = extract_arg_types_and_converters(argtypes_obj, vm)?;
-                let snapshot = vm.ctx.new_tuple(vec![
-                    vm.ctx.new_tuple(types.clone()).into(),
-                    vm.ctx.new_tuple(converters.clone()).into(),
-                ]);
-                *zelf.converters.write() = Some(snapshot.into());
+                let mut conv_guard = zelf.converters.write();
+                let current_argtypes = zelf.argtypes.read();
+                if current_argtypes
+                    .as_ref()
+                    .is_some_and(|cur| cur.is(argtypes_obj))
+                {
+                    let snapshot = vm.ctx.new_tuple(vec![
+                        vm.ctx.new_tuple(types.clone()).into(),
+                        vm.ctx.new_tuple(converters.clone()).into(),
+                    ]);
+                    *conv_guard = Some(snapshot.into());
+                }
                 (Some(types), Some(converters))
             } else {
-                (None, None) // argtypes is None -> use ConvParam
+                (None, None) // argtypes is explicitly None -> use ConvParam
             }
         } else if let Some(class_argtypes) = zelf
             .as_object()
@@ -1236,6 +1260,15 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
             && !vm.is_none(&class_argtypes)
         {
             let (types, converters) = extract_arg_types_and_converters(&class_argtypes, vm)?;
+            let mut conv_guard = zelf.converters.write();
+            let current_argtypes = zelf.argtypes.read();
+            if current_argtypes.is_none() && conv_guard.is_none() {
+                let snapshot = vm.ctx.new_tuple(vec![
+                    vm.ctx.new_tuple(types.clone()).into(),
+                    vm.ctx.new_tuple(converters.clone()).into(),
+                ]);
+                *conv_guard = Some(snapshot.into());
+            }
             (Some(types), Some(converters))
         } else {
             (None, None) // No argtypes -> use ConvParam
@@ -1947,25 +1980,31 @@ impl Py<PyCFuncPtr> {
     // argtypes getter/setter
     #[pygetset]
     fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.argtypes
-            .read()
-            .clone()
-            .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
+        self.argtypes.read().clone().unwrap_or_else(|| {
+            self.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_argtypes_"))
+                .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
+        })
     }
 
     #[pygetset(name = "argtypes", setter)]
     fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if vm.is_none(&value) {
-            *self.argtypes.write() = None;
-            *self.converters.write() = None;
+            let mut arg_guard = self.argtypes.write();
+            let mut conv_guard = self.converters.write();
+            *arg_guard = Some(vm.ctx.none());
+            *conv_guard = None;
         } else {
             let (types, converters) = extract_arg_types_and_converters(&value, vm)?;
             let snapshot = vm.ctx.new_tuple(vec![
                 vm.ctx.new_tuple(types).into(),
                 vm.ctx.new_tuple(converters).into(),
             ]);
-            *self.argtypes.write() = Some(value);
-            *self.converters.write() = Some(snapshot.into());
+            let mut arg_guard = self.argtypes.write();
+            let mut conv_guard = self.converters.write();
+            *arg_guard = Some(value);
+            *conv_guard = Some(snapshot.into());
         }
         Ok(())
     }
