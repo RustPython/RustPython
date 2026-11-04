@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use rustpython::InterpreterBuilderExt;
 use rustpython::vm::{
     Py, PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
@@ -26,7 +28,11 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
-    use rustpython::vm::{PyObjectRef, convert::ToPyObject};
+    use alloc::collections::BTreeMap;
+    use rustpython::vm::{
+        PyObjectRef,
+        convert::{PyListOf, ToPyObject},
+    };
 
     #[pyfunction]
     fn rust_function(
@@ -43,17 +49,27 @@ python_person.name: {}",
             num, s, python_person.name
         );
         RustStruct {
-            numbers: NumVec(vec![1, 2, 3, 4]),
+            numbers: vec![1, 2, 3, 4],
+            measurements: Measurements(BTreeMap::from([
+                ("temperature", 21.5),
+                ("pressure", 1013.0),
+            ])),
         }
     }
 
+    // A domain type can choose its own Python representation. Here an ordered
+    // map becomes a list of pairs rather than a dictionary.
     #[derive(Debug, Clone)]
-    struct NumVec(Vec<i32>);
+    struct Measurements(BTreeMap<&'static str, f64>);
 
-    impl ToPyObject for NumVec {
+    impl ToPyObject for Measurements {
         fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-            let list = self.0.into_iter().map(|e| vm.new_pyobj(e)).collect();
-            vm.ctx.new_list(list).to_pyobject(vm)
+            let pairs = self
+                .0
+                .into_iter()
+                .map(|pair| pair.to_pyobject(vm))
+                .collect();
+            vm.ctx.new_list(pairs).into()
         }
     }
 
@@ -61,14 +77,20 @@ python_person.name: {}",
     #[pyclass(module = "rust_py_module", name = "RustStruct")]
     #[derive(Debug, PyPayload)]
     struct RustStruct {
-        numbers: NumVec,
+        numbers: Vec<i32>,
+        measurements: Measurements,
     }
 
     #[pyclass]
     impl RustStruct {
         #[pygetset]
-        fn numbers(zelf: &Py<Self>) -> NumVec {
-            zelf.numbers.clone()
+        fn numbers(zelf: &Py<Self>, vm: &VirtualMachine) -> PyListOf<i32> {
+            PyListOf::new(zelf.numbers.iter().copied(), vm)
+        }
+
+        #[pygetset]
+        fn measurements(zelf: &Py<Self>) -> Measurements {
+            zelf.measurements.clone()
         }
 
         #[pymethod]
