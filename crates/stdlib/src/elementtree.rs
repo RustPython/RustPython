@@ -27,7 +27,7 @@ pub(crate) mod _elementtree {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
         builtins::{PyAnyDict, PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
-        function::{FuncArgs, PySetterValue},
+        function::{ArgBytesOrStr, FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{NameElement, SequenceIndex, SliceableSequenceOp},
         types::{
@@ -807,13 +807,8 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn iter(zelf: PyRef<Self>, args: IterArgs, vm: &VirtualMachine) -> PyElementIter {
             let tag = args.tag.unwrap_or_else(|| vm.ctx.none());
-            let wildcard = if let Some(s) = tag.downcast_ref::<PyStr>() {
-                s.as_wtf8() == "*"
-            } else if let Some(b) = tag.downcast_ref::<crate::vm::builtins::PyBytes>() {
-                b.as_bytes() == b"*"
-            } else {
-                false
-            };
+            let wildcard =
+                ArgBytesOrStr::with_object_ref(&tag, |bytes| bytes == b"*").unwrap_or(false);
             let tag = if wildcard { vm.ctx.none() } else { tag };
             PyElementIter::new(zelf, tag, false)
         }
@@ -1176,30 +1171,26 @@ pub(crate) mod _elementtree {
     /// plain tag, in which case `find`/`findall` must go through
     /// `ElementPath`?
     fn check_path(tag: &PyObject) -> bool {
-        let bytes = if let Some(s) = tag.downcast_ref::<PyStr>() {
-            s.as_bytes()
-        } else if let Some(b) = tag.downcast_ref::<crate::vm::builtins::PyBytes>() {
-            b.as_bytes()
-        } else {
-            // Unknown type; might be a path expression.
-            return true;
-        };
-        if bytes.len() >= 3
-            && bytes[0] == b'{'
-            && (bytes[1] == b'}' || (bytes[1] == b'*' && bytes[2] == b'}'))
-        {
-            return true;
-        }
-        let mut check = true;
-        for &ch in bytes {
-            match ch {
-                b'{' => check = false,
-                b'}' => check = true,
-                b'/' | b'*' | b'[' | b'@' | b'.' if check => return true,
-                _ => {}
+        ArgBytesOrStr::with_object_ref(tag, |bytes| {
+            if bytes.len() >= 3
+                && bytes[0] == b'{'
+                && (bytes[1] == b'}' || (bytes[1] == b'*' && bytes[2] == b'}'))
+            {
+                return true;
             }
-        }
-        false
+            let mut check = true;
+            for &ch in bytes {
+                match ch {
+                    b'{' => check = false,
+                    b'}' => check = true,
+                    b'/' | b'*' | b'[' | b'@' | b'.' if check => return true,
+                    _ => {}
+                }
+            }
+            false
+        })
+        // Unknown type; might be a path expression.
+        .unwrap_or(true)
     }
 
     impl AsMapping for PyElement {
@@ -1776,28 +1767,25 @@ pub(crate) mod _elementtree {
                 .try_to_value(vm)
                 .map_err(|_| vm.new_type_error("events must be a sequence"))?;
             for event in events {
-                let name = if let Some(s) = event.downcast_ref::<PyStr>() {
-                    s.as_bytes().to_vec()
-                } else if let Some(b) = event.downcast_ref::<crate::vm::builtins::PyBytes>() {
-                    b.as_bytes().to_vec()
-                } else {
+                let mut st = self.state.write();
+                let slot = ArgBytesOrStr::with_object_ref(&event, |name| match name {
+                    b"start" => Some(&mut st.start_event),
+                    b"end" => Some(&mut st.end_event),
+                    b"start-ns" => Some(&mut st.start_ns_event),
+                    b"end-ns" => Some(&mut st.end_ns_event),
+                    b"comment" => Some(&mut st.comment_event),
+                    b"pi" => Some(&mut st.pi_event),
+                    _ => None,
+                });
+                let Some(slot) = slot else {
+                    drop(st);
                     return Err(vm.new_value_error("invalid events sequence"));
                 };
-                let mut st = self.state.write();
-                match name.as_slice() {
-                    b"start" => st.start_event = Some(event),
-                    b"end" => st.end_event = Some(event),
-                    b"start-ns" => st.start_ns_event = Some(event),
-                    b"end-ns" => st.end_ns_event = Some(event),
-                    b"comment" => st.comment_event = Some(event),
-                    b"pi" => st.pi_event = Some(event),
-                    _ => {
-                        drop(st);
-                        return Err(
-                            vm.new_value_error(format!("unknown event {}", event.repr(vm)?))
-                        );
-                    }
-                }
+                let Some(slot) = slot else {
+                    drop(st);
+                    return Err(vm.new_value_error(format!("unknown event {}", event.repr(vm)?)));
+                };
+                *slot = Some(event);
             }
             Ok(())
         }
@@ -2235,15 +2223,8 @@ pub(crate) mod _elementtree {
             let read = file.get_attr("read", vm)?;
             loop {
                 let buffer = read.call((64 * 1024,), vm)?;
-                if let Some(s) = buffer.downcast_ref::<PyStr>() {
-                    if s.is_empty() {
-                        break;
-                    }
-                } else if let Some(b) = buffer.downcast_ref::<crate::vm::builtins::PyBytes>() {
-                    if b.as_bytes().is_empty() {
-                        break;
-                    }
-                } else {
+                if ArgBytesOrStr::with_object_ref(&buffer, |bytes| bytes.is_empty()).unwrap_or(true)
+                {
                     break;
                 }
                 zelf.expat_parse(buffer, false, vm)?;

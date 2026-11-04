@@ -24,7 +24,8 @@ pub(crate) use argument::{
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{
-    ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
+    ArgAsciiBuffer, ArgBytesLike, ArgBytesOrStr, ArgContiguousBytesLike, ArgMemoryBuffer,
+    ArgStrOrBytesLike,
 };
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use doctext::{ItemDoc, db_doc, plain_doc};
