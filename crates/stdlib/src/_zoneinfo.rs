@@ -10,7 +10,7 @@ pub(crate) use _zoneinfo::module_def;
 #[pymodule]
 mod _zoneinfo {
     use alloc::collections::VecDeque;
-    use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
+    use rustpython_common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat};
     use std::collections::HashMap;
 
     use crate::_datetime::{PyTzInfo, datetime_type, timedelta_from_seconds};
@@ -22,7 +22,7 @@ mod _zoneinfo {
             PyBaseExceptionRef, PyBytes, PyModule, PyStr, PyStrRef, PyTuple, PyType, PyTypeRef,
         },
         class::StaticType,
-        function::{FuncArgs, IntoFuncArgs, KwArgs},
+        function::{ArgIndex, FuncArgs, IntoFuncArgs, KwArgs},
         object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn},
         types::{Constructor, Representable},
@@ -265,12 +265,15 @@ mod _zoneinfo {
         if !is_base(cls) {
             return Ok(());
         }
-        with_cache(vm, |cache| {
+        let evicted = with_cache(vm, |cache| {
             cache.strong.push_front((key, zone));
-            while cache.strong.len() > STRONG_CACHE_MAX {
-                cache.strong.pop_back();
-            }
-        })
+            cache
+                .strong
+                .split_off(STRONG_CACHE_MAX.min(cache.strong.len()))
+        })?;
+        // Dropping a zone or its key can reenter the cache through Python.
+        drop(evicted);
+        Ok(())
     }
 
     fn strong_cache_eject(cls: &Py<PyType>, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -279,12 +282,14 @@ mod _zoneinfo {
         }
         for (cached_key, zone) in strong_entries(vm)? {
             if vm.bool_eq(key, &cached_key)? {
-                with_cache(vm, |cache| {
-                    if let Some(pos) = cache.strong.iter().position(|(_, cached)| cached.is(&zone))
-                    {
-                        cache.strong.remove(pos);
-                    }
+                let removed = with_cache(vm, |cache| {
+                    cache
+                        .strong
+                        .iter()
+                        .position(|(_, cached)| cached.is(&zone))
+                        .and_then(|pos| cache.strong.remove(pos))
                 })?;
+                drop(removed);
                 return Ok(());
             }
         }
@@ -295,7 +300,9 @@ mod _zoneinfo {
         if !is_base(cls) {
             return Ok(());
         }
-        with_cache(vm, |cache| cache.strong.clear())
+        let removed = with_cache(vm, |cache| core::mem::take(&mut cache.strong))?;
+        drop(removed);
+        Ok(())
     }
 
     fn cached_delta(seconds: i64, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -334,7 +341,7 @@ mod _zoneinfo {
                 return existing.clone();
             }
             cache.weak = Some(weak.clone());
-            weak
+            weak.clone()
         })
     }
 
@@ -1201,8 +1208,7 @@ mod _zoneinfo {
         base: PyTzInfo,
         #[pymember(type = "object_ex")]
         key: PyObjectRef,
-        #[pytraverse(skip)]
-        file_repr: Option<String>,
+        file_repr: Option<PyStrRef>,
         #[pytraverse(skip)]
         source: u8,
         data: ZoneDataBox,
@@ -1225,7 +1231,10 @@ mod _zoneinfo {
         fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let name = zelf.class().fully_qualified_name(vm)?;
             if vm.is_none(&zelf.key) {
-                let file = zelf.file_repr.as_deref().unwrap_or("");
+                let file = zelf
+                    .file_repr
+                    .as_ref()
+                    .map_or(Wtf8::new(""), |file| file.as_wtf8());
                 return Ok(wtf8_concat!(name, ".from_file(", file, ")"));
             }
             let key = zelf.key.repr(vm)?.as_wtf8().to_owned();
@@ -1276,7 +1285,7 @@ mod _zoneinfo {
             args: FromFileArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let file_repr = args.file_obj.repr(vm)?.to_string_lossy().into_owned();
+            let file_repr = args.file_obj.repr(vm)?;
             let key = args.key.unwrap_or_else(|| vm.ctx.none());
             let data = load_data(&args.file_obj, vm)?;
             Self {
@@ -1377,7 +1386,7 @@ mod _zoneinfo {
             Ok(vm
                 .new_tuple((
                     constructor,
-                    vm.new_tuple((zelf.key.clone(), vm.ctx.new_bool(from_cache))),
+                    vm.new_tuple((zelf.key.clone(), vm.ctx.new_int(u8::from(from_cache)))),
                 ))
                 .into())
         }
@@ -1389,9 +1398,12 @@ mod _zoneinfo {
             from_cache: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let from_cache = (from_cache.try_index(vm)?.as_u64_mask() as u8) != 0;
+            let from_cache = {
+                let index = ArgIndex::try_from_object(vm, from_cache.clone())?;
+                index.as_unsigned_bitfield::<8>(vm)? != 0
+            };
             if from_cache {
-                cls.as_object().call((key,), vm)
+                cached_new(cls, key, vm)
             } else {
                 Ok(new_instance(cls, key, SOURCE_NOCACHE, vm)?.into())
             }

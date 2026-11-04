@@ -491,23 +491,10 @@ mod decl {
         }
 
         fn epoll_eventmask(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-            use num_traits::ToPrimitive;
+            use crate::vm::function::ArgIndex;
 
-            let value = obj.try_index(vm)?;
-            // Clinic's unsigned-int bitfield conversion accepts signed values too.
-            if !value
-                .as_bigint()
-                .to_i64()
-                .is_some_and(|value| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value))
-            {
-                crate::vm::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    "integer value out of range".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
-            Ok(value.as_u32_mask())
+            let value = ArgIndex::try_from_object(vm, obj.clone())?;
+            Ok(value.as_unsigned_bitfield::<32>(vm)? as u32)
         }
 
         #[derive(FromArgs)]
