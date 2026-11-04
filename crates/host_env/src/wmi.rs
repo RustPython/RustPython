@@ -566,10 +566,10 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     hr as u32
 }
 
-pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
-    let query = WideCString::from_str(query_str)
-        .map(WideCString::into_vec_with_nul)
-        .map_err(|_| ExecQueryError::Code(ERROR_INVALID_NAME))?;
+/// Execute a WMI query without translating unpaired UTF-16 surrogates in the
+/// query or result.
+pub fn exec_query_wide(query: &widestring::WideCStr) -> Result<Vec<u16>, ExecQueryError> {
+    let query = query.as_slice_with_nul().to_vec();
 
     let mut h_thread: HANDLE = null_mut();
     let mut err: u32 = 0;
@@ -682,9 +682,15 @@ pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
         return Err(ExecQueryError::Code(err));
     }
     if offset == 0 {
-        return Ok(String::new());
+        return Ok(Vec::new());
     }
 
     let char_count = (offset as usize) / 2 - 1;
-    Ok(String::from_utf16_lossy(&buffer[..char_count]))
+    Ok(buffer[..char_count].to_vec())
+}
+
+pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
+    let query =
+        WideCString::from_str(query_str).map_err(|_| ExecQueryError::Code(ERROR_INVALID_NAME))?;
+    exec_query_wide(&query).map(|result| String::from_utf16_lossy(&result))
 }
