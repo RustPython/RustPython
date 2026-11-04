@@ -3770,6 +3770,8 @@ fn check_except_star_type_valid(match_type: &PyObject, vm: &VirtualMachine) -> P
 
 /// Match exception against except* handler type.
 /// Returns (rest, match) tuple.
+/// A caller matching a naked exception must attach the handler-frame
+/// traceback to the resulting wrapper before exposing it.
 pub fn exception_group_match(
     exc_value: &PyObject,
     match_type: &PyObject,
@@ -3792,18 +3794,10 @@ pub fn exception_group_match(
         let matched = if is_eg {
             exc_value.to_owned()
         } else {
-            // Naked exception - wrap it in ExceptionGroup
+            // Naked exception: let BaseExceptionGroup choose the group type.
             let excs = vm.ctx.new_tuple(vec![exc_value.to_owned()]);
-            let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
-            let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
-            // Copy traceback from original exception
-            if let Ok(exc) = exc_value.to_owned().downcast::<types::PyBaseException>()
-                && let Some(tb) = exc.traceback()
-                && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
-            {
-                wrapped_exc.set_traceback(Some(tb));
-            }
-            wrapped
+            let eg_type: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
+            eg_type.call((vm.ctx.new_str(""), excs), vm)?
         };
         return Ok((vm.ctx.none(), matched));
     }
@@ -3898,9 +3892,9 @@ pub fn prep_reraise_star(orig: &PyObject, excs: &PyObject, vm: &VirtualMachine) 
         return Ok(raised.into_iter().next().unwrap());
     }
 
-    // Create new ExceptionGroup for multiple exceptions
+    // Let BaseExceptionGroup select ExceptionGroup when all children permit it.
     let excs_tuple = vm.ctx.new_tuple(raised);
-    let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+    let eg_type: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
     eg_type.call((vm.ctx.new_str(""), excs_tuple), vm)
 }
 

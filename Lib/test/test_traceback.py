@@ -3060,7 +3060,6 @@ class BaseExceptionReportingTests:
         report = self.get_report(exc)
         self.assertEqual(report, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exception_group_wrapped_naked(self):
         # See gh-128799
 
