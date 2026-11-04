@@ -69,6 +69,7 @@ impl PySet {
         self.inner.elements()
     }
 
+    #[must_use]
     pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef)> {
         self.inner
             .content
