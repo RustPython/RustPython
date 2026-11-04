@@ -21,8 +21,9 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike, Either,
-            FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgSpec,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg,
+            PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -980,8 +981,32 @@ mod builtins {
         vm.current_locals()
     }
 
+    enum MinMaxCandidates<'a> {
+        Positional(core::slice::Iter<'a, PyObjectRef>),
+        Iterable(PyIter),
+    }
+
+    impl MinMaxCandidates<'_> {
+        fn next(&mut self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            match self {
+                Self::Positional(args) => Ok(args.next().cloned()),
+                Self::Iterable(iter) => match iter.next(vm)? {
+                    PyIterReturn::Return(item) => Ok(Some(item)),
+                    PyIterReturn::StopIteration(_) => Ok(None),
+                },
+            }
+        }
+    }
+
+    // Field order is also release order: replacing the incumbent or unwinding
+    // an error must release its key before its item.
+    struct MinMaxBest {
+        key: PyObjectRef,
+        item: PyObjectRef,
+    }
+
     fn min_or_max(
-        mut args: FuncArgs,
+        args: &FuncArgs,
         vm: &VirtualMachine,
         func_name: &'static str,
         op: PyComparisonOp,
@@ -991,63 +1016,71 @@ mod builtins {
             return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
         }
 
-        let default = args.take_keyword("default");
-        let key_func = args.take_keyword("key");
-
-        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
-            return Err(err);
+        let options = ArgSpec {
+            fname: func_name,
+            keywords: &["key", "default"],
+            required: 0,
+            max_positional: 0,
         }
+        .parse_keywords(&args.kwargs, vm)?;
+        let default = options[1].as_ref();
 
-        let candidates = if args.args.len() > 1 {
+        let mut candidates = if args.args.len() > 1 {
             if default.is_some() {
                 return Err(vm.new_type_error(format!(
                     "Cannot specify a default for {func_name}() with multiple positional arguments"
                 )));
             }
-            args.args
+            // Keep the caller's slots alive, cloning only the current item.
+            MinMaxCandidates::Positional(args.args.iter())
         } else {
-            args.args[0].try_to_value(vm)?
+            MinMaxCandidates::Iterable(args.args[0].get_iter(vm)?)
         };
+        let key_func = options[0].as_ref().filter(|f| !vm.is_none(f));
 
-        let mut candidates_iter = candidates.into_iter();
-        let mut x = match candidates_iter.next() {
-            Some(x) => x,
-            None => {
-                return default.ok_or_else(|| {
-                    vm.new_value_error(format!("{func_name}() iterable argument is empty"))
-                });
-            }
-        };
-
-        let key_func = key_func.filter(|f| !vm.is_none(f));
-        if let Some(ref key_func) = key_func {
-            let mut x_key = key_func.call((x.clone(),), vm)?;
-            for y in candidates_iter {
-                let y_key = key_func.call((y.clone(),), vm)?;
-                if y_key.rich_compare_bool(&x_key, op, vm)? {
-                    x = y;
-                    x_key = y_key;
-                }
-            }
-        } else {
-            for y in candidates_iter {
-                if y.rich_compare_bool(&x, op, vm)? {
-                    x = y;
-                }
+        // Declare the incumbent after the iterator so error unwinding releases
+        // its key and item before releasing the iterator.
+        let mut best: Option<MinMaxBest> = None;
+        while let Some(item) = candidates.next(vm)? {
+            // No later item is requested until this key and comparison finish.
+            // A key failure releases item before best; a comparison failure
+            // releases key, item, best's key and item, then the iterator.
+            let key = match key_func {
+                Some(key_func) => key_func.call((item.clone(),), vm)?,
+                None => item.clone(),
+            };
+            let replace = match &best {
+                Some(best) => key.rich_compare_bool(&best.key, op, vm)?,
+                None => true,
+            };
+            if replace {
+                best = Some(MinMaxBest { key, item });
+            } else {
+                // Rejected candidates have the opposite release order.
+                drop(item);
+                drop(key);
             }
         }
 
-        Ok(x)
+        match best {
+            Some(MinMaxBest { key, item }) => {
+                drop(key);
+                Ok(item)
+            }
+            None => default.cloned().ok_or_else(|| {
+                vm.new_value_error(format!("{func_name}() iterable argument is empty"))
+            }),
+        }
     }
 
     #[pyfunction]
     fn max(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        min_or_max(args, vm, "max", PyComparisonOp::Gt)
+        min_or_max(&args, vm, "max", PyComparisonOp::Gt)
     }
 
     #[pyfunction]
     fn min(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        min_or_max(args, vm, "min", PyComparisonOp::Lt)
+        min_or_max(&args, vm, "min", PyComparisonOp::Lt)
     }
 
     #[pyfunction]

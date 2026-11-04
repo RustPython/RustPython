@@ -17,6 +17,23 @@ pub fn calculate_suggestions<'a>(
     dir_iter: impl ExactSizeIterator<Item = &'a PyObject>,
     name: &PyObject,
 ) -> Option<PyStrRef> {
+    calculate_suggestions_with_length(dir_iter, name, |name| name.len())
+}
+
+/// Keyword diagnostics use the UTF-8 byte lengths that CPython supplies to
+/// its edit-distance calculation, rather than Python string lengths.
+pub(crate) fn calculate_keyword_suggestions<'a>(
+    dir_iter: impl ExactSizeIterator<Item = &'a PyObject>,
+    name: &PyObject,
+) -> Option<PyStrRef> {
+    calculate_suggestions_with_length(dir_iter, name, |name| name.as_bytes().len())
+}
+
+fn calculate_suggestions_with_length<'a>(
+    dir_iter: impl ExactSizeIterator<Item = &'a PyObject>,
+    name: &PyObject,
+    length: impl Fn(&Py<PyStr>) -> usize,
+) -> Option<PyStrRef> {
     if dir_iter.len() >= MAX_CANDIDATE_ITEMS {
         return None;
     }
@@ -32,7 +49,7 @@ pub fn calculate_suggestions<'a>(
         }
         // No more than 1/3 of the characters should need changed
         let max_distance = usize::min(
-            (name.len() + item_name.len() + 3) * MOVE_COST / 6,
+            (length(name) + length(item_name) + 3) * MOVE_COST / 6,
             suggestion_distance - 1,
         );
         let current_distance =
