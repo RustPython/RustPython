@@ -31,6 +31,7 @@ use core::ptr::NonNull;
 use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_common::wtf8::wtf8_concat;
 
 pub(crate) type DictContentType = dict_inner::Dict;
 
@@ -51,8 +52,14 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
                 [arg] => arg.str(vm)?,
                 _ => args.as_object().str(vm)?,
             };
-            Err(vm.new_type_error(format!(
-                "cannot use '{name}' as a {mapping_name} key ({message})"
+            Err(vm.new_type_error(wtf8_concat!(
+                "cannot use '",
+                name,
+                "' as a ",
+                mapping_name,
+                " key (",
+                message.as_wtf8(),
+                ")"
             )))
         }
         result => result,

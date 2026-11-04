@@ -4863,8 +4863,8 @@ impl ExecutingFrame<'_> {
                         // Only missing keys make this a non-mapping. Preserve callback
                         // errors, chaining a failed recheck as _PyEval_FormatKwargsError does.
                         match vm.get_attribute_opt(&source, identifier!(vm, keys)) {
-                            Ok(None) => Err(vm.new_type_error(format!(
-                                "Value after ** must be a mapping, not {}",
+                            Ok(None) => Err(vm.new_type_error(wtf8_concat!(
+                                "Value after ** must be a mapping, not ",
                                 source.class().fully_qualified_name(vm)?
                             ))),
                             Ok(Some(_)) => Err(error),

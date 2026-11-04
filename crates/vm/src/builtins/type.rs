@@ -42,7 +42,7 @@ use core::{
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use rustpython_common::wtf8::Wtf8;
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat};
 use std::collections::HashSet;
 
 pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
@@ -1717,19 +1717,26 @@ impl PyType {
 
     /// The type's fully qualified name, the way the `%T` format code prints it:
     /// `module.qualname`, with a `builtins` or `__main__` module left off.
-    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        // Static types use tp_name verbatim, including its module prefix.
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Ok((&*self.slot_name()).into());
+        }
+        // Read the stored metadata, bypassing metaclass and str-subclass hooks.
+        // A Python name can contain lone surrogates, so neither this helper nor
+        // its callers may pass it through Rust's UTF-8 Display formatting.
         let qualname = self.__qualname__(vm);
         let qualname = qualname
             .downcast_ref::<PyStr>()
-            .and_then(|qualname| qualname.to_str())
-            .map_or_else(|| self.name().to_string(), str::to_owned);
+            .expect("type qualname is a string")
+            .as_wtf8();
         let module = self.__module__(vm)?;
-        Ok(
-            match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
-                Some("builtins" | "__main__") | None => qualname,
-                Some(module) => format!("{module}.{qualname}"),
-            },
-        )
+        match module.downcast_ref::<PyStr>() {
+            Some(module) if !matches!(module.to_str(), Some("builtins" | "__main__")) => {
+                Ok(wtf8_concat!(module.as_wtf8(), '.', qualname))
+            }
+            _ => Ok(qualname.to_owned()),
+        }
     }
 
     pub fn name(&self) -> BorrowedValue<'_, str> {
@@ -1962,8 +1969,8 @@ impl Constructor for PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyObjectRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
         let Some(dict) = PyAnyDict::from_object(&dict) else {
-            return Err(vm.new_type_error(format!(
-                "type.__new__() argument 3 must be dict or frozendict, not {}",
+            return Err(vm.new_type_error(wtf8_concat!(
+                "type.__new__() argument 3 must be dict or frozendict, not ",
                 dict.class().fully_qualified_name(vm)?
             )));
         };
@@ -3136,8 +3143,8 @@ impl Py<PyType> {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
             if !result.downcastable::<PyDict>() {
-                return Err(vm.new_type_error(format!(
-                    "__annotate__() must return a dict, not {}",
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "__annotate__() must return a dict, not ",
                     result.class().fully_qualified_name(vm)?
                 )));
             }

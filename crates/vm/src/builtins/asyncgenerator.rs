@@ -1,3 +1,4 @@
+use rustpython_common::wtf8::wtf8_concat;
 // spell-checker: ignore AGEN
 
 use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
@@ -740,8 +741,8 @@ impl PyAnextAwaitable {
             let coro_await = vm.call_method(&awaitable, "__await__", ())?;
             // Check that __await__ returned an iterator
             if !PyIter::check(&coro_await) {
-                return Err(vm.new_type_error(format!(
-                    "anext_awaitable.__await__() must return an iterable, not {}",
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "anext_awaitable.__await__() must return an iterable, not ",
                     coro_await.class().fully_qualified_name(vm)?
                 )));
             }

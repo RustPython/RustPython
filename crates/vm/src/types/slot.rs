@@ -21,6 +21,7 @@ use core::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_common::wtf8::wtf8_concat;
 
 /// Predicate used by [`PyTypeSlots::del_needed`].
 pub type DelNeededFunc = fn(&PyObject) -> bool;
@@ -622,9 +623,9 @@ fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> 
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
     match ret.downcast::<PyStr>() {
         Ok(value) => Ok(value),
-        Err(obj) => Err(vm.new_type_error(format!(
-            "{}.__repr__() must return a str, not {}",
+        Err(obj) => Err(vm.new_type_error(wtf8_concat!(
             zelf.class().fully_qualified_name(vm)?,
+            ".__repr__() must return a str, not ",
             obj.class().fully_qualified_name(vm)?
         ))),
     }

@@ -189,9 +189,9 @@ pub(crate) mod _asyncio {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if zelf.fut_loop.read().is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "{} object is already initialized",
-                    zelf.class().fully_qualified_name(vm)?
+                return Err(vm.new_runtime_error(wtf8_concat!(
+                    zelf.class().fully_qualified_name(vm)?,
+                    " object is already initialized"
                 )));
             }
 
@@ -1201,9 +1201,9 @@ pub(crate) mod _asyncio {
     impl PyTask {
         fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.base.fut_loop.read().is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "{} object is already initialized",
-                    zelf.class().fully_qualified_name(vm)?
+                return Err(vm.new_runtime_error(wtf8_concat!(
+                    zelf.class().fully_qualified_name(vm)?,
+                    " object is already initialized"
                 )));
             }
 
@@ -1245,8 +1245,8 @@ pub(crate) mod _asyncio {
                     if !c.class().is(PyContext::class(&vm.ctx)) {
                         zelf.task_log_destroy_pending
                             .store(false, Ordering::Relaxed);
-                        return Err(vm.new_type_error(format!(
-                            "a contextvars.Context was expected, got {}",
+                        return Err(vm.new_type_error(wtf8_concat!(
+                            "a contextvars.Context was expected, got ",
                             c.class().fully_qualified_name(vm)?
                         )));
                     }
