@@ -255,9 +255,9 @@ impl Py<PyReverseSequenceIterator> {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         let func = self.class().to_owned().into();
-        Ok(self.internal.reduce(func, vm))
+        self.internal.reduce(func, vm)
     }
 }
 
