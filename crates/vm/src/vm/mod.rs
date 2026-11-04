@@ -1905,17 +1905,7 @@ impl VirtualMachine {
         object: PyObjectRef,
     ) {
         let write_original = || {
-            let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
-            self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
-        };
-        // During finalization the hook may no longer exist.
-        if self.state.finalizing.load(Ordering::Acquire) {
-            write_original();
-            return;
-        }
-        let Some(unraisablehook) = self.sys_module.get_attr("unraisablehook", self).ok() else {
-            write_original();
-            return;
+            self.write_unraisable_to_stderr(&e, msg.clone(), &object);
         };
         let args = stdlib::sys::UnraisableHookArgsData {
             exc_type: e.class().to_owned(),
@@ -1925,12 +1915,27 @@ impl VirtualMachine {
             object: object.clone(),
         }
         .to_pyobject(self);
+        let unraisablehook = match self.sys_module.dict().get_item_opt("unraisablehook", self) {
+            Ok(Some(hook)) => hook,
+            Ok(None) => {
+                write_original();
+                return;
+            }
+            Err(error) => {
+                self.write_unraisable_to_stderr(
+                    &error,
+                    Some(self.ctx.new_str("Exception ignored in sys.unraisablehook")),
+                    &self.ctx.none(),
+                );
+                return;
+            }
+        };
         if let Err(error) = self.audit("sys.unraisablehook", || {
             (unraisablehook.clone(), args.clone())
         }) {
             self.write_unraisable_to_stderr(
                 &error,
-                Some("Exception ignored in audit hook"),
+                Some(self.ctx.new_str("Exception ignored in audit hook")),
                 &self.ctx.none(),
             );
             return;
@@ -1942,7 +1947,7 @@ impl VirtualMachine {
         if let Err(error) = unraisablehook.call((args,), self) {
             self.write_unraisable_to_stderr(
                 &error,
-                Some("Exception ignored in sys.unraisablehook"),
+                Some(self.ctx.new_str("Exception ignored in sys.unraisablehook")),
                 &unraisablehook,
             );
         }
@@ -1953,67 +1958,17 @@ impl VirtualMachine {
     fn write_unraisable_to_stderr(
         &self,
         e: &Py<PyBaseException>,
-        msg: Option<&str>,
+        msg: Option<PyStrRef>,
         object: &PyObject,
     ) {
-        // Get stderr once and reuse it
-        let stderr = crate::stdlib::sys::get_stderr(self).ok();
-
-        let write_to_stderr = |s: &Wtf8, stderr: &Option<PyObjectRef>, vm: &Self| {
-            if let Some(stderr) = stderr {
-                let _ = vm.call_method(stderr, "write", (s.to_owned(),));
-            } else {
-                eprint!("{s}");
-            }
+        let args = stdlib::sys::UnraisableHookArgsData {
+            exc_type: e.class().to_owned(),
+            exc_value: e.to_owned().into(),
+            exc_traceback: e.traceback().to_pyobject(self),
+            err_msg: msg.to_pyobject(self),
+            object: object.to_owned(),
         };
-
-        if self.is_none(object) {
-            if let Some(msg) = msg {
-                write_to_stderr(&wtf8_concat!(msg, ":\n"), &stderr, self);
-            }
-        } else {
-            let msg_str = if let Some(msg) = msg {
-                format!("{msg}: ")
-            } else {
-                "Exception ignored in: ".to_owned()
-            };
-            write_to_stderr(msg_str.as_str().into(), &stderr, self);
-
-            let repr_result = object.repr(self);
-            let repr_wtf8 = repr_result
-                .as_ref()
-                .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
-            write_to_stderr(&wtf8_concat!(repr_wtf8, "\n"), &stderr, self);
-        }
-
-        // Print the existing traceback without importing Python modules;
-        // this path must also work while the interpreter is finalizing.
-        if let Some(traceback) = e.traceback() {
-            if let Some(stderr) = &stderr {
-                let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
-            } else {
-                let mut writer = crate::py_io::IoWriter(std::io::stderr());
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
-            }
-        }
-        let exc_type_name = e
-            .class()
-            .fully_qualified_name(self)
-            .unwrap_or_else(|_| (&*e.class().name()).into());
-        let message = match e.as_object().str(self) {
-            Ok(value) if !value.as_wtf8().is_empty() => {
-                wtf8_concat!(exc_type_name, ": ", value.as_wtf8(), "\n")
-            }
-            Ok(_) => wtf8_concat!(exc_type_name, "\n"),
-            Err(_) => wtf8_concat!(exc_type_name, ": <exception str() failed>\n"),
-        };
-        write_to_stderr(&message, &stderr, self);
-
-        // Flush stderr to ensure output is visible
-        if let Some(ref stderr) = stderr {
-            let _ = self.call_method(stderr, "flush", ());
-        }
+        let _ = stdlib::sys::sys::write_unraisable(args, self);
     }
 
     /// Store a callee frame pointer for the trampoline to pick up after
