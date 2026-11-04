@@ -2416,6 +2416,7 @@ impl AsSequence for PyDictValues {
 }
 
 fn dict_view_to_set(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    let mut source = obj;
     if let Some(keys) = obj.downcast_ref::<PyDictKeys>() {
         let dict = keys.dict();
         if dict.as_object().class().is(vm.ctx.types.dict_type)
@@ -2423,14 +2424,12 @@ fn dict_view_to_set(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySetInner>
         {
             // Exact dictionary keys are already hashed. Subclasses instead
             // go through the view iterator, including OrderedDict views.
-            let result = PySetInner::default();
-            result.merge_dict(dict.as_dict(), vm)?;
-            return Ok(result);
+            source = dict.as_object();
         }
     }
     // Reflected operations can put a set on the left. Reuse the set
     // constructor's native paths rather than calling an overridden iterator.
-    PySetInner::from_object(obj.to_owned(), vm)
+    PySetInner::from_object(source.to_owned(), vm)
 }
 
 fn set_inner_number_op<F>(a: &PyObject, b: &PyObject, f: F, vm: &VirtualMachine) -> PyResult

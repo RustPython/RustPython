@@ -601,7 +601,7 @@ impl PySetInner {
         Ok(())
     }
 
-    pub(super) fn merge_dict(&self, dict: &PyDict, vm: &VirtualMachine) -> PyResult<()> {
+    fn merge_dict(&self, dict: &PyDict, vm: &VirtualMachine) -> PyResult<()> {
         // Equality between colliding keys can change the source dictionary.
         // Match the live _PyDict_Next traversal used by set_update_dict.
         let mut position = 0;
