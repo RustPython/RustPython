@@ -2869,6 +2869,15 @@ mod _socket {
                     .new_type_error("setsockopt() takes no keyword arguments")
                     .into());
             }
+            let argc = args.args.len();
+            if !(3..=4).contains(&argc) {
+                let (bound, limit) = if argc < 3 { ("least", 3) } else { ("most", 4) };
+                return Err(vm
+                    .new_type_error(format!(
+                        "setsockopt() takes at {bound} {limit} arguments ({argc} given)"
+                    ))
+                    .into());
+            }
             #[expect(
                 clippy::redundant_clone,
                 reason = "Keep original arguments alive through callbacks and the socket operation"
