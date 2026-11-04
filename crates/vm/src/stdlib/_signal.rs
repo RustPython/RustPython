@@ -351,6 +351,10 @@ pub(crate) mod _signal {
         let nanoseconds = pytime::from_seconds_object(object, Round::Ceiling, vm)?;
         let microseconds = Round::Ceiling.divide(nanoseconds, 1_000);
         let seconds = microseconds.div_euclid(1_000_000);
+        #[allow(
+            clippy::useless_conversion,
+            reason = "time_t may be narrower on 32-bit targets"
+        )]
         let tv_sec = seconds
             .try_into()
             .map_err(|_| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
@@ -385,10 +389,8 @@ pub(crate) mod _signal {
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
         // The keyword truth value is parsed before the fd conversion in CPython.
         let fd = args.fd.try_to_value::<WakeupFd>(vm)?;
-        let fd = cfg_select! {
-            windows => fd.0,
-            _ => fd,
-        };
+        #[cfg(windows)]
+        let fd = fd.0;
 
         if !vm.is_main_thread() || !vm.state.is_main_interpreter() {
             return Err(vm.new_value_error(
