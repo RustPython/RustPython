@@ -2157,7 +2157,7 @@ pub(crate) mod _thread {
         vm.audit("_thread.start_joinable_thread", || {
             (
                 function_obj,
-                daemon,
+                i32::from(daemon),
                 handle
                     .as_ref()
                     .map_or_else(|| vm.ctx.none(), |h| h.clone().into()),
