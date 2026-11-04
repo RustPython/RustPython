@@ -3,8 +3,8 @@ pub(crate) use _bisect::module_def;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-        function::{ArgIndex, OptionalArg},
+        AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        function::{ArgIndex, Either, OptionalArg, PyComparisonValue},
         protocol::PySequence,
         types::PyComparisonOp,
     };
@@ -78,7 +78,7 @@ mod _bisect {
     }
 
     #[inline]
-    fn bisect_left_impl(
+    fn bisect_impl<const LEFT: bool>(
         a: &PyObject,
         x: &PyObject,
         mut lo: usize,
@@ -89,51 +89,53 @@ mod _bisect {
         let sequence = a.sequence_unchecked();
         let mut hi = resolve_hi(hi, sequence, vm)?;
         let get_item = sequence_item(sequence, vm)?;
+        // Keep the original needle type alive if a callback changes __class__.
+        // The same-type shortcut uses its slot, not the midpoint's current slot.
+        let needle_type = x.class().to_owned();
+        let mut compare = needle_type.slots().richcompare.load();
 
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
             let a_mid = get_item(sequence, mid as isize, vm)?;
             let comp = if let Some(key) = key {
-                key.call((a_mid,), vm)?
+                // The callback may delete its argument. Release our reference
+                // only after it returns, including when it raises an exception.
+                let result = key.call((&*a_mid,), vm);
+                drop(a_mid);
+                result?
             } else {
                 a_mid
             };
-            if comp.rich_compare_bool(x, PyComparisonOp::Lt, vm)? {
-                lo = mid + 1;
+            let (left, right) = if LEFT { (&*comp, x) } else { (x, &*comp) };
+            let direct = if let Some(compare) = compare.filter(|_| comp.class().is(&needle_type)) {
+                match compare(left, right, PyComparisonOp::Lt, vm)? {
+                    Either::A(obj) if obj.is(&vm.ctx.not_implemented) => None,
+                    Either::A(obj) => Some(obj.try_to_bool(vm)?),
+                    Either::B(PyComparisonValue::Implemented(value)) => Some(value),
+                    Either::B(PyComparisonValue::NotImplemented) => None,
+                }
             } else {
-                hi = mid;
-            }
-        }
-        Ok(lo)
-    }
-
-    #[inline]
-    fn bisect_right_impl(
-        a: &PyObject,
-        x: &PyObject,
-        mut lo: usize,
-        hi: isize,
-        key: Option<&PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let sequence = a.sequence_unchecked();
-        let mut hi = resolve_hi(hi, sequence, vm)?;
-        let get_item = sequence_item(sequence, vm)?;
-
-        while lo < hi {
-            // Handles issue 13496.
-            let mid = (lo + hi) / 2;
-            let a_mid = get_item(sequence, mid as isize, vm)?;
-            let comp = if let Some(key) = key {
-                key.call((a_mid,), vm)?
-            } else {
-                a_mid
+                // A different type does not disable the same-type shortcut
+                // for subsequent midpoint objects.
+                Some(left.rich_compare_bool(right, PyComparisonOp::Lt, vm)?)
             };
-            if x.rich_compare_bool(&comp, PyComparisonOp::Lt, vm)? {
-                hi = mid;
-            } else {
+            let less = match direct {
+                Some(value) => value,
+                None => {
+                    // NotImplemented disables the shortcut for this search.
+                    // Generic dispatch retries __lt__ before reflected __gt__.
+                    compare = None;
+                    left.rich_compare_bool(right, PyComparisonOp::Lt, vm)?
+                }
+            };
+            // Comparison results have already been released after conversion
+            // to bool. Dispose of the midpoint before starting another probe.
+            drop(comp);
+            if less == LEFT {
                 lo = mid + 1;
+            } else {
+                hi = mid;
             }
         }
         Ok(lo)
@@ -146,7 +148,7 @@ mod _bisect {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (low, high) = parse_bounds(&lo, hi.as_ref(), vm)?;
-        bisect_left_impl(&a, &x, low, high, key.as_ref(), vm)
+        bisect_impl::<true>(&a, &x, low, high, key.as_ref(), vm)
     }
 
     #[inline]
@@ -156,7 +158,7 @@ mod _bisect {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (low, high) = parse_bounds(&lo, hi.as_ref(), vm)?;
-        bisect_right_impl(&a, &x, low, high, key.as_ref(), vm)
+        bisect_impl::<false>(&a, &x, low, high, key.as_ref(), vm)
     }
 
     #[pyfunction]
@@ -167,7 +169,7 @@ mod _bisect {
             Some(key) => key.call((x.clone(),), vm)?,
             None => x.clone(),
         };
-        let index = bisect_left_impl(&a, &needle, low, high, key.as_ref(), vm);
+        let index = bisect_impl::<true>(&a, &needle, low, high, key.as_ref(), vm);
         drop(needle);
         let index = index?;
         let result = vm.call_method(&a, "insert", (index, &*x))?;
@@ -183,7 +185,7 @@ mod _bisect {
             Some(key) => key.call((x.clone(),), vm)?,
             None => x.clone(),
         };
-        let index = bisect_right_impl(&a, &needle, low, high, key.as_ref(), vm);
+        let index = bisect_impl::<false>(&a, &needle, low, high, key.as_ref(), vm);
         drop(needle);
         let index = index?;
         let result = vm.call_method(&a, "insert", (index, &*x))?;
