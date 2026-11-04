@@ -101,17 +101,19 @@ mod decl {
                             break Ok(PyIterReturn::Return(ok));
                         }
                         Ok(PyIterReturn::StopIteration(_)) => {
-                            *zelf.active.write() = None;
+                            let previous = zelf.active.write().take();
+                            drop(previous);
                         }
                         Err(err) => {
-                            break Err(err);
+                            return Err(err);
                         }
                     }
                 } else {
                     match source.next(vm) {
                         Ok(PyIterReturn::Return(ok)) => match PyIter::try_from_object(vm, ok) {
                             Ok(iter) => {
-                                *zelf.active.write() = Some(iter);
+                                let previous = zelf.active.write().replace(iter);
+                                drop(previous);
                             }
                             Err(err) => {
                                 break Err(err);
@@ -985,7 +987,9 @@ mod decl {
     struct PyItertoolsAccumulate {
         iterable: PyIter,
         bin_op: Option<PyObjectRef>,
-        initial: Option<PyObjectRef>,
+        initial: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        has_initial: bool,
         acc_value: PyRwLock<Option<PyObjectRef>>,
     }
 
@@ -1006,7 +1010,8 @@ mod decl {
             Ok(Self {
                 iterable: args.iterable,
                 bin_op: args.func,
-                initial: args.initial,
+                has_initial: args.initial.is_some(),
+                initial: PyRwLock::new(args.initial),
                 acc_value: PyRwLock::new(None),
             })
         }
@@ -1022,12 +1027,22 @@ mod decl {
             let iterable = &zelf.iterable;
 
             let acc_value = zelf.acc_value.read().clone();
+            let acc_value = if acc_value.is_none() && zelf.has_initial {
+                let mut acc = zelf.acc_value.write();
+                if acc.is_none() {
+                    let initial = zelf.initial.write().take();
+                    if let Some(initial) = initial {
+                        *acc = Some(initial.clone());
+                        return Ok(PyIterReturn::Return(initial));
+                    }
+                }
+                acc.clone()
+            } else {
+                acc_value
+            };
 
             let next_acc_value = match acc_value {
-                None => match &zelf.initial {
-                    None => raise_if_stop!(iterable.next(vm)?),
-                    Some(obj) => obj.clone(),
-                },
+                None => raise_if_stop!(iterable.next(vm)?),
                 Some(value) => {
                     let obj = raise_if_stop!(iterable.next(vm)?);
                     match &zelf.bin_op {
@@ -1036,7 +1051,8 @@ mod decl {
                     }
                 }
             };
-            *zelf.acc_value.write() = Some(next_acc_value.clone());
+            let previous = zelf.acc_value.write().replace(next_acc_value.clone());
+            drop(previous);
 
             Ok(PyIterReturn::Return(next_acc_value))
         }
@@ -1783,6 +1799,8 @@ mod decl {
     struct PyItertoolsPairwise {
         iterator: PyIter,
         old: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        terminal: AtomicBool,
     }
 
     impl Constructor for PyItertoolsPairwise {
@@ -1795,6 +1813,7 @@ mod decl {
             Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),
+                terminal: AtomicBool::new(false),
             })
         }
     }
@@ -1804,17 +1823,40 @@ mod decl {
 
     impl SelfIter for PyItertoolsPairwise {}
 
+    impl PyItertoolsPairwise {
+        fn next_item(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            match self.iterator.next(vm) {
+                Ok(PyIterReturn::Return(obj)) => Ok(PyIterReturn::Return(obj)),
+                Ok(PyIterReturn::StopIteration(value)) => {
+                    self.terminal.store(true, Ordering::Release);
+                    Ok(PyIterReturn::StopIteration(value))
+                }
+                Err(err) => {
+                    self.terminal.store(true, Ordering::Release);
+                    Err(err)
+                }
+            }
+        }
+    }
+
     impl IterNext for PyItertoolsPairwise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            if zelf.terminal.load(Ordering::Acquire) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
             let old_clone = {
                 let guard = zelf.old.read();
                 guard.clone()
             };
             let old = match old_clone {
-                None => match zelf.iterator.next(vm)? {
+                None => match zelf.next_item(vm)? {
                     PyIterReturn::Return(obj) => {
                         // Needed for when we reenter
-                        *zelf.old.write() = Some(obj.clone());
+                        let previous = zelf.old.write().replace(obj.clone());
+                        drop(previous);
+                        if zelf.terminal.load(Ordering::Acquire) {
+                            return Ok(PyIterReturn::StopIteration(None));
+                        }
                         obj
                     }
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -1822,8 +1864,9 @@ mod decl {
                 Some(obj) => obj,
             };
 
-            let new = raise_if_stop!(zelf.iterator.next(vm)?);
-            *zelf.old.write() = Some(new.clone());
+            let new = raise_if_stop!(zelf.next_item(vm)?);
+            let previous = zelf.old.write().replace(new.clone());
+            drop(previous);
 
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
