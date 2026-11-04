@@ -570,10 +570,20 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn extend(zelf: &Py<Self>, elements: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let items: Vec<PyObjectRef> = elements.try_to_value(vm)?;
-            for element in &items {
-                check_element(element, vm)?;
+            // Keep the bulk path while committing valid items before an error.
+            let valid_prefix = items
+                .iter()
+                .position(|element| !element.downcastable::<Self>())
+                .unwrap_or(items.len());
+            let mut items = items.into_iter();
+            zelf.inner
+                .write()
+                .children
+                .extend(items.by_ref().take(valid_prefix));
+            for element in items {
+                check_element(&element, vm)?;
+                zelf.inner.write().children.push(element);
             }
-            zelf.inner.write().children.extend(items);
             Ok(())
         }
 
