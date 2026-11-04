@@ -1346,11 +1346,22 @@ except Exception as e:
 else:
     raise AssertionError("expected ArgumentError from failing converter")
 
-# 6. Reset argtypes
+# 6. Cached converter resolved at assignment (mutating from_param afterwards does not affect calls)
+class MutatingConverter:
+    @classmethod
+    def from_param(cls, val):
+        return int(val)
+
+
+libc.srand.argtypes = [MutatingConverter]
+MutatingConverter.from_param = None
+libc.srand(40)
+
+# 7. Reset argtypes
 libc.srand.argtypes = [ctypes.c_uint]
 libc.srand(0)
 
-# 7. Windows-specific test for Issue #8341: custom converter returning a Structure
+# 8. Windows-specific test for Issue #8341: custom converter returning a Structure
 if _sys.platform == "win32":
     from ctypes import wintypes
 
