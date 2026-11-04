@@ -5820,7 +5820,8 @@ mod _io {
         let file = if crate::protocol::PyNumber::check(&file) {
             file
         } else {
-            FsPath::try_from_path_like(file.clone(), false, vm)?.to_pyobject(vm)
+            // Keep the original argument alive through opening and wrapper setup.
+            FsPath::try_from_path_like(file.as_object().to_owned(), false, vm)?.to_pyobject(vm)
         };
 
         // mode is optional: 'rt' is the default mode (open from reading text)
@@ -6253,9 +6254,10 @@ mod fileio {
                     if err.posix_errno() == libc::EBADF {
                         return Err(err.to_pyexception(vm));
                     }
+                    // Keep the original name alive through error construction and local cleanup.
                     return Err(err
                         .to_os_error_builder(vm)
-                        .filename(name.clone())
+                        .filename(name.as_object().to_owned())
                         .into_pyexception(vm));
                 }
             }
