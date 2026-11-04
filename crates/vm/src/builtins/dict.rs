@@ -2401,14 +2401,16 @@ impl AsSequence for PyDictValues {
 
 fn set_inner_number_op<F>(a: &PyObject, b: &PyObject, f: F, vm: &VirtualMachine) -> PyResult
 where
-    F: FnOnce(PySetInner, ArgIterable) -> PyResult<PySetInner>,
+    F: FnOnce(PySetInner, PyObjectRef) -> PyResult<PySetInner>,
 {
     let a = PySetInner::from_iter(
         ArgIterable::try_from_object(vm, a.to_owned())?.iter(vm)?,
         vm,
     )?;
-    let b = ArgIterable::try_from_object(vm, b.to_owned())?;
-    Ok(PySet { inner: f(a, b)? }.into_pyobject(vm))
+    Ok(PySet {
+        inner: f(a, b.to_owned())?,
+    }
+    .into_pyobject(vm))
 }
 
 pub(crate) fn set_inner_number_subtract(
@@ -2443,7 +2445,15 @@ pub(crate) fn set_view_number_and(
 }
 
 pub(crate) fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    set_inner_number_op(a, b, |a, b| a.symmetric_difference(b, vm), vm)
+    set_inner_number_op(
+        a,
+        b,
+        |a, b| {
+            a.symmetric_difference_update(core::iter::once(b), vm)?;
+            Ok(a)
+        },
+        vm,
+    )
 }
 
 pub(crate) fn set_item_view_number_xor(

@@ -942,26 +942,18 @@ impl<T: Clone> Dict<T> {
         hash: HashValue,
         value: T,
     ) -> PyResult<()> {
-        // Borrow the value so a deletion leaves it to be dropped unlocked.
-        let mut value = Some(value);
-        let _removed = self.with_slot_mut_prepared(
-            vm,
-            key,
-            hash,
-            Some(|| key.to_owned()),
-            |inner, (entry, index_index), prepared| {
-                if let Some(index) = entry.index() {
-                    self.invalidate_keys_version();
-                    inner.indices[index_index] = IndexEntry::DUMMY;
-                    inner.used -= 1;
-                    return inner.entries[index].take();
-                }
-                let key = prepared.take().unwrap();
-                self.invalidate_keys_version();
-                inner.unchecked_push(index_index, hash, key, value.take().unwrap(), entry);
-                None
-            },
-        )?;
+        // Set symmetric difference performs a discard followed by an add.
+        // The second lookup is observable through equality callbacks.
+        let removed = self.with_slot_mut(vm, key, hash, |inner, (entry, index_index)| {
+            let index = entry.index()?;
+            self.invalidate_keys_version();
+            inner.indices[index_index] = IndexEntry::DUMMY;
+            inner.used -= 1;
+            inner.entries[index].take()
+        })?;
+        if removed.is_none() {
+            self.insert(vm, key, hash, value)?;
+        }
         Ok(())
     }
 
@@ -1171,12 +1163,16 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    /// Fold stored hashes under the read lock; the callback must not run Python.
-    pub(crate) fn fold_hashes<Acc, Fold>(&self, init: Acc, f: Fold) -> Acc
+    /// Fold the length and stored hashes under one read lock; neither callback
+    /// may run Python or release owned Python references.
+    pub(crate) fn fold_hashes<Acc, Init, Fold>(&self, init: Init, f: Fold) -> Acc
     where
+        Init: FnOnce(usize) -> Acc,
         Fold: FnMut(Acc, HashValue) -> Acc,
     {
-        self.read()
+        let inner = self.read();
+        let init = init(inner.used);
+        inner
             .entries
             .iter()
             .filter_map(|v| v.as_ref().map(|v| v.hash))
