@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, FromArgs, FuncArgs, KwArgs, OptionalArg},
+        function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn, PyNumber},
         types::{Constructor, IterNext, Iterable, SelfIter},
         vm::thread::PyOperation,
