@@ -6,7 +6,6 @@ use core::ffi::CStr;
 #[cfg(all(unix, not(target_os = "redox")))]
 use core::ptr::NonNull;
 use std::ffi::{OsStr, OsString};
-#[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
@@ -15,6 +14,23 @@ pub use super::posix_unix_like::*;
 pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 pub use libc::{c_char, pid_t};
+
+// CPython caps subprocess extra_groups using NGROUPS_MAX from the target
+// headers, not sysconf(_SC_NGROUPS_MAX). These are the verified header values;
+// leave other targets uncapped until their compile-time limit is available.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub const SUBPROCESS_MAX_GROUPS: Option<usize> = Some(65_536);
+#[cfg(target_os = "macos")]
+pub const SUBPROCESS_MAX_GROUPS: Option<usize> = Some(16);
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+pub const SUBPROCESS_MAX_GROUPS: Option<usize> = Some(libc::NGROUPS_MAX as usize);
+#[cfg(not(any(
+    all(target_os = "linux", target_env = "gnu"),
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "netbsd",
+)))]
+pub const SUBPROCESS_MAX_GROUPS: Option<usize> = None;
 
 /// `<sys/param.h>` on glibc defines NODEV as `(dev_t)-1`.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -412,15 +428,20 @@ pub struct PosixSpawnConfig<'a> {
 }
 
 pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> std::io::Result<()> {
+    set_inheritable_raw(fd.as_raw_fd(), inheritable)
+}
+
+/// Set inheritance for an integer descriptor without asserting that it is open.
+pub fn set_inheritable_raw(fd: i32, inheritable: bool) -> std::io::Result<()> {
     use nix::fcntl;
 
-    let flags = fcntl::FdFlag::from_bits_truncate(
-        fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD).map_err(std::io::Error::from)?,
-    );
+    let flags = fcntl::FdFlag::from_bits_truncate(nix::errno::Errno::result(unsafe {
+        libc::fcntl(fd, libc::F_GETFD)
+    })?);
     let mut new_flags = flags;
     new_flags.set(fcntl::FdFlag::FD_CLOEXEC, !inheritable);
     if flags != new_flags {
-        fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags)).map_err(std::io::Error::from)?;
+        nix::errno::Errno::result(unsafe { libc::fcntl(fd, libc::F_SETFD, new_flags.bits()) })?;
     }
     Ok(())
 }
@@ -698,7 +719,15 @@ pub fn fork() -> std::io::Result<libc::pid_t> {
 }
 
 pub fn write_fd(fd: BorrowedFd<'_>, buf: &[u8]) -> std::io::Result<usize> {
-    nix::unistd::write(fd, buf).map_err(std::io::Error::from)
+    write_fd_raw(fd.as_raw_fd(), buf)
+}
+
+/// Write through an integer descriptor, reporting invalid descriptors as OS errors.
+pub fn write_fd_raw(fd: i32, buf: &[u8]) -> std::io::Result<usize> {
+    let ret = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
+    nix::errno::Errno::result(ret)
+        .map(|n| n as usize)
+        .map_err(std::io::Error::from)
 }
 
 pub fn pread(fd: i32, buf: &mut [u8], offset: libc::off_t) -> std::io::Result<usize> {
@@ -1055,6 +1084,16 @@ pub fn check_access(
 }
 
 pub fn close_fds(above: i32, keep: &[BorrowedFd<'_>]) {
+    close_fds_impl(above, keep)
+}
+
+/// Close child descriptors using a sorted list of integer descriptors to keep.
+/// No validity or ownership is inferred from the integers.
+pub fn close_fds_raw(above: i32, keep: &[i32]) {
+    close_fds_impl(above, keep)
+}
+
+fn close_fds_impl<Fd: AsRawFd>(above: i32, keep: &[Fd]) {
     #[cfg(not(target_os = "redox"))]
     if close_dir_fds(above, keep).is_ok() {
         return;
@@ -1078,9 +1117,60 @@ pub fn setup_child_fds(
     errwrite: i32,
     errpipe_read: i32,
 ) -> std::io::Result<()> {
-    for &fd in fds_to_keep {
-        if fd.as_raw_fd() != errpipe_write.as_raw_fd() {
-            set_inheritable(fd, true)?;
+    setup_child_fds_impl(
+        fds_to_keep,
+        errpipe_write.as_raw_fd(),
+        p2cread,
+        p2cwrite,
+        c2pread,
+        c2pwrite,
+        errread,
+        errwrite,
+        errpipe_read,
+    )
+}
+
+/// Prepare child descriptors without borrowing user-supplied descriptor integers.
+#[allow(clippy::too_many_arguments)]
+pub fn setup_child_fds_raw(
+    fds_to_keep: &[i32],
+    errpipe_write: i32,
+    p2cread: i32,
+    p2cwrite: i32,
+    c2pread: i32,
+    c2pwrite: i32,
+    errread: i32,
+    errwrite: i32,
+    errpipe_read: i32,
+) -> std::io::Result<()> {
+    setup_child_fds_impl(
+        fds_to_keep,
+        errpipe_write,
+        p2cread,
+        p2cwrite,
+        c2pread,
+        c2pwrite,
+        errread,
+        errwrite,
+        errpipe_read,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn setup_child_fds_impl<Fd: AsRawFd>(
+    fds_to_keep: &[Fd],
+    errpipe_write: i32,
+    p2cread: i32,
+    p2cwrite: i32,
+    c2pread: i32,
+    c2pwrite: i32,
+    errread: i32,
+    errwrite: i32,
+    errpipe_read: i32,
+) -> std::io::Result<()> {
+    for fd in fds_to_keep {
+        if fd.as_raw_fd() != errpipe_write {
+            set_inheritable_raw(fd.as_raw_fd(), true)?;
         }
     }
 
@@ -1092,8 +1182,7 @@ pub fn setup_child_fds(
     nix::unistd::close(errpipe_read).map_err(std::io::Error::from)?;
 
     let c2pwrite = if c2pwrite == 0 {
-        let fd = unsafe { BorrowedFd::borrow_raw(c2pwrite) };
-        let dup = nix::unistd::dup(fd).map_err(std::io::Error::from)?;
+        let dup = dup_raw(c2pwrite)?;
         set_inheritable(dup.as_fd(), true)?;
         dup.into_raw_fd()
     } else {
@@ -1102,8 +1191,7 @@ pub fn setup_child_fds(
 
     let mut errwrite = errwrite;
     while errwrite == 0 || errwrite == 1 {
-        let fd = unsafe { BorrowedFd::borrow_raw(errwrite) };
-        let dup = nix::unistd::dup(fd).map_err(std::io::Error::from)?;
+        let dup = dup_raw(errwrite)?;
         set_inheritable(dup.as_fd(), true)?;
         errwrite = dup.into_raw_fd();
     }
@@ -1114,20 +1202,23 @@ pub fn setup_child_fds(
     Ok(())
 }
 
+fn dup_raw(fd: i32) -> std::io::Result<OwnedFd> {
+    let duplicate = nix::errno::Errno::result(unsafe { libc::dup(fd) })?;
+    // SAFETY: a successful dup returns a new, owned descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
+}
+
 fn dup_into_stdio(fd: i32, io_fd: i32) -> std::io::Result<()> {
     if fd < 0 {
         return Ok(());
     }
-    let fd = unsafe { BorrowedFd::borrow_raw(fd) };
-    if fd.as_raw_fd() == io_fd {
-        set_inheritable(fd, true)
+    if fd == io_fd {
+        set_inheritable_raw(fd, true)
     } else {
-        match io_fd {
-            0 => nix::unistd::dup2_stdin(fd).map_err(std::io::Error::from),
-            1 => nix::unistd::dup2_stdout(fd).map_err(std::io::Error::from),
-            2 => nix::unistd::dup2_stderr(fd).map_err(std::io::Error::from),
-            _ => unreachable!(),
-        }
+        debug_assert!((0..=2).contains(&io_fd));
+        nix::errno::Errno::result(unsafe { libc::dup2(fd, io_fd) })
+            .map(drop)
+            .map_err(std::io::Error::from)
     }
 }
 
@@ -2116,15 +2207,12 @@ pub fn exec_replace<T: AsRef<CStr>>(
     first_err.unwrap_or_else(nix::errno::Errno::last)
 }
 
-fn should_keep(above: i32, keep: &[BorrowedFd<'_>], fd: i32) -> bool {
-    fd > above
-        && keep
-            .binary_search_by_key(&fd, BorrowedFd::as_raw_fd)
-            .is_err()
+fn should_keep<Fd: AsRawFd>(above: i32, keep: &[Fd], fd: i32) -> bool {
+    fd > above && keep.binary_search_by_key(&fd, AsRawFd::as_raw_fd).is_err()
 }
 
 #[cfg(not(target_os = "redox"))]
-fn close_dir_fds(above: i32, keep: &[BorrowedFd<'_>]) -> nix::Result<()> {
+fn close_dir_fds<Fd: AsRawFd>(above: i32, keep: &[Fd]) -> nix::Result<()> {
     use nix::{dir::Dir, fcntl::OFlag};
     use std::os::fd::AsRawFd;
 
@@ -2163,7 +2251,7 @@ fn close_dir_fds(above: i32, keep: &[BorrowedFd<'_>]) -> nix::Result<()> {
 }
 
 #[cfg(target_os = "redox")]
-fn close_filetable_fds(above: i32, keep: &[BorrowedFd<'_>]) -> nix::Result<()> {
+fn close_filetable_fds<Fd: AsRawFd>(above: i32, keep: &[Fd]) -> nix::Result<()> {
     use nix::fcntl;
     use std::os::fd::AsRawFd;
 
@@ -2200,7 +2288,7 @@ fn close_filetable_fds(above: i32, keep: &[BorrowedFd<'_>]) -> nix::Result<()> {
     Ok(())
 }
 
-fn close_fds_brute_force(above: i32, keep: &[BorrowedFd<'_>]) {
+fn close_fds_brute_force<Fd: AsRawFd>(above: i32, keep: &[Fd]) {
     debug_assert!(
         keep.windows(2)
             .all(|fds| fds[0].as_raw_fd() <= fds[1].as_raw_fd()),
@@ -2215,7 +2303,7 @@ fn close_fds_brute_force(above: i32, keep: &[BorrowedFd<'_>]) {
     let mut prev = above;
     for fd in keep
         .iter()
-        .map(BorrowedFd::as_raw_fd)
+        .map(AsRawFd::as_raw_fd)
         .chain(core::iter::once(max_fd))
     {
         for candidate in prev + 1..fd {
@@ -2238,5 +2326,69 @@ impl IntParser {
         self.num *= 10;
         self.num += digit as i32;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod subprocess_raw_fd_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_raw_descriptors_return_ebadf() {
+        for err in [
+            set_inheritable_raw(-1, true).unwrap_err(),
+            write_fd_raw(-1, b"x").unwrap_err(),
+            dup_raw(-1).unwrap_err(),
+        ] {
+            assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+        }
+    }
+
+    #[test]
+    fn invalid_kept_descriptor_stops_before_child_setup() {
+        // The first operation fails, before any close or stdio redirection.
+        let err = setup_child_fds_raw(&[-1], -2, -1, -1, -1, -1, -1, -1, -1).unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+    }
+
+    #[test]
+    fn raw_and_borrowed_keep_lists_select_the_same_descriptors() {
+        let (reader, writer) = nix::unistd::pipe().unwrap();
+        let raw = [reader.as_raw_fd(), writer.as_raw_fd()];
+        assert!(raw[0] > 2 && raw[1] > raw[0]);
+        let borrowed = [reader.as_fd(), writer.as_fd()];
+        for candidate in [2, raw[0], raw[1], raw[1] + 1] {
+            assert_eq!(
+                should_keep(2, &raw, candidate),
+                should_keep(2, &borrowed, candidate)
+            );
+        }
+        assert!(!should_keep(2, &raw, raw[0]));
+        assert!(should_keep(2, &raw, raw[1] + 1));
+    }
+
+    #[test]
+    fn raw_helpers_preserve_pipe_ownership_and_flags() {
+        let (reader, writer) = nix::unistd::pipe().unwrap();
+        assert!(reader.as_raw_fd() > 2 && writer.as_raw_fd() > 2);
+        let high = nix::fcntl::fcntl(&writer, nix::fcntl::FcntlArg::F_DUPFD_CLOEXEC(64)).unwrap();
+        // SAFETY: F_DUPFD_CLOEXEC returned a fresh descriptor owned by this test.
+        let high = unsafe { OwnedFd::from_raw_fd(high) };
+        let fd = high.as_raw_fd();
+        assert!(fd >= 64);
+        let flags = || nix::fcntl::fcntl(&high, nix::fcntl::FcntlArg::F_GETFD).unwrap();
+        assert_ne!(flags() & libc::FD_CLOEXEC, 0);
+        set_inheritable_raw(fd, true).unwrap();
+        assert_eq!(flags() & libc::FD_CLOEXEC, 0);
+        set_inheritable(high.as_fd(), false).unwrap();
+        assert_ne!(flags() & libc::FD_CLOEXEC, 0);
+        assert_eq!(write_fd_raw(fd, b"x").unwrap(), 1);
+        let mut buf = [0];
+        assert_eq!(nix::unistd::read(&reader, &mut buf).unwrap(), 1);
+        assert_eq!(buf, *b"x");
+        let duplicate = dup_raw(fd).unwrap();
+        assert_eq!(write_fd(duplicate.as_fd(), b"y").unwrap(), 1);
+        assert_eq!(nix::unistd::read(&reader, &mut buf).unwrap(), 1);
+        assert_eq!(buf, *b"y");
     }
 }

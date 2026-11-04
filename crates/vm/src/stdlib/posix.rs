@@ -1725,7 +1725,7 @@ pub mod module {
     }
 
     #[derive(Clone, Copy)]
-    pub(crate) struct RawUid(pub(crate) u32);
+    pub struct RawUid(pub u32);
 
     #[derive(Clone, Copy)]
     pub struct RawGid(pub u32);
