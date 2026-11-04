@@ -1038,7 +1038,7 @@ pub mod sys {
         // AttributeError is the only lookup failure treated as an unavailable
         // hook. Release the module before warning or invoking the hook: its
         // attribute callback may have removed it from sys.modules.
-        let hook = module.get_attr(attr_name, vm);
+        let hook = module.get_attr(&vm.ctx.new_str(attr_name), vm);
         drop(module);
         let hook = match hook {
             Ok(hook) => hook,
