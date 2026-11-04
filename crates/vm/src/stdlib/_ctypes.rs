@@ -433,10 +433,10 @@ pub(crate) mod _ctypes {
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[pyfunction]
-    fn dllist(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    fn dllist(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         rustpython_host_env::ctypes::dllist()
             .into_iter()
-            .map(|name| vm.fsdecode(name).into())
+            .map(|name| vm.fsdecode(name).map(Into::into))
             .collect()
     }
 

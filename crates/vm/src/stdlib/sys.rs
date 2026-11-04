@@ -306,14 +306,13 @@ pub mod sys {
 
     // alphabetical order with segments of pyattr and others
 
-    #[pyattr]
-    fn argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    pub(super) fn argv(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         vm.state
             .config
             .settings
             .argv
             .iter()
-            .map(|arg| vm.fsdecode(arg.clone()).into())
+            .map(|arg| vm.fsdecode(arg.clone()).map(Into::into))
             .collect()
     }
 
@@ -706,9 +705,10 @@ pub mod sys {
         Vec::new()
     }
 
-    #[pyattr]
-    fn orig_argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        env::args_os().map(|arg| vm.fsdecode(arg).into()).collect()
+    pub(super) fn orig_argv(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        env::args_os()
+            .map(|arg| vm.fsdecode(arg).map(Into::into))
+            .collect()
     }
 
     #[pyattr]
@@ -732,14 +732,14 @@ pub mod sys {
         vm.ctx.new_dict()
     }
 
-    #[pyattr]
-    fn pycache_prefix(vm: &VirtualMachine) -> Option<PyStrRef> {
+    pub(super) fn pycache_prefix(vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
         vm.state
             .config
             .settings
             .pycache_prefix
             .clone()
             .map(|value| vm.fsdecode(value))
+            .transpose()
     }
 
     #[pyattr(name = "version")]
@@ -2134,9 +2134,22 @@ fn sys_module_doc() -> Option<&'static str> {
     }
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
-    module.__init_methods(vm).unwrap();
-    sys::module_exec(vm, module).unwrap();
+pub(crate) fn init_module(
+    vm: &VirtualMachine,
+    module: &Py<PyModule>,
+    builtins: &Py<PyModule>,
+) -> PyResult<()> {
+    module.__init_methods(vm)?;
+    sys::module_exec(vm, module)?;
+    // These values decode OS bytes and can fail before the codec registry is ready.
+    // Initialize them outside infallible #[pyattr] functions so startup can report errors.
+    module.set_attr("argv", vm.ctx.new_list(sys::argv(vm)?), vm)?;
+    module.set_attr("orig_argv", vm.ctx.new_list(sys::orig_argv(vm)?), vm)?;
+    module.set_attr(
+        "pycache_prefix",
+        sys::pycache_prefix(vm)?.to_pyobject(vm),
+        vm,
+    )?;
 
     let modules = vm.ctx.new_dict();
     modules
@@ -2155,6 +2168,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         "modules" => modules,
         "_jit" => jit_module,
     });
+    Ok(())
 }
 
 pub(crate) fn set_bootstrap_stderr(vm: &VirtualMachine) -> PyResult<()> {

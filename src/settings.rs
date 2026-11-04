@@ -433,8 +433,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     }
 
     // Resolve utf8_mode if not explicitly set by PYTHONUTF8 or -X utf8.
-    // Default to UTF-8 mode since RustPython's locale encoding detection
-    // is incomplete. Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
+    // CPython 3.15 defaults to UTF-8 mode (PEP 686).
+    // Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
     if settings.utf8_mode < 0 {
         settings.utf8_mode = 1;
     }

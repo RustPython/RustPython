@@ -172,14 +172,14 @@ pub enum OutputMode {
 }
 
 impl OutputMode {
-    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyObjectRef {
-        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyObjectRef {
+    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyResult {
+        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyResult {
             match mode {
-                OutputMode::String => vm.fsdecode(path).into(),
-                OutputMode::Bytes => vm
+                OutputMode::String => vm.fsdecode(path).map(Into::into),
+                OutputMode::Bytes => Ok(vm
                     .ctx
                     .new_bytes(path.into_os_string().into_encoded_bytes())
-                    .into(),
+                    .into()),
             }
         }
         inner(self, path.into(), vm)
@@ -216,9 +216,9 @@ impl OsPath {
         widestring::WideCString::from_os_str(&self.path).map_err(|err| err.to_pyexception(vm))
     }
 
-    pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn filename(&self, vm: &VirtualMachine) -> PyResult {
         if let Some(ref origin) = self.origin {
-            origin.clone()
+            Ok(origin.clone())
         } else {
             // Default to string when no origin (e.g., from new_str)
             OutputMode::String.process_path(self.path.clone(), vm)

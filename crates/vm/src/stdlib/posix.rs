@@ -2442,7 +2442,7 @@ pub mod module {
     fn getlogin(vm: &VirtualMachine) -> PyResult<crate::builtins::PyStrRef> {
         let login =
             rustpython_host_env::posix::getlogin().map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.fsdecode(std::ffi::OsString::from_vec(login.into_bytes())))
+        vm.fsdecode(std::ffi::OsString::from_vec(login.into_bytes()))
     }
 
     // cfg from nix

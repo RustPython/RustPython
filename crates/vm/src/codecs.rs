@@ -563,14 +563,22 @@ impl CodecsRegistry {
 /// native (de)coders are cheap to call directly, bypassing the codec
 /// registry round trip. Matches the alias sets in `Lib/encodings/aliases.py`.
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum FastCodec {
+pub(crate) enum FastCodec {
     Utf8,
     Ascii,
     Latin1,
 }
 
 impl FastCodec {
-    fn classify(encoding: &str) -> Option<Self> {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf-8",
+            Self::Ascii => "ascii",
+            Self::Latin1 => "iso8859-1",
+        }
+    }
+
+    pub(crate) fn classify(encoding: &str) -> Option<Self> {
         const UTF8_ALIASES: &[&str] = &[
             "utf_8",
             "utf8",

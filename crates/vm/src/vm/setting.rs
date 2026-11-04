@@ -31,12 +31,21 @@ pub struct Paths {
 pub struct PyConfig {
     pub settings: Settings,
     pub paths: Paths,
+    pub(super) filesystem: alloc::sync::Arc<super::filesystem::FilesystemCodec>,
 }
 
 impl PyConfig {
     #[must_use]
-    pub fn new(settings: Settings, paths: Paths) -> Self {
-        Self { settings, paths }
+    pub fn new(mut settings: Settings, paths: Paths) -> Self {
+        if settings.utf8_mode < 0 {
+            settings.utf8_mode = 1;
+        }
+        let filesystem = alloc::sync::Arc::new(super::filesystem::FilesystemCodec::new(&settings));
+        Self {
+            settings,
+            paths,
+            filesystem,
+        }
     }
 }
 
@@ -71,8 +80,6 @@ pub struct Settings {
     // int dump_refs;
     // wchar_t *dump_refs_file;
     // int malloc_stats;
-    // wchar_t *filesystem_encoding;
-    // wchar_t *filesystem_errors;
     /// -X pycache_prefix, PYTHONPYCACHEPREFIX
     pub pycache_prefix: Option<OsString>,
     // int parse_argv;

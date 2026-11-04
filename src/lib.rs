@@ -84,11 +84,30 @@ compile_error!(
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
 ///
+/// This retains the caller's process locale. The standalone executable uses
+/// `run_with_locale` to opt into environment setup during single-threaded startup.
+///
 /// **Note**: This function provides no way to further initialize the VM after the builder is applied.
 /// All VM initialization (adding native modules, init hooks, etc.) must be done through the
 /// [`InterpreterBuilder`] parameter before calling this function.
 #[must_use]
-pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
+pub fn run(builder: InterpreterBuilder) -> ExitCode {
+    run_impl(builder, false)
+}
+
+/// Run the command-line interpreter, configuring LC_CTYPE from the environment.
+///
+/// # Safety
+///
+/// Call only during single-threaded startup, before other threads or libraries
+/// can read the environment or use the process-global locale. Embedded callers
+/// that cannot guarantee this should use `run` or build an interpreter directly.
+#[must_use]
+pub unsafe fn run_with_locale(builder: InterpreterBuilder) -> ExitCode {
+    run_impl(builder, true)
+}
+
+fn run_impl(mut builder: InterpreterBuilder, configure_locale: bool) -> ExitCode {
     env_logger::init();
 
     // NOTE: This is not a WASI convention. But it will be convenient since POSIX shell always defines it.
@@ -106,6 +125,15 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    #[cfg(all(feature = "host_env", target_os = "linux"))]
+    if configure_locale {
+        // SAFETY: only run_with_locale enables this, under its caller's
+        // single-threaded process-startup contract.
+        unsafe { vm::host_env::locale::initialize_ctype(settings.ignore_environment) };
+    }
+    #[cfg(not(all(feature = "host_env", target_os = "linux")))]
+    let _ = configure_locale;
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -236,7 +264,7 @@ fn cant_open_file(
     path: &vm::Py<vm::builtins::PyStr>,
     err: &std::io::Error,
 ) -> PyResult<u32> {
-    let program_name = vm.fsdecode(vm.state.config.paths.program_name.clone());
+    let program_name = vm.fsdecode(vm.state.config.paths.program_name.clone())?;
     let filename_repr = path.as_object().repr(vm)?;
     let errno = err.raw_os_error().unwrap_or(2);
     let strerror = vm::host_env::errno::strerror_string(errno).unwrap_or_default();
@@ -413,7 +441,7 @@ fn run_command(
 ) -> PyResult<u32> {
     // CPython appends a newline before auditing and executing -c.
     command.push("\n");
-    let command = vm.fsdecode(command);
+    let command = vm.fsdecode(command)?;
     // Audit failures do not receive the command-decoding error prefix.
     vm.audit("cpython.run_command", || (command.clone(),))?;
 
@@ -476,7 +504,7 @@ fn run_startup(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let Some(startup) = env::var_os("PYTHONSTARTUP").filter(|value| !value.is_empty()) else {
         return Ok(());
     };
-    let startup = vm.fsdecode(startup);
+    let startup = vm.fsdecode(startup)?;
     vm.audit("cpython.run_startup", || (startup.clone(),))?;
     let could_not_open = |err: std::io::Error| {
         use vm::convert::ToPyException;

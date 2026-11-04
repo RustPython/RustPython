@@ -71,7 +71,8 @@ pub(crate) mod module {
                 vm.new_not_implemented_error("chmod: follow_symlinks unavailable on this platform")
             );
         }
-        vm.audit("os.chmod", || (path.filename(vm), mode, -1))?;
+        let filename = path.filename(vm)?;
+        vm.audit("os.chmod", || (filename, mode, -1))?;
         // CPython 3.15 posixmodule.c explicitly ignores the absent WASI syscall
         // after argument conversion and auditing. No supports_* capability is set.
         Ok(())
