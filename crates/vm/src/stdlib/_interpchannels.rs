@@ -583,7 +583,11 @@ pub(crate) mod _interpchannels {
         args: &FuncArgs,
         func: &'static str,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<Option<PyObjectRef>>> {
+    ) -> PyResult<(i64, bool, bool, bool)> {
+        let mut cid = None;
+        let mut send = false;
+        let mut recv = false;
+        let mut force = false;
         ArgSpec {
             fname: func,
             keywords: &["cid", "send", "recv", "force"],
@@ -592,38 +596,40 @@ pub(crate) mod _interpchannels {
         }
         .parse_with(
             args,
-            |i, obj, vm| match i {
-                0 => parse_cid(obj, vm).map(drop),
-                _ => Ok(()),
+            |i, obj, vm| {
+                match i {
+                    0 => cid = Some(parse_cid(obj, vm)?.0),
+                    1 => send = flag(obj, vm)?,
+                    2 => recv = flag(obj, vm)?,
+                    3 => force = flag(obj, vm)?,
+                    _ => unreachable!(),
+                }
+                Ok(())
             },
             vm,
-        )
+        )?;
+        Ok((cid.unwrap(), send, recv, force))
     }
 
     /// The `p` converter: a predicate that only reads truthiness.
-    fn flag(slot: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<bool> {
-        match slot {
-            Some(o) => o.to_owned().is_true(vm),
-            None => Ok(false),
-        }
+    fn flag(obj: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        obj.to_owned().is_true(vm)
     }
 
     /// The `i` converter.
-    fn int_arg(slot: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<Option<i32>> {
-        slot.map(|o| {
-            let ival = o.try_index(vm)?.as_bigint().to_i64().ok_or_else(|| {
+    fn int_arg(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
+        let ival =
+            obj.try_index(vm)?.as_bigint().to_i64().ok_or_else(|| {
                 vm.new_overflow_error("Python int too large to convert to C long")
             })?;
-            i32::try_from(ival).map_err(|_| {
-                let msg = if ival > i32::MAX as i64 {
-                    "signed integer is greater than maximum"
-                } else {
-                    "signed integer is less than minimum"
-                };
-                vm.new_overflow_error(msg)
-            })
+        i32::try_from(ival).map_err(|_| {
+            let msg = if ival > i32::MAX as i64 {
+                "signed integer is greater than maximum"
+            } else {
+                "signed integer is less than minimum"
+            };
+            vm.new_overflow_error(msg)
         })
-        .transpose()
     }
 
     #[pyattr]
@@ -762,7 +768,12 @@ pub(crate) mod _interpchannels {
 
     /// `_channelid_new`.
     fn channel_id_new(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
+        let mut channel = None;
+        let mut send = None;
+        let mut recv = None;
+        let mut force = false;
+        let mut resolve = false;
+        ArgSpec {
             fname: "ChannelID.__new__",
             keywords: &["id", "send", "recv", "force", "_resolve"],
             required: 1,
@@ -770,20 +781,20 @@ pub(crate) mod _interpchannels {
         }
         .parse_with(
             &args,
-            |i, obj, vm| match i {
-                0 => parse_cid(obj, vm).map(drop),
-                _ => Ok(()),
+            |i, obj, vm| {
+                match i {
+                    0 => channel = Some(parse_cid(obj, vm)?),
+                    1 => send = Some(flag(obj, vm)?),
+                    2 => recv = Some(flag(obj, vm)?),
+                    3 => force = flag(obj, vm)?,
+                    4 => resolve = flag(obj, vm)?,
+                    _ => unreachable!(),
+                }
+                Ok(())
             },
             vm,
         )?;
-        let (cid, mut end) = parse_cid(parsed[0].as_deref().unwrap(), vm)?;
-        let tri = |slot: Option<&PyObject>| -> PyResult<Option<bool>> {
-            slot.map(|o| o.to_owned().is_true(vm)).transpose()
-        };
-        let send = tri(parsed[1].as_deref())?;
-        let recv = tri(parsed[2].as_deref())?;
-        let force = flag(parsed[3].as_deref(), vm)?;
-        let resolve = flag(parsed[4].as_deref(), vm)?;
+        let (cid, mut end) = channel.unwrap();
         match (send, recv) {
             (Some(false), Some(false)) => {
                 return Err(vm.new_value_error("'send' and 'recv' cannot both be False"));
@@ -837,15 +848,26 @@ pub(crate) mod _interpchannels {
 
     #[pyfunction]
     fn create(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
+        let mut unboundarg = -1;
+        let mut fallbackarg = -1;
+        ArgSpec {
             fname: "create",
             keywords: &["unboundop", "fallback"],
             required: 0,
             max_positional: 2,
         }
-        .parse(&args, vm)?;
-        let unboundarg = int_arg(parsed[0].as_deref(), vm)?.unwrap_or(-1);
-        let fallbackarg = int_arg(parsed[1].as_deref(), vm)?.unwrap_or(-1);
+        .parse_with(
+            &args,
+            |i, obj, vm| {
+                match i {
+                    0 => unboundarg = int_arg(obj, vm)?,
+                    1 => fallbackarg = int_arg(obj, vm)?,
+                    _ => unreachable!(),
+                }
+                Ok(())
+            },
+            vm,
+        )?;
         let unboundop = resolve_unboundop(unboundarg, UnboundOp::Replace, vm)?;
         let fallback = resolve_fallback(fallbackarg, Fallback::Full.as_i32(), vm)?;
         let cid = channel_create(unboundop, fallback.as_i32());
@@ -888,7 +910,9 @@ pub(crate) mod _interpchannels {
 
     #[pyfunction]
     fn list_interpreters(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
+        let mut cid = None;
+        let mut send = false;
+        ArgSpec {
             fname: "channel_list_interpreters",
             keywords: &["cid", "send"],
             required: 2,
@@ -896,14 +920,17 @@ pub(crate) mod _interpchannels {
         }
         .parse_with(
             &args,
-            |i, obj, vm| match i {
-                0 => parse_cid(obj, vm).map(drop),
-                _ => Ok(()),
+            |i, obj, vm| {
+                match i {
+                    0 => cid = Some(parse_cid(obj, vm)?.0),
+                    1 => send = flag(obj, vm)?,
+                    _ => unreachable!(),
+                }
+                Ok(())
             },
             vm,
         )?;
-        let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
-        let send = flag(parsed[1].as_deref(), vm)?;
+        let cid = cid.unwrap();
         let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
         let interpreters = crate::vm::runtime::list_interpreters();
         let state = chan.state.lock();
@@ -1044,6 +1071,10 @@ pub(crate) mod _interpchannels {
         bool,
         Option<Duration>,
     )> {
+        let mut cid = None;
+        let mut unboundarg = -1;
+        let mut fallbackarg = -1;
+        let mut blocking = true;
         let parsed = ArgSpec {
             fname: func,
             keywords: &["cid", "obj", "unboundop", "fallback", "blocking", "timeout"],
@@ -1052,21 +1083,20 @@ pub(crate) mod _interpchannels {
         }
         .parse_with(
             args,
-            |i, obj, vm| match i {
-                0 => parse_cid(obj, vm).map(drop),
-                2 | 3 => int_arg(Some(obj), vm).map(drop),
-                _ => Ok(()),
+            |i, obj, vm| {
+                match i {
+                    0 => cid = Some(parse_cid(obj, vm)?.0),
+                    2 => unboundarg = int_arg(obj, vm)?,
+                    3 => fallbackarg = int_arg(obj, vm)?,
+                    4 => blocking = flag(obj, vm)?,
+                    _ => {}
+                }
+                Ok(())
             },
             vm,
         )?;
-        let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
+        let cid = cid.unwrap();
         let obj = parsed[1].clone().unwrap();
-        let unboundarg = int_arg(parsed[2].as_deref(), vm)?.unwrap_or(-1);
-        let fallbackarg = int_arg(parsed[3].as_deref(), vm)?.unwrap_or(-1);
-        let blocking = match &parsed[4] {
-            Some(o) => o.to_owned().is_true(vm)?,
-            None => true,
-        };
         let timeout = parse_timeout(parsed[5].as_deref(), blocking, vm)?;
         // The channel is only consulted when one of the arguments needs its default.
         let (default_unboundop, default_fallback) = if unboundarg < 0 || fallbackarg < 0 {
@@ -1122,14 +1152,24 @@ pub(crate) mod _interpchannels {
 
     #[pyfunction]
     fn recv(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let mut cid = None;
         let parsed = ArgSpec {
             fname: "channel_recv",
             keywords: &["cid", "default"],
             required: 1,
             max_positional: 2,
         }
-        .parse(&args, vm)?;
-        let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
+        .parse_with(
+            &args,
+            |i, obj, vm| {
+                if i == 0 {
+                    cid = Some(parse_cid(obj, vm)?.0);
+                }
+                Ok(())
+            },
+            vm,
+        )?;
+        let cid = cid.unwrap();
         let default = parsed[1].as_deref();
         let popped = channel_next(cid, vm.state.interpreter_id);
         finish_closing(cid);
@@ -1187,11 +1227,7 @@ pub(crate) mod _interpchannels {
 
     #[pyfunction]
     fn close(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parsed = end_args(&args, "channel_close", vm)?;
-        let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
-        let send = flag(parsed[1].as_deref(), vm)?;
-        let recv = flag(parsed[2].as_deref(), vm)?;
-        let force = flag(parsed[3].as_deref(), vm)?;
+        let (cid, send, recv, force) = end_args(&args, "channel_close", vm)?;
         let end = i32::from(send) - i32::from(recv);
         let waiters = channel_close(cid, end, force).map_err(|e| e.into_py(cid, vm))?;
         release_waiters(waiters, vm);
@@ -1200,10 +1236,8 @@ pub(crate) mod _interpchannels {
 
     #[pyfunction]
     fn release(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parsed = end_args(&args, "channel_release", vm)?;
-        let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
-        let mut send = flag(parsed[1].as_deref(), vm)?;
-        let mut recv = flag(parsed[2].as_deref(), vm)?;
+        // The legacy parser converts force even though channel_release ignores it.
+        let (cid, mut send, mut recv, _force) = end_args(&args, "channel_release", vm)?;
         if !send && !recv {
             send = true;
             recv = true;

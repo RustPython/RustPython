@@ -99,6 +99,12 @@ impl GetDescriptor for PyProperty {
 }
 
 impl PyProperty {
+    fn set_property_name(&self, name: PyObjectRef) {
+        // The replaced name can run a finalizer that accesses this property.
+        let old = self.name.write().replace(name);
+        drop(old);
+    }
+
     // Helper method to get property name
     // Returns the name if available, None if not found, or propagates errors
     fn get_property_name(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
@@ -183,7 +189,7 @@ impl PyProperty {
         // Copy the name if it exists
         let value = zelf.name.read().clone();
         if let Some(name) = value {
-            *new_prop_ref.name.write() = Some(name);
+            new_prop_ref.set_property_name(name);
         }
 
         Ok(new_prop_ref)
@@ -266,12 +272,12 @@ impl Py<PyProperty> {
 
     #[pygetset(name = "__name__", setter)]
     fn name_setter(&self, value: PyObjectRef) {
-        *self.name.write() = Some(value);
+        self.set_property_name(value);
     }
 
     #[pymethod]
     fn __set_name__(&self, SetNameArgs { name, .. }: SetNameArgs) {
-        *self.name.write() = Some(name);
+        self.set_property_name(name);
     }
 
     #[pymethod]

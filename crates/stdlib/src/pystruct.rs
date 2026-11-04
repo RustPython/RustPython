@@ -77,13 +77,13 @@ pub(crate) mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let offset_from_start = if offset < 0 {
-            if (-offset) as usize > buffer_len {
+            if offset.unsigned_abs() > buffer_len {
                 return Err(new_struct_error(
                     vm,
                     format!("offset {offset} out of range for {buffer_len}-byte buffer"),
                 ));
             }
-            buffer_len - (-offset as usize)
+            buffer_len - offset.unsigned_abs()
         } else {
             let offset = offset as usize;
             let (op, op_action) = if is_pack {
@@ -91,13 +91,13 @@ pub(crate) mod _struct {
             } else {
                 ("unpack_from", "unpacking")
             };
-            if offset + needed > buffer_len {
+            if offset > buffer_len || needed > buffer_len - offset {
                 let msg = format!(
                     "{op} requires a buffer of at least {required} bytes for {op_action} {needed} \
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
                     op = op,
                     op_action = op_action,
-                    required = needed + offset,
+                    required = (needed as u128) + (offset as u128),
                     needed = needed,
                     offset = offset,
                     buffer_len = buffer_len
@@ -140,7 +140,7 @@ pub(crate) mod _struct {
     ) -> PyResult<()> {
         let format_spec = format.cached_format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
-        buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], values.into_vec(), vm))
+        format_spec.pack_into_buffer(&buffer, offset, values.into_vec(), vm)
     }
 
     #[pyfunction]
@@ -472,11 +472,9 @@ pub(crate) mod _struct {
         ) -> PyResult<()> {
             let inner = zelf.ready(vm)?;
             let offset = get_buffer_offset(buffer.len(), offset, inner.spec.size, true, vm)?;
-            buffer.with_ref(|data| {
-                inner
-                    .spec
-                    .pack_into(&mut data[offset..], values.into_vec(), vm)
-            })
+            inner
+                .spec
+                .pack_into_buffer(&buffer, offset, values.into_vec(), vm)
         }
 
         #[pymethod]

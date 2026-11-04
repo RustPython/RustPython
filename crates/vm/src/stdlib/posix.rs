@@ -1103,8 +1103,8 @@ pub mod module {
         path: MkfifoPath,
         #[pyarg(any, default = MkfifoMode(0o666), py_default = "438")]
         mode: MkfifoMode,
-        #[pyarg(named, optional, py_default = "None")]
-        dir_fd: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        dir_fd: Option<PyObjectRef>,
     }
 
     #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
@@ -1115,7 +1115,7 @@ pub mod module {
         // Keep a raw C int: even -1 is valid with an absolute path, for which
         // mkfifoat ignores dir_fd. BorrowedFd cannot represent that value.
         let dir_fd = match args.dir_fd {
-            OptionalArg::Present(fd) if !vm.is_none(&fd) => {
+            Some(fd) => {
                 warn_if_bool_fd(&fd, vm)?;
                 let fd = fd.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
@@ -1133,7 +1133,7 @@ pub mod module {
                 })?;
                 (fd != rustpython_host_env::os::AT_FDCWD).then_some(fd)
             }
-            _ => None,
+            None => None,
         };
         if dir_fd.is_some() && !host_posix::has_mkfifoat() {
             return Err(vm.new_not_implemented_error("dir_fd unavailable on this platform"));
@@ -1541,6 +1541,51 @@ pub mod module {
         env: ArgMapping,
     }
 
+    fn execve_environment(env: &ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<CString>> {
+        fn make_entry(
+            key: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<CString> {
+            let key_bytes = OsPath::try_from_object(vm, key.clone())?.into_bytes();
+            let value_bytes = OsPath::try_from_object(vm, value.clone())?.into_bytes();
+            if key_bytes.is_empty() || memchr::memchr(b'=', &key_bytes).is_some() {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+            let mut entry = key_bytes;
+            entry.push(b'=');
+            entry.extend_from_slice(&value_bytes);
+            let entry = CString::new(entry).map_err(|err| err.into_pyexception(vm));
+            drop((key, value));
+            entry
+        }
+
+        if let Some(dict) = crate::stdlib::os::envobj_fast_dict(env, vm) {
+            // Snapshot references before any path conversion can mutate the mapping.
+            let pairs: Vec<_> = dict.into_iter().collect();
+            return pairs
+                .into_iter()
+                .map(|(key, value)| make_entry(key, value, vm))
+                .collect();
+        }
+
+        // CPython obtains length, keys and values separately, rather than
+        // looking up each key. Exact lists returned by user code remain live.
+        let len = env.mapping().length(vm)?;
+        let keys = PyListRef::try_from_object(vm, env.mapping().keys(vm)?)?;
+        let values = PyListRef::try_from_object(vm, env.mapping().values(vm)?)?;
+        let mut result = Vec::new();
+        for index in 0..len {
+            // Acquire owned references before __fspath__ can mutate either list.
+            let key = { keys.borrow_vec().get(index).cloned() }
+                .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+            let value = { values.borrow_vec().get(index).cloned() }
+                .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+            result.push(make_entry(key, value, vm)?);
+        }
+        Ok(result)
+    }
+
     #[pyfunction]
     fn execve(args: ExecveArgs, vm: &VirtualMachine) -> PyResult<()> {
         let ExecveArgs { path, argv, env } = args;
@@ -1564,26 +1609,7 @@ pub mod module {
             return Err(vm.new_value_error("execve() arg 2 first element cannot be empty"));
         }
 
-        let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
-        let env = env
-            .into_iter()
-            .map(|(k, v)| -> PyResult<_> {
-                let (key, value) = (
-                    OsPath::try_from_object(vm, k)?.into_bytes(),
-                    OsPath::try_from_object(vm, v)?.into_bytes(),
-                );
-
-                if key.is_empty() || memchr::memchr(b'=', &key).is_some() {
-                    return Err(vm.new_value_error("illegal environment variable name"));
-                }
-
-                let mut entry = key;
-                entry.push(b'=');
-                entry.extend_from_slice(&value);
-
-                CString::new(entry).map_err(|err| err.into_pyexception(vm))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let env = execve_environment(&env, vm)?;
 
         let env: Vec<&CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 

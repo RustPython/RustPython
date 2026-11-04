@@ -1155,24 +1155,25 @@ fn compute_ret_spec(
 
 /// Extract call information (argtypes, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
+    // Clone before calling Python sequence methods, which can change argtypes.
+    let argtypes = zelf.argtypes.read().clone();
     // Get argtypes - first from instance, then from type's _argtypes_
-    let explicit_arg_types: Option<Vec<PyTypeRef>> =
-        if let Some(argtypes_obj) = zelf.argtypes.read().as_ref() {
-            if !vm.is_none(argtypes_obj) {
-                Some(extract_arg_types(argtypes_obj, vm)?)
-            } else {
-                None // argtypes is None -> use ConvParam
-            }
-        } else if let Some(class_argtypes) = zelf
-            .as_object()
-            .class()
-            .get_attr(vm.ctx.intern_str("_argtypes_"))
-            && !vm.is_none(&class_argtypes)
-        {
-            Some(extract_arg_types(&class_argtypes, vm)?)
+    let explicit_arg_types: Option<Vec<PyTypeRef>> = if let Some(argtypes_obj) = argtypes.as_ref() {
+        if !vm.is_none(argtypes_obj) {
+            Some(extract_arg_types(argtypes_obj, vm)?)
         } else {
-            None // No argtypes -> use ConvParam
-        };
+            None // argtypes is None -> use ConvParam
+        }
+    } else if let Some(class_argtypes) = zelf
+        .as_object()
+        .class()
+        .get_attr(vm.ctx.intern_str("_argtypes_"))
+        && !vm.is_none(&class_argtypes)
+    {
+        Some(extract_arg_types(&class_argtypes, vm)?)
+    } else {
+        None // No argtypes -> use ConvParam
+    };
 
     // Get restype - first from instance, then from class's _restype_
     let restype_obj = zelf.restype.read().clone().or_else(|| {
@@ -1312,11 +1313,12 @@ fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
 /// Create OUT buffer for a parameter type
 fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
-    if arg_type.fast_issubclass(PyCPointer::static_type())
-        && let Some(stg_info) = arg_type.stg_info_opt()
-        && let Some(ref proto) = stg_info.proto
-    {
-        return proto.as_object().call((), vm);
+    if arg_type.fast_issubclass(PyCPointer::static_type()) {
+        // Constructing the pointed-to type can re-enter pointer type setup.
+        let proto = arg_type.stg_info_opt().and_then(|info| info.proto.clone());
+        if let Some(proto) = proto {
+            return proto.as_object().call((), vm);
+        }
     }
     // Not a pointer type or no proto, create instance directly
     arg_type.as_object().call((), vm)
@@ -1428,6 +1430,14 @@ fn build_callargs_with_paramflags(
             let (value, keep) = arg_type.convert_object(arg, vm)?;
             arguments.push(Argument { value, keep });
         }
+    }
+
+    if !arg_types.is_empty() && args.kwargs.is_empty() && caller_arg_idx < args.args.len() {
+        return Err(vm.new_type_error(format!(
+            "call takes exactly {} arguments ({} given)",
+            caller_arg_idx,
+            args.args.len(),
+        )));
     }
 
     Ok((arguments, out_buffers))
@@ -1697,7 +1707,7 @@ fn build_result(
     }
 
     // Convert the foreign-call result to a Python object
-    let mut result = convert_raw_result(&call_result, call_info, vm)?;
+    let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
     if let Some(errcheck) = zelf.errcheck.read().as_ref() {
@@ -1707,7 +1717,7 @@ fn build_result(
         let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
         // Returning the original args tuple requests normal result processing.
         if !checked.is(&args_tuple) {
-            result = Some(checked);
+            return Ok(checked);
         }
     }
 
@@ -1867,21 +1877,26 @@ impl Py<PyCFuncPtr> {
 
     // argtypes getter/setter
     #[pygetset]
-    fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.argtypes
-            .read()
-            .clone()
-            .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
+    fn argtypes(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let argtypes = zelf.argtypes.read().clone();
+        argtypes.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_argtypes_"))
+        })
     }
 
     #[pygetset(name = "argtypes", setter)]
     fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        if vm.is_none(&value) {
-            *self.argtypes.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else {
             // Store the argtypes object directly as it is
-            *self.argtypes.write() = Some(value);
-        }
+            Some(value)
+        };
+        let old = core::mem::replace(&mut *self.argtypes.write(), value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
     }
 
     // errcheck getter/setter

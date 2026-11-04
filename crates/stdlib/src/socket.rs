@@ -2117,6 +2117,32 @@ mod _socket {
             zelf: &Py<Self>,
             vm: &VirtualMachine,
         ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
+            #[cfg(target_os = "linux")]
+            if zelf.family.load(Ordering::Relaxed) == c::AF_ALG {
+                // AF_ALG rejects accept when a peer address is requested.
+                let sock = zelf.sock_op(vm, SockWaitKind::Read, || {
+                    let listener = zelf.sock_snapshot()?;
+                    // SAFETY: The listener is a socket descriptor. Null pointers
+                    // request no peer address, and a successful call returns a
+                    // new descriptor owned by the caller.
+                    let fd = unsafe {
+                        c::accept4(
+                            sock_fileno(&listener),
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                            c::SOCK_CLOEXEC,
+                        )
+                    };
+                    if fd < 0 {
+                        Err(io::Error::last_os_error())
+                    } else {
+                        // SAFETY: accept4 returned a new, valid descriptor.
+                        Ok(unsafe { sock_from_raw_unchecked(fd) })
+                    }
+                })?;
+                return Ok((into_sock_fileno(sock), vm.ctx.none()));
+            }
+
             // Use accept_raw() instead of accept() to avoid socket2's set_common_flags()
             // which tries to set SO_NOSIGPIPE and fails with EINVAL on Unix domain sockets on macOS
             let (sock, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
@@ -2424,7 +2450,23 @@ mod _socket {
                 OptionalArg::Missing => None,
             };
 
-            let buffers = msg.iter().map(|buf| buf.borrow_buf()).collect::<Vec<_>>();
+            if iv.as_ref().is_some_and(|iv| {
+                iv.len()
+                    .checked_add(core::mem::size_of::<u32>())
+                    .and_then(host_socket::checked_cmsg_space)
+                    .is_none()
+            }) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "AF_ALG control data too large",
+                )
+                .into_pyexception(vm));
+            }
+
+            let buffers = msg
+                .iter()
+                .map(|buf| buf.borrow_buf_unlocked(vm))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
