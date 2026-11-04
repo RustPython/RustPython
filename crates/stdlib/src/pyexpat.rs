@@ -755,25 +755,37 @@ mod _pyexpat {
         let may_have_external_entities = external_subset_id(external_subset);
         let mut declared = std::collections::HashSet::new();
         let mut replacements = alloc::collections::BTreeMap::new();
-        for declaration in declarations {
-            if let DtdDeclaration::Entity {
-                name,
-                parameter,
-                value,
-                system_id,
-                notation,
-                ..
-            } = declaration
-            {
-                let first_declaration = parameter || declared.insert(name.clone());
-                if !parameter
-                    && first_declaration
-                    && value.is_none()
-                    && notation.is_none()
-                    && system_id.is_some()
-                {
-                    replacements.insert(name.clone(), entity_marker('E', &name));
+        let mut references: Vec<String> = references.into_iter().collect();
+        for declaration in &declarations {
+            match declaration {
+                DtdDeclaration::Entity {
+                    name,
+                    parameter,
+                    value,
+                    system_id,
+                    notation,
+                    ..
+                } => {
+                    let first_declaration = *parameter || declared.insert(name.clone());
+                    if !*parameter
+                        && first_declaration
+                        && value.is_none()
+                        && notation.is_none()
+                        && system_id.is_some()
+                    {
+                        replacements.insert(name.clone(), entity_marker('E', name));
+                    }
+                    if let Some(value) = value {
+                        references.extend(named_entity_references(value));
+                    }
                 }
+                DtdDeclaration::Attlist(_, _, kind, default, _) => {
+                    if let Some(default) = default {
+                        references.extend(named_entity_references(default));
+                    }
+                    references.extend(named_entity_references(kind));
+                }
+                _ => {}
             }
         }
         for name in references {
@@ -790,6 +802,36 @@ mod _pyexpat {
             }
         }
         replacements.into_iter().collect()
+    }
+
+    fn named_entity_references(value: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut rest = value;
+        while let Some(start) = rest.find('&') {
+            rest = &rest[start + 1..];
+            let Some(end) = rest.find(';') else {
+                break;
+            };
+            let name = &rest[..end];
+            if !name.is_empty() {
+                names.push(name.to_owned());
+            }
+            rest = &rest[end + 1..];
+        }
+        names
+    }
+
+    fn decode_scanned_xml_name(bytes: &[u8], encoding: Option<&str>) -> String {
+        if encoding.is_some_and(|encoding| {
+            matches!(
+                encoding.to_ascii_lowercase().replace('_', "-").as_str(),
+                "iso-8859-1" | "latin1" | "latin-1"
+            )
+        }) {
+            bytes.iter().map(|byte| char::from(*byte)).collect()
+        } else {
+            String::from_utf8_lossy(bytes).into_owned()
+        }
     }
 
     fn external_subset_id(header: &str) -> bool {
@@ -1834,48 +1876,6 @@ mod _pyexpat {
             let mut declared = std::collections::HashSet::new();
             let mut skipped = Vec::new();
             let mut index = 0;
-            while index < doctype.len() {
-                if doctype[index..].starts_with(b"<!--") {
-                    index = doctype[index + 4..]
-                        .windows(3)
-                        .position(|window| window == b"-->")
-                        .map_or(doctype.len(), |end| index + 4 + end + 3);
-                    continue;
-                }
-                if doctype[index..].starts_with(b"<?") {
-                    index = doctype[index + 2..]
-                        .windows(2)
-                        .position(|window| window == b"?>")
-                        .map_or(doctype.len(), |end| index + 2 + end + 2);
-                    continue;
-                }
-                if doctype[index..].starts_with(b"<!ENTITY") {
-                    index += b"<!ENTITY".len();
-                    while doctype.get(index).is_some_and(u8::is_ascii_whitespace) {
-                        index += 1;
-                    }
-                    if doctype.get(index) == Some(&b'%') {
-                        index += 1;
-                        while doctype.get(index).is_some_and(u8::is_ascii_whitespace) {
-                            index += 1;
-                        }
-                        let start = index;
-                        while doctype.get(index).is_some_and(|byte| {
-                            byte.is_ascii_alphanumeric()
-                                || !byte.is_ascii()
-                                || matches!(byte, b'_' | b'-' | b'.' | b':')
-                        }) {
-                            index += 1;
-                        }
-                        if start != index {
-                            declared.insert(doctype[start..index].to_vec());
-                        }
-                    }
-                }
-                index += 1;
-            }
-
-            let mut index = 0;
             let mut quote = None;
             while index < doctype.len() {
                 if quote.is_none() && doctype[index..].starts_with(b"<!--") {
@@ -1899,6 +1899,49 @@ mod _pyexpat {
                     }
                 } else if matches!(byte, b'\'' | b'"') {
                     quote = Some(byte);
+                } else if doctype[index..].starts_with(b"<!ENTITY") {
+                    let declaration_start = index;
+                    index += b"<!ENTITY".len();
+                    while doctype.get(index).is_some_and(u8::is_ascii_whitespace) {
+                        index += 1;
+                    }
+                    let is_parameter = doctype.get(index) == Some(&b'%');
+                    if is_parameter {
+                        index += 1;
+                        while doctype.get(index).is_some_and(u8::is_ascii_whitespace) {
+                            index += 1;
+                        }
+                        let name_start = index;
+                        while doctype.get(index).is_some_and(|byte| {
+                            byte.is_ascii_alphanumeric()
+                                || !byte.is_ascii()
+                                || matches!(byte, b'_' | b'-' | b'.' | b':')
+                        }) {
+                            index += 1;
+                        }
+                        if name_start < index {
+                            declared.insert(doctype[name_start..index].to_vec());
+                        }
+                    }
+                    let mut declaration_quote = None;
+                    while index < doctype.len() {
+                        let current = doctype[index];
+                        if let Some(delimiter) = declaration_quote {
+                            if current == delimiter {
+                                declaration_quote = None;
+                            }
+                        } else if matches!(current, b'\'' | b'"') {
+                            declaration_quote = Some(current);
+                        } else if current == b'>' {
+                            index += 1;
+                            break;
+                        }
+                        index += 1;
+                    }
+                    if index == declaration_start {
+                        index += 1;
+                    }
+                    continue;
                 } else if byte == b'%' {
                     let start = index;
                     let mut end = index + 1;
@@ -1918,8 +1961,7 @@ mod _pyexpat {
                                 && !standalone);
                         let preserve_for_standalone_error = parameter_entity_parsing
                             == XML_PARAM_ENTITY_PARSING_ALWAYS
-                            && standalone
-                            && !declared.contains(name);
+                            && standalone;
                         if parse_entities && !declared.contains(name) {
                             skipped.push(String::from_utf8_lossy(name).into_owned());
                         }
@@ -1948,12 +1990,14 @@ mod _pyexpat {
                 return Ok(());
             }
             loop {
+                let partial_utf8_bom = matches!(self.prefix.as_slice(), [0xef] | [0xef, 0xbb]);
                 if let Some((start, end, is_doctype)) = self.first_markup() {
                     if self.safe_cursor != 0
                         && self.safe_cursor <= start
                         && !(self.has_bom
                             && (self.prefix.starts_with(&[0xff, 0xfe])
                                 || self.prefix.starts_with(&[0xfe, 0xff])))
+                        && !partial_utf8_bom
                     {
                         if self.xml_declaration.is_none() {
                             self.xml_declaration = parse_xml_declaration(&self.prefix);
@@ -2012,6 +2056,7 @@ mod _pyexpat {
                     && !(self.has_bom
                         && (self.prefix.starts_with(&[0xff, 0xfe])
                             || self.prefix.starts_with(&[0xfe, 0xff])))
+                    && !partial_utf8_bom
                 {
                     if self.xml_declaration.is_none() {
                         self.xml_declaration = parse_xml_declaration(&self.prefix);
@@ -2065,6 +2110,10 @@ mod _pyexpat {
 
         fn entity_references(&self) -> Vec<String> {
             let content = &self.reference_content;
+            let encoding = self
+                .xml_declaration
+                .as_ref()
+                .and_then(|declaration| declaration.encoding.as_deref());
             let mut names = Vec::new();
             let mut index = 0;
             while index < content.len() {
@@ -2104,10 +2153,10 @@ mod _pyexpat {
                                                 || matches!(byte, b'_' | b'-' | b'.' | b':')
                                         })
                                     {
-                                        names.push(
-                                            String::from_utf8_lossy(&content[start..end])
-                                                .into_owned(),
-                                        );
+                                        names.push(decode_scanned_xml_name(
+                                            &content[start..end],
+                                            encoding,
+                                        ));
                                     }
                                     index = end + 1;
                                     continue;
@@ -2132,7 +2181,7 @@ mod _pyexpat {
                                     || matches!(byte, b'_' | b'-' | b'.' | b':')
                             })
                         {
-                            names.push(String::from_utf8_lossy(&content[start..end]).into_owned());
+                            names.push(decode_scanned_xml_name(&content[start..end], encoding));
                         }
                         index = end + 1;
                     } else {
@@ -2652,7 +2701,7 @@ mod _pyexpat {
                                 &self.external_entity_ref,
                                 "ExternalEntityRef",
                                 (
-                                    vm.ctx.new_str(name.clone()),
+                                    vm.ctx.new_str(self.external_entity_context(&name)),
                                     base,
                                     system_id.map(|value| vm.ctx.new_str(value)),
                                     public_id.map(|value| vm.ctx.new_str(value)),
@@ -2680,6 +2729,26 @@ mod _pyexpat {
                 invoke_handler(vm, &self.character_data, (content,))?;
             }
             Ok(())
+        }
+
+        fn external_entity_context(&self, name: &str) -> String {
+            let mut context = name.to_owned();
+            if self.namespace_separator.is_some()
+                && let Some((namespace, _)) = self.namespace_stack.read().last()
+            {
+                for (prefix, uri) in namespace.iter() {
+                    if (prefix == "xml" && uri == xml::namespace::NS_XML_URI)
+                        || (prefix == "xmlns" && uri == xml::namespace::NS_XMLNS_URI)
+                    {
+                        continue;
+                    }
+                    context.push('\x0c');
+                    context.push_str(prefix);
+                    context.push('=');
+                    context.push_str(uri);
+                }
+            }
+            context
         }
 
         /// Dispatch a single parser event to the registered handlers. Runs on
@@ -2720,13 +2789,6 @@ mod _pyexpat {
                     if let Some(doctype) = doctype {
                         let doctype = *doctype;
                         let has_parameter_entity_reference = doctype.has_parameter_entity_reference;
-                        for name in &doctype.skipped_parameter_entities {
-                            invoke_handler(
-                                vm,
-                                &self.skipped_entity,
-                                (vm.ctx.new_str(name.as_str()), 1),
-                            )?;
-                        }
                         self.external_subset_handled.store(true, Ordering::Relaxed);
                         let parse_entities = self.parse_parameter_entities();
                         let has_external_subset = doctype.system_id.is_some();
@@ -2755,6 +2817,13 @@ mod _pyexpat {
                                 i32::from(doctype.has_internal_subset),
                             ),
                         )?;
+                        for name in &doctype.skipped_parameter_entities {
+                            invoke_handler(
+                                vm,
+                                &self.skipped_entity,
+                                (vm.ctx.new_str(name.as_str()), 1),
+                            )?;
+                        }
                         let mut seen_entity_declarations = std::collections::HashSet::new();
                         for declaration in dtd_declarations(&doctype.syntax) {
                             match declaration {
