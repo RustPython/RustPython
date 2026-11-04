@@ -252,6 +252,25 @@ mod decl {
         Ok(())
     }
 
+    #[cfg(any(unix, windows))]
+    #[derive(FromArgs)]
+    struct DumpCStackArgs {
+        #[pyarg(any, default)]
+        file: OptionalArg<PyObjectRef>,
+    }
+
+    /// Dump the C stack of the current thread.
+    #[cfg(any(unix, windows))]
+    #[pyfunction]
+    fn dump_c_stack(args: DumpCStackArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let (fd, file) = get_fd_from_file_opt(args.file, vm)?;
+        // Native unwinding and loader lookup run in ordinary execution only,
+        // never in one of this module's asynchronous signal callbacks.
+        host_faulthandler::dump_c_stack(fd);
+        drop(file);
+        vm.check_signals()
+    }
+
     /// Dump tracebacks of all threads.
     #[cfg(any(unix, windows))]
     fn dump_all_threads(fd: i32, max_threads: isize, vm: &VirtualMachine) {
