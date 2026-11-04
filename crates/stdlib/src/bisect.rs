@@ -170,7 +170,7 @@ mod _bisect {
         let index = bisect_left_impl(&a, &needle, low, high, key.as_ref(), vm);
         drop(needle);
         let index = index?;
-        let result = vm.call_method(&a, "insert", (index, x.clone()))?;
+        let result = vm.call_method(&a, "insert", (index, &*x))?;
         drop(result);
         Ok(vm.ctx.none())
     }
@@ -186,7 +186,7 @@ mod _bisect {
         let index = bisect_right_impl(&a, &needle, low, high, key.as_ref(), vm);
         drop(needle);
         let index = index?;
-        let result = vm.call_method(&a, "insert", (index, x.clone()))?;
+        let result = vm.call_method(&a, "insert", (index, &*x))?;
         drop(result);
         Ok(vm.ctx.none())
     }
