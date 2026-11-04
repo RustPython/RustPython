@@ -10,7 +10,7 @@ use crate::{
     cformat::cformat_bytes,
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
-    function::{ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
+    function::{ArgBytesLike, ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -324,6 +324,38 @@ impl ByteInnerSub {
     }
 }
 
+// Tail matching and translation read bytes subclasses directly, but retain
+// other exporters until their operation has finished reading the buffer.
+pub(crate) enum ByteInnerBuffer<'a> {
+    Bytes(&'a PyBytes),
+    Buffer(ArgBytesLike),
+}
+
+impl<'a> TryFromBorrowedObject<'a> for ByteInnerBuffer<'a> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        match obj.downcast_ref::<PyBytes>() {
+            Some(bytes) => Ok(Self::Bytes(bytes)),
+            None => ArgBytesLike::try_from_borrowed_object(vm, obj).map(Self::Buffer),
+        }
+    }
+}
+
+impl ByteInnerBuffer<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Bytes(bytes) => bytes.len(),
+            Self::Buffer(buffer) => buffer.len(),
+        }
+    }
+
+    pub(crate) fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        match self {
+            Self::Bytes(bytes) => f(bytes.as_bytes()),
+            Self::Buffer(buffer) => buffer.with_ref(f),
+        }
+    }
+}
+
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
@@ -394,28 +426,6 @@ pub struct ByteInnerTranslateOptions {
     pub(crate) table: Option<PyObjectRef>,
     #[pyarg(any, default = b"")]
     pub(crate) delete: PyObjectRef,
-}
-
-impl ByteInnerTranslateOptions {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, Vec<u8>)> {
-        let table = self.table.map_or_else(
-            || Ok((0..=u8::MAX).collect::<Vec<u8>>()),
-            |v| {
-                let bytes: PyBytesInner = v.try_into_value(vm)?;
-                if bytes.elements.len() != 256 {
-                    return Err(vm.new_value_error("translation table must be 256 characters long"));
-                }
-                Ok(bytes.elements)
-            },
-        )?;
-
-        let delete = {
-            let byte: PyBytesInner = self.delete.try_into_value(vm)?;
-            byte.elements
-        };
-
-        Ok((table, delete))
-    }
 }
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
@@ -802,16 +812,12 @@ impl PyBytesInner {
 
     pub fn maketrans(from: Self, to: Self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if from.len() != to.len() {
-            return Err(vm.new_value_error("the two maketrans arguments must have equal length"));
+            return Err(vm.new_value_error("maketrans arguments must have same length"));
         }
-        let mut res = vec![];
-
-        for i in 0..=u8::MAX {
-            res.push(if let Some(position) = from.elements.find_byte(i) {
-                to.elements[position]
-            } else {
-                i
-            });
+        let mut res: Vec<u8> = (0..=u8::MAX).collect();
+        // Later occurrences replace earlier mappings, including repeated keys.
+        for (&from, &to) in from.elements.iter().zip(&to.elements) {
+            res[usize::from(from)] = to;
         }
 
         Ok(res)
@@ -822,8 +828,60 @@ impl PyBytesInner {
         options: ByteInnerTranslateOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let (table, delete) = options.get_value(vm)?;
-        Ok(self.translate_with(&table, &delete))
+        let table = options
+            .table
+            .as_ref()
+            .map(|obj| ByteInnerBuffer::try_from_borrowed_object(vm, obj))
+            .transpose()?;
+        if table.as_ref().is_some_and(|table| table.len() != 256) {
+            return Err(vm.new_value_error("translation table must be 256 characters long"));
+        }
+        // Acquire the deletion buffer while the table is still exported.
+        // Its callback may change the table, but cannot resize that storage.
+        let delete = ByteInnerBuffer::try_from_borrowed_object(vm, &options.delete)?;
+        let mut result = Vec::new();
+        if result.try_reserve_exact(self.len()).is_err() {
+            drop(delete);
+            drop(table);
+            return Err(vm.no_memory_error());
+        }
+        if let Some(table_view) = &table
+            && delete.len() == 0
+        {
+            table_view.with_ref(|table| {
+                result.extend(self.elements.iter().map(|&byte| table[usize::from(byte)]));
+            });
+            // The no-deletion fast path releases in the opposite order.
+            drop(delete);
+            drop(table);
+            return Ok(result);
+        }
+        let mut translation = [0i16; 256];
+        for (i, entry) in translation.iter_mut().enumerate() {
+            *entry = i as i16;
+        }
+        if let Some(table) = &table {
+            table.with_ref(|table| {
+                for (entry, &byte) in translation.iter_mut().zip(table) {
+                    *entry = i16::from(byte);
+                }
+            });
+        }
+        // Releasing the table can mutate the deletion bytes, so read those
+        // only afterwards. No borrowed payload lock spans either callback.
+        drop(table);
+        delete.with_ref(|delete| {
+            for &byte in delete {
+                translation[usize::from(byte)] = -1;
+            }
+        });
+        drop(delete);
+        result.extend(
+            self.elements
+                .iter()
+                .filter_map(|&byte| u8::try_from(translation[usize::from(byte)]).ok()),
+        );
+        Ok(result)
     }
 
     pub(crate) fn translate_with(&self, table: &[u8], delete: &[u8]) -> Vec<u8> {

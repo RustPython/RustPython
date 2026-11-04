@@ -99,35 +99,43 @@ impl StartsEndsWithArgs {
         (&self.affix, range)
     }
 
-    pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
-        let range = if self.start.is_some() || self.end.is_some() {
-            Some(adjust_indices(
-                self.start.as_ref().map(AsRef::as_ref),
-                self.end.as_ref().map(AsRef::as_ref),
-                len,
-            ))
-        } else {
-            None
-        };
-        (self.affix, range)
-    }
-
-    #[inline]
-    pub(crate) fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
+    pub(crate) fn matches<'a, T, F>(
+        &'a self,
+        len: usize,
+        func_name: &str,
+        py_type_name: &str,
+        predicate: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool>
     where
-        S: ?Sized + AnyStr,
-        F: Fn(&S, Range<usize>) -> &S,
+        T: TryFromBorrowedObject<'a>,
+        F: Fn(T, Option<Range<usize>>) -> bool,
     {
-        let (affix, range) = self.get_value(len);
-        let substr = if let Some(range) = range {
-            if !range.is_normal() {
-                return None;
-            }
-            substr(s, range)
-        } else {
-            s
-        };
-        Some((affix, substr))
+        let (affix, range) = self.parts(len);
+        // Validate each affix even when the requested range cannot match. A
+        // tuple is still short-circuited after its first successful match.
+        single_or_tuple_any(
+            affix,
+            &|item| Ok(predicate(item, range.clone())),
+            &|obj, in_tuple| {
+                let name = obj.class().slot_name();
+                if py_type_name == "str" {
+                    let name = &name[..name.floor_char_boundary(100)];
+                    Some(if in_tuple {
+                        format!("tuple for {func_name} must only contain str, not {name}")
+                    } else {
+                        format!("{func_name} first arg must be str or a tuple of str, not {name}")
+                    })
+                } else if in_tuple {
+                    None
+                } else {
+                    Some(format!(
+                        "{func_name} first arg must be bytes or a tuple of bytes, not {name}"
+                    ))
+                }
+            },
+            vm,
+        )
     }
 }
 
@@ -267,35 +275,6 @@ pub(crate) trait AnyStr {
     fn py_rsplit_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef;
-
-    #[inline]
-    fn py_starts_ends_with<'a, T, F>(
-        &self,
-        affix: &'a PyObject,
-        func_name: &str,
-        py_type_name: &str,
-        func: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool>
-    where
-        T: TryFromBorrowedObject<'a>,
-        F: Fn(&Self, T) -> bool,
-    {
-        single_or_tuple_any(
-            affix,
-            &|s: T| Ok(func(self, s)),
-            &|o| {
-                format!(
-                    "{} first arg must be {} or a tuple of {}, not {}",
-                    func_name,
-                    py_type_name,
-                    py_type_name,
-                    o.class(),
-                )
-            },
-            vm,
-        )
-    }
 
     #[inline]
     fn py_strip<'a, S, FC, FD>(
@@ -530,13 +509,24 @@ pub(crate) fn single_or_tuple_any<'a, T, F, M>(
 where
     T: TryFromBorrowedObject<'a>,
     F: Fn(T) -> PyResult<bool>,
-    M: Fn(&PyObject) -> String,
+    M: Fn(&PyObject, bool) -> Option<String>,
 {
+    let convert = |item: &'a PyObject, in_tuple| {
+        item.try_to_value::<T>(vm).map_err(|exc| {
+            if exc.fast_isinstance(vm.ctx.exceptions.type_error)
+                && let Some(message) = message(item, in_tuple)
+            {
+                vm.new_type_error(message)
+            } else {
+                exc
+            }
+        })
+    };
     // _Py_bytes_tailmatch: a tuple is taken apart before anything is converted, and
     // each item is converted on its own terms, so a tuple of tuples is not an affix.
     if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
         for item in tuple {
-            if (predicate)(item.try_to_value::<T>(vm)?)? {
+            if (predicate)(convert(item, true)?)? {
                 return Ok(true);
             }
         }
@@ -545,13 +535,7 @@ where
 
     // Only the argument simply being the wrong kind of object is reported as such;
     // whatever the conversion itself raised belongs to the caller.
-    let single = obj.try_to_value::<T>(vm).map_err(|exc| {
-        if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
-            vm.new_type_error((message)(obj))
-        } else {
-            exc
-        }
-    })?;
+    let single = convert(obj, false)?;
     (predicate)(single)
 }
 

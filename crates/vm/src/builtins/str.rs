@@ -1125,17 +1125,14 @@ impl Py<PyStr> {
 
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
-            &s[self.data.char_range_to_bytes(r)]
-        }) {
-            Some(x) => x,
-            None => return Ok(false),
-        };
-        substr.py_starts_ends_with(
-            &affix,
+        options.matches(
+            self.len(),
             "endswith",
             "str",
-            |s, x: &Self| s.ends_with(x.as_wtf8()),
+            |affix: &Self, range| {
+                self.char_range_bytes(range.unwrap_or_else(|| 0..self.len()))
+                    .is_some_and(|(_, text)| text.ends_with(affix.as_wtf8()))
+            },
             vm,
         )
     }
@@ -1146,17 +1143,14 @@ impl Py<PyStr> {
         options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
-            &s[self.data.char_range_to_bytes(r)]
-        }) {
-            Some(x) => x,
-            None => return Ok(false),
-        };
-        substr.py_starts_ends_with(
-            &affix,
+        options.matches(
+            self.len(),
             "startswith",
             "str",
-            |s, x: &Self| s.starts_with(x.as_wtf8()),
+            |affix: &Self, range| {
+                self.char_range_bytes(range.unwrap_or_else(|| 0..self.len()))
+                    .is_some_and(|(_, text)| text.starts_with(affix.as_wtf8()))
+            },
             vm,
         )
     }
