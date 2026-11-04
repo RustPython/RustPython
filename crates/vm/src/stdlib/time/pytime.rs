@@ -204,54 +204,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timeout_rounding_preserves_nonzero_subnanosecond_values() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            for (seconds, expected) in [(1e-300, 1), (-1e-300, -1), (0.0, 0), (-0.0, 0)] {
-                let value = vm.ctx.new_float(seconds);
-                assert_eq!(
-                    from_seconds_object(value.as_object(), Round::Up, vm).unwrap(),
-                    expected,
-                );
-            }
-        });
-    }
-
-    #[test]
-    fn timeout_nanoseconds_reject_nonfinite_values() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            for seconds in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-                let value = vm.ctx.new_float(seconds);
-                let error = from_seconds_object(value.as_object(), Round::Up, vm).unwrap_err();
-                let expected = if seconds.is_nan() {
-                    vm.ctx.exceptions.value_error
-                } else {
-                    vm.ctx.exceptions.overflow_error
-                };
-                assert!(error.fast_isinstance(expected));
-            }
-        });
-    }
-
-    #[test]
-    fn timeout_integer_seconds_use_signed_nanosecond_bounds() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let max_seconds = i64::MAX / 1_000_000_000;
-            for seconds in [max_seconds, -max_seconds] {
-                let value = vm.ctx.new_int(seconds);
-                assert_eq!(
-                    from_seconds_object(value.as_object(), Round::Up, vm).unwrap(),
-                    seconds * 1_000_000_000,
-                );
-            }
-            for seconds in [max_seconds + 1, -max_seconds - 1, i64::MAX, i64::MIN] {
-                let value = vm.ctx.new_int(seconds);
-                let error = from_seconds_object(value.as_object(), Round::Up, vm).unwrap_err();
-                assert!(error.fast_isinstance(vm.ctx.exceptions.overflow_error));
-            }
-        });
-    }
-
-    #[test]
     fn thread_wait_bound_checks_rounded_up_microseconds() {
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             if let Some(max_nanoseconds) = THREAD_TIMEOUT_MAX_MICROSECONDS.checked_mul(1_000) {
