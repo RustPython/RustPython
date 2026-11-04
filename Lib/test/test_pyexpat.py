@@ -229,7 +229,6 @@ class ParseTest(unittest.TestCase):
         ]
         self.assertEqual(operations, expected_operations)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_bytes(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -253,7 +252,6 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_file(self):
         # Try parsing a file
         out = self.Outputter()
