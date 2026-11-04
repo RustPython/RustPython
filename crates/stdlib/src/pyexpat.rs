@@ -466,6 +466,16 @@ mod _pyexpat {
         output
     }
 
+    fn normalize_attlist_default(value: &str, kind: &str) -> String {
+        let decoded = decode_xml_entity_value(value);
+        let replaced = decoded.replace(['\t', '\r', '\n'], " ");
+        if kind == "CDATA" {
+            replaced
+        } else {
+            replaced.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+    }
+
     fn dtd_declarations(syntax: &str) -> Vec<DtdDeclaration> {
         let Some((subset_start, subset_end)) = internal_subset_bounds(syntax) else {
             return Vec::new();
@@ -1872,6 +1882,7 @@ mod _pyexpat {
             doctype: &mut [u8],
             parameter_entity_parsing: i32,
             standalone: bool,
+            encoding: Option<&str>,
         ) -> Vec<String> {
             let mut declared = std::collections::HashSet::new();
             let mut skipped = Vec::new();
@@ -1963,7 +1974,7 @@ mod _pyexpat {
                             == XML_PARAM_ENTITY_PARSING_ALWAYS
                             && standalone;
                         if parse_entities && !declared.contains(name) {
-                            skipped.push(String::from_utf8_lossy(name).into_owned());
+                            skipped.push(decode_scanned_xml_name(name, encoding));
                         }
                         if !(declared.contains(name) && parse_entities)
                             && !preserve_for_standalone_error
@@ -2017,6 +2028,9 @@ mod _pyexpat {
                                 .prefix
                                 .strip_prefix(&[0xef, 0xbb, 0xbf])
                                 .unwrap_or(&self.prefix);
+                            if self.xml_declaration.is_none() {
+                                self.xml_declaration = parse_xml_declaration(&self.prefix);
+                            }
                             let declaration_start =
                                 declaration_start.strip_prefix(&b"<?xml"[..]).and_then(|_| {
                                     let end = declaration_start
@@ -2039,6 +2053,9 @@ mod _pyexpat {
                                     &mut self.prefix[start..doctype_end],
                                     self.parameter_entity_parsing,
                                     standalone,
+                                    self.xml_declaration
+                                        .as_ref()
+                                        .and_then(|declaration| declaration.encoding.as_deref()),
                                 );
                             let tail = self.prefix.split_off(doctype_end);
                             self.reference_content.extend_from_slice(&tail);
@@ -2894,6 +2911,8 @@ mod _pyexpat {
                                     )?;
                                 }
                                 DtdDeclaration::Attlist(element, name, kind, default, required) => {
+                                    let default = default
+                                        .map(|value| normalize_attlist_default(&value, &kind));
                                     invoke_handler(
                                         vm,
                                         &self.attlist_decl,
@@ -2901,9 +2920,7 @@ mod _pyexpat {
                                             vm.ctx.new_str(element),
                                             vm.ctx.new_str(name),
                                             vm.ctx.new_str(kind),
-                                            default.map(|value| {
-                                                vm.ctx.new_str(decode_xml_entity_value(&value))
-                                            }),
+                                            default.map(|value| vm.ctx.new_str(value)),
                                             i32::from(required),
                                         ),
                                     )?
@@ -3001,8 +3018,7 @@ mod _pyexpat {
                                 }
                             }
                         }
-                        if has_external_subset
-                            && has_parameter_entity_reference
+                        if has_parameter_entity_reference
                             && !parse_entities
                             && !self.standalone.load(Ordering::Relaxed)
                             && invoke_int_handler(vm, &self.not_standalone, "NotStandalone", ())?
@@ -3042,6 +3058,11 @@ mod _pyexpat {
                     }
                     drop(external_entities);
                     for attribute in &mut attributes {
+                        if self.standalone.load(Ordering::Relaxed)
+                            && attribute.value.contains("\0S")
+                        {
+                            return Err(self.handler_error(vm, 11, "undefined entity")?);
+                        }
                         attribute.value = remove_skipped_entity_markers(&attribute.value);
                     }
                     if !self.external_subset_handled.swap(true, Ordering::Relaxed)
