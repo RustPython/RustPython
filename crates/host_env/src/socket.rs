@@ -1113,56 +1113,80 @@ pub fn sendmsg_afalg(
     assoclen: Option<u32>,
     flags: i32,
 ) -> io::Result<usize> {
+    use core::mem::MaybeUninit;
+
+    let invalid_size =
+        || io::Error::new(io::ErrorKind::InvalidInput, "AF_ALG control data too large");
+    let word_size = core::mem::size_of::<u32>();
+    let word_space = checked_cmsg_space(word_size).ok_or_else(invalid_size)?;
+    let word_len = checked_cmsg_len(word_size).ok_or_else(invalid_size)?;
+    let iv_size = iv
+        .map(|iv| iv.len().checked_add(word_size).ok_or_else(invalid_size))
+        .transpose()?;
+    let iv_space = iv_size
+        .map(|size| checked_cmsg_space(size).ok_or_else(invalid_size))
+        .transpose()?;
+    let iv_len = iv_size
+        .map(|size| checked_cmsg_len(size).ok_or_else(invalid_size))
+        .transpose()?;
+    let control_len = word_space
+        .checked_add(iv_space.unwrap_or(0))
+        .and_then(|len| len.checked_add(if assoclen.is_some() { word_space } else { 0 }))
+        .filter(|&len| isize::try_from(len).is_ok())
+        .ok_or_else(invalid_size)?;
+    let storage_len = control_len.div_ceil(core::mem::size_of::<libc::cmsghdr>());
+    storage_len
+        .checked_mul(core::mem::size_of::<libc::cmsghdr>())
+        .filter(|&len| isize::try_from(len).is_ok())
+        .ok_or_else(invalid_size)?;
     let mut control_buf = Vec::new();
+    control_buf.try_reserve_exact(storage_len).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::OutOfMemory,
+            "AF_ALG control allocation failed",
+        )
+    })?;
+    control_buf.resize_with(storage_len, MaybeUninit::<libc::cmsghdr>::uninit);
+    let control = control_buf.as_mut_ptr().cast::<u8>();
+    // SAFETY: The allocation is aligned for cmsghdr and contains control_len
+    // bytes. Initialize all bytes, including header and alignment padding.
+    unsafe { core::ptr::write_bytes(control, 0, control_len) };
 
-    {
-        let op_bytes = op.to_ne_bytes();
-        let space = unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
-        let old_len = control_buf.len();
-        control_buf.resize(old_len + space, 0u8);
-
-        let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
+    let mut offset = 0;
+    let mut write_header = |kind: i32, length: usize, space: usize| {
+        // SAFETY: Each offset is a sum of CMSG_SPACE lengths, so the header is
+        // aligned. Checked lengths and the precomputed allocation bound it.
+        let header = unsafe { control.add(offset).cast::<libc::cmsghdr>() };
         unsafe {
-            (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
-            (*cmsg).cmsg_level = libc::SOL_ALG;
-            (*cmsg).cmsg_type = libc::ALG_SET_OP;
-            let data = libc::CMSG_DATA(cmsg);
-            core::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
+            (*header).cmsg_len = length as _;
+            (*header).cmsg_level = libc::SOL_ALG;
+            (*header).cmsg_type = kind;
+        }
+        offset += space;
+        unsafe { libc::CMSG_DATA(header) }
+    };
+
+    let op_data = write_header(libc::ALG_SET_OP, word_len, word_space);
+    // SAFETY: The header reserves word_size bytes for the operation.
+    unsafe { core::ptr::copy_nonoverlapping(op.to_ne_bytes().as_ptr(), op_data, word_size) };
+
+    if let (Some(iv_bytes), Some(length), Some(space)) = (iv, iv_len, iv_space) {
+        let data = write_header(libc::ALG_SET_IV, length, space);
+        // SAFETY: size is the checked sum of the length word and IV bytes.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                (iv_bytes.len() as u32).to_ne_bytes().as_ptr(),
+                data,
+                word_size,
+            );
+            core::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(word_size), iv_bytes.len());
         }
     }
 
-    if let Some(iv_bytes) = iv {
-        let iv_struct_size = 4 + iv_bytes.len();
-        let space = unsafe { libc::CMSG_SPACE(iv_struct_size as u32) } as usize;
-        let old_len = control_buf.len();
-        control_buf.resize(old_len + space, 0u8);
-
-        let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
-        unsafe {
-            (*cmsg).cmsg_len = libc::CMSG_LEN(iv_struct_size as u32) as _;
-            (*cmsg).cmsg_level = libc::SOL_ALG;
-            (*cmsg).cmsg_type = libc::ALG_SET_IV;
-            let data = libc::CMSG_DATA(cmsg);
-            let ivlen = (iv_bytes.len() as u32).to_ne_bytes();
-            core::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
-            core::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
-        }
-    }
-
-    if let Some(assoclen_val) = assoclen {
-        let assoclen_bytes = assoclen_val.to_ne_bytes();
-        let space = unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
-        let old_len = control_buf.len();
-        control_buf.resize(old_len + space, 0u8);
-
-        let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
-        unsafe {
-            (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
-            (*cmsg).cmsg_level = libc::SOL_ALG;
-            (*cmsg).cmsg_type = libc::ALG_SET_AEAD_ASSOCLEN;
-            let data = libc::CMSG_DATA(cmsg);
-            core::ptr::copy_nonoverlapping(assoclen_bytes.as_ptr(), data, assoclen_bytes.len());
-        }
+    if let Some(assoclen) = assoclen {
+        let data = write_header(libc::ALG_SET_AEAD_ASSOCLEN, word_len, word_space);
+        // SAFETY: The header reserves word_size bytes for the associated length.
+        unsafe { core::ptr::copy_nonoverlapping(assoclen.to_ne_bytes().as_ptr(), data, word_size) };
     }
 
     let iovecs: Vec<libc::iovec> = buffers
@@ -1176,10 +1200,8 @@ pub fn sendmsg_afalg(
     let mut msghdr: libc::msghdr = unsafe { core::mem::zeroed() };
     msghdr.msg_iov = iovecs.as_ptr() as *mut _;
     msghdr.msg_iovlen = iovecs.len() as _;
-    if !control_buf.is_empty() {
-        msghdr.msg_control = control_buf.as_mut_ptr() as *mut _;
-        msghdr.msg_controllen = control_buf.len() as _;
-    }
+    msghdr.msg_control = control.cast();
+    msghdr.msg_controllen = control_len as _;
 
     let ret = unsafe { libc::sendmsg(fd.as_raw_fd(), &msghdr, flags) }.check_libc_neg()?;
     Ok(ret as usize)
