@@ -1276,3 +1276,83 @@ for _value in (
     _pointer[0] = _value
     assert _original.value is _object
     assert _redirected.value is (None if _value is None else _object)
+
+
+# Tests for argtypes validation and custom converters (Issue #8341)
+class ValidConverter:
+    @classmethod
+    def from_param(cls, val):
+        return int(val)
+
+
+class InvalidConverter:
+    pass
+
+
+class Adapter:
+    def from_param(self, val):
+        return int(val)
+
+
+# 1. Assignment validation: non-sequence
+try:
+    libc.srand.argtypes = 123
+except TypeError:
+    pass
+else:
+    raise AssertionError("expected TypeError for non-sequence argtypes")
+
+# 2. Assignment validation: sequence item lacking from_param
+try:
+    libc.srand.argtypes = [InvalidConverter]
+except TypeError as e:
+    assert "item 1 in _argtypes_ has no from_param method" in str(e)
+else:
+    raise AssertionError("expected TypeError for item without from_param")
+
+# 3. Custom converter class in argtypes
+libc.srand.argtypes = [ValidConverter]
+libc.srand(10)
+
+# 4. Custom converter instance in argtypes
+libc.srand.argtypes = [Adapter()]
+libc.srand(20)
+
+# 5. Reset argtypes
+libc.srand.argtypes = [ctypes.c_uint]
+libc.srand(0)
+
+# 6. Windows-specific test for Issue #8341: custom converter returning a Structure
+if _sys.platform == "win32":
+    from ctypes import wintypes
+
+    class WindowsCoordinates(tuple):
+        col: int
+        row: int
+
+        @classmethod
+        def from_param(cls, value):
+            return wintypes._COORD(value[0], value[1])
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    fill_char = kernel32.FillConsoleOutputCharacterW
+    fill_char.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_wchar,
+        wintypes.DWORD,
+        WindowsCoordinates,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    fill_char.restype = wintypes.BOOL
+
+    # Call with dummy handle; should fail with 0 (invalid handle) rather than
+    # crashing with "TypeError: Unsupported argument type".
+    written = wintypes.DWORD()
+    ret = fill_char(
+        wintypes.HANDLE(0),
+        " ",
+        1,
+        WindowsCoordinates((0, 0)),
+        ctypes.byref(written),
+    )
+    assert ret == 0
