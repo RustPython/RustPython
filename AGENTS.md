@@ -13,22 +13,22 @@ If the request is clear, proceed without asking for confirmation. Ask only when 
 
 ## Project context
 
-RustPython is a Python interpreter implemented in Rust, targeting Python 3.15 with compatibility work in progress. It supports native embedding and WebAssembly. See [CONTRIBUTING.md](CONTRIBUTING.md#code-organization) for repository layout and [architecture/architecture.md](architecture/architecture.md) for design context when relevant.
+RustPython is a complete Python interpreter implemented in Rust, not a CPython binding. It targets Python 3.15 with compatibility work in progress and supports native embedding and WebAssembly. Prefer clean implementations over compatibility hacks. See [CONTRIBUTING.md](CONTRIBUTING.md#code-organization) for repository layout and [architecture/architecture.md](architecture/architecture.md) for design context when relevant.
 
-Prefer implementing interpreter behavior in Rust. Python sources under `Lib/` are synchronized from CPython and should be changed sparingly, for RustPython-specific limitations only. Custom Python code should follow PEP 8 and be linted with Ruff when appropriate.
+Implement interpreter behavior and bug fixes in Rust whenever possible. Python sources under `Lib/` are synchronized from CPython and should be changed sparingly, only for RustPython-specific limitations. Custom Python code should follow PEP 8 and be linted with Ruff when appropriate.
 
 Run Python code and tests with RustPython. Use CPython only when explicitly comparing behavior, and compare the same input on both interpreters.
 
 ## Tests and compatibility
 
 - Prefer a focused test near the code being changed. Do not add snippet tests that duplicate coverage in `Lib/test`; extend the closest existing `extra_tests/snippets` file when suitable.
-- For Rust changes, run the relevant crate's tests. For interpreter-wide changes, use the workspace test command below when practical. Run C-API tests separately from `crates/capi` because it has its own Cargo configuration.
-- For changes to `Lib/` or Python-visible interpreter behavior, run the relevant module with `cargo run --release -- -m test <module>` when practical. For changes under `extra_tests/snippets/`, run the relevant snippet or `pytest -v` from `extra_tests` when practical.
-- Run `cargo fmt` for Rust formatting changes and the relevant Clippy command for Rust code changes. Fix warnings introduced by the change.
+- For Rust or interpreter changes, run at least the workspace tests and C-API tests. Run C-API tests from `crates/capi` because it has a separate Cargo configuration. Use focused checks while developing; docs-only changes do not require a test suite.
+- For changes to `Lib/` or Python-visible interpreter behavior, also run the relevant module with `cargo run --release -- -m test <module>`. For changes under `extra_tests/snippets/`, run `pytest -v` from `extra_tests` and the relevant snippet when useful.
+- Run `cargo fmt` when changing Rust formatting and Clippy for Rust code changes. Fix warnings introduced by the change.
 - Do not edit CPython test assertions, logic, or data; do not comment out or delete test code. In `Lib/test`, the permitted changes are adding a RustPython-specific expected failure or removing an existing expected-failure marker and its associated TODO when the test now passes. Document failures with `TODO: RUSTPYTHON; <reason>`; use `expectedFailureIf` when the limitation is environment-specific. Use `skip`/`skipIf` only if executing the test would crash or hang the process; otherwise prefer `expectedFailure` so a future fix is visible. Find existing markers with `rg 'TODO: RUSTPYTHON' Lib/test`.
 - If a test requires unsupported syntax or another missing feature, leave it expected-failing and explain the limitation; fix the implementation when feasible rather than weakening the test.
 
-Verification commands (choose based on scope; do not run all of them for every change):
+Verification commands:
 
 ```bash
 # Workspace Rust tests, excluding targets with separate or platform-specific setup
@@ -52,11 +52,11 @@ cargo run -- <snippet.py>
 
 When changing bytecode instructions, perform a clean rebuild: remove `target/debug/build/rustpython-*` and generated `.pyc` files after verifying the paths.
 
-For Python modules implemented in Rust, follow nearby `pymodule` and `pyclass` patterns, import from `rustpython_vm::prelude`, expose functions and methods with `pyfunction` and `pymethod`, and register native modules through the VM API. Use `PyObjectRef` and related VM types for Python objects.
+For Python modules implemented in Rust, follow nearby patterns and import from `rustpython_vm::prelude`; expose functions, classes, attributes, and methods with the project macros, and register native modules through the VM API. Use `PyObjectRef` and related VM types for Python objects.
 
 ## Rust conventions
 
-- Use standard `rustfmt` formatting and established RustPython patterns, including `pyclass`, `pymodule`, and related macros for Python-facing APIs.
+- Use standard `rustfmt` formatting and established RustPython patterns, including `pymodule`, `pyclass`, `pyattr`, `pyfunction`, `pymethod`, and related macros for Python-facing APIs. Follow Rust best practices for error handling and memory management.
 - Do not remove or rewrite existing comments unless they are wrong or contradicted by the change. Avoid decorative comment separators.
 - A `///` doc comment on a Python-exposed item becomes its Python docstring and overrides documentation stored in `crates/doc`. Use `//` for implementation notes on such items.
 - When branches share logic and differ only in a value, compute the value first and call the shared logic once.
@@ -65,7 +65,7 @@ For Python modules implemented in Rust, follow nearby `pymodule` and `pyclass` p
 
 - Follow RustPython's [AI Policy](https://github.com/RustPython/.github/blob/main/AI_POLICY.md) for AI-assisted contributions.
 - If creating a commit, include an `Assisted-by: AGENT_NAME:MODEL_VERSION` trailer for each AI tool used. Do not use `Co-authored-by` for an AI assistant.
-- Local commits are allowed only when requested. Never push or create a pull request without explicit user authorization. Every commit must run the configured hook: do not use `--no-verify`; if it fixes files, stage the fixes and retry normally.
+- Disclose each AI tool and its role in the pull request description and commit message. Local commits are allowed only when requested. Never push or create a pull request without explicit user authorization. Every commit must run the configured hook: do not use `--no-verify`; if it fixes files, stage the fixes and retry normally, without amending or forcing a failed commit.
 - After cloning, install the configured pre-commit hook with `prek install` or `pre-commit install` before committing.
 - If modifying `.github/workflows/`, ensure the workflow passes a [zizmor](https://docs.zizmor.sh/) scan.
 - All four Windows `venvlauncher` binaries use the same source. Build once and copy under the required names; do not add extra `[[bin]]` entries.
