@@ -183,7 +183,9 @@ mod decl {
                 // and stop as soon as either input is exhausted.
                 let data_obj = raise_if_stop!(zelf.data.next(vm)?);
                 let sel_obj = raise_if_stop!(zelf.selectors.next(vm)?);
-                if sel_obj.try_to_bool(vm)? {
+                let selected = sel_obj.try_to_bool(vm)?;
+                drop(sel_obj);
+                if selected {
                     return Ok(PyIterReturn::Return(data_obj));
                 }
             }
@@ -506,11 +508,13 @@ mod decl {
             let obj = raise_if_stop!(zelf.iterable.next(vm)?);
             let predicate = &zelf.predicate;
 
-            let verdict = predicate.call((obj.clone(),), vm)?;
-            let verdict = verdict.try_to_bool(vm)?;
+            let pred_value = predicate.call((obj.clone(),), vm)?;
+            let verdict = pred_value.try_to_bool(vm)?;
+            drop(pred_value);
             if verdict {
                 Ok(PyIterReturn::Return(obj))
             } else {
+                drop(obj);
                 zelf.stop_flag.store(true);
                 Ok(PyIterReturn::StopIteration(None))
             }
@@ -565,17 +569,19 @@ mod decl {
             let predicate = &zelf.predicate;
             let iterable = &zelf.iterable;
 
-            if !zelf.start_flag.load() {
-                loop {
-                    let obj = raise_if_stop!(iterable.next(vm)?);
-                    let pred_value = predicate.call((obj.clone(),), vm)?;
-                    if !pred_value.try_to_bool(vm)? {
-                        zelf.start_flag.store(true);
-                        return Ok(PyIterReturn::Return(obj));
-                    }
+            loop {
+                let obj = raise_if_stop!(iterable.next(vm)?);
+                if zelf.start_flag.load() {
+                    return Ok(PyIterReturn::Return(obj));
+                }
+                let pred_value = predicate.call((obj.clone(),), vm)?;
+                let verdict = pred_value.try_to_bool(vm)?;
+                drop(pred_value);
+                if !verdict {
+                    zelf.start_flag.store(true);
+                    return Ok(PyIterReturn::Return(obj));
                 }
             }
-            iterable.next(vm)
         }
     }
 
@@ -1022,7 +1028,9 @@ mod decl {
                     predicate.call((obj.clone(),), vm)?
                 };
 
-                if !pred_value.try_to_bool(vm)? {
+                let verdict = pred_value.try_to_bool(vm)?;
+                drop(pred_value);
+                if !verdict {
                     return Ok(PyIterReturn::Return(obj));
                 }
             }
