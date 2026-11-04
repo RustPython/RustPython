@@ -6,7 +6,7 @@ use crate::{
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
 };
-use core::ops::{Deref, DerefMut, RangeInclusive};
+use core::ops::{ControlFlow, Deref, DerefMut, RangeInclusive};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::hash::DefaultHasher;
@@ -322,6 +322,14 @@ impl FuncArgs {
             return Err(callee.given_by_name_and_position(name, pos, vm));
         }
 
+        // A missing required parameter is reported before any argument is
+        // converted, so a conversion cannot run user code first.
+        if let Some(params) = T::PARAMS
+            && let Some(missing) = first_missing_required(params, num_given, &self.kwargs)
+        {
+            return Err(callee.missing_argument(missing.0, missing.1, vm));
+        }
+
         let bound = T::from_args(vm, &mut self)
             .map_err(|e| e.into_exception(&arity, num_given, callee, vm))?;
 
@@ -532,6 +540,48 @@ fn duplicate_name_and_position<'a>(
         None
     }
     walk(params, nargs, kwargs, &mut 0)
+}
+
+/// First required positional-or-keyword parameter that neither a positional
+/// nor a keyword argument fills. A positional-only parameter is left to the
+/// type, since a hand-written `FromArgs` may declare it for the signature only.
+fn first_missing_required<'a>(
+    params: &'a [Param],
+    nargs: usize,
+    kwargs: &KwArgs,
+) -> Option<(&'a str, usize)> {
+    fn walk<'a>(
+        params: &'a [Param],
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+    ) -> ControlFlow<Option<(&'a str, usize)>> {
+        for param in params {
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => walk(inner, nargs, kwargs, pos)?,
+                ParamKind::Flatten(None) | ParamKind::VarPositional => {
+                    return ControlFlow::Break(None);
+                }
+                ParamKind::PositionalOnly => *pos += 1,
+                ParamKind::PositionalOrKeyword => {
+                    *pos += 1;
+                    if nargs < *pos
+                        && param.default.is_none()
+                        && !param.name.is_empty()
+                        && !kwargs.contains_key(param.name)
+                    {
+                        return ControlFlow::Break(Some((param.name, *pos)));
+                    }
+                }
+                ParamKind::KeywordOnly | ParamKind::VarKeyword => {}
+            }
+        }
+        ControlFlow::Continue(())
+    }
+    match walk(params, nargs, kwargs, &mut 0) {
+        ControlFlow::Break(missing) => missing,
+        ControlFlow::Continue(()) => None,
+    }
 }
 
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
