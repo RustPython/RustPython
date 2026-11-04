@@ -7160,7 +7160,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # bpo-31705: On kernel older than 4.5, sendto() failed with ENOKEY,
     # at least on ppc64le architecture
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 5)
     def test_sha256(self):
         expected = bytes.fromhex("ba7816bf8f01cfea414140de5dae2223b00361a396"
@@ -7179,7 +7178,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 op.send(b'')
                 self.assertEqual(op.recv(512), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     def test_hmac_sha1(self):
         # gh-109396: In FIPS mode, Linux 6.5 requires a key
         # of at least 112 bits. Use a key of 152 bits.
@@ -7195,7 +7193,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # Although it should work with 3.19 and newer the test blocks on
     # Ubuntu 15.10 with Kernel 4.2.0-19.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 3)
     def test_aes_cbc(self):
         key = bytes.fromhex('06a9214036b8a15b512e03d534120006')
@@ -7237,7 +7234,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             self.assertEqual(len(dec), msglen * multiplier)
             self.assertEqual(dec, msg * multiplier)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 9)  # see gh-73510
     def test_aead_aes_gcm(self):
         kernel_version = support._get_kernel_version("Linux")
@@ -7307,7 +7303,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 res = op.recv(len(msg) - taglen)
                 self.assertEqual(plain, res[assoclen:])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_ALG not fully implemented
     @support.requires_linux_version(4, 3)  # see test_aes_cbc
     def test_drbg_pr_sha256(self):
         # deterministic random bit generator, prediction resistance, sha256
