@@ -1237,8 +1237,8 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
         } else if let Some(argtypes_obj) = instance_argtypes.as_ref() {
             if !vm.is_none(argtypes_obj) {
                 let (types, converters) = extract_arg_types_and_converters(argtypes_obj, vm)?;
-                let mut conv_guard = zelf.converters.write();
                 let current_argtypes = zelf.argtypes.read();
+                let mut conv_guard = zelf.converters.write();
                 if current_argtypes
                     .as_ref()
                     .is_some_and(|cur| cur.is(argtypes_obj))
@@ -1260,8 +1260,8 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
             && !vm.is_none(&class_argtypes)
         {
             let (types, converters) = extract_arg_types_and_converters(&class_argtypes, vm)?;
-            let mut conv_guard = zelf.converters.write();
             let current_argtypes = zelf.argtypes.read();
+            let mut conv_guard = zelf.converters.write();
             if current_argtypes.is_none() && conv_guard.is_none() {
                 let snapshot = vm.ctx.new_tuple(vec![
                     vm.ctx.new_tuple(types.clone()).into(),

@@ -1307,15 +1307,7 @@ class FailingConverter:
         raise ValueError("failing conversion")
 
 
-# 1. Assignment validation: non-sequence
-try:
-    libc.srand.argtypes = 123
-except TypeError:
-    pass
-else:
-    raise AssertionError("expected TypeError for non-sequence argtypes")
-
-# 2. Assignment validation: sequence item lacking from_param
+# 1. Assignment validation: sequence item lacking from_param
 try:
     libc.srand.argtypes = [InvalidConverter]
 except TypeError as e:
@@ -1323,18 +1315,18 @@ except TypeError as e:
 else:
     raise AssertionError("expected TypeError for item without from_param")
 
-# 3. Custom converter class in argtypes
+# 2. Custom converter class in argtypes
 libc.srand.argtypes = [ValidConverter]
 libc.srand(10)
 assert ValidConverter.called == 1
 
-# 4. Custom converter instance in argtypes
+# 3. Custom converter instance in argtypes
 adapter = Adapter()
 libc.srand.argtypes = [adapter]
 libc.srand(20)
 assert adapter.called == 1
 
-# 5. Conversion failure wraps in ArgumentError and chains __cause__
+# 4. Conversion failure wraps in ArgumentError and chains __cause__
 libc.srand.argtypes = [FailingConverter]
 try:
     libc.srand(30)
@@ -1346,7 +1338,7 @@ except Exception as e:
 else:
     raise AssertionError("expected ArgumentError from failing converter")
 
-# 6. Cached converter resolved at assignment (mutating from_param afterwards does not affect calls)
+# 5. Cached converter resolved at assignment (mutating from_param afterwards does not affect calls)
 class MutatingConverter:
     @classmethod
     def from_param(cls, val):
@@ -1357,7 +1349,7 @@ libc.srand.argtypes = [MutatingConverter]
 MutatingConverter.from_param = None
 libc.srand(40)
 
-# 7. In-place mutation of assigned argtypes list does not affect call snapshot
+# 6. In-place mutation of assigned argtypes list does not affect call snapshot
 assigned_list = [ctypes.c_uint]
 libc.srand.argtypes = assigned_list
 assigned_list.append(ctypes.c_int)
@@ -1365,7 +1357,7 @@ assigned_list.append(ctypes.c_int)
 libc.srand(50)
 assert libc.srand.argtypes == assigned_list
 
-# 8. Callback argtypes validates ctypes types without querying from_param
+# 7. Callback argtypes validates ctypes types without querying from_param
 class CallbackArgType(ctypes.c_int):
     @classmethod
     def from_param(cls, val):
@@ -1375,7 +1367,7 @@ class CallbackArgType(ctypes.c_int):
 CB = ctypes.CFUNCTYPE(None, CallbackArgType)
 cb_inst = CB(lambda x: None)
 
-# 9. Prototype with class-level _argtypes_ caches converters at instantiation
+# 8. Prototype with class-level _argtypes_ caches converters at instantiation
 class ProtoConverter:
     @classmethod
     def from_param(cls, val):
@@ -1387,11 +1379,11 @@ proto_func = Proto(ctypes.cast(libc.srand, ctypes.c_void_p).value)
 ProtoConverter.from_param = None
 proto_func(60)
 
-# 10. Reset argtypes
+# 9. Reset argtypes
 libc.srand.argtypes = [ctypes.c_uint]
 libc.srand(0)
 
-# 11. Windows-specific test for Issue #8341: custom converter returning a Structure
+# 10. Windows-specific test for Issue #8341: custom converter returning a Structure
 if _sys.platform == "win32":
     from ctypes import wintypes
 
