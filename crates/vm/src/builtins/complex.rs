@@ -1,11 +1,12 @@
-use super::{PyInt, PyStr, PyType, PyTypeRef, float};
+use super::{PyFloat, PyInt, PyStr, PyType, PyTypeRef, float};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::PyUtf8StrRef,
     class::{PyClassDef, PyClassImpl},
     common::{float_ops, wtf8::Wtf8Buf},
     convert::{ToPyObject, ToPyResult},
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIntoComplex, ArgIntoFloat, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::_warnings,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -92,8 +93,9 @@ impl From<Complex64> for PyComplex {
 }
 
 impl PyObjectRef {
-    /// Tries converting a python object into a complex, returns an option of whether the complex
-    /// and whether the  object was a complex originally or coerced into one
+    /// Convert a constructor argument, preferring an overridden `__complex__`.
+    /// The flag records whether the result came from a complex value or method,
+    /// rather than a real-number conversion.
     pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
         if let Some(complex) = self.downcast_ref_if_exact::<PyComplex>(vm) {
             return Ok(Some((complex.as_complex(), true)));
@@ -101,14 +103,16 @@ impl PyObjectRef {
         if let Some(value) = self.try_complex_special_method(vm)? {
             return Ok(Some((value.as_complex(), true)));
         }
-        // `complex` does not have a `__complex__` by default, so subclasses might not either,
-        // use the actual stored value in this case
+        // A complex subtype whose special method is absent still has a value.
         if let Some(complex) = self.downcast_ref::<PyComplex>() {
             return Ok(Some((complex.as_complex(), true)));
         }
 
-        if let Some(float) = self.try_float_opt(vm) {
-            return Ok(Some((Complex64::new(float?.to_f64(), 0.0), false)));
+        // Unlike the two-component constructor, the single-argument form uses
+        // PyFloat_AsDouble: read float subclasses without invoking __float__.
+        if self.downcastable::<PyFloat>() || has_real_number_conversion(self) {
+            let real = ArgIntoFloat::try_from_object(vm, self.clone())?.into_float();
+            return Ok(Some((Complex64::new(real, 0.0), false)));
         }
 
         Ok(None)
@@ -118,36 +122,33 @@ impl PyObjectRef {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyRef<PyComplex>>> {
-        if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
-            let result = method?.call((), vm)?;
-
-            let ret_class = result.class().to_owned();
-            if let Some(ret) = result.downcast_ref::<PyComplex>()
-                && !result.class().is(vm.ctx.types.complex_type)
-            {
-                _warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "__complex__ returned non-complex (type {ret_class}).  \
-                    The ability to return an instance of a strict subclass of complex \
-                    is deprecated, and may be removed in a future version of Python."
-                    ),
-                    1,
-                    vm,
-                )?;
-
-                return Ok(Some(ret.to_owned()));
-            }
-
-            return match result.downcast_ref::<PyComplex>() {
-                Some(complex_obj) => Ok(Some(complex_obj.to_owned())),
-                None => Err(vm.new_type_error(format!(
-                    "__complex__ returned non-complex (type '{}')",
-                    result.class().name()
-                ))),
-            };
+        let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) else {
+            return Ok(None);
+        };
+        let result = method?.call((), vm)?;
+        if let Some(complex) = result.downcast_ref_if_exact::<PyComplex>(vm) {
+            return Ok(Some(complex.to_owned()));
         }
-        Ok(None)
+
+        let message = format!(
+            "{}.__complex__() must return a complex, not {}",
+            self.class().fully_qualified_name(vm)?,
+            result.class().fully_qualified_name(vm)?
+        );
+        let Some(complex) = result.downcast_ref::<PyComplex>() else {
+            return Err(vm.new_type_error(message));
+        };
+        _warnings::warn(
+            vm.ctx.exceptions.deprecation_warning,
+            format!(
+                "{message}.  \
+The ability to return an instance of a strict subclass of complex is deprecated, \
+and may be removed in a future version of Python."
+            ),
+            1,
+            vm,
+        )?;
+        Ok(Some(complex.to_owned()))
     }
 }
 
@@ -385,9 +386,20 @@ fn powc(a: Complex64, exp: Complex64) -> Complex64 {
     Complex64::new(len * phase.cos(), len * phase.sin())
 }
 
-/// Whether an underscore sits where a numeric literal does not allow one:
-/// they only ever join two digits.
-fn has_misplaced_underscore(bytes: &[u8]) -> bool {
+/// Whether underscore validation rejects the literal, including an embedded
+/// NUL when an underscore occurs before it.
+fn invalid_underscored_literal(bytes: &[u8]) -> bool {
+    // CPython only enters underscore validation if one occurs before a NUL.
+    let end = bytes
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(bytes.len());
+    if !bytes[..end].contains(&b'_') {
+        return false;
+    }
+    if end != bytes.len() {
+        return true;
+    }
     let mut prev = b'\0';
     for &byte in bytes {
         if byte == b'_' {
@@ -523,27 +535,24 @@ fn has_real_number_conversion(value: &PyObject) -> bool {
 impl PyComplex {
     fn from_single_argument(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if let Some(string) = value.downcast_ref::<PyStr>() {
-            if has_misplaced_underscore(string.as_wtf8().as_bytes()) {
+            let literal = crate::protocol::numeric_literal_from_str(string);
+            if invalid_underscored_literal(literal.as_bytes()) {
                 let repr = value.repr(vm)?;
                 return Err(
                     vm.new_value_error(format!("could not convert string to complex: {repr}"))
                 );
             }
-            let (re, im) = rustpython_literal::complex::parse_str(
-                &crate::protocol::numeric_literal_from_str(string),
-            )
-            .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
+            let (re, im) = rustpython_literal::complex::parse_str(&literal)
+                .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
             return Ok(Self::from(Complex64 { re, im }));
         }
-        value
-            .try_complex(vm)?
-            .map(|(value, _)| Self::from(value))
-            .ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "complex() argument must be a string or a number, not {}",
-                    value.class().slot_name()
-                ))
-            })
+        match value.try_complex(vm)? {
+            Some((value, _)) => Ok(Self::from(value)),
+            None => Err(vm.new_type_error(format!(
+                "complex() argument must be a string or a number, not {}",
+                value.class().fully_qualified_name(vm)?
+            ))),
+        }
     }
 
     #[deprecated(note = "use PyComplex::from(...).into_ref() instead")]
@@ -657,21 +666,15 @@ impl Py<PyComplex> {
         if number.class().is(vm.ctx.types.complex_type) && cls.is(vm.ctx.types.complex_type) {
             return Ok(number);
         }
-        let value = number
-            .try_complex(vm)?
-            .ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "must be real number, not {}",
-                    number.class().name()
-                ))
-            })?
-            .0;
+        let value = ArgIntoComplex::try_from_object(vm, number.clone())?.into_complex();
         let result = vm.ctx.new_complex(value);
-        if cls.is(vm.ctx.types.complex_type) {
+        let result = if cls.is(vm.ctx.types.complex_type) {
             Ok(result.into())
         } else {
             PyType::call(&cls, vec![result.into()].into(), vm)
-        }
+        };
+        drop(number);
+        result
     }
 }
 
@@ -679,7 +682,7 @@ impl Py<PyComplex> {
 impl PyRef<PyComplex> {
     #[pymethod]
     fn __complex__(self, vm: &VirtualMachine) -> Self {
-        if self.is(vm.ctx.types.complex_type) {
+        if self.class().is(vm.ctx.types.complex_type) {
             self
         } else {
             PyComplex::from(self.as_complex()).into_ref(&vm.ctx)

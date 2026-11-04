@@ -28,13 +28,16 @@ use alloc::borrow::Cow;
 /// a base, and only `int` and `float` accept bytes-like input, so each keeps its own
 /// entry point around this one.
 ///
-/// A string holding surrogates can never be a valid literal, so it folds to an
-/// empty — and therefore invalid — one.
+/// Surrogates cannot form a valid literal. Normalize their valid prefix too,
+/// so underscore validation can still distinguish a malformed separator from
+/// another invalid character.
 pub fn numeric_literal_from_str(s: &Py<PyStr>) -> Cow<'_, str> {
     match s.as_str_kind() {
-        PyKindStr::Ascii(s) => Cow::Borrowed(s.trim().as_str()),
-        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s.trim()),
-        PyKindStr::Wtf8(_) => Cow::Borrowed(""),
+        PyKindStr::Ascii(s) => Cow::Borrowed(s.as_str()),
+        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s),
+        PyKindStr::Wtf8(s) => {
+            Cow::Owned(transform_decimal_and_space_to_ascii(&s.to_string_lossy()).into_owned())
+        }
     }
 }
 

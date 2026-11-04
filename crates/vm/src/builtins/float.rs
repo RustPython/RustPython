@@ -9,7 +9,8 @@ use crate::{
     common::{float_ops, hash, wtf8::Wtf8Buf},
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        ArgBytesLike, ArgIndex, ArgIntoFloat, FuncArgs, OptionalArg, PyArithmeticValue,
+        PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -251,21 +252,12 @@ impl Constructor for PyFloat {
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here. Extra keywords are
         // accepted only when a subclass has replaced tp_init.
-        let arg: Self::Args = if cls.is(float_type) || uses_float_init {
-            args.bind_for(vm, Self::NAME)?
+        let (args, retained_args) = if cls.is(float_type) || uses_float_init {
+            (args, None)
         } else {
-            match args.args.as_slice() {
-                [] => Self::Args {
-                    x: OptionalArg::Missing,
-                },
-                [value] => Self::Args {
-                    x: OptionalArg::Present(value.clone()),
-                },
-                slice => {
-                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
-                }
-            }
+            (FuncArgs::from(args.args.clone()), Some(args))
         };
+        let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
         let arg_value = &arg.x;
 
         // Optimization: return exact float as-is
@@ -277,7 +269,9 @@ impl Constructor for PyFloat {
         }
 
         let payload = Self::py_new(&cls, arg, vm)?;
-        payload.into_ref_with_type(vm, cls).map(Into::into)
+        let result = payload.into_ref_with_type(vm, cls).map(Into::into);
+        drop(retained_args);
+        result
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
@@ -427,8 +421,8 @@ impl Py<PyFloat> {
     }
 
     #[pygetset]
-    const fn real(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
-        zelf
+    fn real(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        PyFloat::number_downcast_exact(zelf.as_object().number(), vm)
     }
 
     #[pygetset]
@@ -437,8 +431,8 @@ impl Py<PyFloat> {
     }
 
     #[pymethod]
-    const fn conjugate(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
-        zelf
+    fn conjugate(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        PyFloat::number_downcast_exact(zelf.as_object().number(), vm)
     }
 
     #[pymethod]
@@ -469,13 +463,15 @@ impl Py<PyFloat> {
             return Ok(number);
         }
 
-        let value = number.try_float(vm)?.to_f64();
+        let value = ArgIntoFloat::try_from_object(vm, number.clone())?.into_float();
         let result = vm.ctx.new_float(value);
-        if cls.is(vm.ctx.types.float_type) {
+        let result = if cls.is(vm.ctx.types.float_type) {
             Ok(result.into())
         } else {
             PyType::call(&cls, vec![result.into()].into(), vm)
-        }
+        };
+        drop(number);
+        result
     }
 
     #[pyclassmethod]
