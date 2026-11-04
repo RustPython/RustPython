@@ -2740,7 +2740,7 @@ mod _pickle {
             let iter = PyIter::new(items);
             let mut index = 0usize;
             if self.proto == 0 {
-                while let Some(item) = iter.next(vm)?.into_result().ok() {
+                while let Ok(item) = iter.next(vm)?.into_result() {
                     let item = validate(item)?;
                     save(self, item, index)?;
                     self.write(&[single]);
