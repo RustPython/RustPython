@@ -1419,7 +1419,7 @@ mod _zoneinfo {
                     zelf.key.class().slot_name()
                 )));
             }
-            Ok(vm.ctx.new_str(Self::repr_str(zelf, vm)?))
+            Self::repr(zelf, vm)
         }
     }
 
