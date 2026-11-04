@@ -28,7 +28,7 @@ impl PyPayload for PyNamespace {
 impl DefaultConstructor for PyNamespace {}
 
 #[pyclass(
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
+    flags(BASETYPE, HAS_DICT),
     with(Constructor, Initializer, Comparable, Representable)
 )]
 impl PyNamespace {
@@ -54,7 +54,7 @@ impl PyNamespace {
         let cls: PyObjectRef = zelf.class().to_owned().into();
         let result = cls.call((), vm)?;
 
-        if !zelf.class().is(result.class()) {
+        if !result.downcastable::<Self>() {
             return Err(vm.new_type_error(format!(
                 "expect {} type, but {}() returned '{}' object",
                 Self::class(&vm.ctx).slot_name(),
@@ -72,14 +72,11 @@ impl PyNamespace {
         // Copy the current namespace dict to the new instance
         let src_dict = zelf.dict().unwrap();
         let dst_dict = result.dict().unwrap();
-        for (key, value) in src_dict {
-            dst_dict.set_item(&*key, value, vm)?;
-        }
+        dst_dict.merge_dict(&src_dict, true, vm)?;
 
-        // Update with the provided kwargs
-        for (name, value) in changes {
-            let name = vm.ctx.new_str(name);
-            result.set_attr(&name, value, vm)?;
+        // Bypass attribute setters and retain all argument owners during updates.
+        for (name, value) in &changes {
+            dst_dict.inner_setitem(name, value.clone(), vm)?;
         }
 
         Ok(result)
@@ -98,38 +95,37 @@ impl Initializer for PyNamespace {
     type Args = NamespaceArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // If there's a positional argument, treat it as a mapping
-        if let OptionalArg::Present(mapping) = args.mapping_or_iterable {
-            // Convert to dict if not already
-            let dict: PyRef<PyDict> = if let Some(d) = mapping.downcast_ref::<PyDict>() {
-                d.to_owned()
+        // Keep the original input alive through conversion and both updates.
+        if let OptionalArg::Present(mapping) = &args.mapping_or_iterable {
+            let dict: PyRef<PyDict> = if mapping.class().is(vm.ctx.types.dict_type) {
+                mapping.downcast_ref::<PyDict>().unwrap().to_owned()
             } else {
-                // Call dict() on the mapping
+                // Dict subclasses may override the mapping conversion protocol.
                 let dict_type: PyObjectRef = vm.ctx.types.dict_type.to_owned().into();
                 dict_type
-                    .call((mapping,), vm)?
+                    .call((mapping.clone(),), vm)?
                     .downcast()
                     .map_err(|_| vm.new_type_error("dict() did not return a dict"))?
             };
 
-            // Validate keys are strings and set attributes
-            for (key, value) in dict {
-                let key_str = key
-                    .downcast_ref::<crate::builtins::PyStr>()
-                    .ok_or_else(|| {
-                        vm.new_type_error(format!(
-                            "keywords must be strings, not '{}'",
-                            key.class().name()
-                        ))
-                    })?;
-                zelf.as_object().set_attr(key_str, value, vm)?;
+            // Validate every key before publishing any of the supplied values.
+            if dict
+                .keys_vec()
+                .iter()
+                .any(|key| !key.downcastable::<PyStr>())
+            {
+                return Err(vm.new_type_error("keywords must be strings"));
             }
+            zelf.as_object()
+                .dict()
+                .unwrap()
+                .merge_dict(&dict, true, vm)?;
         }
 
-        // Apply keyword arguments (these override positional mapping values)
-        for (name, value) in args.kwargs {
-            let name = vm.ctx.new_str(name);
-            zelf.as_object().set_attr(&name, value, vm)?;
+        // Apply keywords directly to the namespace, without invoking descriptors.
+        let dict = zelf.as_object().dict().unwrap();
+        for (name, value) in &args.kwargs {
+            dict.inner_setitem(name, value.clone(), vm)?;
         }
         Ok(())
     }
@@ -163,25 +159,39 @@ impl Representable for PyNamespace {
 
         let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let dict = zelf.as_object().dict().unwrap();
-            let mut result = Wtf8Buf::from(format!("{name}("));
-            let mut first = true;
-            for (key, value) in dict {
-                let Some(key_str) = key.downcast_ref::<PyStr>() else {
-                    continue;
-                };
-                if key_str.as_wtf8().is_empty() {
-                    continue;
+            // Retain the entire key snapshot, but look up each value after any
+            // preceding repr callback has had a chance to change the dictionary.
+            let keys = dict.keys_vec();
+            let result: PyResult<Wtf8Buf> = (|| {
+                let mut result = Wtf8Buf::from(format!("{name}("));
+                let mut first = true;
+                for key in &keys {
+                    let Some(key_str) = key.downcast_ref::<PyStr>() else {
+                        continue;
+                    };
+                    if key_str.as_wtf8().is_empty() {
+                        continue;
+                    }
+                    let Some(value) = dict.get_item_opt(&**key, vm)? else {
+                        continue;
+                    };
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_wtf8(key_str.as_wtf8());
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
                 }
-                if !first {
-                    result.push_str(", ");
-                }
-                first = false;
-                result.push_wtf8(key_str.as_wtf8());
-                result.push_char('=');
-                result.push_wtf8(value.repr(vm)?.as_wtf8());
+                result.push_char(')');
+                Ok(result)
+            })();
+            // The key list releases its elements backwards, on success and
+            // failure, while recursive calls from finalizers still see the guard.
+            for key in keys.into_iter().rev() {
+                drop(key);
             }
-            result.push_char(')');
-            result
+            result?
         } else {
             Wtf8Buf::from(format!("{name}(...)"))
         };
