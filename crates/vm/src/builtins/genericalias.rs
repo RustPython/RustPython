@@ -7,13 +7,13 @@ use crate::{
     VirtualMachine, atomic_func,
     builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassDef, PyClassImpl},
-    common::hash,
+    common::{hash, wtf8::Wtf8Buf},
     convert::ToPyObject,
-    function::{FuncArgs, PyComparisonValue},
+    function::{Either, FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{
-        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
-        Iterable, PyComparisonOp, Representable,
+        AsMapping, AsNumber, Callable, Constructor, GetAttr, Hashable, IterNext, Iterable,
+        PyComparisonOp, Representable,
     },
 };
 use alloc::fmt;
@@ -133,10 +133,13 @@ impl PyGenericAlias {
         cached_parameters(&self.parameters, &self.args, vm)
     }
 
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        fn repr_item(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        fn repr_item(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             if obj.is(&vm.ctx.ellipsis) {
-                return Ok("...".to_string());
+                return Ok(Wtf8Buf::from("..."));
+            }
+            if obj.is(vm.ctx.types.none_type) {
+                return Ok(Wtf8Buf::from("None"));
             }
 
             if vm
@@ -146,30 +149,43 @@ impl PyGenericAlias {
                     .get_attribute_opt(obj, identifier!(vm, __args__))?
                     .is_some()
             {
-                return Ok(obj.repr(vm)?.to_string());
+                return Ok(obj.repr(vm)?.as_wtf8().to_owned());
             }
 
-            match (
-                vm.get_attribute_opt(obj, identifier!(vm, __qualname__))?
-                    .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
-                vm.get_attribute_opt(obj, identifier!(vm, __module__))?
-                    .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
-            ) {
-                (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),
-                (Some(qualname), Some(module)) => Ok(if module == "builtins" {
-                    qualname
-                } else {
-                    format!("{module}.{qualname}")
-                }),
-            }
+            let Some(qualname) = vm.get_attribute_opt(obj, identifier!(vm, __qualname__))? else {
+                return Ok(obj.repr(vm)?.as_wtf8().to_owned());
+            };
+            let module = vm.get_attribute_opt(obj, identifier!(vm, __module__))?;
+            let result = (|| {
+                let Some(module) = module.as_ref().filter(|module| !vm.is_none(module)) else {
+                    return obj.repr(vm).map(Either::A);
+                };
+                if module
+                    .downcast_ref::<PyStr>()
+                    .is_some_and(|module| module.as_wtf8() == "builtins")
+                {
+                    return qualname.str(vm).map(Either::A);
+                }
+                let mut repr = module.str(vm)?.as_wtf8().to_owned();
+                repr.push_str(".");
+                repr.push_wtf8(qualname.str(vm)?.as_wtf8());
+                Ok(Either::B(repr))
+            })();
+            // Attribute values can own finalizers; release them in lookup order.
+            drop(qualname);
+            drop(module);
+            result.map(|repr| match repr {
+                Either::A(repr) => repr.as_wtf8().to_owned(),
+                Either::B(repr) => repr,
+            })
         }
 
-        fn repr_arg(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_arg(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             // ParamSpec args can be lists - format their items with repr_item
             if obj.class().is(vm.ctx.types.list_type) {
                 let list = obj.downcast_ref::<crate::builtins::PyList>().unwrap();
                 let len = list.borrow_vec().len();
-                let mut parts = Vec::with_capacity(len);
+                let mut repr = Wtf8Buf::from("[");
                 // Use indexed access so list mutation during repr causes IndexError
                 for i in 0..len {
                     let item = list
@@ -177,35 +193,34 @@ impl PyGenericAlias {
                         .get(i)
                         .cloned()
                         .ok_or_else(|| vm.new_index_error("list index out of range"))?;
-                    parts.push(repr_item(&item, vm)?);
+                    if i > 0 {
+                        repr.push_str(", ");
+                    }
+                    repr.push_wtf8(&repr_item(&item, vm)?);
                 }
-                Ok(format!("[{}]", parts.join(", ")))
+                repr.push_str("]");
+                Ok(repr)
             } else {
                 repr_item(obj, vm)
             }
         }
 
-        let repr_str = format!(
-            "{}[{}]",
-            repr_item(&self.origin, vm)?,
-            if self.args.as_slice().is_empty() {
-                "()".to_owned()
-            } else {
-                self.args
-                    .as_slice()
-                    .iter()
-                    .map(|o| repr_arg(o, vm))
-                    .collect::<PyResult<Vec<_>>>()?
-                    .join(", ")
-            }
-        );
-
         // Add * prefix if this is a starred GenericAlias
-        Ok(if self.starred {
-            format!("*{repr_str}")
+        let mut repr = Wtf8Buf::from(if self.starred { "*" } else { "" });
+        repr.push_wtf8(&repr_item(&self.origin, vm)?);
+        repr.push_str("[");
+        if self.args.as_slice().is_empty() {
+            repr.push_str("()");
         } else {
-            repr_str
-        })
+            for (i, arg) in self.args.as_slice().iter().enumerate() {
+                if i > 0 {
+                    repr.push_str(", ");
+                }
+                repr.push_wtf8(&repr_arg(arg, vm)?);
+            }
+        }
+        repr.push_str("]");
+        Ok(repr)
     }
 
     fn __getitem__(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -229,7 +244,6 @@ impl PyGenericAlias {
         AsNumber,
         AsMapping,
         Callable,
-        Comparable,
         Constructor,
         GetAttr,
         Hashable,
@@ -239,6 +253,42 @@ impl PyGenericAlias {
     flags(BASETYPE, HAS_WEAKREF)
 )]
 impl Py<PyGenericAlias> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        }
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyGenericAlias>(),
+            other.downcast_ref::<PyGenericAlias>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        let equal = if zelf.starred != other.starred
+            || !zelf
+                .origin
+                .rich_compare_bool(&other.origin, PyComparisonOp::Eq, vm)?
+        {
+            vm.ctx.new_bool(false).into()
+        } else {
+            // Tuple subclasses can return a non-bool result from equality.
+            zelf.args
+                .as_object()
+                .rich_compare(other.args.as_object(), PyComparisonOp::Eq, vm)?
+        };
+        if op == PyComparisonOp::Ne {
+            // ga_richcompare negates identity with True, without truth conversion.
+            Ok(Either::B((!equal.is(&vm.ctx.true_value)).into()))
+        } else {
+            Ok(Either::A(equal))
+        }
+    }
+
     #[pygetset]
     fn __parameters__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.parameters(vm)
@@ -283,7 +333,7 @@ impl Py<PyGenericAlias> {
         } else {
             Ok(PyTuple::new_ref(
                 vec![
-                    vm.ctx.types.generic_alias_type.to_owned().into(),
+                    zelf.class().to_owned().into(),
                     PyTuple::new_ref(vec![zelf.origin.clone(), zelf.args.clone().into()], &vm.ctx)
                         .into(),
                 ],
@@ -661,31 +711,6 @@ impl Callable for PyGenericAlias {
     }
 }
 
-impl Comparable for PyGenericAlias {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| {
-            let other = class_or_notimplemented!(Self, other);
-            if zelf.starred != other.starred {
-                return Ok(PyComparisonValue::Implemented(false));
-            }
-            Ok(PyComparisonValue::Implemented(
-                zelf.origin
-                    .rich_compare_bool(&other.origin, PyComparisonOp::Eq, vm)?
-                    && zelf.args.as_object().rich_compare_bool(
-                        other.args.as_object(),
-                        PyComparisonOp::Eq,
-                        vm,
-                    )?,
-            ))
-        })
-    }
-}
-
 impl Hashable for PyGenericAlias {
     #[inline]
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
@@ -712,7 +737,7 @@ impl GetAttr for PyGenericAlias {
 
 impl Representable for PyGenericAlias {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         zelf.repr(vm)
     }
 }
@@ -766,11 +791,13 @@ impl Iterable for PyGenericAliasIterator {
 impl crate::types::IterNext for PyGenericAliasIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<crate::protocol::PyIterReturn> {
         use crate::protocol::PyIterReturn;
-        let mut guard = zelf.obj.lock();
-        let obj = match guard.take() {
+        let obj = zelf.obj.lock().take();
+        let obj = match obj {
             Some(obj) => obj,
             None => return Ok(PyIterReturn::StopIteration(None)),
         };
+        // The consumed alias may run a subclass finalizer that re-enters us.
+        // Keep it alive through result construction, without holding the lock.
         // Create a starred GenericAlias from the original
         let alias = obj
             .downcast_ref::<PyGenericAlias>()
