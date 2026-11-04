@@ -322,6 +322,24 @@ parser.SkippedEntityHandler = lambda *args: skipped.append(args)
 parser.Parse("<!DOCTYPE r [%missing;]><r/>", True)
 assert skipped == [("missing", 1)]
 
+# A parameter-entity reference is skipped if its declaration appears later.
+parser = expat.ParserCreate()
+parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+skipped = []
+parser.SkippedEntityHandler = lambda *args: skipped.append(args)
+parser.Parse("<!DOCTYPE r [%x;<!ENTITY % x ''>]><r/>", True)
+assert skipped == [("x", 1)]
+
+# The DOCTYPE start callback precedes skipped parameter-entity callbacks.
+parser = expat.ParserCreate()
+parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+doctype_events = []
+parser.StartDoctypeDeclHandler = lambda *args: doctype_events.append("start")
+parser.SkippedEntityHandler = lambda *args: doctype_events.append("skipped")
+parser.EndDoctypeDeclHandler = lambda: doctype_events.append("end")
+parser.Parse("<!DOCTYPE r [%missing;]><r/>", True)
+assert doctype_events == ["start", "skipped", "end"]
+
 # BOM-prefixed UTF-16 remains valid when the BOM arrives in its own Parse call.
 parser = expat.ParserCreate()
 declarations = []
@@ -330,6 +348,15 @@ utf16_document = '<?xml version="1.0" encoding="UTF-16LE"?><r/>'.encode("utf-16l
 parser.Parse(b"\xff\xfe", False)
 parser.Parse(utf16_document, True)
 assert declarations == [("1.0", "UTF-16LE", -1)]
+
+# A UTF-8 BOM split across Parse calls still allows XML declaration dispatch.
+parser = expat.ParserCreate()
+declarations = []
+parser.XmlDeclHandler = lambda *args: declarations.append(args)
+parser.Parse(b"\xef", False)
+parser.Parse(b"\xbb", False)
+parser.Parse(b'\xbf<?xml version="1.0"?><r/>', True)
+assert declarations == [("1.0", None, -1)]
 
 # Parameter and general entities use separate declaration namespaces.
 parser = expat.ParserCreate()
@@ -341,3 +368,24 @@ parser.Parse(
     True,
 )
 assert external[0][2] == "general.dtd"
+
+# Skipped names in ISO-8859-1 input are decoded using the document encoding.
+parser = expat.ParserCreate()
+skipped = []
+parser.SkippedEntityHandler = lambda *args: skipped.append(args)
+parser.Parse(
+    b'<?xml version="1.0" encoding="ISO-8859-1"?>'
+    b'<!DOCTYPE r SYSTEM "external.dtd"><r>&\xe9;</r>',
+    True,
+)
+assert skipped == [("é", 0)]
+
+# References in internal entity values can be supplied by an external subset.
+parser = expat.ParserCreate()
+skipped = []
+parser.SkippedEntityHandler = lambda *args: skipped.append(args)
+parser.Parse(
+    '<!DOCTYPE r SYSTEM "external.dtd" [<!ENTITY e "&missing;">]><r>&e;</r>',
+    True,
+)
+assert skipped == [("missing", 0)]
