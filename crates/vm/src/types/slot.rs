@@ -2087,7 +2087,14 @@ pub trait Constructor: PyPayload + core::fmt::Debug {
         };
         let args: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         let payload = Self::py_new(&cls, args, vm)?;
-        payload.into_ref_with_type(vm, cls).map(Into::into)
+        // Exception reduction distinguishes an absent dictionary from an
+        // allocated empty one, including exceptions with specialized payloads.
+        let instance = if cls.slots.flags.has_feature(PyTypeFlags::BASE_EXC_SUBCLASS) {
+            payload.into_ref_with_type_lazy_dict(vm, cls)
+        } else {
+            payload.into_ref_with_type(vm, cls)
+        };
+        instance.map(Into::into)
     }
 
     /// Creates the payload for this type. In most cases, just implement this method

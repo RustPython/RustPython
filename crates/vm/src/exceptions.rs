@@ -1,17 +1,17 @@
 use self::types::{PyBaseException, PyBaseExceptionRef, PyException, PyMemoryError};
 pub use super::exception_group::exception_group;
-use crate::common::lock::PyRwLock;
+use crate::common::{lock::PyRwLock, wtf8::Wtf8Buf};
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
     builtins::{
-        PyList, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyDictRef, PyList, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         traceback::{PyTraceback, PyTracebackRef},
     },
     class::{PyClassImpl, StaticType},
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgIterable, FuncArgs, IntoFuncArgs, PySetterValue},
+    function::{FuncArgs, IntoFuncArgs, PySetterValue},
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
@@ -743,6 +743,11 @@ macro_rules! extend_exception {
     };
 }
 
+fn truncated_type_name(object: &PyObject, max_bytes: usize) -> String {
+    let name = object.class().slot_name();
+    name[..name.floor_char_boundary(max_bytes.min(name.len()))].to_owned()
+}
+
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> Self {
         Self {
@@ -823,7 +828,17 @@ impl Py<PyBaseException> {
     }
 
     #[pymethod]
-    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let args = self.args();
+        match args.as_slice() {
+            [] => Ok(vm.ctx.empty_str.to_owned()),
+            [arg] => arg.str(vm),
+            _ => args.as_object().str(vm),
+        }
+    }
+
+    pub(crate) fn diagnostic_str(&self, vm: &VirtualMachine) -> PyStrRef {
+        // Internal error decoration must still work if a formatter raises.
         let str_args = vm.exception_args_as_string(&self.args(), true);
         match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
@@ -832,34 +847,46 @@ impl Py<PyBaseException> {
         }
     }
 
-    #[pymethod]
+    #[pymethod(name = "add_note")]
+    fn add_note_object(&self, note: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let note = note.downcast::<PyStr>().map_err(|note| {
+            let name = if vm.is_none(&note) {
+                "None".to_owned()
+            } else {
+                truncated_type_name(&note, 50)
+            };
+            vm.new_type_error(format!("add_note() argument must be str, not {name}"))
+        })?;
+        self.add_note(note, vm)
+    }
+
     pub fn add_note(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let dict = crate::builtins::object::object_get_dict(self.as_object().to_owned(), vm)
-            .map_err(|_| vm.new_attribute_error("Exception object has no __dict__"))?;
-
-        let notes = if let Ok(notes) = dict.get_item("__notes__", vm) {
-            notes
-        } else {
-            let new_notes = vm.ctx.new_list(vec![]);
-            dict.set_item("__notes__", new_notes.clone().into(), vm)?;
-            new_notes.into()
+        let notes = match vm.get_attribute_opt(self.as_object(), "__notes__")? {
+            Some(notes) => notes
+                .downcast::<PyList>()
+                .map_err(|_| vm.new_type_error("Cannot add note: __notes__ is not a list"))?,
+            None => {
+                let notes = vm.ctx.new_list(vec![]);
+                self.as_object().set_attr("__notes__", notes.clone(), vm)?;
+                notes
+            }
         };
-
-        let notes = notes
-            .downcast::<PyList>()
-            .map_err(|_| vm.new_type_error("Cannot add note: __notes__ is not a list"))?;
-
-        notes.borrow_vec_mut().push(note.into());
+        notes.append(note.into());
         Ok(())
+    }
+
+    fn reduce_with_state(&self, state: Option<PyDictRef>, vm: &VirtualMachine) -> PyTupleRef {
+        let class = self.class().to_owned();
+        let args = self.args();
+        match state {
+            Some(state) => vm.new_tuple((class, args, state)),
+            None => vm.new_tuple((class, args)),
+        }
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        if let Some(dict) = self.as_object().dict().filter(|x| !x.is_empty()) {
-            vm.new_tuple((self.class().to_owned(), self.args(), dict))
-        } else {
-            vm.new_tuple((self.class().to_owned(), self.args()))
-        }
+        self.reduce_with_state(self.as_object().dict(), vm)
     }
 
     #[pymethod]
@@ -870,11 +897,11 @@ impl Py<PyBaseException> {
                 .map_err(|_| vm.new_type_error("state is not a dictionary"))?;
 
             for (key, value) in &dict {
-                let key_str = key.str(vm)?;
-                if key_str.as_bytes().starts_with(b"__") {
-                    continue;
-                }
-                self.as_object().set_attr(&key_str, value, vm)?;
+                let key = key.downcast::<PyStr>().map_err(|key| {
+                    let name = truncated_type_name(&key, 200);
+                    vm.new_type_error(format!("attribute name must be string, not '{name}'"))
+                })?;
+                self.as_object().set_attr(&key, value, vm)?;
             }
         }
         Ok(vm.ctx.none())
@@ -900,9 +927,8 @@ impl Py<PyBaseException> {
         let PySetterValue::Assign(value) = value else {
             return Err(vm.new_type_error("args may not be deleted"));
         };
-        let args: ArgIterable = value.try_into_value(vm)?;
-        let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        self.set_args_tuple(PyTuple::new_ref(args, &vm.ctx));
+        let args = PyTuple::from_sequence(&value, vm)?;
+        self.set_args_tuple(args);
         Ok(())
     }
 
@@ -996,9 +1022,6 @@ impl Constructor for PyBaseException {
     type Args = FuncArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if cls.is(Self::class(&vm.ctx)) && !args.kwargs.is_empty() {
-            return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
-        }
         Self::new(args.args, vm)
             .into_ref_with_type_lazy_dict(vm, cls)
             .map(Into::into)
@@ -1013,6 +1036,12 @@ impl Initializer for PyBaseException {
     type Args = FuncArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "{}() takes no keyword arguments",
+                truncated_type_name(zelf.as_object(), 200)
+            )));
+        }
         zelf.set_args_tuple(PyTuple::new_ref(args.args, &vm.ctx));
         Ok(())
     }
@@ -1020,10 +1049,26 @@ impl Initializer for PyBaseException {
 
 impl Representable for PyBaseException {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let repr_args = vm.exception_args_as_string(&zelf.args(), false);
-        let cls = zelf.class();
-        Ok(format!("{}({})", cls.name(), repr_args.iter().format(", ")))
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        // Both the type name and args may change while an argument is rendered.
+        // Own the name before calling Python, without retaining its read lock.
+        let mut result = Wtf8Buf::from(
+            zelf.class()
+                .slot_name()
+                .rsplit('.')
+                .next()
+                .unwrap_or_default(),
+        );
+        let args = zelf.args();
+        match args.as_slice() {
+            [arg] => {
+                result.push_char('(');
+                result.push_wtf8(arg.repr(vm)?.as_wtf8());
+                result.push_char(')');
+            }
+            _ => result.push_wtf8(args.as_object().repr(vm)?.as_wtf8()),
+        }
+        Ok(result)
     }
 }
 
@@ -1836,7 +1881,7 @@ pub(super) mod types {
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
         builtins::{
-            PyInt, PyStrRef, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
+            PyDictRef, PyInt, PyStrRef, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
             tuple::IntoPyTuple,
         },
         convert::ToPyResult,
@@ -1845,7 +1890,6 @@ pub(super) mod types {
     };
     use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
-    use itertools::Itertools;
     use rustpython_common::{
         str::UnicodeEscapeCodepoint,
         wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
@@ -2098,17 +2142,21 @@ pub(super) mod types {
     #[pyexception(with(Constructor, Initializer))]
     impl PyAttributeError {
         #[pymethod]
-        fn __getstate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        fn __getstate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
             let obj = zelf.as_object();
             let state = match obj.dict() {
                 Some(dict) => dict.copy().into_ref(&vm.ctx),
                 None => vm.ctx.new_dict(),
             };
-            let _ = state.del_item("obj", vm);
             if let Some(name) = zelf.name.load_owned() {
                 state.set_item("name", name, vm)?;
             }
-            Ok(state.into())
+            let base: &Py<PyBaseException> = obj
+                .downcast_ref()
+                .expect("AttributeError is a BaseException");
+            // Only the native obj field is excluded, not a user dict entry.
+            state.set_item("args", base.args().into(), vm)?;
+            Ok(state)
         }
 
         #[pymethod]
@@ -2118,11 +2166,7 @@ pub(super) mod types {
                 .as_object()
                 .downcast_ref()
                 .expect("AttributeError is a BaseException");
-            Ok(vm.ctx.new_tuple(vec![
-                zelf.class().to_owned().into(),
-                base.args().into(),
-                state,
-            ]))
+            Ok(base.reduce_with_state(Some(state), vm))
         }
     }
 
@@ -2272,7 +2316,7 @@ pub(super) mod types {
             }
             let base: &Py<PyBaseException> =
                 zelf.downcast_ref().expect("ImportError is a BaseException");
-            Ok(base.__str__(vm))
+            base.__str__(vm)
         }
 
         #[pymethod]
@@ -2281,31 +2325,27 @@ pub(super) mod types {
             let exc = zelf;
             let base: &Py<PyBaseException> =
                 obj.downcast_ref().expect("ImportError is a BaseException");
-            let args: PyObjectRef = match base.get_arg(0) {
-                Some(arg) => vm.new_tuple((arg,)).into(),
-                None => base.args().into(),
-            };
-            let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into(), args];
-
-            let mut state = obj
-                .dict()
-                .filter(|dict| !dict.is_empty())
-                .map(|dict| dict.copy().into_ref(&vm.ctx));
-            let mut insert = |key: &str, value: Option<PyObjectRef>| -> PyResult<()> {
-                let Some(value) = value else {
-                    return Ok(());
+            let mut state = obj.dict();
+            if exc.name.load_owned().is_some()
+                || exc.path.load_owned().is_some()
+                || exc.name_from.load_owned().is_some()
+            {
+                let dict = match state {
+                    Some(dict) => dict.copy().into_ref(&vm.ctx),
+                    None => vm.ctx.new_dict(),
                 };
-                let dict = state.get_or_insert_with(|| vm.ctx.new_dict());
-                dict.set_item(key, value, vm)?;
-                Ok(())
-            };
-            insert("name", exc.name.load_owned())?;
-            insert("path", exc.path.load_owned())?;
-            insert("name_from", exc.name_from.load_owned())?;
-            if let Some(state) = state {
-                result.push(state.into());
+                for (key, field) in [
+                    ("name", &exc.name),
+                    ("path", &exc.path),
+                    ("name_from", &exc.name_from),
+                ] {
+                    if let Some(value) = field.load_owned() {
+                        dict.set_item(key, value, vm)?;
+                    }
+                }
+                state = Some(dict);
             }
-            Ok(result.into_pytuple(vm))
+            Ok(base.reduce_with_state(state, vm))
         }
     }
 
@@ -2377,13 +2417,10 @@ pub(super) mod types {
     #[pyexception]
     impl PyKeyError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let args = zelf.args();
-            if args.as_slice().len() == 1 {
-                vm.exception_args_as_string(&args, false)
-                    .into_iter()
-                    .exactly_one()
-                    .unwrap()
+            if let [arg] = args.as_slice() {
+                arg.repr(vm)
             } else {
                 zelf.__str__(vm)
             }
@@ -2861,7 +2898,7 @@ pub(super) mod types {
             // fallback to BaseException.__str__
             let base: &Py<PyBaseException> =
                 zelf.downcast_ref().expect("OSError is a BaseException");
-            Ok(base.__str__(vm))
+            base.__str__(vm)
         }
 
         #[pymethod]
