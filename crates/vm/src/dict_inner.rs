@@ -1196,28 +1196,27 @@ impl<T: Clone> Dict<T> {
         Ok(ret)
     }
 
-    /// [`Self::lookup`], additionally reading the matched entry when the probe
-    /// settles it by key identity.
+    /// [`Self::lookup`], additionally reading the matched entry under the
+    /// probe's guard, after any equality callback has been revalidated.
     ///
-    /// That is the common case, and it is decided while the read guard is still
-    /// held — so a caller that only wants the entry's value gets it here instead
-    /// of taking the lock a second time to re-find what the probe already had.
+    /// Key identity is the common case and is decided while the read guard is
+    /// still held. After equality, the current entry is read under the guard
+    /// that revalidated it, without a second lookup by stale coordinates.
     /// `extract` therefore runs under the guard and must not run Python. It is
-    /// not called when the key had to be compared with `key_eq`, which does run
-    /// Python and so releases the guard first.
+    /// called only after reacquiring the guard when `key_eq` runs Python.
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    fn lookup_extract<K: DictKey + ?Sized, R>(
-        &self,
+    fn lookup_extract<'a, K: DictKey + ?Sized, R>(
+        &'a self,
         vm: &VirtualMachine,
         key: &K,
         hash_value: HashValue,
-        mut lock: Option<PyRwLockReadGuard<'_, DictInner<T>>>,
+        mut lock: Option<PyRwLockReadGuard<'a, DictInner<T>>>,
         extract: impl Fn(&DictEntry<T>) -> R,
     ) -> PyResult<(LookupResult, Option<R>)> {
         let mut idxs = None;
         let mut free_slot = None;
-        let ret = 'outer: loop {
-            let (entry_key, ret) = {
+        loop {
+            let (entry_key, ret, indices_ptr, indices_len) = {
                 let inner = lock.take().unwrap_or_else(|| self.read());
                 let mask = (inner.indices.len() - 1) as i64;
                 let idxs = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
@@ -1261,7 +1260,12 @@ impl<T: Clone> Dict<T> {
                             if key.key_is(&entry.key) {
                                 return Ok((ret, Some(extract(entry))));
                             } else if entry.hash == hash_value {
-                                break (entry.key.clone(), ret);
+                                break (
+                                    entry.key.clone(),
+                                    ret,
+                                    inner.indices.as_ptr(),
+                                    inner.indices.len(),
+                                );
                             } else {
                                 // entry mismatch
                             }
@@ -1271,20 +1275,36 @@ impl<T: Clone> Dict<T> {
                 }
             };
 
-            #[expect(
-                clippy::redundant_else,
-                reason = "Keeping the empty `else` block here for documentation"
-            )]
-            // This comparison needs to be done outside the lock.
-            if key.key_eq(vm, &entry_key)? {
-                break 'outer ret;
-            } else {
-                // hash collision
+            // Equality and releasing its temporary key can both run Python.
+            // Drop the owner before checking the table, without holding a lock.
+            let entry_key_id = entry_key.get_id();
+            let equal = key.key_eq(vm, &entry_key);
+            drop(entry_key);
+            let equal = equal?;
+            let inner = self.read();
+            let entry = inner
+                .get_entry_checked(ret.0.index().unwrap(), ret.1)
+                .filter(|entry| {
+                    inner.indices.as_ptr() == indices_ptr
+                        && inner.indices.len() == indices_len
+                        && inner.indices.get(ret.1) == Some(&ret.0)
+                        && entry.hash == hash_value
+                        && entry.key.get_id() == entry_key_id
+                });
+            let Some(entry) = entry else {
+                // A callback may recycle the same entry and bucket for a
+                // different key, or rebuild the table around the same key.
+                drop(inner);
+                idxs = None;
+                free_slot = None;
+                continue;
+            };
+            if equal {
+                return Ok((ret, Some(extract(entry))));
             }
-
-            // warn!("Perturb value: {}", i);
-        };
-        Ok((ret, None))
+            // Hash collision: continue probing the unchanged table.
+            lock = Some(inner);
+        }
     }
 
     // returns Err(()) if changed since lookup
