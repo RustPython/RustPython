@@ -26,6 +26,10 @@ use syn::punctuated::Punctuated;
 ///   `OptionalArg<T>` is converted only when the argument is missing:
 ///   `<FieldTy as TryFromObject>::try_from_object(vm, ToPyObject::to_pyobject(LIT, vm))?`.
 ///   A byte-string literal becomes a Python `bytes` object.
+///   `default = None` on `Option<T>`, including `Option<PyObjectRef>`, stores
+///   Rust `None` and displays `None` in the signature without `py_default`.
+///   It does not construct Python's None object for an unwrapped field or
+///   mean `OptionalArg::Missing`.
 /// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
 ///   name, and the missing argument stores `Into::into(NAME)` (the leading
 ///   `::` is not Rust syntax for a local constant). A longer `::` path is a

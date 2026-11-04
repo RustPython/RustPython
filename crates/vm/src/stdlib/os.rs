@@ -2632,26 +2632,36 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Convert a mapping (e.g. os._Environ) to a plain dict for use by execve/posix_spawn.
-///
-/// For `os._Environ`, accesses the internal `_data` dict directly at the Rust level.
-/// This avoids Python-level method calls that can deadlock after fork() when
-/// parking_lot locks are held by threads that no longer exist.
+/// The existing direct-dict path also avoids Python callbacks for os._Environ
+/// after fork, when locks inherited from vanished threads may still be held.
 #[cfg(any(unix, windows))]
-pub(crate) fn envobj_to_dict(
-    env: crate::function::ArgMapping,
+pub(crate) fn envobj_fast_dict(
+    env: &crate::function::ArgMapping,
     vm: &VirtualMachine,
-) -> PyResult<crate::builtins::PyDictRef> {
+) -> Option<crate::builtins::PyDictRef> {
     let obj = env.obj();
     if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
-        return Ok(dict.to_owned());
+        return Some(dict.to_owned());
     }
     if let Some(inst_dict) = obj.dict()
         && let Ok(Some(data)) = inst_dict.get_item_opt("_data", vm)
         && let Some(dict) = data.downcast_ref_if_exact::<crate::builtins::PyDict>(vm)
     {
-        return Ok(dict.to_owned());
+        return Some(dict.to_owned());
     }
+    None
+}
+
+/// Convert a mapping to a plain dict for Windows execve.
+#[cfg(windows)]
+pub(crate) fn envobj_to_dict(
+    env: crate::function::ArgMapping,
+    vm: &VirtualMachine,
+) -> PyResult<crate::builtins::PyDictRef> {
+    if let Some(dict) = envobj_fast_dict(&env, vm) {
+        return Ok(dict);
+    }
+    let obj = env.obj();
     let keys = vm.call_method(obj, "keys", ())?;
     let dict = vm.ctx.new_dict();
     for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {

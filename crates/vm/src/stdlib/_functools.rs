@@ -34,7 +34,7 @@ mod _functools {
         function: PyObjectRef,
         #[pyarg(positional)]
         iterable: PyIter,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "functools._initial_missing")]
         initial: OptionalOption<PyObjectRef>,
     }
 

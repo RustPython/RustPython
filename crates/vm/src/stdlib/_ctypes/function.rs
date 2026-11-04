@@ -1312,11 +1312,12 @@ fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
 /// Create OUT buffer for a parameter type
 fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
-    if arg_type.fast_issubclass(PyCPointer::static_type())
-        && let Some(stg_info) = arg_type.stg_info_opt()
-        && let Some(ref proto) = stg_info.proto
-    {
-        return proto.as_object().call((), vm);
+    if arg_type.fast_issubclass(PyCPointer::static_type()) {
+        // Constructing the pointed-to type can re-enter pointer type setup.
+        let proto = arg_type.stg_info_opt().and_then(|info| info.proto.clone());
+        if let Some(proto) = proto {
+            return proto.as_object().call((), vm);
+        }
     }
     // Not a pointer type or no proto, create instance directly
     arg_type.as_object().call((), vm)
@@ -1428,6 +1429,14 @@ fn build_callargs_with_paramflags(
             let (value, keep) = arg_type.convert_object(arg, vm)?;
             arguments.push(Argument { value, keep });
         }
+    }
+
+    if !arg_types.is_empty() && args.kwargs.is_empty() && caller_arg_idx < args.args.len() {
+        return Err(vm.new_type_error(format!(
+            "call takes exactly {} arguments ({} given)",
+            caller_arg_idx,
+            args.args.len(),
+        )));
     }
 
     Ok((arguments, out_buffers))
@@ -1697,7 +1706,7 @@ fn build_result(
     }
 
     // Convert the foreign-call result to a Python object
-    let mut result = convert_raw_result(&call_result, call_info, vm)?;
+    let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
     if let Some(errcheck) = zelf.errcheck.read().as_ref() {
@@ -1707,7 +1716,7 @@ fn build_result(
         let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
         // Returning the original args tuple requests normal result processing.
         if !checked.is(&args_tuple) {
-            result = Some(checked);
+            return Ok(checked);
         }
     }
 
