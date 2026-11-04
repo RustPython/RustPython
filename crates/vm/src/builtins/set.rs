@@ -69,6 +69,13 @@ impl PySet {
         self.inner.elements()
     }
 
+    pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef)> {
+        self.inner
+            .content
+            .next_entry(position)
+            .map(|(next, item, ())| (next, item))
+    }
+
     fn fold_op(
         &self,
         others: impl core::iter::Iterator<Item = ArgIterable>,
