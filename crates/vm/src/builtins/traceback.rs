@@ -128,7 +128,7 @@ impl serde::Serialize for PyTraceback {
         struc.serialize_field("lineno", &self.lineno.get())?;
         struc.serialize_field(
             "filename",
-            self.frame.iframe().code().source_path().as_str(),
+            &self.frame.iframe().code().source_path().to_string_lossy(),
         )?;
         struc.end()
     }

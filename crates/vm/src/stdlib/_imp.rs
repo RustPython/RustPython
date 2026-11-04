@@ -555,7 +555,7 @@ fn update_code_filenames(
     new_name: &'static PyStrInterned,
 ) {
     let current = code.source_path();
-    if !core::ptr::eq(current, old_name) && current.as_str() != old_name.as_str() {
+    if !core::ptr::eq(current, old_name) && current.as_wtf8() != old_name.as_wtf8() {
         return;
     }
     code.set_source_path(new_name);

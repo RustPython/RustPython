@@ -5986,8 +5986,8 @@ mod _io {
                     && let Some(code) = crate::frame::current_code()
                     && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
                 {
-                    let path = code.source_path().as_str();
-                    if !path.starts_with(stdlib_dir) {
+                    let path = code.source_path().as_bytes();
+                    if !path.starts_with(stdlib_dir.as_bytes()) {
                         stacklevel = stacklevel.saturating_sub(1);
                     }
                 }

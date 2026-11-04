@@ -274,7 +274,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            write_traceback(output, &tb)?;
+            write_traceback(output, &tb, vm)?;
         }
 
         let varargs = exc.args();
@@ -510,7 +510,7 @@ impl VirtualMachine {
 #[cfg(feature = "host_env")]
 fn print_source_line<W: Write>(
     output: &mut W,
-    filename: &str,
+    filename: &std::path::Path,
     lineno: usize,
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
@@ -537,10 +537,11 @@ fn print_source_line<W: Write>(
 pub(crate) fn write_traceback<W: Write>(
     output: &mut W,
     traceback: &PyTracebackRef,
+    vm: &VirtualMachine,
 ) -> Result<(), W::Error> {
     writeln!(output, "Traceback (most recent call last):")?;
     for entry in traceback.iter() {
-        write_traceback_entry(output, &entry)?;
+        write_traceback_entry(output, &entry, vm)?;
     }
     Ok(())
 }
@@ -549,18 +550,34 @@ pub(crate) fn write_traceback<W: Write>(
 fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
+    vm: &VirtualMachine,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.iframe().code().source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path();
+    // This fallback writer accepts UTF-8, unlike Python's traceback formatter.
+    // Escape lone surrogates as stderr's backslashreplace handler does, rather
+    // than replacing them or letting the interned-string UTF-8 accessor panic.
+    let mut display_filename = String::new();
+    for point in filename.as_wtf8().code_points() {
+        if let Some(ch) = point.to_char() {
+            display_filename.push(ch);
+        } else {
+            display_filename.push_str(&format!("\\u{:04x}", point.to_u32()));
+        }
+    }
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
-        filename.trim_start_matches(r"\\?\"),
+        display_filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
         tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]
-    print_source_line(output, filename, tb_entry.lineno.get())?;
+    if let Ok(path) = vm.fsencode(filename) {
+        print_source_line(output, path.as_ref(), tb_entry.lineno.get())?;
+    }
+    #[cfg(not(feature = "host_env"))]
+    let _ = vm;
 
     Ok(())
 }

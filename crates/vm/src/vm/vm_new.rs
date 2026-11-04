@@ -472,6 +472,17 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        self.new_syntax_error_with_filename(error, source, allow_incomplete, None)
+    }
+
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub(super) fn new_syntax_error_with_filename(
+        &self,
+        error: &crate::compiler::CompileError,
+        source: Option<&str>,
+        allow_incomplete: bool,
+        filename: Option<&Py<crate::builtins::PyStr>>,
+    ) -> PyBaseExceptionRef {
         if matches!(
             error,
             crate::compiler::CompileError::Codegen(crate::compiler::codegen::error::CodegenError {
@@ -624,7 +635,13 @@ impl VirtualMachine {
         let mut statement = if let Some(eof_token) = eof_token {
             Some(eof_token.line.clone())
         } else if matches!(error, crate::compiler::CompileError::Codegen(_)) {
-            self.program_text(error.source_path(), error.python_location().0)
+            match filename {
+                Some(filename) => self
+                    .fsencode(filename)
+                    .ok()
+                    .and_then(|path| self.program_text(path, error.python_location().0)),
+                None => self.program_text(error.source_path(), error.python_location().0),
+            }
         } else {
             source.and_then(|src| get_statement(src, error.location()))
         };
@@ -763,7 +780,9 @@ impl VirtualMachine {
         set_attrs!(
             syntax_error.as_object(), self, unwrap,
             "text" => statement.to_pyobject(self),
-            "filename" => self.ctx.new_str(error.source_path())
+            "filename" => filename.map_or_else(
+                || self.ctx.new_str(error.source_path()), ToOwned::to_owned,
+            )
         );
 
         // Set _metadata for keyword typo suggestions in traceback module.
