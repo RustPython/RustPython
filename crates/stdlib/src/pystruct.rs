@@ -15,7 +15,7 @@ pub(crate) mod _struct {
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::{lock::PyRwLock, rc::PyRc},
-        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, NameValues, PosArgs},
+        function::{ArgBytesLike, ArgBytesOrStr, ArgMemoryBuffer, FuncArgs, NameValues, PosArgs},
         match_class,
         protocol::PyIterReturn,
         stdlib::_warnings,
@@ -309,12 +309,8 @@ pub(crate) mod _struct {
         }
 
         fn same_format(format: &PyStr, candidate: &PyObject) -> bool {
-            candidate
-                .downcast_ref::<PyStr>()
-                .is_some_and(|candidate| candidate.as_bytes() == format.as_bytes())
-                || candidate
-                    .downcast_ref::<PyBytes>()
-                    .is_some_and(|candidate| candidate.as_bytes() == format.as_bytes())
+            ArgBytesOrStr::with_object_ref(candidate, |bytes| bytes == format.as_bytes())
+                .unwrap_or(false)
         }
     }
 
