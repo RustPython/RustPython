@@ -1280,8 +1280,11 @@ for _value in (
 
 # Tests for argtypes validation and custom converters (Issue #8341)
 class ValidConverter:
+    called = 0
+
     @classmethod
     def from_param(cls, val):
+        cls.called += 1
         return int(val)
 
 
@@ -1290,8 +1293,18 @@ class InvalidConverter:
 
 
 class Adapter:
+    def __init__(self):
+        self.called = 0
+
     def from_param(self, val):
+        self.called += 1
         return int(val)
+
+
+class FailingConverter:
+    @classmethod
+    def from_param(cls, val):
+        raise ValueError("failing conversion")
 
 
 # 1. Assignment validation: non-sequence
@@ -1313,16 +1326,31 @@ else:
 # 3. Custom converter class in argtypes
 libc.srand.argtypes = [ValidConverter]
 libc.srand(10)
+assert ValidConverter.called == 1
 
 # 4. Custom converter instance in argtypes
-libc.srand.argtypes = [Adapter()]
+adapter = Adapter()
+libc.srand.argtypes = [adapter]
 libc.srand(20)
+assert adapter.called == 1
 
-# 5. Reset argtypes
+# 5. Conversion failure wraps in ArgumentError and chains __cause__
+libc.srand.argtypes = [FailingConverter]
+try:
+    libc.srand(30)
+except Exception as e:
+    assert type(e).__name__ == "ArgumentError"
+    assert "argument 1: ValueError: failing conversion" in str(e)
+    assert isinstance(e.__cause__, ValueError)
+    assert str(e.__cause__) == "failing conversion"
+else:
+    raise AssertionError("expected ArgumentError from failing converter")
+
+# 6. Reset argtypes
 libc.srand.argtypes = [ctypes.c_uint]
 libc.srand(0)
 
-# 6. Windows-specific test for Issue #8341: custom converter returning a Structure
+# 7. Windows-specific test for Issue #8341: custom converter returning a Structure
 if _sys.platform == "win32":
     from ctypes import wintypes
 

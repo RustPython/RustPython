@@ -225,9 +225,6 @@ fn wrap_arg_error(
     let Ok(error_type) = arg_err_attr.downcast::<PyType>() else {
         return error;
     };
-    if error.class().fast_issubclass(&error_type) {
-        return error;
-    }
     let msg_str = error
         .as_object()
         .str(vm)
@@ -237,7 +234,9 @@ fn wrap_arg_error(
         index + 1,
         error.class().name()
     );
-    vm.new_exception_msg(error_type, msg.into())
+    let exc = vm.new_exception_msg(error_type, msg.into());
+    exc.set_cause(Some(error));
+    exc
 }
 
 fn conv_param_for_call(value: &PyObject, index: usize, vm: &VirtualMachine) -> PyResult<Argument> {
@@ -360,7 +359,11 @@ impl ArgumentType for PyObject {
 
         // 9. Fallback to ConvParam (int, str, bytes, _as_parameter_, etc.)
         let argument = conv_param(&converted, vm)?;
-        Ok((argument.value, argument.keep))
+        let keep = match argument.keep {
+            Some(inner) => Some(vm.ctx.new_tuple(vec![converted, inner]).into()),
+            None => Some(converted),
+        };
+        Ok((argument.value, keep))
     }
 }
 
@@ -1107,13 +1110,16 @@ fn extract_arg_types(argtypes: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<P
 
     for index in 0..length {
         let item = sequence.get_item(index as isize, vm).map_err(|_| error())?;
-        if item.get_attr(vm.ctx.intern_str("from_param"), vm).is_err() {
-            return Err(vm.new_type_error(format!(
-                "item {} in _argtypes_ has no from_param method",
-                index + 1
-            )));
+        match item.get_attr(vm.ctx.intern_str("from_param"), vm) {
+            Ok(_) => types.push(item),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                return Err(vm.new_type_error(format!(
+                    "item {} in _argtypes_ has no from_param method",
+                    index + 1
+                )));
+            }
+            Err(e) => return Err(e),
         }
-        types.push(item);
     }
 
     Ok(types)
@@ -1182,8 +1188,9 @@ fn compute_ret_spec(
 /// Extract call information (argtypes, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
     // Get argtypes - first from instance, then from type's _argtypes_
+    let instance_argtypes = zelf.argtypes.read().clone();
     let explicit_arg_types: Option<Vec<PyObjectRef>> =
-        if let Some(argtypes_obj) = zelf.argtypes.read().as_ref() {
+        if let Some(argtypes_obj) = instance_argtypes.as_ref() {
             if !vm.is_none(argtypes_obj) {
                 Some(extract_arg_types(argtypes_obj, vm)?)
             } else {
@@ -2191,9 +2198,14 @@ impl PyCThunk {
                 let objects = extract_arg_types(args, vm)?;
                 let mut types = Vec::with_capacity(objects.len());
                 for item in objects {
-                    types.push(item.downcast::<PyType>().map_err(|_| {
-                        vm.new_type_error("callback argtypes must be ctypes types")
-                    })?);
+                    let ty = item
+                        .downcast::<PyType>()
+                        .map_err(|_| vm.new_type_error("callback argtypes must be ctypes types"))?;
+                    if !ty.fast_issubclass(PyCPointer::static_type()) && ty.type_code(vm).is_none()
+                    {
+                        return Err(vm.new_type_error("callback argtypes must be ctypes types"));
+                    }
+                    types.push(ty);
                 }
                 types
             }
@@ -2325,6 +2337,8 @@ mod tests {
             vm.import("_ctypes", 0).unwrap();
             let scope = vm.new_scope_with_builtins();
             let code = r#"
+import _ctypes
+
 class ValidConverter:
     @classmethod
     def from_param(cls, val):
@@ -2333,12 +2347,31 @@ class ValidConverter:
 class InvalidConverter:
     pass
 
+class c_int(_ctypes._SimpleCData):
+    _type_ = "i"
+
+class Point(_ctypes.Structure):
+    _fields_ = [("x", c_int), ("y", c_int)]
+
+class PointConverter:
+    @classmethod
+    def from_param(cls, val):
+        return Point(val[0], val[1])
+
+class RaisingConverter:
+    def __getattr__(self, name):
+        raise ValueError("lookup failed")
+
 valid = ValidConverter
 invalid = InvalidConverter
+point_conv = PointConverter
+raising = RaisingConverter()
 "#;
             vm.run_string(scope.clone(), code, "test.py").unwrap();
             let valid = scope.globals.get_item("valid", vm).unwrap();
             let invalid = scope.globals.get_item("invalid", vm).unwrap();
+            let point_conv = scope.globals.get_item("point_conv", vm).unwrap();
+            let raising = scope.globals.get_item("raising", vm).unwrap();
 
             let tuple_valid = vm.ctx.new_tuple(vec![valid.clone()]);
             let res = extract_arg_types(tuple_valid.as_object(), vm);
@@ -2354,12 +2387,30 @@ invalid = InvalidConverter
                     .contains("has no from_param method")
             );
 
+            // Non-AttributeError exceptions are propagated directly
+            let tuple_raising = vm.ctx.new_tuple(vec![raising]);
+            let err_raising = extract_arg_types(tuple_raising.as_object(), vm).unwrap_err();
+            assert!(err_raising.fast_isinstance(vm.ctx.exceptions.value_error));
+
             let (val, keep) = valid.convert_object(vm.ctx.new_int(42).into(), vm).unwrap();
             match val {
                 CArgValue::Int(i) => assert_eq!(i, 42),
                 other => panic!("expected CArgValue::Int, got {other:?}"),
             }
-            assert!(keep.is_none());
+            assert!(keep.is_some());
+
+            // Custom converter returning Structure produces aggregate by value
+            let pair = vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_int(10).into(), vm.ctx.new_int(20).into()]);
+            let (val_point, keep_point) = point_conv.convert_object(pair.into(), vm).unwrap();
+            match val_point {
+                CArgValue::Aggregate { bytes, .. } => {
+                    assert_eq!(bytes.len(), 8);
+                }
+                other => panic!("expected CArgValue::Aggregate, got {other:?}"),
+            }
+            assert!(keep_point.is_some());
         });
     }
 }
