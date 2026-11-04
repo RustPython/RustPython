@@ -15,7 +15,7 @@ pub(crate) mod _signal {
 
     cfg_select! {
         any(unix, windows, target_os = "wasi") => {
-            use crate::{builtins::PyInt, convert::IntoPyException};
+            use crate::convert::IntoPyException;
             use rustpython_host_env::signal as host_signal;
         }
         _ => {}
@@ -204,18 +204,40 @@ pub(crate) mod _signal {
                 // SAFETY: Trust `SignalNum::VALID_RANGE`
                 let signum = unsafe { SignalNum::new_unchecked(signum) };
 
-                vm.signal_handlers
-                    .get_or_init(SignalHandlers::default)
-                    .borrow_mut()[signum] = py_handler;
+                let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
+                let old_handler =
+                    core::mem::replace(&mut signal_handlers.borrow_mut()[signum], py_handler);
+                // Replacing a handler can run its destructor, which may install
+                // another handler. Release the table borrow before dropping it.
+                drop(old_handler);
             }
 
-            let int_handler = module
-                .get_attr("default_int_handler", vm)
-                .expect("_signal does not have this attr?");
+            let default_sigint = vm
+                .signal_handlers
+                .get()
+                .and_then(|handlers| handlers.borrow()[SignalNum::SIGINT].clone())
+                .is_some_and(|handler| handler_disposition(&handler, vm) == Some(SIG_DFL));
+            if default_sigint {
+                let int_handler = module
+                    .get_attr("default_int_handler", vm)
+                    .expect("_signal does not have this attr?");
 
-            signal(SignalNum::SIGINT.into(), int_handler, vm)
-                .expect("Failed to set sigint handler");
+                // An inherited ignored or foreign native handler is not ours
+                // to replace, even when installing Python's default handlers.
+                signal(SignalNum::SIGINT.into(), int_handler, vm)
+                    .expect("Failed to set sigint handler");
+            }
         }
+    }
+
+    pub(crate) fn handler_disposition(
+        handler: &crate::PyObject,
+        vm: &VirtualMachine,
+    ) -> Option<sighandler_t> {
+        handler
+            .downcast_ref_if_exact::<crate::builtins::PyInt>(vm)
+            .and_then(|value| usize::try_from(value.as_bigint()).ok())
+            .filter(|&value| matches!(value, SIG_DFL | SIG_IGN))
     }
 
     #[cfg(not(any(unix, windows, target_os = "wasi")))]
@@ -261,11 +283,8 @@ pub(crate) mod _signal {
             const MSG: &str =
                 "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object";
 
-            let disposition = handler
-                .downcast_ref_if_exact::<PyInt>(vm)
-                .and_then(|value| value.try_to_primitive::<usize>(vm).ok())
-                .filter(|&v| matches!(v, SIG_DFL | SIG_IGN))
-                .ok_or_else(|| vm.new_type_error(MSG))?;
+            let disposition =
+                handler_disposition(&handler, vm).ok_or_else(|| vm.new_type_error(MSG))?;
             cfg_select! {
                 target_os = "wasi" => {
                     if disposition == SIG_DFL {

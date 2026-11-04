@@ -140,6 +140,7 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             .signal_handlers
             .get()
             .expect("should never fail since we check above");
+        let frame = crate::frame::current_complete_frame_for_trace(vm);
 
         for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
             let triggered = trigger.swap(false, Ordering::Relaxed);
@@ -155,10 +156,19 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             // mutably, and a live read borrow turns that into a panic.
             let handler = signal_handlers.borrow()[signum].clone();
 
-            if let Some(handler) = handler
-                && let Some(callable) = handler.to_callable()
-                && let Err(exc) = callable.invoke((signum.as_i32(), vm.ctx.none()), vm)
-            {
+            let Some(handler) = handler.filter(|handler| !vm.is_none(handler)) else {
+                continue;
+            };
+            #[cfg(feature = "host_env")]
+            if crate::stdlib::_signal::_signal::handler_disposition(&handler, vm).is_some() {
+                continue;
+            }
+
+            // A handler can cease to be callable after registration. Invoke it
+            // normally so that this raises TypeError instead of losing a signal.
+            // Keep the interrupted complete frame alive across every callback,
+            // including handlers which re-enter signal dispatch.
+            if let Err(exc) = handler.call((signum.as_i32(), frame.clone()), vm) {
                 // On error, re-schedule a call to trigger_signals() for the
                 // remaining signals and the pending wakeup errors.
                 set_triggered();
