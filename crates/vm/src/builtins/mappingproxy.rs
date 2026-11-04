@@ -107,9 +107,9 @@ impl PyMappingProxy {
         key: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        // Use the dictionary lookup for native namespaces too: even a key
-        // that is not a string can hash or compare equal to an attribute name.
-        Self::class_mapping(class, vm)?.get_item_opt(key, vm)
+        // Non-string and string-subclass keys retain their hash and equality
+        // callbacks even when the namespace uses a native attributes map.
+        class.attributes.get_item_opt(key, vm)
     }
 
     pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -128,18 +128,8 @@ impl PyMappingProxy {
     fn to_object(&self, vm: &VirtualMachine) -> PyResult {
         Ok(match &self.mapping {
             MappingProxyInner::Mapping(d) => d.as_ref().to_owned(),
-            MappingProxyInner::Class(c) => Self::class_mapping(c, vm)?.into(),
+            MappingProxyInner::Class(c) => c.attributes.to_dict(vm)?.into(),
         })
-    }
-
-    fn class_mapping(class: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        if let Some(dict) = class.attributes.as_dict() {
-            // Views and iterators must stay attached to the actual namespace.
-            return Ok(dict.to_owned());
-        }
-        // Native namespaces without a backing Python dictionary still need a
-        // snapshot, but must not bypass dict key callbacks.
-        Ok(PyDict::from_attributes(class.attributes.attributes(&vm.ctx), vm)?.into_ref(&vm.ctx))
     }
 
     fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
