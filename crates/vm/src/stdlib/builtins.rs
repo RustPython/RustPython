@@ -1291,7 +1291,7 @@ mod builtins {
     #[derive(FromArgs)]
     pub(super) struct SumArgs {
         #[pyarg(positional)]
-        iterable: ArgIterable,
+        iterable: PyObjectRef,
         // The int object needs the VM, so the default is not a literal.
         #[pyarg(any, default = 0)]
         start: PyObjectRef,
@@ -1299,7 +1299,11 @@ mod builtins {
 
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
-        let mut sum = start;
+        // Acquire and validate the iterator before rejecting a start type.
+        let mut items = iterable.get_iter(vm)?.into_iter::<PyObjectRef>(vm);
+        // Keep the original argument alive independently of the accumulator.
+        // Declaring the accumulator last also releases it before the iterator.
+        let mut sum = start.clone();
 
         match_class!(match sum {
             PyStr =>
@@ -1312,8 +1316,6 @@ mod builtins {
                 ),
             _ => (),
         });
-
-        let mut items = iterable.iter(vm)?;
 
         // Fast paths after CPython's builtin_sum_impl: an exact int accumulator
         // hands over to the float one, which hands over to the complex one.
@@ -1391,8 +1393,14 @@ mod builtins {
             sum = vm._add(total.as_object(), &item)?;
         }
 
-        for item in items {
-            sum = vm._add(&sum, &*item?)?;
+        for item in items.by_ref() {
+            let item = item?;
+            let result = vm._add(&sum, &item);
+            // On both success and failure, release the old total before the
+            // item, and only then propagate an addition error to the iterator.
+            drop(sum);
+            drop(item);
+            sum = result?;
         }
         Ok(sum)
     }
