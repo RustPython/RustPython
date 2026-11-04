@@ -1,6 +1,6 @@
 use super::PyMethod;
 use crate::{
-    builtins::{PyBaseExceptionRef, PyList, PyStrInterned, pystr::AsPyStr},
+    builtins::{PyBaseExceptionRef, PyList, PyListRef, PyStrInterned, pystr::AsPyStr},
     function::IntoFuncArgs,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     stdlib::sys,
@@ -157,20 +157,35 @@ impl VirtualMachine {
         PyMethod::get(obj.to_owned(), name, self)?.invoke(args, self)
     }
 
-    pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
-        let seq = match obj {
-            Some(obj) => self
-                .get_special_method(&obj, identifier!(self, __dir__))?
-                .ok_or_else(|| self.new_type_error("object does not provide __dir__"))?
-                .invoke((), self)?,
-            None => self.call_method(
-                self.current_locals()?.as_object(),
-                identifier!(self, keys).as_str(),
-                (),
-            )?,
+    pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyListRef> {
+        // Keep the input alive until collection and sorting have both finished.
+        let lst = match obj.as_ref() {
+            Some(obj) => {
+                let seq =
+                    PyMethod::get_special_ex::<false>(obj, identifier!(self, __dir__), self, true)?
+                        .ok_or_else(|| self.new_type_error("object does not provide __dir__"))?
+                        .invoke((), self)?;
+                // PySequence_List asks the returned iterable for its length hint.
+                let items = self.extract_elements_sized(&seq, &|| 0, Ok);
+                drop(seq);
+                self.ctx.new_list(items?)
+            }
+            None => {
+                let locals = self.current_locals()?;
+                let keys = locals.mapping().keys(self)?;
+                // Mapping keys preserve an exact list returned by user code.
+                // The exact-dict fast path instead supplies a keys view.
+                let list = match keys.downcast::<PyList>() {
+                    Ok(list) => list,
+                    Err(keys) => {
+                        self.ctx
+                            .new_list(self.extract_elements_sized(&keys, &|| 0, Ok)?)
+                    }
+                };
+                drop(locals);
+                list
+            }
         };
-        let items: Vec<_> = seq.try_to_value(self)?;
-        let lst = PyList::from(items);
         lst.sort(Default::default(), self)?;
         Ok(lst)
     }

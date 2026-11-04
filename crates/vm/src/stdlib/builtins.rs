@@ -16,7 +16,7 @@ mod builtins {
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
             iter::PyCallableIterator,
-            list::{PyList, SortOptions},
+            list::{PyList, PyListRef, SortOptions},
             try_bigint_to_f64,
         },
         bytecode,
@@ -410,7 +410,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
+    fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyListRef> {
         vm.dir(obj.into_option())
     }
 
@@ -1496,8 +1496,8 @@ mod builtins {
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            obj.get_attr(identifier!(vm, __dict__), vm)
-                .map_err(|_| vm.new_type_error("vars() argument must have __dict__ attribute"))
+            vm.get_attribute_opt(&obj, identifier!(vm, __dict__))?
+                .ok_or_else(|| vm.new_type_error("vars() argument must have __dict__ attribute"))
         } else {
             Ok(vm.current_locals()?.into())
         }
