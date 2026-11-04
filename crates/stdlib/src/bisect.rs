@@ -3,8 +3,10 @@ pub(crate) use _bisect::module_def;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        PyObject, PyObjectRef, PyResult, VirtualMachine, function::OptionalArg,
-        protocol::PySequence, types::PyComparisonOp,
+        PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        function::{ArgIndex, OptionalArg},
+        protocol::PySequence,
+        types::PyComparisonOp,
     };
 
     #[derive(FromArgs)]
@@ -27,13 +29,18 @@ mod _bisect {
         hi: Option<&PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, isize)> {
+        let to_index = |obj: &PyObjectRef| {
+            ArgIndex::try_from_object(vm, obj.clone())?
+                .into_int_ref()
+                .try_to_primitive::<isize>(vm)
+        };
         let lo = match lo {
             OptionalArg::Missing => 0,
-            OptionalArg::Present(obj) => obj.try_index(vm)?.try_to_primitive::<isize>(vm)?,
+            OptionalArg::Present(obj) => to_index(obj)?,
         };
         let lo = usize::try_from(lo).map_err(|_| vm.new_value_error("lo cannot be negative"))?;
         let hi = match hi {
-            Some(obj) => obj.try_index(vm)?.try_to_primitive::<isize>(vm)?,
+            Some(obj) => to_index(obj)?,
             None => -1,
         };
         Ok((lo, hi))
@@ -58,10 +65,7 @@ mod _bisect {
         sequence.slots().item.load().ok_or_else(|| {
             let msg = {
                 let name = sequence.obj.class().slot_name();
-                let mut end = name.len().min(200);
-                while !name.is_char_boundary(end) {
-                    end -= 1;
-                }
+                let end = name.floor_char_boundary(name.len().min(200));
                 let name = &name[..end];
                 if sequence.obj.mapping_unchecked().check() {
                     format!("{name} is not a sequence")
