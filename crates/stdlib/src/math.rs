@@ -482,7 +482,7 @@ mod math {
             .map(|value| value.map(ArgIntoFloat::into_float));
         values
             .by_ref()
-            .process_results(pymath::math::fsum)?
+            .process_results(|values| pymath::math::fsum(values))?
             .map(|value| vm.ctx.new_float(value).into())
             .map_err(|err| match err {
                 pymath::Error::ERANGE => vm.new_overflow_error("intermediate overflow in fsum"),
