@@ -1092,7 +1092,7 @@ class FaultHandlerTests(unittest.TestCase):
                     self.assertRegex(line, C_STACK_REGEX[1])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 0
+    @unittest.expectedFailureIf(sys.platform != "darwin", "TODO: RUSTPYTHON; AssertionError: 1 != 0")
     def test_dump_c_stack(self):
         code = dedent("""
         import faulthandler
@@ -1103,7 +1103,7 @@ class FaultHandlerTests(unittest.TestCase):
         self.check_c_stack(output)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'faulthandler' has no attribute 'dump_c_stack'
+    @unittest.expectedFailureIf(sys.platform != 'darwin', "TODO: RUSTPYTHON; AttributeError: module 'faulthandler' has no attribute 'dump_c_stack'")
     def test_dump_c_stack_file(self):
         import tempfile
 
