@@ -296,9 +296,14 @@ pub(super) mod types {
                 excs: PyObjectRef::from(exceptions).into(),
                 excs_str: excs_str.into(),
             };
-            payload
+            let result = payload
                 .into_ref_with_type_lazy_dict(vm, actual_cls)
-                .map(Into::into)
+                .map(Into::into);
+            // Retain the original owners even if native allocation rejects the
+            // payload, then release them in their normal scope order.
+            drop(exceptions_arg);
+            drop(args);
+            result
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
