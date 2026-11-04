@@ -40,30 +40,46 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
     mapping_name: &str,
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {
-    match key.key_hash(vm) {
-        // Exact TypeError only: exception subclasses retain their identity.
-        Err(exc) if exc.class().is(vm.ctx.exceptions.type_error) => {
-            let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
-            // Match BaseException_str without the diagnostic formatter's
-            // fallback: argument __str__/__repr__ failures must propagate.
-            let args = exc.args();
-            let message = match args.as_slice() {
-                [] => vm.ctx.empty_str.to_owned(),
-                [arg] => arg.str(vm)?,
-                _ => args.as_object().str(vm)?,
-            };
-            Err(vm.new_type_error(wtf8_concat!(
-                "cannot use '",
-                name,
-                "' as a ",
-                mapping_name,
-                " key (",
-                message.as_wtf8(),
-                ")"
-            )))
+    key.key_hash(vm)
+        .map_err(|exc| contextualize_hash_error(key, mapping_name, "key", exc, vm))
+}
+
+pub(crate) fn contextualize_hash_error<K: DictKey + ?Sized>(
+    key: &K,
+    container: &str,
+    role: &str,
+    exc: PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    let format_error = || -> PyResult<PyBaseExceptionRef> {
+        match exc {
+            // Exact TypeError only: exception subclasses retain their identity.
+            exc if exc.class().is(vm.ctx.exceptions.type_error) => {
+                let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
+                // Match BaseException_str without the diagnostic formatter's
+                // fallback: argument __str__/__repr__ failures must propagate.
+                let args = exc.args();
+                let message = match args.as_slice() {
+                    [] => vm.ctx.empty_str.to_owned(),
+                    [arg] => arg.str(vm)?,
+                    _ => args.as_object().str(vm)?,
+                };
+                Ok(vm.new_type_error(wtf8_concat!(
+                    "cannot use '",
+                    name,
+                    "' as a ",
+                    container,
+                    " ",
+                    role,
+                    " (",
+                    message.as_wtf8(),
+                    ")"
+                )))
+            }
+            exc => Ok(exc),
         }
-        result => result,
-    }
+    };
+    format_error().unwrap_or_else(|exc| exc)
 }
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse = "manual")]

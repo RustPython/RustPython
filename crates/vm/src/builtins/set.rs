@@ -59,6 +59,16 @@ unsafe impl Traverse for PySet {
 }
 
 impl PySet {
+    /// Freeze a working set without hashing or comparing its keys again.
+    pub(super) fn into_frozen(self) -> PyFrozenSet {
+        PyFrozenSet {
+            // Working set tables can have mutable aliases; copy the stored
+            // entries so the result remains immutable after those aliases run.
+            inner: self.inner.copy(),
+            ..Default::default()
+        }
+    }
+
     #[deprecated(note = "Use `PySet::default().into_ref(ctx)` instead")]
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         Self::default().into_ref(ctx)
@@ -350,7 +360,7 @@ impl PySetInner {
     }
 
     /// Look up a key whose hash is already known, without a frozenset retry.
-    fn contains_known_hash(
+    pub(super) fn contains_known_hash(
         &self,
         needle: &PyObject,
         hash: PyHash,
@@ -562,15 +572,25 @@ impl PySetInner {
     fn add(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let result = (|| {
             let hash = item.hash(vm)?;
-            self.content.insert(vm, item, hash, ())
+            self.insert_known_hash(item, hash, vm)
         })();
         Self::wrap_unhashable_error(result, item, vm)
     }
 
     /// [`Self::add`] with a known hash.
     fn add_known_hash(&self, item: &PyObject, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert(vm, item, hash, ());
+        let result = self.insert_known_hash(item, hash, vm);
         Self::wrap_unhashable_error(result, item, vm)
+    }
+
+    /// Insert a key without translating exceptions from its equality callback.
+    pub(super) fn insert_known_hash(
+        &self,
+        item: &PyObject,
+        hash: PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.content.insert(vm, item, hash, ())
     }
 
     fn remove(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {

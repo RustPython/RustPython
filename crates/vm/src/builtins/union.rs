@@ -1,4 +1,4 @@
-use super::{genericalias, type_};
+use super::{dict::contextualize_hash_error, genericalias};
 use crate::common::lock::{LazyLock, PyMutex};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -20,8 +20,8 @@ const CLS_ATTRS: &[&str] = &["__module__"];
 pub struct PyUnion {
     #[pymember(name = "__args__")]
     args: PyTupleRef,
-    /// Frozenset of hashable args, or None if all args were hashable
-    hashable_args: Option<PyRef<PyFrozenSet>>,
+    /// Frozenset of args that were hashable at creation time
+    hashable_args: PyRef<PyFrozenSet>,
     /// Tuple of initially unhashable args, or None if all args were hashable
     unhashable_args: Option<PyTupleRef>,
     parameters: PyMutex<Option<PyTupleRef>>,
@@ -41,16 +41,6 @@ impl PyPayload for PyUnion {
 }
 
 impl PyUnion {
-    /// Create a new union from dedup result (internal use)
-    fn from_components(result: UnionComponents) -> Self {
-        Self {
-            args: result.args,
-            hashable_args: result.hashable_args,
-            unhashable_args: result.unhashable_args,
-            parameters: PyMutex::new(None),
-        }
-    }
-
     /// Direct access to args field (_Py_union_args)
     #[inline]
     #[must_use]
@@ -101,7 +91,10 @@ impl PyUnion {
 
 impl PyUnion {
     fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        type_::or_(zelf, other, vm)
+        let mut builder = UnionBuilder::new(true);
+        builder.add(&zelf, vm)?;
+        builder.add(&other, vm)?;
+        builder.finish(vm)
     }
 }
 
@@ -181,26 +174,19 @@ impl Py<PyUnion> {
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        // Convert args to tuple if not already
-        let args_tuple = if let Some(tuple) = object.downcast_ref::<PyTuple>() {
-            tuple.to_owned()
+        let mut builder = UnionBuilder::new(true);
+        if let Some(tuple) = object.downcast_ref_if_exact::<PyTuple>(vm) {
+            builder.add_tuple(tuple, vm)?;
         } else {
-            PyTuple::new_ref(vec![object], &vm.ctx)
-        };
-
-        // Check for empty union
-        if args_tuple.as_slice().is_empty() {
-            return Err(vm.new_type_error("Cannot create empty Union"));
+            builder.add(&object, vm)?;
         }
-
-        // Create union using make_union to properly handle None -> NoneType conversion
-        make_union(&args_tuple, vm)
+        builder.finish(vm)
     }
 }
 
 fn is_unionable(obj: &PyObject, vm: &VirtualMachine) -> bool {
     let cls = obj.class();
-    cls.is(vm.ctx.types.none_type)
+    vm.is_none(obj)
         || cls.is(vm.ctx.types.sentinel_type)
         || obj.downcastable::<PyType>()
         || cls.fast_issubclass(vm.ctx.types.generic_alias_type)
@@ -220,153 +206,143 @@ fn type_check(arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     call_typing_func_object(vm, "_type_check", (arg, message_str))
 }
 
-fn has_union_operands(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> bool {
-    let union_type = vm.ctx.types.union_type;
-    a.class().is(union_type) || b.class().is(union_type)
-}
-
 pub(crate) fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if !has_union_operands(&zelf, &other, vm)
-        && (!is_unionable(&zelf, vm) || !is_unionable(&other, vm))
-    {
+    if !is_unionable(&zelf, vm) || !is_unionable(&other, vm) {
         return Ok(vm.ctx.not_implemented());
     }
 
-    let left = type_check(zelf, vm)?;
-    let right = type_check(other, vm)?;
-    let tuple = PyTuple::new_ref(vec![left, right], &vm.ctx);
-    make_union(&tuple, vm)
+    // Type, GenericAlias, Sentinel and TypeAliasType have already checked both
+    // operands. Unlike Union.__or__, their slots do not recheck flattened args.
+    let mut builder = UnionBuilder::new(false);
+    builder.add(&zelf, vm)?;
+    builder.add(&other, vm)?;
+    builder.finish(vm)
 }
 
-fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
-    let mut total_args = 0;
+fn contains_arg(args: &[PyObjectRef], needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     for arg in args {
-        if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            total_args += pyref.args.as_slice().len();
-        } else {
-            total_args += 1;
-        };
+        if vm.identical_or_equal(arg, needle)? {
+            return Ok(true);
+        }
     }
+    Ok(false)
+}
 
-    let mut flattened_args = Vec::with_capacity(total_args);
-    for arg in args {
-        if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            flattened_args.extend(pyref.args.as_slice().iter().cloned());
-        } else if vm.is_none(arg) {
-            flattened_args.push(vm.ctx.types.none_type.to_owned().into());
-        } else if arg.downcast_ref::<PyStr>().is_some() {
-            // Convert string to ForwardRef
-            match string_to_forwardref(arg.clone(), vm) {
-                Ok(fr) => flattened_args.push(fr),
-                Err(_) => flattened_args.push(arg.clone()),
-            }
-        } else {
-            flattened_args.push(arg.clone());
-        };
+struct UnionBuilder {
+    args: Vec<PyObjectRef>,
+    hashable_args: PySet,
+    unhashable_args: Vec<PyObjectRef>,
+    is_checked: bool,
+}
+
+impl Drop for UnionBuilder {
+    fn drop(&mut self) {
+        // Match list cleanup order, keeping the cached set alive until all
+        // ordered args have been released and unhashable args alive until last.
+        for arg in self.args.drain(..).rev() {
+            drop(arg);
+        }
+        drop(core::mem::take(&mut self.hashable_args));
+        for arg in self.unhashable_args.drain(..).rev() {
+            drop(arg);
+        }
     }
-
-    PyTuple::new_ref(flattened_args, &vm.ctx)
 }
 
-fn string_to_forwardref(arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    // Import annotationlib.ForwardRef and create a ForwardRef
-    let annotationlib = vm.import("annotationlib", 0)?;
-    let forwardref_cls = annotationlib.get_attr("ForwardRef", vm)?;
-    forwardref_cls.call((arg,), vm)
-}
-
-/// Components for creating a PyUnion after deduplication
-struct UnionComponents {
-    /// All unique args in order
-    args: PyTupleRef,
-    /// Frozenset of hashable args (for fast equality comparison)
-    hashable_args: Option<PyRef<PyFrozenSet>>,
-    /// Tuple of unhashable args at creation time (for hash error message)
-    unhashable_args: Option<PyTupleRef>,
-}
-
-fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<UnionComponents> {
-    let args = flatten_args(args, vm);
-
-    // Use set-based deduplication like CPython:
-    // - For hashable elements: use Python's set semantics (hash + equality)
-    // - For unhashable elements: use equality comparison
-    //
-    // This avoids calling __eq__ when hashes differ, so `int | BadType`
-    // doesn't raise even if BadType.__eq__ raises.
-
-    let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.as_slice().len());
-
-    // Track hashable elements using a Python set (uses hash + equality)
-    let hashable_set = PySet::default().into_ref(&vm.ctx);
-    let mut hashable_list: Vec<PyObjectRef> = Vec::new();
-    let mut unhashable_list: Vec<PyObjectRef> = Vec::new();
-
-    for arg in &*args {
-        // Try to hash the element first
-        match arg.hash(vm) {
-            Ok(_) => {
-                // Element is hashable - use set for deduplication
-                // Set membership uses hash first, then equality only if hashes match
-                let contains = vm
-                    .call_method(hashable_set.as_ref(), "__contains__", (arg.clone(),))
-                    .and_then(|r| r.try_to_bool(vm))?;
-                if !contains {
-                    hashable_set.add(arg.clone(), vm)?;
-                    hashable_list.push(arg.clone());
-                    new_args.push(arg.clone());
-                }
-            }
-            Err(_) => {
-                // Element is unhashable - use equality comparison
-                let mut is_duplicate = false;
-                for existing in &unhashable_list {
-                    match existing.rich_compare_bool(arg, PyComparisonOp::Eq, vm) {
-                        Ok(true) => {
-                            is_duplicate = true;
-                            break;
-                        }
-                        Ok(false) => continue,
-                        Err(e) => return Err(e),
-                    }
-                }
-                if !is_duplicate {
-                    unhashable_list.push(arg.clone());
-                    new_args.push(arg.clone());
-                }
-            }
+impl UnionBuilder {
+    fn new(is_checked: bool) -> Self {
+        Self {
+            args: Vec::new(),
+            hashable_args: PySet::default(),
+            unhashable_args: Vec::new(),
+            is_checked,
         }
     }
 
-    new_args.shrink_to_fit();
+    fn add_tuple(&mut self, args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<()> {
+        for arg in args {
+            self.add(arg, vm)?;
+        }
+        Ok(())
+    }
 
-    // Create hashable_args frozenset if there are hashable elements
-    let hashable_args = if !hashable_list.is_empty() {
-        Some(PyFrozenSet::from_iter(vm, hashable_list)?.into_ref(&vm.ctx))
-    } else {
-        None
-    };
+    fn add(&mut self, arg: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        let arg = if vm.is_none(arg) {
+            vm.ctx.types.none_type.as_object()
+        } else if let Some(union) = arg.downcast_ref::<PyUnion>() {
+            return self.add_tuple(&union.args, vm);
+        } else {
+            arg
+        };
 
-    // Create unhashable_args tuple if there are unhashable elements
-    let unhashable_args = if !unhashable_list.is_empty() {
-        Some(PyTuple::new_ref(unhashable_list, &vm.ctx))
-    } else {
-        None
-    };
+        if self.is_checked {
+            // Keep the original input borrowed and the checked result owned
+            // until insertion finishes, including when checking replaces it.
+            let checked = type_check(arg.to_owned(), vm)?;
+            self.add_unchecked(&checked, vm)
+        } else {
+            self.add_unchecked(arg, vm)
+        }
+    }
 
-    Ok(UnionComponents {
-        args: PyTuple::new_ref(new_args, &vm.ctx),
-        hashable_args,
-        unhashable_args,
-    })
+    fn add_unchecked(&mut self, arg: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        // Only the initial hash failure classifies an argument as unhashable.
+        // Membership and insertion hash again, wrapping only exact TypeErrors
+        // from hashing. Errors from equality must propagate unchanged.
+        if arg.hash(vm).is_ok() {
+            let key_hash = || {
+                arg.hash(vm)
+                    .map_err(|exc| contextualize_hash_error(arg, "set", "element", exc, vm))
+            };
+            let hash = key_hash()?;
+            if self
+                .hashable_args
+                .inner
+                .contains_known_hash(arg, hash, vm)?
+            {
+                return Ok(());
+            }
+            let hash = key_hash()?;
+            self.hashable_args.inner.insert_known_hash(arg, hash, vm)?;
+        } else {
+            if contains_arg(&self.unhashable_args, arg, vm)? {
+                return Ok(());
+            }
+            self.unhashable_args.push(arg.to_owned());
+        }
+        self.args.push(arg.to_owned());
+        Ok(())
+    }
+
+    fn finish(mut self, vm: &VirtualMachine) -> PyResult {
+        match self.args.len() {
+            0 => Err(vm.new_type_error("Cannot take a Union of no types.")),
+            1 => Ok(self.args[0].clone()),
+            _ => {
+                // Keep even an empty hashable partition, and preserve its stored
+                // hashes without another round of user hash/equality callbacks.
+                let args = PyTuple::new_ref(core::mem::take(&mut self.args), &vm.ctx);
+                let hashable_args = core::mem::take(&mut self.hashable_args)
+                    .into_frozen()
+                    .into_ref(&vm.ctx);
+                let unhashable_args = (!self.unhashable_args.is_empty())
+                    .then(|| PyTuple::new_ref(core::mem::take(&mut self.unhashable_args), &vm.ctx));
+                Ok(PyUnion {
+                    args,
+                    hashable_args,
+                    unhashable_args,
+                    parameters: PyMutex::new(None),
+                }
+                .to_pyobject(vm))
+            }
+        }
+    }
 }
 
 pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult {
-    let result = dedup_and_flatten_args(args, vm)?;
-    Ok(match result.args.as_slice().len() {
-        1 => result.args.as_slice()[0].to_owned(),
-        _ => PyUnion::from_components(result).to_pyobject(vm),
-    })
+    let mut builder = UnionBuilder::new(true);
+    builder.add_tuple(args, vm)?;
+    builder.finish(vm)
 }
 
 impl PyUnion {
@@ -375,15 +351,7 @@ impl PyUnion {
         let new_args =
             genericalias::subs_parameters(zelf.as_object(), &zelf.args, &parameters, needle, vm)?;
 
-        Ok(if new_args.as_slice().is_empty() {
-            make_union(&new_args, vm)?
-        } else {
-            let mut tmp = new_args.as_slice()[0].to_owned();
-            for arg in new_args.as_slice().iter().skip(1) {
-                tmp = vm._or(&tmp, arg)?;
-            }
-            tmp
-        })
+        make_union(&new_args, vm)
     }
 }
 
@@ -420,56 +388,33 @@ impl Comparable for PyUnion {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
 
-            // Check if lengths are equal
-            if zelf.args.as_slice().len() != other.args.as_slice().len() {
+            // Creation-time partitions determine equality, even if a member's
+            // hashability has changed since either union was constructed.
+            if !zelf.hashable_args.as_object().rich_compare_bool(
+                other.hashable_args.as_object(),
+                PyComparisonOp::Eq,
+                vm,
+            )? {
                 return Ok(PyComparisonValue::Implemented(false));
             }
 
-            // Fast path: if both unions have all hashable args, compare frozensets directly
-            // Always use Eq here since eq_only handles Ne by negating the result
-            if zelf.unhashable_args.is_none()
-                && other.unhashable_args.is_none()
-                && let (Some(a), Some(b)) = (&zelf.hashable_args, &other.hashable_args)
-            {
-                let eq = a
-                    .as_object()
-                    .rich_compare_bool(b.as_object(), PyComparisonOp::Eq, vm)?;
-                return Ok(PyComparisonValue::Implemented(eq));
-            }
-
-            // Slow path: O(n^2) nested loop comparison for unhashable elements
-            // Check if all elements in zelf.args are in other.args
-            for arg_a in &*zelf.args {
-                let mut found = false;
-                for arg_b in &*other.args {
-                    match arg_a.rich_compare_bool(arg_b, PyComparisonOp::Eq, vm) {
-                        Ok(true) => {
-                            found = true;
-                            break;
+            match (&zelf.unhashable_args, &other.unhashable_args) {
+                (Some(a), Some(b)) => {
+                    if a.as_slice().len() != b.as_slice().len() {
+                        return Ok(PyComparisonValue::Implemented(false));
+                    }
+                    // Tuple containment compares the stored member to the
+                    // needle, with an identity shortcut, in both directions.
+                    for (needles, haystack) in [(a, b), (b, a)] {
+                        for arg in &**needles {
+                            if !contains_arg(haystack.as_slice(), arg, vm)? {
+                                return Ok(PyComparisonValue::Implemented(false));
+                            }
                         }
-                        Ok(false) => continue,
-                        Err(e) => return Err(e), // Propagate comparison errors
                     }
                 }
-                if !found {
-                    return Ok(PyComparisonValue::Implemented(false));
-                }
-            }
-
-            // Check if all elements in other.args are in zelf.args (for symmetry)
-            for arg_b in &*other.args {
-                let mut found = false;
-                for arg_a in &*zelf.args {
-                    match arg_b.rich_compare_bool(arg_a, PyComparisonOp::Eq, vm) {
-                        Ok(true) => {
-                            found = true;
-                            break;
-                        }
-                        Ok(false) => continue,
-                        Err(e) => return Err(e), // Propagate comparison errors
-                    }
-                }
-                if !found {
+                (None, None) => {}
+                _ => {
                     return Ok(PyComparisonValue::Implemented(false));
                 }
             }
@@ -491,28 +436,10 @@ impl Hashable for PyUnion {
             }
             // All previously unhashable args somehow became hashable
             // But still raise an error to maintain consistent hashing
-            return Err(vm.new_type_error(format!(
-                "union contains {} unhashable element{}",
-                n,
-                if n > 1 { "s" } else { "" }
-            )));
+            return Err(vm.new_type_error(format!("union contains {n} unhashable elements")));
         }
 
-        // If we have a stored frozenset of hashable args, use that
-        if let Some(ref hashable_args) = zelf.hashable_args {
-            return PyFrozenSet::hash(hashable_args, vm);
-        }
-
-        // Fallback: compute hash from args
-        let mut args_to_hash = Vec::new();
-        for arg in &*zelf.args {
-            match arg.hash(vm) {
-                Ok(_) => args_to_hash.push(arg.clone()),
-                Err(e) => return Err(e),
-            }
-        }
-        let set = PyFrozenSet::from_iter(vm, args_to_hash)?;
-        PyFrozenSet::hash(&set.into_ref(&vm.ctx), vm)
+        PyFrozenSet::hash(&zelf.hashable_args, vm)
     }
 }
 
