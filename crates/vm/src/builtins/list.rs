@@ -475,7 +475,7 @@ impl Py<PyList> {
                 op.eval_ord(zelf.__len__().cmp(&other.__len__())).into(),
             ));
         };
-        let result = a.rich_compare(&b, op, vm);
+        let result = PyObject::rich_compare(&a, &b, op, vm);
         drop(a);
         drop(b);
         result.map(Either::A)
