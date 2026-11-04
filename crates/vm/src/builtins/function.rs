@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef,
-    PyTuple, PyTupleRef, PyType, object,
+    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyModule,
+    PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -15,7 +15,7 @@ use crate::{
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
     frame::{FrameObject, FrameObjectRef},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    function::{ArgSpec, Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
@@ -202,6 +202,7 @@ impl PyFunction {
             code.code
                 .constants
                 .first()
+                .filter(|c| c.as_object().downcast_ref::<PyStr>().is_some())
                 .map_or_else(|| vm.ctx.none(), |c| c.as_object().to_owned())
         } else {
             vm.ctx.none()
@@ -1004,20 +1005,27 @@ impl PyPayload for PyFunction {
 )]
 impl Py<PyFunction> {
     #[pygetset]
-    fn __code__(&self) -> PyRef<PyCode> {
-        (*self.code).to_owned()
+    fn __code__(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+        vm.audit("object.__getattr__", || (self.to_owned(), "__code__"))?;
+        Ok((*self.code).to_owned())
     }
 
     #[pygetset(setter)]
-    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___code__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let code = value
+            .into_option()
+            .and_then(|value| value.downcast::<PyCode>().ok())
+            .ok_or_else(|| vm.new_type_error("__code__ must be set to a code object"))?;
+        vm.audit("object.__setattr__", || {
+            (self.to_owned(), "__code__", code.clone())
+        })?;
         let n_free = code.freevars.len();
         let n_closure = self.closure.as_ref().map_or(0, |c| c.as_slice().len());
         if n_closure != n_free {
-            return Err(vm.new_value_error(format!(
-                "{}() requires a code object with {} free vars, not {}",
-                self.qualname.lock(),
-                n_closure,
-                n_free,
+            let name = self.__name__();
+            return Err(vm.new_value_error(wtf8_concat!(
+                name.as_wtf8(),
+                format!("() requires a code object with {n_closure} free vars, not {n_free}"),
             )));
         }
         let mask = bytecode::CodeFlags::GENERATOR
@@ -1047,36 +1055,75 @@ impl Py<PyFunction> {
         Ok(())
     }
 
-    #[pygetset]
     pub(crate) fn __defaults__(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
+
+    #[pygetset(name = "__defaults__")]
+    fn get_defaults(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
+        vm.audit("object.__getattr__", || (self.to_owned(), "__defaults__"))?;
+        Ok(self.__defaults__())
+    }
+
     #[pygetset(setter)]
-    fn set___defaults__(&self, defaults: PySetterValue<Option<PyTupleRef>>) {
-        let defaults = match defaults {
-            PySetterValue::Assign(d) => d,
-            PySetterValue::Delete => None,
-        };
+    fn set___defaults__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let defaults = value
+            .into_option()
+            .filter(|value| !vm.is_none(value))
+            .map(|value| {
+                value
+                    .downcast::<PyTuple>()
+                    .map_err(|_| vm.new_type_error("__defaults__ must be set to a tuple object"))
+            })
+            .transpose()?;
+        if let Some(defaults) = &defaults {
+            vm.audit("object.__setattr__", || {
+                (self.to_owned(), "__defaults__", defaults.clone())
+            })?;
+        } else {
+            vm.audit("object.__delattr__", || (self.to_owned(), "__defaults__"))?;
+        }
         // The old tuple may run finalizers that access this function again.
         // Invalidate the version before dropping it, with the lock released.
         let _old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().0, defaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
+        Ok(())
     }
 
-    #[pygetset]
     pub(crate) fn __kwdefaults__(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
+
+    #[pygetset(name = "__kwdefaults__")]
+    fn get_kwdefaults(&self, vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
+        vm.audit("object.__getattr__", || (self.to_owned(), "__kwdefaults__"))?;
+        Ok(self.__kwdefaults__())
+    }
+
     #[pygetset(setter)]
-    fn set___kwdefaults__(&self, kwdefaults: PySetterValue<Option<PyDictRef>>) {
-        let kwdefaults = match kwdefaults {
-            PySetterValue::Assign(d) => d,
-            PySetterValue::Delete => None,
-        };
-        let _old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().1, kwdefaults);
+    fn set___kwdefaults__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let kwdefaults = value
+            .into_option()
+            .filter(|value| !vm.is_none(value))
+            .map(|value| {
+                value
+                    .downcast::<PyDict>()
+                    .map_err(|_| vm.new_type_error("__kwdefaults__ must be set to a dict object"))
+            })
+            .transpose()?;
+        if let Some(kwdefaults) = &kwdefaults {
+            vm.audit("object.__setattr__", || {
+                (self.to_owned(), "__kwdefaults__", kwdefaults.clone())
+            })?;
+        } else {
+            vm.audit("object.__delattr__", || (self.to_owned(), "__kwdefaults__"))?;
+        }
+        let old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().1, kwdefaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
+        drop(old);
+        Ok(())
     }
 
     #[pygetset]
@@ -1085,8 +1132,14 @@ impl Py<PyFunction> {
     }
 
     #[pygetset(setter)]
-    fn set___name__(&self, name: PyStrRef) {
-        let _old = core::mem::replace(&mut *self.name.lock(), name);
+    fn set___name__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let name = value
+            .into_option()
+            .and_then(|value| value.downcast::<PyStr>().ok())
+            .ok_or_else(|| vm.new_type_error("__name__ must be set to a string object"))?;
+        let old = core::mem::replace(&mut *self.name.lock(), name);
+        drop(old);
+        Ok(())
     }
 
     #[pygetset]
@@ -1230,19 +1283,13 @@ impl Py<PyFunction> {
     }
 
     #[pygetset(setter)]
-    fn set___type_params__(
-        &self,
-        value: PySetterValue<PyTupleRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                let _old = core::mem::replace(&mut *self.type_params.lock(), value);
-            }
-            PySetterValue::Delete => {
-                return Err(vm.new_type_error("__type_params__ must be set to a tuple object"));
-            }
-        }
+    fn set___type_params__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let type_params = value
+            .into_option()
+            .and_then(|value| value.downcast::<PyTuple>().ok())
+            .ok_or_else(|| vm.new_type_error("__type_params__ must be set to a tuple"))?;
+        let old = core::mem::replace(&mut *self.type_params.lock(), type_params);
+        drop(old);
         Ok(())
     }
 
@@ -1291,74 +1338,171 @@ impl Callable for PyFunction {
 
 impl Representable for PyFunction {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
-            "<function {} at {:#x}>",
-            zelf.__qualname__(),
-            zelf.get_id()
+    fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let qualname = zelf.__qualname__();
+        Ok(wtf8_concat!(
+            "<function ",
+            qualname.as_wtf8(),
+            format!(" at {:#x}>", zelf.get_id()),
         ))
     }
 }
 
 #[derive(FromArgs)]
 pub struct PyFunctionNewArgs {
-    #[pyarg(positional)]
-    code: PyRef<PyCode>,
-    #[pyarg(positional)]
-    globals: PyDictRef,
-    #[pyarg(any, optional, error_msg = "arg 3 (name) must be None or string")]
-    name: Option<PyStrRef>,
-    #[pyarg(any, optional, error_msg = "arg 4 (defaults) must be None or tuple")]
-    argdefs: Option<PyTupleRef>,
-    #[pyarg(any, optional, error_msg = "arg 5 (closure) must be None or tuple")]
-    closure: Option<PyTupleRef>,
-    #[pyarg(any, optional, error_msg = "arg 6 (kwdefaults) must be None or dict")]
-    kwdefaults: Option<PyDictRef>,
+    #[pyarg(any)]
+    code: PyObjectRef,
+    #[pyarg(any)]
+    globals: PyObjectRef,
+    #[pyarg(any, optional)]
+    name: Option<PyObjectRef>,
+    #[pyarg(any, optional)]
+    argdefs: Option<PyObjectRef>,
+    #[pyarg(any, optional)]
+    closure: Option<PyObjectRef>,
+    #[pyarg(any, optional)]
+    kwdefaults: Option<PyObjectRef>,
 }
 
 impl Constructor for PyFunction {
     type Args = PyFunctionNewArgs;
 
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Finish structural binding before validating any supplied value.
+        let mut parsed = ArgSpec {
+            fname: "function",
+            keywords: &[
+                "code",
+                "globals",
+                "name",
+                "argdefs",
+                "closure",
+                "kwdefaults",
+            ],
+            required: 2,
+            max_positional: 6,
+        }
+        .parse(&args, vm)?;
+        let bound = PyFunctionNewArgs {
+            code: parsed[0].take().unwrap(),
+            globals: parsed[1].take().unwrap(),
+            name: parsed[2].take(),
+            argdefs: parsed[3].take(),
+            closure: parsed[4].take(),
+            kwdefaults: parsed[5].take(),
+        };
+        let payload = Self::py_new(&cls, bound, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let bad_argument = |name, expected, value: &PyObject| {
+            vm.new_type_error(format!(
+                "function() argument '{name}' must be {expected}, not {}",
+                if vm.is_none(value) {
+                    "None".into()
+                } else {
+                    value.class().slot_name()
+                }
+            ))
+        };
+        let code = args
+            .code
+            .downcast_ref::<PyCode>()
+            .ok_or_else(|| bad_argument("code", "code", &args.code))?;
+        let globals = args
+            .globals
+            .downcast_ref::<PyDict>()
+            .ok_or_else(|| bad_argument("globals", "dict", &args.globals))?;
+        let name = optional_function_argument::<PyStr>(
+            args.name.as_deref(),
+            "arg 3 (name) must be None or string",
+            vm,
+        )?;
+        let argdefs = optional_function_argument::<PyTuple>(
+            args.argdefs.as_deref(),
+            "arg 4 (defaults) must be None or tuple",
+            vm,
+        )?;
+        let closure = optional_function_argument::<PyTuple>(
+            args.closure.as_deref(),
+            "arg 5 (closure) must be None or tuple",
+            vm,
+        )?;
+        if closure.is_none() && !code.freevars.is_empty() {
+            return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
+        }
+        let kwdefaults = optional_function_argument::<PyDict>(
+            args.kwdefaults.as_deref(),
+            "arg 6 (kwdefaults) must be None or dict",
+            vm,
+        )?;
         // Handle closure - must be a tuple of cells
-        let closure = if let Some(closure_tuple) = args.closure {
+        let closure = if let Some(closure_tuple) = closure {
             // Check that closure length matches code's free variables
-            if closure_tuple.as_slice().len() != args.code.freevars.len() {
-                return Err(vm.new_value_error(format!(
-                    "{} requires closure of length {}, not {}",
-                    args.code.obj_name,
-                    args.code.freevars.len(),
-                    closure_tuple.as_slice().len()
+            if closure_tuple.as_slice().len() != code.freevars.len() {
+                return Err(vm.new_value_error(wtf8_concat!(
+                    code.co_name.as_wtf8(),
+                    format!(
+                        " requires closure of length {}, not {}",
+                        code.freevars.len(),
+                        closure_tuple.as_slice().len()
+                    ),
                 )));
             }
 
             // Validate that all items are cells and create typed tuple
+            for value in closure_tuple.as_slice() {
+                if value.downcast_ref::<PyCell>().is_none() {
+                    return Err(vm.new_type_error(format!(
+                        "arg 5 (closure) expected cell, found {}",
+                        value.class().slot_name()
+                    )));
+                }
+            }
             let typed_closure = closure_tuple.try_into_typed::<PyCell>(vm)?;
             Some(typed_closure)
-        } else if !args.code.freevars.is_empty() {
-            return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
         } else {
             None
         };
 
-        let mut func = Self::new(args.code.clone(), args.globals.clone().into(), vm)?;
+        vm.audit("function.__new__", || (code.to_owned(),))?;
+        let mut func = Self::new(code.to_owned(), globals.to_owned().into(), vm)?;
         // Set function name if provided
-        if let Some(name) = args.name {
+        if let Some(name) = name {
             *func.name.lock() = name;
         }
         // Now set additional attributes directly
         if let Some(closure_tuple) = closure {
             func.closure = Some(closure_tuple);
         }
-        if let Some(argdefs) = args.argdefs {
+        if let Some(argdefs) = argdefs {
             func.defaults_and_kwdefaults.lock().0 = Some(argdefs);
         }
-        if let Some(kwdefaults) = args.kwdefaults {
+        if let Some(kwdefaults) = kwdefaults {
             func.defaults_and_kwdefaults.lock().1 = Some(kwdefaults);
         }
 
+        // Keep the original arguments alive through audits and globals lookups.
+        drop(args);
         Ok(func)
     }
+}
+
+fn optional_function_argument<T: PyPayload>(
+    value: Option<&PyObject>,
+    message: &str,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyRef<T>>> {
+    value
+        .filter(|value| !vm.is_none(value))
+        .map(|value| {
+            value
+                .downcast_ref::<T>()
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| vm.new_type_error(message))
+        })
+        .transpose()
 }
 
 #[pyclass(module = false, name = "method", traverse)]
