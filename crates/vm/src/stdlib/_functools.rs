@@ -939,7 +939,7 @@ mod _functools {
                         };
                         elem.result.clone()
                     } else {
-                        value.clone()
+                        value
                     };
                     zelf.hits.fetch_add(1, Ordering::Relaxed);
                     return Ok(result);
