@@ -15,6 +15,7 @@ mod math {
         identifier,
     };
     use malachite_bigint::BigInt;
+    use num_traits::{Signed, ToPrimitive};
 
     use super::{float_repr, pymath_exception};
 
@@ -518,11 +519,13 @@ mod math {
 
         let steps = match arg.steps {
             Some(steps) => {
-                let steps: i64 = steps.into_int_ref().try_to_primitive(vm)?;
-                if steps < 0 {
+                let steps = steps.as_ref().as_bigint();
+                if steps.is_negative() {
                     return Err(vm.new_value_error("steps must be a non-negative integer"));
                 }
-                Some(steps as u64)
+                // Every finite IEEE-754 path fits in u64 steps. Larger indices
+                // reach the destination, just like CPython's saturated count.
+                Some(steps.to_u64().unwrap_or(u64::MAX))
             }
             None => None,
         };

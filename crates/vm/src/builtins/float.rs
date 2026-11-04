@@ -401,20 +401,10 @@ impl Py<PyFloat> {
                 None => i32::MIN,
             };
             let float = float_ops::round_float_digits(self.value, ndigits)
-                .ok_or_else(|| vm.new_overflow_error("overflow occurred during round"))?;
+                .ok_or_else(|| vm.new_overflow_error("rounded value too large to represent"))?;
             vm.ctx.new_float(float).into()
         } else {
-            let fract = self.value.fract();
-            let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
-                if self.value.trunc() % 2.0 == 0.0 {
-                    self.value - fract
-                } else {
-                    self.value + fract
-                }
-            } else {
-                self.value.round()
-            };
-            let int = try_to_bigint(value, vm)?;
+            let int = try_to_bigint(self.value.round_ties_even(), vm)?;
             vm.ctx.new_int(int).into()
         };
         Ok(value)
