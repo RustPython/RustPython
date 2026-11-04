@@ -133,8 +133,12 @@ fn copy_grouping(ptr: *const libc::c_char) -> Vec<libc::c_char> {
     let mut out = Vec::new();
     let mut cur = ptr;
     unsafe {
-        while ![0, libc::c_char::MAX].contains(&*cur) {
-            out.push(*cur);
+        while *cur != 0 {
+            let value = *cur;
+            out.push(value);
+            if value == libc::c_char::MAX {
+                break;
+            }
             cur = cur.add(1);
         }
     }
@@ -705,5 +709,16 @@ mod snapshot {
             }
             Ok(output)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_grouping;
+
+    #[test]
+    fn grouping_keeps_char_max_terminator() {
+        let grouping = [3, libc::c_char::MAX, 2, 0];
+        assert_eq!(copy_grouping(grouping.as_ptr()), [3, libc::c_char::MAX]);
     }
 }

@@ -49,7 +49,7 @@ mod _locale {
             group_vec.push(val.into());
         }
         // https://github.com/python/cpython/blob/677320348728ce058fa3579017e985af74a236d4/Modules/_localemodule.c#L80
-        if !group_vec.is_empty() {
+        if group.last().is_some_and(|&c| c != core::ffi::c_char::MAX) {
             group_vec.push(vm.ctx.new_int(0).into());
         }
         vm.ctx.new_list(group_vec)
