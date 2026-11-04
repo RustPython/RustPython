@@ -11,6 +11,7 @@ use crate::{
     convert::ToPyObject,
     function::{Either, FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
+    stdlib::_typing::typing_type_repr,
     types::{
         AsMapping, AsNumber, Callable, Constructor, GetAttr, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable,
@@ -134,58 +135,12 @@ impl PyGenericAlias {
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        fn repr_item(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            if obj.is(&vm.ctx.ellipsis) {
-                return Ok(Wtf8Buf::from("..."));
-            }
-            if obj.is(vm.ctx.types.none_type) {
-                return Ok(Wtf8Buf::from("None"));
-            }
-
-            if vm
-                .get_attribute_opt(obj, identifier!(vm, __origin__))?
-                .is_some()
-                && vm
-                    .get_attribute_opt(obj, identifier!(vm, __args__))?
-                    .is_some()
-            {
-                return Ok(obj.repr(vm)?.as_wtf8().to_owned());
-            }
-
-            let Some(qualname) = vm.get_attribute_opt(obj, identifier!(vm, __qualname__))? else {
-                return Ok(obj.repr(vm)?.as_wtf8().to_owned());
-            };
-            let module = vm.get_attribute_opt(obj, identifier!(vm, __module__))?;
-            let result = (|| {
-                let Some(module) = module.as_ref().filter(|module| !vm.is_none(module)) else {
-                    return obj.repr(vm).map(Either::A);
-                };
-                if module
-                    .downcast_ref::<PyStr>()
-                    .is_some_and(|module| module.as_wtf8() == "builtins")
-                {
-                    return qualname.str(vm).map(Either::A);
-                }
-                let mut repr = module.str(vm)?.as_wtf8().to_owned();
-                repr.push_str(".");
-                repr.push_wtf8(qualname.str(vm)?.as_wtf8());
-                Ok(Either::B(repr))
-            })();
-            // Attribute values can own finalizers; release them in lookup order.
-            drop(qualname);
-            drop(module);
-            result.map(|repr| match repr {
-                Either::A(repr) => repr.as_wtf8().to_owned(),
-                Either::B(repr) => repr,
-            })
-        }
-
-        fn repr_arg(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            // ParamSpec args can be lists - format their items with repr_item
+        fn repr_arg(repr: &mut Wtf8Buf, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            // ParamSpec args can be lists - format their items as types.
             if obj.class().is(vm.ctx.types.list_type) {
                 let list = obj.downcast_ref::<crate::builtins::PyList>().unwrap();
                 let len = list.borrow_vec().len();
-                let mut repr = Wtf8Buf::from("[");
+                repr.push_str("[");
                 // Use indexed access so list mutation during repr causes IndexError
                 for i in 0..len {
                     let item = list
@@ -196,18 +151,18 @@ impl PyGenericAlias {
                     if i > 0 {
                         repr.push_str(", ");
                     }
-                    repr.push_wtf8(&repr_item(&item, vm)?);
+                    typing_type_repr(repr, &item, vm)?;
                 }
                 repr.push_str("]");
-                Ok(repr)
+                Ok(())
             } else {
-                repr_item(obj, vm)
+                typing_type_repr(repr, obj, vm)
             }
         }
 
         // Add * prefix if this is a starred GenericAlias
         let mut repr = Wtf8Buf::from(if self.starred { "*" } else { "" });
-        repr.push_wtf8(&repr_item(&self.origin, vm)?);
+        typing_type_repr(&mut repr, &self.origin, vm)?;
         repr.push_str("[");
         if self.args.as_slice().is_empty() {
             repr.push_str("()");
@@ -216,7 +171,7 @@ impl PyGenericAlias {
                 if i > 0 {
                     repr.push_str(", ");
                 }
-                repr.push_wtf8(&repr_arg(arg, vm)?);
+                repr_arg(&mut repr, arg, vm)?;
             }
         }
         repr.push_str("]");
