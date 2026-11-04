@@ -732,11 +732,11 @@ impl Interpreter {
     /// Finalize vm and turns an exception to exit code.
     ///
     /// Finalization steps (matching Py_FinalizeEx):
-    /// 1. Flush stdout and stderr.
     /// 1. Handle exit exception and turn it to exit code.
     /// 1. Call threading._shutdown() to join non-daemon threads.
     /// 1. Run atexit exit functions.
     /// 1. Set finalizing flag and hang remaining daemon threads.
+    /// 1. Flush stdout and stderr.
     /// 1. Forced GC collection pass (collect cycles while builtins are available).
     /// 1. Module finalization (finalize_modules).
     /// 1. Clear interpreter-owned cross-interpreter data.
@@ -756,13 +756,11 @@ impl Interpreter {
 
     fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
         self.enter(|vm| {
-            let flush_status = vm.flush_std();
-
             // See if any exception leaked out:
             let exit_code = exit_code(vm);
 
-            // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
-            if vm.finalize_ex(flush_status) < 0 && exit_code == 0 {
+            // A failed shutdown flush overrides even an explicit nonzero exit code.
+            if vm.finalize_ex() < 0 {
                 EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
@@ -779,7 +777,7 @@ impl VirtualMachine {
         if self.state.thread_is_running_main() {
             self.state.set_not_running_main();
         }
-        let status = if self.finalize_ex(self.flush_std()) < 0 {
+        let status = if self.finalize_ex() < 0 {
             EXITCODE_FLUSH_FAILURE
         } else {
             status
@@ -787,9 +785,9 @@ impl VirtualMachine {
         crate::host_env::os::exit(status as i32)
     }
 
-    /// The steps of Py_FinalizeEx after the first flush of stdout and stderr.
+    /// The steps of Py_FinalizeEx.
     /// Return a negative value if any flush failed.
-    fn finalize_ex(&self, mut flush_status: i32) -> i32 {
+    fn finalize_ex(&self) -> i32 {
         let vm = self;
         // Wait for thread shutdown - call threading._shutdown() if available.
         // This waits for all non-daemon threads to complete.
@@ -842,6 +840,10 @@ impl VirtualMachine {
             atexit::_run_exitfuncs(vm);
             vm.state.finalizing.store(true, Ordering::Release);
         }
+
+        // Exit callbacks have finished, but modules and the user unraisable
+        // hook are still available to report a failed stream flush.
+        let mut flush_status = vm.flush_std();
 
         // GC pass - collect cycles before module cleanup
         vm.state.gc.collect_force(2);
