@@ -261,7 +261,7 @@ struct DictEntry<T> {
 }
 static_assertions::assert_eq_size!(DictEntry<PyObjectRef>, Option<DictEntry<PyObjectRef>>);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DictSize {
     indices_size: usize,
     pub entries_size: usize,
@@ -1004,12 +1004,38 @@ impl<T: Clone> Dict<T> {
     /// keeps rather than both the key and the value.
     pub(crate) fn next_entry_checked<R>(
         &self,
-        mut position: EntryIndex,
+        position: EntryIndex,
         old: &DictSize,
         project: impl FnOnce(&PyObject, &T) -> R,
     ) -> Result<Option<(usize, R)>, DictChanged> {
+        self.next_entry_checked_by(position, old, PartialEq::eq, project)
+    }
+
+    /// Dictionary iterators allow ordinary same-used key replacement, while
+    /// set iterators retain the stricter layout check above.
+    pub(crate) fn next_dict_entry_checked<R>(
+        &self,
+        position: EntryIndex,
+        old: &DictSize,
+        project: impl FnOnce(&PyObject, &T) -> R,
+    ) -> Result<Option<(usize, R)>, DictChanged> {
+        self.next_entry_checked_by(
+            position,
+            old,
+            DictSize::has_same_used_and_relocations,
+            project,
+        )
+    }
+
+    fn next_entry_checked_by<R>(
+        &self,
+        mut position: EntryIndex,
+        old: &DictSize,
+        unchanged: impl FnOnce(&DictSize, &DictSize) -> bool,
+        project: impl FnOnce(&PyObject, &T) -> R,
+    ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
-        if inner.size() != *old {
+        if !unchanged(&inner.size(), old) {
             return Err(DictChanged);
         }
         loop {
@@ -1065,20 +1091,6 @@ impl<T: Clone> Dict<T> {
             if let Some(entry) = entry {
                 break Some((position, entry.key.clone(), entry.value.clone(), entry.hash));
             }
-        }
-    }
-
-    pub(crate) fn prev_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
-        let inner = self.read();
-        loop {
-            let entry = inner.entries.get(position)?;
-            if let Some(entry) = entry {
-                break Some((position, entry.key.clone(), entry.value.clone()));
-            }
-            if position == 0 {
-                break None;
-            }
-            position -= 1;
         }
     }
 
