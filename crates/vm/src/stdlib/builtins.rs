@@ -47,23 +47,44 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
-        for item in iterable.iter(vm)? {
-            if !item?.into_bool() {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+    fn all(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        all_or_any(&iterable, false, vm)
     }
 
     #[pyfunction]
-    fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
-        for item in iterable.iter(vm)? {
-            if item?.into_bool() {
-                return Ok(true);
+    fn any(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        all_or_any(&iterable, true, vm)
+    }
+
+    fn all_or_any(
+        iterable: &PyObjectRef,
+        short_circuit: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let iter = PyIter::try_from_object(vm, iterable.clone())?;
+        // Cache the slot, not __next__: the wrapper still looks up the method
+        // after callbacks mutate the iterator's type.
+        let next = iter.class().slots().iternext.load().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object is not an iterator",
+                iter.class().slot_name()
+            ))
+        })?;
+        loop {
+            match next(&iter, vm)? {
+                PyIterReturn::Return(item) => {
+                    let truth = item.try_to_bool(vm);
+                    drop(item);
+                    if truth? == short_circuit {
+                        return Ok(short_circuit);
+                    }
+                }
+                PyIterReturn::StopIteration(value) => {
+                    drop(value);
+                    return Ok(!short_circuit);
+                }
             }
         }
-        Ok(false)
     }
 
     #[pyfunction]
