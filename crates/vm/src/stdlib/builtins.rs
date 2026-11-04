@@ -21,9 +21,8 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgSpec,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg,
-            PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgSpec, ArgStrOrBytesLike, Either,
+            FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
