@@ -26,9 +26,12 @@ use crate::{
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-        PyMappingMethods, PyNumberMethods, PySequenceMethods,
+        PyMappingMethods, PyNumber, PyNumberMethods, PySequenceMethods,
     },
-    sliceable::{NameBytearray, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sliceable::{
+        NameBytearray, SaturatedSlice, SaturatedSliceIter, SequenceIndex, SliceableSequenceMutOp,
+        SliceableSequenceOp,
+    },
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
         DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
@@ -312,18 +315,30 @@ impl PyByteArray {
     ) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)? {
             SequenceIndex::Int(i) => zelf._setitem_by_index(i, value, vm),
-            SequenceIndex::Slice(slice) => {
-                let items = if zelf.is(&value) {
-                    zelf.borrow_buf().to_vec()
+            SequenceIndex::Slice(mut slice) => {
+                // A distinct bytearray supplies its storage directly, including
+                // subclasses with an overridden buffer protocol. Every other
+                // source is copied before CPython unpacks the slice again.
+                let direct = value.downcast_ref::<Self>().filter(|_| !zelf.is(value));
+                let (items, unpack_again) = if let Some(bytes) = direct {
+                    (bytes.borrow_buf().to_vec(), false)
                 } else {
-                    bytearray_from_object(vm, value)?
+                    if PyNumber::check(value) || value.fast_isinstance(vm.ctx.types.str_type) {
+                        return Err(vm.new_type_error(
+                            "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
+                        ));
+                    }
+                    (bytearray_from_object(vm, value)?, true)
                 };
-                if let Some(mut w) = zelf.try_resizable_opt() {
-                    w.elements.setitem_by_slice(vm, slice, &items)
-                } else {
-                    zelf.borrow_buf_mut()
-                        .setitem_by_slice_no_resize(vm, slice, &items)
+                if unpack_again {
+                    let SequenceIndex::Slice(repeated) =
+                        SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)?
+                    else {
+                        unreachable!("an unpacked slice remains a slice");
+                    };
+                    slice = repeated;
                 }
+                zelf.assign_slice(slice, &items, vm)
             }
         }
     }
@@ -344,10 +359,82 @@ impl PyByteArray {
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)? {
             SequenceIndex::Int(i) => self.delitem_by_index(i, vm),
-            SequenceIndex::Slice(slice) => {
-                // TODO: delete 0 elements don't need resizable
-                self.try_resizable(vm)?.elements.delitem_by_slice(vm, slice)
+            SequenceIndex::Slice(slice) => self.assign_slice(slice, &[], vm),
+        }
+    }
+
+    fn check_slice_assignment(
+        slice: SaturatedSlice,
+        len: usize,
+        needed: usize,
+        resizable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(core::ops::Range<usize>, isize, usize)> {
+        let (range, step, slice_len) = slice.adjust_indices(len);
+        // Empty extended-slice assignment means deletion, not a length
+        // mismatch. Nonempty assignments validate their size before exports.
+        let resize = if step == 1 {
+            needed != slice_len
+        } else if needed == 0 {
+            // CPython checks exports even for an empty extended deletion.
+            true
+        } else if needed != slice_len {
+            return Err(vm.new_value_error(format!(
+                "attempt to assign bytes of size {needed} to extended slice of size {slice_len}",
+            )));
+        } else {
+            false
+        };
+        if resize && !resizable {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
+        }
+        Ok((range, step, slice_len))
+    }
+
+    fn assign_slice(
+        &self,
+        slice: SaturatedSlice,
+        items: &[u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let (mut inner, resizable) = match self.resize_access() {
+            ResizeAccess::Exclusive(inner) => (inner, true),
+            ResizeAccess::Exported { len } => {
+                // Reject resizing without waiting on an exported payload. A
+                // codec callback may already hold its read lock.
+                Self::check_slice_assignment(slice, len, items.len(), false, vm)?;
+                if items.is_empty() {
+                    return Ok(());
+                }
+                let inner = self.inner.write();
+                // The export epoch may have ended while we waited. Validate
+                // again against the locked payload, not the old length.
+                let resizable = self.exports.lock().snapshot().is_none();
+                (inner, resizable)
             }
+        };
+        let elements = &mut inner.elements;
+        let (range, step, slice_len) =
+            Self::check_slice_assignment(slice, elements.len(), items.len(), resizable, vm)?;
+        if items.is_empty() {
+            elements.delitem_by_slice(vm, slice)
+        } else if step == 1 {
+            if slice_len == items.len() {
+                // Same-size replacement must keep exported storage intact.
+                elements[range].copy_from_slice(items);
+            } else {
+                elements
+                    .try_reserve(items.len().saturating_sub(slice_len))
+                    .map_err(|_| vm.no_memory_error())?;
+                elements.splice(range, items.iter().copied());
+            }
+            Ok(())
+        } else {
+            elements.do_set_indexes(
+                SaturatedSliceIter::from_adjust_indices(range, step, slice_len),
+                items,
+            );
+            Ok(())
         }
     }
 
