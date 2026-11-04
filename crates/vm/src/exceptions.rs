@@ -762,6 +762,20 @@ impl PyBaseException {
     pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
         self.args.read().as_slice().get(idx).cloned()
     }
+
+    fn init_args(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "{}() takes no keyword arguments",
+                truncated_type_name(zelf.as_object(), 200)
+            )));
+        }
+        let args = PyTuple::new_ref(args.args, &vm.ctx);
+        // Retain the supplied tuple: releasing old args can reenter and replace
+        // the field before a specialized initializer finishes using it.
+        zelf.set_args_tuple(args.clone());
+        Ok(args)
+    }
 }
 
 impl PyBaseException {
@@ -1036,14 +1050,7 @@ impl Initializer for PyBaseException {
     type Args = FuncArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        if !args.kwargs.is_empty() {
-            return Err(vm.new_type_error(format!(
-                "{}() takes no keyword arguments",
-                truncated_type_name(zelf.as_object(), 200)
-            )));
-        }
-        zelf.set_args_tuple(PyTuple::new_ref(args.args, &vm.ctx));
-        Ok(())
+        Self::init_args(zelf, args, vm).map(drop)
     }
 }
 
@@ -1885,7 +1892,7 @@ pub(super) mod types {
             tuple::IntoPyTuple,
         },
         convert::ToPyResult,
-        function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
+        function::{ArgBytesLike, ArgSpec, FuncArgs, PySetterValue},
         types::{Constructor, Initializer, Representable},
     };
     use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
@@ -1954,12 +1961,14 @@ pub(super) mod types {
         type Args = FuncArgs;
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Call BaseException_init first (handles args)
-            let code = match args.args.len() {
-                0 => vm.ctx.none(),
-                1 => args.args[0].clone(),
-                _ => vm.ctx.new_tuple(args.args.clone()).into(),
+            let base: &Py<PyBaseException> =
+                zelf.downcast_ref().expect("SystemExit is a BaseException");
+            let args = PyBaseException::init_args(base, args, vm)?;
+            let code = match args.as_slice() {
+                [] => return Ok(()),
+                [code] => code.clone(),
+                _ => args.clone().into(),
             };
-            PyBaseException::slot_init(zelf, args, vm)?;
             let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
             exc.code.swap_to_temporary_refs(Some(code), vm);
             Ok(())
@@ -2043,11 +2052,14 @@ pub(super) mod types {
     impl Initializer for PyStopIteration {
         type Args = FuncArgs;
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let value = match args.args.len() {
-                0 => vm.ctx.none(),
-                _ => args.args[0].clone(),
+            let base: &Py<PyBaseException> = zelf
+                .downcast_ref()
+                .expect("StopIteration is a BaseException");
+            let args = PyBaseException::init_args(base, args, vm)?;
+            let value = match args.first() {
+                Some(value) => value.clone(),
+                None => vm.ctx.none(),
             };
-            PyBaseException::slot_init(zelf, args, vm)?;
             let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
             exc.value.swap_to_temporary_refs(Some(value), vm);
             Ok(())
@@ -2175,27 +2187,28 @@ pub(super) mod types {
 
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Only 'name' and 'obj' kwargs are allowed
-            let mut kwargs = args.kwargs.clone();
-            let name = kwargs.swap_remove("name");
-            let obj = kwargs.swap_remove("obj");
-
-            // Reject unknown kwargs
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_unexpected_keyword_type_error(
-                    Some(Self::NAME),
-                    &invalid_key.to_string(),
-                ));
-            }
-
+            let kwargs = FuncArgs::from(args.kwargs);
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args, KwArgs::default());
-            PyBaseException::slot_init(zelf, base_args, vm)?;
+            let base: &Py<PyBaseException> = zelf
+                .downcast_ref()
+                .expect("AttributeError is a BaseException");
+            let _args = PyBaseException::init_args(base, args.args.into(), vm)?;
+
+            // Reject unknown kwargs after publishing args, without changing
+            // their order or releasing their values before the field updates.
+            let parsed = ArgSpec {
+                fname: Self::NAME,
+                keywords: &["name", "obj"],
+                required: 0,
+                max_positional: 0,
+            }
+            .parse(&kwargs, vm)?;
 
             let exc: &Py<Self> = zelf
                 .downcast_ref()
                 .expect("AttributeError instance has AttributeError payload");
-            exc.name.swap_to_temporary_refs(name, vm);
-            exc.obj.swap_to_temporary_refs(obj, vm);
+            exc.name.swap_to_temporary_refs(parsed[0].clone(), vm);
+            exc.obj.swap_to_temporary_refs(parsed[1].clone(), vm);
             Ok(())
         }
 
@@ -2354,32 +2367,31 @@ pub(super) mod types {
 
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Only 'name', 'path', 'name_from' kwargs are allowed
-            let mut kwargs = args.kwargs.clone();
-            let name = kwargs.swap_remove("name");
-            let path = kwargs.swap_remove("path");
-            let name_from = kwargs.swap_remove("name_from");
+            let kwargs = FuncArgs::from(args.kwargs);
+            let base: &Py<PyBaseException> =
+                zelf.downcast_ref().expect("ImportError is a BaseException");
+            let args = PyBaseException::init_args(base, args.args.into(), vm)?;
 
-            // Check for any remaining invalid keyword arguments
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_unexpected_keyword_type_error(
-                    Some("ImportError"),
-                    &invalid_key.to_string(),
-                ));
+            // Validate keyword counts and names before changing native fields.
+            let parsed = ArgSpec {
+                fname: Self::NAME,
+                keywords: &["name", "path", "name_from"],
+                required: 0,
+                max_positional: 0,
             }
+            .parse(&kwargs, vm)?;
 
-            let msg = if args.args.len() == 1 {
-                Some(args.args[0].clone())
+            let msg = if args.len() == 1 {
+                Some(args[0].clone())
             } else {
                 None
             };
-            let base_args = FuncArgs::new(args.args, KwArgs::default());
-            PyBaseException::slot_init(zelf, base_args, vm)?;
             let exc: &Py<Self> = zelf
                 .downcast_ref()
                 .expect("ImportError instance has ImportError payload");
-            exc.name.swap_to_temporary_refs(name, vm);
-            exc.path.swap_to_temporary_refs(path, vm);
-            exc.name_from.swap_to_temporary_refs(name_from, vm);
+            exc.name.swap_to_temporary_refs(parsed[0].clone(), vm);
+            exc.path.swap_to_temporary_refs(parsed[1].clone(), vm);
+            exc.name_from.swap_to_temporary_refs(parsed[2].clone(), vm);
             exc.msg.swap_to_temporary_refs(msg, vm);
             Ok(())
         }
@@ -2509,26 +2521,26 @@ pub(super) mod types {
         type Args = FuncArgs;
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Only 'name' kwarg is allowed
-            let mut kwargs = args.kwargs.clone();
-            let name = kwargs.swap_remove("name");
-
-            // Reject unknown kwargs
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_unexpected_keyword_type_error(
-                    Some(Self::NAME),
-                    &invalid_key.to_string(),
-                ));
-            }
-
+            let kwargs = FuncArgs::from(args.kwargs);
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args, KwArgs::default());
-            PyBaseException::slot_init(zelf, base_args, vm)?;
+            let base: &Py<PyBaseException> =
+                zelf.downcast_ref().expect("NameError is a BaseException");
+            let _args = PyBaseException::init_args(base, args.args.into(), vm)?;
+
+            // Reject unknown kwargs after publishing args.
+            let parsed = ArgSpec {
+                fname: Self::NAME,
+                keywords: &["name"],
+                required: 0,
+                max_positional: 0,
+            }
+            .parse(&kwargs, vm)?;
 
             let exc: &Py<Self> = zelf
                 .downcast_ref()
                 .expect("NameError instance has NameError payload");
             // Absent keyword clears the field. Re-init must not keep the old name.
-            exc.name.swap_to_temporary_refs(name, vm);
+            exc.name.swap_to_temporary_refs(parsed[0].clone(), vm);
             Ok(())
         }
 
