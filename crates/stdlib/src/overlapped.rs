@@ -191,6 +191,19 @@ mod _overlapped {
         }
     }
 
+    // Match PyLong_AsVoidPtr: accept signed negatives and unsigned positive
+    // pointer-width integers, without invoking arbitrary __index__ methods.
+    fn pointer_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let int = obj
+            .downcast_ref::<PyInt>()
+            .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+        if int.as_bigint().sign() == malachite_bigint::Sign::Minus {
+            int.try_to_primitive_in_range::<isize>(vm)
+        } else {
+            Ok(int.try_to_primitive_in_range::<usize>(vm)? as isize)
+        }
+    }
+
     fn set_from_windows_err(err: u32, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let err = if err == 0 {
             host_winapi::get_last_error()
@@ -1128,16 +1141,7 @@ mod _overlapped {
             // Borrow the integer payload to avoid boxing int subclasses.
             let mut event = match &args.event {
                 OptionalArg::Missing => host_overlapped::INVALID_HANDLE_VALUE_ISIZE,
-                OptionalArg::Present(event) => {
-                    let int = event
-                        .downcast_ref::<PyInt>()
-                        .ok_or_else(|| vm.new_type_error("an integer is required"))?;
-                    if int.as_bigint().sign() == malachite_bigint::Sign::Minus {
-                        int.try_to_primitive_in_range::<isize>(vm)?
-                    } else {
-                        int.try_to_primitive_in_range::<usize>(vm)? as isize
-                    }
-                }
+                OptionalArg::Present(event) => pointer_value(event, vm)?,
             };
 
             if event == host_overlapped::INVALID_HANDLE_VALUE_ISIZE {
@@ -1221,14 +1225,24 @@ mod _overlapped {
 
     #[pyfunction]
     fn CreateIoCompletionPort(
-        handle: isize,
-        port: isize,
-        key: usize,
-        concurrency: u32,
+        handle: PyObjectRef,
+        port: PyObjectRef,
+        key: PyObjectRef,
+        concurrency: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<isize> {
-        host_overlapped::create_io_completion_port(handle, port, key, concurrency)
-            .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+    ) -> PyResult<usize> {
+        let handle_value = pointer_value(&handle, vm)?;
+        let port_value = pointer_value(&port, vm)?;
+        let key_value = pointer_value(&key, vm)? as usize;
+        let concurrency_value: u32 = concurrency.try_to_value(vm)?;
+        host_overlapped::create_io_completion_port(
+            handle_value,
+            port_value,
+            key_value,
+            concurrency_value,
+        )
+        .map(|port| port as usize)
+        .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
