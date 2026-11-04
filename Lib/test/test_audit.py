@@ -233,7 +233,7 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(actual, expected)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     def test_wmi_exec_query(self):
         import_helper.import_module("_wmi")
         returncode, events, stderr = self.run_python("test_wmi_exec_query")
