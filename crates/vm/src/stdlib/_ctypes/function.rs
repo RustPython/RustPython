@@ -1860,20 +1860,25 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(&self) -> Option<PyObjectRef> {
-        self.restype.read().clone()
+    fn restype(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let restype = zelf.restype.read().clone();
+        restype.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_restype_"))
+        })
     }
 
     #[pygetset(setter)]
     fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Must be type, callable, or None
-        if vm.is_none(&value) {
-            *self.restype.write() = None;
-        } else if value.downcast_ref::<PyType>().is_some() || value.is_callable() {
-            *self.restype.write() = Some(value);
-        } else {
+        if !vm.is_none(&value) && value.downcast_ref::<PyType>().is_none() && !value.is_callable() {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
         }
+        // An explicit None requests a void result; it is distinct from unset.
+        let old = self.restype.write().replace(value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
