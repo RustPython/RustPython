@@ -972,7 +972,7 @@ pub mod sys {
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         #[cfg(feature = "host_env")]
-        let env_var = if vm.state.settings.ignore_environment {
+        let env_var = if vm.state.config.settings.ignore_environment {
             None
         } else {
             crate::host_env::os::var("PYTHONBREAKPOINT").ok()
@@ -1020,7 +1020,7 @@ pub mod sys {
                 .sys_module
                 .dict()
                 .get_item("modules", vm)?
-                .get_item(&module_name, vm);
+                .get_item(&*module_name, vm);
             // Import hooks may populate this list with finalizable values.
             // Keep them until after lookup, but not through hook resolution.
             drop(from_list);
