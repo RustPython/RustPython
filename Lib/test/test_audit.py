@@ -86,7 +86,7 @@ class AuditTest(unittest.TestCase):
         import_helper.import_module("ctypes")
         self.do_test("test_ctypes_call_function")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(sys.platform != "linux", "TODO: RUSTPYTHON")
     def test_posixsubprocess(self):
         import_helper.import_module("_posixsubprocess")
         self.do_test("test_posixsubprocess")
