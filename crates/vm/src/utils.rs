@@ -52,6 +52,7 @@ where
             return Ok(Wtf8Buf::from(empty));
         };
         repr.push_wtf8(first.as_wtf8());
+        drop(first);
         for part in parts_iter {
             repr.push_str(", ");
             repr.push_wtf8(part?.as_wtf8());

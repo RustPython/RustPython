@@ -73,11 +73,14 @@ unsafe impl Traverse for PyList {
         // This is safe because during GC collection, the object is unreachable
         // and no other code should be accessing it.
         if let Some(mut guard) = self.elements.try_write() {
+            let mut elements = core::mem::take(&mut *guard);
+            // Only detached children are reversed; callbacks run after unlocking.
+            elements.reverse();
             if out.is_empty() {
                 // Reuse the allocation so deallocation does not need more memory.
-                *out = core::mem::take(&mut *guard);
+                *out = elements;
             } else {
-                out.extend(guard.drain(..));
+                out.extend(elements);
             }
         }
     }
@@ -215,13 +218,16 @@ impl PyList {
             core::mem::swap(&mut *guard, &mut elements);
             mutated
         };
-        res?;
-
-        if mutated {
-            return Err(vm.new_value_error("list modified during sort"));
-        }
-
-        Ok(())
+        let result = res.and_then(|()| {
+            if mutated {
+                Err(vm.new_value_error("list modified during sort"))
+            } else {
+                Ok(())
+            }
+        });
+        // The original list is visible and unlocked before finalizers run.
+        elements.into_iter().rev().for_each(drop);
+        result
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -1041,39 +1047,27 @@ fn tuple_lt(elem: &Elem, a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyR
     }
 }
 
-fn timsort_by<T, K, L>(items: &mut [T], reverse: bool, key: &K, mut lt: L) -> PyResult<()>
+fn timsort_by<T, K, L>(items: &mut [T], key: &K, mut lt: L) -> PyResult<()>
 where
     T: Clone,
     K: Fn(&T) -> &PyObject,
     L: FnMut(&PyObject, &PyObject) -> PyResult<bool>,
 {
-    timsort(items, &mut |a, b| {
-        let (a, b) = if reverse {
-            (key(b), key(a))
-        } else {
-            (key(a), key(b))
-        };
-        lt(a, b)
-    })
+    timsort(items, &mut |a, b| lt(key(a), key(b)))
 }
 
-fn timsort_specialized<T, K>(
-    vm: &VirtualMachine,
-    items: &mut [T],
-    reverse: bool,
-    key: K,
-) -> PyResult<()>
+fn timsort_specialized<T, K>(vm: &VirtualMachine, items: &mut [T], key: K) -> PyResult<()>
 where
     T: Clone,
     K: Fn(&T) -> &PyObject,
 {
     match pre_sort_check(items.iter().map(&key), vm) {
-        PreSort::Str => timsort_by(items, reverse, &key, |a, b| Ok(str_lt(a, b))),
-        PreSort::Int => timsort_by(items, reverse, &key, |a, b| Ok(int_lt(a, b))),
-        PreSort::Float => timsort_by(items, reverse, &key, |a, b| Ok(float_lt(a, b))),
-        PreSort::Object(cmp) => timsort_by(items, reverse, &key, |a, b| object_lt(cmp, a, b, vm)),
-        PreSort::Tuple(elem) => timsort_by(items, reverse, &key, |a, b| tuple_lt(&elem, a, b, vm)),
-        PreSort::Generic => timsort_by(items, reverse, &key, |a, b| {
+        PreSort::Str => timsort_by(items, &key, |a, b| Ok(str_lt(a, b))),
+        PreSort::Int => timsort_by(items, &key, |a, b| Ok(int_lt(a, b))),
+        PreSort::Float => timsort_by(items, &key, |a, b| Ok(float_lt(a, b))),
+        PreSort::Object(cmp) => timsort_by(items, &key, |a, b| object_lt(cmp, a, b, vm)),
+        PreSort::Tuple(elem) => timsort_by(items, &key, |a, b| tuple_lt(&elem, a, b, vm)),
+        PreSort::Generic => timsort_by(items, &key, |a, b| {
             a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
         }),
     }
@@ -1086,22 +1080,43 @@ fn do_sort(
     reverse: bool,
 ) -> PyResult<()> {
     if let Some(key_func) = key_func {
-        let mut items = values
-            .iter()
-            .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
-            .collect::<Result<Vec<_>, _>>()?;
-        timsort_specialized(
-            vm,
-            &mut items,
-            reverse,
-            |item: &(PyObjectRef, PyObjectRef)| &*item.1,
-        )?;
+        let mut items = Vec::new();
+        items
+            .try_reserve_exact(values.len())
+            .map_err(|_| vm.no_memory_error())?;
+        for value in values.iter() {
+            let key = match key_func.call((value.clone(),), vm) {
+                Ok(key) => key,
+                Err(error) => {
+                    // Key construction unwinds in reverse, unlike completed sorting.
+                    items.into_iter().rev().for_each(drop);
+                    return Err(error);
+                }
+            };
+            items.push((value.clone(), key));
+        }
+        if reverse {
+            items.reverse();
+        }
+        let result =
+            timsort_specialized(vm, &mut items, |item: &(PyObjectRef, PyObjectRef)| &*item.1);
+        // Even a failed comparison may have permuted the elements. Preserve that
+        // permutation and release keys in its order before restoring the list.
         *values = items.into_iter().map(|(val, _)| val).collect();
+        if reverse {
+            values.reverse();
+        }
+        result
     } else {
-        timsort_specialized(vm, values, reverse, |x| x)?
+        if reverse {
+            values.reverse();
+        }
+        let result = timsort_specialized(vm, values, |x| x);
+        if reverse {
+            values.reverse();
+        }
+        result
     }
-
-    Ok(())
 }
 
 #[pyclass(module = false, name = "list_iterator", traverse)]

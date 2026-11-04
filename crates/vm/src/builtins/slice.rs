@@ -2,7 +2,7 @@
 // spell-checker:ignore sliceobject
 use core::cell::Cell;
 use core::ptr::NonNull;
-use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
+use rustpython_common::wtf8::Wtf8Buf;
 
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
     iter::PyExactSizeIterator,
     sliceable::SaturatedSlice,
     types::{Constructor, Hashable, PyComparisonOp, Representable},
+    utils::collection_repr,
 };
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
@@ -37,14 +38,18 @@ unsafe impl crate::object::Traverse for PySlice {
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        if let Some(start) = self.start.take() {
-            out.push(start);
-        }
-        // stop is not Option, so it will be freed when payload is dropped
-        // (via drop_in_place on freelist pop, or Box::from_raw on dealloc)
+        // Release step, start, then stop before the husk enters the freelist.
+        // Keep the mandatory stop field valid without retaining its old owner.
         if let Some(step) = self.step.take() {
             out.push(step);
         }
+        if let Some(start) = self.start.take() {
+            out.push(start);
+        }
+        out.push(core::mem::replace(
+            &mut self.stop,
+            Context::genesis().none(),
+        ));
     }
 }
 
@@ -342,19 +347,14 @@ impl Hashable for PySlice {
 impl Representable for PySlice {
     #[inline]
     fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let start_repr = zelf.start_ref(vm).repr(vm)?;
-        let stop_repr = zelf.stop.repr(vm)?;
-        let step_repr = zelf.step_ref(vm).repr(vm)?;
-
-        Ok(wtf8_concat!(
+        collection_repr(
+            None,
             "slice(",
-            start_repr.as_wtf8(),
-            ", ",
-            stop_repr.as_wtf8(),
-            ", ",
-            step_repr.as_wtf8(),
-            ")"
-        ))
+            ")",
+            "",
+            [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)].into_iter(),
+            vm,
+        )
     }
 }
 
