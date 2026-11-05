@@ -1,8 +1,7 @@
+use super::native_iter::{NativeIterKind, NativeSequenceIter};
 use super::{
-    PositionIterInternal, PyAnyDict, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType,
-    PyTypeRef,
-    int::PyInt,
-    iter::{IterStatus, builtins_iter},
+    PyAnyDict, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int::PyInt,
+    iter::builtins_iter,
 };
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -20,7 +19,7 @@ use crate::{
     format::{format, format_map},
     function::{ArgIndex, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
-    object::{MaybeTraverse, Traverse, TraverseFn},
+    object::{MaybeTraverse, TraverseFn},
     protocol::{
         BufferFlags, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
     },
@@ -43,7 +42,6 @@ use rustpython_common::{
     atomic::{self, PyAtomic, Radium},
     format::{FormatString, FromTemplate},
     hash,
-    lock::PyMutex,
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Concat},
 };
@@ -307,17 +305,17 @@ impl<'a> AsPyStr<'a> for &'a PyUtf8StrInterned {
     }
 }
 
-#[pyclass(module = false, name = "str_iterator", traverse = "manual")]
-#[derive(Debug)]
-pub(crate) struct PyStrIterator {
-    internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
+#[derive(Debug, Clone, Traverse)]
+struct StrIterState {
+    string: PyStrRef,
+    #[pytraverse(skip)]
+    byte_offset: usize,
 }
 
-unsafe impl Traverse for PyStrIterator {
-    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
-        // No need to worry about deadlock, for inner is a PyStr and can't make ref cycle
-        self.internal.lock().0.traverse(tracer);
-    }
+#[pyclass(module = false, name = "str_iterator", traverse)]
+#[derive(Debug)]
+pub(crate) struct PyStrIterator {
+    internal: NativeSequenceIter<StrIterState>,
 }
 
 impl PyPayload for PyStrIterator {
@@ -330,24 +328,27 @@ impl PyPayload for PyStrIterator {
 impl Py<PyStrIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().0.length_hint(|obj| obj.char_len())
+        self.internal.length_hint(|state| state.string.char_len())
     }
 
     #[pymethod]
     fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut internal = self.internal.lock();
-        internal.1 = usize::MAX;
-        internal
-            .0
-            .set_state(&object, |obj, pos| pos.min(obj.char_len()), vm)
+        self.internal.set_state(
+            &object,
+            |state| {
+                state.byte_offset = usize::MAX;
+                state.string.char_len()
+            },
+            vm,
+        )
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        Ok(self.internal.lock().0.reduce(
+        Ok(self.internal.reduce(
             func,
-            |x| x.clone().into(),
+            |state| state.string.into(),
             |vm| vm.ctx.empty_str.to_owned().into(),
             vm,
         ))
@@ -358,31 +359,26 @@ impl SelfIter for PyStrIterator {}
 
 impl IterNext for PyStrIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let mut internal = zelf.internal.lock();
-
-        if let IterStatus::Active(s) = &internal.0.status {
-            let value = s.as_wtf8();
-
-            if internal.1 == usize::MAX {
-                if let Some((offset, ch)) = value.code_point_indices().nth(internal.0.position) {
-                    internal.0.position += 1;
-                    internal.1 = offset + ch.len_wtf8();
-                    return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
-                }
-            } else if let Some(value) = value.get(internal.1..)
-                && let Some(ch) = value.code_points().next()
-            {
-                internal.0.position += 1;
-                internal.1 += ch.len_wtf8();
-                return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
+        let ch = zelf.internal.next(|state, index| {
+            let value = state.string.as_wtf8();
+            if state.byte_offset == usize::MAX {
+                value.code_point_indices().nth(index).map(|(start, ch)| {
+                    state.byte_offset = start + ch.len_wtf8();
+                    ch
+                })
+            } else {
+                value
+                    .get(state.byte_offset..)?
+                    .code_points()
+                    .next()
+                    .inspect(|ch| {
+                        state.byte_offset += ch.len_wtf8();
+                    })
             }
-            let released = internal.0.exhaust();
-            // The string is released after the lock. A `__del__` that iterates
-            // again would otherwise reach for a lock this call still holds.
-            drop(internal);
-            drop(released);
-        }
-        Ok(PyIterReturn::StopIteration(None))
+        });
+        Ok(PyIterReturn::from_result(
+            ch.map(|ch| ch.to_pyobject(vm)).ok_or(None),
+        ))
     }
 }
 
@@ -1772,7 +1768,14 @@ impl Comparable for PyStr {
 impl Iterable for PyStr {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyStrIterator {
-            internal: PyMutex::new((PositionIterInternal::new(zelf, 0), 0)),
+            internal: NativeSequenceIter::new(
+                StrIterState {
+                    string: zelf,
+                    byte_offset: 0,
+                },
+                NativeIterKind::Sequence,
+                0,
+            ),
         }
         .into_pyobject(vm))
     }

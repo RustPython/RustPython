@@ -55,6 +55,7 @@ pub use memory::PyMemoryView;
 pub(crate) mod module;
 pub use module::{PyModule, PyModuleDef, PyModuleSlots};
 pub(crate) mod namespace;
+pub(crate) mod native_iter;
 pub use namespace::PyNamespace;
 pub(crate) mod object;
 pub use object::PyBaseObject;
