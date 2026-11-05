@@ -18,6 +18,7 @@ pub use argument::{
     NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
     NameKeywords, NameKwargs, NameKwds, NameKws, NameObjects, NameObjs, NameOthers, NameValues,
     OptionalArg, OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
+    params_have_required_keyword_only,
 };
 pub(crate) use argument::{
     arity_message, given_by_name_and_position_message, unexpected_keyword_message,
@@ -31,7 +32,7 @@ pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use doctext::{ItemDoc, db_doc, plain_doc};
 pub use either::Either;
 pub use fspath::FsPath;
-pub(crate) use getargs::ArgSpec;
+pub use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};

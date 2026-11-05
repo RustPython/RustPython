@@ -640,22 +640,6 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         params.push(param_token(field, &ArgAttribute::try_from(field)?)?);
     }
 
-    let mut converts_before_missing = false;
-    for attr in input
-        .attrs
-        .iter()
-        .filter(|attr| attr.path().is_ident("pyarg"))
-    {
-        attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("convert_before_missing") {
-                converts_before_missing = true;
-                Ok(())
-            } else {
-                Err(meta.error("Unrecognized struct-level pyarg attribute"))
-            }
-        })?;
-    }
-
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
@@ -663,9 +647,10 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
 
-            const CONVERTS_BEFORE_MISSING: bool = #converts_before_missing #(
-                || <#flattened as ::rustpython_vm::function::FromArgs>::CONVERTS_BEFORE_MISSING
-            )*;
+            const HAS_REQUIRED_KEYWORD_ONLY: bool =
+                ::rustpython_vm::function::params_have_required_keyword_only(Self::PARAMS) #(
+                    || <#flattened as ::rustpython_vm::function::FromArgs>::HAS_REQUIRED_KEYWORD_ONLY
+                )*;
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 let min = #min_arity;

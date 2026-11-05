@@ -45,10 +45,6 @@ use syn::punctuated::Punctuated;
 ///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
 ///
-/// `#[pyarg(convert_before_missing)]` on the struct converts the given arguments
-/// before reporting a missing one, as CPython's `PyArg_ParseTupleAndKeywords`
-/// does. Without it a missing argument is reported first, as Argument Clinic does.
-///
 /// # Signature default
 /// An explicit `py_default` is used as written. Otherwise:
 /// - a literal, a negative literal, or the path `None` becomes a typed default

@@ -295,13 +295,16 @@ pub const fn choose_class_params<'a>(
     }
 }
 
-/// False when an argument is a destructured pattern whose type has no [`FromArgs::PARAMS`].
+/// False when an argument is a destructured pattern whose type has no [`FromArgs::PARAMS`],
+/// or a bare `FuncArgs` (`*args, **kwargs`), which is not a callable's signature.
 #[must_use]
 pub const fn has_signature(args: &[SigArg]) -> bool {
     let mut i = 0;
     while i < args.len() {
-        if args[i].params.is_none() && args[i].name.is_empty() {
-            return false;
+        match args[i].params {
+            None if args[i].name.is_empty() => return false,
+            Some(params) if is_bare_funcargs(params) => return false,
+            _ => {}
         }
         i += 1;
     }

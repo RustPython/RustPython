@@ -6,10 +6,10 @@ mod _json {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
             PyAnyDict, PyBaseExceptionRef, PyDict, PyDictRef, PyFloat, PyInt, PyList, PyListRef,
-            PyStr, PyStrRef, PyTuple, PyType,
+            PyStr, PyStrRef, PyTuple, PyType, PyTypeRef,
         },
-        convert::ToPyResult,
-        function::{ArgIntoBool, IntoFuncArgs},
+        convert::{ToPyResult, TryFromObject},
+        function::{ArgIntoBool, ArgSpec, FuncArgs, IntoFuncArgs},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
     };
@@ -830,6 +830,66 @@ mod _json {
 
     impl Constructor for JsonEncoder {
         type Args = EncoderArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let mut markers = None;
+            let mut default = None;
+            let mut encoder = None;
+            let mut indent = None;
+            let mut key_separator = None;
+            let mut item_separator = None;
+            let mut sort_keys = None;
+            let mut skipkeys = None;
+            let mut allow_nan = None;
+            ArgSpec {
+                fname: "make_encoder",
+                keywords: &[
+                    "markers",
+                    "default",
+                    "encoder",
+                    "indent",
+                    "key_separator",
+                    "item_separator",
+                    "sort_keys",
+                    "skipkeys",
+                    "allow_nan",
+                ],
+                required: 9,
+                max_positional: 9,
+            }
+            .parse_with(
+                &args,
+                |i, obj, vm| {
+                    match i {
+                        0 => markers = Some(PyObjectRef::try_from_object(vm, obj.to_owned())?),
+                        1 => default = Some(PyObjectRef::try_from_object(vm, obj.to_owned())?),
+                        2 => encoder = Some(PyObjectRef::try_from_object(vm, obj.to_owned())?),
+                        3 => indent = Some(PyObjectRef::try_from_object(vm, obj.to_owned())?),
+                        4 => key_separator = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
+                        5 => item_separator = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
+                        6 => sort_keys = Some(ArgIntoBool::try_from_object(vm, obj.to_owned())?),
+                        7 => skipkeys = Some(ArgIntoBool::try_from_object(vm, obj.to_owned())?),
+                        8 => allow_nan = Some(ArgIntoBool::try_from_object(vm, obj.to_owned())?),
+                        _ => unreachable!(),
+                    }
+                    Ok(())
+                },
+                vm,
+            )?;
+            let args = EncoderArgs {
+                markers: markers.unwrap(),
+                default: default.unwrap(),
+                encoder: encoder.unwrap(),
+                indent: indent.unwrap(),
+                key_separator: key_separator.unwrap(),
+                item_separator: item_separator.unwrap(),
+                sort_keys: sort_keys.unwrap(),
+                skipkeys: skipkeys.unwrap(),
+                allow_nan: allow_nan.unwrap(),
+            };
+            let payload = Self::py_new(&cls, args, vm)?;
+            payload.into_ref_with_type(vm, cls).map(Into::into)
+        }
 
         fn py_new(
             _cls: &Py<PyType>,

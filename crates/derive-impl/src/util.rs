@@ -906,17 +906,20 @@ pub(crate) fn internal_doc_tokens(
         {
             #args_const
             const BASE: ::rustpython_vm::function::ItemDoc = #doc;
-            if !::rustpython_vm::function::has_signature(ARGS) {
-                if BASE.len == 0 {
-                    match BASE.text {
-                        Some(text) if !text.is_empty() => {
-                            ::rustpython_vm::function::ItemDoc::static_text(text)
-                        }
-                        _ => ::rustpython_vm::function::ItemDoc::NONE,
-                    }
-                } else {
-                    BASE
+            // A rust docstring is used as written when ARGS is not a signature
+            // (`FuncArgs`, or a nameless type with no PARAMS). Database bodies
+            // and items with no rust docstring still get a generated prefix.
+            if !::rustpython_vm::function::has_signature(ARGS)
+                && BASE.len == 0
+                && match BASE.text {
+                    Some(text) => !text.is_empty(),
+                    None => false,
                 }
+            {
+                ::rustpython_vm::function::ItemDoc::static_text(match BASE.text {
+                    Some(text) => text,
+                    None => "",
+                })
             } else if BASE.len != 0 {
                 const N: usize = ::rustpython_vm::function::signature_prefix_len(#py_name, ARGS);
                 const B: [u8; N] =

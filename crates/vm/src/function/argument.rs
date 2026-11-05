@@ -337,13 +337,17 @@ impl FuncArgs {
         }
 
         // A missing required argument is reported before the arguments ahead
-        // of it are converted, for the same reason.
-        if num_given < *arity.start()
-            && !T::CONVERTS_BEFORE_MISSING
-            && let Some(params) = T::PARAMS
-            && let Some(missing) = missing_positional(params, num_given, &self.kwargs)
-        {
-            return Err(missing.into_exception(&arity, num_given, 0, callee, vm));
+        // of it are converted, for the same reason. The walk is skipped when
+        // every required positional argument is present and the type has no
+        // required keyword-only parameter.
+        if num_given < *arity.start() || const { T::HAS_REQUIRED_KEYWORD_ONLY } {
+            let mut pos = 0;
+            let mut skip = instance;
+            if let Err(Some(missing)) =
+                T::missing_from(num_given, &self.kwargs, &mut pos, &mut skip)
+            {
+                return Err(missing.into_exception(&arity, num_given, 0, callee, vm));
+            }
         }
 
         let bound = match T::from_args(vm, &mut self) {
@@ -630,42 +634,70 @@ fn duplicate_name_and_position<'a>(
     walk(params, nargs, kwargs, &mut 0)
 }
 
-/// First required positional parameter that neither a positional argument nor
-/// a keyword fills, as the error binding it would raise.
-fn missing_positional(params: &[Param], nargs: usize, kwargs: &KwArgs) -> Option<ArgumentError> {
-    // `Err(None)` ends the walk without finding one.
-    fn walk(
-        params: &[Param],
-        nargs: usize,
-        kwargs: &KwArgs,
-        pos: &mut usize,
-    ) -> Result<(), Option<ArgumentError>> {
-        for param in params {
-            match param.kind {
-                ParamKind::Flatten(Some(inner)) => walk(inner, nargs, kwargs, pos)?,
-                ParamKind::Flatten(None) => *pos += 1,
-                ParamKind::PositionalOnly => {
-                    *pos += 1;
-                    if *pos > nargs && param.default.is_none() {
-                        return Err(Some(ArgumentError::TooFewArgs));
-                    }
-                }
-                ParamKind::PositionalOrKeyword => {
-                    *pos += 1;
-                    if *pos > nargs && param.default.is_none() && !kwargs.contains_key(param.name) {
-                        return Err(Some(ArgumentError::MissingRequiredArgument {
-                            name: param.name.to_owned(),
-                            pos: *pos,
-                        }));
-                    }
-                }
-                ParamKind::VarPositional => return Err(None),
-                ParamKind::KeywordOnly | ParamKind::VarKeyword => {}
+/// Walk `params` in declaration order looking for the first required argument
+/// that is missing. `Err(None)` ends the walk without a result.
+fn missing_from_params(
+    params: &[Param],
+    nargs: usize,
+    kwargs: &KwArgs,
+    pos: &mut usize,
+) -> Result<(), Option<ArgumentError>> {
+    for param in params {
+        match param.kind {
+            ParamKind::Flatten(Some(inner)) => {
+                missing_from_params(inner, nargs, kwargs, pos)?;
             }
+            ParamKind::Flatten(None) => *pos += 1,
+            ParamKind::PositionalOnly => {
+                *pos += 1;
+                if *pos > nargs && param.default.is_none() {
+                    return Err(Some(ArgumentError::TooFewArgs));
+                }
+            }
+            ParamKind::PositionalOrKeyword => {
+                *pos += 1;
+                if *pos > nargs && param.default.is_none() && !kwargs.contains_key(param.name) {
+                    return Err(Some(ArgumentError::MissingRequiredArgument {
+                        name: param.name.to_owned(),
+                        pos: *pos,
+                    }));
+                }
+            }
+            ParamKind::VarPositional => {}
+            ParamKind::KeywordOnly => {
+                *pos += 1;
+                if param.default.is_none() && !kwargs.contains_key(param.name) {
+                    return Err(Some(ArgumentError::MissingRequiredArgument {
+                        name: param.name.to_owned(),
+                        pos: *pos,
+                    }));
+                }
+            }
+            ParamKind::VarKeyword => {}
         }
-        Ok(())
     }
-    walk(params, nargs, kwargs, &mut 0).err().flatten()
+    Ok(())
+}
+
+/// Whether `params` includes a required keyword-only parameter, including
+/// nested `Flatten(Some(_))` lists.
+#[must_use]
+pub const fn params_have_required_keyword_only(params: Option<&'static [Param]>) -> bool {
+    let Some(params) = params else {
+        return false;
+    };
+    let mut i = 0;
+    while i < params.len() {
+        match params[i].kind {
+            ParamKind::KeywordOnly if params[i].default.is_none() => return true,
+            ParamKind::Flatten(inner) if params_have_required_keyword_only(inner) => {
+                return true;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
 }
 
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
@@ -803,9 +835,44 @@ pub trait FromArgs: Sized {
         None => false,
     };
 
-    /// CPython parses the function with `PyArg_ParseTupleAndKeywords`, which
-    /// converts the arguments it was given before it reports a missing one.
-    const CONVERTS_BEFORE_MISSING: bool = false;
+    /// True when a required keyword-only parameter can be missing even after
+    /// every required positional argument is given. Evaluated from [`PARAMS`]
+    /// unless an implementor overrides it.
+    const HAS_REQUIRED_KEYWORD_ONLY: bool = params_have_required_keyword_only(Self::PARAMS);
+
+    /// Walk this binding looking for the first required argument that is
+    /// missing. `Ok` continues; `Err(Some(_))` is that error; `Err(None)`
+    /// ends the walk without a result (unknown shape).
+    ///
+    /// `skip` leading positional-only slots are the method instance: they do
+    /// not consume a caller-supplied argument or advance `pos`.
+    fn missing_from(
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+        skip: &mut usize,
+    ) -> Result<(), Option<ArgumentError>> {
+        if let Some(params) = Self::PARAMS {
+            missing_from_params(params, nargs, kwargs, pos)
+        } else {
+            let arity = Self::arity();
+            if *arity.start() == 1 && *arity.end() == 1 {
+                if *skip > 0 {
+                    *skip -= 1;
+                    Ok(())
+                } else {
+                    *pos += 1;
+                    if *pos > nargs {
+                        Err(Some(ArgumentError::TooFewArgs))
+                    } else {
+                        Ok(())
+                    }
+                }
+            } else {
+                Err(None)
+            }
+        }
+    }
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
@@ -1236,7 +1303,7 @@ macro_rules! tuple_from_py_func_args {
                 }
             };
 
-            const CONVERTS_BEFORE_MISSING: bool = false $(|| $T::CONVERTS_BEFORE_MISSING)*;
+            const HAS_REQUIRED_KEYWORD_ONLY: bool = false $(|| $T::HAS_REQUIRED_KEYWORD_ONLY)*;
 
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
@@ -1249,6 +1316,16 @@ macro_rules! tuple_from_py_func_args {
                     max = usize::saturating_add(max, end);
                 )+
                 min..=max
+            }
+
+            fn missing_from(
+                nargs: usize,
+                kwargs: &KwArgs,
+                pos: &mut usize,
+                skip: &mut usize,
+            ) -> Result<(), Option<ArgumentError>> {
+                $($T::missing_from(nargs, kwargs, pos, skip)?;)+
+                Ok(())
             }
 
             fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
@@ -1364,29 +1441,53 @@ mod arity_composition_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{FromArgs, OptionalArg};
+    use super::{ArgumentError, FromArgs, KwArgs};
 
+    #[allow(dead_code)]
     #[derive(FromArgs)]
-    #[pyarg(convert_before_missing)]
-    struct ConvertsFirst {
+    struct NamedRequired {
         #[pyarg(any)]
-        a: i32,
-        #[pyarg(any)]
-        b: i32,
+        first: i32,
+        #[pyarg(named)]
+        second: i32,
     }
 
-    #[derive(FromArgs)]
-    struct FlattensConvertsFirst {
-        #[pyarg(flatten)]
-        inner: ConvertsFirst,
+    fn missing<T: FromArgs>(nargs: usize, skip: usize) -> Result<(), Option<ArgumentError>> {
+        let kwargs = KwArgs::default();
+        let mut pos = 0;
+        let mut skip = skip;
+        T::missing_from(nargs, &kwargs, &mut pos, &mut skip)
     }
 
     #[test]
-    fn converts_before_missing_reaches_every_binding() {
-        assert!(ConvertsFirst::CONVERTS_BEFORE_MISSING);
-        assert!(<(ConvertsFirst,)>::CONVERTS_BEFORE_MISSING);
-        assert!(<(OptionalArg<i32>, ConvertsFirst)>::CONVERTS_BEFORE_MISSING);
-        assert!(FlattensConvertsFirst::CONVERTS_BEFORE_MISSING);
-        assert!(!<(OptionalArg<i32>,)>::CONVERTS_BEFORE_MISSING);
+    fn tuple_of_required_positionals_reports_too_few_args() {
+        assert!(matches!(
+            missing::<(i32, i32)>(1, 0),
+            Err(Some(ArgumentError::TooFewArgs))
+        ));
+        assert!(matches!(missing::<(i32, i32)>(2, 0), Ok(())));
+    }
+
+    #[test]
+    fn method_instance_is_skipped_without_advancing_pos() {
+        assert!(matches!(
+            missing::<(i32, i32, i32)>(1, 1),
+            Err(Some(ArgumentError::TooFewArgs))
+        ));
+        assert!(matches!(missing::<(i32, i32, i32)>(2, 1), Ok(())));
+    }
+
+    #[test]
+    fn required_keyword_only_is_visible_at_compile_time() {
+        const { assert!(NamedRequired::HAS_REQUIRED_KEYWORD_ONLY) };
+        const { assert!(<(i32, NamedRequired)>::HAS_REQUIRED_KEYWORD_ONLY) };
+        const { assert!(!<(i32, i32)>::HAS_REQUIRED_KEYWORD_ONLY) };
+        match missing::<NamedRequired>(1, 0) {
+            Err(Some(ArgumentError::MissingRequiredArgument { name, pos })) => {
+                assert_eq!(name, "second");
+                assert_eq!(pos, 2);
+            }
+            _ => panic!("expected a missing required keyword-only argument"),
+        }
     }
 }

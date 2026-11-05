@@ -6,21 +6,21 @@ use crate::{PyObject, PyObjectRef, PyResult, VirtualMachine, common::wtf8::Wtf8}
 /// The keyword list of a `PyArg_ParseTupleAndKeywords` call together with the
 /// `|`, `$` and `:` markers of its format string. Names are matched to the
 /// supplied arguments; converting them is left to the caller.
-pub(crate) struct ArgSpec<'a> {
+pub struct ArgSpec<'a> {
     /// What the `:name` suffix names the function in error messages.
-    pub(crate) fname: &'a str,
+    pub fname: &'a str,
     /// Every parameter name, in `kwlist` order. None may be positional-only.
-    pub(crate) keywords: &'a [&'a str],
+    pub keywords: &'a [&'a str],
     /// Where `|` sits: how many leading parameters are required. Equal to the
     /// parameter count when the format string has no `|`.
-    pub(crate) required: usize,
+    pub required: usize,
     /// Where `$` sits: how many leading parameters may be given positionally.
     /// Equal to the parameter count when the format string has no `$`.
-    pub(crate) max_positional: usize,
+    pub max_positional: usize,
 }
 
 impl ArgSpec<'_> {
-    pub(crate) fn parse(
+    pub fn parse(
         &self,
         args: &FuncArgs,
         vm: &VirtualMachine,
@@ -32,7 +32,7 @@ impl ArgSpec<'_> {
     /// conversion failure is reported ahead of the checks that follow it.
     /// It may retain converted values, avoiding a second conversion after
     /// validation and repeated calls to user-defined conversion methods.
-    pub(crate) fn parse_with(
+    pub fn parse_with(
         &self,
         args: &FuncArgs,
         mut check: impl FnMut(usize, &PyObject, &VirtualMachine) -> PyResult<()>,
