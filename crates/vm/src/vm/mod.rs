@@ -1838,7 +1838,7 @@ impl VirtualMachine {
     /// ```
     pub fn run_pyc_bytes(&self, pyc_bytes: &[u8], scope: Scope) -> PyResult<()> {
         let code = PyCode::from_pyc(pyc_bytes, Some("<pyc_bytes>"), None, None, self)?;
-        self.with_simple_run("<source>", |_module_dict| {
+        self.with_simple_run(&self.ctx.new_str("<source>"), |_module_dict| {
             self.run_code_obj(code, scope)?;
             Ok(())
         })
@@ -1964,10 +1964,10 @@ impl VirtualMachine {
         if let Some(traceback) = e.traceback() {
             if let Some(stderr) = &stderr {
                 let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
             } else {
                 let mut writer = crate::py_io::IoWriter(std::io::stderr());
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
             }
         }
         let exc_type_name = e
@@ -2509,7 +2509,7 @@ impl VirtualMachine {
     /// Run `run` with main scope.
     fn with_simple_run(
         &self,
-        path: &str,
+        path: &Py<PyStr>,
         run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
     ) -> PyResult<()> {
         let module_dict = self.add_main_module()?.dict();
@@ -2517,11 +2517,7 @@ impl VirtualMachine {
         // Track whether we set __file__ (for cleanup)
         let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
         if set_file_name {
-            module_dict.set_item(
-                identifier!(self, __file__),
-                self.ctx.new_str(path).into(),
-                self,
-            )?;
+            module_dict.set_item(identifier!(self, __file__), path.to_owned().into(), self)?;
         }
 
         let result = run(&module_dict);
