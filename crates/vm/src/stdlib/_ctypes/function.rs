@@ -1454,10 +1454,12 @@ fn create_out_buffer(arg_type: &PyObject, vm: &VirtualMachine) -> PyResult<PyObj
     // For POINTER(T) types, create T instance (the pointed-to type)
     if let Some(ty) = arg_type.downcast_ref::<PyType>()
         && ty.fast_issubclass(PyCPointer::static_type())
-        && let Some(stg_info) = ty.stg_info_opt()
-        && let Some(ref proto) = stg_info.proto
     {
-        return proto.as_object().call((), vm);
+        // Constructing the pointed-to type can re-enter pointer type setup.
+        let proto = ty.stg_info_opt().and_then(|info| info.proto.clone());
+        if let Some(proto) = proto {
+            return proto.as_object().call((), vm);
+        }
     }
     // Not a pointer type or no proto, create instance directly
     arg_type.call((), vm)
@@ -1573,6 +1575,14 @@ fn build_callargs_with_paramflags(
             let argument = convert_arg_for_call(converter, arg_type, arg, param_idx, vm)?;
             arguments.push(argument);
         }
+    }
+
+    if !arg_types.is_empty() && args.kwargs.is_empty() && caller_arg_idx < args.args.len() {
+        return Err(vm.new_type_error(format!(
+            "call takes exactly {} arguments ({} given)",
+            caller_arg_idx,
+            args.args.len(),
+        )));
     }
 
     Ok((arguments, out_buffers))
@@ -1848,17 +1858,19 @@ fn build_result(
     }
 
     // Convert the foreign-call result to a Python object
-    let mut result = convert_raw_result(&call_result, call_info, vm)?;
+    let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
-    if let Some(errcheck) = zelf.errcheck.read().as_ref() {
+    // Clone before calling Python so the callback can change errcheck.
+    let errcheck = zelf.errcheck.read().clone();
+    if let Some(errcheck) = errcheck.as_ref() {
         let args_tuple = PyTuple::new_ref(args.args.clone(), &vm.ctx);
         let func_obj = zelf.as_object().to_owned();
         let result_obj = result.clone().unwrap_or_else(|| vm.ctx.none());
         let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
         // Returning the original args tuple requests normal result processing.
         if !checked.is(&args_tuple) {
-            result = Some(checked);
+            return Ok(checked);
         }
     }
 
@@ -1999,20 +2011,25 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(&self) -> Option<PyObjectRef> {
-        self.restype.read().clone()
+    fn restype(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let restype = zelf.restype.read().clone();
+        restype.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_restype_"))
+        })
     }
 
     #[pygetset(setter)]
     fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Must be type, callable, or None
-        if vm.is_none(&value) {
-            *self.restype.write() = None;
-        } else if value.downcast_ref::<PyType>().is_some() || value.is_callable() {
-            *self.restype.write() = Some(value);
-        } else {
+        if !vm.is_none(&value) && value.downcast_ref::<PyType>().is_none() && !value.is_callable() {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
         }
+        // An explicit None requests a void result; it is distinct from unset.
+        let old = self.restype.write().replace(value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
@@ -2029,19 +2046,23 @@ impl Py<PyCFuncPtr> {
 
     #[pygetset(name = "argtypes", setter)]
     fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.is_none(&value) {
-            let mut arg_guard = self.argtypes.write();
-            let mut conv_guard = self.converters.write();
-            *arg_guard = Some(vm.ctx.none());
-            *conv_guard = None;
+        let (new_argtypes, new_converters) = if vm.is_none(&value) {
+            (Some(vm.ctx.none()), None)
         } else {
             let (types, converters) = extract_arg_types_and_converters(&value, vm)?;
             let snapshot = make_converters_snapshot(types, converters, vm);
+            (Some(value), Some(snapshot))
+        };
+        let (old_args, old_conv) = {
             let mut arg_guard = self.argtypes.write();
             let mut conv_guard = self.converters.write();
-            *arg_guard = Some(value);
-            *conv_guard = Some(snapshot);
-        }
+            let old_args = core::mem::replace(&mut *arg_guard, new_argtypes);
+            let old_conv = core::mem::replace(&mut *conv_guard, new_converters);
+            (old_args, old_conv)
+        };
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old_args);
+        drop(old_conv);
         Ok(())
     }
 
@@ -2053,13 +2074,16 @@ impl Py<PyCFuncPtr> {
 
     #[pygetset(setter)]
     fn set_errcheck(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.is_none(&value) {
-            *self.errcheck.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else if value.is_callable() {
-            *self.errcheck.write() = Some(value);
+            Some(value)
         } else {
             return Err(vm.new_type_error("errcheck must be a callable or None"));
-        }
+        };
+        let old = core::mem::replace(&mut *self.errcheck.write(), value);
+        // Finalizers on the previous callable can re-enter this setter.
+        drop(old);
         Ok(())
     }
 

@@ -30,10 +30,12 @@ impl ArgSpec<'_> {
 
     /// `check` runs for each supplied argument in `kwlist` order, so a
     /// conversion failure is reported ahead of the checks that follow it.
+    /// It may retain converted values, avoiding a second conversion after
+    /// validation and repeated calls to user-defined conversion methods.
     pub(crate) fn parse_with(
         &self,
         args: &FuncArgs,
-        check: impl Fn(usize, &PyObject, &VirtualMachine) -> PyResult<()>,
+        mut check: impl FnMut(usize, &PyObject, &VirtualMachine) -> PyResult<()>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<Option<PyObjectRef>>> {
         let fname = self.fname;
@@ -120,5 +122,127 @@ impl ArgSpec<'_> {
             return Err(vm.new_type_error(format!("invalid keyword argument for {fname}()")));
         }
         Ok(slots)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::function::KwArgs;
+
+    const SPEC: ArgSpec<'static> = ArgSpec {
+        fname: "example",
+        keywords: &["first", "second", "third"],
+        required: 1,
+        max_positional: 3,
+    };
+
+    #[test]
+    fn mutable_converters_run_once_in_parameter_order() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let args = FuncArgs::new(
+                vec![vm.ctx.none()],
+                core::iter::once(("third", vm.ctx.none())).collect::<KwArgs>(),
+            );
+            let mut visited = Vec::new();
+            let mut retained = [None, None, None];
+            let parsed = SPEC
+                .parse_with(
+                    &args,
+                    |i, obj, _vm| {
+                        visited.push(i);
+                        retained[i] = Some(obj.to_owned());
+                        Ok(())
+                    },
+                    vm,
+                )
+                .unwrap();
+            assert_eq!(visited, [0, 2]);
+            assert_eq!(parsed.len(), 3);
+            assert!(retained[0].is_some());
+            assert!(retained[1].is_none());
+            assert!(retained[2].is_some());
+        });
+    }
+
+    #[test]
+    fn supplied_values_convert_before_missing_arguments() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let spec = ArgSpec {
+                required: 2,
+                ..SPEC
+            };
+            let args = FuncArgs::from(vec![vm.ctx.none()]);
+            let mut visited = Vec::new();
+            let result = spec.parse_with(
+                &args,
+                |i, _obj, _vm| {
+                    visited.push(i);
+                    Ok(())
+                },
+                vm,
+            );
+            assert!(result.is_err());
+            assert_eq!(visited, [0]);
+        });
+    }
+
+    #[test]
+    fn supplied_values_convert_before_leftover_keywords() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for keyword in ["first", "unexpected"] {
+                let args = FuncArgs::new(
+                    vec![vm.ctx.none()],
+                    core::iter::once((keyword, vm.ctx.none())).collect::<KwArgs>(),
+                );
+                let mut visited = Vec::new();
+                let result = SPEC.parse_with(
+                    &args,
+                    |i, _obj, _vm| {
+                        visited.push(i);
+                        Ok(())
+                    },
+                    vm,
+                );
+                assert!(result.is_err());
+                assert_eq!(visited, [0]);
+            }
+        });
+    }
+
+    #[test]
+    fn total_argument_overflow_does_not_run_converters() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let args = FuncArgs::from(vec![vm.ctx.none(); 4]);
+            let mut calls = 0;
+            let result = SPEC.parse_with(
+                &args,
+                |_, _obj, _vm| {
+                    calls += 1;
+                    Ok(())
+                },
+                vm,
+            );
+            assert!(result.is_err());
+            assert_eq!(calls, 0);
+        });
+    }
+
+    #[test]
+    fn conversion_failure_stops_before_later_parameters() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let args = FuncArgs::from(vec![vm.ctx.none(); 3]);
+            let mut visited = Vec::new();
+            let result = SPEC.parse_with(
+                &args,
+                |i, _obj, vm| {
+                    visited.push(i);
+                    Err(vm.new_value_error("conversion failed"))
+                },
+                vm,
+            );
+            assert!(result.is_err());
+            assert_eq!(visited, [0]);
+        });
     }
 }

@@ -6643,7 +6643,8 @@ mod winconsoleio {
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
-        function::{ArgBytesLike, ArgMemoryBuffer},
+        exceptions::nul_char_error,
+        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6717,8 +6718,8 @@ mod winconsoleio {
     pub(super) struct WindowsConsoleIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
-        #[pyarg(any, default)]
-        mode: Option<PyUtf8StrRef>,
+        #[pyarg(any, optional, py_default = "'r'")]
+        mode: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(any, default = true)]
         closefd: bool,
         #[allow(dead_code)]
@@ -6730,6 +6731,19 @@ mod winconsoleio {
         type Args = WindowsConsoleIOArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let mode_str = match &args.mode {
+                OptionalArg::Present(Some(mode)) => mode.as_str(),
+                OptionalArg::Present(None) => {
+                    return Err(vm.new_type_error(
+                        "_WindowsConsoleIO() argument 'mode' must be str, not None",
+                    ));
+                }
+                OptionalArg::Missing => "r",
+            };
+            if mode_str.contains('\0') {
+                return Err(nul_char_error(vm));
+            }
+
             let nameobj = args.name;
 
             if zelf.fd.load() >= 0 {
@@ -6760,8 +6774,6 @@ mod winconsoleio {
             }
 
             // Parse mode
-            let mode_str: &str = args.mode.as_deref().map_or("r", |s| s.as_str());
-
             let mut rwa = false;
             let mut readable = false;
             let mut writable = false;

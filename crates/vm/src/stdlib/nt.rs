@@ -330,8 +330,9 @@ pub(crate) mod module {
 
     // return _testFileType(path, PY_IFDIR)
     #[pyfunction]
-    fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
+    fn _path_isdir(path: PyObjectRef, vm: &VirtualMachine) -> bool {
+        PathArg { path }
+            .to_path_or_fd(vm)
             .is_some_and(|p| _test_file_type(&p, PY_IFDIR))
     }
 
@@ -378,8 +379,8 @@ pub(crate) mod module {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
-        let (pid, status) = host_nt::cwait(pid, opt).map_err(|_| vm.new_last_errno_error())?;
+    fn waitpid(pid: intptr_t, options: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
+        let (pid, status) = host_nt::cwait(pid, options).map_err(|_| vm.new_last_errno_error())?;
         // Cast to unsigned to handle large exit codes (like 0xC000013A)
         // then shift left by 8 to match POSIX waitpid format
         let ustatus = (status as u32) as u64;
@@ -393,8 +394,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_nt::kill(pid as u32, sig as u32).map_err(|err| err.to_pyexception(vm))
+    fn kill(pid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_nt::kill(pid as u32, signal as u32).map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]

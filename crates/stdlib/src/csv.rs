@@ -6,7 +6,7 @@ mod _csv {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyInt, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyBaseExceptionRef, PyInt, PyStr, PyStrRef, PyType, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
         protocol::{PyIter, PyIterReturn, PyNumber},
         types::{Constructor, IterNext, Iterable, SelfIter},
@@ -49,7 +49,7 @@ mod _csv {
         )
     }
 
-    static GLOBAL_HASHMAP: LazyLock<Mutex<HashMap<String, PyDialect>>> = LazyLock::new(|| {
+    static GLOBAL_HASHMAP: LazyLock<Mutex<HashMap<Wtf8Buf, PyDialect>>> = LazyLock::new(|| {
         let m = HashMap::new();
         Mutex::new(m)
     });
@@ -204,21 +204,19 @@ mod _csv {
             .downcast::<PyStr>()
             .map_err(|_| vm.new_type_error("argument 0 must be a string"))?;
 
-        let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
-
         let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;
         GLOBAL_HASHMAP
             .lock()
-            .insert(name.as_str().to_owned(), dialect);
+            .insert(name.as_wtf8().to_owned(), dialect);
 
         Ok(())
     }
 
     // Hash a non-str name as the dict lookup would; only str names are registered.
-    fn registry_key(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+    fn registry_key(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         match name.downcast::<PyStr>() {
-            Ok(name) => name.try_into_utf8(vm),
+            Ok(name) => Ok(name),
             Err(obj) => {
                 obj.hash(vm)?;
                 Err(new_csv_error(vm, "unknown dialect"))
@@ -229,7 +227,7 @@ mod _csv {
     #[pyfunction]
     fn get_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<PyDialect> {
         let name = registry_key(name, vm)?;
-        let dialect = GLOBAL_HASHMAP.lock().get(name.as_str()).cloned();
+        let dialect = GLOBAL_HASHMAP.lock().get(name.as_wtf8()).cloned();
         dialect.ok_or_else(|| new_csv_error(vm, "unknown dialect"))
     }
 
@@ -240,7 +238,7 @@ mod _csv {
             return Err(new_csv_error(vm, "unknown dialect"));
         }
         let name = registry_key(name, vm)?;
-        let removed = GLOBAL_HASHMAP.lock().remove(name.as_str());
+        let removed = GLOBAL_HASHMAP.lock().remove(name.as_wtf8());
 
         if removed.is_some() {
             return Ok(());
@@ -313,7 +311,7 @@ mod _csv {
 
         Ok(Writer {
             write,
-            state: PyMutex::new(()),
+            operation: PyOperation::new(vm),
             dialect,
         })
     }
@@ -1012,7 +1010,7 @@ mod _csv {
     pub(super) struct Writer {
         write: PyObjectRef,
         #[pytraverse(skip)]
-        state: PyMutex<()>,
+        operation: PyOperation,
         #[pytraverse(skip)]
         dialect: PyDialect,
     }
@@ -1099,15 +1097,26 @@ mod _csv {
 
         #[pymethod]
         fn writerow(zelf: &Py<Self>, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let _state = zelf.state.lock();
-            let row: ArgIterable =
-                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
-                    new_csv_error(
-                        vm,
-                        format!("'{}' object is not iterable", row.class().name()),
-                    )
-                })?;
-            let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+            zelf.operation
+                .with(vm, || Self::writerow_impl(zelf, &row, vm))
+        }
+
+        fn writerow_impl(zelf: &Py<Self>, row: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let iter = row.get_iter(vm).map_err(|error| {
+                if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    let message = {
+                        let name = row.class().slot_name();
+                        let end = name.floor_char_boundary(name.len().min(200));
+                        format!("iterable expected, not {}", &name[..end])
+                    };
+                    new_csv_error(vm, message)
+                } else {
+                    error
+                }
+            })?;
+            let fields = iter
+                .into_iter::<PyObjectRef>(vm)
+                .collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
             let mut output = String::new();
 

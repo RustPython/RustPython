@@ -65,6 +65,14 @@ impl PySet {
     }
 
     #[must_use]
+    pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef)> {
+        self.inner
+            .content
+            .next_entry(position)
+            .map(|(next, item, ())| (next, item))
+    }
+
+    #[must_use]
     pub fn elements(&self) -> Vec<PyObjectRef> {
         self.inner.elements()
     }

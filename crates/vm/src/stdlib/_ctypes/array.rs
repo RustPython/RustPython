@@ -338,35 +338,8 @@ impl PyCArrayType {
     }
 
     #[pymethod]
-    fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // zelf is the array type class that from_param was called on
-        let cls = zelf
-            .downcast::<PyType>()
-            .map_err(|_| vm.new_type_error("from_param: expected a type"))?;
-
-        // 1. If already an instance of the requested type, return it
-        if value.is_instance(cls.as_object(), vm)? {
-            return Ok(value);
-        }
-
-        // 2. Check for CArgObject (PyCArg_CheckExact)
-        if let Some(carg) = value.downcast_ref::<super::_ctypes::CArgObject>() {
-            // Check if the wrapped object is an instance of the requested type
-            if carg.obj.is_instance(cls.as_object(), vm)? {
-                return Ok(value); // Return the CArgObject as-is
-            }
-        }
-
-        // 3. Check for _as_parameter_ attribute
-        if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
-        }
-
-        Err(vm.new_type_error(format!(
-            "expected {} instance instead of {}",
-            cls.name(),
-            value.class().name()
-        )))
+    fn from_param(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        PyCData::from_param(zelf, value, vm)
     }
 }
 

@@ -474,6 +474,11 @@ impl PySequence<'_> {
             return f(self, target, vm);
         }
 
+        self.iter_contains(target, vm)
+    }
+
+    /// Search without dispatching the sequence's contains slot again.
+    pub(crate) fn iter_contains(self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         // CPython parity: when neither __contains__ nor __iter__ is available,
         // `PySequence_Contains` rewords the get_iter TypeError into the
         // membership-test wording. Other exception types propagate unchanged.

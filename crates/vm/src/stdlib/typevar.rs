@@ -6,13 +6,78 @@ pub use typevar::*;
 pub(crate) mod typevar {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
+        builtins::{PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
-        function::{FuncArgs, PyComparisonValue},
+        function::{FuncArgs, OptionalArg, PosArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
     };
+
+    // Bind raw objects first: Clinic rejects the complete argument layout before
+    // checking the name or invoking any variance flag's __bool__ method.
+    // Keep unused raw fields alive in slot_new through __module__ setup too.
+    #[derive(FromArgs)]
+    struct TypeParameterArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(named, optional)]
+        bound: OptionalArg,
+        #[pyarg(named, optional)]
+        default: OptionalArg,
+        #[pyarg(named, optional)]
+        covariant: OptionalArg,
+        #[pyarg(named, optional)]
+        contravariant: OptionalArg,
+        #[pyarg(named, optional)]
+        infer_variance: OptionalArg,
+    }
+
+    #[derive(FromArgs)]
+    struct TypeVarArgs {
+        #[pyarg(flatten)]
+        parameter: TypeParameterArgs,
+        #[pyarg(flatten)]
+        constraints: PosArgs,
+    }
+
+    struct Variance {
+        covariant: bool,
+        contravariant: bool,
+        infer_variance: bool,
+    }
+
+    impl TypeParameterArgs {
+        fn variance(&self, constructor: &str, vm: &VirtualMachine) -> PyResult<Variance> {
+            if !self.name.downcastable::<PyStr>() {
+                return Err(vm.new_type_error(format!(
+                    "{constructor}() argument 'name' must be str, not {}",
+                    self.name.class().name()
+                )));
+            }
+
+            // Borrow the raw flags so their finalizers cannot run between the
+            // conversions or before the constructor has finished using them.
+            let truth = |value: &OptionalArg| match value {
+                OptionalArg::Present(value) => value.try_to_bool(vm),
+                OptionalArg::Missing => Ok(false),
+            };
+            let covariant = truth(&self.covariant)?;
+            let contravariant = truth(&self.contravariant)?;
+            let infer_variance = truth(&self.infer_variance)?;
+            if covariant && contravariant {
+                return Err(vm.new_value_error("Bivariant types are not supported."));
+            }
+            if infer_variance && (covariant || contravariant) {
+                return Err(vm.new_value_error("Variance cannot be specified with infer_variance."));
+            }
+            Ok(Variance {
+                covariant,
+                contravariant,
+                infer_variance,
+            })
+        }
+    }
 
     fn type_check(arg: PyObjectRef, msg: &str, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Calling typing.py here leads to bootstrapping problems
@@ -301,115 +366,57 @@ pub(crate) mod typevar {
         type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let typevar = <Self as Constructor>::py_new(&cls, args, vm)?;
+            let TypeVarArgs {
+                parameter,
+                constraints,
+            } = args.bind_for(vm, "typevar")?;
+            let Variance {
+                covariant,
+                contravariant,
+                infer_variance,
+            } = parameter.variance("typevar", vm)?;
+
+            // An explicit None is the same as an omitted bound. Check a real
+            // bound before reporting constraint count or bound conflicts.
+            let bound = match &parameter.bound {
+                OptionalArg::Present(bound) if !vm.is_none(bound) => {
+                    Some(type_check(bound.clone(), "Bound must be a type.", vm)?)
+                }
+                _ => None,
+            };
+            let constraints = match constraints.as_ref().len() {
+                0 => vm.ctx.none(),
+                1 => return Err(vm.new_type_error("A single constraint is not allowed")),
+                _ if bound.is_some() => {
+                    return Err(vm.new_type_error("Constraints cannot be combined with bound=..."));
+                }
+                _ => vm.ctx.new_tuple(constraints.into_vec()).into(),
+            };
+            let default_value = parameter
+                .default
+                .unwrap_or_else(|| vm.ctx.typing_no_default.clone().into());
+
+            let typevar = Self {
+                name: parameter.name,
+                bound: PyMutex::new(bound.unwrap_or_else(|| vm.ctx.none())),
+                evaluate_bound: vm.ctx.none(),
+                constraints: PyMutex::new(constraints),
+                evaluate_constraints: vm.ctx.none(),
+                default_value: PyMutex::new(default_value),
+                evaluate_default: PyMutex::new(vm.ctx.none()),
+                covariant,
+                contravariant,
+                infer_variance,
+            };
+
             let obj = typevar.into_ref_with_type(vm, cls)?;
             let obj_ref: PyObjectRef = obj.into();
             set_module_from_caller(&obj_ref, vm)?;
             Ok(obj_ref)
         }
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let mut kwargs = args.kwargs;
-            // Parse arguments manually
-            let (name, constraints) = if args.args.is_empty() {
-                // Check if name is provided as keyword argument
-                if let Some(name) = kwargs.swap_remove("name") {
-                    (name, vec![])
-                } else {
-                    return Err(
-                        vm.new_type_error("TypeVar() missing required argument: 'name' (pos 1)")
-                    );
-                }
-            } else if args.args.len() == 1 {
-                (args.args[0].clone(), vec![])
-            } else {
-                let name = args.args[0].clone();
-                let constraints = args.args[1..].to_vec();
-                (name, constraints)
-            };
-
-            let bound = kwargs.swap_remove("bound");
-            let covariant = kwargs
-                .swap_remove("covariant")
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let contravariant = kwargs
-                .swap_remove("contravariant")
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let infer_variance = kwargs
-                .swap_remove("infer_variance")
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let default = kwargs.swap_remove("default");
-
-            // Check for unexpected keyword arguments
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(
-                    vm.new_unexpected_keyword_type_error(Some("typevar"), &invalid_key.to_string())
-                );
-            }
-
-            // Check for invalid combinations
-            if covariant && contravariant {
-                return Err(vm.new_value_error("Bivariant type variables are not supported."));
-            }
-
-            if infer_variance && (covariant || contravariant) {
-                return Err(vm.new_value_error("Variance cannot be specified with infer_variance"));
-            }
-
-            // Handle constraints and bound
-            let (constraints_obj, evaluate_constraints) = if !constraints.is_empty() {
-                // Check for single constraint
-                if constraints.len() == 1 {
-                    return Err(vm.new_type_error("A single constraint is not allowed"));
-                }
-                if bound.is_some() {
-                    return Err(vm.new_type_error("Constraints cannot be used with bound"));
-                }
-                let constraints_tuple = vm.ctx.new_tuple(constraints);
-                (constraints_tuple.into(), vm.ctx.none())
-            } else {
-                (vm.ctx.none(), vm.ctx.none())
-            };
-
-            // Handle bound
-            let (bound_obj, evaluate_bound) = if let Some(bound) = bound {
-                if vm.is_none(&bound) {
-                    (vm.ctx.none(), vm.ctx.none())
-                } else {
-                    // Type check the bound
-                    let bound = type_check(bound, "Bound must be a type.", vm)?;
-                    (bound, vm.ctx.none())
-                }
-            } else {
-                (vm.ctx.none(), vm.ctx.none())
-            };
-
-            // Handle default value
-            let (default_value, evaluate_default) = if let Some(default) = default {
-                (default, vm.ctx.none())
-            } else {
-                // If no default provided, use NoDefault singleton
-                (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
-            };
-
-            Ok(Self {
-                name,
-                bound: PyMutex::new(bound_obj),
-                evaluate_bound,
-                constraints: PyMutex::new(constraints_obj),
-                evaluate_constraints,
-                default_value: PyMutex::new(default_value),
-                evaluate_default: PyMutex::new(evaluate_default),
-                covariant,
-                contravariant,
-                infer_variance,
-            })
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
         }
     }
 
@@ -566,64 +573,19 @@ pub(crate) mod typevar {
         type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let mut kwargs = args.kwargs;
-            // Parse arguments manually
-            let name = if args.args.is_empty() {
-                // Check if name is provided as keyword argument
-                if let Some(name) = kwargs.swap_remove("name") {
-                    name
-                } else {
-                    return Err(
-                        vm.new_type_error("ParamSpec() missing required argument: 'name' (pos 1)")
-                    );
-                }
-            } else if args.args.len() == 1 {
-                args.args[0].clone()
-            } else {
-                return Err(vm.new_type_error("ParamSpec() takes at most 1 positional argument"));
-            };
-
-            let bound = kwargs.swap_remove("bound");
-            let covariant = kwargs
-                .swap_remove("covariant")
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let contravariant = kwargs
-                .swap_remove("contravariant")
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let infer_variance = kwargs
-                .swap_remove("infer_variance")
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let default = kwargs.swap_remove("default");
-
-            // Check for unexpected keyword arguments
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_unexpected_keyword_type_error(
-                    Some("paramspec"),
-                    &invalid_key.to_string(),
-                ));
-            }
-
-            // Check for invalid combinations
-            if covariant && contravariant {
-                return Err(vm.new_value_error("Bivariant type variables are not supported."));
-            }
-
-            if infer_variance && (covariant || contravariant) {
-                return Err(vm.new_value_error("Variance cannot be specified with infer_variance"));
-            }
-
-            // Handle default value
-            let default_value = default.unwrap_or_else(|| vm.ctx.typing_no_default.clone().into());
+            let args: TypeParameterArgs = args.bind_for(vm, "paramspec")?;
+            let Variance {
+                covariant,
+                contravariant,
+                infer_variance,
+            } = args.variance("paramspec", vm)?;
+            let default_value = args
+                .default
+                .unwrap_or_else(|| vm.ctx.typing_no_default.clone().into());
 
             let paramspec = Self {
-                name,
-                bound,
+                name: args.name,
+                bound: args.bound.into_option(),
                 default_value: PyMutex::new(default_value),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant,
@@ -779,82 +741,21 @@ pub(crate) mod typevar {
         type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let mut kwargs = args.kwargs;
-            // Parse arguments manually
-            let name = if args.args.is_empty() {
-                // Check if name is provided as keyword argument
-                if let Some(name) = kwargs.swap_remove("name") {
-                    name
-                } else {
-                    return Err(vm.new_type_error(
-                        "TypeVarTuple() missing required argument: 'name' (pos 1)",
-                    ));
-                }
-            } else if args.args.len() == 1 {
-                if kwargs.contains_key("name") {
-                    return Err(vm.new_type_error(
-                        "argument for typevartuple() given by name ('name') and position (1)",
-                    ));
-                }
-                args.args[0].clone()
-            } else {
-                return Err(vm.new_type_error("TypeVarTuple() takes at most 1 positional argument"));
-            };
-
-            let bound = kwargs.swap_remove("bound");
-            let covariant = kwargs.swap_remove("covariant");
-            let contravariant = kwargs.swap_remove("contravariant");
-            let infer_variance = kwargs.swap_remove("infer_variance");
-            let default = kwargs.swap_remove("default");
-
-            // Check for unexpected keyword arguments
-            if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_unexpected_keyword_type_error(
-                    Some("typevartuple"),
-                    &invalid_key.to_string(),
-                ));
-            }
-
-            // Clinic validates the argument layout and name before invoking __bool__.
-            if !name.downcastable::<crate::builtins::PyStr>() {
-                return Err(vm.new_type_error(format!(
-                    "typevartuple() argument 'name' must be str, not {}",
-                    name.class().name()
-                )));
-            }
-            let covariant = covariant
-                .map(|value| value.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let contravariant = contravariant
-                .map(|value| value.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-            let infer_variance = infer_variance
-                .map(|value| value.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false);
-
-            if covariant && contravariant {
-                return Err(vm.new_value_error("Bivariant types are not supported."));
-            }
-            if infer_variance && (covariant || contravariant) {
-                return Err(vm.new_value_error("Variance cannot be specified with infer_variance."));
-            }
-
-            // Handle default value
-            let (default_value, evaluate_default) = if let Some(default) = default {
-                (default, vm.ctx.none())
-            } else {
-                // If no default provided, use NoDefault singleton
-                (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
-            };
+            let args: TypeParameterArgs = args.bind_for(vm, "typevartuple")?;
+            let Variance {
+                covariant,
+                contravariant,
+                infer_variance,
+            } = args.variance("typevartuple", vm)?;
+            let default_value = args
+                .default
+                .unwrap_or_else(|| vm.ctx.typing_no_default.clone().into());
 
             let typevartuple = Self {
-                name,
-                bound,
+                name: args.name,
+                bound: args.bound.into_option(),
                 default_value: PyMutex::new(default_value),
-                evaluate_default: PyMutex::new(evaluate_default),
+                evaluate_default: PyMutex::new(vm.ctx.none()),
                 covariant,
                 contravariant,
                 infer_variance,

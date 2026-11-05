@@ -27,7 +27,7 @@ pub(crate) mod _elementtree {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
         builtins::{PyAnyDict, PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
-        function::{FuncArgs, PySetterValue},
+        function::{ArgBytesOrStr, FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{NameElement, SequenceIndex, SliceableSequenceOp},
         types::{
@@ -35,7 +35,7 @@ pub(crate) mod _elementtree {
             IterNext, Iterable, Representable, SelfIter,
         },
     };
-    use rustpython_common::lock::PyRwLock;
+    use rustpython_common::{lock::PyRwLock, wtf8::Wtf8Buf};
 
     // The per-module bookkeeping `_elementtree.c` keeps in its
     // `elementtreestate`: the `Comment`/`ProcessingInstruction` factories
@@ -311,11 +311,15 @@ pub(crate) mod _elementtree {
         if obj.downcastable::<PyElement>() {
             Ok(())
         } else {
-            Err(vm.new_type_error(format!(
-                "expected an Element, not \"{}\"",
-                obj.class().name()
-            )))
+            reject_element(obj, vm)
         }
+    }
+
+    fn reject_element(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_type_error(format!(
+            "expected an Element, not \"{}\"",
+            obj.class().name()
+        )))
     }
 
     fn as_element<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<PyElement>> {
@@ -465,16 +469,20 @@ pub(crate) mod _elementtree {
             let attrib = attrib.filter(|d| !d.is_empty()).map(Into::into);
             let _recycle = {
                 let mut inner = zelf.inner.write();
-                let old_attrib = if attrib.is_some() {
-                    core::mem::replace(&mut inner.attrib, attrib)
+                let (old_attrib, old_children) = if let Some(attrib) = attrib {
+                    (
+                        inner.attrib.replace(attrib),
+                        core::mem::take(&mut inner.children),
+                    )
                 } else {
-                    None
+                    (None, Vec::new())
                 };
                 (
                     core::mem::replace(&mut inner.tag, tag),
                     core::mem::replace(&mut inner.text, Joined::plain(vm.ctx.none())),
                     core::mem::replace(&mut inner.tail, Joined::plain(vm.ctx.none())),
                     old_attrib,
+                    old_children,
                 )
             };
             Ok(())
@@ -562,10 +570,20 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn extend(zelf: &Py<Self>, elements: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let items: Vec<PyObjectRef> = elements.try_to_value(vm)?;
-            for element in &items {
-                check_element(element, vm)?;
+            // Keep the bulk path while committing valid items before an error.
+            let valid_prefix = items
+                .iter()
+                .position(|element| !element.downcastable::<Self>())
+                .unwrap_or(items.len());
+            let mut items = items.into_iter();
+            zelf.inner
+                .write()
+                .children
+                .extend(items.by_ref().take(valid_prefix));
+            for element in items {
+                check_element(&element, vm)?;
+                zelf.inner.write().children.push(element);
             }
-            zelf.inner.write().children.extend(items);
             Ok(())
         }
 
@@ -697,7 +715,7 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn makeelement(
-            zelf: &Py<Self>,
+            _zelf: &Py<Self>,
             tag: PyObjectRef,
             attrib: PyObjectRef,
             vm: &VirtualMachine,
@@ -709,7 +727,7 @@ pub(crate) mod _elementtree {
                 ))
             })?;
             let attrib = attrib.copy().into_ref(&vm.ctx);
-            create_element(zelf.class().to_owned(), tag, Some(attrib.into()), vm)
+            Ok(create_element(tag, Some(attrib.into()), vm))
         }
 
         #[pymethod]
@@ -807,10 +825,9 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn iter(zelf: PyRef<Self>, args: IterArgs, vm: &VirtualMachine) -> PyElementIter {
             let tag = args.tag.unwrap_or_else(|| vm.ctx.none());
-            let tag = match tag.downcast_ref::<PyStr>() {
-                Some(s) if s.as_wtf8() == "*" => vm.ctx.none(),
-                _ => tag,
-            };
+            let wildcard =
+                ArgBytesOrStr::with_object_ref(&tag, |bytes| bytes == b"*").unwrap_or(false);
+            let tag = if wildcard { vm.ctx.none() } else { tag };
             PyElementIter::new(zelf, tag, false)
         }
 
@@ -837,7 +854,7 @@ pub(crate) mod _elementtree {
                     inner.children.clone(),
                 )
             };
-            let new = create_element(zelf.class().to_owned(), tag, attrib, vm)?;
+            let new = create_element(tag, attrib, vm);
             {
                 let elem = as_element(&new, vm)?;
                 let mut inner = elem.inner.write();
@@ -883,12 +900,21 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let dict = state.downcast_ref::<PyDict>().ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "Don't know how to unpickle \"{}\" as an Element",
-                    state.repr(vm).map(|s| s.to_string()).unwrap_or_default()
-                ))
-            })?;
+            let Some(dict) = state
+                .downcast_ref::<PyDict>()
+                .filter(|_| state.class().is(vm.ctx.types.dict_type))
+            else {
+                let repr = state.repr(vm)?;
+                let end = repr
+                    .as_wtf8()
+                    .code_point_indices()
+                    .nth(200)
+                    .map_or_else(|| repr.byte_len(), |(offset, _)| offset);
+                let mut message = Wtf8Buf::from("Don't know how to unpickle \"");
+                message.push_wtf8(&repr.as_wtf8()[..end]);
+                message.push_str("\" as an Element");
+                return Err(vm.new_type_error(message));
+            };
             let tag = dict.get_item_opt("tag", vm)?;
             let attrib = dict.get_item_opt("attrib", vm)?;
             let text = dict.get_item_opt("text", vm)?;
@@ -925,14 +951,14 @@ pub(crate) mod _elementtree {
             };
             let new_text = match text {
                 Some(text) => {
-                    let pending = text.downcastable::<PyList>();
+                    let pending = text.class().is(vm.ctx.types.list_type);
                     Joined { obj: text, pending }
                 }
                 None => Joined::plain(vm.ctx.none()),
             };
             let new_tail = match tail {
                 Some(tail) => {
-                    let pending = tail.downcastable::<PyList>();
+                    let pending = tail.class().is(vm.ctx.types.list_type);
                     Joined { obj: tail, pending }
                 }
                 None => Joined::plain(vm.ctx.none()),
@@ -984,40 +1010,49 @@ pub(crate) mod _elementtree {
             let mut recycle: Vec<PyObjectRef> = Vec::new();
             match sequence_index(vm, needle)? {
                 SequenceIndex::Int(i) => {
-                    check_element(&value, vm)?;
                     let mut inner = self.inner.write();
-                    let pos = inner
-                        .children
-                        .wrap_index(i)
-                        .ok_or_else(|| vm.new_index_error("child assignment index out of range"))?;
+                    let Some(pos) = inner.children.wrap_index(i) else {
+                        drop(inner);
+                        return Err(vm.new_index_error("child assignment index out of range"));
+                    };
+                    if !value.downcastable::<PyElement>() {
+                        drop(inner);
+                        return reject_element(&value, vm);
+                    }
                     recycle.push(core::mem::replace(&mut inner.children[pos], value));
                     Ok(())
                 }
                 SequenceIndex::Slice(slice) => {
                     let items: Vec<PyObjectRef> = value.try_to_value(vm)?;
-                    for item in &items {
-                        check_element(item, vm)?;
-                    }
+                    // This check cannot call Python. Delay reporting it until
+                    // after the extended-slice length check.
+                    let invalid = items.iter().find(|item| !item.downcastable::<PyElement>());
                     let mut inner = self.inner.write();
                     let (range, step, slice_len) = slice.adjust_indices(inner.children.len());
+                    if step != 1 && slice_len != items.len() {
+                        let new_len = items.len();
+                        drop(inner);
+                        drop(items);
+                        return Err(vm.new_value_error(format!(
+                            "attempt to assign sequence of size {} to extended slice of size {}",
+                            new_len, slice_len
+                        )));
+                    }
+                    if let Some(item) = invalid {
+                        drop(inner);
+                        return reject_element(item, vm);
+                    }
                     if step == 1 {
                         recycle.extend(inner.children.splice(range, items));
-                        Ok(())
-                    } else if slice_len == items.len() {
+                    } else {
                         let iter = crate::vm::sliceable::SaturatedSliceIter::from_adjust_indices(
                             range, step, slice_len,
                         );
                         for (pos, item) in iter.zip(items) {
                             recycle.push(core::mem::replace(&mut inner.children[pos], item));
                         }
-                        Ok(())
-                    } else {
-                        Err(vm.new_value_error(format!(
-                            "attempt to assign sequence of size {} to extended slice of size {}",
-                            items.len(),
-                            slice_len
-                        )))
                     }
+                    Ok(())
                 }
             }
         }
@@ -1068,16 +1103,14 @@ pub(crate) mod _elementtree {
             .map_err(|_| vm.new_type_error("element indices must be integers"))
     }
 
-    /// Instantiate `cls` (which may be an `Element` subclass) directly,
-    /// bypassing `__init__`, the way `create_new_element` does.
+    /// Create a base Element directly, bypassing `__init__`, like CPython's
+    /// `create_new_element`.
     fn create_element(
-        cls: PyTypeRef,
         tag: PyObjectRef,
         attrib: Option<PyRef<PyAnyDict>>,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        let element = PyElement::new(tag, attrib, vm);
-        Ok(element.into_ref_with_type(vm, cls)?.into())
+    ) -> PyObjectRef {
+        PyElement::new(tag, attrib, vm).into_ref(&vm.ctx).into()
     }
 
     fn deepcopy_obj(obj: &PyObject, memo: &Py<PyDict>, vm: &VirtualMachine) -> PyResult {
@@ -1133,7 +1166,7 @@ pub(crate) mod _elementtree {
             }
             None => None,
         };
-        let new = create_element(zelf.class().to_owned(), tag, attrib, vm)?;
+        let new = create_element(tag, attrib, vm);
         let elem = as_element(&new, vm)?;
         let text = deepcopy_obj(&text, memo, vm)?;
         let tail = deepcopy_obj(&tail, memo, vm)?;
@@ -1172,30 +1205,26 @@ pub(crate) mod _elementtree {
     /// plain tag, in which case `find`/`findall` must go through
     /// `ElementPath`?
     fn check_path(tag: &PyObject) -> bool {
-        let bytes = if let Some(s) = tag.downcast_ref::<PyStr>() {
-            s.as_bytes()
-        } else if let Some(b) = tag.downcast_ref::<crate::vm::builtins::PyBytes>() {
-            b.as_bytes()
-        } else {
-            // Unknown type; might be a path expression.
-            return true;
-        };
-        if bytes.len() >= 3
-            && bytes[0] == b'{'
-            && (bytes[1] == b'}' || (bytes[1] == b'*' && bytes[2] == b'}'))
-        {
-            return true;
-        }
-        let mut check = true;
-        for &ch in bytes {
-            match ch {
-                b'{' => check = false,
-                b'}' => check = true,
-                b'/' | b'*' | b'[' | b'@' | b'.' if check => return true,
-                _ => {}
+        ArgBytesOrStr::with_object_ref(tag, |bytes| {
+            if bytes.len() >= 3
+                && bytes[0] == b'{'
+                && (bytes[1] == b'}' || (bytes[1] == b'*' && bytes[2] == b'}'))
+            {
+                return true;
             }
-        }
-        false
+            let mut check = true;
+            for &ch in bytes {
+                match ch {
+                    b'{' => check = false,
+                    b'}' => check = true,
+                    b'/' | b'*' | b'[' | b'@' | b'.' if check => return true,
+                    _ => {}
+                }
+            }
+            false
+        })
+        // Unknown type; might be a path expression.
+        .unwrap_or(true)
     }
 
     impl AsMapping for PyElement {
@@ -1232,19 +1261,21 @@ pub(crate) mod _elementtree {
                 }),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyElement::sequence_downcast(seq);
-                    let recycle = if let Some(value) = value {
-                        check_element(&value, vm)?;
+                    let recycle = {
                         let mut inner = zelf.inner.write();
-                        let pos = inner.children.wrap_index(i).ok_or_else(|| {
-                            vm.new_index_error("child assignment index out of range")
-                        })?;
-                        core::mem::replace(&mut inner.children[pos], value)
-                    } else {
-                        let mut inner = zelf.inner.write();
-                        let pos = inner.children.wrap_index(i).ok_or_else(|| {
-                            vm.new_index_error("child assignment index out of range")
-                        })?;
-                        inner.children.remove(pos)
+                        let Some(pos) = inner.children.wrap_index(i) else {
+                            drop(inner);
+                            return Err(vm.new_index_error("child assignment index out of range"));
+                        };
+                        if let Some(value) = value {
+                            if !value.downcastable::<PyElement>() {
+                                drop(inner);
+                                return reject_element(&value, vm);
+                            }
+                            core::mem::replace(&mut inner.children[pos], value)
+                        } else {
+                            inner.children.remove(pos)
+                        }
                     };
                     drop(recycle);
                     Ok(())
@@ -1304,7 +1335,7 @@ pub(crate) mod _elementtree {
             ))
         })?;
         let (tag, attrib) = parse_attrib_args(args, "SubElement", 1, vm)?;
-        let element = create_element(parent.class().to_owned(), tag, attrib.map(Into::into), vm)?;
+        let element = create_element(tag, attrib.map(Into::into), vm);
         parent.push(element.clone());
         Ok(element)
     }
@@ -1772,28 +1803,25 @@ pub(crate) mod _elementtree {
                 .try_to_value(vm)
                 .map_err(|_| vm.new_type_error("events must be a sequence"))?;
             for event in events {
-                let name = if let Some(s) = event.downcast_ref::<PyStr>() {
-                    s.as_bytes().to_vec()
-                } else if let Some(b) = event.downcast_ref::<crate::vm::builtins::PyBytes>() {
-                    b.as_bytes().to_vec()
-                } else {
+                let mut st = self.state.write();
+                let slot = ArgBytesOrStr::with_object_ref(&event, |name| match name {
+                    b"start" => Some(&mut st.start_event),
+                    b"end" => Some(&mut st.end_event),
+                    b"start-ns" => Some(&mut st.start_ns_event),
+                    b"end-ns" => Some(&mut st.end_ns_event),
+                    b"comment" => Some(&mut st.comment_event),
+                    b"pi" => Some(&mut st.pi_event),
+                    _ => None,
+                });
+                let Some(slot) = slot else {
+                    drop(st);
                     return Err(vm.new_value_error("invalid events sequence"));
                 };
-                let mut st = self.state.write();
-                match name.as_slice() {
-                    b"start" => st.start_event = Some(event),
-                    b"end" => st.end_event = Some(event),
-                    b"start-ns" => st.start_ns_event = Some(event),
-                    b"end-ns" => st.end_ns_event = Some(event),
-                    b"comment" => st.comment_event = Some(event),
-                    b"pi" => st.pi_event = Some(event),
-                    _ => {
-                        drop(st);
-                        return Err(
-                            vm.new_value_error(format!("unknown event {}", event.repr(vm)?))
-                        );
-                    }
-                }
+                let Some(slot) = slot else {
+                    drop(st);
+                    return Err(vm.new_value_error(format!("unknown event {}", event.repr(vm)?)));
+                };
+                *slot = Some(event);
             }
             Ok(())
         }
@@ -2231,15 +2259,8 @@ pub(crate) mod _elementtree {
             let read = file.get_attr("read", vm)?;
             loop {
                 let buffer = read.call((64 * 1024,), vm)?;
-                if let Some(s) = buffer.downcast_ref::<PyStr>() {
-                    if s.is_empty() {
-                        break;
-                    }
-                } else if let Some(b) = buffer.downcast_ref::<crate::vm::builtins::PyBytes>() {
-                    if b.as_bytes().is_empty() {
-                        break;
-                    }
-                } else {
+                if ArgBytesOrStr::with_object_ref(&buffer, |bytes| bytes.is_empty()).unwrap_or(true)
+                {
                     break;
                 }
                 zelf.expat_parse(buffer, false, vm)?;

@@ -52,15 +52,14 @@ mod _random {
         fn seed(zelf: &Py<Self>, args: SeedArgs, vm: &VirtualMachine) -> PyResult<()> {
             *zelf.rng.lock() = match args.n {
                 Some(n) => {
-                    // Fallback to using hash if object isn't Int-like.
-                    let (_, mut key) = match n.downcast::<PyInt>() {
+                    // CPython uses the absolute value for integers, but casts
+                    // hashes of other objects to the unsigned pointer width.
+                    let value = match n.downcast::<PyInt>() {
                         Ok(n) => n.as_bigint().abs(),
-                        Err(obj) => BigInt::from(obj.hash(vm)?).abs(),
-                    }
-                    .to_u32_digits();
-                    if cfg!(target_endian = "big") {
-                        key.reverse();
-                    }
+                        Err(obj) => BigInt::from(obj.hash(vm)? as usize),
+                    };
+                    // Digits are already least-significant first on every target.
+                    let (_, key) = value.to_u32_digits();
                     let key = if key.is_empty() { &[0] } else { key.as_slice() };
                     MT19937::new_with_slice_seed(key)
                 }

@@ -264,10 +264,12 @@ mod _pyexpat {
         // drain.
         #[pytraverse(skip)]
         busy: AtomicBool,
-        // Set once EndDocument has been observed, so further Parse() calls
-        // become harmless no-ops instead of starting a new document.
+        // Prevent creating another backend after finalization or fork failure.
         #[pytraverse(skip)]
         finished: AtomicBool,
+        // Distinguish successful completion from the existing failure paths.
+        #[pytraverse(skip)]
+        completed: AtomicBool,
         #[pytraverse(skip)]
         namespace_stack: PyRwLock<Vec<(xml::namespace::Namespace, Vec<String>)>>,
         #[pytraverse(skip)]
@@ -946,6 +948,7 @@ mod _pyexpat {
                 backend: PyRwLock::new(None),
                 busy: AtomicBool::new(false),
                 finished: AtomicBool::new(false),
+                completed: AtomicBool::new(false),
                 namespace_stack: PyRwLock::new(Vec::new()),
                 reparse_deferral_enabled: AtomicBool::new(true),
                 parameter_entity_parsing: AtomicI32::new(XML_PARAM_ENTITY_PARSING_NEVER),
@@ -1250,11 +1253,15 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetBase")]
-        fn set_base(zelf: &Py<Self>, base: PyStrRef) {
+        fn set_base(zelf: &Py<Self>, base: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+            if base.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
             // Store-only compatibility state for xml.sax locator APIs. The
             // xml-rs backend still does not perform Expat-style base URI
             // resolution for external entities.
-            *zelf.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
+            *zelf.base.write() = Some(base.as_str().to_owned());
+            Ok(())
         }
 
         #[pymethod(name = "GetBase")]
@@ -1636,6 +1643,7 @@ mod _pyexpat {
                         continue;
                     }
                     ParserMsg::Finished => {
+                        self.completed.store(true, Ordering::SeqCst);
                         self.finished.store(true, Ordering::SeqCst);
                         self.teardown_backend();
                         return Ok(());
@@ -1751,14 +1759,23 @@ mod _pyexpat {
                 }
             }
             if isfinal {
-                // The caller has declared there is no more data coming, so
-                // (whether or not this re-parse actually reached
-                // `EndDocument`) further Parse()/ParseFile() calls become
-                // no-ops, matching libexpat/`Backend::Threaded`.
+                // Remember successful completion separately from errors;
+                // both close this backend, but only success means the parser
+                // should report XML_ERROR_FINISHED on a later call.
+                if result.is_ok() {
+                    self.completed.store(true, Ordering::SeqCst);
+                }
                 self.finished.store(true, Ordering::SeqCst);
                 self.teardown_backend();
             }
             result
+        }
+
+        fn check_completed(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.completed.load(Ordering::SeqCst) {
+                return Err(self.handler_error(vm, 36, "parsing finished")?);
+            }
+            Ok(())
         }
 
         /// Feed another chunk of the document to the (possibly newly
@@ -1804,9 +1821,8 @@ mod _pyexpat {
                 )));
             }
             self.started.store(true, Ordering::Relaxed);
+            self.check_completed(vm)?;
             if self.finished.load(Ordering::SeqCst) {
-                // The document already ended; further data is ignored, same
-                // as libexpat happily no-oping once XML_Parse has seen EOF.
                 return Ok(());
             }
             {
@@ -1870,7 +1886,11 @@ mod _pyexpat {
 
         #[pymethod(name = "ParseFile")]
         fn parse_file(zelf: &Py<Self>, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            let read_res = vm.call_method(&file, "read", ())?;
+            let read = vm
+                .get_attribute_opt(&file, "read")?
+                .ok_or_else(|| vm.new_type_error("argument must have 'read' attribute"))?;
+            zelf.check_completed(vm)?;
+            let read_res = read.call((), vm)?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             // `file.read()` with no argument reads to EOF, so this chunk is
@@ -1883,11 +1903,39 @@ mod _pyexpat {
     #[derive(FromArgs)]
     struct ParserCreateArgs {
         #[pyarg(any, optional)]
-        encoding: Option<PyStrRef>,
+        encoding: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        namespace_separator: Option<PyUtf8StrRef>,
+        namespace_separator: Option<PyObjectRef>,
         #[pyarg(any, optional)]
         intern: OptionalOption<PyObjectRef>,
+    }
+
+    fn parser_create_string_arg(
+        value: Option<PyObjectRef>,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyUtf8StrRef>> {
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        let text = value.downcast::<PyStr>().map_err(|value| {
+            let actual = {
+                let actual = value.class().slot_name();
+                let mut end = actual.len().min(50);
+                while !actual.is_char_boundary(end) {
+                    end -= 1;
+                }
+                actual[..end].to_owned()
+            };
+            vm.new_type_error(format!(
+                "ParserCreate() argument '{name}' must be str or None, not {actual}"
+            ))
+        })?;
+        let text = text.try_into_utf8(vm)?;
+        if text.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        Ok(Some(text))
     }
 
     #[pyfunction(name = "ParserCreate")]
@@ -1895,24 +1943,28 @@ mod _pyexpat {
         args: ParserCreateArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyExpatLikeXmlParserRef> {
-        // Validate namespace_separator: must be at most one character
-        let ns_sep = match args.namespace_separator {
-            Some(ref s) => {
-                if s.as_str().chars().count() > 1 {
-                    return Err(vm.new_value_error(
-                        "namespace_separator must be at most one character, omitted, or None",
-                    ));
-                }
-                Some(s.as_str().to_owned())
-            }
-            None => None,
-        };
+        // Clinic converts both strings before the implementation validates
+        // the separator and the intern dictionary.
+        let encoding = parser_create_string_arg(args.encoding, "encoding", vm)?;
+        let ns_sep = parser_create_string_arg(args.namespace_separator, "namespace_separator", vm)?;
+        if ns_sep.as_ref().is_some_and(|sep| sep.as_str().len() > 1) {
+            return Err(vm.new_value_error(
+                "namespace_separator must be at most one character, omitted, or None",
+            ));
+        }
+        if let OptionalArg::Present(Some(ref intern)) = args.intern
+            && intern
+                .downcast_ref::<crate::vm::builtins::PyDict>()
+                .is_none()
+        {
+            return Err(vm.new_type_error("intern must be a dictionary"));
+        }
 
-        // encoding parameter is currently not used (xml-rs handles encoding from XML declaration)
-        let _ = args.encoding;
+        // Encoding selection is still handled by the xml-rs backend.
+        let _ = encoding;
 
         Ok(PyExpatLikeXmlParser::new(
-            ns_sep,
+            ns_sep.map(|sep| sep.as_str().to_owned()),
             args.intern,
             None,
             None,

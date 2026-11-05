@@ -657,3 +657,73 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     };
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_none_default_keeps_rust_value_and_metadata() {
+        let types: [Type; 2] = [
+            parse_quote!(Option<PyObjectRef>),
+            parse_quote!(Option<PyStrRef>),
+        ];
+        for ty in types {
+            let field: Field = parse_quote! {
+                #[pyarg(any, default = None)]
+                value: #ty
+            };
+            let tokens = generate_field((0, &field)).unwrap().to_string();
+            assert!(tokens.contains(&quote!(unwrap_or_else(|| None)).to_string()));
+            assert!(!tokens.contains("vm . ctx . none"));
+            let attr = ArgAttribute::try_from(&field).unwrap();
+            let repr = repr_path();
+            assert_eq!(
+                signature_default(&field, &attr).unwrap().to_string(),
+                quote!(Some(#repr::None)).to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn none_default_keeps_wrapped_argument_paths() {
+        let types: [Type; 3] = [
+            parse_quote!(Option<PyObjectRef>),
+            parse_quote!(OptionalArg<PyObjectRef>),
+            parse_quote!(OptionalOption<PyObjectRef>),
+        ];
+        for ty in types {
+            let field: Field = parse_quote! {
+                #[pyarg(any, default = None)]
+                value: #ty
+            };
+            let tokens = generate_field((0, &field)).unwrap().to_string();
+            assert!(!tokens.contains("vm . ctx . none"));
+            assert!(tokens.contains(&quote!(unwrap_or_else(|| None)).to_string()));
+        }
+    }
+
+    #[test]
+    fn none_is_not_a_python_object_literal() {
+        for expr in [parse_quote!(None), parse_quote!((None))] {
+            assert!(literal_object_expr(&expr).is_none());
+        }
+        for expr in [
+            parse_quote!("text"),
+            parse_quote!(b"bytes"),
+            parse_quote!(true),
+        ] {
+            assert_eq!(
+                literal_object_expr(&expr).unwrap().to_string(),
+                quote!(#expr).to_string()
+            );
+        }
+        let field: Field = parse_quote! {
+            #[pyarg(any, default = "text")]
+            value: PyStrRef
+        };
+        let tokens = generate_field((0, &field)).unwrap().to_string();
+        assert!(tokens.contains("< PyStrRef as :: rustpython_vm :: convert :: TryFromObject >"));
+        assert!(!tokens.contains("vm . ctx . none"));
+    }
+}

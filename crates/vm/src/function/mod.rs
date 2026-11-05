@@ -16,15 +16,16 @@ mod time;
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
     NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
-    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjs, NameOthers, NameValues, OptionalArg,
-    OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
+    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjects, NameObjs, NameOthers, NameValues,
+    OptionalArg, OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
 };
 pub(crate) use argument::{
     arity_message, given_by_name_and_position_message, unexpected_keyword_message,
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{
-    ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
+    ArgAsciiBuffer, ArgBytesLike, ArgBytesOrStr, ArgContiguousBytesLike, ArgMemoryBuffer,
+    ArgStrOrBytesLike,
 };
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use doctext::{ItemDoc, db_doc, plain_doc};

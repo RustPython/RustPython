@@ -337,7 +337,11 @@ pub mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.setitem_by_slice(vm, slice, items)
+                            if items.is_empty() {
+                                elements.delitem_by_slice(vm, slice)
+                            } else {
+                                elements.setitem_by_slice(vm, slice, items)
+                            }
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -351,14 +355,18 @@ pub mod array {
                     slice: SaturatedSlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
-                ) -> PyResult<()> {
+                ) -> Option<PyResult<()>> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.setitem_by_slice_no_resize(vm, slice, items)
+                            if items.is_empty() {
+                                None
+                            } else {
+                                Some(elements.setitem_by_slice_no_resize(vm, slice, items))
+                            }
                         } else {
-                            Err(vm.new_type_error(
+                            Some(Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
-                            ))
+                            )))
                         },)*
                     }
                 }
@@ -844,6 +852,9 @@ pub mod array {
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
         exports: AtomicUsize,
+        // Published before an export is retained, for bounds checks that must
+        // not reacquire the payload lock while a buffer is active.
+        export_len: AtomicUsize,
     }
 
     pub type PyArrayRef = PyRef<PyArray>;
@@ -853,6 +864,7 @@ pub mod array {
             Self {
                 array: PyRwLock::new(array),
                 exports: AtomicUsize::new(0),
+                export_len: AtomicUsize::new(0),
             }
         }
     }
@@ -1056,6 +1068,9 @@ pub mod array {
         #[pymethod]
         fn extend(zelf: &Py<Self>, bb: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.is(&bb) {
+                if zelf.empty_with_export() {
+                    return Ok(());
+                }
                 zelf.try_resizable(vm)?.imul(2, vm)
             } else if let Some(array) = bb.downcast_ref::<Self>() {
                 zelf.try_resizable(vm)?.iadd(&array.read(), vm)
@@ -1358,6 +1373,30 @@ pub mod array {
             self.getitem_inner(needle, vm)
         }
 
+        fn assign_item(
+            zelf: &Py<Self>,
+            i: isize,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let (index, typecode) = {
+                let array = zelf.read();
+                (i.wrapped_at(array.len()), array.typecode())
+            };
+            let index =
+                index.ok_or_else(|| vm.new_index_error("array assignment index out of range"))?;
+            let item = ArrayContentType::item_from_object(typecode, value.clone(), vm)?;
+            let mut array = zelf.write();
+            if index >= array.len() {
+                drop(array);
+                return Err(vm.new_index_error("array assignment index out of range"));
+            }
+            let result = array.setitem_by_item(index as isize, item, vm);
+            drop(array);
+            drop(value);
+            result
+        }
+
         fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
@@ -1365,36 +1404,37 @@ pub mod array {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
-                SequenceIndex::Int(i) => {
-                    let typecode = zelf.read().typecode();
-                    let item = ArrayContentType::item_from_object(typecode, value, vm)?;
-                    zelf.write().setitem_by_item(i, item, vm)
-                }
+                SequenceIndex::Int(i) => Self::assign_item(zelf, i, value, vm),
                 SequenceIndex::Slice(slice) => {
-                    let cloned;
-                    let guard;
-                    let items = if zelf.is(&value) {
-                        cloned = zelf.read().clone();
-                        &cloned
-                    } else {
-                        match value.downcast_ref::<Self>() {
-                            Some(array) => {
-                                guard = array.read();
-                                &*guard
+                    let outcome = {
+                        let cloned;
+                        let guard;
+                        let items = if zelf.is(&value) {
+                            cloned = zelf.read().clone();
+                            &cloned
+                        } else {
+                            match value.downcast_ref::<Self>() {
+                                Some(array) => {
+                                    guard = array.read();
+                                    &*guard
+                                }
+                                None => {
+                                    return Err(vm.new_type_error(format!(
+                                        "can only assign array (not \"{}\") to array slice",
+                                        value.class()
+                                    )));
+                                }
                             }
-                            None => {
-                                return Err(vm.new_type_error(format!(
-                                    "can only assign array (not \"{}\") to array slice",
-                                    value.class()
-                                )));
-                            }
+                        };
+                        if let Some(mut w) = zelf.try_resizable_opt() {
+                            Some(w.setitem_by_slice(slice, items, vm))
+                        } else {
+                            zelf.write().setitem_by_slice_no_resize(slice, items, vm)
                         }
                     };
-                    if let Ok(mut w) = zelf.try_resizable(vm) {
-                        w.setitem_by_slice(slice, items, vm)
-                    } else {
-                        zelf.write().setitem_by_slice_no_resize(slice, items, vm)
-                    }
+                    outcome.unwrap_or_else(|| {
+                        Err(vm.new_buffer_error("cannot resize an array that is exporting buffers"))
+                    })
                 }
             }
         }
@@ -1408,9 +1448,20 @@ pub mod array {
             Self::setitem_inner(zelf, needle, value, vm)
         }
 
+        fn delitem_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
+            if self.exports.load(atomic::Ordering::SeqCst) != 0 {
+                let len = self.export_len.load(atomic::Ordering::SeqCst);
+                if i.wrapped_at(len).is_none() {
+                    return Err(vm.new_index_error("assignment index out of range"));
+                }
+                return Err(vm.new_buffer_error("cannot resize an array that is exporting buffers"));
+            }
+            self.try_resizable(vm)?.delitem_by_index(i, vm)
+        }
+
         fn delitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
-                SequenceIndex::Int(i) => self.try_resizable(vm)?.delitem_by_index(i, vm),
+                SequenceIndex::Int(i) => self.delitem_index(i, vm),
                 SequenceIndex::Slice(slice) => self.try_resizable(vm)?.delitem_by_slice(slice, vm),
             }
         }
@@ -1421,9 +1472,15 @@ pub mod array {
 
         fn __add__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if let Some(other) = other.downcast_ref::<Self>() {
-                self.read()
-                    .add(&other.read(), vm)
-                    .map(|array| Self::from(array).into_ref(&vm.ctx))
+                let result = {
+                    let array = self.read();
+                    if core::ptr::eq(self, &**other) {
+                        array.add(&array, vm)
+                    } else {
+                        array.add(&other.read(), vm)
+                    }
+                }?;
+                Ok(Self::from(result).into_ref(&vm.ctx))
             } else {
                 Err(vm.new_type_error(format!(
                     "can only append array (not \"{}\") to array",
@@ -1438,7 +1495,9 @@ pub mod array {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             if zelf.is(other) {
-                zelf.try_resizable(vm)?.imul(2, vm)?;
+                if !zelf.empty_with_export() {
+                    zelf.try_resizable(vm)?.imul(2, vm)?;
+                }
             } else if let Some(other) = other.downcast_ref::<Self>() {
                 zelf.try_resizable(vm)?.iadd(&other.read(), vm)?;
             } else {
@@ -1457,36 +1516,71 @@ pub mod array {
         }
 
         fn __imul__(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            zelf.try_resizable(vm)?.imul(value, vm)?;
+            if value != 1 && !zelf.empty_with_export() {
+                zelf.try_resizable(vm)?.imul(value, vm)?;
+            }
             Ok(zelf)
+        }
+
+        fn empty_with_export(&self) -> bool {
+            self.exports.load(atomic::Ordering::SeqCst) != 0
+                && self.export_len.load(atomic::Ordering::SeqCst) == 0
         }
 
         pub(crate) fn __len__(&self) -> usize {
             self.read().len()
         }
 
-        fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
-            // we cannot use zelf.is(other) for shortcut because if we contenting a
-            // float value NaN we always return False even they are the same object.
-            if self.__len__() != other.__len__() {
-                return Ok(false);
-            }
-            let array_a = self.read();
-            let array_b = other.read();
-
-            // fast path for same ArrayContentType type
-            if let Ok(ord) = array_a.cmp(&array_b) {
+        fn equal_contents(
+            left: &ArrayContentType,
+            right: &ArrayContentType,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            if let Ok(ord) = left.cmp(right) {
                 return Ok(ord == Some(Ordering::Equal));
             }
-
-            let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
-
-            for (a, b) in iter {
+            for (a, b) in Iterator::zip(left.iter(vm), right.iter(vm)) {
                 if !vm.bool_eq(&*a?, &*b?)? {
                     return Ok(false);
                 }
             }
             Ok(true)
+        }
+
+        fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
+            // Reuse one guard for the same array, but still compare its contents:
+            // floating-point NaNs must not compare equal to themselves.
+            if core::ptr::eq(self, other) {
+                let array = self.read();
+                return Self::equal_contents(&array, &array, vm);
+            }
+            if self.__len__() != other.__len__() {
+                return Ok(false);
+            }
+            let array_a = self.read();
+            let array_b = other.read();
+            Self::equal_contents(&array_a, &array_b, vm)
+        }
+
+        fn order_contents(
+            left: &ArrayContentType,
+            right: &ArrayContentType,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            match left.cmp(right) {
+                Ok(partial_ord) => Ok(partial_ord.is_some_and(|ord| op.eval_ord(ord))),
+                Err(()) => {
+                    for (a, b) in Iterator::zip(left.iter(vm), right.iter(vm)) {
+                        let (a, b) = (a?, b?);
+                        if vm.bool_eq(&a, &b)? {
+                            continue;
+                        }
+                        return a.rich_compare_bool(&b, op, vm);
+                    }
+                    Ok(op.eval_ord(left.len().cmp(&right.len())))
+                }
+            }
         }
 
         #[pymethod]
@@ -1569,35 +1663,19 @@ pub mod array {
                 return Ok(x.into());
             }
 
+            if core::ptr::eq(zelf, other) {
+                let array = zelf.read();
+                return Self::order_contents(&array, &array, op, vm).map(Into::into);
+            }
+
             let array_a = zelf.read();
             let array_b = other.read();
-
-            let res = match array_a.cmp(&array_b) {
-                // fast path for same ArrayContentType type
-                Ok(partial_ord) => partial_ord.is_some_and(|ord| op.eval_ord(ord)),
-                Err(()) => {
-                    let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
-
-                    for (a, b) in iter {
-                        let (a, b) = (a?, b?);
-                        if vm.bool_eq(&a, &b)? {
-                            continue;
-                        }
-                        return a.rich_compare_bool(&b, op, vm).map(Into::into);
-                    }
-
-                    // fallback:
-                    op.eval_ord(array_a.len().cmp(&array_b.len()))
-                }
-            };
-
-            Ok(res.into())
+            Self::order_contents(&array_a, &array_b, op, vm).map(Into::into)
         }
     }
 
     impl PyArray {
-        fn buffer_desc(&self) -> BufferDescriptor {
-            let array = self.read();
+        fn buffer_desc(array: &ArrayContentType) -> BufferDescriptor {
             BufferDescriptor::format(
                 array.len() * array.itemsize(),
                 false,
@@ -1620,17 +1698,22 @@ pub mod array {
             let zelf = zelf
                 .downcast_ref::<Self>()
                 .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
-            let desc = zelf.buffer_desc().projected(flags);
-            flags.check_writable(desc.readonly, "Object is not writable.", vm)?;
-            Ok(PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS))
+            flags.check_writable(false, "Object is not writable.", vm)?;
+            let array = zelf.read();
+            let desc = Self::buffer_desc(&array).projected(flags);
+            zelf.export_len.store(array.len(), atomic::Ordering::SeqCst);
+            let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
+            drop(array);
+            Ok(buffer)
         }
 
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
-            Ok(PyBuffer::new(
-                zelf.to_owned().into(),
-                zelf.buffer_desc(),
-                &BUFFER_METHODS,
-            ))
+            let array = zelf.read();
+            let desc = Self::buffer_desc(&array);
+            zelf.export_len.store(array.len(), atomic::Ordering::SeqCst);
+            let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
+            drop(array);
+            Ok(buffer)
         }
     }
 
@@ -1712,11 +1795,9 @@ pub mod array {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
                     if let Some(value) = value {
-                        let typecode = zelf.read().typecode();
-                        let item = ArrayContentType::item_from_object(typecode, value, vm)?;
-                        zelf.write().setitem_by_item(i, item, vm)
+                        PyArray::assign_item(zelf, i, value, vm)
                     } else {
-                        zelf.write().delitem_by_index(i, vm)
+                        zelf.delitem_index(i, vm)
                     }
                 }),
                 contains: atomic_func!(|seq, target, vm| {
@@ -1751,7 +1832,15 @@ pub mod array {
         fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             // An export is a borrow someone else still holds, so it is
             // answered before the lock rather than by waiting on it.
-            (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| self.write())
+            if self.exports.load(atomic::Ordering::SeqCst) != 0 {
+                return None;
+            }
+            let array = self.write();
+            if self.exports.load(atomic::Ordering::SeqCst) == 0 {
+                Some(array)
+            } else {
+                None
+            }
         }
 
         fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<Self::Resizable<'_>> {

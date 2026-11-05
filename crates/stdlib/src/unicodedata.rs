@@ -34,7 +34,7 @@ mod unicodedata {
     use super::{NormalizeFormArg, unicode_core};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyModule, PyStr, PyStrRef},
+        builtins::{PyBytes, PyModule, PyStr, PyStrRef, PyUtf8Str},
         common::lock::PyMutex,
         function::OptionalArg,
         protocol::PyIterReturn,
@@ -223,13 +223,22 @@ mod unicodedata {
         }
     }
 
+    #[derive(FromArgs)]
+    struct IterGraphemesArgs {
+        #[pyarg(positional)]
+        unistr: PyStrRef,
+        #[pyarg(positional, optional, py_default = "0")]
+        start: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, optional, py_default = "sys.maxsize")]
+        end: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
     fn iter_graphemes(
-        unistr: PyStrRef,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        args: IterGraphemesArgs,
         vm: &VirtualMachine,
     ) -> PyResult<crate::vm::PyRef<GraphemeBreakIterator>> {
+        let IterGraphemesArgs { unistr, start, end } = args;
         // Convert in argument order, including overflow, before adjusting bounds.
         let index = |arg: OptionalArg<PyObjectRef>, default| -> PyResult<isize> {
             match arg {
@@ -342,8 +351,17 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn lookup(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(name_str) = name.to_str()
+        fn lookup(zelf: &Py<Self>, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+            let name_bytes = if let Some(bytes) = name.downcast_ref::<PyBytes>() {
+                bytes.as_bytes()
+            } else {
+                name.try_downcast_ref::<PyUtf8Str>(vm)?.as_bytes()
+            };
+            // CPython's generated Unicode name database limits names to 256 bytes.
+            if name_bytes.len() > 256 {
+                return Err(vm.new_key_error(vm.ctx.new_str("name too long").into()));
+            }
+            if let Ok(name_str) = core::str::from_utf8(name_bytes)
                 && let Some(found) = zelf.inner.lookup(name_str)
             {
                 return Ok(match found {
@@ -351,9 +369,15 @@ mod unicodedata {
                     unicode_core::LookupResult::Sequence(seq) => seq.to_string(),
                 });
             }
+            // CPython formats the failed name as a NUL-terminated UTF-8 string.
+            let prefix = name_bytes
+                .split(|&byte| byte == 0)
+                .next()
+                .unwrap_or_default();
+            let display = String::from_utf8_lossy(prefix);
             Err(vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("undefined character name '{name}'"))
+                    .new_str(format!("undefined character name '{display}'"))
                     .into(),
             ))
         }
