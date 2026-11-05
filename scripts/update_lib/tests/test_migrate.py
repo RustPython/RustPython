@@ -884,6 +884,61 @@ class ConditionalMarkerOverrideTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.select(None, current, document)
 
+    def test_explicit_skip_retirement_preserves_other_markers(self):
+        decorator = '    @unittest.skip("TODO: RUSTPYTHON; known limitation")\n'
+        old = OVERRIDE_OLD.replace(
+            "    @unittest.expectedFailure  # TODO: RUSTPYTHON; old failure\n",
+            decorator,
+        )
+
+        def authorize(document):
+            document["retire_conditional"] = [
+                {
+                    "class": "Example",
+                    "method": "test_known",
+                    "decorator": decorator,
+                }
+            ]
+
+        with patch(__name__ + ".OVERRIDE_OLD", old):
+            status, result = MarkerOverrideTests().invoke(authorize)
+            self.assertEqual(status, 0)
+            self.assertNotIn("known limitation", result)
+            self.assertIn('unittest.skip("TODO: RUSTPYTHON; retained guard")', result)
+            status, result = MarkerOverrideTests().invoke()
+            self.assertEqual(status, 1)
+            self.assertEqual(result, old)
+
+    def test_skip_retirement_fails_closed(self):
+        self.decorator = '    @unittest.skip("TODO: RUSTPYTHON; known limitation")\n'
+        for change in (
+            "text",
+            "duplicate",
+            "retained",
+            "duplicate_source",
+            "skipIf",
+            "skipUnless",
+        ):
+            old, current, document = self.fixture()
+            if change == "text":
+                document["retire_conditional"][0]["decorator"] = self.decorator.replace(
+                    '"', "'"
+                )
+            elif change == "duplicate":
+                document["retire_conditional"] *= 2
+            elif change == "retained":
+                document["patches"] = patches_to_json(current)
+            elif change == "duplicate_source":
+                old = old.replace(self.decorator, self.decorator * 2)
+                current = extract_patches(old)
+            else:
+                replacement = self.decorator.replace("skip(", change + "(True, ")
+                old = old.replace(self.decorator, replacement)
+                current = extract_patches(old)
+                document["retire_conditional"][0]["decorator"] = replacement
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.select(old, current, document)
+
     def test_cli_conditional_retirement_preserves_remaining_markers(self):
         old = OVERRIDE_OLD.replace(
             "    @unittest.expectedFailure  # TODO: RUSTPYTHON; old failure\n",
