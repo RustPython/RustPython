@@ -16,6 +16,7 @@ use core::ptr::NonNull;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
+use rustpython_common::wtf8::wtf8_concat;
 
 #[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -434,8 +435,8 @@ impl Constructor for PyComplex {
             && original_real.downcast_ref::<Self>().is_none()
             && !has_real_number_conversion(&original_real)
         {
-            return Err(vm.new_type_error(format!(
-                "complex() argument 'real' must be a real number, not {}",
+            return Err(vm.new_type_error(wtf8_concat!(
+                "complex() argument 'real' must be a real number, not ",
                 original_real.class().fully_qualified_name(vm)?
             )));
         }
@@ -443,8 +444,8 @@ impl Constructor for PyComplex {
             && imag.downcast_ref::<Self>().is_none()
             && !has_real_number_conversion(imag)
         {
-            return Err(vm.new_type_error(format!(
-                "complex() argument 'imag' must be a real number, not {}",
+            return Err(vm.new_type_error(wtf8_concat!(
+                "complex() argument 'imag' must be a real number, not ",
                 imag.class().fully_qualified_name(vm)?
             )));
         }
@@ -463,8 +464,8 @@ impl Constructor for PyComplex {
             if !has_real_number_conversion(&original_real) {
                 _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "complex() argument 'real' must be a real number, not {}",
+                    wtf8_concat!(
+                        "complex() argument 'real' must be a real number, not ",
                         original_real.class().fully_qualified_name(vm)?
                     ),
                     1,
@@ -484,8 +485,8 @@ impl Constructor for PyComplex {
                 if let Some(value) = obj.downcast_ref::<Self>() {
                     _warnings::warn(
                         vm.ctx.exceptions.deprecation_warning,
-                        format!(
-                            "complex() argument 'imag' must be a real number, not {}",
+                        wtf8_concat!(
+                            "complex() argument 'imag' must be a real number, not ",
                             obj.class().fully_qualified_name(vm)?
                         ),
                         1,

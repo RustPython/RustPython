@@ -1,15 +1,16 @@
 pub(crate) use _warnings::module_def;
 
 use crate::{Py, PyResult, VirtualMachine, builtins::PyType};
+use rustpython_common::wtf8::Wtf8Buf;
 
 pub fn warn(
     category: &Py<PyType>,
-    message: String,
+    message: impl Into<Wtf8Buf>,
     stack_level: usize,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     crate::warn::warn(
-        vm.new_pyobj(message),
+        vm.ctx.new_str(message.into()).into(),
         Some(category.to_owned()),
         isize::try_from(stack_level).unwrap_or(isize::MAX),
         None,
@@ -25,6 +26,7 @@ mod _warnings {
         convert::TryFromObject,
         function::OptionalArg,
     };
+    use rustpython_common::wtf8::wtf8_concat;
 
     #[pyattr]
     fn filters(vm: &VirtualMachine) -> PyListRef {
@@ -116,9 +118,10 @@ mod _warnings {
         })?;
 
         if !cat.fast_issubclass(vm.ctx.exceptions.warning) {
-            return Err(vm.new_type_error(format!(
-                "category must be a Warning subclass, not class '{}'",
-                cat.fully_qualified_name(vm)?
+            return Err(vm.new_type_error(wtf8_concat!(
+                "category must be a Warning subclass, not class '",
+                cat.fully_qualified_name(vm)?,
+                "'"
             )));
         }
 
@@ -181,8 +184,8 @@ mod _warnings {
             if vm.is_none(&mg) {
                 None
             } else if PyAnyDict::from_object(&mg).is_none() {
-                return Err(vm.new_type_error(format!(
-                    "module_globals must be a dict or a frozendict, not {}",
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "module_globals must be a dict or a frozendict, not ",
                     mg.class().fully_qualified_name(vm)?
                 )));
             } else {

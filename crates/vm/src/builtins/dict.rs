@@ -31,6 +31,7 @@ use core::ptr::NonNull;
 use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_common::wtf8::wtf8_concat;
 
 pub(crate) type DictContentType = dict_inner::Dict;
 
@@ -51,8 +52,14 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
                 [arg] => arg.str(vm)?,
                 _ => args.as_object().str(vm)?,
             };
-            Err(vm.new_type_error(format!(
-                "cannot use '{name}' as a {mapping_name} key ({message})"
+            Err(vm.new_type_error(wtf8_concat!(
+                "cannot use '",
+                name,
+                "' as a ",
+                mapping_name,
+                " key (",
+                message.as_wtf8(),
+                ")"
             )))
         }
         result => result,
@@ -616,6 +623,15 @@ impl PyDict {
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
         }
+    }
+
+    pub(crate) fn inner_pop_item<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.remove_if_exists(vm, key, hash)
     }
 
     pub fn get_or_insert(
@@ -1336,8 +1352,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            let hash = PyDict::hash_or_unhashable(key, vm)?;
-            self.entries.remove_if_exists(vm, key, hash)
+            self.inner_pop_item(key, vm)
         } else {
             let value = self.as_object().get_item(key, vm)?;
             self.as_object().del_item(key, vm)?;

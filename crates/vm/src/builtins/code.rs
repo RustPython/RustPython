@@ -26,6 +26,7 @@ use core::{
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
+use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::{OneIndexed, bytecode::CodeUnits, bytecode::PyCodeLocationInfoKind};
 
 /// State for iterating through code address ranges
@@ -860,13 +861,13 @@ fn frozen_co_filename(path: &str) -> Option<&'static str> {
 }
 
 fn apply_frozen_co_filename(code: &PyCode, vm: &VirtualMachine) {
-    let Some(new) = frozen_co_filename(code.source_path().as_str()) else {
+    let Some(new) = code.source_path().to_str().and_then(frozen_co_filename) else {
         return;
     };
     set_source_path_tree(code, vm.ctx.intern_str(new));
 }
 
-fn set_source_path_tree(code: &PyCode, interned: &'static PyStrInterned) {
+pub(crate) fn set_source_path_tree(code: &PyCode, interned: &'static PyStrInterned) {
     code.set_source_path(interned);
     for constant in code.constants.iter() {
         set_source_path_in_const(&constant.0, interned);
@@ -919,15 +920,19 @@ impl PyPayload for PyCode {
 
 impl Representable for PyCode {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let code = &zelf.code;
-        Ok(format!(
-            "<code object {} at {:#x}, file \"{}\", line {}>",
+        let mut repr = Wtf8Buf::from(format!(
+            "<code object {} at {:#x}, file \"",
             code.obj_name,
             zelf.get_id(),
-            zelf.source_path().as_str(),
+        ));
+        repr.push_wtf8(zelf.source_path().as_wtf8());
+        repr.push_str(&format!(
+            "\", line {}>",
             code.first_line_number.map_or(-1, |n| n.get() as i32)
-        ))
+        ));
+        Ok(repr)
     }
 }
 

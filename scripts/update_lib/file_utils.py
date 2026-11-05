@@ -73,7 +73,10 @@ def parse_lib_path(path: pathlib.Path | str) -> pathlib.Path:
         raise ValueError(f"Path must contain '/Lib/' or '\\Lib\\' (got: {path})")
 
     idx = path_str.index(lib_marker)
-    return pathlib.Path(path_str[idx + 1 :])
+    relative = pathlib.Path(path_str[idx + 1 :])
+    if ".." in relative.parts:
+        raise ValueError(f"Path must not escape or traverse within Lib/ (got: {path})")
+    return relative
 
 
 def is_lib_path(path: pathlib.Path) -> bool:

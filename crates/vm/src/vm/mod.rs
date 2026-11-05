@@ -3,6 +3,8 @@
 //! See also:
 //!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
 
+use rustpython_common::wtf8::{Wtf8, wtf8_concat};
+
 mod async_exception;
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
@@ -1415,18 +1417,22 @@ impl VirtualMachine {
             async_exception: async_exception::PendingAsyncException::default(),
         };
 
-        vm.builtins.init_dict(
-            vm.ctx.intern_str("builtins"),
-            crate::function::plain_doc(stdlib::builtins::DOC)
-                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
-            &vm,
-        );
-        vm.sys_module.init_dict(
-            vm.ctx.intern_str("sys"),
-            crate::function::plain_doc(stdlib::sys::DOC)
-                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
-            &vm,
-        );
+        vm.builtins
+            .init_dict(
+                vm.ctx.intern_str("builtins"),
+                crate::function::plain_doc(stdlib::builtins::DOC)
+                    .map(|doc| vm.ctx.intern_str(doc).as_object()),
+                &vm,
+            )
+            .expect("Failed to initialize the fresh builtins dictionary");
+        vm.sys_module
+            .init_dict(
+                vm.ctx.intern_str("sys"),
+                crate::function::plain_doc(stdlib::sys::DOC)
+                    .map(|doc| vm.ctx.intern_str(doc).as_object()),
+                &vm,
+            )
+            .expect("Failed to initialize the fresh sys dictionary");
         // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();
         vm
     }
@@ -1838,7 +1844,7 @@ impl VirtualMachine {
     /// ```
     pub fn run_pyc_bytes(&self, pyc_bytes: &[u8], scope: Scope) -> PyResult<()> {
         let code = PyCode::from_pyc(pyc_bytes, Some("<pyc_bytes>"), None, None, self)?;
-        self.with_simple_run("<source>", |_module_dict| {
+        self.with_simple_run(&self.ctx.new_str("<source>"), |_module_dict| {
             self.run_code_obj(code, scope)?;
             Ok(())
         })
@@ -1932,7 +1938,7 @@ impl VirtualMachine {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();
 
-        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &Self| {
+        let write_to_stderr = |s: &Wtf8, stderr: &Option<PyObjectRef>, vm: &Self| {
             if let Some(stderr) = stderr {
                 let _ = vm.call_method(stderr, "write", (s.to_owned(),));
             } else {
@@ -1942,7 +1948,7 @@ impl VirtualMachine {
 
         if self.is_none(object) {
             if let Some(msg) = msg {
-                write_to_stderr(&format!("{msg}:\n"), &stderr, self);
+                write_to_stderr(&wtf8_concat!(msg, ":\n"), &stderr, self);
             }
         } else {
             let msg_str = if let Some(msg) = msg {
@@ -1950,13 +1956,13 @@ impl VirtualMachine {
             } else {
                 "Exception ignored in: ".to_owned()
             };
-            write_to_stderr(&msg_str, &stderr, self);
+            write_to_stderr(msg_str.as_str().into(), &stderr, self);
 
             let repr_result = object.repr(self);
             let repr_wtf8 = repr_result
                 .as_ref()
                 .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
-            write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
+            write_to_stderr(&wtf8_concat!(repr_wtf8, "\n"), &stderr, self);
         }
 
         // Print the existing traceback without importing Python modules;
@@ -1964,22 +1970,22 @@ impl VirtualMachine {
         if let Some(traceback) = e.traceback() {
             if let Some(stderr) = &stderr {
                 let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
             } else {
                 let mut writer = crate::py_io::IoWriter(std::io::stderr());
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
             }
         }
         let exc_type_name = e
             .class()
             .fully_qualified_name(self)
-            .unwrap_or_else(|_| e.class().name().to_string());
+            .unwrap_or_else(|_| (&*e.class().name()).into());
         let message = match e.as_object().str(self) {
             Ok(value) if !value.as_wtf8().is_empty() => {
-                format!("{exc_type_name}: {}\n", value.as_wtf8())
+                wtf8_concat!(exc_type_name, ": ", value.as_wtf8(), "\n")
             }
-            Ok(_) => format!("{exc_type_name}\n"),
-            Err(_) => format!("{exc_type_name}: <exception str() failed>\n"),
+            Ok(_) => wtf8_concat!(exc_type_name, "\n"),
+            Err(_) => wtf8_concat!(exc_type_name, ": <exception str() failed>\n"),
         };
         write_to_stderr(&message, &stderr, self);
 
@@ -2509,7 +2515,7 @@ impl VirtualMachine {
     /// Run `run` with main scope.
     fn with_simple_run(
         &self,
-        path: &str,
+        path: &Py<PyStr>,
         run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
     ) -> PyResult<()> {
         let module_dict = self.add_main_module()?.dict();
@@ -2517,11 +2523,7 @@ impl VirtualMachine {
         // Track whether we set __file__ (for cleanup)
         let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
         if set_file_name {
-            module_dict.set_item(
-                identifier!(self, __file__),
-                self.ctx.new_str(path).into(),
-                self,
-            )?;
+            module_dict.set_item(identifier!(self, __file__), path.to_owned().into(), self)?;
         }
 
         let result = run(&module_dict);

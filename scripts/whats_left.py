@@ -100,6 +100,41 @@ CPYTHON_SPECIFIC_MODS = {
 
 IGNORED_MODULES = {"this", "antigravity"} | CPYTHON_SPECIFIC_MODS
 
+# This records only the top-level names returned by the existing scanner.
+# A truncated manifest is explicitly incomplete and must not certify coverage.
+reference_discovery = {
+    "names": [],
+    "ignored": [],
+    "scanner_errors": [],
+    "truncated": False,
+}
+_discovery_type, _discovery_str, _discovery_len = type, str, len
+_discovery_chars = [0]
+_MAX_DISCOVERY_RECORDS = 16384
+_MAX_DISCOVERY_CHARS = 1048576
+
+
+def record_reference_discovery(group, name):
+    if _discovery_type(name) is not _discovery_str:
+        reference_discovery["truncated"] = True
+        return
+    size = _discovery_len(name)
+    count = (
+        _discovery_len(reference_discovery["names"])
+        + _discovery_len(reference_discovery["ignored"])
+        + _discovery_len(reference_discovery["scanner_errors"])
+    )
+    if (
+        size > 4096
+        or count >= _MAX_DISCOVERY_RECORDS
+        or _discovery_chars[0] + size > _MAX_DISCOVERY_CHARS
+    ):
+        reference_discovery["truncated"] = True
+        return
+    _discovery_chars[0] += size
+    reference_discovery[group].append(name)
+
+
 sys.path = [
     path
     for path in sys.path
@@ -112,6 +147,31 @@ def attr_is_not_inherited(type_, attr):
     returns True if type_'s attr is not inherited from any of its base classes
     """
     return attr in type_.__dict__
+
+
+_safe_type, _safe_str, _safe_frozenset = type, str, frozenset
+
+
+def observe_real_type(obj, _type=type, _issubclass=issubclass, _exception=Exception):
+    # This checks the real metaclass without reading a spoofable __class__.
+    try:
+        return "real_type" if _issubclass(_type(obj), _type) else "not_real_type"
+    except _exception:
+        return "classification_failed"
+
+
+def observe_real_exception(
+    obj, _type=type, _issubclass=issubclass, _exception=Exception
+):
+    # Classify the returned object without asking it for __class__.
+    try:
+        return (
+            "returned_exception"
+            if _issubclass(_type(obj), _exception)
+            else "returned_nonexception"
+        )
+    except _exception:
+        return "classification_failed"
 
 
 def extra_info(obj):
@@ -171,6 +231,7 @@ def extra_info(obj):
         try:
             return {
                 "sig": stable_signature(obj),
+                "sig_error": False,
                 "doc": doc,
             }
         except Exception as e:
@@ -179,16 +240,19 @@ def extra_info(obj):
             if exception.replace('"', "'").startswith("ValueError('no signature found"):
                 return {
                     "sig": "ValueError('no signature found')",
+                    "sig_error": True,
                     "doc": doc,
                 }
 
             return {
                 "sig": exception,
+                "sig_error": True,
                 "doc": doc,
             }
 
     return {
         "sig": None,
+        "sig_error": False,
         "doc": None,
     }
 
@@ -263,6 +327,100 @@ def is_native_class(obj):
     return True
 
 
+# These observations qualify the reference inventory. They do not change the
+# legacy flattened report; a gate must reject incomplete or ambiguous evidence.
+reference_inventory_diagnostics = {"issues": [], "truncated": False}
+reference_expanded_classes = {}
+reference_class_selection = {}
+actual_parent_scans = {}
+_reference_type = type
+_reference_str = str
+_reference_len = len
+_reference_set = set
+_reference_sum = sum
+_reference_any = any
+_MAX_REFERENCE_ISSUES = 1024
+_MAX_REFERENCE_FIELD_CHARS = 4096
+_MAX_REFERENCE_TOTAL_CHARS = 32768
+_reference_chars_used = [0]
+
+
+def record_reference_issue(kind, scope, name):
+    issues = reference_inventory_diagnostics["issues"]
+    scope = scope if _reference_type(scope) is _reference_str else None
+    name = name if _reference_type(name) is _reference_str else None
+    size = _reference_sum(
+        _reference_len(value) for value in (scope, name) if value is not None
+    )
+    if (
+        _reference_len(issues) >= _MAX_REFERENCE_ISSUES
+        or _reference_any(
+            _reference_len(value) > _MAX_REFERENCE_FIELD_CHARS
+            for value in (scope, name)
+            if value is not None
+        )
+        or _reference_chars_used[0] + size > _MAX_REFERENCE_TOTAL_CHARS
+    ):
+        reference_inventory_diagnostics["truncated"] = True
+        return
+    _reference_chars_used[0] += size
+    issues.append((kind, scope, name))
+
+
+def ensure_reference_class_scope(scope):
+    if _reference_type(scope) is _reference_str:
+        reference_class_selection.setdefault(scope, {})
+    else:
+        record_reference_issue("non_exact_module_name", None, None)
+
+
+def record_reference_class_selection(scope, name, status):
+    if (
+        _reference_type(scope) is not _reference_str
+        or _reference_type(name) is not _reference_str
+    ):
+        record_reference_issue("non_exact_class_selection", scope, None)
+        return
+    reference_class_selection.setdefault(scope, {})[name] = status
+
+
+def record_reference_expanded_class(scope, name):
+    if (
+        _reference_type(scope) is not _reference_str
+        or _reference_type(name) is not _reference_str
+    ):
+        record_reference_issue("non_exact_expanded_class", scope, None)
+        return
+    reference_expanded_classes.setdefault(scope, []).append(name)
+
+
+def reference_direct_names(result, module_name):
+    seen = _reference_set()
+    if _reference_type(module_name) is not _reference_str:
+        record_reference_issue("non_exact_module_name", None, None)
+    for name in result:
+        if _reference_type(name) is not _reference_str:
+            record_reference_issue("non_exact_module_attribute", module_name, None)
+            continue
+        seen.add(name)
+        if "." in name:
+            record_reference_issue("dotted_module_attribute", module_name, name)
+    return seen
+
+
+def check_reference_class_member(seen, module_name, attr, name):
+    if _reference_type(attr) is not _reference_str:
+        record_reference_issue("non_exact_class_attribute", module_name, None)
+    elif "." in attr:
+        record_reference_issue("dotted_class_attribute", module_name, name)
+    if _reference_type(name) is not _reference_str:
+        record_reference_issue("non_exact_flattened_name", module_name, None)
+        return
+    if name in seen:
+        record_reference_issue("flattened_name_collision", module_name, name)
+    seen.add(name)
+
+
 def gen_methods():
     objects = [t.__name__ for t in BUILTIN_TYPES]
     objects.append("type(None)")
@@ -286,7 +444,39 @@ def gen_methods():
     methods = {}
     for typ_code in objects + iters:
         typ = eval(typ_code)
+        before = _reference_len(methods)
+        native_type = _reference_type(typ) is _reference_type
+        # Keep the original single assignment: callbacks during the RHS can
+        # modify the caller's locals before Python evaluates this target.
         methods[typ.__name__] = (typ_code, extra_info(typ), own_attrs(typ))
+        if not native_type or _reference_type(typ) is not _reference_type:
+            record_reference_issue("non_native_builtin_type", "builtins", None)
+        if _reference_len(methods) == before:
+            record_reference_issue("duplicate_builtin_type", "builtins", None)
+
+    seen_flat = _reference_set()
+    for name, (_, _, attrs) in methods.items():
+        if _reference_type(name) is not _reference_str:
+            record_reference_issue("non_exact_builtin_type", "builtins", None)
+            continue
+        if "." in name:
+            record_reference_issue("dotted_builtin_type", "builtins", name)
+        if name in seen_flat:
+            record_reference_issue("flattened_name_collision", "builtins", name)
+        seen_flat.add(name)
+        for attr, _ in attrs:
+            if _reference_type(attr) is not _reference_str:
+                record_reference_issue("non_exact_class_attribute", "builtins", None)
+                continue
+            if "." in attr:
+                record_reference_issue("dotted_class_attribute", "builtins", attr)
+            key = f"{name}.{attr}"
+            if _reference_type(key) is not _reference_str:
+                record_reference_issue("non_exact_flattened_name", "builtins", None)
+                continue
+            if key in seen_flat:
+                record_reference_issue("flattened_name_collision", "builtins", key)
+            seen_flat.add(key)
 
     output = "expected_methods = {\n"
     for name in sorted(methods.keys(), key=name_sort_key):
@@ -314,6 +504,7 @@ def scan_modules():
             modules[modname] = 1
 
     def onerror(modname):
+        record_reference_discovery("scanner_errors", modname)
         callback(None, modname, None)
 
     with warnings.catch_warnings():
@@ -351,6 +542,11 @@ def dir_of_mod_or_error(module_name, keep_other=True):
     module = import_module(module_name)
     if isinstance(module, Exception):
         return module
+    selected_parents = ()
+    if keep_other is True and _safe_type(module_name) is _safe_str:
+        selected_parents = _safe_frozenset(
+            reference_expanded_classes.get(module_name, ())
+        )
     item_names = sorted(set(dir(module)))
     result = {}
     for item_name in item_names:
@@ -362,12 +558,27 @@ def dir_of_mod_or_error(module_name, keep_other=True):
         if item_name == "__doc__":
             # extra_info() reports a docstring for a callable only, and a module
             # is not one. getdoc() matches how a callable's is normalized.
-            result[item_name] = {"sig": None, "doc": inspect.getdoc(module)}
+            result[item_name] = {
+                "sig": None,
+                "sig_error": False,
+                "doc": inspect.getdoc(module),
+            }
             continue
         item = getattr(module, item_name)
         # don't repeat items imported from other modules
         if keep_other or is_child(module, item) or inspect.getmodule(item) is None:
             result[item_name] = extra_info(item)
+            # Observe the item local after inspection, without another getattr.
+            # This is not atomic with either the inspection or later lookups.
+            if (
+                keep_other is True
+                and _safe_type(module_name) is _safe_str
+                and _safe_type(item_name) is _safe_str
+                and item_name in selected_parents
+            ):
+                actual_parent_scans.setdefault(module_name, {})[item_name] = (
+                    observe_real_type(item)
+                )
     return result
 
 
@@ -382,8 +593,11 @@ def _is_decimal_fallback_item(item):
 
 
 def _expand_class_members(dir_result, module):
+    seen = reference_direct_names(dir_result, "decimal")
+    ensure_reference_class_scope("decimal")
     for item_name in list(dir_result):
         if "." in item_name:
+            record_reference_class_selection("decimal", item_name, "skipped_dotted")
             continue
         item = getattr(module, item_name)
         if (
@@ -391,8 +605,23 @@ def _expand_class_members(dir_result, module):
             and item not in BUILTIN_TYPES
             and getattr(item, "__name__", None) == item_name
         ):
+            record_reference_expanded_class("decimal", item_name)
+            record_reference_class_selection("decimal", item_name, "selected")
             for attr, info in own_attrs(item):
-                dir_result[f"{item_name}.{attr}"] = info
+                if (
+                    _reference_type(item_name) is not _reference_str
+                    or _reference_type(attr) is not _reference_str
+                ):
+                    record_reference_issue(
+                        "non_exact_class_name_or_attribute", "decimal", None
+                    )
+                    dir_result[f"{item_name}.{attr}"] = info
+                else:
+                    name = f"{item_name}.{attr}"
+                    check_reference_class_member(seen, "decimal", attr, name)
+                    dir_result[name] = info
+        else:
+            record_reference_class_selection("decimal", item_name, "not_selected")
 
 
 def _pure_decimal_baseline(wrapper):
@@ -404,7 +633,11 @@ def _pure_decimal_baseline(wrapper):
         if item_name == "__builtins__":
             continue
         if item_name == "__doc__":
-            result[item_name] = {"sig": None, "doc": inspect.getdoc(wrapper)}
+            result[item_name] = {
+                "sig": None,
+                "sig_error": False,
+                "doc": inspect.getdoc(wrapper),
+            }
             continue
         item = getattr(_pydecimal, item_name)
         if not _is_decimal_fallback_item(item):
@@ -418,15 +651,19 @@ def gen_modules():
     # check name because modules listed have side effects on import,
     # e.g. printing something or opening a webpage
     modules = {}
+    failed = {}
     for mod_name in sorted(scan_modules(), key=name_sort_key):
+        record_reference_discovery("names", mod_name)
         if mod_name in IGNORED_MODULES:
+            record_reference_discovery("ignored", mod_name)
             continue
         # decimal's accelerated types are not the implementation under test.
         if mod_name == "decimal":
             module = import_module(mod_name)
             if isinstance(module, Exception):
+                failed[mod_name] = f"{type(module).__name__}: {str(module)}"
                 print(
-                    f"!!! {mod_name} skipped because {type(module).__name__}: {str(module)}",
+                    f"!!! {mod_name} skipped because {failed[mod_name]}",
                     file=sys.stderr,
                 )
                 continue
@@ -435,12 +672,12 @@ def gen_modules():
         # when generating CPython list, ignore items defined by other modules
         dir_result = dir_of_mod_or_error(mod_name, keep_other=False)
         if isinstance(dir_result, Exception):
-            print(
-                f"!!! {mod_name} skipped because {type(dir_result).__name__}: {str(dir_result)}",
-                file=sys.stderr,
-            )
+            failed[mod_name] = f"{type(dir_result).__name__}: {str(dir_result)}"
+            print(f"!!! {mod_name} skipped because {failed[mod_name]}", file=sys.stderr)
             continue
         module = import_module(mod_name)
+        seen = reference_direct_names(dir_result, mod_name)
+        ensure_reference_class_scope(mod_name)
         for item_name in list(dir_result):
             item = getattr(module, item_name)
             # an alias such as array.ArrayType is scanned under its real name
@@ -449,10 +686,25 @@ def gen_modules():
                 and item not in BUILTIN_TYPES
                 and item.__name__ == item_name
             ):
+                record_reference_expanded_class(mod_name, item_name)
+                record_reference_class_selection(mod_name, item_name, "selected")
                 for attr, info in own_attrs(item):
-                    dir_result[f"{item_name}.{attr}"] = info
+                    if (
+                        _reference_type(item_name) is not _reference_str
+                        or _reference_type(attr) is not _reference_str
+                    ):
+                        record_reference_issue(
+                            "non_exact_class_name_or_attribute", mod_name, None
+                        )
+                        dir_result[f"{item_name}.{attr}"] = info
+                    else:
+                        name = f"{item_name}.{attr}"
+                        check_reference_class_member(seen, mod_name, attr, name)
+                        dir_result[name] = info
+            else:
+                record_reference_class_selection(mod_name, item_name, "not_selected")
         modules[mod_name] = dir_result
-    return modules
+    return modules, failed
 
 
 output = """\
@@ -462,11 +714,20 @@ output = """\
 # VERSION AND PYTHON ENVIRONMENT USED
 # TO RUN not_impl_mods_gen.py
 
+import sys
+
 """
 
 output += gen_methods()
+cpymods, cpython_failed_imports = gen_modules()
 output += f"""
-cpymods = {gen_modules()!r}
+cpymods = {cpymods!r}
+cpython_failed_imports = {cpython_failed_imports!r}
+reference_inventory_diagnostics = {reference_inventory_diagnostics!r}
+reference_expanded_classes = {reference_expanded_classes!r}
+reference_class_selection = {reference_class_selection!r}
+actual_parent_scans = {{}}
+reference_discovery = {reference_discovery!r}
 libdir = {os.path.abspath("Lib/").encode("utf8")!r}
 
 """
@@ -474,18 +735,27 @@ libdir = {os.path.abspath("Lib/").encode("utf8")!r}
 # Copy the source code of functions we will reuse in the generated script
 REUSED = [
     attr_is_not_inherited,
+    observe_real_type,
+    observe_real_exception,
     extra_info,
     dir_of_mod_or_error,
     import_module,
     is_child,
     name_sort_key,
 ]
+output += "_safe_type, _safe_str, _safe_frozenset = type, str, frozenset\n\n"
 for fn in REUSED:
     output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
 
 # Prevent missing variable linter errors from compare()
 expected_methods = {}
 cpymods = {}
+reference_inventory_diagnostics = {}
+reference_expanded_classes = {}
+reference_class_selection = {}
+actual_parent_scans = {}
+reference_discovery = {}
+cpython_failed_imports = {}
 libdir = ""
 
 
@@ -497,15 +767,21 @@ def compare():
     import os
     import platform
     import re
-    import sys
     import warnings
     from contextlib import redirect_stdout
 
-    def sig_mismatch(rustpy_sig, cpython_sig):
-        # A signature CPython cannot produce is never a mismatch; having one is fine.
-        if cpython_sig is None or cpython_sig.startswith("ValueError("):
+    def sig_mismatch(rustpy_sig, cpython_info):
+        # A reference introspection failure cannot establish a mismatch.
+        if cpython_info["sig"] is None or cpython_info["sig_error"]:
             return False
-        return rustpy_sig != cpython_sig
+        return rustpy_sig != cpython_info["sig"]
+
+    def info_equivalent(rustpy_info, cpython_info):
+        # A failed reference signature cannot prove an inherited member differs.
+        signatures_match = (
+            cpython_info["sig_error"] or rustpy_info["sig"] == cpython_info["sig"]
+        )
+        return signatures_match and rustpy_info["doc"] == cpython_info["doc"]
 
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
@@ -515,25 +791,34 @@ def compare():
         is_inherited = not attr_is_not_inherited(typ, method_name)
         # Inheriting something that reads the same as CPython's own member
         # leaves nothing to implement.
-        if is_inherited and extra_info(getattr(typ, method_name)) != real_method_value:
-            return "(inherited)"
+        if is_inherited:
+            value = extra_info(getattr(typ, method_name))
+            if not info_equivalent(value, real_method_value):
+                return "(inherited)"
 
         return None
 
     not_implementeds = {}
     mismatched_methods = {}
     mismatched_method_docs = {}
+    uncomparable = {}
     for name, (typ, real_value, methods) in expected_methods.items():
+        if real_value["sig_error"]:
+            uncomparable.setdefault(name, []).append((name, real_value["sig"]))
         missing_methods = {}
         for method, real_method_value in methods:
+            item = f"{name}.{method}"
+            if real_method_value["sig_error"]:
+                uncomparable.setdefault(name, []).append(
+                    (item, real_method_value["sig"])
+                )
             reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
                 continue
             # A method that exists but differs is a mismatch, not a missing one.
             value = extra_info(getattr(typ, method))
-            item = f"{name}.{method}"
-            if sig_mismatch(value["sig"], real_method_value["sig"]):
+            if sig_mismatch(value["sig"], real_method_value):
                 mismatched_methods.setdefault(name, []).append(
                     (item, value["sig"], real_method_value["sig"])
                 )
@@ -562,27 +847,60 @@ def compare():
     mod_names = sorted(set(mod_names) - {"this", "antigravity"}, key=name_sort_key)
 
     rustpymods = {mod: dir_of_mod_or_error(mod) for mod in mod_names}
+    for modname, classes in reference_expanded_classes.items():
+        observations = actual_parent_scans.setdefault(modname, {})
+        for class_name in classes:
+            observations.setdefault(class_name, "not_observed")
 
     result = {
         "cpython_modules": {},
+        "reference_inventory_diagnostics": reference_inventory_diagnostics,
+        "reference_builtin_inventory": {
+            name: [method for method, _ in methods]
+            for name, (_, _, methods) in expected_methods.items()
+        },
+        "reference_expanded_classes": reference_expanded_classes,
+        "reference_class_selection": reference_class_selection,
+        "actual_scan_status": {},
+        "actual_second_import_status": {},
+        "actual_parent_scans": actual_parent_scans,
+        "actual_parent_decisions": {},
+        "reference_discovery": reference_discovery,
         "implemented": {},
         "not_implemented": {},
         "failed_to_import": {},
         "missing_items": {},
         # builtin types first, keyed by type name, then modules
         "mismatched_items": mismatched_methods,
+        "uncomparable_signatures": uncomparable,
         "mismatched_doc_items": mismatched_method_docs,
     }
     for modname, cpymod in cpymods.items():
+        module_has_uncomparable = False
+        for item, info in cpymod.items():
+            if info["sig_error"]:
+                module_has_uncomparable = True
+                uncomparable.setdefault(modname, []).append(
+                    (f"{modname}.{item}", info["sig"])
+                )
         rustpymod = rustpymods.get(modname)
+        result["actual_parent_decisions"][modname] = {}
         if rustpymod is None:
+            result["actual_scan_status"][modname] = "not_discovered"
+            result["actual_second_import_status"][modname] = "not_attempted"
             result["not_implemented"][modname] = None
         elif isinstance(rustpymod, Exception):
+            result["actual_scan_status"][modname] = "scan_returned_exception"
+            result["actual_second_import_status"][modname] = "not_attempted"
             result["failed_to_import"][modname] = (
                 f"{rustpymod.__class__.__name__}: {rustpymod}"
             )
         else:
+            result["actual_scan_status"][modname] = "scan_completed"
             module = import_module(modname)
+            result["actual_second_import_status"][modname] = observe_real_exception(
+                module
+            )
             skipped = set()
             inherited = set()
             for item in cpymod:
@@ -591,17 +909,25 @@ def compare():
                     continue
                 cls = getattr(module, cls_name, None)
                 if not isinstance(cls, type):
+                    result["actual_parent_decisions"][modname][item] = (
+                        "isinstance_false"
+                    )
                     # The class line already reports a missing class or one
                     # implemented as something else.
                     skipped.add(item)
                 elif not hasattr(cls, attr):
+                    result["actual_parent_decisions"][modname][item] = "isinstance_true"
                     continue
                 elif attr_is_not_inherited(cls, attr):
+                    result["actual_parent_decisions"][modname][item] = "isinstance_true"
                     rustpymod[item] = extra_info(getattr(cls, attr))
-                elif extra_info(getattr(cls, attr)) == cpymod[item]:
-                    rustpymod[item] = cpymod[item]
                 else:
-                    inherited.add(item)
+                    result["actual_parent_decisions"][modname][item] = "isinstance_true"
+                    value = extra_info(getattr(cls, attr))
+                    if info_equivalent(value, cpymod[item]):
+                        rustpymod[item] = value
+                    else:
+                        inherited.add(item)
             implemented_items = sorted(set(cpymod) & set(rustpymod))
             mod_missing_items = set(cpymod) - set(rustpymod) - skipped
             mod_missing_items = sorted(
@@ -611,7 +937,7 @@ def compare():
             mod_mismatched_items = [
                 (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
                 for item in implemented_items
-                if sig_mismatch(rustpymod[item]["sig"], cpymod[item]["sig"])
+                if sig_mismatch(rustpymod[item]["sig"], cpymod[item])
             ]
             mod_mismatched_doc_items = [
                 (f"{modname}.{item}", rustpymod[item]["doc"], cpymod[item]["doc"])
@@ -624,10 +950,20 @@ def compare():
                 result["mismatched_items"][modname] = mod_mismatched_items
             if mod_mismatched_doc_items:
                 result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
-            if not (mod_missing_items or mod_mismatched_items):
+            if not (
+                mod_missing_items or mod_mismatched_items or module_has_uncomparable
+            ):
                 result["implemented"][modname] = None
 
     result["cpython_modules"] = cpymods
+    result["cpython_failed_imports"] = cpython_failed_imports
+    result["cpython_builtin_signatures"] = {
+        name: {
+            "type": real_value["sig"],
+            "methods": {method: info["sig"] for method, info in methods},
+        }
+        for name, (_, real_value, methods) in expected_methods.items()
+    }
     result["not_implementeds"] = not_implementeds
 
     print(json.dumps(result))
@@ -686,6 +1022,7 @@ result = subprocess.run(
 # The last line should be json output, the rest of the lines can contain noise
 # because importing certain modules can print stuff to stdout/stderr
 print(result.stderr, file=sys.stderr)
+result.check_returncode()
 result = json.loads(result.stdout.splitlines()[-1])
 
 if args.json:
@@ -725,6 +1062,15 @@ if args.signature:
             if i < len(mismatched) - 1:
                 print()
 
+if args.signature:
+    print(
+        "\n# uncomparable signature observations (CPython introspection errors; aliases may repeat)"
+    )
+    for entries in result["uncomparable_signatures"].values():
+        for item, error in entries:
+            print(f"{item}: {error}")
+
+
 if args.doc:
     print("\n# mismatching `__doc__`s (warnings)")
     for modname, mismatched in result["mismatched_doc_items"].items():
@@ -735,4 +1081,32 @@ if args.doc:
 print()
 print("# summary")
 for error_type, modules in result.items():
-    print("# ", error_type, len(modules))
+    if error_type not in {
+        "reference_discovery",
+        "reference_inventory_diagnostics",
+        "reference_builtin_inventory",
+        "reference_expanded_classes",
+        "reference_class_selection",
+        "actual_scan_status",
+        "actual_second_import_status",
+        "actual_parent_scans",
+        "actual_parent_decisions",
+    }:
+        print("# ", error_type, len(modules))
+diagnostics = result["reference_inventory_diagnostics"]
+if diagnostics["issues"] or diagnostics["truncated"]:
+    print("# reference inventory issues", len(diagnostics["issues"]))
+    if diagnostics["truncated"]:
+        print("# reference inventory issue list truncated")
+discovery = result["reference_discovery"]
+print(
+    "# reference discovery:",
+    len(discovery["names"]),
+    "names,",
+    len(discovery["ignored"]),
+    "ignored,",
+    len(discovery["scanner_errors"]),
+    "scanner errors",
+)
+if discovery["truncated"]:
+    print("# reference discovery manifest truncated")

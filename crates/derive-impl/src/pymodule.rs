@@ -399,8 +399,8 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
             pub(crate) fn __init_dict(
                 vm: &::rustpython_vm::VirtualMachine,
                 module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>,
-            ) {
-                ::rustpython_vm::builtins::PyModule::__init_dict_from_def(vm, module);
+            ) -> ::rustpython_vm::PyResult<()> {
+                ::rustpython_vm::builtins::PyModule::__init_dict_from_def(vm, module)
             }
         },
     ]);

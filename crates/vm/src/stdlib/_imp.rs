@@ -313,7 +313,7 @@ mod _imp {
 
             // Initialize module dict and methods
             // Corresponds to PyModule_FromDefAndSpec: md_def, _add_methods_to_object, PyModule_SetDocString
-            PyModule::__init_dict_from_def(vm, &module);
+            PyModule::__init_dict_from_def(vm, &module)?;
             module.__init_methods(vm)?;
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
@@ -555,7 +555,7 @@ fn update_code_filenames(
     new_name: &'static PyStrInterned,
 ) {
     let current = code.source_path();
-    if !core::ptr::eq(current, old_name) && current.as_str() != old_name.as_str() {
+    if !core::ptr::eq(current, old_name) && current.as_wtf8() != old_name.as_wtf8() {
         return;
     }
     code.set_source_path(new_name);

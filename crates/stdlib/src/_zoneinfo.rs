@@ -10,6 +10,7 @@ pub(crate) use _zoneinfo::module_def;
 #[pymodule]
 mod _zoneinfo {
     use alloc::collections::VecDeque;
+    use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
     use std::collections::HashMap;
 
     use crate::_datetime::{PyTzInfo, datetime_type, timedelta_from_seconds};
@@ -1002,10 +1003,14 @@ mod _zoneinfo {
         vm: &VirtualMachine,
     ) -> PyResult {
         let qual = instance.class().fully_qualified_name(vm)?;
-        let key_repr = key.repr(vm)?.to_string_lossy().into_owned();
-        Err(vm.new_runtime_error(format!(
-            "Unexpected instance of {qual} in {} weak cache for key {key_repr}",
-            cls.name()
+        let key_repr = key.repr(vm)?.as_wtf8().to_owned();
+        Err(vm.new_runtime_error(wtf8_concat!(
+            "Unexpected instance of ",
+            qual,
+            " in ",
+            &*cls.name(),
+            " weak cache for key ",
+            key_repr
         )))
     }
 
@@ -1217,14 +1222,14 @@ mod _zoneinfo {
     }
 
     impl Representable for ZoneInfo {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let name = zelf.class().fully_qualified_name(vm)?;
             if vm.is_none(&zelf.key) {
                 let file = zelf.file_repr.as_deref().unwrap_or("");
-                return Ok(format!("{name}.from_file({file})"));
+                return Ok(wtf8_concat!(name, ".from_file(", file, ")"));
             }
-            let key = zelf.key.repr(vm)?.to_string_lossy().into_owned();
-            Ok(format!("{name}(key={key})"))
+            let key = zelf.key.repr(vm)?.as_wtf8().to_owned();
+            Ok(wtf8_concat!(name, "(key=", key, ")"))
         }
     }
 
@@ -1414,7 +1419,7 @@ mod _zoneinfo {
                     zelf.key.class().slot_name()
                 )));
             }
-            Ok(vm.ctx.new_str(Self::repr_str(zelf, vm)?))
+            Self::repr(zelf, vm)
         }
     }
 

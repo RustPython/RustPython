@@ -1122,8 +1122,8 @@ impl Py<PyFunction> {
             let ann_dict = match result?.downcast::<crate::builtins::PyDict>() {
                 Ok(dict) => dict,
                 Err(obj) => {
-                    return Err(vm.new_type_error(format!(
-                        "__annotate__() must return a dict, not {}",
+                    return Err(vm.new_type_error(wtf8_concat!(
+                        "__annotate__() must return a dict, not ",
                         obj.class().fully_qualified_name(vm)?
                     )));
                 }
@@ -1663,7 +1663,12 @@ impl Py<PyCell> {
         };
         // compare cells by contents; empty cells come before anything else
         match (zelf.get(), other.get()) {
-            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (Some(a), Some(b)) => {
+                let result = PyObject::rich_compare(&a, &b, op, vm).map(Either::A);
+                drop(a);
+                drop(b);
+                result
+            }
             (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
         }
     }

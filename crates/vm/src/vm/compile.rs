@@ -254,7 +254,11 @@ impl VirtualMachine {
     /// the in-memory line; compiler errors read the file named by the
     /// exception, and get None when that file cannot be opened.
     #[cfg(any(feature = "parser", feature = "compiler"))]
-    pub(crate) fn program_text(&self, filename: &str, lineno: usize) -> Option<String> {
+    pub(crate) fn program_text(
+        &self,
+        filename: impl AsRef<std::path::Path>,
+        lineno: usize,
+    ) -> Option<String> {
         if lineno == 0 {
             return None;
         }
@@ -304,7 +308,7 @@ impl VirtualMachine {
     #[cfg(feature = "parser")]
     fn new_non_utf8_syntax_error(
         &self,
-        filename: &str,
+        filename: &Py<PyStr>,
         src: &[u8],
         error_at: usize,
     ) -> PyBaseExceptionRef {
@@ -321,18 +325,19 @@ impl VirtualMachine {
             .position(|&b| b == b'\n')
             .map_or(src.len(), |i| line_start + i);
         let text = String::from_utf8_lossy(&src[line_start..line_end]).into_owned();
-        let in_file = if filename.starts_with('<') {
-            String::new()
-        } else {
-            format!(" in file {filename}")
-        };
-        let msg = format!(
-            "Non-UTF-8 code starting with '\\x{bad_byte:02x}'{in_file} \
-             on line {lineno}, but no encoding declared; \
+        let mut msg = crate::common::wtf8::Wtf8Buf::from(format!(
+            "Non-UTF-8 code starting with '\\x{bad_byte:02x}'"
+        ));
+        if !filename.as_bytes().starts_with(b"<") {
+            msg.push_str(" in file ");
+            msg.push_wtf8(filename.as_wtf8());
+        }
+        msg.push_str(&format!(
+            " on line {lineno}, but no encoding declared; \
              see https://peps.python.org/pep-0263/ for details"
-        );
+        ));
         let location = self.ctx.new_tuple(vec![
-            self.ctx.new_str(filename).into(),
+            filename.to_owned().into(),
             self.ctx.new_int(lineno).into(),
             self.ctx.new_int(offset).into(),
             self.ctx.new_str(text).into(),
@@ -341,10 +346,10 @@ impl VirtualMachine {
         ]);
         self.invoke_exception(
             self.ctx.exceptions.syntax_error,
-            vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+            vec![self.ctx.new_str(msg.clone()).into(), location.into()],
         )
         .unwrap_or_else(|_| {
-            self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
+            self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg)
         })
     }
 
@@ -353,6 +358,16 @@ impl VirtualMachine {
         &self,
         source: &[u8],
         filename: &str,
+        ignore_cookie: bool,
+    ) -> PyResult<String> {
+        self.decode_source_bytes_with_filename(source, &self.ctx.new_str(filename), ignore_cookie)
+    }
+
+    #[cfg(feature = "parser")]
+    pub(crate) fn decode_source_bytes_with_filename(
+        &self,
+        source: &[u8],
+        filename: &Py<PyStr>,
         ignore_cookie: bool,
     ) -> PyResult<String> {
         // `ignore_cookie` marks source that was handed over as text. A byte
@@ -381,7 +396,7 @@ impl VirtualMachine {
                 .count();
             let msg = format!("encoding problem: {enc} with BOM");
             let location = self.ctx.new_tuple(vec![
-                self.ctx.new_str(filename).into(),
+                filename.to_owned().into(),
                 self.ctx.new_int(cookie.lineno).into(),
                 self.ctx.new_int(0).into(),
                 self.ctx.new_str(text).into(),
@@ -391,7 +406,7 @@ impl VirtualMachine {
             return Err(self
                 .invoke_exception(
                     self.ctx.exceptions.syntax_error,
-                    vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+                    vec![self.ctx.new_str(msg.clone()).into(), location.into()],
                 )
                 .unwrap_or_else(|_| {
                     self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
@@ -417,7 +432,7 @@ impl VirtualMachine {
                     if exc.fast_isinstance(self.ctx.exceptions.syntax_error) {
                         match exc
                             .as_object()
-                            .set_attr("filename", self.ctx.new_str(filename), self)
+                            .set_attr("filename", filename.to_owned(), self)
                         {
                             Ok(()) => exc,
                             Err(error) => error,
@@ -430,7 +445,7 @@ impl VirtualMachine {
                             Err(error) => return error,
                         };
                         let location = self.ctx.new_tuple(vec![
-                            self.ctx.new_str(filename).into(),
+                            filename.to_owned().into(),
                             self.ctx.new_int(0).into(),
                             self.ctx.new_int(-1).into(),
                             self.ctx.none(),
@@ -761,14 +776,50 @@ impl VirtualMachine {
         module: Option<&PyObject>,
         emitted_escapes: &[usize],
     ) -> Result<PyRef<PyCode>, VmCompileError> {
-        let source_path = source_path.into();
+        let filename = self.ctx.new_str(source_path.into());
+        self.compile_with_python_filename(source, mode, &filename, opts, module, emitted_escapes)
+    }
+
+    pub(crate) fn compile_with_filename(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        filename: &Py<PyStr>,
+        opts: CompileOpts,
+        module: Option<&Py<PyStr>>,
+    ) -> PyResult<PyRef<PyCode>> {
+        self.compile_with_python_filename(
+            source,
+            mode,
+            filename,
+            opts,
+            module.map(AsObject::as_object),
+            &[],
+        )
+        .map_err(|error| match error {
+            VmCompileError::Compile(error) => {
+                self.new_syntax_error_with_filename(&error, Some(source), false, Some(filename))
+            }
+            VmCompileError::Warning(error) => error.into_pyexception(self, Some(source)),
+        })
+    }
+
+    fn compile_with_python_filename(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        filename: &Py<PyStr>,
+        opts: CompileOpts,
+        module: Option<&PyObject>,
+        emitted_escapes: &[usize],
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
         #[cfg(not(feature = "parser"))]
         let _ = (module, emitted_escapes);
         #[cfg(feature = "parser")]
         {
             self.emit_standard_parser_warnings(
                 source,
-                &source_path,
+                filename,
                 module,
                 mode,
                 opts.future_features
@@ -777,7 +828,7 @@ impl VirtualMachine {
             )
             .map_err(VmCompileError::Warning)?;
         }
-        self.compile_after_parser_warnings_object(source, mode, source_path, opts, module)
+        self.compile_after_parser_warnings_object(source, mode, filename, opts, module)
     }
 
     pub(super) fn compile_after_parser_warnings(
@@ -791,7 +842,7 @@ impl VirtualMachine {
         self.compile_after_parser_warnings_object(
             source,
             mode,
-            source_path,
+            &self.ctx.new_str(source_path.into()),
             opts,
             module.map(AsObject::as_object),
         )
@@ -801,11 +852,11 @@ impl VirtualMachine {
         &self,
         source: &str,
         mode: compiler::Mode,
-        source_path: impl Into<String>,
+        filename: &Py<PyStr>,
         opts: CompileOpts,
         module: Option<&PyObject>,
     ) -> Result<PyRef<PyCode>, VmCompileError> {
-        let source_path = source_path.into();
+        let source_path = filename.to_string_lossy();
         #[cfg(not(feature = "parser"))]
         let _ = module;
         #[cfg(feature = "parser")]
@@ -815,25 +866,19 @@ impl VirtualMachine {
             let escalated: core::cell::Cell<Option<CompileWarningError>> =
                 core::cell::Cell::new(None);
             let mut syntax_warning_handler = |location, message| {
-                escape_warnings::warn_syntax_at_location(
-                    &source_path,
-                    module,
-                    location,
-                    message,
-                    self,
-                )
-                .map_err(|warning| {
-                    escalated.set(Some(warning));
-                    // Recovered below via `escalated`, so this is never surfaced.
-                    compiler::codegen::error::CodegenError {
-                        location: Some(location),
-                        end_location: None,
-                        error: compiler::codegen::error::CodegenErrorType::SyntaxError(
-                            String::new(),
-                        ),
-                        source_path: source_path.clone(),
-                    }
-                })
+                escape_warnings::warn_syntax_at_location(filename, module, location, message, self)
+                    .map_err(|warning| {
+                        escalated.set(Some(warning));
+                        // Recovered below via `escalated`, so this is never surfaced.
+                        compiler::codegen::error::CodegenError {
+                            location: Some(location),
+                            end_location: None,
+                            error: compiler::codegen::error::CodegenErrorType::SyntaxError(
+                                String::new(),
+                            ),
+                            source_path: source_path.to_string(),
+                        }
+                    })
             };
             let result = compiler::compile_with_syntax_warning_handler(
                 source,
@@ -852,6 +897,14 @@ impl VirtualMachine {
         let code = code
             .map(|code| PyCode::new_ref_from_bytecode(self, code))
             .map_err(VmCompileError::Compile)?;
+        // The parser's UTF-8 diagnostic label is not the Python filename.
+        // Preserve the original in all nested runtime code objects.
+        if !filename.is_utf8() {
+            crate::builtins::code::set_source_path_tree(
+                &code,
+                self.ctx.intern_str(filename.as_wtf8()),
+            );
+        }
         Ok(code)
     }
 }
@@ -1450,13 +1503,13 @@ mod escape_warnings {
     }
 
     pub(super) fn warn_syntax_at_location(
-        filename: &str,
+        filename: &Py<PyStr>,
         module: Option<&PyObject>,
         location: compiler::core::SourceLocation,
         message: String,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        let fname = vm.ctx.new_str(filename);
+        let fname = filename.to_owned();
         let message = vm.ctx.new_str(message);
         warn::warn_explicit(
             Some(vm.ctx.exceptions.syntax_warning.to_owned()),
@@ -1471,8 +1524,8 @@ mod escape_warnings {
         )
         .map_err(|exception| CompileWarningError {
             exception,
-            filename: filename.to_owned(),
-            original_filename: None,
+            filename: filename.to_string_lossy().into_owned(),
+            original_filename: Some(filename.to_owned()),
             lineno: location.line.get(),
             offset: location.character_offset.get(),
             replacement: None,
@@ -2562,6 +2615,7 @@ mod escape_warnings {
         Standard {
             emitted_escapes: &'a [usize],
             tokenizer_recovery: bool,
+            original_filename: &'a Py<PyStr>,
         },
         Ast {
             tokenizer_recovery: bool,
@@ -2574,12 +2628,14 @@ mod escape_warnings {
         pub(super) fn emit_standard_parser_warnings(
             &self,
             source: &str,
-            filename: &str,
+            original_filename: &Py<PyStr>,
             module: Option<&PyObject>,
             mode: compiler::Mode,
             inherited_barry_as_flufl: bool,
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
+            let filename = original_filename.to_string_lossy();
+            let filename = filename.as_ref();
             let implicit_final_newline = matches!(mode, compiler::Mode::Exec);
             let is_single = matches!(mode, compiler::Mode::Single);
             let mode = match mode {
@@ -2602,8 +2658,13 @@ mod escape_warnings {
             if !collected.has_valid_syntax {
                 // Invalid source still needs the legacy recovery contract;
                 // a valid mixed batch already has separate tokenizer events.
-                self.emit_tokenizer_syntax_warnings(source, filename, module)?;
-                return self.emit_string_escape_warnings(source, filename, module, emitted_escapes);
+                self.emit_tokenizer_syntax_warnings(source, original_filename, module)?;
+                return self.emit_string_escape_warnings(
+                    source,
+                    original_filename,
+                    module,
+                    emitted_escapes,
+                );
             }
             self.emit_parser_warning_batch(
                 source,
@@ -2617,6 +2678,7 @@ mod escape_warnings {
                 WarningEmission::Standard {
                     emitted_escapes,
                     tokenizer_recovery: true,
+                    original_filename,
                 },
             )
             .map(|_| ())
@@ -2626,9 +2688,11 @@ mod escape_warnings {
         pub(super) fn emit_tokenizer_syntax_warnings(
             &self,
             source: &str,
-            filename: &str,
+            original_filename: &Py<PyStr>,
             module: Option<&PyObject>,
         ) -> Result<(), CompileWarningError> {
+            let filename = original_filename.to_string_lossy();
+            let filename = filename.as_ref();
             let mut warnings = Vec::new();
             collect_numeric_literal_warnings(source, &mut warnings);
             self.emit_parser_warning_batch(
@@ -2640,6 +2704,7 @@ mod escape_warnings {
                 WarningEmission::Standard {
                     emitted_escapes: &[],
                     tokenizer_recovery: false,
+                    original_filename,
                 },
             )
             .map(|_| ())
@@ -2648,10 +2713,12 @@ mod escape_warnings {
         pub(super) fn emit_string_escape_warnings(
             &self,
             source: &str,
-            filename: &str,
+            original_filename: &Py<PyStr>,
             module: Option<&PyObject>,
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
+            let filename = original_filename.to_string_lossy();
+            let filename = filename.as_ref();
             let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
             if compiler::pre_parse_source_error(&source_file).is_err() {
                 return Ok(());
@@ -2696,6 +2763,7 @@ mod escape_warnings {
                 WarningEmission::Standard {
                     emitted_escapes,
                     tokenizer_recovery: false,
+                    original_filename,
                 },
             )
             .map(|_| ())
@@ -2804,7 +2872,13 @@ mod escape_warnings {
                     WarningEmission::Standard {
                         emitted_escapes,
                         tokenizer_recovery,
-                    } => (emitted_escapes, tokenizer_recovery, None, None),
+                        original_filename,
+                    } => (
+                        emitted_escapes,
+                        tokenizer_recovery,
+                        Some(original_filename),
+                        None,
+                    ),
                     WarningEmission::Ast {
                         tokenizer_recovery,
                         original_filename,

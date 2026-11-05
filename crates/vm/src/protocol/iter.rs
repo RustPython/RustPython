@@ -6,6 +6,7 @@ use crate::{
 };
 use core::borrow::Borrow;
 use core::ops::Deref;
+use rustpython_common::wtf8::wtf8_concat;
 
 /// [Iterator Protocol](https://docs.python.org/3/c-api/iter.html).
 #[derive(Debug, Clone)]
@@ -142,9 +143,9 @@ impl TryFromObject for PyIter<PyObjectRef> {
             if Self::check(&iter) {
                 Ok(Self(iter))
             } else {
-                Err(vm.new_type_error(format!(
-                    "{}.__iter__() must return an iterator, not {}",
+                Err(vm.new_type_error(wtf8_concat!(
                     iter_target.class().fully_qualified_name(vm)?,
+                    ".__iter__() must return an iterator, not ",
                     iter.class().fully_qualified_name(vm)?
                 )))
             }

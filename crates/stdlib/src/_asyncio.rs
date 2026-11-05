@@ -14,7 +14,7 @@ pub(crate) mod _asyncio {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
                 PyBaseException, PyBaseExceptionRef, PyDict, PyGenericAlias, PyList, PyListRef,
-                PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef,
+                PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef, alloc_default,
             },
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
@@ -189,9 +189,9 @@ pub(crate) mod _asyncio {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if zelf.fut_loop.read().is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "{} object is already initialized",
-                    zelf.class().fully_qualified_name(vm)?
+                return Err(vm.new_runtime_error(wtf8_concat!(
+                    zelf.class().fully_qualified_name(vm)?,
+                    " object is already initialized"
                 )));
             }
 
@@ -993,23 +993,18 @@ pub(crate) mod _asyncio {
 
     #[pyattr]
     #[pyclass(name = "FutureIter", module = "_asyncio", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, Default, PyPayload)]
     struct PyFutureIter {
         future: PyRwLock<Option<PyObjectRef>>,
     }
 
-    impl Constructor for PyFutureIter {
-        type Args = ();
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(Self {
-                future: PyRwLock::new(None),
-            })
-        }
-    }
-
-    #[pyclass(with(Constructor, IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable), flags(HEAPTYPE))]
     impl PyFutureIter {
+        #[pyslot]
+        fn slot_alloc(cls: PyTypeRef, nitems: usize, vm: &VirtualMachine) -> PyResult {
+            alloc_default::<Self>(cls, nitems, vm)
+        }
+
         #[pymethod]
         fn send(zelf: &Py<Self>, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let future = zelf.future.read().clone();
@@ -1234,9 +1229,9 @@ pub(crate) mod _asyncio {
     impl PyTask {
         fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.base.fut_loop.read().is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "{} object is already initialized",
-                    zelf.class().fully_qualified_name(vm)?
+                return Err(vm.new_runtime_error(wtf8_concat!(
+                    zelf.class().fully_qualified_name(vm)?,
+                    " object is already initialized"
                 )));
             }
 
@@ -1278,8 +1273,8 @@ pub(crate) mod _asyncio {
                     if !c.class().is(PyContext::class(&vm.ctx)) {
                         zelf.task_log_destroy_pending
                             .store(false, Ordering::Relaxed);
-                        return Err(vm.new_type_error(format!(
-                            "a contextvars.Context was expected, got {}",
+                        return Err(vm.new_type_error(wtf8_concat!(
+                            "a contextvars.Context was expected, got ",
                             c.class().fully_qualified_name(vm)?
                         )));
                     }
@@ -2792,23 +2787,18 @@ pub(crate) mod _asyncio {
 
     #[pyattr]
     #[pyclass(name, traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, Default, PyPayload)]
     struct TaskStepMethWrapper {
         task: PyRwLock<Option<PyObjectRef>>,
     }
 
-    impl Constructor for TaskStepMethWrapper {
-        type Args = ();
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(Self {
-                task: PyRwLock::new(None),
-            })
-        }
-    }
-
-    #[pyclass(with(Constructor, Callable, Representable))]
+    #[pyclass(with(Callable, Representable), flags(HEAPTYPE))]
     impl TaskStepMethWrapper {
+        #[pyslot]
+        fn slot_alloc(cls: PyTypeRef, nitems: usize, vm: &VirtualMachine) -> PyResult {
+            alloc_default::<Self>(cls, nitems, vm)
+        }
+
         fn new(task: PyObjectRef) -> Self {
             Self {
                 task: PyRwLock::new(Some(task)),

@@ -35,8 +35,9 @@ pub(crate) use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
+pub(crate) use number::int_as_ssize;
 pub use number::{
-    ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
+    ArgCInt, ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
 };
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{

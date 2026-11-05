@@ -1087,8 +1087,34 @@ impl DictKey for ObjectIdKey {
 // Prepare conversions and ownership before writing. Python conversion hooks
 // and old-owner finalizers must never run with a storage or metadata lock held.
 pub(super) enum CDataBytes {
-    Integer { bytes: [u8; 8], size: usize },
+    Integer {
+        bytes: [u8; 8],
+        size: usize,
+    },
     Owned(Vec<u8>),
+    #[cfg(windows)]
+    BStr(rustpython_host_env::ctypes::BStr),
+}
+
+impl CDataBytes {
+    // Arguments have no previous destination, but still transfer ownership.
+    pub(super) fn commit(&mut self) {
+        #[cfg(windows)]
+        if let Self::BStr(bstr) = self {
+            bstr.commit();
+        }
+    }
+
+    // The destination follows ctypes' caller-provided valid-pointer contract.
+    pub(super) fn replace(&mut self, _previous: &[u8]) {
+        #[cfg(windows)]
+        if let Self::BStr(bstr) = self {
+            // SAFETY: BSTR setters require NULL or a live COM allocation.
+            unsafe {
+                bstr.replace(_previous);
+            }
+        }
+    }
 }
 
 impl From<Vec<u8>> for CDataBytes {
@@ -1104,6 +1130,8 @@ impl core::ops::Deref for CDataBytes {
         match self {
             Self::Integer { bytes, size } => &bytes[..*size],
             Self::Owned(bytes) => bytes,
+            #[cfg(windows)]
+            Self::BStr(bstr) => bstr.bytes(),
         }
     }
 }
@@ -1542,6 +1570,15 @@ impl PyCData {
     /// For borrowed buffers, caller must ensure the memory is writable.
     pub fn write_bytes_at_offset(&self, offset: usize, bytes: &[u8]) {
         let mut buffer = self.buffer.write();
+        write_cow_bytes_at_offset(&mut buffer, offset, bytes);
+    }
+
+    pub(super) fn write_value_at_offset(&self, offset: usize, bytes: &mut CDataBytes) {
+        let mut buffer = self.buffer.write();
+        let Some(previous) = buffer.get(offset..offset.saturating_add(bytes.len())) else {
+            return;
+        };
+        bytes.replace(previous);
         write_cow_bytes_at_offset(&mut buffer, offset, bytes);
     }
 
@@ -3031,9 +3068,9 @@ impl PyCData {
         } else {
             CDataWrite::default()
         };
-        let prepared = CDataValue::new(proto_type, &value, size, needs_swap, vm)?;
+        let mut prepared = CDataValue::new(proto_type, &value, size, needs_swap, vm)?;
         write.publish(vm)?;
-        self.write_bytes_at_offset(offset, &prepared.bytes);
+        self.write_value_at_offset(offset, &mut prepared.bytes);
         prepared.keep(self, index, vm)
     }
 
@@ -4039,6 +4076,10 @@ pub(super) fn bytes_to_pyobject(
                 }
             }
             rustpython_host_env::ctypes::DecodedValue::String(value) => {
+                vm.ctx.new_str(value).into()
+            }
+            #[cfg(windows)]
+            rustpython_host_env::ctypes::DecodedValue::WideString(value) => {
                 vm.ctx.new_str(value).into()
             }
             rustpython_host_env::ctypes::DecodedValue::None => vm.ctx.none(),

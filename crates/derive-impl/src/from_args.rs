@@ -185,6 +185,17 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
         .or(name_string)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
 
+    let convert = match attr.kind {
+        ParameterKind::PositionalOnly => quote! {
+            |x| ::rustpython_vm::convert::TryFromObject::try_from_argument(vm, x)
+        },
+        ParameterKind::PositionalOrKeyword | ParameterKind::KeywordOnly => quote! {
+            |x| ::rustpython_vm::convert::TryFromObject::try_from_argument(vm, x)
+                .map_err(|err| err.with_argument_name(#pyname))
+        },
+        ParameterKind::Flatten => unreachable!(),
+    };
+
     let middle = if let Some(error_msg) = &attr.error_msg {
         quote! {
             .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)
@@ -192,7 +203,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
         }
     } else {
         quote! {
-            .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)).transpose()?
+            .map(#convert).transpose()?
         }
     };
 

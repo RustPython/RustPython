@@ -1,6 +1,6 @@
 use super::argument::OptionalArg;
 use crate::{
-    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyFloat, PyInt, PyIntRef},
 };
 use core::ops::Deref;
@@ -177,10 +177,52 @@ impl TryFromObject for ArgIndex {
     }
 }
 
+/// An index argument converted with CPython's `PyLong_AsInt` semantics.
+///
+/// Conversion errors raised by `__index__` are preserved. Only an integer
+/// outside the C `int` range gets the C integer overflow diagnostic.
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct ArgCInt {
+    pub value: libc::c_int,
+}
+
+impl ArgCInt {
+    #[inline]
+    #[must_use]
+    pub fn into_primitive(self) -> libc::c_int {
+        self.value
+    }
+}
+
+impl From<libc::c_int> for ArgCInt {
+    fn from(value: libc::c_int) -> Self {
+        Self { value }
+    }
+}
+
+impl TryFromObject for ArgCInt {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let value = libc::c_int::try_from(obj.try_index(vm)?.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))?;
+        Ok(Self { value })
+    }
+}
+
 /// A signed size or index argument (`Py_ssize_t`).
 pub type PySsize = isize;
 /// An unsigned size argument (`size_t`).
 pub type PySize = usize;
+
+// PyLong_AsSsize_t differs from index conversion: only actual ints (including
+// subclasses) are accepted, and overflow has a size-specific diagnostic.
+pub(crate) fn int_as_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySsize> {
+    let int = obj
+        .downcast_ref::<PyInt>()
+        .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+    PySsize::try_from(int.as_bigint())
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+}
 
 /// An `int` (or subclass, including `bool`) converted to a Rust primitive.
 ///
