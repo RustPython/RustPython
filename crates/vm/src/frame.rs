@@ -1699,6 +1699,7 @@ thread_local! {
 impl PyPayload for FrameObject {
     const MAX_FREELIST: usize = 200;
     const HAS_FREELIST: bool = true;
+    const FREELIST_HAS_PAYLOAD: bool = false;
     // Ordinary call frames are created untracked and only enter the GC when
     // they escape (see `release_datastack_frame`); generator/coroutine frames
     // are tracked explicitly at creation in `invoke_with_locals`.
@@ -1715,7 +1716,7 @@ impl PyPayload for FrameObject {
             .try_with(|fl| {
                 let mut list = fl.take();
                 let stored = if list.len() < Self::MAX_FREELIST {
-                    list.push(obj);
+                    unsafe { list.push(obj) };
                     true
                 } else {
                     false

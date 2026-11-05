@@ -90,6 +90,7 @@ thread_local! {
 impl PyPayload for PyList {
     const MAX_FREELIST: usize = 80;
     const HAS_FREELIST: bool = true;
+    const FREELIST_HAS_PAYLOAD: bool = false;
 
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -102,7 +103,7 @@ impl PyPayload for PyList {
             .try_with(|fl| {
                 let mut list = fl.take();
                 let stored = if list.len() < Self::MAX_FREELIST {
-                    list.push(obj);
+                    unsafe { list.push(obj) };
                     true
                 } else {
                     false
