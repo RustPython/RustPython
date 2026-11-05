@@ -13,15 +13,15 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::{PyClassDef, PyClassImpl},
     convert::ToPyObject,
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{NameList, SaturatedSlice, SequenceIndex, SliceableSequenceOp},
     sorting::timsort,
     types::{
-        AsMapping, AsSequence, Constructor, Initializer, IterNext, Iterable, PyComparisonOp,
-        Representable, RichCompareFunc, SelfIter,
+        AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
+        PyComparisonOp, Representable, RichCompareFunc, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -419,74 +419,13 @@ impl PyList {
         Initializer,
         AsMapping,
         Iterable,
+        Comparable,
         AsSequence,
         Representable
     ),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, LIST_SUBCLASS)
 )]
 impl Py<PyList> {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PyList>(),
-            other.downcast_ref::<PyList>(),
-        ) else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        if let Some(equal) = op.identical_optimization(zelf, other) {
-            return Ok(Either::B(equal.into()));
-        }
-        if matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne)
-            && zelf.__len__() != other.__len__()
-        {
-            return Ok(Either::B((op == PyComparisonOp::Ne).into()));
-        }
-
-        let mut index = 0;
-        loop {
-            let a = zelf.borrow_vec().get(index).cloned();
-            let b = other.borrow_vec().get(index).cloned();
-            let (Some(a), Some(b)) = (a, b) else {
-                break;
-            };
-            let equal = vm.identical_or_equal(&a, &b);
-            // Equality and finalizers may replace, remove, or append elements.
-            // Release both roots before observing the lists again, left first.
-            drop(a);
-            drop(b);
-            if !equal? {
-                break;
-            }
-            index += 1;
-        }
-
-        let a_len = zelf.__len__();
-        let b_len = other.__len__();
-        if index >= a_len || index >= b_len {
-            return Ok(Either::B(op.eval_ord(a_len.cmp(&b_len)).into()));
-        }
-        if let Some(equal) = op.eval_eq(|| false) {
-            return Ok(Either::B(equal.into()));
-        }
-        // CPython reloads the first unequal pair after its equality callback.
-        let a = zelf.borrow_vec().get(index).cloned();
-        let b = other.borrow_vec().get(index).cloned();
-        let (Some(a), Some(b)) = (a, b) else {
-            return Ok(Either::B(
-                op.eval_ord(zelf.__len__().cmp(&other.__len__())).into(),
-            ));
-        };
-        let result = PyObject::rich_compare(&a, &b, op, vm);
-        drop(a);
-        drop(b);
-        result.map(Either::A)
-    }
-
     #[pymethod]
     pub(crate) fn append(&self, object: PyObjectRef) {
         self.payload.append(object)
@@ -837,6 +776,83 @@ impl Iterable for PyList {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_pyobject(vm))
+    }
+}
+
+impl Comparable for PyList {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyList>(),
+            other.downcast_ref::<PyList>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if let Some(equal) = op.identical_optimization(zelf, other) {
+            return Ok(Either::B(equal.into()));
+        }
+        if matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne)
+            && zelf.__len__() != other.__len__()
+        {
+            return Ok(Either::B((op == PyComparisonOp::Ne).into()));
+        }
+
+        let mut index = 0;
+        loop {
+            let a = zelf.borrow_vec().get(index).cloned();
+            let b = other.borrow_vec().get(index).cloned();
+            let (Some(a), Some(b)) = (a, b) else {
+                break;
+            };
+            let equal = vm.identical_or_equal(&a, &b);
+            // Equality and finalizers may replace, remove, or append elements.
+            // Release both roots before observing the lists again, left first.
+            drop(a);
+            drop(b);
+            if !equal? {
+                break;
+            }
+            index += 1;
+        }
+
+        let a_len = zelf.__len__();
+        let b_len = other.__len__();
+        if index >= a_len || index >= b_len {
+            return Ok(Either::B(op.eval_ord(a_len.cmp(&b_len)).into()));
+        }
+        if let Some(equal) = op.eval_eq(|| false) {
+            return Ok(Either::B(equal.into()));
+        }
+        // CPython reloads the first unequal pair after its equality callback.
+        let a = zelf.borrow_vec().get(index).cloned();
+        let b = other.borrow_vec().get(index).cloned();
+        let (Some(a), Some(b)) = (a, b) else {
+            return Ok(Either::B(
+                op.eval_ord(zelf.__len__().cmp(&other.__len__())).into(),
+            ));
+        };
+        let result = PyObject::rich_compare(&a, &b, op, vm);
+        drop(a);
+        drop(b);
+        result.map(Either::A)
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
     }
 }
 

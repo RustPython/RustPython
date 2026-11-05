@@ -18,8 +18,8 @@ use crate::{
     sequence::{OptionalRangeArgs, SequenceExt},
     sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, AsNumber, AsSequence, Constructor, Hashable, IterNext, Iterable, PyComparisonOp,
-        Representable, SelfIter,
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -551,32 +551,9 @@ impl PyTuple {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
-    with(AsMapping, AsNumber, AsSequence, Hashable, Iterable, Constructor, Representable)
+    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl Py<PyTuple> {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PyTuple>(),
-            other.downcast_ref::<PyTuple>(),
-        ) else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        if let Some(equal) = op.identical_optimization(zelf, other) {
-            return Ok(Either::B(equal.into()));
-        }
-        zelf.as_slice().iter().map(|o| &**o).richcompare(
-            other.as_slice().iter().map(|o| &**o),
-            op,
-            vm,
-        )
-    }
-
     #[pymethod]
     fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
@@ -712,6 +689,44 @@ impl Iterable for PyTuple {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_pyobject(vm))
+    }
+}
+
+impl Comparable for PyTuple {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyTuple>(),
+            other.downcast_ref::<PyTuple>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if let Some(equal) = op.identical_optimization(zelf, other) {
+            return Ok(Either::B(equal.into()));
+        }
+        zelf.as_slice().iter().map(|o| &**o).richcompare(
+            other.as_slice().iter().map(|o| &**o),
+            op,
+            vm,
+        )
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
     }
 }
 

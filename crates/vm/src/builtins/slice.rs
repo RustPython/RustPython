@@ -9,10 +9,10 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     sliceable::SaturatedSlice,
-    types::{Constructor, Hashable, PyComparisonOp, Representable},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     utils::collection_repr,
 };
 use malachite_bigint::{BigInt, ToBigInt};
@@ -201,33 +201,8 @@ impl PySlice {
     }
 }
 
-#[pyclass(with(Representable, Hashable))]
+#[pyclass(with(Comparable, Representable, Hashable))]
 impl Py<PySlice> {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PySlice>(),
-            other.downcast_ref::<PySlice>(),
-        ) else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        if zelf.is(other) {
-            return Ok(Either::B(op.eval_ord(core::cmp::Ordering::Equal).into()));
-        }
-        [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)]
-            .into_iter()
-            .richcompare(
-                [other.start_ref(vm), &other.stop, other.step_ref(vm)].into_iter(),
-                op,
-                vm,
-            )
-    }
-
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
@@ -341,6 +316,46 @@ impl Hashable for PySlice {
             return Ok(1546275796 as PyHash);
         }
         Ok(acc as PyHash)
+    }
+}
+
+impl Comparable for PySlice {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PySlice>(),
+            other.downcast_ref::<PySlice>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if zelf.is(other) {
+            return Ok(Either::B(op.eval_ord(core::cmp::Ordering::Equal).into()));
+        }
+        [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)]
+            .into_iter()
+            .richcompare(
+                [other.start_ref(vm), &other.stop, other.step_ref(vm)].into_iter(),
+                op,
+                vm,
+            )
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
     }
 }
 
