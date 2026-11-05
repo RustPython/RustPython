@@ -1213,7 +1213,7 @@ fn restype_checker(
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
     // Clone before calling Python sequence methods, which can change argtypes.
     let argtypes = zelf.argtypes.read().clone();
-    // Get argtypes - first from instance, then from type's _argtypes_
+    // Get argtypes from the instance, then cached class metadata.
     let explicit_arg_types: Option<Vec<PyTypeRef>> = if let Some(argtypes_obj) = argtypes.as_ref() {
         if !vm.is_none(argtypes_obj) {
             Some(extract_arg_types(argtypes_obj, vm)?)
@@ -1221,9 +1221,9 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
             None // argtypes is None -> use ConvParam
         }
     } else if let Some(class_argtypes) = zelf
-        .as_object()
         .class()
-        .get_attr(vm.ctx.intern_str("_argtypes_"))
+        .stg_info_opt()
+        .and_then(|info| info.argtypes.clone())
         && !vm.is_none(&class_argtypes)
     {
         Some(extract_arg_types(&class_argtypes, vm)?)
@@ -2047,12 +2047,12 @@ impl Py<PyCFuncPtr> {
 
     // argtypes getter/setter
     #[pygetset]
-    fn argtypes(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn argtypes(zelf: &Self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         let argtypes = zelf.argtypes.read().clone();
         argtypes.or_else(|| {
-            zelf.as_object()
-                .class()
-                .get_attr(vm.ctx.intern_str("_argtypes_"))
+            zelf.class()
+                .stg_info_opt()
+                .and_then(|info| info.argtypes.clone())
         })
     }
 

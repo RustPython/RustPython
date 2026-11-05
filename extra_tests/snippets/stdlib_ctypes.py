@@ -1299,7 +1299,12 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
                 Child(lambda: 37)
             Child._argtypes_ = ()
 
-    def test_callback_uses_cached_argtypes_metadata(self):
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 37)
+        ordinary = Child(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertIsNone(ordinary.argtypes)
+        self.assertEqual(ordinary(), 37)
+
+    def test_function_uses_cached_argtypes_metadata(self):
         class Prototype(ctypes._CFuncPtr):
             _flags_ = ctypes._FUNCFLAG_CDECL
             _argtypes_ = ()
@@ -1309,6 +1314,14 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
         function = Prototype(lambda: 37)
         self.assertEqual(function.argtypes, ())
         self.assertEqual(function(), 37)
+        ordinary = Prototype(ctypes.cast(function, ctypes.c_void_p).value)
+        self.assertEqual(ordinary.argtypes, ())
+        self.assertEqual(ordinary(), 37)
+        ordinary.argtypes = (c_int,)
+        self.assertEqual(ordinary.argtypes, (c_int,))
+        ordinary.argtypes = None
+        self.assertEqual(ordinary.argtypes, ())
+        self.assertEqual(ordinary(), 37)
 
     @_unittest.skipUnless(
         _sys.implementation.name == "rustpython",
