@@ -8,6 +8,7 @@ use crate::{
     import::{get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name},
     types::{GetAttr, Initializer, Representable},
 };
+use rustpython_common::wtf8::wtf8_concat;
 
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
@@ -442,7 +443,10 @@ impl PyModule {
             let result = annotate.call((1i32,), vm)?;
             if !result.downcastable::<PyDict>() {
                 let error = result.class().fully_qualified_name(vm).map(|name| {
-                    vm.new_type_error(format!("__annotate__() must return a dict, not {name}"))
+                    vm.new_type_error(wtf8_concat!(
+                        "__annotate__() must return a dict, not ",
+                        name
+                    ))
                 });
                 drop(annotate);
                 drop(result);

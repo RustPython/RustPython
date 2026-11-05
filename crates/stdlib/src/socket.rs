@@ -34,6 +34,7 @@ mod _socket {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
     };
+    use rustpython_common::wtf8::wtf8_concat;
     use rustpython_host_env::os::ErrorExt;
     #[cfg(any(unix, windows))]
     use rustpython_host_env::socket as host_socket;
@@ -2845,9 +2846,10 @@ mod _socket {
                         Value::Buffer(buffer)
                     } else {
                         return Err(vm
-                            .new_type_error(format!(
-                                "socket option should be int, bytes-like object or None (got {})",
-                                value.class().fully_qualified_name(vm)?
+                            .new_type_error(wtf8_concat!(
+                                "socket option should be int, bytes-like object or None (got ",
+                                value.class().fully_qualified_name(vm)?,
+                                ")"
                             ))
                             .into());
                     }
@@ -2862,10 +2864,7 @@ mod _socket {
                 }
                 (Some(value), OptionalArg::Present(_)) => {
                     return Err(vm
-                        .new_type_error(format!(
-                            "setsockopt() only takes 4 arguments when the third argument is None (got {})",
-                            value.class().fully_qualified_name(vm)?
-                        ))
+                        .new_type_error(wtf8_concat!("setsockopt() only takes 4 arguments when the third argument is None (got ", value.class().fully_qualified_name(vm)?, ")"))
                         .into());
                 }
             };

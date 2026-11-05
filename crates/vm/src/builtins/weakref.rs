@@ -11,6 +11,7 @@ use crate::{
         Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
     },
 };
+use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 pub use crate::object::PyWeak;
 
@@ -155,7 +156,7 @@ impl Comparable for PyWeak {
 
 /// `__name__` when that lookup yields a string. A missing name or a non-string
 /// value is left off the repr.
-fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<String>> {
+fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Wtf8Buf>> {
     let found =
         crate::vm::PyMethod::get_special_ex::<false>(obj, identifier!(vm, __name__), vm, true)?;
     let Some(crate::vm::PyMethod::Attribute(attr)) = found else {
@@ -163,25 +164,28 @@ fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<String>
     };
     Ok(attr
         .downcast_ref::<crate::builtins::PyStr>()
-        .and_then(|name| name.to_str())
-        .map(str::to_owned))
+        .map(|name| name.as_wtf8().to_owned()))
 }
 
 impl Representable for PyWeak {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let id = zelf.get_id();
         let Some(obj) = zelf.upgrade() else {
-            return Ok(format!("<weakref at {id:#x}; dead>"));
+            return Ok(format!("<weakref at {id:#x}; dead>").into());
         };
         let type_name = obj.class().fully_qualified_name(vm)?;
         let obj_id = obj.get_id();
         let suffix = match instance_name(&obj, vm)? {
-            Some(name) => format!(" ({name})"),
-            None => String::new(),
+            Some(name) => wtf8_concat!(" (", name, ")"),
+            None => Wtf8Buf::new(),
         };
-        Ok(format!(
-            "<weakref at {id:#x}; to '{type_name}' at {obj_id:#x}{suffix}>"
+        Ok(wtf8_concat!(
+            format!("<weakref at {id:#x}; to '"),
+            type_name,
+            format!("' at {obj_id:#x}"),
+            suffix,
+            ">"
         ))
     }
 }

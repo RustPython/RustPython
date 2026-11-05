@@ -1122,8 +1122,8 @@ impl Py<PyFunction> {
             let ann_dict = match result?.downcast::<crate::builtins::PyDict>() {
                 Ok(dict) => dict,
                 Err(obj) => {
-                    return Err(vm.new_type_error(format!(
-                        "__annotate__() must return a dict, not {}",
+                    return Err(vm.new_type_error(wtf8_concat!(
+                        "__annotate__() must return a dict, not ",
                         obj.class().fully_qualified_name(vm)?
                     )));
                 }

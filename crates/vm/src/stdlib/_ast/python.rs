@@ -15,7 +15,7 @@ pub(crate) mod _ast {
         types::{Constructor, Initializer},
         warn,
     };
-    use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_common::wtf8::wtf8_concat;
 
     #[pyattr]
     #[pyclass(module = "ast", name = "AST")]
@@ -284,10 +284,12 @@ pub(crate) mod _ast {
         let hash = match cls.hash(vm) {
             Ok(hash) => hash,
             Err(err) if err.class().is(vm.ctx.exceptions.type_error) => {
-                return Err(vm.new_type_error(format!(
-                    "cannot use '{}' as a set element ({})",
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "cannot use '",
                     cls.class().fully_qualified_name(vm)?,
-                    err.as_object().str(vm)?
+                    "' as a set element (",
+                    err.as_object().str(vm)?.as_wtf8(),
+                    ")"
                 )));
             }
             Err(err) => return Err(err),
@@ -337,10 +339,10 @@ pub(crate) mod _ast {
 
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             if is_abstract(zelf.class().as_object(), vm)? {
-                let message = vm.ctx.new_str(format!(
-                    "Instantiating abstract AST node class {} is deprecated. \
-This will become an error in Python 3.20",
-                    zelf.class().fully_qualified_name(vm)?
+                let message = vm.ctx.new_str(wtf8_concat!(
+                    "Instantiating abstract AST node class ",
+                    zelf.class().fully_qualified_name(vm)?,
+                    " is deprecated. This will become an error in Python 3.20"
                 ));
                 warn::warn(
                     message.into(),
@@ -392,10 +394,10 @@ This will become an error in Python 3.20",
                 let contains = fields_seq.contains(&key_obj, vm)?;
                 if contains {
                     if !ast_replace_set_discard(&remaining_fields, &key_obj, vm)? {
-                        return Err(vm.new_type_error(format!(
-                            "{} got multiple values for argument {}",
+                        return Err(vm.new_type_error(wtf8_concat!(
                             zelf.class().fully_qualified_name(vm)?,
-                            key_obj.repr(vm)?
+                            " got multiple values for argument ",
+                            key_obj.repr(vm)?.as_wtf8()
                         )));
                     }
                 } else {
@@ -415,10 +417,10 @@ This will become an error in Python 3.20",
                         attributes.as_deref().unwrap()
                     };
                     if !attrs.sequence_unchecked().contains(&key_obj, vm)? {
-                        return Err(vm.new_type_error(format!(
-                            "{}.__init__ got an unexpected keyword argument {}",
+                        return Err(vm.new_type_error(wtf8_concat!(
                             zelf.class().fully_qualified_name(vm)?,
-                            key_obj.repr(vm)?
+                            ".__init__ got an unexpected keyword argument ",
+                            key_obj.repr(vm)?.as_wtf8()
                         )));
                     }
                 }
@@ -440,10 +442,12 @@ This will become an error in Python 3.20",
 
                 for field in remaining_fields.elements() {
                     let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? else {
-                        return Err(vm.new_type_error(format!(
-                            "Field {} is missing from {}._field_types",
-                            field.repr(vm)?,
-                            zelf.class().fully_qualified_name(vm)?
+                        return Err(vm.new_type_error(wtf8_concat!(
+                            "Field ",
+                            field.repr(vm)?.as_wtf8(),
+                            " is missing from ",
+                            zelf.class().fully_qualified_name(vm)?,
+                            "._field_types"
                         )));
                     };
                     if ftype.fast_isinstance(vm.ctx.types.union_type) {
@@ -468,12 +472,14 @@ This will become an error in Python 3.20",
                 let count = missing_names.elements().len();
                 if count > 0 {
                     // Match constructor order and preserve non-UTF-8 field names.
-                    let mut message = Wtf8Buf::from(format!(
-                        "{}.__init__ missing {} required positional argument{}: ",
+                    let mut message = wtf8_concat!(
                         zelf.class().fully_qualified_name(vm)?,
+                        ".__init__ missing ",
                         count,
+                        " required positional argument",
                         if count == 1 { "" } else { "s" },
-                    ));
+                        ": "
+                    );
                     let mut num_left = count as isize;
                     for i in 0..numfields {
                         let field = fields_seq.get_item(i as isize, vm)?;
