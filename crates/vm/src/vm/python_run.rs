@@ -106,7 +106,7 @@ mod file_run {
         /// Execute a Python file with __main__ module setup.
         /// Sets __file__ and __cached__ before execution, removes them after.
         fn run_simple_file(&self, scope: Scope, path: &Path) -> PyResult<()> {
-            let filename = self.fsdecode(path.as_os_str());
+            let filename = self.fsdecode(path.as_os_str())?;
             self.with_simple_run(&filename, |module_dict| {
                 self.run_simple_file_inner(module_dict, scope, path, &filename)
             })

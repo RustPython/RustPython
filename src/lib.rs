@@ -227,7 +227,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: impl AsRef<Path>) -> PyRes
     // config_run_filename_abspath: __file__ and co_filename are absolute even
     // when the script was named relative to the working directory.
     let path = abs_path(argv0);
-    let filename = vm.fsdecode(path.as_os_str());
+    let filename = vm.fsdecode(path.as_os_str())?;
 
     // Check if path is a package/directory with __main__.py
     if let Some(_importer) = get_importer(&filename, vm)? {
@@ -240,7 +240,10 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: impl AsRef<Path>) -> PyRes
 
     // Add script directory to sys.path[0]
     if !vm.state.config.settings.safe_path {
-        vm.insert_sys_path(vm.fsdecode(script_sys_path0(argv0).into_os_string()).into())?;
+        vm.insert_sys_path(
+            vm.fsdecode(script_sys_path0(argv0).into_os_string())?
+                .into(),
+        )?;
     }
 
     cfg_select! {
@@ -367,7 +370,7 @@ fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
         };
 
         if let Some(path) = path0 {
-            vm.insert_sys_path(vm.fsdecode(path.into_os_string()).into())?;
+            vm.insert_sys_path(vm.fsdecode(path.into_os_string())?.into())?;
         }
     }
 
