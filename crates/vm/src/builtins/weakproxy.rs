@@ -1,10 +1,11 @@
 use super::{PyStr, PyStrRef, PyType, PyWeak};
 use crate::common::lock::LazyLock;
 use crate::{
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
@@ -12,6 +13,7 @@ use crate::{
         IterNext, Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
+use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 #[pyclass(module = "weakref", name = "ProxyType", unhashable = true)]
 #[derive(Debug)]
@@ -137,11 +139,36 @@ impl PyWeakProxy {
     }
 }
 
+impl Comparable for PyWeakProxy {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        proxy_binary_op(zelf, other, vm, |vm, a, b| a.rich_compare(b, op, vm)).map(Either::A)
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
+    }
+}
+
 #[pyclass(with(
+    Comparable,
     GetAttr,
     SetAttr,
     Constructor,
-    Comparable,
     AsNumber,
     AsSequence,
     AsMapping,
@@ -243,13 +270,17 @@ fn proxy_binary_op(
     a: &PyObject,
     b: &PyObject,
     vm: &VirtualMachine,
-    op: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+    op: impl FnOnce(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
 ) -> PyResult {
     let a_up = proxy_upgrade_opt(a, vm)?;
     let b_up = proxy_upgrade_opt(b, vm)?;
     let a_ref = a_up.as_deref().unwrap_or(a);
     let b_ref = b_up.as_deref().unwrap_or(b);
-    op(vm, a_ref, b_ref)
+    let result = op(vm, a_ref, b_ref);
+    // CPython releases unwrapped operands in argument order after the callback.
+    drop(a_up);
+    drop(b_up);
+    result
 }
 
 macro_rules! proxy_binary_slot {
@@ -271,7 +302,11 @@ fn proxy_ternary_op(
     let a_ref = a_up.as_deref().unwrap_or(a);
     let b_ref = b_up.as_deref().unwrap_or(b);
     let c_ref = c_up.as_deref().unwrap_or(c);
-    op(vm, a_ref, b_ref, c_ref)
+    let result = op(vm, a_ref, b_ref, c_ref);
+    drop(a_up);
+    drop(b_up);
+    drop(c_up);
+    result
 }
 
 macro_rules! proxy_ternary_slot {
@@ -335,23 +370,6 @@ impl AsNumber for PyWeakProxy {
     }
 }
 
-impl Comparable for PyWeakProxy {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        let obj = zelf.try_upgrade(vm)?;
-        // CPython parity (Objects/weakref.c::proxy_richcompare): delegate to
-        // PyObject_RichCompare on the referent, not the bool variant.
-        let res = obj.rich_compare(other.to_owned(), op, vm)?;
-        PyArithmeticValue::from_object(vm, res)
-            .map(|o| o.try_to_bool(vm))
-            .transpose()
-    }
-}
-
 impl AsSequence for PyWeakProxy {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
@@ -387,13 +405,18 @@ impl AsMapping for PyWeakProxy {
 
 impl Representable for PyWeakProxy {
     #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        zelf.try_upgrade(vm)?.repr(vm)
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let id = zelf.get_id();
+        let Some(obj) = zelf.0.upgrade() else {
+            return Ok(format!("<weakproxy at {id:#x}; dead>").into());
+        };
+        let type_name = obj.class().fully_qualified_name(vm)?;
+        let obj_id = obj.get_id();
+        Ok(wtf8_concat!(
+            format!("<weakproxy at {id:#x}; to '"),
+            type_name,
+            format!("' at {obj_id:#x}>")
+        ))
     }
 }
 
