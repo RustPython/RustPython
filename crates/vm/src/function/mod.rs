@@ -37,7 +37,7 @@ pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySett
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub(crate) use number::int_as_ssize;
 pub use number::{
-    ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
+    ArgCInt, ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
 };
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
