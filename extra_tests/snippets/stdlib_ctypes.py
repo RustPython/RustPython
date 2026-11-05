@@ -1283,6 +1283,80 @@ import unittest as _unittest
 
 
 class _CtypesTypeIdentityTests(_unittest.TestCase):
+    def test_redundant_simple_base_uses_primary_base(self):
+        class Redundant(c_int, ctypes._SimpleCData):
+            pass
+
+        value = Redundant(42)
+        self.assertIs(Redundant.__base__, c_int)
+        self.assertTrue(repr(value).startswith("<Redundant object at "))
+        self.assertIs(value.__ctypes_from_outparam__(), value)
+
+    def test_function_subclass_does_not_inherit_restype_metadata(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("checked", value.value))
+
+        class Base(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = Checked
+
+        class Child(Base):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: -7)
+        function = Child(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertIs(Child._restype_, Checked)
+        self.assertIsNone(function.restype)
+        self.assertEqual(function(), -7)
+
+    def test_checker_finalizer_observes_old_restype(self):
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 17)
+        events = []
+
+        class Checker:
+            def __call__(self, value):
+                return value
+
+            def __del__(self):
+                events.append(function.restype)
+
+        class Checked(c_int):
+            pass
+
+        checker = Checker()
+        Checked._check_retval_ = checker
+        function.restype = Checked
+        del Checked._check_retval_
+        del checker
+        function.restype = c_int
+        self.assertEqual(events, [Checked])
+
+    def test_checker_finalizer_reenters_restype_setter(self):
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 17)
+
+        class Nested(c_int):
+            _check_retval_ = staticmethod(lambda value: ("nested", value))
+
+        class Checker:
+            def __call__(self, value):
+                return value
+
+            def __del__(self):
+                function.restype = Nested
+
+        class Checked(c_int):
+            pass
+
+        checker = Checker()
+        Checked._check_retval_ = checker
+        function.restype = Checked
+        del Checked._check_retval_
+        del checker
+        function.restype = c_int
+        self.assertIs(function.restype, c_int)
+        self.assertEqual(function(), ("nested", 17))
+
     def test_simple_base_name_spoof(self):
         class Base(c_int):
             pass

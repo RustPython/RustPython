@@ -16,7 +16,7 @@ use crate::{
     function::FuncArgs,
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
     types::{AsBuffer, AsNumber, AsSequence, Callable, Constructor, Initializer, Representable},
-    vm::thread::with_current_vm,
+    vm::thread::{PyOperation, with_current_vm},
 };
 use alloc::borrow::Cow;
 use core::ffi::{c_int, c_long, c_ulong, c_void};
@@ -369,7 +369,8 @@ impl Initializer for PyCFuncPtrType {
         stg_info.length = 1;
         stg_info.flags |= StgInfoFlags::TYPEFLAG_ISPOINTER;
         stg_info.paramfunc = ParamFunc::Pointer; // CFuncPtr is passed as a pointer
-        stg_info.restype = new_type.get_attr(vm.ctx.intern_str("_restype_"));
+        // Function-type metadata comes from this class's namespace, not its MRO.
+        stg_info.restype = new_type.attributes.get(vm.ctx.intern_str("_restype_"));
         stg_info.checker = restype_checker(stg_info.restype.as_deref(), vm)?;
 
         let _ = new_type.init_traced_type_data(stg_info);
@@ -430,6 +431,8 @@ pub(super) struct PyCFuncPtr {
     pub argtypes: PyRwLock<Option<PyObjectRef>>,
     /// Instance-level restype override
     pub restype: PyRwLock<Option<PyObjectRef>>,
+    /// Serialize restype updates while allowing Python finalizers to re-enter.
+    restype_operation: PyOperation,
     /// Checker function
     pub checker: PyRwLock<Option<PyObjectRef>>,
     /// Error checking function
@@ -764,7 +767,7 @@ pub(super) fn cast_impl(
 }
 
 impl PyCFuncPtr {
-    pub(super) fn from_cdata(data: PyCData) -> Self {
+    pub(super) fn from_cdata(data: PyCData, vm: &VirtualMachine) -> Self {
         Self {
             _base: data,
             thunk: PyRwLock::new(None),
@@ -772,6 +775,7 @@ impl PyCFuncPtr {
             converters: PyRwLock::new(None),
             argtypes: PyRwLock::new(None),
             restype: PyRwLock::new(None),
+            restype_operation: PyOperation::new(vm),
             checker: PyRwLock::new(None),
             errcheck: PyRwLock::new(None),
             #[cfg(windows)]
@@ -807,7 +811,7 @@ impl Constructor for PyCFuncPtr {
         let ptr_size = pointer_size();
 
         if args.args.is_empty() {
-            return Self::from_cdata(PyCData::from_bytes(vec![0u8; ptr_size], None))
+            return Self::from_cdata(PyCData::from_bytes(vec![0u8; ptr_size], None), vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into);
         }
@@ -847,6 +851,7 @@ impl Constructor for PyCFuncPtr {
                 converters: PyRwLock::new(None),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
+                restype_operation: PyOperation::new(vm),
                 checker: PyRwLock::new(None),
                 errcheck: PyRwLock::new(None),
                 #[cfg(windows)]
@@ -869,6 +874,7 @@ impl Constructor for PyCFuncPtr {
                 converters: PyRwLock::new(None),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
+                restype_operation: PyOperation::new(vm),
                 checker: PyRwLock::new(None),
                 errcheck: PyRwLock::new(None),
                 #[cfg(windows)]
@@ -935,6 +941,7 @@ impl Constructor for PyCFuncPtr {
                 converters: PyRwLock::new(None),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
+                restype_operation: PyOperation::new(vm),
                 checker: PyRwLock::new(None),
                 errcheck: PyRwLock::new(None),
                 #[cfg(windows)]
@@ -985,6 +992,7 @@ impl Constructor for PyCFuncPtr {
                 converters: PyRwLock::new(None),
                 argtypes: PyRwLock::new(class_argtypes),
                 restype: PyRwLock::new(class_restype),
+                restype_operation: PyOperation::new(vm),
                 checker: PyRwLock::new(class_checker),
                 errcheck: PyRwLock::new(None),
                 #[cfg(windows)]
@@ -1193,7 +1201,7 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
         None // No argtypes -> use ConvParam
     };
 
-    // Snapshot both fields together, before argument conversion can re-enter.
+    // Retain both references before argument conversion can re-enter.
     let (restype_obj, checker) = {
         let restype = zelf.restype.read();
         let checker = zelf.checker.read();
@@ -1921,34 +1929,37 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(zelf: &Self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let restype = zelf.restype.read().clone();
-        restype.or_else(|| {
-            zelf.class()
-                .stg_info_opt()
-                .and_then(|info| info.restype.clone())
+    fn restype(zelf: &Self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        zelf.restype_operation.with(vm, || {
+            let restype = zelf.restype.read().clone();
+            Ok(restype.or_else(|| {
+                zelf.class()
+                    .stg_info_opt()
+                    .and_then(|info| info.restype.clone())
+            }))
         })
     }
 
     #[pygetset(setter)]
     fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // Must be type, callable, or None
-        if !vm.is_none(&value) && value.downcast_ref::<PyType>().is_none() && !value.is_callable() {
-            return Err(vm.new_type_error("restype must be a type, a callable, or None"));
-        }
-        let checker = restype_checker(Some(&value), vm)?;
-        // An explicit None requests a void result; it is distinct from unset.
-        let (old_restype, old_checker) = {
-            let mut restype = self.restype.write();
-            let mut stored_checker = self.checker.write();
-            (
-                restype.replace(value),
-                core::mem::replace(&mut *stored_checker, checker),
-            )
-        };
-        // Finalizers on either old value can re-enter this setter.
-        drop((old_restype, old_checker));
-        Ok(())
+        self.restype_operation.with(vm, || {
+            // Must be type, callable, or None
+            if !vm.is_none(&value)
+                && value.downcast_ref::<PyType>().is_none()
+                && !value.is_callable()
+            {
+                return Err(vm.new_type_error("restype must be a type, a callable, or None"));
+            }
+            let checker = restype_checker(Some(&value), vm)?;
+            // An explicit None requests a void result; it is distinct from unset.
+            // Match CPython's sequential replacement: the old checker's finalizer
+            // can still observe the old restype and can re-enter this setter.
+            let old_checker = core::mem::replace(&mut *self.checker.write(), checker);
+            drop(old_checker);
+            let old_restype = self.restype.write().replace(value);
+            drop(old_restype);
+            Ok(())
+        })
     }
 
     // argtypes getter/setter

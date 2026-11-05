@@ -3079,7 +3079,7 @@ impl PyCData {
 
     pub(super) fn into_view(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         if cls.fast_issubclass(super::function::PyCFuncPtr::static_type()) {
-            super::function::PyCFuncPtr::from_cdata(self)
+            super::function::PyCFuncPtr::from_cdata(self, vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         } else {
