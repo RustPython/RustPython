@@ -8,8 +8,10 @@ use crate::common::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue},
-    types::{Callable, Constructor, Hashable, Initializer, PyComparisonOp, Representable},
+    function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    types::{
+        Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
+    },
 };
 
 pub use crate::object::PyWeak;
@@ -75,12 +77,7 @@ impl Initializer for PyWeak {
     }
 }
 
-#[pyclass(
-    with(Callable, Hashable, Constructor, Initializer, Representable),
-    flags(BASETYPE)
-)]
-impl Py<PyWeak> {
-    #[pyslot]
+impl Comparable for PyWeak {
     fn slot_richcompare(
         zelf: &PyObject,
         other: &PyObject,
@@ -91,10 +88,8 @@ impl Py<PyWeak> {
             return Ok(Either::B(PyComparisonValue::NotImplemented));
         }
         // PyWeakref_Check also accepts both proxy types, which share this payload.
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PyWeak>(),
-            other.downcast_ref::<PyWeak>(),
-        ) else {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
             return Ok(Either::B(PyComparisonValue::NotImplemented));
         };
         let a = zelf.upgrade();
@@ -114,6 +109,33 @@ impl Py<PyWeak> {
         result
     }
 
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
+    }
+}
+
+#[pyclass(
+    with(
+        Callable,
+        Comparable,
+        Hashable,
+        Constructor,
+        Initializer,
+        Representable
+    ),
+    flags(BASETYPE)
+)]
+impl Py<PyWeak> {
     #[pygetset]
     fn __callback__(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.unwrap_or_none(self.get_callback())

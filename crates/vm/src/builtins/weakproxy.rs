@@ -5,12 +5,12 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{Either, FuncArgs, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
-        AsMapping, AsNumber, AsSequence, Callable, Constructor, GetAttr, Hashable, IterNext,
-        Iterable, PyComparisonOp, Representable, SetAttr,
+        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Hashable,
+        IterNext, Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
@@ -139,7 +139,33 @@ impl PyWeakProxy {
     }
 }
 
+impl Comparable for PyWeakProxy {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        proxy_binary_op(zelf, other, vm, |vm, a, b| a.rich_compare(b, op, vm)).map(Either::A)
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
+    }
+}
+
 #[pyclass(with(
+    Comparable,
     GetAttr,
     SetAttr,
     Constructor,
@@ -150,16 +176,6 @@ impl PyWeakProxy {
     IterNext
 ))]
 impl Py<PyWeakProxy> {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        proxy_binary_op(zelf, other, vm, |vm, a, b| a.rich_compare(b, op, vm)).map(Either::A)
-    }
-
     /// Return str(self).
     #[pymethod]
     fn __str__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
