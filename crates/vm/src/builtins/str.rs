@@ -54,6 +54,13 @@ impl<'a> TryFromBorrowedObject<'a> for String {
     }
 }
 
+impl<'a> TryFromBorrowedObject<'a> for Wtf8Buf {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        let pystr: &Py<PyStr> = TryFromBorrowedObject::try_from_borrowed_object(vm, obj)?;
+        Ok(pystr.as_wtf8().to_owned())
+    }
+}
+
 impl<'a> TryFromBorrowedObject<'a> for &'a str {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let pystr: &Py<PyUtf8Str> = TryFromBorrowedObject::try_from_borrowed_object(vm, obj)?;
