@@ -2578,17 +2578,24 @@ mod _pickle {
             }
             self.memoize(obj);
             let list = obj.downcast_ref::<PyList>().expect("list");
-            self.batch_appends_list(list, obj, vm)
+            if self.proto > 0 {
+                self.batch_appends_list(list, obj, vm)
+            } else {
+                let iter = obj.to_owned().get_iter(vm)?;
+                self.batch_appends_iter(&iter, Some(obj), vm)
+            }
         }
 
         fn save_item(
             &mut self,
-            item: &PyObject,
+            item: PyObjectRef,
             index: usize,
             obj: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.save(item, false, vm).map_err(|e| {
+            let result = self.save(&item, false, vm);
+            drop(item);
+            result.map_err(|e| {
                 add_note(
                     e,
                     format!("when serializing {} item {index}", obj_type_name(obj, vm)),
@@ -2604,34 +2611,31 @@ mod _pickle {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let initial_len = list.borrow_vec().len();
-            let mut start = 0usize;
-            loop {
-                let batch: Vec<PyObjectRef> = {
-                    let items = list.borrow_vec();
-                    if start >= items.len() {
-                        break;
-                    }
-                    items[start..items.len().min(start + BATCH_SIZE)].to_vec()
-                };
-                if batch.is_empty() {
-                    break;
-                }
-                if !self.bin {
-                    for (k, item) in batch.iter().enumerate() {
-                        self.save_item(item, start + k, obj, vm)?;
-                        self.write(&[APPEND as u8]);
-                    }
-                } else if batch.len() != 1 {
-                    self.write(&[MARK as u8]);
-                    for (k, item) in batch.iter().enumerate() {
-                        self.save_item(item, start + k, obj, vm)?;
-                    }
-                    self.write(&[APPENDS as u8]);
-                } else {
-                    self.save_item(&batch[0], start, obj, vm)?;
+            let mut index = 0usize;
+            while index < initial_len {
+                if initial_len - index == 1 {
+                    let item = list.borrow_vec().get(index).cloned();
+                    let item = item.ok_or_else(|| {
+                        add_note(
+                            vm.new_index_error("list index out of range"),
+                            format!("when serializing {} item {index}", obj_type_name(obj, vm)),
+                            vm,
+                        )
+                    })?;
+                    self.save_item(item, index, obj, vm)?;
                     self.write(&[APPEND as u8]);
+                    return Ok(());
                 }
-                start += batch.len();
+
+                self.write(&[MARK as u8]);
+                for _ in 0..BATCH_SIZE {
+                    // Saving an item may replace or remove later list entries.
+                    let item = list.borrow_vec().get(index).cloned();
+                    let Some(item) = item else { break };
+                    self.save_item(item, index, obj, vm)?;
+                    index += 1;
+                }
+                self.write(&[APPENDS as u8]);
                 if list.borrow_vec().len() != initial_len {
                     return Err(vm.new_runtime_error("list changed size during iteration"));
                 }
@@ -2646,50 +2650,78 @@ mod _pickle {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = |vm: &VirtualMachine| obj.map_or_else(String::new, |o| obj_type_name(o, vm));
-            let iter = items.to_owned().get_iter(vm)?;
-            let mut index = 0usize;
-            let mut pending: Vec<PyObjectRef> = Vec::new();
-            let mut exhausted = false;
-            while !exhausted {
-                pending.clear();
-                while pending.len() < BATCH_SIZE {
-                    match iter.next(vm)? {
-                        PyIterReturn::Return(o) => pending.push(o),
-                        PyIterReturn::StopIteration(_) => {
-                            exhausted = true;
-                            break;
-                        }
+            self.batch_iter(
+                items,
+                Ok,
+                |ctx, item: PyObjectRef, index| {
+                    let result = ctx.save(&item, false, vm);
+                    if ctx.proto == 0 {
+                        drop(item);
                     }
-                }
-                if pending.is_empty() {
-                    break;
-                }
-                if !self.bin {
-                    for item in &pending {
-                        self.save(item, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
-                        })?;
-                        self.write(&[APPEND as u8]);
-                        index += 1;
-                    }
-                } else if pending.len() != 1 {
-                    self.write(&[MARK as u8]);
-                    for item in &pending {
-                        self.save(item, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
-                        })?;
-                        index += 1;
-                    }
-                    self.write(&[APPENDS as u8]);
-                } else {
-                    self.save(&pending[0], false, vm).map_err(|e| {
+                    result.map_err(|e| {
                         add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
-                    })?;
-                    self.write(&[APPEND as u8]);
+                    })
+                },
+                (APPEND as u8, APPENDS as u8),
+                vm,
+            )
+        }
+
+        fn batch_iter<T>(
+            &mut self,
+            items: &PyObject,
+            validate: impl Fn(PyObjectRef) -> PyResult<T>,
+            mut save: impl FnMut(&mut Self, T, usize) -> PyResult<()>,
+            (single, multiple): (u8, u8),
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            // Reduction items are already iterators; do not call __iter__ again.
+            let iter = PyIter::new(items);
+            let mut index = 0usize;
+            if self.proto == 0 {
+                while let Ok(item) = iter.next(vm)?.into_result() {
+                    let item = validate(item)?;
+                    save(self, item, index)?;
+                    self.write(&[single]);
                     index += 1;
                 }
+                return Ok(());
             }
-            Ok(())
+
+            loop {
+                let Some(first) = iter.next(vm)?.into_result().ok() else {
+                    return Ok(());
+                };
+                let first = validate(first)?;
+                let Some(mut item) = iter.next(vm)?.into_result().ok() else {
+                    save(self, first, index)?;
+                    self.write(&[single]);
+                    return Ok(());
+                };
+
+                self.write(&[MARK as u8]);
+                save(self, first, index)?;
+                index += 1;
+                let mut count = 1;
+                loop {
+                    // Validate the second pair only after saving the first one.
+                    let current = validate(item)?;
+                    save(self, current, index)?;
+                    index += 1;
+                    count += 1;
+                    if count == BATCH_SIZE {
+                        break;
+                    }
+                    match iter.next(vm)?.into_result().ok() {
+                        Some(next) => item = next,
+                        None => break,
+                    }
+                }
+                self.write(&[multiple]);
+                if count < BATCH_SIZE {
+                    return Ok(());
+                }
+            }
         }
 
         fn save_dict(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -2701,33 +2733,48 @@ mod _pickle {
             self.memoize(obj);
             let dict = obj.downcast_ref::<PyDict>().expect("dict");
             let initial_len = dict.__len__();
-            let entries: Vec<(PyObjectRef, PyObjectRef)> = dict.into_iter().collect();
-            let mut start = 0usize;
-            while start < entries.len() {
-                let end = entries.len().min(start + BATCH_SIZE);
-                let batch = &entries[start..end];
-                if !self.bin {
-                    for (k, v) in batch {
-                        self.save(k, false, vm)?;
-                        self.save_value(v, k, obj, vm)?;
-                        self.write(&[SETITEM as u8]);
-                    }
-                } else if batch.len() != 1 {
-                    self.write(&[MARK as u8]);
-                    for (k, v) in batch {
-                        self.save(k, false, vm)?;
-                        self.save_value(v, k, obj, vm)?;
-                    }
-                    self.write(&[SETITEMS as u8]);
-                } else {
-                    let (k, v) = &batch[0];
-                    self.save(k, false, vm)?;
-                    self.save_value(v, k, obj, vm)?;
+            if initial_len == 0 {
+                return Ok(());
+            }
+            if self.proto == 0 {
+                let items = vm.call_method(obj, "items", ())?;
+                let iter = items.get_iter(vm)?;
+                return self.batch_setitems_iter(&iter, Some(obj), vm);
+            }
+
+            let mut position = 0;
+            let mut total = 0;
+            while total < initial_len {
+                if initial_len - total == 1 {
+                    let (_, key, value) = dict.next_entry(position).ok_or_else(|| {
+                        vm.new_runtime_error("dictionary changed size during iteration")
+                    })?;
+                    let result = self.save_dict_item(&key, &value, Some(obj), vm);
+                    drop((key, value));
+                    result?;
                     self.write(&[SETITEM as u8]);
+                    return Ok(());
                 }
-                start = end;
+
+                self.write(&[MARK as u8]);
+                let mut exhausted = false;
+                for _ in 0..BATCH_SIZE {
+                    let Some((next, key, value)) = dict.next_entry(position) else {
+                        exhausted = true;
+                        break;
+                    };
+                    position = next;
+                    let result = self.save_dict_item(&key, &value, Some(obj), vm);
+                    drop((key, value));
+                    result?;
+                    total += 1;
+                }
+                self.write(&[SETITEMS as u8]);
                 if dict.__len__() != initial_len {
                     return Err(vm.new_runtime_error("dictionary changed size during iteration"));
+                }
+                if exhausted {
+                    break;
                 }
             }
             Ok(())
@@ -2759,52 +2806,38 @@ mod _pickle {
             obj: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let iter = items.to_owned().get_iter(vm)?;
-            let mut pending: Vec<(PyObjectRef, PyObjectRef)> = Vec::new();
-            let mut exhausted = false;
-            while !exhausted {
-                pending.clear();
-                while pending.len() < BATCH_SIZE {
-                    match iter.next(vm)? {
-                        PyIterReturn::Return(o) => {
-                            let pair: PyTupleRef = o.downcast().map_err(|_| {
-                                vm.new_type_error("dict items iterator must return 2-tuples")
-                            })?;
-                            if pair.as_slice().len() != 2 {
-                                return Err(
-                                    vm.new_type_error("dict items iterator must return 2-tuples")
-                                );
-                            }
-                            pending.push((pair.as_slice()[0].clone(), pair.as_slice()[1].clone()));
-                        }
-                        PyIterReturn::StopIteration(_) => {
-                            exhausted = true;
-                            break;
-                        }
+            self.batch_iter(
+                items,
+                |item| {
+                    let pair: PyTupleRef = item.downcast().map_err(|_| {
+                        vm.new_type_error("dict items iterator must return 2-tuples")
+                    })?;
+                    if pair.as_slice().len() != 2 {
+                        return Err(vm.new_type_error("dict items iterator must return 2-tuples"));
                     }
-                }
-                if pending.is_empty() {
-                    break;
-                }
-                let single = pending.len() == 1;
-                if self.bin && !single {
-                    self.write(&[MARK as u8]);
-                }
-                for (k, v) in &pending {
-                    self.save(k, false, vm)?;
-                    match obj {
-                        Some(o) => self.save_value(v, k, o, vm)?,
-                        None => self.save(v, false, vm)?,
-                    }
-                    if !self.bin || single {
-                        self.write(&[SETITEM as u8]);
-                    }
-                }
-                if self.bin && !single {
-                    self.write(&[SETITEMS as u8]);
-                }
+                    Ok(pair)
+                },
+                |ctx, pair, _| {
+                    let pair = pair.as_slice();
+                    ctx.save_dict_item(&pair[0], &pair[1], obj, vm)
+                },
+                (SETITEM as u8, SETITEMS as u8),
+                vm,
+            )
+        }
+
+        fn save_dict_item(
+            &mut self,
+            key: &PyObject,
+            value: &PyObject,
+            obj: Option<&PyObject>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            self.save(key, false, vm)?;
+            match obj {
+                Some(obj) => self.save_value(value, key, obj, vm),
+                None => self.save(value, false, vm),
             }
-            Ok(())
         }
 
         fn save_set(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -2825,19 +2858,36 @@ mod _pickle {
             }
             self.write(&[EMPTY_SET as u8]);
             self.memoize(obj);
-            let elements = set.elements();
-            for batch in elements.chunks(BATCH_SIZE) {
+            let initial_len = obj.length(vm)?;
+            let mut position = 0;
+            let mut total = 0;
+            while total < initial_len {
                 self.write(&[MARK as u8]);
-                for item in batch {
-                    self.save(item, false, vm).map_err(|e| {
+                let mut exhausted = false;
+                for _ in 0..BATCH_SIZE {
+                    let Some((next, item)) = set.next_entry(position) else {
+                        exhausted = true;
+                        break;
+                    };
+                    position = next;
+                    let result = self.save(&item, false, vm);
+                    drop(item);
+                    result.map_err(|e| {
                         add_note(
                             e,
                             format!("when serializing {} element", obj_type_name(obj, vm)),
                             vm,
                         )
                     })?;
+                    total += 1;
                 }
                 self.write(&[ADDITEMS as u8]);
+                if obj.length(vm)? != initial_len {
+                    return Err(vm.new_runtime_error("set changed size during iteration"));
+                }
+                if exhausted {
+                    break;
+                }
             }
             Ok(())
         }
