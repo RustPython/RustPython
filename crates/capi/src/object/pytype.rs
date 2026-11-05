@@ -10,7 +10,7 @@ use core::ptr;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::function::{ItemDoc, PyMethodFlags};
 use rustpython_vm::types::{
-    AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots,
+    AtomicPyTypeFlags, CNewFunc, CSlotId, CSlots, PyTypeFlags, PyTypeSlots,
     SlotAccessor::{TpBase, TpDealloc, TpDoc, TpGetset, TpMembers, TpMethods, TpNew, TpTraverse},
 };
 use rustpython_vm::{AsObject, Py, PyObject};
@@ -97,8 +97,15 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetSlot(_ty: *const PyTypeObject, _slot: c_int) -> *mut c_void {
-    ptr::null_mut()
+pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
+    let ty = unsafe { &*ty };
+    match CSlotId::from_raw(slot) {
+        Some(CSlotId::TpNew) => ty.c_tp_new().map_or(ptr::null_mut(), |f| f as *mut c_void),
+        None => {
+            eprintln!("PyType_GetSlot: unknown slot {slot}");
+            ptr::null_mut()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -111,6 +118,7 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
         let attrs = Default::default();
         let mut getsets = Vec::new();
         let mut members = Vec::new();
+        let c_slots = CSlots::new();
         let mut metaclass = vm.ctx.types.type_type.to_owned();
 
         for slot in PySlot::iter(slots) {
@@ -166,7 +174,12 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                                 methods.push((name, method));
                             }
                         }
-                        PySlotType::TypeSlot(TpNew | TpDealloc | TpTraverse | _, _) => {
+                        PySlotType::TypeSlot(TpNew, pfunc) => unsafe {
+                            c_slots
+                                .new
+                                .store(Some(core::mem::transmute::<*mut c_void, CNewFunc>(pfunc)));
+                        },
+                        PySlotType::TypeSlot(TpDealloc | TpTraverse | _, _) => {
                             // TODO
                         }
                     }
@@ -194,6 +207,7 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
             |msg| vm.new_system_error(format!("Failed to create type from slots: {msg}")),
         )?;
 
+        class.set_c_slots(c_slots, vm)?;
         let attrs = &class.attributes;
         let class_static = unsafe { &*((&*class) as *const _) };
         for (name, method) in methods {
@@ -425,7 +439,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn zero_sized_class() {
         #[pyclass(frozen)]
         struct MyEmptyClass {}
@@ -484,7 +497,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn subclass_with_property() {
         #[pyclass(frozen, extends=PyList)]
         struct MyList {}
