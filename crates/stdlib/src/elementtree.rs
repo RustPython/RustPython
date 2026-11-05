@@ -1015,7 +1015,7 @@ pub(crate) mod _elementtree {
                         drop(inner);
                         return Err(vm.new_index_error("child assignment index out of range"));
                     };
-                    if !value.downcastable::<PyElement>() {
+                    if !value.downcastable::<Self>() {
                         drop(inner);
                         return reject_element(&value, vm);
                     }
@@ -1026,7 +1026,7 @@ pub(crate) mod _elementtree {
                     let items: Vec<PyObjectRef> = value.try_to_value(vm)?;
                     // This check cannot call Python. Delay reporting it until
                     // after the extended-slice length check.
-                    let invalid = items.iter().find(|item| !item.downcastable::<PyElement>());
+                    let invalid = items.iter().find(|item| !item.downcastable::<Self>());
                     let mut inner = self.inner.write();
                     let (range, step, slice_len) = slice.adjust_indices(inner.children.len());
                     if step != 1 && slice_len != items.len() {
@@ -1034,8 +1034,7 @@ pub(crate) mod _elementtree {
                         drop(inner);
                         drop(items);
                         return Err(vm.new_value_error(format!(
-                            "attempt to assign sequence of size {} to extended slice of size {}",
-                            new_len, slice_len
+                            "attempt to assign sequence of size {new_len} to extended slice of size {slice_len}"
                         )));
                     }
                     if let Some(item) = invalid {

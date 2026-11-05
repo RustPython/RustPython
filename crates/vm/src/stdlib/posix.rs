@@ -1562,6 +1562,7 @@ pub mod module {
 
         if let Some(dict) = crate::stdlib::os::envobj_fast_dict(env, vm) {
             // Snapshot references before any path conversion can mutate the mapping.
+            #[allow(clippy::needless_collect, reason = "the snapshot is intentional")]
             let pairs: Vec<_> = dict.into_iter().collect();
             return pairs
                 .into_iter()
