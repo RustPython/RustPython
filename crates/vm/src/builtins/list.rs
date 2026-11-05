@@ -786,10 +786,8 @@ impl Comparable for PyList {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PyList>(),
-            other.downcast_ref::<PyList>(),
-        ) else {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
             return Ok(Either::B(PyComparisonValue::NotImplemented));
         };
         if let Some(equal) = op.identical_optimization(zelf, other) {

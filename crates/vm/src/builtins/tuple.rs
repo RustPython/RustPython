@@ -699,10 +699,8 @@ impl Comparable for PyTuple {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PyTuple>(),
-            other.downcast_ref::<PyTuple>(),
-        ) else {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
             return Ok(Either::B(PyComparisonValue::NotImplemented));
         };
         if let Some(equal) = op.identical_optimization(zelf, other) {

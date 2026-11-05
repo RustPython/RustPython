@@ -326,10 +326,8 @@ impl Comparable for PySlice {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PySlice>(),
-            other.downcast_ref::<PySlice>(),
-        ) else {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
             return Ok(Either::B(PyComparisonValue::NotImplemented));
         };
         if zelf.is(other) {
