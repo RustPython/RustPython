@@ -2578,12 +2578,12 @@ raising = RaisingConverter()
             let point_conv = scope.globals.get_item("point_conv", vm).unwrap();
             let raising = scope.globals.get_item("raising", vm).unwrap();
 
-            let tuple_valid = vm.ctx.new_tuple(vec![valid.clone()]);
+            let tuple_valid = vm.ctx.new_tuple(vec![valid]);
             let res = extract_arg_types_and_converters(tuple_valid.as_object(), vm);
             assert!(res.is_ok());
             let (types, converters) = res.unwrap();
 
-            let tuple_invalid = vm.ctx.new_tuple(vec![invalid.clone()]);
+            let tuple_invalid = vm.ctx.new_tuple(vec![invalid]);
             let err = extract_arg_types_and_converters(tuple_invalid.as_object(), vm).unwrap_err();
             assert!(
                 err.as_object()

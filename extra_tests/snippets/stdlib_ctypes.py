@@ -1279,6 +1279,11 @@ for _value in (
 
 
 # Tests for argtypes validation and custom converters (Issue #8341)
+@ctypes.CFUNCTYPE(None, ctypes.c_uint)
+def test_cfunc(val):
+    pass
+
+
 class ValidConverter:
     called = 0
 
@@ -1309,34 +1314,36 @@ class FailingConverter:
 
 # 1. Assignment validation: sequence item lacking from_param
 try:
-    libc.srand.argtypes = [InvalidConverter]
+    test_cfunc.argtypes = [InvalidConverter]
 except TypeError as e:
     assert "item 1 in _argtypes_ has no from_param method" in str(e)
 else:
     raise AssertionError("expected TypeError for item without from_param")
 
 # 2. Custom converter class in argtypes
-libc.srand.argtypes = [ValidConverter]
-libc.srand(10)
+test_cfunc.argtypes = [ValidConverter]
+test_cfunc(10)
 assert ValidConverter.called == 1
 
 # 3. Custom converter instance in argtypes
 adapter = Adapter()
-libc.srand.argtypes = [adapter]
-libc.srand(20)
+test_cfunc.argtypes = [adapter]
+test_cfunc(20)
 assert adapter.called == 1
 
 # 4. Conversion failure wraps in ArgumentError and chains __cause__
-libc.srand.argtypes = [FailingConverter]
+test_cfunc.argtypes = [FailingConverter]
 try:
-    libc.srand(30)
+    test_cfunc(30)
 except Exception as e:
     assert type(e).__name__ == "ArgumentError"
     assert "argument 1: ValueError: failing conversion" in str(e)
-    assert isinstance(e.__cause__, ValueError)
-    assert str(e.__cause__) == "failing conversion"
+    if _sys.implementation.name == "rustpython":
+        assert isinstance(e.__cause__, ValueError)
+        assert str(e.__cause__) == "failing conversion"
 else:
     raise AssertionError("expected ArgumentError from failing converter")
+
 
 # 5. Cached converter resolved at assignment (mutating from_param afterwards does not affect calls)
 class MutatingConverter:
@@ -1345,17 +1352,18 @@ class MutatingConverter:
         return int(val)
 
 
-libc.srand.argtypes = [MutatingConverter]
+test_cfunc.argtypes = [MutatingConverter]
 MutatingConverter.from_param = None
-libc.srand(40)
+test_cfunc(40)
 
 # 6. In-place mutation of assigned argtypes list does not affect call snapshot
 assigned_list = [ctypes.c_uint]
-libc.srand.argtypes = assigned_list
+test_cfunc.argtypes = assigned_list
 assigned_list.append(ctypes.c_int)
 # Function call uses assignment snapshot (1 argument), while getter preserves assigned list
-libc.srand(50)
-assert libc.srand.argtypes == assigned_list
+test_cfunc(50)
+assert test_cfunc.argtypes == assigned_list
+
 
 # 7. Callback argtypes validates ctypes types without querying from_param
 class CallbackArgType(ctypes.c_int):
@@ -1366,6 +1374,7 @@ class CallbackArgType(ctypes.c_int):
 
 CB = ctypes.CFUNCTYPE(None, CallbackArgType)
 cb_inst = CB(lambda x: None)
+
 
 # 8. Prototype with class-level _argtypes_ resolves converters when prototype type is created
 class ProtoConverter:
@@ -1382,18 +1391,18 @@ Proto = ctypes.CFUNCTYPE(None, ProtoConverter)
 ProtoConverter.from_param = None
 
 # Case A: constructed from function address
-proto_func = Proto(ctypes.cast(libc.srand, ctypes.c_void_p).value)
+proto_func = Proto(ctypes.cast(test_cfunc, ctypes.c_void_p).value)
 proto_func(60)
 assert ProtoConverter.called == 1
 
 # Case B: constructed via ctypes.cast (into_view / from_cdata path)
-proto_cast = ctypes.cast(libc.srand, Proto)
+proto_cast = ctypes.cast(test_cfunc, Proto)
 proto_cast(70)
 assert ProtoConverter.called == 2
 
 # 9. Reset argtypes
-libc.srand.argtypes = [ctypes.c_uint]
-libc.srand(0)
+test_cfunc.argtypes = [ctypes.c_uint]
+test_cfunc(0)
 
 # 10. Windows-specific test for Issue #8341: custom converter returning a Structure
 if _sys.platform == "win32":
