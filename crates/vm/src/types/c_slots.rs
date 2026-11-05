@@ -140,12 +140,13 @@ fn kwargs_from_dict(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> 
         .collect()
 }
 
-/// Hand a `PyResult` back to C. `NULL` means `exc` is now the pending exception.
+/// Hand a `PyResult` back to C. `NULL` means `exc` is now the raised exception
+/// a C caller reads with `PyErr_Occurred`.
 pub(crate) fn pyresult_to_ret_ptr(vm: &VirtualMachine, result: PyResult) -> *mut PyObject {
     match result {
         Ok(obj) => obj.into_raw().as_ptr(),
         Err(exc) => {
-            vm.set_exception(Some(exc));
+            vm.set_raised_exception(Some(exc));
             core::ptr::null_mut()
         }
     }

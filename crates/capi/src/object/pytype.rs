@@ -660,7 +660,7 @@ mod c_slot_tests {
     ) -> *mut PyObject {
         let slot = unsafe { PyType_GetSlot(base, Py_tp_new) };
         if slot.is_null() {
-            vm.set_exception(Some(vm.new_type_error("base type without tp_new")));
+            vm.set_raised_exception(Some(vm.new_type_error("base type without tp_new")));
             return core::ptr::null_mut();
         }
         let tp_new = unsafe { core::mem::transmute::<*mut c_void, newfunc>(slot) };
