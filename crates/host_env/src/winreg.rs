@@ -13,7 +13,7 @@
 
 extern crate alloc;
 
-use alloc::string::FromUtf16Error;
+use alloc::{borrow::Cow, string::FromUtf16Error};
 use rustpython_wtf8::Wtf8Buf;
 
 use windows_sys::Win32::{
@@ -95,6 +95,26 @@ pub fn bytes_as_wide_slice(bytes: &[u8]) -> &[u16] {
         "Registry data should be u16-aligned"
     );
     u16_slice
+}
+
+pub fn registry_wide_units(bytes: &[u8]) -> Cow<'_, [u16]> {
+    // Windows strings use complete native-endian UTF-16 code units; CPython
+    // ignores a trailing incomplete byte.
+    let bytes = &bytes[..bytes.len() & !1];
+    // SAFETY: Every u16 bit pattern is valid and align_to checks alignment.
+    let (prefix, u16_slice, _) = unsafe { bytes.align_to::<u16>() };
+    if prefix.is_empty() {
+        Cow::Borrowed(u16_slice)
+    } else {
+        Cow::Owned(
+            bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| u16::from_ne_bytes(pair))
+                .collect(),
+        )
+    }
 }
 
 pub fn close_key(hkey: Registry::HKEY) -> u32 {
@@ -423,7 +443,7 @@ fn query_default_value_with<T>(
             break Err(QueryStringError::Code(Foundation::ERROR_INVALID_DATA));
         }
 
-        let u16_slice = bytes_as_wide_slice(&buffer[..size as usize]);
+        let u16_slice = registry_wide_units(&buffer[..size as usize]);
         let len = u16_slice
             .iter()
             .position(|&c| c == 0)

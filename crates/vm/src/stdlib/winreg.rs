@@ -779,7 +779,7 @@ mod winreg {
                 vm.ctx.new_int(val).into()
             }
             REG_SZ | REG_EXPAND_SZ => {
-                let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
+                let u16_slice = host_winreg::registry_wide_units(ret_data);
                 // Only use characters up to the first NUL.
                 let len = u16_slice
                     .iter()
@@ -792,7 +792,7 @@ mod winreg {
                 if ret_data.is_empty() {
                     vm.ctx.new_list(vec![]).into()
                 } else {
-                    let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
+                    let u16_slice = host_winreg::registry_wide_units(ret_data);
                     let u16_count = u16_slice.len();
 
                     // Remove trailing null if present (like countStrings)
