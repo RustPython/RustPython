@@ -63,19 +63,36 @@ impl VirtualMachine {
         value.into_pytuple(self)
     }
 
+    /// Create a native module from a dictionary that cannot invoke failing callbacks.
+    /// Use `try_new_module` for dictionaries exposed to Python code.
     pub fn new_module(
         &self,
         name: &str,
         dict: PyDictRef,
         doc: Option<PyStrRef>,
     ) -> PyRef<PyModule> {
+        self.try_new_module(name, dict, doc)
+            .expect("Failed to initialize a native module dictionary")
+    }
+
+    /// Create a module, propagating errors from its initial dictionary writes.
+    pub fn try_new_module(
+        &self,
+        name: &str,
+        dict: PyDictRef,
+        doc: Option<PyStrRef>,
+    ) -> PyResult<PyRef<PyModule>> {
         let module = PyRef::new_ref(
             PyModule::new(),
             self.ctx.types.module_type.to_owned(),
             Some(dict),
         );
-        module.init_dict(self.ctx.intern_str(name), doc, self);
-        module
+        module.init_dict(
+            self.ctx.intern_str(name),
+            doc.as_ref().map(|doc| doc.as_object()),
+            self,
+        )?;
+        Ok(module)
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {

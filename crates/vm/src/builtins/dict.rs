@@ -625,6 +625,15 @@ impl PyDict {
         }
     }
 
+    pub(crate) fn inner_pop_item<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.remove_if_exists(vm, key, hash)
+    }
+
     pub fn get_or_insert(
         &self,
         vm: &VirtualMachine,
@@ -1343,8 +1352,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            let hash = PyDict::hash_or_unhashable(key, vm)?;
-            self.entries.remove_if_exists(vm, key, hash)
+            self.inner_pop_item(key, vm)
         } else {
             let value = self.as_object().get_item(key, vm)?;
             self.as_object().del_item(key, vm)?;
