@@ -13,8 +13,8 @@ mod mmap {
         TryFromBorrowedObject, VirtualMachine, atomic_func,
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef, PyUtf8StrRef},
         byte::{bytes_from_object, value_from_object},
-        convert::{ToPyException, TryFromObject},
-        function::{ArgBytesLike, ArgIndex, ArgIntoBool, ArgSpec, FuncArgs},
+        convert::ToPyException,
+        function::{ArgBytesLike, ArgIndex, ArgIntoBool},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -248,6 +248,7 @@ mod mmap {
 
     #[cfg(unix)]
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "mmap")]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,
@@ -267,6 +268,7 @@ mod mmap {
 
     #[cfg(windows)]
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "mmap")]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,
@@ -292,94 +294,6 @@ mod mmap {
                 return Err(vm.new_overflow_error("memory mapped offset must be positive"));
             }
             Ok(self.length as usize)
-        }
-
-        #[cfg(unix)]
-        fn from_func_args(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
-            let mut fileno = None;
-            let mut length = None;
-            let mut flags = None;
-            let mut prot = None;
-            let mut access = None;
-            let mut offset = None;
-            let mut trackfd = None;
-            ArgSpec {
-                fname: "mmap",
-                keywords: &[
-                    "fileno", "length", "flags", "prot", "access", "offset", "trackfd",
-                ],
-                required: 2,
-                max_positional: 6,
-            }
-            .parse_with(
-                &args,
-                |i, obj, vm| {
-                    match i {
-                        0 => fileno = Some(i32::try_from_object(vm, obj.to_owned())?),
-                        1 => length = Some(isize::try_from_object(vm, obj.to_owned())?),
-                        2 => flags = Some(core::ffi::c_int::try_from_object(vm, obj.to_owned())?),
-                        3 => prot = Some(core::ffi::c_int::try_from_object(vm, obj.to_owned())?),
-                        4 => access = Some(AccessArg::try_from_object(vm, obj.to_owned())?),
-                        5 => offset = Some(i64::try_from_object(vm, obj.to_owned())?),
-                        6 => trackfd = Some(ArgIntoBool::try_from_object(vm, obj.to_owned())?),
-                        _ => unreachable!(),
-                    }
-                    Ok(())
-                },
-                vm,
-            )?;
-            Ok(Self {
-                fileno: fileno.unwrap(),
-                length: length.unwrap(),
-                flags: flags.unwrap_or(host_mmap::MAP_SHARED),
-                prot: prot.unwrap_or(host_mmap::PROT_WRITE | host_mmap::PROT_READ),
-                access: access.unwrap_or(AccessArg::DEFAULT),
-                offset: offset.unwrap_or_default(),
-                trackfd: trackfd.unwrap_or(ArgIntoBool::TRUE),
-            })
-        }
-
-        #[cfg(windows)]
-        fn from_func_args(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
-            let mut fileno = None;
-            let mut length = None;
-            let mut tagname = None;
-            let mut access = None;
-            let mut offset = None;
-            let mut trackfd = None;
-            ArgSpec {
-                fname: "mmap",
-                keywords: &["fileno", "length", "tagname", "access", "offset", "trackfd"],
-                required: 2,
-                max_positional: 5,
-            }
-            .parse_with(
-                &args,
-                |i, obj, vm| {
-                    match i {
-                        0 => fileno = Some(i32::try_from_object(vm, obj.to_owned())?),
-                        1 => length = Some(isize::try_from_object(vm, obj.to_owned())?),
-                        2 => {
-                            tagname =
-                                Some(Option::<PyObjectRef>::try_from_object(vm, obj.to_owned())?)
-                        }
-                        3 => access = Some(AccessArg::try_from_object(vm, obj.to_owned())?),
-                        4 => offset = Some(i64::try_from_object(vm, obj.to_owned())?),
-                        5 => trackfd = Some(ArgIntoBool::try_from_object(vm, obj.to_owned())?),
-                        _ => unreachable!(),
-                    }
-                    Ok(())
-                },
-                vm,
-            )?;
-            Ok(Self {
-                fileno: fileno.unwrap(),
-                length: length.unwrap(),
-                tagname: tagname.unwrap_or(None),
-                access: access.unwrap_or(AccessArg::DEFAULT),
-                offset: offset.unwrap_or_default(),
-                trackfd: trackfd.unwrap_or(ArgIntoBool::TRUE),
-            })
         }
     }
 
@@ -495,12 +409,6 @@ mod mmap {
 
     impl Constructor for PyMmap {
         type Args = MmapNewArgs;
-
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args = MmapNewArgs::from_func_args(args, vm)?;
-            let payload = Self::py_new(&cls, args, vm)?;
-            payload.into_ref_with_type(vm, cls).map(Into::into)
-        }
 
         #[cfg(unix)]
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {

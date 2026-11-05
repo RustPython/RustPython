@@ -9,10 +9,9 @@ mod _functools {
             object,
         },
         common::{hash::PyHash, lock::PyRwLock},
-        convert::TryFromObject,
         function::{
-            ArgSpec, Callee, Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue,
-            PySetterValue,
+            ArgIntoBool, Callee, Either, FuncArgs, KwArgs, OptionalOption, PosArgs,
+            PyComparisonValue, PySetterValue,
         },
         object::{AsObject, PyAtomicRef, TraverseFn},
         protocol::PyIter,
@@ -778,57 +777,20 @@ mod _functools {
     }
 
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "lru_cache")]
     pub(super) struct LruCacheWrapperArgs {
-        #[pyarg(positional)]
+        #[pyarg(any, name = "user_function")]
         function: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         maxsize: Option<isize>,
-        #[pyarg(positional)]
-        typed: bool,
-        #[pyarg(positional)]
+        #[pyarg(any)]
+        typed: ArgIntoBool,
+        #[pyarg(any)]
         cache_info_type: PyObjectRef,
     }
 
     impl Constructor for PyLruCacheWrapper {
         type Args = LruCacheWrapperArgs;
-
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let mut function = None;
-            let mut maxsize = None;
-            let mut typed = None;
-            let mut cache_info_type = None;
-            ArgSpec {
-                fname: "lru_cache",
-                keywords: &["user_function", "maxsize", "typed", "cache_info_type"],
-                required: 4,
-                max_positional: 4,
-            }
-            .parse_with(
-                &args,
-                |i, obj, vm| {
-                    match i {
-                        0 => function = Some(PyObjectRef::try_from_object(vm, obj.to_owned())?),
-                        1 => maxsize = Some(Option::<isize>::try_from_object(vm, obj.to_owned())?),
-                        2 => typed = Some(obj.try_to_bool(vm)?),
-                        3 => {
-                            cache_info_type =
-                                Some(PyObjectRef::try_from_object(vm, obj.to_owned())?)
-                        }
-                        _ => unreachable!(),
-                    }
-                    Ok(())
-                },
-                vm,
-            )?;
-            let args = LruCacheWrapperArgs {
-                function: function.unwrap(),
-                maxsize: maxsize.unwrap(),
-                typed: typed.unwrap(),
-                cache_info_type: cache_info_type.unwrap(),
-            };
-            let payload = Self::py_new(&cls, args, vm)?;
-            payload.into_ref_with_type(vm, cls).map(Into::into)
-        }
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             if !args.function.is_callable() {
@@ -840,7 +802,7 @@ mod _functools {
             Ok(Self {
                 func: args.function,
                 maxsize,
-                typed: args.typed,
+                typed: args.typed.into_bool(),
                 keyword_marker: vm
                     .ctx
                     .new_base_object(vm.ctx.types.object_type.to_owned(), None),

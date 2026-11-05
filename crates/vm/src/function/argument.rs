@@ -309,45 +309,8 @@ impl FuncArgs {
         let nargs = self.args.len();
         let num_given = nargs.saturating_sub(instance);
 
-        // A function that takes no keywords refuses them before counting its
-        // arguments.
-        if T::TAKES_NO_KEYWORDS && !self.kwargs.is_empty() {
-            return Err(callee.no_keywords(vm));
-        }
-
-        // Too many positional arguments are reported before any argument is
-        // converted, so a conversion cannot run user code first.
-        if num_given > *arity.end() {
-            return Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, 0, callee, vm));
-        }
-
-        // No keyword can fill a missing parameter of such a function, so too few
-        // arguments are also reported before any is converted.
-        if T::TAKES_NO_KEYWORDS && num_given < *arity.start() {
-            return Err(ArgumentError::TooFewArgs.into_exception(&arity, num_given, 0, callee, vm));
-        }
-
-        // A keyword that fills a parameter already given by position is
-        // reported before leftover-keyword and conversion errors.
-        if let Some(params) = T::PARAMS
-            && !self.kwargs.is_empty()
-            && let Some((name, pos)) = duplicate_name_and_position(params, num_given, &self.kwargs)
-        {
-            return Err(callee.given_by_name_and_position(name, pos, vm));
-        }
-
-        // A missing required argument is reported before the arguments ahead
-        // of it are converted, for the same reason. The walk is skipped when
-        // every required positional argument is present and the type has no
-        // required keyword-only parameter.
-        if num_given < *arity.start() || const { T::HAS_REQUIRED_KEYWORD_ONLY } {
-            let mut pos = 0;
-            let mut skip = instance;
-            if let Err(Some(missing)) =
-                T::missing_from(num_given, &self.kwargs, &mut pos, &mut skip)
-            {
-                return Err(missing.into_exception(&arity, num_given, 0, callee, vm));
-            }
+        if let Some(err) = T::check_before_convert(&self, &arity, num_given, instance, callee, vm) {
+            return Err(err);
         }
 
         let bound = match T::from_args(vm, &mut self) {
@@ -874,6 +837,51 @@ pub trait FromArgs: Sized {
         }
     }
 
+    /// Surplus positional arguments, a keyword that fills a parameter already
+    /// given by position, and a missing required argument, reported before any
+    /// argument is converted.
+    ///
+    /// The missing-argument walk is skipped when every required positional
+    /// argument is present and the type has no required keyword-only parameter.
+    fn check_before_convert(
+        args: &FuncArgs,
+        arity: &RangeInclusive<usize>,
+        num_given: usize,
+        instance: usize,
+        callee: Callee,
+        vm: &VirtualMachine,
+    ) -> Option<PyBaseExceptionRef> {
+        // A function that takes no keywords refuses them before counting its
+        // arguments.
+        if Self::TAKES_NO_KEYWORDS && !args.kwargs.is_empty() {
+            return Some(callee.no_keywords(vm));
+        }
+        if num_given > *arity.end() {
+            return Some(ArgumentError::TooManyArgs.into_exception(arity, num_given, 0, callee, vm));
+        }
+        // No keyword can fill a missing parameter of such a function, so too few
+        // arguments are also reported before any is converted.
+        if Self::TAKES_NO_KEYWORDS && num_given < *arity.start() {
+            return Some(ArgumentError::TooFewArgs.into_exception(arity, num_given, 0, callee, vm));
+        }
+        if let Some(params) = Self::PARAMS
+            && !args.kwargs.is_empty()
+            && let Some((name, pos)) = duplicate_name_and_position(params, num_given, &args.kwargs)
+        {
+            return Some(callee.given_by_name_and_position(name, pos, vm));
+        }
+        if num_given < *arity.start() || const { Self::HAS_REQUIRED_KEYWORD_ONLY } {
+            let mut pos = 0;
+            let mut skip = instance;
+            if let Err(Some(missing)) =
+                Self::missing_from(num_given, &args.kwargs, &mut pos, &mut skip)
+            {
+                return Some(missing.into_exception(arity, num_given, 0, callee, vm));
+            }
+        }
+        None
+    }
+
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
 }
@@ -1289,6 +1297,26 @@ impl FromArgs for () {
 // Technically, a tuple can contain tuples, which can contain tuples, and so on,
 // so this actually represents a tree of values to be bound from arguments, but
 // in practice this is only used for the top-level parameters.
+//
+// A pyfunction with one FromArgs struct is bound as `(T,)`. Use T's own
+// checks so a `legacy` struct's no-op is not wrapped in the combined
+// missing-argument walk. Longer tuples use the default checks.
+macro_rules! tuple_check_before_convert {
+    ($T:ident) => {
+        fn check_before_convert(
+            args: &FuncArgs,
+            arity: &RangeInclusive<usize>,
+            num_given: usize,
+            instance: usize,
+            callee: Callee,
+            vm: &VirtualMachine,
+        ) -> Option<PyBaseExceptionRef> {
+            $T::check_before_convert(args, arity, num_given, instance, callee, vm)
+        }
+    };
+    ($($T:ident),+) => {};
+}
+
 macro_rules! tuple_from_py_func_args {
     ($($T:ident),+) => {
         impl<$($T),+> FromArgs for ($($T,)+)
@@ -1327,6 +1355,8 @@ macro_rules! tuple_from_py_func_args {
                 $($T::missing_from(nargs, kwargs, pos, skip)?;)+
                 Ok(())
             }
+
+            tuple_check_before_convert!($($T),+);
 
             fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
                 Ok(($($T::from_args(vm, args)?,)+))

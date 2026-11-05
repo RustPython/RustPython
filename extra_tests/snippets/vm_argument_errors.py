@@ -320,6 +320,24 @@ def test_legacy_parsers_convert_before_a_missing_argument():
             == "($module, /, path, flags, mode=511)"
         )
 
+    try:
+        import mmap
+    except ImportError:
+        pass
+    else:
+        try:
+            mmap.mmap("x")
+        except TypeError as e:
+            message = str(e)
+            assert "missing required argument" not in message, message
+        else:
+            raise AssertionError("mmap.mmap('x') did not raise TypeError")
+
+    import _json
+
+    with assert_raises(RuntimeError):
+        _json.make_encoder(None, None, None, None, ",", ",", FailingBool())
+
 
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()

@@ -11,9 +11,7 @@ mod _winapi {
         common::lock::{PyMutex, PyMutexGuard},
         convert::{ToPyException, ToPyObject},
         exceptions::nul_char_error,
-        function::{
-            ArgBytesLike, ArgMapping, ArgSequence, ArgSpec, FromArgs, FuncArgs, OptionalArg,
-        },
+        function::{ArgBytesLike, ArgMapping, ArgSequence, FromArgs, OptionalArg},
         types::Constructor,
         windows::{WinHandle, WindowsSysResult},
     };
@@ -534,40 +532,25 @@ mod _winapi {
         Ok(vm.ctx.new_str(String::from_utf16(path).unwrap()).into())
     }
 
-    /// OpenMutexW($module, /, desired_access, inherit_handle, name)
-    /// --
-    ///
-    ///
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "OpenMutexW")]
+    struct OpenMutexWArgs {
+        #[pyarg(any)]
+        desired_access: u32,
+        #[pyarg(any)]
+        inherit_handle: bool,
+        #[pyarg(any)]
+        name: PyStrRef,
+    }
+
     #[pyfunction]
-    fn OpenMutexW(args: FuncArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
-        let mut desired_access = None;
-        let mut inherit_handle = None;
-        let mut name = None;
-        ArgSpec {
-            fname: "OpenMutexW",
-            keywords: &["desired_access", "inherit_handle", "name"],
-            required: 3,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => desired_access = Some(u32::try_from_object(vm, obj.to_owned())?),
-                    1 => inherit_handle = Some(bool::try_from_object(vm, obj.to_owned())?),
-                    2 => name = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let name = name
-            .unwrap()
+    fn OpenMutexW(args: OpenMutexWArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
+        let name = args
+            .name
             .as_wtf8()
             .to_wide_cstring()
             .map_err(|_| nul_char_error(vm))?;
-        host_winapi::open_mutex_w(desired_access.unwrap(), inherit_handle.unwrap(), &name)
+        host_winapi::open_mutex_w(args.desired_access, args.inherit_handle, &name)
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -587,37 +570,22 @@ mod _winapi {
 
     // LCMapStringEx - Map a string to another string using locale-specific rules
     // This is used by ntpath.normcase() for proper Windows case conversion
-    /// LCMapStringEx($module, /, locale, flags, src)
-    /// --
-    ///
-    ///
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "LCMapStringEx")]
+    struct LCMapStringExArgs {
+        #[pyarg(any)]
+        locale: PyStrRef,
+        #[pyarg(any)]
+        flags: u32,
+        #[pyarg(any)]
+        src: PyStrRef,
+    }
+
     #[pyfunction]
-    fn LCMapStringEx(args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let mut locale = None;
-        let mut flags = None;
-        let mut src = None;
-        ArgSpec {
-            fname: "LCMapStringEx",
-            keywords: &["locale", "flags", "src"],
-            required: 3,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => locale = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
-                    1 => flags = Some(u32::try_from_object(vm, obj.to_owned())?),
-                    2 => src = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let locale = locale.unwrap();
-        let flags = flags.unwrap();
-        let src = src.unwrap();
+    fn LCMapStringEx(args: LCMapStringExArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let locale = args.locale;
+        let flags = args.flags;
+        let src = args.src;
         // Reject unsupported flags
         if flags
             & (host_winapi::LCMAP_SORTHANDLE_FLAG
@@ -876,55 +844,30 @@ mod _winapi {
     }
 
     // CreateEventW - Create or open a named or unnamed event object.
-    /// CreateEventW($module, /, security_attributes, manual_reset, initial_state, name)
-    /// --
-    ///
-    ///
-    #[pyfunction]
-    fn CreateEventW(args: FuncArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
-        let mut security_attributes = None;
-        let mut manual_reset = None;
-        let mut initial_state = None;
-        let mut name = None;
-        ArgSpec {
-            fname: "CreateEventW",
-            keywords: &[
-                "security_attributes",
-                "manual_reset",
-                "initial_state",
-                "name",
-            ],
-            required: 4,
-            max_positional: 4,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => security_attributes = Some(isize::try_from_object(vm, obj.to_owned())?),
-                    1 => manual_reset = Some(bool::try_from_object(vm, obj.to_owned())?),
-                    2 => initial_state = Some(bool::try_from_object(vm, obj.to_owned())?),
-                    3 => name = Some(Option::<PyStrRef>::try_from_object(vm, obj.to_owned())?),
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let _ = security_attributes.unwrap();
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "CreateEventW")]
+    struct CreateEventWArgs {
+        #[pyarg(any)]
+        security_attributes: isize,
+        #[pyarg(any)]
+        manual_reset: bool,
+        #[pyarg(any)]
+        initial_state: bool,
+        #[pyarg(any)]
+        name: Option<PyStrRef>,
+    }
 
-        let name = name
-            .unwrap()
+    #[pyfunction]
+    fn CreateEventW(args: CreateEventWArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
+        let _ = args.security_attributes;
+        let name = args
+            .name
             .map(|n| n.as_wtf8().to_wide_cstring())
             .transpose()
             .map_err(|_| nul_char_error(vm))?;
-        host_winapi::create_event_w(
-            manual_reset.unwrap(),
-            initial_state.unwrap(),
-            name.as_deref(),
-        )
-        .map(WinHandle)
-        .map_err(|e| e.to_pyexception(vm))
+        host_winapi::create_event_w(args.manual_reset, args.initial_state, name.as_deref())
+            .map(WinHandle)
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     // SetEvent - Set the specified event object to the signaled state.
@@ -933,39 +876,23 @@ mod _winapi {
         host_winapi::set_event(event.0).map_err(|e| e.to_pyexception(vm))
     }
 
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "WriteFile")]
+    struct WriteFileArgs {
+        #[pyarg(any)]
+        handle: WinHandle,
+        #[pyarg(any)]
+        buffer: ArgBytesLike,
+        #[pyarg(any, default)]
+        overlapped: bool,
+    }
+
     // WriteFile - Write data to a file or I/O device.
-    /// WriteFile($module, /, handle, buffer, overlapped=False)
-    /// --
-    ///
-    ///
     #[pyfunction]
-    fn WriteFile(args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let mut handle = None;
-        let mut buffer = None;
-        let mut overlapped = false;
-        ArgSpec {
-            fname: "WriteFile",
-            keywords: &["handle", "buffer", "overlapped"],
-            required: 2,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => handle = Some(WinHandle::try_from_object(vm, obj.to_owned())?),
-                    1 => buffer = Some(ArgBytesLike::try_from_object(vm, obj.to_owned())?),
-                    2 => overlapped = bool::try_from_object(vm, obj.to_owned())?,
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let handle = handle.unwrap();
-        let use_overlapped = overlapped;
-        let buffer = buffer.unwrap();
-        let buf = buffer.borrow_buf();
+    fn WriteFile(args: WriteFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let handle = args.handle;
+        let use_overlapped = args.overlapped;
+        let buf = args.buffer.borrow_buf();
 
         if use_overlapped {
             let ov = Overlapped::new_with_handle(handle.0, vm)?;
@@ -990,38 +917,23 @@ mod _winapi {
             .into())
     }
 
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "ReadFile")]
+    struct ReadFileArgs {
+        #[pyarg(any)]
+        handle: WinHandle,
+        #[pyarg(any)]
+        size: u32,
+        #[pyarg(any, default)]
+        overlapped: bool,
+    }
+
     // ReadFile - Read data from a file or I/O device.
-    /// ReadFile($module, /, handle, size, overlapped=False)
-    /// --
-    ///
-    ///
     #[pyfunction]
-    fn ReadFile(args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let mut handle = None;
-        let mut size = None;
-        let mut overlapped = false;
-        ArgSpec {
-            fname: "ReadFile",
-            keywords: &["handle", "size", "overlapped"],
-            required: 2,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => handle = Some(WinHandle::try_from_object(vm, obj.to_owned())?),
-                    1 => size = Some(u32::try_from_object(vm, obj.to_owned())?),
-                    2 => overlapped = bool::try_from_object(vm, obj.to_owned())?,
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let handle = handle.unwrap();
-        let size = size.unwrap();
-        let use_overlapped = overlapped;
+    fn ReadFile(args: ReadFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let handle = args.handle;
+        let size = args.size;
+        let use_overlapped = args.overlapped;
 
         if use_overlapped {
             let ov = Overlapped::new_with_handle(handle.0, vm)?;
@@ -1075,80 +987,50 @@ mod _winapi {
     }
 
     // CreateMutexW - Create or open a named or unnamed mutex object.
-    /// CreateMutexW($module, /, security_attributes, initial_owner, name)
-    /// --
-    ///
-    ///
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "CreateMutexW")]
+    struct CreateMutexWArgs {
+        #[pyarg(any)]
+        security_attributes: isize,
+        #[pyarg(any)]
+        initial_owner: bool,
+        #[pyarg(any)]
+        name: Option<PyStrRef>,
+    }
+
     #[pyfunction]
-    fn CreateMutexW(args: FuncArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
-        let mut security_attributes = None;
-        let mut initial_owner = None;
-        let mut name = None;
-        ArgSpec {
-            fname: "CreateMutexW",
-            keywords: &["security_attributes", "initial_owner", "name"],
-            required: 3,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => security_attributes = Some(isize::try_from_object(vm, obj.to_owned())?),
-                    1 => initial_owner = Some(bool::try_from_object(vm, obj.to_owned())?),
-                    2 => name = Some(Option::<PyStrRef>::try_from_object(vm, obj.to_owned())?),
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let _ = security_attributes.unwrap();
-        let name = name
-            .unwrap()
+    fn CreateMutexW(args: CreateMutexWArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
+        let _ = args.security_attributes;
+        let name = args
+            .name
             .map(|n| n.as_wtf8().to_wide_cstring())
             .transpose()
             .map_err(|_| nul_char_error(vm))?;
-        host_winapi::create_mutex_w(initial_owner.unwrap(), name.as_deref())
+        host_winapi::create_mutex_w(args.initial_owner, name.as_deref())
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
 
     // OpenEventW - Open an existing named event object.
-    /// OpenEventW($module, /, desired_access, inherit_handle, name)
-    /// --
-    ///
-    ///
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "OpenEventW")]
+    struct OpenEventWArgs {
+        #[pyarg(any)]
+        desired_access: u32,
+        #[pyarg(any)]
+        inherit_handle: bool,
+        #[pyarg(any)]
+        name: PyStrRef,
+    }
+
     #[pyfunction]
-    fn OpenEventW(args: FuncArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
-        let mut desired_access = None;
-        let mut inherit_handle = None;
-        let mut name = None;
-        ArgSpec {
-            fname: "OpenEventW",
-            keywords: &["desired_access", "inherit_handle", "name"],
-            required: 3,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => desired_access = Some(u32::try_from_object(vm, obj.to_owned())?),
-                    1 => inherit_handle = Some(bool::try_from_object(vm, obj.to_owned())?),
-                    2 => name = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let name = name
-            .unwrap()
+    fn OpenEventW(args: OpenEventWArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
+        let name = args
+            .name
             .as_wtf8()
             .to_wide_cstring()
             .map_err(|_| nul_char_error(vm))?;
-        host_winapi::open_event_w(desired_access.unwrap(), inherit_handle.unwrap(), &name)
+        host_winapi::open_event_w(args.desired_access, args.inherit_handle, &name)
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -1314,60 +1196,33 @@ mod _winapi {
         Ok(vm.ctx.new_int(size).into())
     }
 
-    /// CopyFile2($module, /, existing_file_name, new_file_name, flags, progress_routine=None)
-    /// --
-    ///
-    /// Copies a file from one name to a new name.
-    ///
-    /// This is implemented using the CopyFile2 API, which preserves all stat
-    /// and metadata information apart from security attributes.
-    ///
-    /// progress_routine is reserved for future use, but is currently not
-    /// implemented. Its value is ignored.
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "CopyFile2")]
+    struct CopyFile2Args {
+        #[pyarg(any)]
+        existing_file_name: PyStrRef,
+        #[pyarg(any)]
+        new_file_name: PyStrRef,
+        #[pyarg(any)]
+        flags: u32,
+        #[pyarg(any, default)]
+        progress_routine: Option<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn CopyFile2(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let mut existing_file_name = None;
-        let mut new_file_name = None;
-        let mut flags = None;
-        ArgSpec {
-            fname: "CopyFile2",
-            keywords: &[
-                "existing_file_name",
-                "new_file_name",
-                "flags",
-                "progress_routine",
-            ],
-            required: 3,
-            max_positional: 4,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => existing_file_name = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
-                    1 => new_file_name = Some(PyStrRef::try_from_object(vm, obj.to_owned())?),
-                    2 => flags = Some(u32::try_from_object(vm, obj.to_owned())?),
-                    3 => {
-                        let _progress_routine = PyObjectRef::try_from_object(vm, obj.to_owned())?;
-                    }
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let src_wide = existing_file_name
-            .unwrap()
+    fn CopyFile2(args: CopyFile2Args, vm: &VirtualMachine) -> PyResult<()> {
+        let _ = args.progress_routine;
+        let src_wide = args
+            .existing_file_name
             .as_wtf8()
             .to_wide_cstring()
             .map_err(|_| nul_char_error(vm))?;
-        let dst_wide = new_file_name
-            .unwrap()
+        let dst_wide = args
+            .new_file_name
             .as_wtf8()
             .to_wide_cstring()
             .map_err(|_| nul_char_error(vm))?;
-        host_winapi::copy_file2(&src_wide, &dst_wide, flags.unwrap())
-            .map_err(|e| e.to_pyexception(vm))
+        host_winapi::copy_file2(&src_wide, &dst_wide, args.flags).map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
