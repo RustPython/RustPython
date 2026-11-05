@@ -9,12 +9,12 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::{hash, wtf8::Wtf8Buf},
     convert::ToPyObject,
-    function::{Either, FuncArgs, PyComparisonValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
     stdlib::_typing::typing_type_repr,
     types::{
-        AsMapping, AsNumber, Callable, Constructor, GetAttr, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable,
+        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
+        Iterable, PyComparisonOp, Representable,
     },
 };
 use alloc::fmt;
@@ -199,6 +199,7 @@ impl PyGenericAlias {
         AsNumber,
         AsMapping,
         Callable,
+        Comparable,
         Constructor,
         GetAttr,
         Hashable,
@@ -208,42 +209,6 @@ impl PyGenericAlias {
     flags(BASETYPE, HAS_WEAKREF)
 )]
 impl Py<PyGenericAlias> {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        }
-        let (Some(zelf), Some(other)) = (
-            zelf.downcast_ref::<PyGenericAlias>(),
-            other.downcast_ref::<PyGenericAlias>(),
-        ) else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        let equal = if zelf.starred != other.starred
-            || !zelf
-                .origin
-                .rich_compare_bool(&other.origin, PyComparisonOp::Eq, vm)?
-        {
-            vm.ctx.new_bool(false).into()
-        } else {
-            // Tuple subclasses can return a non-bool result from equality.
-            zelf.args
-                .as_object()
-                .rich_compare(other.args.as_object(), PyComparisonOp::Eq, vm)?
-        };
-        if op == PyComparisonOp::Ne {
-            // ga_richcompare negates identity with True, without truth conversion.
-            Ok(Either::B((!equal.is(&vm.ctx.true_value)).into()))
-        } else {
-            Ok(Either::A(equal))
-        }
-    }
-
     #[pygetset]
     fn __parameters__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.parameters(vm)
@@ -663,6 +628,55 @@ impl Callable for PyGenericAlias {
             }
             Ok(obj)
         })?
+    }
+}
+
+impl Comparable for PyGenericAlias {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        }
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        let equal = if zelf.starred != other.starred
+            || !zelf
+                .origin
+                .rich_compare_bool(&other.origin, PyComparisonOp::Eq, vm)?
+        {
+            vm.ctx.new_bool(false).into()
+        } else {
+            // Tuple subclasses can return a non-bool result from equality.
+            zelf.args
+                .as_object()
+                .rich_compare(other.args.as_object(), PyComparisonOp::Eq, vm)?
+        };
+        if op == PyComparisonOp::Ne {
+            // ga_richcompare negates identity with True, without truth conversion.
+            Ok(Either::B((!equal.is(&vm.ctx.true_value)).into()))
+        } else {
+            Ok(Either::A(equal))
+        }
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
     }
 }
 
