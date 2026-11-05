@@ -1184,9 +1184,9 @@ impl PyType {
                 // `__new__` entry is the wrapper over that slot, not a
                 // definition replacing it. A type that merely inherited the
                 // slot is not exempt, since `__new__` can be defined over it.
-                let owns_table = self.slots.c_slots.load().is_some()
-                    && self.slots.c_slots.load()
-                        != self.base.deref().and_then(|base| base.slots.c_slots.load());
+                let own = self.slots.c_slots.load();
+                let owns_table = own.is_some()
+                    && own != self.base.deref().and_then(|base| base.slots.c_slots.load());
                 if owns_table {
                     return;
                 }

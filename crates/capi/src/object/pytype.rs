@@ -346,8 +346,12 @@ pub const Py_tp_new: c_int = CSlotId::TpNew as c_int;
 
 /// Install a C `newfunc` as the type's tp_new.
 ///
-/// `ty` must be a heap type that does not already define `__new__` itself.
+/// Fails on a static type, on a type that already has C slots, and on a type
+/// that defines `__new__` itself, since the C slot would then be shadowed.
 pub fn set_tp_new(vm: &VirtualMachine, ty: &Py<PyType>, tp_new: newfunc) -> PyResult<()> {
+    if ty.attributes.contains(identifier!(vm, __new__)) {
+        return Err(vm.new_type_error(format!("type '{}' already defines __new__", ty.name())));
+    }
     let c_slots = CSlots::new();
     c_slots.new.store(Some(tp_new));
     ty.set_c_slots(c_slots, vm)?;
@@ -537,6 +541,46 @@ mod tests {
                     .unwrap(),
                 10
             );
+        });
+    }
+
+    /// A `#[new]` with arguments runs through `Py_tp_new` from Python code:
+    /// the result has the pyclass type, its error is raised, and a Python
+    /// subclass of a final class is refused.
+    #[test]
+    fn pyclass_new_from_python() {
+        #[pyclass(frozen)]
+        struct Probe {}
+
+        #[pymethods]
+        impl Probe {
+            #[new]
+            fn new(x: i32) -> PyResult<Self> {
+                if x < 0 {
+                    return Err(PyValueError::new_err("negative"));
+                }
+                Ok(Self {})
+            }
+        }
+
+        Python::attach(|py| {
+            let globals = PyDict::new(py);
+            globals.set_item("Probe", py.get_type::<Probe>()).unwrap();
+            py.run(
+                c"obj = Probe(1)\nassert type(obj) is Probe",
+                Some(&globals),
+                None,
+            )
+            .unwrap();
+
+            let err = py.run(c"Probe(-1)", Some(&globals), None).unwrap_err();
+            assert!(err.is_instance_of::<PyValueError>(py));
+            assert_eq!(err.value(py).to_string(), "negative");
+
+            let err = py
+                .run(c"class Sub(Probe): pass", Some(&globals), None)
+                .unwrap_err();
+            assert!(err.is_instance_of::<pyo3::exceptions::PyTypeError>(py));
         });
     }
 
@@ -950,6 +994,52 @@ mod c_slot_tests {
                 let obj = sub.as_object().call((), vm).unwrap();
                 let obj: PyStrRef = obj.downcast().unwrap();
                 assert_eq!(obj.to_string(), "from python");
+            })
+        })
+    }
+
+    /// A type whose own dict defines `__new__` keeps it: installing a C
+    /// tp_new under it is refused instead of being silently shadowed.
+    #[test]
+    fn set_tp_new_rejects_a_type_defining_dunder_new() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let ty = heap_type("CHasNew", vm.ctx.types.object_type, vm);
+                let py_new = vm.ctx.new_method_def(
+                    "__new__",
+                    |_args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+                        Ok(vm.ctx.new_str("from python").into())
+                    },
+                    PyMethodFlags::STATIC,
+                    ItemDoc::NONE,
+                );
+                let py_new = py_new.build_function(vm, None);
+                ty.as_object()
+                    .set_attr(identifier!(vm, __new__), py_new, vm)
+                    .unwrap();
+
+                let err = set_tp_new(vm, &ty, echo_new).unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.type_error));
+                assert!(ty.slots.c_slots().is_none());
+                // The slot still routes to the Python `__new__`, not to C.
+                assert_ne!(
+                    unsafe { PyType_GetSlot(&*ty, Py_tp_new) },
+                    echo_new as *mut c_void
+                );
+
+                let obj = ty.as_object().call((), vm).unwrap();
+                let obj: PyStrRef = obj.downcast().unwrap();
+                assert_eq!(obj.to_string(), "from python");
+
+                // Installing twice is refused as well.
+                let ty = heap_type("CTwice", vm.ctx.types.object_type, vm);
+                set_tp_new(vm, &ty, echo_new).unwrap();
+                let err = set_tp_new(vm, &ty, other_new).unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.type_error));
+                assert_eq!(
+                    unsafe { PyType_GetSlot(&*ty, Py_tp_new) },
+                    echo_new as *mut c_void
+                );
             })
         })
     }

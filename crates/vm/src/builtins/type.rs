@@ -360,7 +360,7 @@ pub struct HeapTypeExt {
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
     /// The C slot table this type owns, once an extension has filled one in.
     /// Types that inherit from it point at this same table.
-    pub c_slots: PyRwLock<Option<OwnedCSlots>>,
+    pub(crate) c_slots: PyRwLock<Option<OwnedCSlots>>,
     pub specialization_cache: TypeSpecializationCache,
     /// The interpreter this type was created in, or `None` for the types the
     /// shared context builds before any interpreter exists.
