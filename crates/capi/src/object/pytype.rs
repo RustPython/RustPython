@@ -107,6 +107,7 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
         let mut getsets = Vec::new();
         let mut members = Vec::new();
         let mut metaclass = vm.ctx.types.type_type.to_owned();
+        let mut tp_new: Option<CNewFunc> = None;
 
         for slot in PySlot::iter(slots) {
             match slot.as_kind(vm)? {
@@ -161,7 +162,12 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                                 methods.push((name, method));
                             }
                         }
-                        PySlotType::TypeSlot(TpNew | TpDealloc | TpTraverse | _, _) => {
+                        PySlotType::TypeSlot(TpNew, pfunc) => {
+                            tp_new = Some(unsafe {
+                                core::mem::transmute::<*mut c_void, CNewFunc>(pfunc)
+                            });
+                        }
+                        PySlotType::TypeSlot(TpDealloc | TpTraverse | _, _) => {
                             // TODO
                         }
                     }
@@ -188,6 +194,9 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
         let class = PyType::new_heap(name, bases, attrs, type_slots, metaclass, &vm.ctx).map_err(
             |msg| vm.new_system_error(format!("Failed to create type from slots: {msg}")),
         )?;
+        if let Some(tp_new) = tp_new {
+            set_tp_new(vm, &class, tp_new)?;
+        }
 
         let attrs = &class.attributes;
         let class_static = unsafe { &*((&*class) as *const _) };
@@ -474,7 +483,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn zero_sized_class() {
         #[pyclass(frozen)]
         struct MyEmptyClass {}
@@ -533,7 +541,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn subclass_with_property() {
         #[pyclass(frozen, extends=PyList)]
         struct MyList {}
@@ -774,6 +781,54 @@ mod c_slot_tests {
                     core::iter::once(("k".to_owned(), vm.ctx.new_int(2).into())).collect();
                 let echo = call(&ty, FuncArgs::new(vec![], kwargs), vm);
                 assert!(!echo[2].clone().try_to_bool(vm).unwrap());
+            })
+        })
+    }
+
+    /// `Py_tp_new` in a type spec lands in the type's table: the type
+    /// instantiates through it, `__new__` reaches it the checked way, and
+    /// `PyType_GetSlot` hands the same function back.
+    #[test]
+    fn spec_tp_new_is_installed() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let mut slots = [
+                    pyo3::ffi::PyType_Slot {
+                        slot: pyo3::ffi::Py_tp_new,
+                        pfunc: echo_new as *mut c_void,
+                    },
+                    pyo3::ffi::PyType_Slot {
+                        slot: 0,
+                        pfunc: core::ptr::null_mut(),
+                    },
+                ];
+                let mut spec = pyo3::ffi::PyType_Spec {
+                    name: c"SpecNew".as_ptr(),
+                    basicsize: 0,
+                    itemsize: 0,
+                    flags: pyo3::ffi::Py_TPFLAGS_DEFAULT as _,
+                    slots: slots.as_mut_ptr(),
+                };
+                let ptr = unsafe { pyo3::ffi::PyType_FromSpec(&mut spec) };
+                let ptr = NonNull::new(ptr.cast::<PyObject>()).expect("PyType_FromSpec failed");
+                let ty: PyTypeRef = unsafe { PyObjectRef::from_raw(ptr) }.downcast().unwrap();
+
+                assert_eq!(echoed_name(&call(&ty, FuncArgs::default(), vm)), "SpecNew");
+                assert_eq!(
+                    unsafe { PyType_GetSlot(&*ty, Py_tp_new) },
+                    echo_new as *mut c_void
+                );
+
+                let via_dunder = vm
+                    .call_method(
+                        ty.as_object(),
+                        "__new__",
+                        FuncArgs::from(vec![ty.clone().into()]),
+                    )
+                    .unwrap()
+                    .downcast::<PyTuple>()
+                    .unwrap();
+                assert_eq!(echoed_name(&via_dunder), "SpecNew");
             })
         })
     }
