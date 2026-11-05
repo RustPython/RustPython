@@ -372,6 +372,7 @@ impl Initializer for PyCFuncPtrType {
         stg_info.flags |= StgInfoFlags::TYPEFLAG_ISPOINTER;
         stg_info.paramfunc = ParamFunc::Pointer; // CFuncPtr is passed as a pointer
         // Function-type metadata comes from this class's namespace, not its MRO.
+        stg_info.argtypes = new_type.attributes.get(vm.ctx.intern_str("_argtypes_"));
         stg_info.restype = new_type.attributes.get(vm.ctx.intern_str("_restype_"));
         stg_info.checker = restype_checker(stg_info.restype.as_deref(), vm)?;
 
@@ -970,11 +971,27 @@ impl Constructor for PyCFuncPtr {
         // Check if first argument is a Python callable (callback creation)
         if first_arg.is_callable() {
             // Get argument types and result type from the class
-            let class_argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
-            let (class_restype, class_checker) = cls
+            let (class_argtypes, class_restype, class_checker) = cls
                 .stg_info_opt()
-                .map(|info| (info.restype.clone(), info.checker.clone()))
+                .map(|info| {
+                    (
+                        info.argtypes.clone(),
+                        info.restype.clone(),
+                        info.checker.clone(),
+                    )
+                })
                 .unwrap_or_default();
+            if class_argtypes.is_none() {
+                return Err(
+                    vm.new_type_error("cannot construct instance of this class: no argtypes")
+                );
+            }
+            // Missing metadata is not an explicit void return. CPython 3.15
+            // dereferences NULL here; reject it rather than build a void thunk
+            // whose caller would interpret an uninitialized C int result.
+            if class_restype.is_none() {
+                return Err(vm.new_type_error("invalid result type for callback function"));
+            }
             let class_flags = cls
                 .get_attr(vm.ctx.intern_str("_flags_"))
                 .and_then(|f| f.try_to_value::<u32>(vm).ok())

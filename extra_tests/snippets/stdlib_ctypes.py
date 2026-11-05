@@ -1279,10 +1279,51 @@ for _value in (
 
 
 # These identity and checker-cache cases extend the canonical ctypes tests.
+import sys as _sys
 import unittest as _unittest
 
 
 class _CtypesTypeIdentityTests(_unittest.TestCase):
+    def test_callback_requires_class_local_argtypes_metadata(self):
+        class Base(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = c_int
+
+        class Child(Base):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _restype_ = c_int
+
+        for _ in range(2):
+            with self.assertRaisesRegex(TypeError, "no argtypes"):
+                Child(lambda: 37)
+            Child._argtypes_ = ()
+
+    def test_callback_uses_cached_argtypes_metadata(self):
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = c_int
+
+        Prototype._argtypes_ = (c_int,)
+        function = Prototype(lambda: 37)
+        self.assertEqual(function.argtypes, ())
+        self.assertEqual(function(), 37)
+
+    @_unittest.skipUnless(
+        _sys.implementation.name == "rustpython",
+        "CPython 3.15 crashes on missing callback restype",
+    )
+    def test_callback_missing_restype_is_rejected_safely(self):
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+
+        with self.assertRaisesRegex(
+            TypeError, "invalid result type for callback function"
+        ):
+            Prototype(lambda: 37)
+
     def test_restype_deletion_restores_class_checker(self):
         class Checked(c_int):
             _check_retval_ = staticmethod(lambda value: ("class", value.value))

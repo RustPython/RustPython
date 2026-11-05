@@ -100,6 +100,7 @@ pub struct StgInfo {
 
     // Function parameter conversion
     pub(super) paramfunc: ParamFunc, // how to pass to foreign functions
+    pub(super) argtypes: Option<PyObjectRef>,
     pub(super) restype: Option<PyObjectRef>,
     pub(super) checker: Option<PyObjectRef>,
 
@@ -156,6 +157,7 @@ impl Default for StgInfo {
             format: None,
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
+            argtypes: None,
             restype: None,
             checker: None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
@@ -171,6 +173,7 @@ unsafe impl Traverse for StgInfo {
         self.proto.traverse(tracer);
         self.element_type.traverse(tracer);
         self.pointer_type.traverse(tracer);
+        self.argtypes.traverse(tracer);
         self.restype.traverse(tracer);
         self.checker.traverse(tracer);
     }
@@ -179,6 +182,7 @@ unsafe impl Traverse for StgInfo {
         out.extend(self.proto.take().map(Into::into));
         out.extend(self.element_type.take().map(Into::into));
         out.extend(self.pointer_type.take());
+        out.extend(self.argtypes.take());
         out.extend(self.restype.take());
         out.extend(self.checker.take());
     }
@@ -199,6 +203,7 @@ impl StgInfo {
             format: None,
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
+            argtypes: None,
             restype: None,
             checker: None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
@@ -254,6 +259,7 @@ impl StgInfo {
             format,
             shape,
             paramfunc: ParamFunc::Array,
+            argtypes: None,
             restype: None,
             checker: None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
