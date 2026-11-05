@@ -13,11 +13,13 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyBytes, PyDict, PyInt, PyStr, PyTuple, PyType, PyTypeRef},
     class::StaticType,
-    function::FuncArgs,
+    function::{FuncArgs, PySetterValue},
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
     types::{AsBuffer, AsNumber, AsSequence, Callable, Constructor, Initializer, Representable},
     vm::thread::{PyOperation, with_current_vm},
 };
+#[cfg(windows)]
+use crate::{TryFromObject, function::ArgBytesLike};
 use alloc::borrow::Cow;
 use core::ffi::{c_int, c_long, c_ulong, c_void};
 use core::fmt::Debug;
@@ -827,19 +829,30 @@ impl Constructor for PyCFuncPtr {
             #[cfg(windows)]
             let index = first_arg.try_int(vm)?.as_bigint().to_usize().unwrap_or(0);
 
-            // args[3] is iid (GUID struct, optional)
-            // Also check if args[2] is a GUID (has Data1 attribute) when args[3] is not present
+            // Retain the accepted IID owner rather than a borrowed raw pointer.
+            // Mutable CData GUIDs remain observable; copy bytes only at call time.
             #[cfg(windows)]
-            let iid = args.args.get(3).cloned().or_else(|| {
-                args.args.get(2).and_then(|arg| {
-                    // If it's a GUID struct (has Data1 attribute), use it as IID
-                    if arg.get_attr("Data1", vm).is_ok() {
-                        Some(arg.clone())
-                    } else {
-                        None
-                    }
-                })
-            });
+            let iid = if let Some(iid) = args.args.get(3).filter(|arg| !vm.is_none(arg)) {
+                let owner: PyObjectRef = if let Some(text) = iid.downcast_ref::<PyStr>() {
+                    vm.state
+                        .codec_registry
+                        .encode_text(text.to_owned(), "utf-8", None, vm)?
+                        .into()
+                } else if iid.downcast_ref::<PyBytes>().is_some()
+                    || iid.downcast_ref::<PyCData>().is_some()
+                {
+                    iid.clone()
+                } else {
+                    return Err(vm.new_type_error(
+                        "iid must be a read-only bytes-like object, str, or None",
+                    ));
+                };
+                let buffer = ArgBytesLike::try_from_object(vm, owner.clone())?;
+                let valid_size = buffer.borrow_buf().len() == 16;
+                valid_size.then_some(owner)
+            } else {
+                None
+            };
 
             // args[2] is paramflags (tuple or None)
             let paramflags = args.args.get(2).filter(|arg| !vm.is_none(arg)).cloned();
@@ -1281,10 +1294,10 @@ fn resolve_com_method(
     zelf: &Py<PyCFuncPtr>,
     args: &FuncArgs,
     vm: &VirtualMachine,
-) -> PyResult<(Option<FfiCodePtr>, bool)> {
+) -> PyResult<(Option<FfiCodePtr>, Option<usize>)> {
     let com_index = zelf.index.read();
     let Some(idx) = *com_index else {
-        return Ok((None, false));
+        return Ok((None, None));
     };
 
     // First arg must be the COM object pointer
@@ -1320,7 +1333,7 @@ fn resolve_com_method(
         }
     };
 
-    Ok((Some(code_ptr), true))
+    Ok((Some(code_ptr), Some(com_ptr)))
 }
 
 /// Single argument for FFI call
@@ -1547,36 +1560,67 @@ fn ctypes_callproc(
 
 /// Check and handle HRESULT errors (Windows)
 #[cfg(windows)]
-fn check_hresult(hresult: i32, zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<()> {
+fn check_hresult(
+    hresult: i32,
+    zelf: &Py<PyCFuncPtr>,
+    com_ptr: Option<usize>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     if hresult >= 0 {
         return Ok(());
     }
 
-    if zelf.iid.read().is_some() {
-        // Raise COMError
+    let iid = zelf.iid.read().clone();
+    if let (Some(com_ptr), Some(iid)) = (com_ptr, iid) {
+        let iid: [u8; 16] = {
+            let buffer = ArgBytesLike::try_from_object(vm, iid)?;
+            let bytes = buffer.borrow_buf();
+            bytes
+                .get(..16)
+                .ok_or_else(|| vm.new_value_error("IID buffer is too small"))?
+                .try_into()
+                .expect("checked IID size")
+        };
+        // The call arguments keep the COM pointer owner alive. No Python data
+        // guard survives detaching; the native helper owns/releases its COM refs.
+        let details = vm.allow_threads(|| unsafe {
+            rustpython_host_env::ctypes::com_error_details(com_ptr, &iid)
+        });
+        let wide = |value: Option<Vec<u16>>| -> PyObjectRef {
+            value.map_or_else(
+                || vm.ctx.none(),
+                |units| {
+                    vm.ctx
+                        .new_str(rustpython_common::wtf8::Wtf8Buf::from_wide(&units))
+                        .into()
+                },
+            )
+        };
+        let details: PyObjectRef = vm
+            .ctx
+            .new_tuple(vec![
+                wide(details.description),
+                wide(details.source),
+                wide(details.helpfile),
+                vm.ctx.new_int(details.help_context).into(),
+                wide(details.progid),
+            ])
+            .into();
+        let text = rustpython_host_env::ctypes::format_com_error_message(hresult)
+            .map_or_else(|| vm.ctx.none(), |text| vm.ctx.new_str(text).into());
         let ctypes_module = vm.import("_ctypes", 0)?;
         let com_error_type = ctypes_module.get_attr("COMError", vm)?;
         let com_error_type = com_error_type
             .downcast::<PyType>()
             .map_err(|_| vm.new_type_error("COMError is not a type"))?;
-        let hresult_obj: PyObjectRef = vm.ctx.new_int(hresult).into();
-        let text: PyObjectRef = vm
-            .ctx
-            .new_str(format!("HRESULT: 0x{:08X}", hresult as u32))
-            .into();
-        let details: PyObjectRef = vm.ctx.none();
-        let exc = vm.invoke_exception(&com_error_type, vec![text.to_owned(), details.clone()])?;
-        let _ = exc.as_object().set_attr("hresult", hresult_obj, vm);
-        let _ = exc.as_object().set_attr("text", text, vm);
-        let _ = exc.as_object().set_attr("details", details, vm);
-        Err(exc)
+        Err(vm.invoke_exception(
+            &com_error_type,
+            vec![vm.ctx.new_int(hresult).into(), text, details],
+        )?)
     } else {
-        // Raise OSError
-        let exc = vm.new_os_error(format!("HRESULT: 0x{:08X}", hresult as u32));
-        let _ = exc
-            .as_object()
-            .set_attr("winerror", vm.ctx.new_int(hresult), vm);
-        Err(exc)
+        // Use the same native Windows error conversion as _check_HRESULT:
+        // errno mapping, signed winerror, and the system's formatted message.
+        super::_ctypes::check_hresult(hresult, vm).map(|_| ())
     }
 }
 
@@ -1743,6 +1787,7 @@ fn build_result(
     out_buffers: OutBuffers,
     zelf: &Py<PyCFuncPtr>,
     args: &FuncArgs,
+    #[cfg(windows)] com_ptr: Option<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let convert_result = || -> PyResult<Option<PyObjectRef>> {
@@ -1763,14 +1808,14 @@ fn build_result(
     // COM functions request HRESULT checking through their calling convention.
     // Ordinary HRESULT restypes use _check_retval_, like other checked types.
     #[cfg(windows)]
-    let result = if call_info.check_hresult
+    let result = if (call_info.check_hresult || (com_ptr.is_some() && zelf.iid.read().is_some()))
         && let CallValue::Scalar(bytes) = &call_result
     {
         let mut word = [0u8; size_of::<usize>()];
         let n = bytes.len().min(word.len());
         word[..n].copy_from_slice(&bytes[..n]);
         let hresult = usize::from_ne_bytes(word) as i32;
-        check_hresult(hresult, zelf, vm)?;
+        check_hresult(hresult, zelf, com_ptr, vm)?;
         Some(vm.ctx.new_int(hresult).into())
     } else {
         convert_result()?
@@ -1814,7 +1859,9 @@ impl Callable for PyCFuncPtr {
 
         // 2. Resolve function pointer (COM or direct)
         #[cfg(windows)]
-        let (func_ptr, is_com_method) = resolve_com_method(zelf, &args, vm)?;
+        let (func_ptr, com_ptr) = resolve_com_method(zelf, &args, vm)?;
+        #[cfg(windows)]
+        let is_com_method = com_ptr.is_some();
         #[cfg(not(windows))]
         let (func_ptr, is_com_method) = (None::<FfiCodePtr>, false);
 
@@ -1886,7 +1933,16 @@ impl Callable for PyCFuncPtr {
         }
 
         // 9. Build result
-        build_result(call_result, &call_info, out_buffers, zelf, &args, vm)
+        build_result(
+            call_result,
+            &call_info,
+            out_buffers,
+            zelf,
+            &args,
+            #[cfg(windows)]
+            com_ptr,
+            vm,
+        )
     }
 }
 
@@ -1941,8 +1997,18 @@ impl Py<PyCFuncPtr> {
     }
 
     #[pygetset(setter)]
-    fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_restype(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         self.restype_operation.with(vm, || {
+            let PySetterValue::Assign(value) = value else {
+                // Deletion uses the reverse replacement order from assignment.
+                // Drop each value with no data guard held, allowing finalizers
+                // to observe and re-enter the current state, as in CPython.
+                let old_restype = self.restype.write().take();
+                drop(old_restype);
+                let old_checker = self.checker.write().take();
+                drop(old_checker);
+                return Ok(());
+            };
             // Must be type, callable, or None
             if !vm.is_none(&value)
                 && value.downcast_ref::<PyType>().is_none()

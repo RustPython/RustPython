@@ -305,24 +305,19 @@ pub(crate) mod _ctypes {
         // Sets hresult, text, details as instance attributes in __init__
         // This function has InitFunc signature for direct slots.init use
         fn comerror_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let (hresult, text, details): (
-                Option<PyObjectRef>,
-                Option<PyObjectRef>,
-                Option<PyObjectRef>,
-            ) = args.bind(vm)?;
-            let hresult = hresult.unwrap_or_else(|| vm.ctx.none());
-            let text = text.unwrap_or_else(|| vm.ctx.none());
-            let details = details.unwrap_or_else(|| vm.ctx.none());
-
-            // Set instance attributes
+            let (hresult, text, details): (PyObjectRef, PyObjectRef, PyObjectRef) =
+                args.bind(vm)?;
+            use crate::types::Initializer;
+            let full_args = vec![hresult.clone(), text.clone(), details.clone()];
+            // Match the observable attribute assignments before restoring the
+            // base payload directly, without invoking an overriding descriptor.
+            let short_args: PyObjectRef =
+                vm.ctx.new_tuple(vec![text.clone(), details.clone()]).into();
+            zelf.set_attr("args", short_args, vm)?;
             zelf.set_attr("hresult", hresult, vm)?;
-            zelf.set_attr("text", text.clone(), vm)?;
-            zelf.set_attr("details", details.clone(), vm)?;
-
-            // self.args = args[1:] = (text, details)
-            // via: PyObject_SetAttrString(self, "args", PySequence_GetSlice(args, 1, size))
-            let args_tuple: PyObjectRef = vm.ctx.new_tuple(vec![text, details]).into();
-            zelf.set_attr("args", args_tuple, vm)?;
+            zelf.set_attr("text", text, vm)?;
+            zelf.set_attr("details", details, vm)?;
+            crate::exceptions::PyBaseException::slot_init(zelf, FuncArgs::from(full_args), vm)?;
 
             Ok(())
         }
@@ -608,7 +603,7 @@ pub(crate) mod _ctypes {
 
     #[cfg(target_os = "windows")]
     #[pyfunction(name = "_check_HRESULT")]
-    fn check_hresult(hr: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    pub(super) fn check_hresult(hr: i32, vm: &VirtualMachine) -> PyResult<i32> {
         if hr < 0 {
             let errno = crate::host_env::os::winerror_to_errno(hr);
             let message = crate::host_env::uuid::format_error_message(hr);
@@ -1042,9 +1037,11 @@ pub(crate) mod _ctypes {
 
     #[cfg(windows)]
     #[pyfunction(name = "FormatError")]
-    fn format_error_func(code: OptionalArg<u32>, _vm: &VirtualMachine) -> String {
-        rustpython_host_env::ctypes::format_error_message(code.into_option())
-            .unwrap_or_else(|| "<no description>".to_string())
+    fn format_error_func(code: OptionalArg<i32>, _vm: &VirtualMachine) -> String {
+        rustpython_host_env::ctypes::format_error_message(
+            code.into_option().map(|code| code as u32),
+        )
+        .unwrap_or_else(|| "<no description>".to_string())
     }
 
     #[cfg(windows)]

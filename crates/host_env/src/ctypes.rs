@@ -1835,7 +1835,11 @@ pub const HRESULT_S_OK: i32 = crate::windows::HRESULT_S_OK;
 
 #[cfg(windows)]
 pub fn format_error_message(code: Option<u32>) -> Option<String> {
-    crate::windows::format_error_message(code)
+    let code = code
+        .filter(|&code| code != 0)
+        .unwrap_or_else(crate::windows::get_last_error);
+    crate::windows::format_error_message_with_language(code, 1 << 10)
+        .map(|message| message.trim_end().to_owned())
 }
 
 #[cfg(windows)]
@@ -3859,4 +3863,158 @@ mod tests {
             assert_eq!(crate::os::get_errno(), 11);
         }
     }
+}
+
+/// Owned UTF-16 fields returned by COM's error-information interfaces.
+#[cfg(windows)]
+#[derive(Default)]
+pub struct ComErrorDetails {
+    pub description: Option<Vec<u16>>,
+    pub source: Option<Vec<u16>>,
+    pub helpfile: Option<Vec<u16>>,
+    pub help_context: u32,
+    pub progid: Option<Vec<u16>>,
+}
+
+/// Format a COM error like ctypes' FormatError (retain trailing punctuation).
+#[cfg(windows)]
+pub fn format_com_error_message(status: i32) -> Option<String> {
+    crate::windows::format_error_message_with_language(status as u32, 1 << 10)
+        .map(|message| message.trim_end().to_owned())
+}
+
+/// Obtain the error information associated with a failed COM method call.
+///
+/// The caller must detach its interpreter while this runs: COM methods can
+/// call back into Python. No borrowed Python buffers may be held here.
+///
+/// # Safety
+/// `com_ptr` must identify a live IUnknown-compatible COM interface for the
+/// duration of this call. `iid` is the native byte representation of its GUID.
+#[cfg(windows)]
+pub unsafe fn com_error_details(com_ptr: usize, iid: &[u8; 16]) -> ComErrorDetails {
+    use windows_sys::core::GUID;
+
+    type QueryInterface =
+        unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32;
+    type Release = unsafe extern "system" fn(*mut c_void) -> u32;
+    type SupportsErrorInfo = unsafe extern "system" fn(*mut c_void, *const GUID) -> i32;
+    type GetGuid = unsafe extern "system" fn(*mut c_void, *mut GUID) -> i32;
+    type GetString = unsafe extern "system" fn(*mut c_void, *mut *mut u16) -> i32;
+    type GetContext = unsafe extern "system" fn(*mut c_void, *mut u32) -> i32;
+
+    struct ComRef(*mut c_void);
+    impl Drop for ComRef {
+        fn drop(&mut self) {
+            // SAFETY: ComRef owns one reference on an IUnknown-compatible
+            // interface, whose third vtable entry is Release.
+            unsafe {
+                let release: Release = core::mem::transmute(method(self.0, 2));
+                release(self.0);
+            }
+        }
+    }
+
+    unsafe fn method(interface: *mut c_void, index: usize) -> usize {
+        // SAFETY: the caller provides a live interface and a valid slot for
+        // that interface's documented COM ABI.
+        unsafe { *(*(interface as *const *const usize)).add(index) }
+    }
+
+    unsafe fn string_field(interface: *mut c_void, index: usize) -> Option<Vec<u16>> {
+        let mut value = core::ptr::null_mut();
+        // SAFETY: IErrorInfo slots 4–6 all return an owned BSTR through an
+        // initialized output pointer. Free even if the method reports failure.
+        unsafe {
+            let get: GetString = core::mem::transmute(method(interface, index));
+            get(interface, &mut value);
+            if value.is_null() {
+                return None;
+            }
+            let units = core::slice::from_raw_parts(value, sys_string_len(value));
+            // CPython builds these fields from NUL-terminated wide strings.
+            let end = units
+                .iter()
+                .position(|&unit| unit == 0)
+                .unwrap_or(units.len());
+            let result = units[..end].to_vec();
+            sys_free_string(value);
+            Some(result)
+        }
+    }
+
+    let mut details = ComErrorDetails::default();
+    if com_ptr == 0 {
+        return details;
+    }
+    // IID_ISupportErrorInfo = {DF0B3D60-548F-101B-8E65-08002B2BD119}.
+    let support_iid = GUID {
+        data1: 0xdf0b3d60,
+        data2: 0x548f,
+        data3: 0x101b,
+        data4: [0x8e, 0x65, 0x08, 0x00, 0x2b, 0x2b, 0xd1, 0x19],
+    };
+    // SAFETY: GUID is a 16-byte POD value; the input need not be aligned.
+    let iid = unsafe { core::ptr::read_unaligned(iid.as_ptr().cast::<GUID>()) };
+    let interface = com_ptr as *mut c_void;
+    let mut support = core::ptr::null_mut();
+    // SAFETY: the live input interface implements IUnknown. A successful
+    // QueryInterface returns one owned ISupportErrorInfo reference.
+    let status = unsafe {
+        let query: QueryInterface = core::mem::transmute(method(interface, 0));
+        query(interface, &support_iid, &mut support)
+    };
+    if status < 0 || support.is_null() {
+        return details;
+    }
+    let support = ComRef(support);
+    // SAFETY: ISupportErrorInfo's fourth slot accepts the requested IID.
+    let status = unsafe {
+        let supports: SupportsErrorInfo = core::mem::transmute(method(support.0, 3));
+        supports(support.0, &iid)
+    };
+    drop(support);
+    if status < 0 {
+        return details;
+    }
+    let Some(error_info) = get_error_info() else {
+        return details;
+    };
+    if error_info.is_null() {
+        return details;
+    }
+    let error_info = ComRef(error_info);
+    let mut guid = GUID {
+        data1: 0,
+        data2: 0,
+        data3: 0,
+        data4: [0; 8],
+    };
+    // SAFETY: GetErrorInfo supplied a live IErrorInfo. Its slots have the
+    // documented signatures, and all output storage is initialized.
+    let guid_status = unsafe {
+        details.description = string_field(error_info.0, 5);
+        let get_guid: GetGuid = core::mem::transmute(method(error_info.0, 3));
+        let status = get_guid(error_info.0, &mut guid);
+        let get_context: GetContext = core::mem::transmute(method(error_info.0, 7));
+        get_context(error_info.0, &mut details.help_context);
+        details.helpfile = string_field(error_info.0, 6);
+        details.source = string_field(error_info.0, 4);
+        status
+    };
+    drop(error_info);
+    if guid_status >= 0 {
+        // SAFETY: GUID is POD; copy the initialized native representation.
+        let guid_bytes =
+            unsafe { core::ptr::read_unaligned((&guid as *const GUID).cast::<[u8; 16]>()) };
+        if let Some(progid) = prog_id_from_clsid(&guid_bytes) {
+            // SAFETY: ProgIDFromCLSID returns a NUL-terminated allocation
+            // owned by this call and released with CoTaskMemFree.
+            unsafe {
+                details.progid = Some(WideCStr::from_ptr_str(progid).as_slice().to_vec());
+                co_task_mem_free(progid.cast());
+            }
+        }
+    }
+    details
 }

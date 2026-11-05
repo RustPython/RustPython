@@ -1283,6 +1283,47 @@ import unittest as _unittest
 
 
 class _CtypesTypeIdentityTests(_unittest.TestCase):
+    def test_restype_deletion_restores_class_checker(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("class", value.value))
+
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = Checked
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 23)
+        function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        function.restype = None
+        del function.restype
+        self.assertIs(function.restype, Checked)
+        self.assertEqual(function(), ("class", 23))
+        del function.restype
+        self.assertEqual(function(), ("class", 23))
+
+    def test_restype_deletion_reenters_before_clearing_checker(self):
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 17)
+        events = []
+
+        class Nested(c_int):
+            _check_retval_ = staticmethod(lambda value: ("nested", value.value))
+
+        class Restype:
+            def __call__(self, value):
+                return value
+
+            def __del__(self):
+                events.append(function.restype)
+                function.restype = Nested
+
+        function.restype = Restype()
+        del function.restype
+        self.assertEqual(events, [c_int])
+        self.assertIs(function.restype, Nested)
+        result = function()
+        self.assertIs(type(result), Nested)
+        self.assertEqual(result.value, 17)
+
     def test_redundant_simple_base_uses_primary_base(self):
         class Redundant(c_int, ctypes._SimpleCData):
             pass
@@ -1510,6 +1551,170 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
         finally:
             hresult.__name__ = original_name
             ctypes.HRESULT = hresult
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_format_error_signed_code_and_zero(self):
+        import _ctypes
+
+        self.assertIsInstance(_ctypes.FormatError(-2147467259), str)
+        with self.assertRaises(OverflowError):
+            _ctypes.FormatError(0x80004005)
+        expected = _ctypes.FormatError(87)
+        ctypes.windll.kernel32.SetLastError(87)
+        self.assertEqual(_ctypes.FormatError(0), expected)
+        ctypes.windll.kernel32.SetLastError(87)
+        self.assertEqual(_ctypes.FormatError(), expected)
+
+    @_unittest.skipUnless(hasattr(ctypes, "COMError"), "Windows-only")
+    def test_com_error_args_and_constructor_arity(self):
+        details = (None, None, None, 0, None)
+        error = ctypes.COMError(-2147467259, "failure", details)
+        self.assertEqual(error.args, (-2147467259, "failure", details))
+        events = []
+
+        class Observed(ctypes.COMError):
+            def __setattr__(self, name, value):
+                events.append((name, value))
+                super().__setattr__(name, value)
+
+        observed = Observed(-1, "text", details)
+        self.assertEqual(
+            events,
+            [
+                ("args", ("text", details)),
+                ("hresult", -1),
+                ("text", "text"),
+                ("details", details),
+            ],
+        )
+        self.assertEqual(observed.args, (-1, "text", details))
+        for args in ((), (1,), (1, "text"), (1, "text", details, 4)):
+            with self.assertRaises(TypeError):
+                ctypes.COMError(*args)
+
+    @_unittest.skipUnless(hasattr(ctypes, "COMError"), "Windows-only")
+    def test_com_error_without_error_info(self):
+        import _ctypes
+        import gc
+
+        query_type = ctypes.WINFUNCTYPE(
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        )
+        method_type = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+        seen = []
+
+        def query_interface(this, iid, output):
+            seen.append(this)
+            output[0] = None
+            return -2147467262  # E_NOINTERFACE: no ISupportErrorInfo
+
+        query = query_type(query_interface)
+        fail = method_type(lambda this: -2147467259)
+        table = (ctypes.c_void_p * 4)(
+            ctypes.cast(query, ctypes.c_void_p).value,
+            None,
+            None,
+            ctypes.cast(fail, ctypes.c_void_p).value,
+        )
+        instance = ctypes.c_void_p(ctypes.addressof(table))
+        pointer = ctypes.c_void_p(ctypes.addressof(instance))
+        prototype = ctypes.WINFUNCTYPE(ctypes.HRESULT)
+        iid = bytes(range(16))
+        function = prototype(3, "Failure", None, iid)
+        del iid
+        gc.collect()
+        with self.assertRaises(ctypes.COMError) as raised:
+            function(pointer)
+        error = raised.exception
+        self.assertEqual(seen, [pointer.value])
+        self.assertEqual(error.hresult, -2147467259)
+        self.assertEqual(error.text, _ctypes.FormatError(-2147467259))
+        self.assertEqual(error.details, (None, None, None, 0, None))
+        self.assertEqual(error.args, (error.hresult, error.text, error.details))
+
+    @_unittest.skipUnless(hasattr(ctypes, "COMError"), "Windows-only")
+    def test_com_error_reads_current_iid_and_releases_support(self):
+        query_type = ctypes.WINFUNCTYPE(
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        )
+        supports_type = ctypes.WINFUNCTYPE(
+            ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p
+        )
+        release_type = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)
+        method_type = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+        seen = []
+        released = []
+
+        def supports_error_info(this, iid):
+            seen.append(ctypes.string_at(iid, 16))
+            return -2147467259
+
+        supports = supports_type(supports_error_info)
+        release = release_type(lambda this: released.append(this) or 1)
+        support_table = (ctypes.c_void_p * 4)(
+            None,
+            None,
+            ctypes.cast(release, ctypes.c_void_p).value,
+            ctypes.cast(supports, ctypes.c_void_p).value,
+        )
+        support = ctypes.c_void_p(ctypes.addressof(support_table))
+
+        def query_interface(this, iid, output):
+            output[0] = ctypes.addressof(support)
+            return 0
+
+        query = query_type(query_interface)
+        fail = method_type(lambda this: -2147467259)
+        table = (ctypes.c_void_p * 4)(
+            ctypes.cast(query, ctypes.c_void_p).value,
+            None,
+            None,
+            ctypes.cast(fail, ctypes.c_void_p).value,
+        )
+        instance = ctypes.c_void_p(ctypes.addressof(table))
+        prototype = ctypes.WINFUNCTYPE(ctypes.HRESULT)
+        iid = (ctypes.c_ubyte * 16)()
+        function = prototype(3, "Failure", None, iid)
+        iid[0] = 42
+        with self.assertRaises(ctypes.COMError):
+            function(ctypes.c_void_p(ctypes.addressof(instance)))
+        self.assertEqual(seen, [bytes(iid)])
+        self.assertEqual(released, [ctypes.addressof(support)])
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_hresult_convention_error_details(self):
+        import _ctypes
+
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL | 0x2  # FUNCFLAG_HRESULT
+            _argtypes_ = ()
+            _restype_ = c_int
+
+        for status in (-2147024891, -2147467259, -2147220991):
+            callback = ctypes.CFUNCTYPE(c_int)(lambda: status)
+            function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+            with self.assertRaises(OSError) as expected:
+                _ctypes._check_HRESULT(status)
+            with self.assertRaises(OSError) as actual:
+                function()
+            self.assertIs(type(actual.exception), type(expected.exception))
+            for name in (
+                "args",
+                "errno",
+                "winerror",
+                "strerror",
+                "filename",
+                "filename2",
+            ):
+                self.assertEqual(
+                    getattr(actual.exception, name), getattr(expected.exception, name)
+                )
 
     @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
     def test_hresult_convention_bypasses_checker(self):
