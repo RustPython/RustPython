@@ -675,7 +675,19 @@ jobs:
 
       - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py --signature --rustpython target/release/rustpython
+        run: |
+          python -VV
+          python -I -c 'import json, os, platform, sys; print(json.dumps({"python": sys.version, "platform": platform.platform(), "machine": platform.machine(), "image_os": os.getenv("ImageOS"), "image_version": os.getenv("ImageVersion"), "github_sha": os.getenv("GITHUB_SHA")}))' > whats-left-context.json
+          python -I scripts/whats_left.py --signature --json-output whats-left.json --rustpython target/release/rustpython
+
+      - name: Preserve whats_left comparison
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: whats-left-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            whats-left.json
+            whats-left-context.json
+          if-no-files-found: error
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
