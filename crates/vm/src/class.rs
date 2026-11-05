@@ -494,3 +494,132 @@ pub unsafe trait PySubclass: crate::PyPayload {
     /// Returns a reference to the base type's payload.
     fn as_base(&self) -> &Self::Base;
 }
+
+#[cfg(all(test, feature = "compiler"))]
+mod str_slot_tests {
+    use super::*;
+    use crate::{
+        Interpreter, PyPayload, PyResult, VirtualMachine,
+        builtins::PyStrRef,
+        types::{Constructor, DefaultConstructor},
+    };
+
+    #[pyclass(module = false, name = "NativeStr")]
+    #[derive(Debug, Default, PyPayload)]
+    struct NativeStr;
+
+    impl DefaultConstructor for NativeStr {}
+
+    #[pyclass(flags(BASETYPE), with(Constructor))]
+    impl Py<NativeStr> {
+        #[pymethod(name = "__str__")]
+        fn display(&self) -> String {
+            "native string".to_owned()
+        }
+    }
+
+    #[pyclass(module = false, name = "FallibleStr")]
+    #[derive(Debug, PyPayload)]
+    struct FallibleStr;
+
+    #[pyclass]
+    impl FallibleStr {
+        #[pymethod]
+        fn __str__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Err(vm.new_value_error("str failed"))
+        }
+    }
+
+    #[pyclass(module = false, name = "InvalidStr")]
+    #[derive(Debug, PyPayload)]
+    struct InvalidStr;
+
+    #[pyclass(flags(BASETYPE))]
+    impl Py<InvalidStr> {
+        #[pymethod]
+        fn __str__(&self) -> usize {
+            42
+        }
+    }
+
+    #[pyclass(module = false, name = "TraitStr")]
+    #[derive(Debug, PyPayload)]
+    struct TraitStr;
+
+    #[pyclass(with(DisplayStr))]
+    impl TraitStr {}
+
+    #[pyclass]
+    trait DisplayStr: PyPayload {
+        #[pymethod]
+        fn __str__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+            vm.ctx.new_str("trait string")
+        }
+    }
+
+    impl DisplayStr for TraitStr {}
+
+    #[test]
+    fn pymethod_str_uses_slot_wrapper() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let _ = NativeStr::make_static_type();
+            let _ = TraitStr::make_static_type();
+            let _ = FallibleStr::make_static_type();
+            let _ = InvalidStr::make_static_type();
+            let native = NativeStr.into_ref(&vm.ctx);
+            let slot = native.class().slots.str.load().unwrap();
+            assert_eq!(
+                slot(native.as_object(), vm).unwrap().to_str(),
+                Some("native string")
+            );
+            let scope = vm.new_scope_with_builtins();
+            for (name, obj) in [
+                ("native", native.into()),
+                ("from_trait", TraitStr.into_ref(&vm.ctx).into()),
+                ("fallible", FallibleStr.into_ref(&vm.ctx).into()),
+                ("invalid", InvalidStr.into_ref(&vm.ctx).into()),
+            ] {
+                scope.globals.set_item(name, obj, vm).unwrap();
+            }
+            vm.run_code_string(
+                scope,
+                r#"
+assert str(from_trait) == 'trait string'
+assert type(type(from_trait).__dict__['__str__']).__name__ == 'wrapper_descriptor'
+assert str(native) == 'native string'
+assert native.__str__() == 'native string'
+assert type(native).__str__(native) == 'native string'
+assert type(type(native).__dict__['__str__']).__name__ == 'wrapper_descriptor'
+try:
+    type(native).__str__(object())
+except TypeError:
+    pass
+else:
+    assert False, 'descriptor accepted an unrelated receiver'
+try:
+    str(fallible)
+except ValueError as exc:
+    assert str(exc) == 'str failed'
+else:
+    assert False, 'str swallowed an exception'
+try:
+    str(invalid)
+except TypeError as exc:
+    assert str(exc) == '__str__ returned non-string (type int)'
+else:
+    assert False, 'str accepted a non-string'
+class Derived(type(native)):
+    def __str__(self):
+        return 'python override'
+assert str(Derived()) == 'python override'
+assert str(ValueError('exception')) == 'exception'
+assert str(KeyError('key')) == "'key'"
+assert type(BaseException.__str__).__name__ == 'wrapper_descriptor'
+assert type(KeyError.__str__).__name__ == 'wrapper_descriptor'
+"#,
+                "<str-slot-test>",
+            )
+            .unwrap();
+        });
+    }
+}
