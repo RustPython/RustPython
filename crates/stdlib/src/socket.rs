@@ -3174,6 +3174,13 @@ mod _socket {
         })
     }
 
+    #[cfg_attr(
+        not(unix),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "Unix filesystem decoding is fallible; keep one return type for shared socket callers"
+        )
+    )]
     fn get_addr_tuple(
         addr: &host_socket::raw::SockAddr,
         proto: i32,
