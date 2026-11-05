@@ -844,6 +844,25 @@ mod builtins {
         obj.get_id()
     }
 
+    thread_local! {
+        // Rustyline retains input read ahead past the current line. Keep the
+        // editor across input() calls so that queued lines are not discarded.
+        // It contains no Python objects or interpreter-specific helper state.
+        static INPUT_READLINE: std::cell::RefCell<Option<Readline<()>>> =
+            std::cell::RefCell::new(Some(Readline::new(())));
+    }
+
+    struct InputReadlineGuard<'a> {
+        slot: &'a std::cell::RefCell<Option<Readline<()>>>,
+        reader: Option<Readline<()>>,
+    }
+
+    impl Drop for InputReadlineGuard<'_> {
+        fn drop(&mut self) {
+            *self.slot.borrow_mut() = self.reader.take();
+        }
+    }
+
     #[pyfunction]
     fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
         let prompt = args.prompt;
@@ -921,8 +940,20 @@ mod builtins {
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();
-            let mut readline = Readline::new(());
-            match readline.readline(prompt) {
+            let result = INPUT_READLINE.with(|slot| -> PyResult<_> {
+                // Do not keep a RefCell borrow alive while reading. An empty
+                // slot means a nested call, which must not create another
+                // editor and consume or discard the outer reader's input.
+                let reader = slot.borrow_mut().take();
+                let reader =
+                    reader.ok_or_else(|| vm.new_runtime_error("reentrant call inside input"))?;
+                let mut guard = InputReadlineGuard {
+                    slot,
+                    reader: Some(reader),
+                };
+                Ok(guard.reader.as_mut().unwrap().readline(prompt))
+            })?;
+            match result {
                 ReadlineResult::Line(s) => {
                     let result = vm.ctx.new_str(s);
                     vm.audit("builtins.input/result", || (result.clone(),))?;

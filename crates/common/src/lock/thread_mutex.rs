@@ -8,7 +8,7 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use lock_api::{GetThreadId, GuardNoSend, RawMutex};
+use lock_api::{GetThreadId, GuardNoSend, RawMutex, RawMutexTimed};
 
 // based off ReentrantMutex from lock_api
 
@@ -165,6 +165,30 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
 
     pub fn try_lock(&self) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError> {
         match self.raw.try_lock() {
+            Some(true) => Ok(ThreadMutexGuard {
+                mu: self,
+                marker: PhantomData,
+            }),
+            Some(false) => Err(TryLockThreadError::Other),
+            None => Err(TryLockThreadError::Current),
+        }
+    }
+}
+
+impl<R: RawMutexTimed, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
+    /// Wait at most `timeout`, wrapping only the blocking acquisition.
+    pub fn try_lock_for_wrapped<F: FnOnce(&dyn Fn() -> bool) -> bool>(
+        &self,
+        timeout: R::Duration,
+        wrap_fn: F,
+    ) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError>
+    where
+        R::Duration: Copy,
+    {
+        match self
+            .raw
+            .lock_internal(|| wrap_fn(&|| self.raw.mutex.try_lock_for(timeout)))
+        {
             Some(true) => Ok(ThreadMutexGuard {
                 mu: self,
                 marker: PhantomData,
@@ -351,5 +375,37 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
+    }
+}
+
+#[cfg(all(test, feature = "threading"))]
+mod tests {
+    use super::TryLockThreadError;
+    use crate::lock::PyThreadMutex;
+    use core::time::Duration;
+
+    #[test]
+    fn timed_lock_preserves_ownership() {
+        let mutex = PyThreadMutex::new(0);
+        let guard = mutex.lock().unwrap();
+        assert!(matches!(
+            mutex.try_lock_for_wrapped(Duration::ZERO, |_| panic!("reentrant wait")),
+            Err(TryLockThreadError::Current)
+        ));
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                assert!(matches!(
+                    mutex.try_lock_for_wrapped(Duration::from_millis(1), |wait| wait()),
+                    Err(TryLockThreadError::Other)
+                ));
+            });
+        });
+        drop(guard);
+        let mut guard = mutex
+            .try_lock_for_wrapped(Duration::ZERO, |wait| wait())
+            .unwrap_or_else(|_| panic!("unlocked mutex"));
+        *guard = 1;
+        drop(guard);
+        assert_eq!(*mutex.lock().unwrap(), 1);
     }
 }
