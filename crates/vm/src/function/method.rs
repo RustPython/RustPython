@@ -183,7 +183,9 @@ impl PyMethodDef {
         } else if self.flags.contains(PyMethodFlags::CLASS) {
             self.build_classmethod(ctx, class).into()
         } else if self.flags.contains(PyMethodFlags::STATIC) {
-            PyStaticMethod::new_native(self.build_staticmethod(ctx, class), class, ctx).into()
+            PyStaticMethod::new(self.build_staticmethod(ctx, class).into())
+                .into_ref(ctx)
+                .into()
         } else {
             unreachable!()
         }

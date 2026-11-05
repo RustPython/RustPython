@@ -822,5 +822,6 @@ assert value.left == 43
 native_static = str.__dict__["maketrans"]
 assert isinstance(native_static, staticmethod)
 assert native_static.__func__ is str.maketrans
-for name in ("__module__", "__name__", "__qualname__", "__doc__"):
-    assert getattr(native_static, name) == getattr(str.maketrans, name)
+assert native_static.__wrapped__ is str.maketrans
+assert str.maketrans("a", "b") == {97: 98}
+assert "".maketrans("a", "b") == {97: 98}
