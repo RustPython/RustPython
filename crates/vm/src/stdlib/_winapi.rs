@@ -425,7 +425,11 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(handle: WinHandle, milliseconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+    fn WaitForSingleObject(
+        handle: WinHandle,
+        milliseconds: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<u32> {
         let Some(index) = milliseconds.try_index_opt(vm) else {
             let actual = if vm.is_none(&milliseconds) {
                 "None".to_owned()
