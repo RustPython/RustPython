@@ -581,7 +581,7 @@ mod str_slot_tests {
             ] {
                 scope.globals.set_item(name, obj, vm).unwrap();
             }
-            vm.run_code_string(
+            vm.run_string(
                 scope,
                 r#"
 assert str(from_trait) == 'trait string'
