@@ -857,7 +857,9 @@ pub trait FromArgs: Sized {
             return Some(callee.no_keywords(vm));
         }
         if num_given > *arity.end() {
-            return Some(ArgumentError::TooManyArgs.into_exception(arity, num_given, 0, callee, vm));
+            return Some(
+                ArgumentError::TooManyArgs.into_exception(arity, num_given, 0, callee, vm),
+            );
         }
         // No keyword can fill a missing parameter of such a function, so too few
         // arguments are also reported before any is converted.

@@ -11,7 +11,7 @@ mod _winapi {
         common::lock::{PyMutex, PyMutexGuard},
         convert::{ToPyException, ToPyObject},
         exceptions::nul_char_error,
-        function::{ArgBytesLike, ArgMapping, ArgSequence, FromArgs, OptionalArg},
+        function::{ArgBytesLike, ArgMapping, ArgSequence, OptionalArg},
         types::Constructor,
         windows::{WinHandle, WindowsSysResult},
     };
