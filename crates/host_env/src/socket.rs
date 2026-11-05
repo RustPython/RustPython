@@ -973,6 +973,8 @@ pub fn parse_ancillary_messages(control: &[u8]) -> Vec<AncillaryMessage> {
         // SAFETY: A complete header is present. The input may be unaligned,
         // so read the integer fields with an unaligned load.
         let header = unsafe { remaining.as_ptr().cast::<libc::cmsghdr>().read_unaligned() };
+        // cmsg_len is size_t on GNU/Linux, but socklen_t on platforms such as BSD.
+        #[allow(clippy::unnecessary_cast)]
         let declared_len = header.cmsg_len as usize;
         let Some(payload_len) = declared_len.checked_sub(data_offset) else {
             break;
@@ -1035,7 +1037,8 @@ pub fn parse_ancillary_messages(control: &[u8]) -> Vec<AncillaryMessage> {
     result
 }
 
-#[cfg(all(test, unix, not(target_os = "redox")))]
+#[cfg(test)]
+#[cfg(all(unix, not(target_os = "redox")))]
 mod ancillary_parse_tests {
     use super::{checked_cmsg_len, checked_cmsg_space, parse_ancillary_messages};
 
@@ -1058,7 +1061,7 @@ mod ancillary_parse_tests {
         let align = core::mem::align_of::<libc::cmsghdr>();
         let mut storage = vec![0u8; first_space + second_space + align];
         let shift = (0..align)
-            .find(|&n| (storage.as_ptr() as usize + n) % align != 0)
+            .find(|&n| !(storage.as_ptr() as usize + n).is_multiple_of(align))
             .unwrap_or(0);
         let control = &mut storage[shift..shift + first_space + second_space];
         write_header(control, checked_cmsg_len(3).unwrap(), 7, 8);
@@ -1140,7 +1143,7 @@ mod ancillary_parse_tests {
         let first_space = checked_cmsg_space(0).unwrap();
         let data_offset = checked_cmsg_len(0).unwrap();
         let mut storage = Aligned([0; 128]);
-        let control = &mut storage.0[..first_space + data_offset + 1];
+        let control = &mut storage.0[..=first_space + data_offset];
         write_header(control, data_offset, 1, 2);
         write_header(
             &mut control[first_space..],
