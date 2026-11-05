@@ -1367,17 +1367,29 @@ class CallbackArgType(ctypes.c_int):
 CB = ctypes.CFUNCTYPE(None, CallbackArgType)
 cb_inst = CB(lambda x: None)
 
-# 8. Prototype with class-level _argtypes_ caches converters at instantiation
+# 8. Prototype with class-level _argtypes_ resolves converters when prototype type is created
 class ProtoConverter:
+    called = 0
+
     @classmethod
     def from_param(cls, val):
+        cls.called += 1
         return int(val)
 
 
 Proto = ctypes.CFUNCTYPE(None, ProtoConverter)
-proto_func = Proto(ctypes.cast(libc.srand, ctypes.c_void_p).value)
+# Invalidate from_param before any instance is constructed
 ProtoConverter.from_param = None
+
+# Case A: constructed from function address
+proto_func = Proto(ctypes.cast(libc.srand, ctypes.c_void_p).value)
 proto_func(60)
+assert ProtoConverter.called == 1
+
+# Case B: constructed via ctypes.cast (into_view / from_cdata path)
+proto_cast = ctypes.cast(libc.srand, Proto)
+proto_cast(70)
+assert ProtoConverter.called == 2
 
 # 9. Reset argtypes
 libc.srand.argtypes = [ctypes.c_uint]
