@@ -99,9 +99,9 @@ impl GetDescriptor for PyProperty {
 }
 
 impl PyProperty {
-    fn set_property_name(&self, name: PyObjectRef) {
+    fn set_property_name(&self, name: Option<PyObjectRef>) {
         // The replaced name can run a finalizer that accesses this property.
-        let old = self.name.write().replace(name);
+        let old = core::mem::replace(&mut *self.name.write(), name);
         drop(old);
     }
 
@@ -119,18 +119,7 @@ impl PyProperty {
             return Ok(None);
         };
 
-        match getter.get_attr("__name__", vm) {
-            Ok(name) => Ok(Some(name)),
-            Err(e) => {
-                // If it's an AttributeError from the getter, return None
-                // Otherwise, propagate the original exception (e.g., RuntimeError)
-                if e.class().is(vm.ctx.exceptions.attribute_error) {
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            }
-        }
+        vm.get_attribute_opt(&getter, "__name__")
     }
 
     pub(crate) fn get_fget(&self) -> Option<PyObjectRef> {
@@ -158,41 +147,32 @@ impl PyProperty {
         new_setter: Option<PyObjectRef>,
         new_deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        // Determine doc based on getter_doc flag and whether we're updating the getter
-        let doc = if zelf.getter_doc.load(Ordering::Relaxed) && new_getter.is_some() {
-            // If the original property uses getter doc and we have a new getter,
-            // pass Py_None to let __init__ get the doc from the new getter
-            Some(vm.ctx.none())
-        } else if zelf.getter_doc.load(Ordering::Relaxed) {
-            // If original used getter_doc but we're not changing the getter,
-            // pass None to let init get doc from existing getter
-            Some(vm.ctx.none())
+    ) -> PyResult {
+        let getter = new_getter.or_else(|| zelf.get_fget());
+        let setter = new_setter.or_else(|| zelf.get_fset());
+        let deleter = new_deleter.or_else(|| zelf.get_fdel());
+        let doc = if zelf.getter_doc.load(Ordering::Relaxed) && getter.is_some() {
+            None
         } else {
-            // Otherwise use the existing doc
             zelf.doc_getter()
         };
+        let new_prop = zelf.class().as_object().call(
+            (
+                getter.unwrap_or_else(|| vm.ctx.none()),
+                setter.unwrap_or_else(|| vm.ctx.none()),
+                deleter.unwrap_or_else(|| vm.ctx.none()),
+                doc.unwrap_or_else(|| vm.ctx.none()),
+            ),
+            vm,
+        )?;
 
-        // Create property args with updated values
-        let args = PropertyArgs {
-            fget: new_getter.or_else(|| zelf.get_fget()),
-            fset: new_setter.or_else(|| zelf.get_fset()),
-            fdel: new_deleter.or_else(|| zelf.get_fdel()),
-            doc,
-        };
-
-        // Create new property using py_new and init
-        let new_prop = Self::slot_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
-        let new_prop_ref = new_prop.downcast::<Self>().unwrap();
-        Self::init(&new_prop_ref, args, vm)?;
-
-        // Copy the name if it exists
-        let value = zelf.name.read().clone();
-        if let Some(name) = value {
-            new_prop_ref.set_property_name(name);
+        // A subclass constructor may return an unrelated object. Read the old
+        // name after that call, since the constructor can change it.
+        if let Some(property) = new_prop.downcast_ref::<Self>() {
+            let name = zelf.name.read().clone();
+            property.set_property_name(name);
         }
-
-        Ok(new_prop_ref)
+        Ok(new_prop)
     }
 
     // Helper method to format property error messages
@@ -271,13 +251,16 @@ impl Py<PyProperty> {
     }
 
     #[pygetset(name = "__name__", setter)]
-    fn name_setter(&self, value: PyObjectRef) {
-        self.set_property_name(value);
+    fn name_setter(&self, value: PySetterValue) {
+        self.set_property_name(match value {
+            PySetterValue::Assign(value) => Some(value),
+            PySetterValue::Delete => None,
+        });
     }
 
     #[pymethod]
     fn __set_name__(&self, SetNameArgs { name, .. }: SetNameArgs) {
-        self.set_property_name(name);
+        self.set_property_name(Some(name));
     }
 
     #[pymethod]
@@ -285,7 +268,7 @@ impl Py<PyProperty> {
         zelf: PyRef<PyProperty>,
         object: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyProperty>> {
+    ) -> PyResult {
         PyProperty::clone_property_with(&zelf, object, None, None, vm)
     }
 
@@ -294,7 +277,7 @@ impl Py<PyProperty> {
         zelf: PyRef<PyProperty>,
         object: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyProperty>> {
+    ) -> PyResult {
         PyProperty::clone_property_with(&zelf, None, object, None, vm)
     }
 
@@ -303,53 +286,35 @@ impl Py<PyProperty> {
         zelf: PyRef<PyProperty>,
         object: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyProperty>> {
+    ) -> PyResult {
         PyProperty::clone_property_with(&zelf, None, None, object, vm)
     }
 
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyResult {
-        // Helper to check if a method is abstract
-        let is_abstract = |method: &PyObject| -> PyResult<bool> {
-            match method.get_attr("__isabstractmethod__", vm) {
-                Ok(isabstract) => isabstract.try_to_bool(vm),
-                Err(_) => Ok(false),
-            }
-        };
-
         // Clone and release lock before calling Python code to prevent deadlock
         // Check getter
         if let Some(getter) = self.getter.load_owned()
-            && is_abstract(&getter)?
+            && getter.is_abstract(vm)?
         {
             return Ok(vm.ctx.new_bool(true).into());
         }
 
         // Check setter
         if let Some(setter) = self.setter.load_owned()
-            && is_abstract(&setter)?
+            && setter.is_abstract(vm)?
         {
             return Ok(vm.ctx.new_bool(true).into());
         }
 
         // Check deleter
         if let Some(deleter) = self.deleter.load_owned()
-            && is_abstract(&deleter)?
+            && deleter.is_abstract(vm)?
         {
             return Ok(vm.ctx.new_bool(true).into());
         }
 
         Ok(vm.ctx.new_bool(false).into())
-    }
-
-    #[pygetset(setter)]
-    fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // Clone and release lock before calling Python code to prevent deadlock
-        let maybe_getter = self.getter.load_owned();
-        if let Some(getter) = maybe_getter {
-            getter.set_attr("__isabstractmethod__", value, vm)?;
-        }
-        Ok(())
     }
 }
 
@@ -372,51 +337,53 @@ impl Initializer for PyProperty {
     type Args = PropertyArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // Set doc and getter_doc flag
-        let mut getter_doc = false;
+        let getter = args.fget.as_ref().filter(|value| !vm.is_none(value));
+        let setter = args.fset.as_ref().filter(|value| !vm.is_none(value));
+        let deleter = args.fdel.as_ref().filter(|value| !vm.is_none(value));
 
-        // Helper to get doc from getter
-        let get_getter_doc = |fget: &PyObject| -> Option<PyObjectRef> {
-            fget.get_attr("__doc__", vm)
-                .ok()
-                .filter(|doc| !vm.is_none(doc))
-        };
+        // Publish each field before releasing its old owner. Finalizers can
+        // reenter and observe the same partially initialized state as CPython.
+        drop(zelf.getter.store(getter.cloned()));
+        drop(zelf.setter.store(setter.cloned()));
+        drop(zelf.deleter.store(deleter.cloned()));
+        drop(zelf.doc.store(None));
+        zelf.set_property_name(None);
+        zelf.getter_doc.store(false, Ordering::Relaxed);
 
-        let doc = match args.doc {
-            Some(doc) if !vm.is_none(&doc) => Some(doc),
-            _ => {
-                // No explicit doc or doc is None, try to get from getter
-                args.fget.as_ref().and_then(|fget| {
-                    get_getter_doc(fget).inspect(|_| {
-                        getter_doc = true;
-                    })
-                })
-            }
-        };
-
-        // Check if this is a property subclass
-        let is_exact_property = zelf.class().is(vm.ctx.types.property_type);
-
-        if is_exact_property {
-            // For exact property type, store doc in the field
-            zelf.doc.store(doc);
-        } else {
-            // For property subclass, set __doc__ as an attribute
-            let doc_to_set = doc.unwrap_or_else(|| vm.ctx.none());
-            match zelf.as_object().set_attr("__doc__", doc_to_set, vm) {
-                Ok(()) => {}
-                Err(e) if !getter_doc && e.class().is(vm.ctx.exceptions.attribute_error) => {
-                    // Silently ignore AttributeError for backwards compatibility
-                    // (only when not using getter_doc)
+        let doc = match args
+            .doc
+            .as_ref()
+            .filter(|value| !vm.is_none(value))
+            .cloned()
+        {
+            Some(doc) => Some(doc),
+            None => match getter {
+                Some(getter) => {
+                    let doc = vm
+                        .get_attribute_opt(getter, "__doc__")?
+                        .filter(|value| !vm.is_none(value));
+                    if doc.is_some() {
+                        zelf.getter_doc.store(true, Ordering::Relaxed);
+                    }
+                    doc
                 }
+                None => None,
+            },
+        };
+
+        if zelf.class().is(vm.ctx.types.property_type) {
+            drop(zelf.doc.store(doc));
+        } else {
+            // Subclasses may route this through an arbitrary descriptor.
+            let doc = doc.unwrap_or_else(|| vm.ctx.none());
+            match zelf.as_object().set_attr("__doc__", doc, vm) {
+                Ok(()) => {}
+                Err(e)
+                    if !zelf.getter_doc.load(Ordering::Relaxed)
+                        && e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
                 Err(e) => return Err(e),
             }
         }
-
-        zelf.getter.store(args.fget);
-        zelf.setter.store(args.fset);
-        zelf.deleter.store(args.fdel);
-        zelf.getter_doc.store(getter_doc, Ordering::Relaxed);
 
         Ok(())
     }

@@ -59,16 +59,13 @@ impl Constructor for PyClassMethod {
     type Args = ClassMethodArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // Validate the signature here, but defer storing the callable and
-        // copying its attributes to `__init__` so that subclasses overriding
-        // `__init__` without calling `super().__init__()` see `__func__` as
-        // `None`, matching CPython.
-        let _: ClassMethodArgs = args.bind_for(vm, Self::NAME)?;
-        let classmethod = Self {
-            callable: PyAtomicRef::from(vm.ctx.none()),
-        };
-        let result = PyRef::new_ref(classmethod, cls, Some(vm.ctx.new_dict()));
-        Ok(PyObjectRef::from(result))
+        let args: ClassMethodArgs = args.bind_for(vm, Self::NAME)?;
+        let result = Self {
+            callable: PyAtomicRef::from(args.function.clone()),
+        }
+        .into_ref_with_type(vm, cls)?;
+        functools_wraps(result.as_object(), &args.function, vm)?;
+        Ok(result.into())
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
@@ -80,9 +77,7 @@ impl Initializer for PyClassMethod {
     type Args = ClassMethodArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let callable = args.function;
-        zelf.callable.store(callable.clone());
-        functools_wraps(zelf.as_object(), &callable, vm)
+        descriptor_set_callable(zelf.as_object(), &zelf.callable, args.function, vm)
     }
 }
 
@@ -143,21 +138,8 @@ impl Py<PyClassMethod> {
     }
 
     #[pygetset]
-    fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let callable = self.callable.load_owned();
-        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(&callable, "__isabstractmethod__") {
-            is_abstract
-        } else {
-            vm.ctx.new_bool(false).into()
-        }
-    }
-
-    #[pygetset(setter)]
-    fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.callable
-            .load_owned()
-            .set_attr("__isabstractmethod__", value, vm)?;
-        Ok(())
+    fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        self.callable.load_owned().is_abstract(vm)
     }
 
     #[pyclassmethod]
@@ -251,4 +233,23 @@ pub(crate) fn descriptor_set_wrapped_attribute(
         },
         PySetterValue::Assign(value) => dict.set_item(name, value, vm),
     }
+}
+
+// Both wrapper types publish the callable before metadata callbacks. A replaced
+// callable's finalizer may reinitialize the descriptor, so reload after dropping it.
+pub(crate) fn descriptor_set_callable(
+    wrapper: &PyObject,
+    slot: &PyAtomicRef<PyObject>,
+    callable: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if slot.load_owned().is(&callable) {
+        return Ok(());
+    }
+    drop(slot.store(callable.clone()));
+    let current = slot.load_owned();
+    let result = functools_wraps(wrapper, &current, vm);
+    drop(current);
+    drop(callable);
+    result
 }
