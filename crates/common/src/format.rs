@@ -20,7 +20,8 @@ pub struct LocaleInfo {
     pub decimal_point: String,
     /// Grouping pattern from `lconv.grouping`.
     /// Each element is a group size. The last non-zero element repeats.
-    /// e.g. `[3, 0]` means groups of 3 repeating forever.
+    /// e.g. `[3, 0]` means groups of 3 repeating forever. A `CHAR_MAX`
+    /// element ends grouping, e.g. `[3, CHAR_MAX]` groups only the last 3 digits.
     pub grouping: Vec<u8>,
 }
 
@@ -617,10 +618,16 @@ impl FormatSpec {
             return int_part.to_string();
         }
 
+        #[allow(
+            clippy::unnecessary_cast,
+            reason = "core::ffi::c_char is not u8 on all platforms"
+        )]
+        const CHAR_MAX: u8 = core::ffi::c_char::MAX as u8;
+
         let mut group_idx = 0;
         let mut group_size = locale.grouping[0] as usize;
 
-        if group_size == 0 {
+        if group_size == 0 || locale.grouping[0] == CHAR_MAX {
             return int_part.to_string();
         }
 
@@ -640,9 +647,13 @@ impl FormatSpec {
 
             // Advance to next group size
             if group_idx + 1 < locale.grouping.len() {
-                let next = locale.grouping[group_idx + 1] as usize;
+                let next = locale.grouping[group_idx + 1];
+                if next == CHAR_MAX {
+                    groups.push(&int_part[..pos]);
+                    break;
+                }
                 if next != 0 {
-                    group_size = next;
+                    group_size = next as usize;
                     group_idx += 1;
                 }
                 // 0 means repeat previous group size forever
@@ -1894,6 +1905,33 @@ mod tests {
         assert_eq!(
             spec.format_int(&BigInt::from(-42)),
             Ok("-0000042".to_owned())
+        );
+    }
+
+    #[test]
+    fn format_int_locale_stops_grouping_at_char_max() {
+        #[allow(
+            clippy::unnecessary_cast,
+            reason = "core::ffi::c_char is not u8 on all platforms"
+        )]
+        const CHAR_MAX: u8 = core::ffi::c_char::MAX as u8;
+        let locale = |grouping| LocaleInfo {
+            thousands_sep: ",".to_owned(),
+            decimal_point: ".".to_owned(),
+            grouping,
+        };
+        let digits = "1".repeat(200);
+        assert_eq!(
+            FormatSpec::insert_locale_grouping(&digits, &locale(vec![CHAR_MAX])),
+            digits
+        );
+        assert_eq!(
+            FormatSpec::insert_locale_grouping("1234567", &locale(vec![3, CHAR_MAX])),
+            "1234,567"
+        );
+        assert_eq!(
+            FormatSpec::insert_locale_grouping("1234567", &locale(vec![3, 0])),
+            "1,234,567"
         );
     }
 

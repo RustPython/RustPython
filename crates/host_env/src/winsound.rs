@@ -46,30 +46,15 @@ pub fn play_sound(source: PlaySoundSource<'_>, flags: u32) -> Result<(), PlaySou
     if matches!(source, PlaySoundSource::Name(_)) && flags & SND_MEMORY != 0 {
         return Err(PlaySoundError::MemoryFlagWithoutBuffer);
     }
-    // Although WinMM spells the parameter as `LPCWSTR`, SND_MEMORY makes it
-    // point at a byte-oriented RIFF image. Copy it into aligned storage so an
-    // empty slice never exposes its dangling sentinel and the safe API does
-    // not rely on a `u8` allocation being suitably aligned for that spelling.
-    let aligned_memory = match &source {
-        PlaySoundSource::Memory(buf) => {
-            let mut units = vec![0u16; buf.len().div_ceil(2).max(1)];
-            unsafe {
-                core::ptr::copy_nonoverlapping(
-                    buf.as_ptr(),
-                    units.as_mut_ptr().cast::<u8>(),
-                    buf.len(),
-                );
-            }
-            Some(units)
-        }
-        _ => None,
-    };
+    // An empty slice's pointer is a dangling sentinel. Give WinMM zeroed
+    // storage instead; zero bytes do not start a RIFF header.
+    static EMPTY_IMAGE: [u8; 64] = [0; 64];
+    // SND_MEMORY makes the `LPCWSTR` parameter point at a byte-oriented RIFF
+    // image. The pointer is only passed through, so it needs no `u16` alignment.
     let ptr: *const u16 = match source {
         PlaySoundSource::Stop => core::ptr::null(),
-        PlaySoundSource::Memory(_) => aligned_memory
-            .as_ref()
-            .expect("memory source allocated aligned storage")
-            .as_ptr(),
+        PlaySoundSource::Memory([]) => EMPTY_IMAGE.as_ptr().cast(),
+        PlaySoundSource::Memory(buf) => buf.as_ptr().cast(),
         PlaySoundSource::Name(s) => s.as_ptr(),
     };
     let ok = unsafe { PlaySoundW(ptr, 0, flags) };
