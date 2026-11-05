@@ -161,7 +161,7 @@ impl TryFrom<&Field> for ArgAttribute {
 
 #[derive(Clone, Copy)]
 enum FieldMode {
-    Normal,
+    Clinic,
     Legacy,
 }
 
@@ -251,7 +251,7 @@ fn take_option_tokens(kind: ParameterKind, pyname: &str) -> TokenStream {
 
 #[cfg(test)]
 fn generate_field(item: (usize, &Field)) -> Result<TokenStream> {
-    generate_field_with(item, FieldMode::Normal)
+    generate_field_with(item, FieldMode::Clinic)
 }
 
 fn generate_field_with((i, field): (usize, &Field), mode: FieldMode) -> Result<TokenStream> {
@@ -295,7 +295,7 @@ fn generate_field_with((i, field): (usize, &Field), mode: FieldMode) -> Result<T
 
     let middle = quote! { .map(|x| #convert).transpose()? };
     let taken = match mode {
-        FieldMode::Normal => take_option_tokens(attr.kind, &pyname),
+        FieldMode::Clinic => take_option_tokens(attr.kind, &pyname),
         FieldMode::Legacy => quote!(slots.optional(vm)?),
     };
     let ending = if let Some(default) = attr.default {
@@ -777,7 +777,7 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let mode = if legacy.is_some() {
         FieldMode::Legacy
     } else {
-        FieldMode::Normal
+        FieldMode::Clinic
     };
     let fields = struct_fields
         .iter()

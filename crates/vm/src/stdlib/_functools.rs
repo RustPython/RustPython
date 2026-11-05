@@ -779,8 +779,8 @@ mod _functools {
     #[derive(FromArgs)]
     #[from_args(legacy, fname = "lru_cache")]
     pub(super) struct LruCacheWrapperArgs {
-        #[pyarg(any, name = "user_function")]
-        function: PyObjectRef,
+        #[pyarg(any)]
+        user_function: PyObjectRef,
         #[pyarg(any)]
         maxsize: Option<isize>,
         #[pyarg(any)]
@@ -793,14 +793,14 @@ mod _functools {
         type Args = LruCacheWrapperArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            if !args.function.is_callable() {
+            if !args.user_function.is_callable() {
                 return Err(vm.new_type_error("the first argument must be callable"));
             }
             // Negative maxsize is normalized to 0 by `functools.lru_cache` before
             // reaching here, but clamp defensively to match that behavior exactly.
             let maxsize = args.maxsize.map(|n| n.max(0) as usize);
             Ok(Self {
-                func: args.function,
+                func: args.user_function,
                 maxsize,
                 typed: args.typed.into_bool(),
                 keyword_marker: vm
