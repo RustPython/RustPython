@@ -110,6 +110,9 @@ pub struct StgInfo {
 
     // Cached pointer type (non-inheritable via descriptor)
     pub pointer_type: Option<PyObjectRef>,
+
+    // Cached converters snapshot for PyCFuncPtrType (types tuple, converters tuple)
+    pub converters: Option<PyObjectRef>,
 }
 
 // StgInfo is stored in type_data which requires Send + Sync.
@@ -135,6 +138,7 @@ impl core::fmt::Debug for StgInfo {
             .field("paramfunc", &self.paramfunc)
             .field("big_endian", &self.big_endian)
             .field("field_layouts", &self.field_layouts.len())
+            .field("converters", &self.converters.is_some())
             .finish()
     }
 }
@@ -157,6 +161,7 @@ impl Default for StgInfo {
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
+            converters: None,
         }
     }
 }
@@ -167,12 +172,14 @@ unsafe impl Traverse for StgInfo {
         self.proto.traverse(tracer);
         self.element_type.traverse(tracer);
         self.pointer_type.traverse(tracer);
+        self.converters.traverse(tracer);
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         out.extend(self.proto.take().map(Into::into));
         out.extend(self.element_type.take().map(Into::into));
         out.extend(self.pointer_type.take());
+        out.extend(self.converters.take());
     }
 }
 
@@ -194,6 +201,7 @@ impl StgInfo {
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
+            converters: None,
         }
     }
 
@@ -247,6 +255,7 @@ impl StgInfo {
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
+            converters: None,
         }
     }
 
@@ -3067,7 +3076,7 @@ impl PyCData {
 
     pub(super) fn into_view(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         if cls.fast_issubclass(super::function::PyCFuncPtr::static_type()) {
-            super::function::PyCFuncPtr::from_cdata(self)
+            super::function::PyCFuncPtr::from_cdata(self, &cls)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         } else {

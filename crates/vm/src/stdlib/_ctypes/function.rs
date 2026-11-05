@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBytes, PyDict, PyInt, PyStr, PyTuple, PyType, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyBytes, PyDict, PyInt, PyStr, PyTuple, PyType, PyTypeRef},
     class::StaticType,
     function::FuncArgs,
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
@@ -211,137 +211,185 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
     )))
 }
 
+fn wrap_arg_error(
+    error: PyBaseExceptionRef,
+    index: usize,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    let Ok(module) = vm.import("_ctypes", 0) else {
+        return error;
+    };
+    let Ok(arg_err_attr) = module.get_attr("ArgumentError", vm) else {
+        return error;
+    };
+    let Ok(error_type) = arg_err_attr.downcast::<PyType>() else {
+        return error;
+    };
+    let msg_str = error
+        .as_object()
+        .str(vm)
+        .map_or_else(|_| String::new(), |s| s.to_string());
+    let msg = format!(
+        "argument {}: {}: {msg_str}",
+        index + 1,
+        error.class().name()
+    );
+    let exc = vm.new_exception_msg(error_type, msg.into());
+    exc.set_cause(Some(error));
+    exc
+}
+
 fn conv_param_for_call(value: &PyObject, index: usize, vm: &VirtualMachine) -> PyResult<Argument> {
     match conv_param(value, vm) {
         Ok(argument) => Ok(argument),
-        Err(error) => {
-            let error_type = vm
-                .import("_ctypes", 0)?
-                .get_attr("ArgumentError", vm)?
-                .downcast::<PyType>()
-                .map_err(|_| vm.new_type_error("ArgumentError is not a type"))?;
-            Err(vm.new_exception_msg(
-                error_type,
-                format!(
-                    "argument {}: {}: {}",
-                    index + 1,
-                    error.class().name(),
-                    error.as_object().str(vm)?,
-                )
-                .into(),
-            ))
-        }
+        Err(error) => Err(wrap_arg_error(error, index, vm)),
     }
 }
 
-trait ArgumentType {
-    /// Convert an argument for this type into a foreign-call value plus an
-    /// optional owner keeping any referenced memory alive.
-    fn convert_object(
-        &self,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<(CArgValue, Option<PyObjectRef>)>;
+fn convert_arg_for_call(
+    converter: &PyObject,
+    arg_type: &PyObject,
+    arg: PyObjectRef,
+    index: usize,
+    vm: &VirtualMachine,
+) -> PyResult<Argument> {
+    match convert_object(converter, arg_type, arg, vm) {
+        Ok((value, keep)) => Ok(Argument { value, keep }),
+        Err(error) => Err(wrap_arg_error(error, index, vm)),
+    }
 }
 
-impl ArgumentType for PyTypeRef {
-    fn convert_object(
-        &self,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<(CArgValue, Option<PyObjectRef>)> {
-        // Validate the argument type up front (mirrors the pre-conversion
-        // check): pointer-like ctypes types are always acceptable; a simple
-        // type must carry a known _type_ code; anything else is unsupported.
-        let type_code = if self.fast_issubclass(CArgObject::static_type())
-            || self.fast_issubclass(PyCPointer::static_type())
-            || self.fast_issubclass(PyCFuncPtr::static_type())
-            || self.fast_issubclass(PyCStructure::static_type())
-            || self.fast_issubclass(PyCUnion::static_type())
-        {
-            None
-        } else {
-            // Converters belong to initialized storage, not mutable _type_.
-            let typ = self
-                .type_code(vm)
-                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-            if ffi_type_from_code(&typ).is_none() {
-                return Err(vm.new_type_error(format!("Unsupported argument type: {typ}")));
-            }
-            Some(typ)
-        };
+fn convert_object(
+    converter: &PyObject,
+    arg_type: &PyObject,
+    value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(CArgValue, Option<PyObjectRef>)> {
+    // Call the cached from_param converter directly
+    let converted = converter.call((value,), vm)?;
 
-        // Call from_param first to convert the value
-        // converter = PyTuple_GET_ITEM(argtypes, i);
-        // v = PyObject_CallOneArg(converter, arg);
-        let from_param = self
-            .as_object()
-            .get_attr(vm.ctx.intern_str("from_param"), vm)?;
-        let converted = from_param.call((value,), vm)?;
-
-        // Then pass the converted value to ConvParam logic
-        // CArgObject (from from_param) -> use stored value and keepalive directly
-        if let Some(carg) = converted.downcast_ref::<CArgObject>() {
-            return Ok((carg.value.clone(), Some(converted.clone())));
-        }
-
-        // None -> NULL pointer
-        if vm.is_none(&converted) {
-            return Ok((CArgValue::pointer(0), None));
-        }
-
-        if self.fast_issubclass(PyCFuncPtr::static_type()) {
-            let argument = conv_param(&converted, vm)?;
-            return Ok((argument.value, argument.keep));
-        }
-
-        // For pointer types (POINTER(T)), we need to pass the pointer VALUE stored in buffer
-        if self.fast_issubclass(PyCPointer::static_type()) {
-            if let Some(pointer) = converted.downcast_ref::<PyCPointer>() {
-                return Ok((
-                    CArgValue::pointer(pointer.get_ptr_value()),
-                    Some(converted.clone()),
-                ));
-            }
-            return convert_to_pointer(&converted, vm);
-        }
-
-        // For structure/union types, pass the aggregate by value: snapshot the
-        // instance bytes and build its call layout from the argtype. A byref()
-        // result is a CArgObject and was already handled above (stays a pointer).
-        if self.fast_issubclass(PyCStructure::static_type())
-            || self.fast_issubclass(PyCUnion::static_type())
-        {
-            if let Some(cdata) = converted.downcast_ref::<PyCData>() {
-                let bytes = cdata.buffer.read().to_vec();
-                let layout = self.stg_info_opt().map_or_else(
-                    || CTypeLayout::Opaque { size: bytes.len() },
-                    |stg| super::base::type_layout(&stg),
-                );
-                // Keep the converted instance alive through the call: the
-                // snapshot may embed pointers into buffers its keep-alive set
-                // owns, which must outlive the foreign call.
-                return Ok((CArgValue::aggregate(layout, bytes), Some(converted.clone())));
-            }
-            return convert_to_pointer(&converted, vm);
-        }
-
-        // For pointer types (c_void_p, c_char_p, c_wchar_p), handle as pointer
-        if matches!(type_code.as_deref(), Some("P" | "z" | "Z")) {
-            return convert_to_pointer(&converted, vm);
-        }
-
-        // PyCSimple (already a ctypes instance from from_param)
-        if let Ok(simple) = converted.downcast::<PyCSimple>() {
-            let code = type_code
-                .as_deref()
-                .and_then(|s| s.chars().next())
-                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-            return Ok((simple.to_carg_value(code), Some(simple.into())));
-        }
-
-        Err(vm.new_type_error("Unsupported argument type"))
+    // Then pass the converted value to ConvParam logic
+    // 1. CArgObject (from from_param or byref()) -> use stored value and keepalive directly
+    if let Some(carg) = converted.downcast_ref::<CArgObject>() {
+        return Ok((carg.value.clone(), Some(converted)));
     }
+
+    // 2. None -> NULL pointer
+    if vm.is_none(&converted) {
+        return Ok((CArgValue::pointer(0), None));
+    }
+
+    // 3. PyCFuncPtr
+    if converted.class().fast_issubclass(PyCFuncPtr::static_type()) {
+        let argument = conv_param(&converted, vm)?;
+        return Ok((argument.value, argument.keep));
+    }
+
+    // 4. PyCPointer: pass pointer VALUE stored in buffer
+    if converted.class().fast_issubclass(PyCPointer::static_type()) {
+        if let Some(pointer) = converted.downcast_ref::<PyCPointer>() {
+            return Ok((CArgValue::pointer(pointer.get_ptr_value()), Some(converted)));
+        }
+        return convert_to_pointer(&converted, vm);
+    }
+
+    // 5. Structure / Union: pass aggregate by value
+    if converted
+        .class()
+        .fast_issubclass(PyCStructure::static_type())
+        || converted.class().fast_issubclass(PyCUnion::static_type())
+    {
+        if let Some(cdata) = converted.downcast_ref::<PyCData>() {
+            let bytes = cdata.buffer.read().to_vec();
+            let layout = converted.class().stg_info_opt().map_or_else(
+                || CTypeLayout::Opaque { size: bytes.len() },
+                |stg| super::base::type_layout(&stg),
+            );
+            // Keep the converted instance alive through the call: the
+            // snapshot may embed pointers into buffers its keep-alive set
+            // owns, which must outlive the foreign call.
+            return Ok((CArgValue::aggregate(layout, bytes), Some(converted)));
+        }
+        return convert_to_pointer(&converted, vm);
+    }
+
+    // 6. PyCArray -> buffer address
+    if let Some(array) = converted.downcast_ref::<PyCArray>() {
+        let addr = array.0.buffer.read().as_ptr() as usize;
+        return Ok((CArgValue::pointer(addr), Some(converted)));
+    }
+
+    // 7. PyCSimple -> simple ctypes value or pointer
+    if let Ok(simple) = converted.clone().downcast::<PyCSimple>() {
+        let code = converted.class().type_code(vm).or_else(|| {
+            arg_type
+                .downcast_ref::<PyType>()
+                .and_then(|t| t.type_code(vm))
+        });
+        if matches!(code.as_deref(), Some("P" | "z" | "Z")) {
+            return convert_to_pointer(&converted, vm);
+        }
+        if let Some(first_char) = code.as_deref().and_then(|s| s.chars().next()) {
+            return Ok((simple.to_carg_value(first_char), Some(simple.into())));
+        }
+    }
+
+    // 8. If arg_type requested a pointer type, try convert_to_pointer
+    if let Some(self_ty) = arg_type.downcast_ref::<PyType>() {
+        if self_ty.fast_issubclass(PyCPointer::static_type()) {
+            return convert_to_pointer(&converted, vm);
+        }
+        if let Some(code) = self_ty.type_code(vm)
+            && matches!(code.as_str(), "P" | "z" | "Z")
+        {
+            return convert_to_pointer(&converted, vm);
+        }
+    }
+
+    // 9. Fallback to ConvParam (int, str, bytes, _as_parameter_, etc.)
+    let argument = conv_param(&converted, vm)?;
+    let keep = match argument.keep {
+        Some(inner) => Some(vm.ctx.new_tuple(vec![converted, inner]).into()),
+        None => Some(converted),
+    };
+    Ok((argument.value, keep))
+}
+
+fn make_converters_snapshot(
+    types: Vec<PyObjectRef>,
+    converters: Vec<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyObjectRef {
+    vm.ctx
+        .new_tuple(vec![
+            vm.ctx.new_tuple(types).into(),
+            vm.ctx.new_tuple(converters).into(),
+        ])
+        .into()
+}
+
+fn unpack_converters_snapshot(
+    snapshot: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
+    let pair = snapshot.try_sequence(vm)?;
+    let types_obj = pair.get_item(0, vm)?;
+    let convs_obj = pair.get_item(1, vm)?;
+
+    let seq_types = types_obj.try_sequence(vm)?;
+    let len_types = seq_types.length(vm)?;
+    let mut types = Vec::with_capacity(len_types);
+    for i in 0..len_types {
+        types.push(seq_types.get_item(i as isize, vm)?);
+    }
+
+    let seq_conv = convs_obj.try_sequence(vm)?;
+    let len_conv = seq_conv.length(vm)?;
+    let mut converters = Vec::with_capacity(len_conv);
+    for i in 0..len_conv {
+        converters.push(seq_conv.get_item(i as isize, vm)?);
+    }
+    Ok((types, converters))
 }
 
 // PyCFuncPtrType - Metaclass for function pointer types
@@ -369,6 +417,14 @@ impl Initializer for PyCFuncPtrType {
         stg_info.length = 1;
         stg_info.flags |= StgInfoFlags::TYPEFLAG_ISPOINTER;
         stg_info.paramfunc = ParamFunc::Pointer; // CFuncPtr is passed as a pointer
+
+        let class_argtypes = new_type.get_attr(vm.ctx.intern_str("_argtypes_"));
+        if let Some(ref argtypes) = class_argtypes
+            && !vm.is_none(argtypes)
+        {
+            let (types, converters) = extract_arg_types_and_converters(argtypes, vm)?;
+            stg_info.converters = Some(make_converters_snapshot(types, converters, vm));
+        }
 
         let _ = new_type.init_traced_type_data(stg_info);
         Ok(())
@@ -762,12 +818,13 @@ pub(super) fn cast_impl(
 }
 
 impl PyCFuncPtr {
-    pub(super) fn from_cdata(data: PyCData) -> Self {
+    pub(super) fn from_cdata(data: PyCData, cls: &PyTypeRef) -> Self {
+        let class_converters = cls.stg_info_opt().and_then(|info| info.converters.clone());
         Self {
             _base: data,
             thunk: PyRwLock::new(None),
             callable: PyRwLock::new(None),
-            converters: PyRwLock::new(None),
+            converters: PyRwLock::new(class_converters),
             argtypes: PyRwLock::new(None),
             restype: PyRwLock::new(None),
             checker: PyRwLock::new(None),
@@ -805,12 +862,31 @@ impl Constructor for PyCFuncPtr {
         let ptr_size = pointer_size();
 
         if args.args.is_empty() {
-            return Self::from_cdata(PyCData::from_bytes(vec![0u8; ptr_size], None))
+            return Self::from_cdata(PyCData::from_bytes(vec![0u8; ptr_size], None), &cls)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into);
         }
 
         let first_arg = &args.args[0];
+
+        let class_argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
+        let class_restype = cls.get_attr(vm.ctx.intern_str("_restype_"));
+        let class_converters = cls.stg_info_opt().and_then(|info| info.converters.clone());
+        let initial_converters = if let Some(converters) = class_converters {
+            Some(converters)
+        } else if let Some(ref argtypes) = class_argtypes
+            && !vm.is_none(argtypes)
+        {
+            if let Ok((types, converters)) = extract_arg_types_and_converters(argtypes, vm) {
+                Some(make_converters_snapshot(types, converters, vm))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let make_converters = || PyRwLock::new(initial_converters.clone());
 
         // Check for COM method form: (index, name, [paramflags], [iid])
         // First arg is integer (vtable index), second arg is string (method name)
@@ -842,7 +918,7 @@ impl Constructor for PyCFuncPtr {
                 _base: PyCData::from_bytes(vec![0u8; ptr_size], None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
                 checker: PyRwLock::new(None),
@@ -864,7 +940,7 @@ impl Constructor for PyCFuncPtr {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
                 checker: PyRwLock::new(None),
@@ -930,7 +1006,7 @@ impl Constructor for PyCFuncPtr {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(None),
                 restype: PyRwLock::new(None),
                 checker: PyRwLock::new(None),
@@ -947,9 +1023,6 @@ impl Constructor for PyCFuncPtr {
 
         // Check if first argument is a Python callable (callback creation)
         if first_arg.is_callable() {
-            // Get argument types and result type from the class
-            let class_argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
-            let class_restype = cls.get_attr(vm.ctx.intern_str("_restype_"));
             let class_flags = cls
                 .get_attr(vm.ctx.intern_str("_flags_"))
                 .and_then(|f| f.try_to_value::<u32>(vm).ok())
@@ -977,7 +1050,7 @@ impl Constructor for PyCFuncPtr {
                 _base: base,
                 thunk: PyRwLock::new(Some(thunk_ref)),
                 callable: PyRwLock::new(Some(first_arg.clone())),
-                converters: PyRwLock::new(None),
+                converters: make_converters(),
                 argtypes: PyRwLock::new(class_argtypes),
                 restype: PyRwLock::new(class_restype),
                 checker: PyRwLock::new(None),
@@ -1071,26 +1144,46 @@ enum RetSpec {
 
 /// Call information extracted from PyCFuncPtr (argtypes, restype, etc.)
 struct CallInfo {
-    explicit_arg_types: Option<Vec<PyTypeRef>>,
+    explicit_arg_types: Option<Vec<PyObjectRef>>,
+    explicit_converters: Option<Vec<PyObjectRef>>,
     restype_obj: Option<PyObjectRef>,
     ret: RetSpec,
 }
 
-fn extract_arg_types(argtypes: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<PyTypeRef>> {
+fn extract_arg_types_and_converters(
+    argtypes: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
     let error = || vm.new_type_error("_argtypes_ must be a sequence of types");
     let sequence = argtypes.try_sequence(vm).map_err(|_| error())?;
     let length = sequence.length(vm).map_err(|_| error())?;
     let mut types = Vec::new();
+    let mut converters = Vec::new();
     types
+        .try_reserve(length)
+        .map_err(|_| vm.no_memory_error())?;
+    converters
         .try_reserve(length)
         .map_err(|_| vm.no_memory_error())?;
 
     for index in 0..length {
         let item = sequence.get_item(index as isize, vm).map_err(|_| error())?;
-        types.push(item.downcast::<PyType>().map_err(|_| error())?);
+        match item.get_attr(vm.ctx.intern_str("from_param"), vm) {
+            Ok(from_param) => {
+                types.push(item);
+                converters.push(from_param);
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                return Err(vm.new_type_error(format!(
+                    "item {} in _argtypes_ has no from_param method",
+                    index + 1
+                )));
+            }
+            Err(e) => return Err(e),
+        }
     }
 
-    Ok(types)
+    Ok((types, converters))
 }
 
 /// Determine how to retrieve the return value from restype, reproducing the
@@ -1153,27 +1246,72 @@ fn compute_ret_spec(
     RetSpec::Code('i')
 }
 
-/// Extract call information (argtypes, restype) from PyCFuncPtr
+/// Extract call information (argtypes, converters, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
-    // Clone before calling Python sequence methods, which can change argtypes.
-    let argtypes = zelf.argtypes.read().clone();
-    // Get argtypes - first from instance, then from type's _argtypes_
-    let explicit_arg_types: Option<Vec<PyTypeRef>> = if let Some(argtypes_obj) = argtypes.as_ref() {
-        if !vm.is_none(argtypes_obj) {
-            Some(extract_arg_types(argtypes_obj, vm)?)
-        } else {
-            None // argtypes is None -> use ConvParam
-        }
-    } else if let Some(class_argtypes) = zelf
-        .as_object()
-        .class()
-        .get_attr(vm.ctx.intern_str("_argtypes_"))
-        && !vm.is_none(&class_argtypes)
-    {
-        Some(extract_arg_types(&class_argtypes, vm)?)
-    } else {
-        None // No argtypes -> use ConvParam
+    // Get argtypes & converters - first check if instance has cached converters
+    let (instance_argtypes, instance_converters) = {
+        let argtypes_guard = zelf.argtypes.read();
+        let converters_guard = zelf.converters.read();
+        (argtypes_guard.clone(), converters_guard.clone())
     };
+
+    let (explicit_arg_types, explicit_converters) =
+        if let Some(converters_obj) = instance_converters.as_ref() {
+            if !vm.is_none(converters_obj) {
+                let (types, converters) = unpack_converters_snapshot(converters_obj, vm)?;
+                (Some(types), Some(converters))
+            } else {
+                (None, None) // argtypes is None -> use ConvParam
+            }
+        } else if let Some(argtypes_obj) = instance_argtypes.as_ref() {
+            if !vm.is_none(argtypes_obj) {
+                let (types, converters) = extract_arg_types_and_converters(argtypes_obj, vm)?;
+                let current_argtypes = zelf.argtypes.read();
+                let mut conv_guard = zelf.converters.write();
+                if current_argtypes
+                    .as_ref()
+                    .is_some_and(|cur| cur.is(argtypes_obj))
+                {
+                    *conv_guard = Some(make_converters_snapshot(
+                        types.clone(),
+                        converters.clone(),
+                        vm,
+                    ));
+                }
+                (Some(types), Some(converters))
+            } else {
+                (None, None) // argtypes is explicitly None -> use ConvParam
+            }
+        } else if let Some(class_argtypes) = zelf
+            .as_object()
+            .class()
+            .get_attr(vm.ctx.intern_str("_argtypes_"))
+            && !vm.is_none(&class_argtypes)
+        {
+            let class_converters = zelf
+                .as_object()
+                .class()
+                .stg_info_opt()
+                .and_then(|info| info.converters.clone());
+
+            let (types, converters, snapshot) = if let Some(snapshot) = class_converters {
+                let (types, converters) = unpack_converters_snapshot(&snapshot, vm)?;
+                (types, converters, snapshot)
+            } else {
+                let (types, converters) = extract_arg_types_and_converters(&class_argtypes, vm)?;
+                let snapshot = make_converters_snapshot(types.clone(), converters.clone(), vm);
+                (types, converters, snapshot)
+            };
+
+            let current_argtypes = zelf.argtypes.read();
+            let mut conv_guard = zelf.converters.write();
+            if current_argtypes.is_none() && conv_guard.is_none() {
+                *conv_guard = Some(snapshot);
+            }
+            (Some(types), Some(converters))
+        } else {
+            (None, None) // No argtypes -> use ConvParam
+        };
 
     // Get restype - first from instance, then from class's _restype_
     let restype_obj = zelf.restype.read().clone().or_else(|| {
@@ -1188,6 +1326,7 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
 
     Ok(CallInfo {
         explicit_arg_types,
+        explicit_converters,
         restype_obj,
         ret,
     })
@@ -1311,17 +1450,19 @@ fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
 }
 
 /// Create OUT buffer for a parameter type
-fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn create_out_buffer(arg_type: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
-    if arg_type.fast_issubclass(PyCPointer::static_type()) {
+    if let Some(ty) = arg_type.downcast_ref::<PyType>()
+        && ty.fast_issubclass(PyCPointer::static_type())
+    {
         // Constructing the pointed-to type can re-enter pointer type setup.
-        let proto = arg_type.stg_info_opt().and_then(|info| info.proto.clone());
+        let proto = ty.stg_info_opt().and_then(|info| info.proto.clone());
         if let Some(proto) = proto {
             return proto.as_object().call((), vm);
         }
     }
     // Not a pointer type or no proto, create instance directly
-    arg_type.as_object().call((), vm)
+    arg_type.call((), vm)
 }
 
 /// Build callargs when no argtypes specified (use ConvParam)
@@ -1341,7 +1482,8 @@ fn build_callargs_no_argtypes(
 /// Build callargs for regular function with argtypes (no paramflags)
 fn build_callargs_simple(
     args: &FuncArgs,
-    arg_types: &[PyTypeRef],
+    arg_types: &[PyObjectRef],
+    converters: &[PyObjectRef],
     allow_variadic: bool,
     vm: &VirtualMachine,
 ) -> PyResult<(Vec<Argument>, OutBuffers)> {
@@ -1360,9 +1502,8 @@ fn build_callargs_simple(
         .iter()
         .enumerate()
         .map(|(n, arg)| {
-            if let Some(arg_type) = arg_types.get(n) {
-                let (value, keep) = arg_type.convert_object(arg.clone(), vm)?;
-                Ok(Argument { value, keep })
+            if let (Some(converter), Some(arg_type)) = (converters.get(n), arg_types.get(n)) {
+                convert_arg_for_call(converter, arg_type, arg.clone(), n, vm)
             } else {
                 conv_param_for_call(arg, n, vm)
             }
@@ -1374,7 +1515,8 @@ fn build_callargs_simple(
 /// Build callargs with paramflags (handles IN/OUT parameters)
 fn build_callargs_with_paramflags(
     args: &FuncArgs,
-    arg_types: &[PyTypeRef],
+    arg_types: &[PyObjectRef],
+    converters: &[PyObjectRef],
     paramflags: &ParsedParamFlags,
     skip_first_arg: bool, // true for COM methods
     vm: &VirtualMachine,
@@ -1396,6 +1538,9 @@ fn build_callargs_with_paramflags(
     // Process parameters based on paramflags
     for (param_idx, (direction, _name, default)) in paramflags.iter().enumerate() {
         let arg_type = arg_types
+            .get(param_idx)
+            .ok_or_else(|| vm.new_type_error("paramflags/argtypes mismatch"))?;
+        let converter = converters
             .get(param_idx)
             .ok_or_else(|| vm.new_type_error("paramflags/argtypes mismatch"))?;
 
@@ -1427,8 +1572,8 @@ fn build_callargs_with_paramflags(
                 // IN|OUT: track for return
                 out_buffers.push((param_idx, arg.clone()));
             }
-            let (value, keep) = arg_type.convert_object(arg, vm)?;
-            arguments.push(Argument { value, keep });
+            let argument = convert_arg_for_call(converter, arg_type, arg, param_idx, vm)?;
+            arguments.push(argument);
         }
     }
 
@@ -1452,14 +1597,17 @@ fn build_callargs(
     allow_variadic: bool,
     vm: &VirtualMachine,
 ) -> PyResult<(Vec<Argument>, OutBuffers)> {
-    let Some(ref arg_types) = call_info.explicit_arg_types else {
+    let (Some(arg_types), Some(converters)) = (
+        &call_info.explicit_arg_types,
+        &call_info.explicit_converters,
+    ) else {
         // No argtypes: use ConvParam
         return build_callargs_no_argtypes(args, vm);
     };
 
     if let Some(pflags) = paramflags {
         // Has paramflags: handle IN/OUT
-        build_callargs_with_paramflags(args, arg_types, pflags, is_com_method, vm)
+        build_callargs_with_paramflags(args, arg_types, converters, pflags, is_com_method, vm)
     } else if is_com_method {
         // COM method without paramflags
         let mut arguments = Vec::new();
@@ -1467,16 +1615,19 @@ fn build_callargs(
             arguments.push(conv_param(&args.args[0], vm)?);
         }
         for (n, arg) in args.args.iter().skip(1).enumerate() {
+            let converter = converters
+                .get(n)
+                .ok_or_else(|| vm.new_type_error("argument amount mismatch"))?;
             let arg_type = arg_types
                 .get(n)
                 .ok_or_else(|| vm.new_type_error("argument amount mismatch"))?;
-            let (value, keep) = arg_type.convert_object(arg.clone(), vm)?;
-            arguments.push(Argument { value, keep });
+            let argument = convert_arg_for_call(converter, arg_type, arg.clone(), n + 1, vm)?;
+            arguments.push(argument);
         }
         Ok((arguments, Vec::new()))
     } else {
         // Regular function
-        build_callargs_simple(args, arg_types, allow_variadic, vm)
+        build_callargs_simple(args, arg_types, converters, allow_variadic, vm)
     }
 }
 
@@ -1884,26 +2035,35 @@ impl Py<PyCFuncPtr> {
 
     // argtypes getter/setter
     #[pygetset]
-    fn argtypes(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let argtypes = zelf.argtypes.read().clone();
-        argtypes.or_else(|| {
-            zelf.as_object()
+    fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.argtypes.read().clone().unwrap_or_else(|| {
+            self.as_object()
                 .class()
                 .get_attr(vm.ctx.intern_str("_argtypes_"))
+                .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
         })
     }
 
     #[pygetset(name = "argtypes", setter)]
-    fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        let value = if vm.is_none(&value) {
-            None
+    fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let (new_argtypes, new_converters) = if vm.is_none(&value) {
+            (Some(vm.ctx.none()), None)
         } else {
-            // Store the argtypes object directly as it is
-            Some(value)
+            let (types, converters) = extract_arg_types_and_converters(&value, vm)?;
+            let snapshot = make_converters_snapshot(types, converters, vm);
+            (Some(value), Some(snapshot))
         };
-        let old = core::mem::replace(&mut *self.argtypes.write(), value);
+        let (old_args, old_conv) = {
+            let mut arg_guard = self.argtypes.write();
+            let mut conv_guard = self.converters.write();
+            let old_args = core::mem::replace(&mut *arg_guard, new_argtypes);
+            let old_conv = core::mem::replace(&mut *conv_guard, new_converters);
+            (old_args, old_conv)
+        };
         // Finalizers on the previous value can re-enter this setter.
-        drop(old);
+        drop(old_args);
+        drop(old_conv);
+        Ok(())
     }
 
     // errcheck getter/setter
@@ -2231,7 +2391,29 @@ impl PyCThunk {
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let arg_type_vec: Vec<PyTypeRef> = match arg_types {
-            Some(args) if !vm.is_none(args) => extract_arg_types(args, vm)?,
+            Some(args) if !vm.is_none(args) => {
+                let error = || vm.new_type_error("callback argtypes must be ctypes types");
+                let sequence = args
+                    .try_sequence(vm)
+                    .map_err(|_| vm.new_type_error("_argtypes_ must be a sequence of types"))?;
+                let length = sequence
+                    .length(vm)
+                    .map_err(|_| vm.new_type_error("_argtypes_ must be a sequence of types"))?;
+                let mut types = Vec::new();
+                types
+                    .try_reserve(length)
+                    .map_err(|_| vm.no_memory_error())?;
+                for index in 0..length {
+                    let item = sequence.get_item(index as isize, vm).map_err(|_| error())?;
+                    let ty = item.downcast::<PyType>().map_err(|_| error())?;
+                    if !ty.fast_issubclass(PyCPointer::static_type()) && ty.type_code(vm).is_none()
+                    {
+                        return Err(error());
+                    }
+                    types.push(ty);
+                }
+                types
+            }
             _ => Vec::new(),
         };
 
@@ -2349,6 +2531,100 @@ mod tests {
                 let borrowed = buffer.borrow_buf_unlocked(vm).unwrap();
                 assert_eq!(borrowed.as_ptr(), bytes.as_bytes().as_ptr());
             }
+        });
+    }
+
+    #[test]
+    fn custom_converter_argtypes_and_from_param() {
+        let builder = crate::Interpreter::builder(Default::default());
+        let def = super::super::_ctypes::module_def(&builder.ctx);
+        builder.add_native_module(def).build().enter(|vm| {
+            vm.import("_ctypes", 0).unwrap();
+            let scope = vm.new_scope_with_builtins();
+            let code = r#"
+import _ctypes
+
+class ValidConverter:
+    @classmethod
+    def from_param(cls, val):
+        return int(val)
+
+class InvalidConverter:
+    pass
+
+class c_int(_ctypes._SimpleCData):
+    _type_ = "i"
+
+class Point(_ctypes.Structure):
+    _fields_ = [("x", c_int), ("y", c_int)]
+
+class PointConverter:
+    @classmethod
+    def from_param(cls, val):
+        return Point(val[0], val[1])
+
+class RaisingConverter:
+    def __getattr__(self, name):
+        raise ValueError("lookup failed")
+
+valid = ValidConverter
+invalid = InvalidConverter
+point_conv = PointConverter
+raising = RaisingConverter()
+"#;
+            vm.run_string(scope.clone(), code, "test.py").unwrap();
+            let valid = scope.globals.get_item("valid", vm).unwrap();
+            let invalid = scope.globals.get_item("invalid", vm).unwrap();
+            let point_conv = scope.globals.get_item("point_conv", vm).unwrap();
+            let raising = scope.globals.get_item("raising", vm).unwrap();
+
+            let tuple_valid = vm.ctx.new_tuple(vec![valid]);
+            let res = extract_arg_types_and_converters(tuple_valid.as_object(), vm);
+            assert!(res.is_ok());
+            let (types, converters) = res.unwrap();
+
+            let tuple_invalid = vm.ctx.new_tuple(vec![invalid]);
+            let err = extract_arg_types_and_converters(tuple_invalid.as_object(), vm).unwrap_err();
+            assert!(
+                err.as_object()
+                    .str(vm)
+                    .unwrap()
+                    .to_string()
+                    .contains("has no from_param method")
+            );
+
+            // Non-AttributeError exceptions are propagated directly
+            let tuple_raising = vm.ctx.new_tuple(vec![raising]);
+            let err_raising =
+                extract_arg_types_and_converters(tuple_raising.as_object(), vm).unwrap_err();
+            assert!(err_raising.fast_isinstance(vm.ctx.exceptions.value_error));
+
+            let (val, keep) =
+                convert_object(&converters[0], &types[0], vm.ctx.new_int(42).into(), vm).unwrap();
+            match val {
+                CArgValue::Int(i) => assert_eq!(i, 42),
+                other => panic!("expected CArgValue::Int, got {other:?}"),
+            }
+            assert!(keep.is_some());
+
+            // Custom converter returning Structure produces aggregate by value
+            let (point_types, point_convs) = extract_arg_types_and_converters(
+                vm.ctx.new_tuple(vec![point_conv]).as_object(),
+                vm,
+            )
+            .unwrap();
+            let pair = vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_int(10).into(), vm.ctx.new_int(20).into()]);
+            let (val_point, keep_point) =
+                convert_object(&point_convs[0], &point_types[0], pair.into(), vm).unwrap();
+            match val_point {
+                CArgValue::Aggregate { bytes, .. } => {
+                    assert_eq!(bytes.len(), 8);
+                }
+                other => panic!("expected CArgValue::Aggregate, got {other:?}"),
+            }
+            assert!(keep_point.is_some());
         });
     }
 }
