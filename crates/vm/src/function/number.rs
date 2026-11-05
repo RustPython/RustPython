@@ -3,7 +3,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyFloat, PyInt, PyIntRef},
 };
-use core::ops::Deref;
+use core::{ffi::c_int, ops::Deref};
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::PrimInt;
@@ -184,26 +184,26 @@ impl TryFromObject for ArgIndex {
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct ArgCInt {
-    pub value: libc::c_int,
+    pub value: c_int,
 }
 
 impl ArgCInt {
     #[inline]
     #[must_use]
-    pub fn into_primitive(self) -> libc::c_int {
+    pub fn into_primitive(self) -> c_int {
         self.value
     }
 }
 
-impl From<libc::c_int> for ArgCInt {
-    fn from(value: libc::c_int) -> Self {
+impl From<c_int> for ArgCInt {
+    fn from(value: c_int) -> Self {
         Self { value }
     }
 }
 
 impl TryFromObject for ArgCInt {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = libc::c_int::try_from(obj.try_index(vm)?.as_bigint())
+        let value = c_int::try_from(obj.try_index(vm)?.as_bigint())
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))?;
         Ok(Self { value })
     }
