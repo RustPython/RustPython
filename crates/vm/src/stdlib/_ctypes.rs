@@ -317,7 +317,7 @@ pub(crate) mod _ctypes {
             zelf.set_attr("hresult", hresult, vm)?;
             zelf.set_attr("text", text, vm)?;
             zelf.set_attr("details", details, vm)?;
-            crate::exceptions::PyBaseException::slot_init(zelf, FuncArgs::from(full_args), vm)?;
+            crate::builtins::PyBaseException::slot_init(zelf, FuncArgs::from(full_args), vm)?;
 
             Ok(())
         }
