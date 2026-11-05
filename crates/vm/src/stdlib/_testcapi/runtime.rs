@@ -34,11 +34,14 @@ fn format_type_name(
             .downcast_ref::<PyStr>()
             .and_then(|module| module.to_str())
             && !matches!(module, "builtins" | "__main__")
-            && name
+            && let Some(suffix) = name
                 .strip_prefix(module)
-                .is_some_and(|rest| rest.starts_with('.'))
+                .and_then(|rest| rest.strip_prefix("."))
         {
-            name.replace_range(module.len()..=module.len(), ":");
+            let mut alternate_name = crate::common::wtf8::Wtf8Buf::from(module);
+            alternate_name.push_str(":");
+            alternate_name.push_wtf8(suffix);
+            name = alternate_name;
         }
     }
     Ok(vm.ctx.new_str(name))
