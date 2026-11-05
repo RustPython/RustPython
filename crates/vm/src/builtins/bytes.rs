@@ -698,7 +698,7 @@ impl AsSequence for PyBytes {
                 PyBytes::sequence_downcast(seq)
                     .as_bytes()
                     .getitem_by_index(vm, i)
-                    .map(|x| vm.ctx.new_bytes(vec![x]).into())
+                    .map(|x| vm.ctx.new_int(x).into())
             }),
             contains: atomic_func!(|seq, other, vm| {
                 PyBytes::sequence_downcast(seq).__contains__(other.to_owned(), vm)

@@ -1504,7 +1504,7 @@ impl AsSequence for PyByteArray {
                 PyByteArray::sequence_downcast(seq)
                     .borrow_buf()
                     .getitem_by_index(vm, i)
-                    .map(|x| vm.ctx.new_bytes(vec![x]).into())
+                    .map(|x| vm.ctx.new_int(x).into())
             }),
             ass_item: atomic_func!(|seq, i, value, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq);
