@@ -1248,6 +1248,44 @@ impl CDataValue {
 }
 
 impl PyCData {
+    pub(super) fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // If already an instance of the requested type, return it
+        if value.is_instance(cls.as_object(), vm)? {
+            return Ok(value);
+        }
+
+        if let Some(carg) = value.downcast_ref::<super::_ctypes::CArgObject>() {
+            // Snapshot the initialized prototype before calling Python. An array
+            // accepts byref(element), not byref(array); aggregates without a
+            // prototype cannot accept a CArgObject through this conversion.
+            let proto = cls.stg_info_opt().and_then(|info| info.proto.clone());
+            if let Some(proto) = proto
+                && carg.obj.is_instance(proto.as_object(), vm)?
+            {
+                return Ok(value);
+            }
+            return Err(vm.new_type_error(format!(
+                "expected {} instance instead of pointer to {}",
+                cls.name(),
+                carg.obj.class().name()
+            )));
+        }
+
+        if let Some(as_parameter) = vm.get_attribute_opt(&value, "_as_parameter_")? {
+            // Recursive adaptation uses the generic converter, even when the
+            // initial call came through a pointer type's specialized converter.
+            return vm.with_recursion(" while processing _as_parameter_", || {
+                Self::from_param(cls, as_parameter, vm)
+            });
+        }
+
+        Err(vm.new_type_error(format!(
+            "expected {} instance instead of {}",
+            cls.name(),
+            value.class().name()
+        )))
+    }
+
     /// Create from StgInfo (PyCData_MallocBuffer pattern)
     pub(crate) fn from_stg_info(stg_info: &StgInfo) -> Self {
         Self {
