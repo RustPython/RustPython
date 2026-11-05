@@ -430,6 +430,40 @@ pub struct ByteInnerTranslateOptions {
     pub(crate) delete: PyObjectRef,
 }
 
+// Keep this pure transformation separate from the different bytes/bytearray
+// buffer lifetimes. Like CPython's trans_table, -1 marks a deleted input byte.
+struct ByteTranslationTable([i16; 256]);
+
+impl ByteTranslationTable {
+    fn new(table: Option<&[u8]>) -> Self {
+        let mut result = Self([0; 256]);
+        if let Some(table) = table {
+            for (entry, &byte) in result.0.iter_mut().zip(table) {
+                *entry = i16::from(byte);
+            }
+        } else {
+            for (i, entry) in result.0.iter_mut().enumerate() {
+                *entry = i as i16;
+            }
+        }
+        result
+    }
+
+    fn delete(&mut self, delete: &[u8]) {
+        for &byte in delete {
+            self.0[usize::from(byte)] = -1;
+        }
+    }
+
+    fn translate_into(&self, input: &[u8], output: &mut Vec<u8>) {
+        output.extend(
+            input
+                .iter()
+                .filter_map(|&byte| u8::try_from(self.0[usize::from(byte)]).ok()),
+        );
+    }
+}
+
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
 fn bytearray_repr_char_len(ch: u8, quote: u8) -> usize {
@@ -858,31 +892,16 @@ impl PyBytesInner {
             drop(table);
             return Ok(result);
         }
-        let mut translation = [0i16; 256];
-        for (i, entry) in translation.iter_mut().enumerate() {
-            *entry = i as i16;
-        }
-        if let Some(table) = &table {
-            table.with_ref(|table| {
-                for (entry, &byte) in translation.iter_mut().zip(table) {
-                    *entry = i16::from(byte);
-                }
-            });
-        }
+        let mut translation = match &table {
+            Some(table) => table.with_ref(|table| ByteTranslationTable::new(Some(table))),
+            None => ByteTranslationTable::new(None),
+        };
         // Releasing the table can mutate the deletion bytes, so read those
         // only afterwards. No borrowed payload lock spans either callback.
         drop(table);
-        delete.with_ref(|delete| {
-            for &byte in delete {
-                translation[usize::from(byte)] = -1;
-            }
-        });
+        delete.with_ref(|delete| translation.delete(delete));
         drop(delete);
-        result.extend(
-            self.elements
-                .iter()
-                .filter_map(|&byte| u8::try_from(translation[usize::from(byte)]).ok()),
-        );
+        translation.translate_into(&self.elements, &mut result);
         Ok(result)
     }
 
@@ -893,10 +912,17 @@ impl PyBytesInner {
             Vec::new()
         };
 
-        for i in &self.elements {
-            if !delete.contains(i) {
-                res.push(table[*i as usize]);
+        // Zero or one deletion byte does not need a separate lookup table.
+        if delete.len() <= 1 {
+            for &byte in &self.elements {
+                if !delete.contains(&byte) {
+                    res.push(table[usize::from(byte)]);
+                }
             }
+        } else {
+            let mut translation = ByteTranslationTable::new(Some(table));
+            translation.delete(delete);
+            translation.translate_into(&self.elements, &mut res);
         }
 
         res
