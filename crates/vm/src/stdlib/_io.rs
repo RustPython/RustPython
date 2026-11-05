@@ -6657,7 +6657,7 @@ mod winconsoleio {
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
         exceptions::nul_char_error,
-        function::{ArgBytesLike, ArgMemoryBuffer, FsPath},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, OptionalArg},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
