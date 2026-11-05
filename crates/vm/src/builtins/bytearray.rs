@@ -26,9 +26,12 @@ use crate::{
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-        PyMappingMethods, PyNumberMethods, PySequenceMethods,
+        PyMappingMethods, PyNumber, PyNumberMethods, PySequenceMethods,
     },
-    sliceable::{NameBytearray, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sliceable::{
+        NameBytearray, SaturatedSlice, SaturatedSliceIter, SequenceIndex, SequenceIndexOp,
+        SliceableSequenceMutOp, SliceableSequenceOp,
+    },
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
         DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
@@ -93,6 +96,15 @@ impl Drop for ByteArrayExportGuard<'_> {
 enum ResizeAccess<'a> {
     Exclusive(PyDetachingRwLockWriteGuard<'a, PyBytesInner>),
     Exported { len: usize },
+}
+
+impl ResizeAccess<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Exclusive(inner) => inner.elements.len(),
+            Self::Exported { len } => *len,
+        }
+    }
 }
 
 pub(crate) type PyByteArrayRef = PyRef<PyByteArray>;
@@ -196,6 +208,11 @@ impl PyByteArray {
             }
             None => ResizeAccess::Exclusive(inner),
         }
+    }
+
+    fn len_snapshot(&self) -> usize {
+        let exported_len = { self.exports.lock().snapshot() };
+        exported_len.unwrap_or_else(|| self.inner().elements.len())
     }
 
     fn with_export<R>(&self, f: impl FnOnce(usize) -> R) -> R {
@@ -312,18 +329,30 @@ impl PyByteArray {
     ) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)? {
             SequenceIndex::Int(i) => zelf._setitem_by_index(i, value, vm),
-            SequenceIndex::Slice(slice) => {
-                let items = if zelf.is(&value) {
-                    zelf.borrow_buf().to_vec()
+            SequenceIndex::Slice(mut slice) => {
+                // A distinct bytearray supplies its storage directly, including
+                // subclasses with an overridden buffer protocol. Every other
+                // source is copied before CPython unpacks the slice again.
+                let direct = value.downcast_ref::<Self>().filter(|_| !zelf.is(value));
+                let (items, unpack_again) = if let Some(bytes) = direct {
+                    (bytes.borrow_buf().to_vec(), false)
                 } else {
-                    bytearray_from_object(vm, value)?
+                    if PyNumber::check(value) || value.fast_isinstance(vm.ctx.types.str_type) {
+                        return Err(vm.new_type_error(
+                            "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
+                        ));
+                    }
+                    (bytearray_from_object(vm, value)?, true)
                 };
-                if let Some(mut w) = zelf.try_resizable_opt() {
-                    w.elements.setitem_by_slice(vm, slice, &items)
-                } else {
-                    zelf.borrow_buf_mut()
-                        .setitem_by_slice_no_resize(vm, slice, &items)
+                if unpack_again {
+                    let SequenceIndex::Slice(repeated) =
+                        SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)?
+                    else {
+                        unreachable!("an unpacked slice remains a slice");
+                    };
+                    slice = repeated;
                 }
+                zelf.assign_slice(slice, &items, vm)
             }
         }
     }
@@ -344,51 +373,127 @@ impl PyByteArray {
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)? {
             SequenceIndex::Int(i) => self.delitem_by_index(i, vm),
-            SequenceIndex::Slice(slice) => {
-                // TODO: delete 0 elements don't need resizable
-                self.try_resizable(vm)?.elements.delitem_by_slice(vm, slice)
-            }
+            SequenceIndex::Slice(slice) => self.assign_slice(slice, &[], vm),
         }
+    }
+
+    fn check_slice_assignment(
+        slice: SaturatedSlice,
+        len: usize,
+        needed: usize,
+        resizable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(core::ops::Range<usize>, isize, usize)> {
+        let (range, step, slice_len) = slice.adjust_indices(len);
+        // Empty extended-slice assignment means deletion, not a length
+        // mismatch. Nonempty assignments validate their size before exports.
+        let resize = if step == 1 {
+            needed != slice_len
+        } else if needed == 0 {
+            // CPython checks exports even for an empty extended deletion.
+            true
+        } else if needed != slice_len {
+            return Err(vm.new_value_error(format!(
+                "attempt to assign bytes of size {needed} to extended slice of size {slice_len}",
+            )));
+        } else {
+            false
+        };
+        if resize && !resizable {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
+        }
+        Ok((range, step, slice_len))
+    }
+
+    fn assign_slice(
+        &self,
+        slice: SaturatedSlice,
+        items: &[u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let (mut inner, resizable) = match self.resize_access() {
+            ResizeAccess::Exclusive(inner) => (inner, true),
+            ResizeAccess::Exported { len } => {
+                // Reject resizing without waiting on an exported payload. A
+                // codec callback may already hold its read lock.
+                Self::check_slice_assignment(slice, len, items.len(), false, vm)?;
+                if items.is_empty() {
+                    return Ok(());
+                }
+                let inner = self.inner.write();
+                // The export epoch may have ended while we waited. Validate
+                // again against the locked payload, not the old length.
+                let resizable = self.exports.lock().snapshot().is_none();
+                (inner, resizable)
+            }
+        };
+        let elements = &mut inner.elements;
+        let (range, step, slice_len) =
+            Self::check_slice_assignment(slice, elements.len(), items.len(), resizable, vm)?;
+        if items.is_empty() {
+            elements.delitem_by_slice(vm, slice)
+        } else if step == 1 {
+            if slice_len == items.len() {
+                // Same-size replacement must keep exported storage intact.
+                elements[range].copy_from_slice(items);
+            } else {
+                elements
+                    .try_reserve(items.len().saturating_sub(slice_len))
+                    .map_err(|_| vm.no_memory_error())?;
+                elements.splice(range, items.iter().copied());
+            }
+            Ok(())
+        } else {
+            elements.do_set_indexes(
+                SaturatedSliceIter::from_adjust_indices(range, step, slice_len),
+                items,
+            );
+            Ok(())
+        }
+    }
+
+    fn remove_by_index(&self, index: isize, pop: bool, vm: &VirtualMachine) -> PyResult<u8> {
+        let access = self.resize_access();
+        let len = access.len();
+        let index = index.wrapped_at(len).ok_or_else(|| {
+            let message = if !pop {
+                "bytearray index out of range"
+            } else if len == 0 {
+                "pop from empty bytearray"
+            } else {
+                "pop index out of range"
+            };
+            vm.new_index_error(message)
+        })?;
+        // The exported length permits exact bounds checking without waiting
+        // on a payload lock already held by a codec callback.
+        let ResizeAccess::Exclusive(mut inner) = access else {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
+        };
+        Ok(inner.elements.remove(index))
     }
 
     fn delitem_by_index(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
-        // Validate before export rejection when the bytes are available without
-        // waiting. A codec callback may already hold a read guard with a writer
-        // queued, so a blocking read here could deadlock before that rejection.
-        let valid = self
-            .inner
-            .try_read()
-            .map(|inner| inner.elements.wrap_index(index).is_some());
-        if valid == Some(false) {
-            return Err(vm.new_index_error("bytearray index out of range"));
-        }
-        let mut inner = self.try_resizable(vm)?;
-        // Another thread may have resized the bytearray between the locks.
-        let index = inner
-            .elements
-            .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("bytearray index out of range"))?;
-        inner.elements.remove(index);
-        Ok(())
+        self.remove_by_index(index, false, vm).map(drop)
     }
 
     fn irepeat(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+        if n <= 0 {
+            return zelf.clear(vm);
+        }
         if n == 1 {
             return Ok(());
         }
-        let mut w = match zelf.try_resizable(vm) {
-            Ok(w) => w,
-            Err(err) => {
-                return if zelf.borrow_buf().is_empty() {
-                    // We can multiple an empty vector by any integer
-                    Ok(())
-                } else {
-                    Err(err)
-                };
-            }
+        let access = zelf.resize_access();
+        let len = access.len();
+        vm.check_repeat_or_overflow_error(len, n)?;
+        if len == 0 {
+            return Ok(());
+        }
+        let ResizeAccess::Exclusive(mut inner) = access else {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
         };
-
-        w.imul(n, vm)
+        inner.imul(n, vm)
     }
 }
 
@@ -429,12 +534,30 @@ impl PyByteArray {
 
     fn __iadd__(
         zelf: PyRef<Self>,
-        other: ArgBytesLike,
+        other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?
-            .elements
-            .extend(&*other.borrow_buf());
+        let buffer = ArgBytesLike::try_from_object(vm, other.clone()).map_err(|_| {
+            vm.new_type_error(format!(
+                "can't concat {} to {}",
+                other.class().name(),
+                zelf.class().name()
+            ))
+        })?;
+        if !buffer.is_empty() {
+            // Reject aliases before reading their payload: a codec callback
+            // may already hold that read lock with a writer queued behind it.
+            drop(zelf.try_resizable(vm)?);
+            // Snapshot before locking the destination, but retain the export
+            // until the write finishes, then recheck exports in assign_slice.
+            let buffer = PyBuffer::from(buffer);
+            let items = Self::buffer_snapshot(&buffer, vm)?;
+            zelf.assign_slice(
+                SaturatedSlice::from_parts(isize::MAX, isize::MAX, 1),
+                &items,
+                vm,
+            )?;
+        }
         Ok(zelf)
     }
 
@@ -537,11 +660,7 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn pop(&self, index: PopArgs, vm: &VirtualMachine) -> PyResult<u8> {
-        let elements = &mut self.try_resizable(vm)?.elements;
-        let index = elements
-            .wrap_index(index.index)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
-        Ok(elements.remove(index))
+        self.remove_by_index(index.index, true, vm)
     }
 
     #[pymethod]
@@ -549,6 +668,7 @@ impl Py<PyByteArray> {
         let value = value_from_object(vm, &item)?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements.saturate_index(index);
+        elements.try_reserve(1).map_err(|_| vm.no_memory_error())?;
         elements.insert(index, value);
         Ok(())
     }
@@ -556,14 +676,34 @@ impl Py<PyByteArray> {
     #[pymethod]
     fn append(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &item)?;
-        self.try_resizable(vm)?.elements.push(value);
+        let elements = &mut self.try_resizable(vm)?.elements;
+        elements.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+        elements.push(value);
         Ok(())
     }
 
     #[pymethod]
     fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let byte = value_from_object(vm, &value)?;
-        let elements = &mut self.try_resizable(vm)?.elements;
+        let mut inner = match self.resize_access() {
+            ResizeAccess::Exclusive(inner) => inner,
+            ResizeAccess::Exported { len } => {
+                // Missing values precede export rejection. Do not wait for a
+                // read lock: a reentrant codec can have a writer queued behind
+                // its existing read guard.
+                let missing = len == 0
+                    || self
+                        .inner
+                        .try_read()
+                        .is_some_and(|inner| inner.elements.find_byte(byte).is_none());
+                return Err(if missing {
+                    vm.new_value_error("value not found in bytearray")
+                } else {
+                    vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
+                });
+            }
+        };
+        let elements = &mut inner.elements;
         let index = elements
             .find_byte(byte)
             .ok_or_else(|| vm.new_value_error("value not found in bytearray"))?;
@@ -576,6 +716,13 @@ impl Py<PyByteArray> {
         if self.is(&iterable_of_ints) {
             return PyByteArray::irepeat(self, 2, vm);
         }
+        // Buffer acquisition can mutate self. The buffer path inserts at the
+        // old end, whereas the iterable path appends after all conversions.
+        let start = if iterable_of_ints.check_buffer() {
+            self.len_snapshot() as isize
+        } else {
+            isize::MAX
+        };
         // bytearray_setslice keeps the export alive across the resize, so a value
         // looking at this bytearray is what stops it from growing.
         let buffer = iterable_of_ints
@@ -592,16 +739,21 @@ impl Py<PyByteArray> {
             })
             .transpose()?;
         let items = match &buffer {
-            Some(buffer) => buffer
-                .as_contiguous()
-                .ok_or_else(|| {
-                    vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
-                })?
-                .to_vec(),
+            Some(buffer) => {
+                if !buffer.desc.is_contiguous() {
+                    return Err(
+                        vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
+                    );
+                }
+                if buffer.desc.len == 0 {
+                    return Ok(());
+                }
+                drop(self.try_resizable(vm)?);
+                PyByteArray::buffer_snapshot(buffer, vm)?
+            }
             None => bytearray_extend_from_object(vm, &iterable_of_ints)?,
         };
-        self.try_resizable(vm)?.elements.extend(items);
-        Ok(())
+        self.assign_slice(SaturatedSlice::from_parts(start, start, 1), &items, vm)
     }
 
     #[pymethod]
@@ -647,10 +799,7 @@ impl Py<PyByteArray> {
             }
         };
         let access = self.resize_access();
-        let len = match &access {
-            ResizeAccess::Exclusive(inner) => inner.elements.len(),
-            ResizeAccess::Exported { len } => *len,
-        };
+        let len = access.len();
         // Vec<u8> lengths fit isize. Adding a nonnegative length to a negative
         // index cannot overflow; preserve the adjusted index in the error.
         let to_take = match n {
@@ -1108,10 +1257,7 @@ impl Py<PyByteArray> {
         let size = size as usize;
         // An export's stable length avoids re-entering the payload lock.
         let access = self.resize_access();
-        let len = match &access {
-            ResizeAccess::Exclusive(inner) => inner.elements.len(),
-            ResizeAccess::Exported { len } => *len,
-        };
+        let len = access.len();
         if size == len {
             return Ok(());
         }
@@ -1371,9 +1517,8 @@ impl AsSequence for PyByteArray {
                 PyByteArray::sequence_downcast(seq).__contains__(other.to_owned(), vm)
             }),
             inplace_concat: atomic_func!(|seq, other, vm| {
-                let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
-                PyByteArray::__iadd__(zelf, other, vm).map(|x| x.into())
+                PyByteArray::__iadd__(zelf, other.to_owned(), vm).map(|x| x.into())
             }),
             inplace_repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
