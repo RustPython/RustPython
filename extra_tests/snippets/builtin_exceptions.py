@@ -410,3 +410,22 @@ restored = pickle.loads(pickle.dumps(ImportError("m", name="n", path="p")))
 assert restored.args == ("m",)
 assert restored.name == "n"
 assert restored.path == "p"
+
+
+# Same-named subclasses must not take the builtin's errno dispatch path.
+def check_oserror_type_identity():
+    import errno
+
+    class OSError(builtins.OSError):
+        pass
+
+    class RenamedError(builtins.OSError):
+        pass
+
+    RenamedError.__name__ = "OSError"
+    for cls in (OSError, RenamedError):
+        for code in (errno.ENOENT, errno.EACCES):
+            assert type(cls(code, "message")) is cls
+
+
+check_oserror_type_identity()

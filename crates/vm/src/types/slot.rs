@@ -2211,26 +2211,14 @@ pub trait Initializer: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        #[cfg(debug_assertions)]
-        let class_name_for_debug = zelf.class().name().to_string();
-
         let zelf = match zelf.try_to_ref::<Self>(vm) {
             Ok(zelf) => zelf,
             Err(err) => {
-                #[cfg(debug_assertions)]
-                {
-                    if let Ok(msg) = err.as_object().repr(vm) {
-                        let double_appearance = msg
-                            .to_string_lossy()
-                            .matches(&class_name_for_debug as &str)
-                            .count()
-                            == 2;
-                        assert!(
-                            !double_appearance,
-                            "This type `{class_name_for_debug}` doesn't seem to support `init`. Override `slot_init` instead: {msg}"
-                        )
-                    }
-                }
+                debug_assert!(
+                    !zelf.fast_isinstance(Self::class(&vm.ctx)),
+                    "This type `{}` doesn't seem to support `init`. Override `slot_init` instead",
+                    zelf.class().name()
+                );
                 return Err(err);
             }
         };

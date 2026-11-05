@@ -1276,3 +1276,186 @@ for _value in (
     _pointer[0] = _value
     assert _original.value is _object
     assert _redirected.value is (None if _value is None else _object)
+
+
+# These identity and checker-cache cases extend the canonical ctypes tests.
+import unittest as _unittest
+
+
+class _CtypesTypeIdentityTests(_unittest.TestCase):
+    def test_simple_base_name_spoof(self):
+        class Base(c_int):
+            pass
+
+        Base.__name__ = "_SimpleCData"
+
+        class Child(Base):
+            pass
+
+        value = Child(42)
+        self.assertTrue(repr(value).startswith("<Child object at "))
+        self.assertIs(value.__ctypes_from_outparam__(), value)
+
+    def test_renamed_checked_restype(self):
+        class Checked(c_int):
+            @staticmethod
+            def _check_retval_(value):
+                self.assertIs(type(value), Checked)
+                return ("checked", value.value)
+
+        Checked.__name__ = "RenamedCheckedResult"
+        function = ctypes.CFUNCTYPE(c_int)(lambda: -7)
+        function.restype = Checked
+        self.assertEqual(function(), ("checked", -7))
+
+    def test_hresult_name_spoof(self):
+        class Unchecked(c_int):
+            pass
+
+        Unchecked.__name__ = "HRESULT"
+        function = ctypes.CFUNCTYPE(c_int)(lambda: -7)
+        function.restype = Unchecked
+        result = function()
+        self.assertIs(type(result), Unchecked)
+        self.assertEqual(result.value, -7)
+
+    def test_checker_cached_at_assignment(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("old", value.value))
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = Checked
+        Checked._check_retval_ = staticmethod(lambda value: "new")
+        self.assertEqual(function(), ("old", 31))
+
+        class Unchecked(c_int):
+            pass
+
+        function.restype = Unchecked
+        Unchecked._check_retval_ = staticmethod(lambda value: "added")
+        result = function()
+        self.assertIs(type(result), Unchecked)
+        self.assertEqual(result.value, 31)
+
+    def test_callback_replaces_checker(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("old", value.value))
+
+        def callback():
+            Checked._check_retval_ = staticmethod(lambda value: "replacement")
+            return 23
+
+        function = ctypes.CFUNCTYPE(c_int)(callback)
+        function.restype = Checked
+        self.assertEqual(function(), ("old", 23))
+
+    def test_direct_simple_checker_receives_scalar(self):
+        class Checked(ctypes._SimpleCData):
+            _type_ = "i"
+
+            @staticmethod
+            def _check_retval_(value):
+                self.assertIs(type(value), int)
+                return ("direct", value)
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = Checked
+        self.assertEqual(function(), ("direct", 31))
+
+    def test_function_type_caches_checker(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("old", value.value))
+
+        prototype = ctypes.CFUNCTYPE(Checked)
+        Checked._check_retval_ = staticmethod(lambda value: "new")
+        prototype._restype_ = ctypes.c_long
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 19)
+        function = prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertIs(function.restype, Checked)
+        self.assertEqual(function(), ("old", 19))
+
+    def test_callable_restype_ignores_checker(self):
+        def restype(value):
+            return ("callable", value)
+
+        restype._check_retval_ = lambda value: "ignored"
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = restype
+        self.assertEqual(function(), ("callable", 31))
+
+    def test_subclass_result_bypasses_constructors(self):
+        class Result(c_int):
+            def __new__(cls, *args):
+                raise AssertionError("native result called __new__")
+
+            def __init__(self, *args):
+                raise AssertionError("native result called __init__")
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = Result
+        result = function()
+        self.assertIs(type(result), Result)
+        self.assertEqual(result.value, 31)
+
+    def test_instance_restype_falls_back_to_class_checker(self):
+        class Checked(ctypes._SimpleCData):
+            _type_ = "i"
+            _check_retval_ = staticmethod(lambda value: ("fallback", value))
+
+        prototype = ctypes.CFUNCTYPE(Checked)
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 19)
+        function = prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        function.restype = c_int
+        self.assertEqual(function(), ("fallback", 19))
+
+    def test_callable_checker_lookup_error(self):
+        class Restype:
+            def __call__(self, value):
+                return value
+
+            @property
+            def _check_retval_(self):
+                raise RuntimeError("checker lookup failed")
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        with self.assertRaisesRegex(RuntimeError, "checker lookup failed"):
+            function.restype = Restype()
+        self.assertIs(function.restype, c_int)
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_renamed_hresult_and_rebound_alias(self):
+        hresult = ctypes.HRESULT
+        original_name = hresult.__name__
+        function = ctypes.CFUNCTYPE(c_int)(lambda: -2147467259)
+        function.restype = hresult
+        try:
+            hresult.__name__ = "RenamedHRESULT"
+            ctypes.HRESULT = c_int
+            with self.assertRaises(OSError):
+                function()
+        finally:
+            hresult.__name__ = original_name
+            ctypes.HRESULT = hresult
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_hresult_convention_bypasses_checker(self):
+        class Checked(ctypes._SimpleCData):
+            _type_ = "i"
+            _check_retval_ = staticmethod(lambda value: ("checked", value))
+
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL | 0x2  # FUNCFLAG_HRESULT
+            _argtypes_ = ()
+            _restype_ = Checked
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 19)
+        function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertEqual(function(), 19)
+
+
+for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
+    if _identity_test_name.startswith("test_"):
+        _identity_test = _CtypesTypeIdentityTests(_identity_test_name)
+        _identity_method = getattr(_identity_test, _identity_test_name)
+        if not getattr(_identity_method, "__unittest_skip__", False):
+            _identity_method()

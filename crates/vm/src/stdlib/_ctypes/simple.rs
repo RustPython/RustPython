@@ -757,7 +757,7 @@ impl Representable for PyCSimple {
         let is_direct_simple = bases
             .as_slice()
             .iter()
-            .any(|base| base.name().to_string() == "_SimpleCData");
+            .any(|base| base.is(Self::static_type()));
 
         if is_direct_simple {
             // Direct SimpleCData: "typename(repr(value))"
@@ -902,7 +902,7 @@ impl Py<PyCSimple> {
             !bases
                 .as_slice()
                 .iter()
-                .any(|base| base.name().to_string() == "_SimpleCData")
+                .any(|base| base.is(PyCSimple::static_type()))
         };
 
         if is_subclass_of_simple {

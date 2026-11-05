@@ -1316,7 +1316,7 @@ impl Representable for PySet {
         }
 
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let name = (class_name != "set").then_some(class_name);
+            let name = (!class.is(vm.ctx.types.set_type)).then_some(class_name);
             zelf.inner.repr(name, vm)
         } else {
             Ok(Wtf8Buf::from(format!("{class_name}(...)")))

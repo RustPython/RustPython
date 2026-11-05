@@ -369,6 +369,8 @@ impl Initializer for PyCFuncPtrType {
         stg_info.length = 1;
         stg_info.flags |= StgInfoFlags::TYPEFLAG_ISPOINTER;
         stg_info.paramfunc = ParamFunc::Pointer; // CFuncPtr is passed as a pointer
+        stg_info.restype = new_type.get_attr(vm.ctx.intern_str("_restype_"));
+        stg_info.checker = restype_checker(stg_info.restype.as_deref(), vm)?;
 
         let _ = new_type.init_traced_type_data(stg_info);
         Ok(())
@@ -949,7 +951,10 @@ impl Constructor for PyCFuncPtr {
         if first_arg.is_callable() {
             // Get argument types and result type from the class
             let class_argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
-            let class_restype = cls.get_attr(vm.ctx.intern_str("_restype_"));
+            let (class_restype, class_checker) = cls
+                .stg_info_opt()
+                .map(|info| (info.restype.clone(), info.checker.clone()))
+                .unwrap_or_default();
             let class_flags = cls
                 .get_attr(vm.ctx.intern_str("_flags_"))
                 .and_then(|f| f.try_to_value::<u32>(vm).ok())
@@ -980,7 +985,7 @@ impl Constructor for PyCFuncPtr {
                 converters: PyRwLock::new(None),
                 argtypes: PyRwLock::new(class_argtypes),
                 restype: PyRwLock::new(class_restype),
-                checker: PyRwLock::new(None),
+                checker: PyRwLock::new(class_checker),
                 errcheck: PyRwLock::new(None),
                 #[cfg(windows)]
                 index: PyRwLock::new(None),
@@ -1073,6 +1078,9 @@ enum RetSpec {
 struct CallInfo {
     explicit_arg_types: Option<Vec<PyTypeRef>>,
     restype_obj: Option<PyObjectRef>,
+    checker: Option<PyObjectRef>,
+    #[cfg(windows)]
+    check_hresult: bool,
     ret: RetSpec,
 }
 
@@ -1153,6 +1161,16 @@ fn compute_ret_spec(
     RetSpec::Code('i')
 }
 
+fn restype_checker(
+    restype: Option<&PyObject>,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
+    match restype {
+        Some(restype) => vm.get_attribute_opt(restype, "_check_retval_"),
+        _ => Ok(None),
+    }
+}
+
 /// Extract call information (argtypes, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
     // Clone before calling Python sequence methods, which can change argtypes.
@@ -1175,12 +1193,20 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
         None // No argtypes -> use ConvParam
     };
 
-    // Get restype - first from instance, then from class's _restype_
-    let restype_obj = zelf.restype.read().clone().or_else(|| {
-        zelf.as_object()
-            .class()
-            .get_attr(vm.ctx.intern_str("_restype_"))
-    });
+    // Snapshot both fields together, before argument conversion can re-enter.
+    let (restype_obj, checker) = {
+        let restype = zelf.restype.read();
+        let checker = zelf.checker.read();
+        let class_info = zelf.class().stg_info_opt();
+        (
+            restype
+                .clone()
+                .or_else(|| class_info.as_ref().and_then(|info| info.restype.clone())),
+            checker
+                .clone()
+                .or_else(|| class_info.as_ref().and_then(|info| info.checker.clone())),
+        )
+    };
 
     // Check if restype is explicitly None (return void)
     let restype_is_none = restype_obj.as_deref().is_some_and(|t| vm.is_none(t));
@@ -1189,6 +1215,10 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
     Ok(CallInfo {
         explicit_arg_types,
         restype_obj,
+        checker,
+        #[cfg(windows)]
+        check_hresult: Py::<PyCFuncPtr>::_flags_(zelf, vm) & StgInfoFlags::FUNCFLAG_HRESULT.bits()
+            != 0,
         ret,
     })
 }
@@ -1610,10 +1640,11 @@ fn convert_raw_result(
     let is_pointer_type = info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER);
     let has_proto = info.proto.is_some();
     let scalar_code = info.scalar_code;
+    let storage_size = info.size;
     drop(info);
 
     // py_object: interpret return value as PyObject* and materialize it.
-    if scalar_code == Some('O') {
+    if scalar_code == Some('O') && super::simple::returns_scalar(&restype_type) {
         let ptr = NonNull::new(result_word as *mut PyObject)
             .ok_or_else(|| vm.new_value_error("PyObject is NULL"))?;
         unsafe {
@@ -1623,13 +1654,29 @@ fn convert_raw_result(
     }
 
     // 5. Simple type with getfunc → use bytes_to_pyobject (info->getfunc)
-    // is_simple_instance returns TRUE for c_int, c_void_p, etc.
-    if super::base::is_simple_instance(&restype_type) {
+    // Only direct simple types return Python scalars; subclasses return instances.
+    if super::simple::returns_scalar(&restype_type) {
         return Ok(Some(super::base::bytes_to_pyobject(
             &restype_type,
             &result_bytes,
             vm,
         )));
+    }
+
+    if restype_type.fast_issubclass(PyCSimple::static_type()) {
+        // Native return values bypass Python __new__ and __init__. A py_object
+        // return transfers an owned reference, retained by the wrapper.
+        let objects = if scalar_code == Some('O') {
+            NonNull::new(result_word as *mut PyObject)
+                .map(|ptr| unsafe { PyObjectRef::from_raw(ptr) })
+        } else {
+            None
+        };
+        let mut bytes = vec![0; storage_size];
+        write_prefix_limited(&mut bytes, &result_bytes, result_size);
+        return PyCSimple(PyCData::from_bytes(bytes, objects))
+            .into_ref_with_type(vm, restype_type)
+            .map(|value| Some(value.into()));
     }
 
     // 6. Complex type → create ctypes instance (PyCData_FromBaseObj)
@@ -1690,24 +1737,38 @@ fn build_result(
     args: &FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    // Check HRESULT on Windows
-    #[cfg(windows)]
-    if let CallValue::Scalar(bytes) = &call_result {
-        let is_hresult = call_info
-            .restype_obj
-            .as_ref()
-            .and_then(|t| t.to_owned().downcast::<PyType>().ok())
-            .is_some_and(|t| t.name().to_string() == "HRESULT");
-        if is_hresult {
-            let mut word = [0u8; size_of::<usize>()];
-            let n = bytes.len().min(word.len());
-            word[..n].copy_from_slice(&bytes[..n]);
-            check_hresult(usize::from_ne_bytes(word) as i32, zelf, vm)?;
+    let convert_result = || -> PyResult<Option<PyObjectRef>> {
+        let mut result = convert_raw_result(&call_result, call_info, vm)?;
+        if let Some(checker) = &call_info.checker
+            && call_info
+                .restype_obj
+                .as_ref()
+                .and_then(|restype| restype.downcast_ref::<PyType>())
+                .is_some_and(|restype| restype.stg_info_opt().is_some())
+            && let Some(value) = result.as_ref()
+        {
+            result = Some(checker.call((value.clone(),), vm)?);
         }
-    }
+        Ok(result)
+    };
 
-    // Convert the foreign-call result to a Python object
-    let result = convert_raw_result(&call_result, call_info, vm)?;
+    // COM functions request HRESULT checking through their calling convention.
+    // Ordinary HRESULT restypes use _check_retval_, like other checked types.
+    #[cfg(windows)]
+    let result = if call_info.check_hresult
+        && let CallValue::Scalar(bytes) = &call_result
+    {
+        let mut word = [0u8; size_of::<usize>()];
+        let n = bytes.len().min(word.len());
+        word[..n].copy_from_slice(&bytes[..n]);
+        let hresult = usize::from_ne_bytes(word) as i32;
+        check_hresult(hresult, zelf, vm)?;
+        Some(vm.ctx.new_int(hresult).into())
+    } else {
+        convert_result()?
+    };
+    #[cfg(not(windows))]
+    let result = convert_result()?;
 
     // Apply errcheck if set
     // Clone before calling Python so the callback can change errcheck.
@@ -1860,12 +1921,12 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn restype(zelf: &Self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         let restype = zelf.restype.read().clone();
         restype.or_else(|| {
-            zelf.as_object()
-                .class()
-                .get_attr(vm.ctx.intern_str("_restype_"))
+            zelf.class()
+                .stg_info_opt()
+                .and_then(|info| info.restype.clone())
         })
     }
 
@@ -1875,10 +1936,18 @@ impl Py<PyCFuncPtr> {
         if !vm.is_none(&value) && value.downcast_ref::<PyType>().is_none() && !value.is_callable() {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
         }
+        let checker = restype_checker(Some(&value), vm)?;
         // An explicit None requests a void result; it is distinct from unset.
-        let old = self.restype.write().replace(value);
-        // Finalizers on the previous value can re-enter this setter.
-        drop(old);
+        let (old_restype, old_checker) = {
+            let mut restype = self.restype.write();
+            let mut stored_checker = self.checker.write();
+            (
+                restype.replace(value),
+                core::mem::replace(&mut *stored_checker, checker),
+            )
+        };
+        // Finalizers on either old value can re-enter this setter.
+        drop((old_restype, old_checker));
         Ok(())
     }
 
