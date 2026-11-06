@@ -27,6 +27,11 @@ impl FromArgs for SetNameArgs {
     ]);
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        if !args.kwargs.is_empty() {
+            return Err(vm
+                .new_type_error("__set_name__() takes no keyword arguments")
+                .into());
+        }
         let [owner, name]: [PyObjectRef; 2] =
             core::mem::take(&mut args.args)
                 .try_into()

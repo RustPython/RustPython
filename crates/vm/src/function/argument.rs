@@ -857,43 +857,6 @@ fn binding_accepts_keyword(params: &[Param], name: &Wtf8) -> bool {
     })
 }
 
-/// First positional-or-keyword parameter that was also passed by keyword.
-fn duplicate_name_and_position<'a>(
-    params: &'a [Param],
-    nargs: usize,
-    kwargs: &KwArgs,
-) -> Option<(&'a str, usize)> {
-    fn walk<'a>(
-        params: &'a [Param],
-        nargs: usize,
-        kwargs: &KwArgs,
-        pos: &mut usize,
-    ) -> Option<(&'a str, usize)> {
-        for param in params {
-            match param.kind {
-                ParamKind::Flatten(Some(inner)) => {
-                    if let Some(hit) = walk(inner, nargs, kwargs, pos) {
-                        return Some(hit);
-                    }
-                }
-                ParamKind::Flatten(None) | ParamKind::PositionalOnly => {
-                    *pos += 1;
-                }
-                ParamKind::PositionalOrKeyword => {
-                    *pos += 1;
-                    if nargs >= *pos && !param.name.is_empty() && kwargs.contains_key(param.name) {
-                        return Some((param.name, *pos));
-                    }
-                }
-                ParamKind::VarPositional => return None,
-                ParamKind::KeywordOnly | ParamKind::VarKeyword => {}
-            }
-        }
-        None
-    }
-    walk(params, nargs, kwargs, &mut 0)
-}
-
 /// Walk `params` in declaration order looking for the first required argument
 /// that is missing. `Err(None)` ends the walk without a result.
 fn missing_from_params(
@@ -1152,7 +1115,7 @@ pub trait FromArgs: Sized {
 
     /// Validate a known binding shape before converting any argument, following
     /// `_PyArg_UnpackKeywords` error ordering. Explicit custom parsers keep the
-    /// conservative positional-count, duplicate, and missing-argument checks.
+    /// positional-count and no-keyword checks, but own named validation.
     /// Invalid known parameter ordering is rejected at compile time.
     ///
     /// The missing-argument walk is skipped when every required positional
@@ -1203,21 +1166,6 @@ pub trait FromArgs: Sized {
         // arguments are also reported before any is converted.
         if Self::TAKES_NO_KEYWORDS && num_given < *arity.start() {
             return Some(ArgumentError::TooFewArgs.into_exception(arity, num_given, 0, callee, vm));
-        }
-        if let Some(params) = Self::PARAMS
-            && !args.kwargs.is_empty()
-            && let Some((name, pos)) = duplicate_name_and_position(params, num_given, &args.kwargs)
-        {
-            return Some(callee.given_by_name_and_position(name, pos, vm));
-        }
-        if num_given < *arity.start() || const { Self::HAS_REQUIRED_KEYWORD_ONLY } {
-            let mut pos = 0;
-            let mut skip = instance;
-            if let Err(Some(missing)) =
-                Self::missing_from(num_given, &args.kwargs, &mut pos, &mut skip)
-            {
-                return Some(missing.into_exception(arity, num_given, 0, callee, vm));
-            }
         }
         None
     }
@@ -1881,6 +1829,13 @@ mod tests {
         second: i32,
     }
 
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct FlattenedLegacy {
+        #[pyarg(flatten)]
+        args: (PyObjectRef, LegacyNamed),
+    }
+
     struct DisplayOnly(FuncArgs);
 
     impl FromArgs for DisplayOnly {
@@ -2022,6 +1977,21 @@ mod tests {
             let message = binding_error::<(LegacyNamed,)>(1, &[], false, vm);
             assert!(message.contains("NoneType"), "{message}");
             assert!(!message.contains("missing required"), "{message}");
+        });
+    }
+
+    #[test]
+    fn legacy_conversion_order_survives_receivers_and_flattened_composition() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for message in [
+                binding_error::<(PyObjectRef, LegacyNamed)>(2, &[], true, vm),
+                binding_error::<FlattenedLegacy>(2, &[], true, vm),
+                binding_error::<(LegacyNamed, ())>(1, &["first"], false, vm),
+            ] {
+                assert!(message.contains("NoneType"), "{message}");
+                assert!(!message.contains("missing required"), "{message}");
+                assert!(!message.contains("given by name"), "{message}");
+            }
         });
     }
 

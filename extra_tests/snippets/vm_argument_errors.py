@@ -382,6 +382,14 @@ def test_custom_parsers_preserve_their_conversion_boundaries():
         csv.reader(TestFailingIter(), "excel", dialect="excel")
     with assert_raises(RuntimeError):
         csv.reader(TestFailingIter(), unexpected=1)
+    check(
+        TypeError,
+        "argument for function given by name ('dialect') and position (1)",
+        csv.reader,
+        [],
+        "excel",
+        dialect="excel",
+    )
 
     try:
         import _thread
