@@ -5,8 +5,9 @@
 //! cannot be told apart from the original. A class becomes the class the other
 //! side knows it by (see [`crate::pyo3_type`]).
 //!
-//! Any other CPython object reaches RustPython as a `pyo3.ref` proxy, so its
-//! identity and mutations are preserved.
+//! Any other CPython object reaches RustPython as an instance of the wrapper
+//! of its class, or as a `pyo3.proxy` when that class cannot carry the proxy
+//! payload. Either way its identity and mutations are preserved.
 //!
 //! RustPython objects going to CPython are handled by what CPython code
 //! expects of them:
@@ -22,8 +23,8 @@ use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
 use pyo3::prelude::*;
 use pyo3::types::{
-    PyBool, PyByteArray, PyBytes, PyComplex, PyDict, PyFloat, PyFrozenSet, PyInt, PyList, PySet,
-    PyString, PyTuple, PyType as CPythonType,
+    PyBool, PyByteArray, PyBytes, PyComplex, PyDict, PyFloat, PyFrozenSet, PyInt, PyList,
+    PyMemoryView, PySet, PyString, PyTuple, PyType as CPythonType,
 };
 use rustpython_vm::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
@@ -40,8 +41,8 @@ use rustpython_vm::{
 
 use crate::errors::Pyo3ResultExt;
 use crate::gil::{run_cpython, run_rustpython};
-use crate::pyo3_ref::Pyo3Ref;
-use crate::pyo3_type::{type_to_cpython, wrap_cpython_type};
+use crate::pyo3_ref::{Pyo3Ref, memoryview_from_cpython};
+use crate::pyo3_type::{instance_to_rustpython, type_to_cpython, wrap_cpython_type};
 use crate::rustpython_object::{RustPythonBuffer, RustPythonObject, unwrap_rustpython_object};
 
 /// Convert a RustPython object for use in CPython.
@@ -87,7 +88,13 @@ pub(crate) fn to_rustpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyRe
     if let Ok(ty) = obj.cast::<CPythonType>() {
         return wrap_cpython_type(ty, vm).map(Into::into);
     }
-    Ok(Pyo3Ref::wrap(obj, vm))
+    // A memoryview has to be one: `bytes` and the buffer slot require a real
+    // memoryview back from `__buffer__`, and this class cannot carry the
+    // proxy payload.
+    if obj.cast::<PyMemoryView>().is_ok() {
+        return memoryview_from_cpython(obj, vm);
+    }
+    instance_to_rustpython(obj, vm)
 }
 
 /// Call a CPython callable with RustPython arguments.

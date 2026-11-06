@@ -1,14 +1,20 @@
-//! `pyo3.ref`: CPython objects as seen from RustPython.
+//! `pyo3.ref`: the payload of a CPython object inside RustPython.
 //!
-//! A proxy forwards attribute access, calls, operators, item access,
-//! iteration, hashing and the descriptor protocol to the CPython object it
-//! wraps. `proxy.__class__` is the wrapped object's class, so `isinstance`
-//! works against CPython classes, while `type(proxy)` stays the proxy class.
+//! A CPython instance whose class can carry this payload is an instance of
+//! the wrapper of that class (see [`crate::pyo3_type`]). `pyo3.ref` holds the
+//! `Py<PyAny>` and forwards ordinary attribute access. It defines no other
+//! slot, so a wrapper gains `__iter__`, `__bytes__` and the rest only when
+//! the wrapped class actually has them.
 //!
-//! As with `weakref.proxy`, callable objects get a subclass of their own,
-//! `pyo3.callable_ref`, so `callable()` answers truthfully.
+//! Instances whose class cannot carry the payload — subclasses of `int`,
+//! `str` and the other built-in layouts, and static descriptor types — use
+//! `pyo3.proxy` (or `pyo3.callable_ref` when the object is callable). That
+//! proxy still forwards every protocol, and `proxy.__class__` is the wrapper
+//! of the CPython class, so `isinstance` keeps working.
 
-pub(crate) use pyo3_ref::{Pyo3Ref, binary_op};
+pub(crate) use pyo3_ref::{
+    Pyo3Ref, binary_op, buffer_method, call_method, memoryview_from_cpython,
+};
 
 #[pymodule(sub)]
 pub(crate) mod pyo3_ref {
@@ -22,13 +28,17 @@ pub(crate) mod pyo3_ref {
     use rustpython_vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
-        builtins::{PyStr, PyStrRef, PyType},
+        builtins::{PyMemoryView, PyStr, PyStrRef, PyType},
+        class::StaticType,
         common::{
             borrow::{BorrowedValue, BorrowedValueMut},
             hash::PyHash,
             lock::LazyLock,
         },
-        function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+        function::{
+            Either, FuncArgs, ItemDoc, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags,
+            PySetterValue,
+        },
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
             PyNumberMethods, PySequenceMethods,
@@ -44,7 +54,7 @@ pub(crate) mod pyo3_ref {
     use crate::gil::{run_cpython, with_gil};
     use crate::pyo3_type::is_cpython_backed;
 
-    /// Proxy for a CPython object.
+    /// Payload of a CPython object. Defines no protocol slot of its own.
     #[pyattr]
     #[pyclass(module = "pyo3", name = "ref")]
     #[derive(PyPayload)]
@@ -52,16 +62,29 @@ pub(crate) mod pyo3_ref {
         pub(crate) py_obj: pyo3::Py<pyo3::PyAny>,
     }
 
-    /// Proxy for a callable CPython object.
-    #[pyattr]
-    #[pyclass(module = "pyo3", name = "callable_ref", base = Pyo3Ref)]
-    pub(crate) struct Pyo3CallableRef {
+    /// Generic proxy: every protocol, for classes that cannot carry [`Pyo3Ref`]
+    /// as their real layout (built-in subclasses, static descriptors).
+    #[pyclass(no_attr, module = "pyo3", name = "proxy", base = Pyo3Ref)]
+    pub(crate) struct Pyo3Proxy {
         base: Pyo3Ref,
+    }
+
+    /// Proxy for a callable CPython object that cannot use a typed wrapper.
+    #[pyattr]
+    #[pyclass(module = "pyo3", name = "callable_ref", base = Pyo3Proxy)]
+    pub(crate) struct Pyo3CallableRef {
+        base: Pyo3Proxy,
     }
 
     impl core::fmt::Debug for Pyo3Ref {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("Pyo3Ref").finish_non_exhaustive()
+        }
+    }
+
+    impl core::fmt::Debug for Pyo3Proxy {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("Pyo3Proxy").finish_non_exhaustive()
         }
     }
 
@@ -76,9 +99,11 @@ pub(crate) mod pyo3_ref {
             Self { py_obj }
         }
 
-        /// A proxy for `obj`, callable if `obj` is.
+        /// A generic proxy for `obj`, callable if `obj` is.
         pub(crate) fn wrap(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyObjectRef {
-            let base = Self::new(obj.clone().unbind());
+            let base = Pyo3Proxy {
+                base: Self::new(obj.clone().unbind()),
+            };
             if obj.is_callable() {
                 Pyo3CallableRef { base }.into_ref(&vm.ctx).into()
             } else {
@@ -115,11 +140,11 @@ pub(crate) mod pyo3_ref {
         }
     }
 
+    #[pyclass(with(Constructor, GetAttr, SetAttr), flags(BASETYPE))]
+    impl Pyo3Ref {}
+
     #[pyclass(
         with(
-            Constructor,
-            GetAttr,
-            SetAttr,
             Representable,
             Comparable,
             Hashable,
@@ -133,72 +158,76 @@ pub(crate) mod pyo3_ref {
         ),
         flags(BASETYPE)
     )]
-    impl Pyo3Ref {
+    impl Pyo3Proxy {
         // Special methods looked up on the type rather than through
-        // `__getattribute__`; each forwards to the wrapped object's own.
+        // `__getattribute__`. A typed wrapper does not inherit these: it gains
+        // a method only when the wrapped class defines it.
 
         #[pymethod]
         fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.apply(vm, |obj| Ok(run_cpython(vm, || obj.str())?.into_any()))
+            zelf.base
+                .apply(vm, |obj| Ok(run_cpython(vm, || obj.str())?.into_any()))
         }
 
         #[pymethod]
         fn __format__(zelf: &Py<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__format__", &[spec.as_object()], vm)
+            zelf.base.call_method("__format__", &[spec.as_object()], vm)
         }
 
         #[pymethod]
         fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__dir__", &[], vm)
+            zelf.base.call_method("__dir__", &[], vm)
         }
 
         #[pymethod]
         fn __bytes__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__bytes__", &[], vm)
+            zelf.base.call_method("__bytes__", &[], vm)
         }
 
         #[pymethod]
         fn __reversed__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__reversed__", &[], vm)
+            zelf.base.call_method("__reversed__", &[], vm)
         }
 
         #[pymethod]
         fn __round__(zelf: &Py<Self>, ndigits: OptionalArg, vm: &VirtualMachine) -> PyResult {
             match ndigits {
-                OptionalArg::Present(ndigits) => zelf.call_method("__round__", &[&ndigits], vm),
-                OptionalArg::Missing => zelf.call_method("__round__", &[], vm),
+                OptionalArg::Present(ndigits) => {
+                    zelf.base.call_method("__round__", &[&ndigits], vm)
+                }
+                OptionalArg::Missing => zelf.base.call_method("__round__", &[], vm),
             }
         }
 
         #[pymethod]
         fn __trunc__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__trunc__", &[], vm)
+            zelf.base.call_method("__trunc__", &[], vm)
         }
 
         #[pymethod]
         fn __floor__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__floor__", &[], vm)
+            zelf.base.call_method("__floor__", &[], vm)
         }
 
         #[pymethod]
         fn __ceil__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__ceil__", &[], vm)
+            zelf.base.call_method("__ceil__", &[], vm)
         }
 
         #[pymethod]
         fn __fspath__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__fspath__", &[], vm)
+            zelf.base.call_method("__fspath__", &[], vm)
         }
 
         #[pymethod]
         fn __enter__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.call_method("__enter__", &[], vm)
+            zelf.base.call_method("__enter__", &[], vm)
         }
 
         #[pymethod]
         fn __exit__(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let args: Vec<&PyObject> = args.args.iter().map(|arg| &**arg).collect();
-            zelf.call_method("__exit__", &args, vm)
+            zelf.base.call_method("__exit__", &args, vm)
         }
     }
 
@@ -217,7 +246,7 @@ pub(crate) mod pyo3_ref {
         type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            zelf.base.call(args, vm)
+            zelf.base.base.call(args, vm)
         }
     }
 
@@ -252,9 +281,10 @@ pub(crate) mod pyo3_ref {
         }
     }
 
-    impl Representable for Pyo3Ref {
+    impl Representable for Pyo3Proxy {
         fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            zelf.apply(vm, |obj| Ok(run_cpython(vm, || obj.repr())?.into_any()))?
+            zelf.base
+                .apply(vm, |obj| Ok(run_cpython(vm, || obj.repr())?.into_any()))?
                 .downcast::<PyStr>()
                 .map_err(|_| vm.new_type_error("__repr__ returned non-string"))
         }
@@ -264,7 +294,7 @@ pub(crate) mod pyo3_ref {
         }
     }
 
-    impl Comparable for Pyo3Ref {
+    impl Comparable for Pyo3Proxy {
         fn slot_richcompare(
             zelf: &PyObject,
             other: &PyObject,
@@ -283,11 +313,12 @@ pub(crate) mod pyo3_ref {
                 PyComparisonOp::Ge => CompareOp::Ge,
             };
             // Rich comparisons may return anything, e.g. a numpy array.
-            zelf.apply(vm, |obj| {
-                let other = to_cpython(obj.py(), other, vm)?;
-                run_cpython(vm, || obj.rich_compare(other, op))
-            })
-            .map(Either::A)
+            zelf.base
+                .apply(vm, |obj| {
+                    let other = to_cpython(obj.py(), other, vm)?;
+                    run_cpython(vm, || obj.rich_compare(other, op))
+                })
+                .map(Either::A)
         }
 
         fn cmp(
@@ -300,22 +331,26 @@ pub(crate) mod pyo3_ref {
         }
     }
 
-    impl Hashable for Pyo3Ref {
+    impl Hashable for Pyo3Proxy {
         fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-            with_gil(vm, |py| run_cpython(vm, || zelf.py_obj.bind(py).hash())).map(|h| h as PyHash)
+            with_gil(vm, |py| {
+                run_cpython(vm, || zelf.base.py_obj.bind(py).hash())
+            })
+            .map(|h| h as PyHash)
         }
     }
 
-    impl Iterable for Pyo3Ref {
+    impl Iterable for Pyo3Proxy {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.apply(vm, |obj| Ok(run_cpython(vm, || obj.try_iter())?.into_any()))
+            zelf.base
+                .apply(vm, |obj| Ok(run_cpython(vm, || obj.try_iter())?.into_any()))
         }
     }
 
-    impl IterNext for Pyo3Ref {
+    impl IterNext for Pyo3Proxy {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             with_gil(vm, |py| {
-                let obj = zelf.py_obj.bind(py);
+                let obj = zelf.base.py_obj.bind(py);
                 let Ok(iterator) = obj.cast::<PyIterator>() else {
                     let name = obj
                         .get_type()
@@ -331,7 +366,7 @@ pub(crate) mod pyo3_ref {
         }
     }
 
-    impl GetDescriptor for Pyo3Ref {
+    impl GetDescriptor for Pyo3Proxy {
         fn descr_get(
             zelf: &PyObject,
             obj: Option<&PyObject>,
@@ -340,7 +375,7 @@ pub(crate) mod pyo3_ref {
         ) -> PyResult {
             let zelf_ref = Self::_as_pyref(zelf, vm)?;
             with_gil(vm, |py| {
-                let descr = zelf_ref.py_obj.bind(py);
+                let descr = zelf_ref.base.py_obj.bind(py);
                 // The descriptor protocol looks `__get__` up on the type.
                 let Ok(get) = descr.get_type().getattr(pyo3::intern!(py, "__get__")) else {
                     return Ok(zelf.to_owned());
@@ -359,10 +394,10 @@ pub(crate) mod pyo3_ref {
         }
     }
 
-    impl AsBuffer for Pyo3Ref {
+    impl AsBuffer for Pyo3Proxy {
         fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let (export, desc) = with_gil(vm, |py| {
-                run_cpython(vm, || CPythonBuffer::get(zelf.py_obj.bind(py)))
+                run_cpython(vm, || CPythonBuffer::get(zelf.base.py_obj.bind(py)))
             })?;
             Ok(PyBuffer::new(
                 export.into_ref(&vm.ctx).into(),
@@ -471,10 +506,12 @@ pub(crate) mod pyo3_ref {
                 .zip(&strides)
                 .map(|(&shape, &stride)| (shape, stride, 0))
                 .collect();
-            // The memory the elements span; strides may be negative.
+            // The memory the elements span; strides may be negative. A
+            // scalar spans the whole buffer, which may exceed its itemsize
+            // (a resized ctypes object).
             let (mut start, mut end) = (0, itemsize as isize);
-            if view.len == 0 {
-                end = 0;
+            if view.len == 0 || dim_desc.is_empty() {
+                end = view.len;
             } else {
                 for &(shape, stride, _) in &dim_desc {
                     let extent = stride * (shape as isize - 1);
@@ -641,7 +678,7 @@ pub(crate) mod pyo3_ref {
         };
     }
 
-    impl AsNumber for Pyo3Ref {
+    impl AsNumber for Pyo3Proxy {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: LazyLock<PyNumberMethods> = LazyLock::new(|| PyNumberMethods {
                 add: binary_slot!(operator "add", "add"),
@@ -730,7 +767,7 @@ pub(crate) mod pyo3_ref {
         })
     }
 
-    impl AsSequence for Pyo3Ref {
+    impl AsSequence for Pyo3Proxy {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 length: atomic_func!(|seq, vm| len(proxy_of(seq.obj, vm)?, vm)),
@@ -758,7 +795,7 @@ pub(crate) mod pyo3_ref {
         }
     }
 
-    impl AsMapping for Pyo3Ref {
+    impl AsMapping for Pyo3Proxy {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
                 length: atomic_func!(|mapping, vm| len(proxy_of(mapping.obj, vm)?, vm)),
@@ -774,5 +811,48 @@ pub(crate) mod pyo3_ref {
             });
             &AS_MAPPING
         }
+    }
+
+    /// `__call__` installed on wrappers that define it.
+    ///
+    /// The slot wrapper looks this method up and calls it. Calling the
+    /// mirrored descriptor instead would enter the same slot again.
+    pub(crate) fn call_method(vm: &VirtualMachine) -> PyObjectRef {
+        const DEF: PyMethodDef =
+            PyMethodDef::new_const("__call__", proxy_call, PyMethodFlags::METHOD, ItemDoc::NONE);
+        DEF.build_method(&vm.ctx, Pyo3Ref::static_type()).into()
+    }
+
+    fn proxy_call(zelf: &Py<Pyo3Ref>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        zelf.call(args, vm)
+    }
+
+    /// `__buffer__` installed on wrappers that define the buffer protocol.
+    ///
+    /// Returns a real memoryview: the slot wrapper requires one, and the
+    /// acquisition is released by [`CPythonBuffer`]'s destructor.
+    pub(crate) fn buffer_method(vm: &VirtualMachine) -> PyObjectRef {
+        const DEF: PyMethodDef = PyMethodDef::new_const(
+            "__buffer__",
+            proxy_buffer,
+            PyMethodFlags::METHOD,
+            ItemDoc::NONE,
+        );
+        DEF.build_method(&vm.ctx, Pyo3Ref::static_type()).into()
+    }
+
+    fn proxy_buffer(zelf: &Py<Pyo3Ref>, _flags: i32, vm: &VirtualMachine) -> PyResult {
+        with_gil(vm, |py| memoryview_from_cpython(zelf.py_obj.bind(py), vm))
+    }
+
+    /// A RustPython memoryview over the same memory `obj` exports.
+    pub(crate) fn memoryview_from_cpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
+        let (export, desc) = run_cpython(vm, || CPythonBuffer::get(obj))?;
+        let buffer = PyBuffer::new(
+            export.into_ref(&vm.ctx).into(),
+            desc,
+            &CPYTHON_BUFFER_METHODS,
+        );
+        Ok(PyMemoryView::from_buffer(buffer, vm)?.into_pyobject(vm))
     }
 }
