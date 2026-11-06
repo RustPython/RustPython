@@ -16,8 +16,22 @@ impl PathConverter {
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<OsPathOrFd<'fd>> {
+        self.try_path_or_fd_allow_invalid(obj, vm)?.ok_or_else(|| {
+            // Preserve the usual EBADF result for the -1 descriptor.
+            unsafe { crt_fd::Borrowed::try_borrow_raw(-1) }
+                .expect_err("-1 is not a valid borrowed descriptor")
+                .into_pyexception(vm)
+        })
+    }
+
+    /// Convert an invalid -1 descriptor to None for path predicates.
+    pub(crate) fn try_path_or_fd_allow_invalid<'fd>(
+        &self,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<OsPathOrFd<'fd>>> {
         let obj = match self.try_match_str_bytes(obj, vm)? {
-            Ok(path) => return Ok(OsPathOrFd::Path(path)),
+            Ok(path) => return Ok(Some(OsPathOrFd::Path(path))),
             Err(obj) => obj,
         };
 
@@ -25,14 +39,15 @@ impl PathConverter {
             return fd;
         }
 
-        self.try_pathlike(obj, true, vm).map(OsPathOrFd::Path)
+        self.try_pathlike(obj, true, vm)
+            .map(|path| Some(OsPathOrFd::Path(path)))
     }
 
     fn try_index_as_fd<'fd>(
         &self,
         obj: &PyObjectRef,
         vm: &VirtualMachine,
-    ) -> Option<PyResult<OsPathOrFd<'fd>>> {
+    ) -> Option<PyResult<Option<OsPathOrFd<'fd>>>> {
         let int = obj.try_index_opt(vm)?;
         Some((|| {
             if obj
@@ -47,8 +62,11 @@ impl PathConverter {
                 )?;
             }
             let fd = int?.try_to_primitive(vm)?;
+            if fd == -1 {
+                return Ok(None);
+            }
             unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
-                .map(OsPathOrFd::Fd)
+                .map(|fd| Some(OsPathOrFd::Fd(fd)))
                 .map_err(|e| e.into_pyexception(vm))
         })())
     }
