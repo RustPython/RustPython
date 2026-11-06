@@ -2701,6 +2701,7 @@ fn class_internal_doc(
                     ::rustpython_vm::function::SigArg {
                         name: "",
                         params: CHOSEN,
+                        binding_params: CHOSEN,
                     },
                 ];
                 const BASE: ::rustpython_vm::function::ItemDoc =

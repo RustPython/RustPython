@@ -12,6 +12,7 @@ import hashlib
 import itertools
 import math
 import operator
+import sys
 import typing
 import weakref
 
@@ -287,6 +288,43 @@ def test_required_keyword_only_is_reported_before_conversion():
     )
 
 
+def test_clinic_checks_all_arguments_before_conversion():
+    class FailingFloat:
+        def __float__(self):
+            raise RuntimeError
+
+    check(
+        TypeError,
+        "isclose() missing required argument 'b' (pos 2)",
+        math.isclose,
+        FailingFloat(),
+        a=1,
+    )
+    check(
+        TypeError,
+        "isclose() got an unexpected keyword argument 'unexpected'",
+        math.isclose,
+        FailingFloat(),
+        1,
+        unexpected=1,
+    )
+    check(
+        TypeError,
+        "compress() takes at most 2 arguments (3 given)",
+        itertools.compress,
+        TestFailingIter(),
+        [],
+        unexpected=1,
+    )
+    check(
+        TypeError,
+        "sort() got an unexpected keyword argument 'unexpected'",
+        [].sort,
+        reverse=FailingBool(),
+        unexpected=1,
+    )
+
+
 def test_legacy_parsers_convert_before_a_missing_argument():
     def f():
         pass
@@ -339,6 +377,52 @@ def test_legacy_parsers_convert_before_a_missing_argument():
         _json.make_encoder(None, None, None, None, ",", ",", FailingBool())
 
 
+def test_custom_parsers_preserve_their_conversion_boundaries():
+    # The reader starts iteration before its separate dialect parser runs.
+    with assert_raises(RuntimeError):
+        csv.reader(TestFailingIter(), "excel", dialect="excel")
+    with assert_raises(RuntimeError):
+        csv.reader(TestFailingIter(), unexpected=1)
+    check(
+        TypeError,
+        "argument for function given by name ('dialect') and position (1)",
+        csv.reader,
+        [],
+        "excel",
+        dialect="excel",
+    )
+
+    try:
+        import _thread
+    except ImportError:
+        pass
+    else:
+        if "_thread" in sys.builtin_module_names:
+            # This legacy parser converts daemon before rejecting unknown names.
+            with assert_raises(RuntimeError):
+                _thread.start_joinable_thread(None, daemon=FailingBool(), unexpected=1)
+        else:
+            # The no-thread fallback is a Python function, not a native parser.
+            check(
+                TypeError,
+                "start_joinable_thread() got an unexpected keyword argument 'unexpected'",
+                _thread.start_joinable_thread,
+                None,
+                daemon=FailingBool(),
+                unexpected=1,
+            )
+
+    # Native dispatch must allow the custom parser to choose its diagnostic.
+    check(
+        TypeError,
+        "__set_name__() takes no keyword arguments",
+        property().__set_name__,
+        object,
+        "name",
+        unexpected=1,
+    )
+
+
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
@@ -352,4 +436,6 @@ test_bad_argument_type()
 test_too_many_arguments_are_counted_before_any_is_converted()
 test_a_missing_argument_is_reported_before_any_is_converted()
 test_required_keyword_only_is_reported_before_conversion()
+test_clinic_checks_all_arguments_before_conversion()
 test_legacy_parsers_convert_before_a_missing_argument()
+test_custom_parsers_preserve_their_conversion_boundaries()

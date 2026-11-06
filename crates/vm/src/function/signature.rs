@@ -13,7 +13,8 @@ pub enum ParamKind {
     VarPositional,
     VarKeyword,
     /// Parameters contributed by a nested [`FromArgs`] type.
-    /// `None` contributes nothing.
+    /// `None` contributes nothing to display signatures. In binding metadata,
+    /// it explicitly delegates validation to a custom parser.
     Flatten(Option<&'static [Param]>),
 }
 
@@ -104,7 +105,12 @@ impl Param {
 pub struct SigArg {
     pub name: &'static str,
     pub params: Option<&'static [Param]>,
+    /// Actual accepted arguments, independent of the displayed signature.
+    /// `None` leaves dispatch permissive so a custom parser owns validation.
+    pub binding_params: Option<&'static [Param]>,
 }
+
+const SCALAR_PARAMS: &[Param] = &[Param::positional_only("")];
 
 impl SigArg {
     #[must_use]
@@ -112,13 +118,18 @@ impl SigArg {
         Self {
             name,
             params: T::PARAMS,
+            binding_params: T::BINDING_PARAMS,
         }
     }
 
     /// `$self` / `$type` receiver marker. Renders as one positional-only parameter.
     #[must_use]
     pub const fn marker(name: &'static str) -> Self {
-        Self { name, params: None }
+        Self {
+            name,
+            params: None,
+            binding_params: Some(SCALAR_PARAMS),
+        }
     }
 
     /// Parameters supplied by the argument a method binds as its receiver.
@@ -131,13 +142,14 @@ impl SigArg {
                 Some(ps) => ps,
                 None => &[],
             }),
+            binding_params: T::BINDING_PARAMS,
         }
     }
 }
 
 /// Calling-convention bits from each argument's binding metadata.
 ///
-/// Inspect arguments separately: a tuple's `PARAMS` can erase leaf metadata.
+/// Display signatures must not prevent a custom parser from receiving a call.
 /// With `receiver`, the first argument is the bound `$self` / `$type`; it
 /// contributes only the parameters its type supplies.
 /// A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
@@ -148,10 +160,19 @@ pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super:
     let mut fixed = 0usize;
     let mut i = 0;
     while i < args.len() {
-        match args[i].params {
+        match args[i].binding_params {
+            Some(params)
+                if receiver
+                    && i == 0
+                    && args[i].params.is_none()
+                    && params.len() == 1
+                    && matches!(params[0].kind, ParamKind::PositionalOnly)
+                    && params[0].default.is_none() => {}
             Some(params) => count_params(params, &mut has_keywords, &mut variable, &mut fixed),
-            None if receiver && i == 0 => {}
-            None => fixed += 1,
+            None => {
+                has_keywords = true;
+                variable = true;
+            }
         }
         i += 1;
     }
@@ -206,7 +227,10 @@ const fn count_param(
             }
         }
         ParamKind::Flatten(Some(inner)) => count_params(inner, has_keywords, variable, fixed),
-        ParamKind::Flatten(None) => {}
+        ParamKind::Flatten(None) => {
+            *has_keywords = true;
+            *variable = true;
+        }
     }
 }
 
@@ -791,7 +815,14 @@ mod tests {
     #[test]
     fn native_call_flags_from_params() {
         const fn arg(params: Option<&'static [Param]>) -> SigArg {
-            SigArg { name: "", params }
+            SigArg {
+                name: "",
+                params,
+                binding_params: match params {
+                    Some(params) => Some(params),
+                    None => Some(super::SCALAR_PARAMS),
+                },
+            }
         }
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
         assert_eq!(native_call_flags(&[], false), PyMethodFlags::NOARGS);
@@ -837,5 +868,41 @@ mod tests {
         )];
         const FLAT: &[Param] = &[Param::flatten(Some(INNER))];
         assert_eq!(native_call_flags(&[arg(Some(FLAT))], false), keywords);
+    }
+
+    #[test]
+    fn dispatch_uses_binding_overrides_without_changing_display_signatures() {
+        const ARGS: &[SigArg] = &[SigArg {
+            name: "ignored",
+            params: Some(&[]),
+            binding_params: Some(&[Param::var_positional("args"), Param::var_keyword("kwargs")]),
+        }];
+        let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
+        assert_eq!(native_call_flags(ARGS, false), keywords);
+        assert_eq!(native_call_flags(ARGS, true), keywords);
+        const N: usize = super::signature_prefix_len("example", ARGS);
+        const TEXT: [u8; N] = super::signature_prefix_bytes::<N>("example", ARGS);
+        assert_eq!(&TEXT, b"example()\n--\n\n");
+    }
+
+    #[test]
+    fn explicit_custom_parsers_receive_keywords_even_when_nested() {
+        const CUSTOM: SigArg = SigArg {
+            name: "custom",
+            params: Some(&[Param::positional_only("display")]),
+            binding_params: None,
+        };
+        const NESTED: SigArg = SigArg {
+            name: "nested",
+            params: Some(&[]),
+            binding_params: Some(&[Param::flatten(None)]),
+        };
+        let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
+        assert_eq!(native_call_flags(&[CUSTOM], false), keywords);
+        assert_eq!(
+            native_call_flags(&[SigArg::marker("$self"), CUSTOM], true),
+            keywords,
+        );
+        assert_eq!(native_call_flags(&[NESTED], false), keywords);
     }
 }

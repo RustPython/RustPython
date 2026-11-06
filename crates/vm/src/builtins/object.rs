@@ -29,6 +29,9 @@ impl PyPayload for PyBaseObject {
 pub struct ObjectArgs;
 
 impl FromArgs for ObjectArgs {
+    // The constructor slots decide acceptance from the class's __new__/__init__.
+    const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
     const PARAMS: Option<&'static [Param]> = Some(&[]);
 
     fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {

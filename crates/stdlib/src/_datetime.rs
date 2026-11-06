@@ -2163,6 +2163,9 @@ mod _datetime {
     }
 
     impl FromArgs for ReplaceChanges {
+        // Forward every argument to replace(), which owns validation and diagnostics.
+        const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
         const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword("changes")]);
 
         fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {

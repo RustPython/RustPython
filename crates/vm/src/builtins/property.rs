@@ -18,12 +18,20 @@ struct SetNameArgs {
 }
 
 impl FromArgs for SetNameArgs {
+    // CPython uses a bespoke positional-count error in property_set_name.
+    const BINDING_PARAMS: Option<&'static [Param]> = None;
+
     const PARAMS: Option<&'static [Param]> = Some(&[
         Param::positional_only("owner"),
         Param::positional_only("name"),
     ]);
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        if !args.kwargs.is_empty() {
+            return Err(vm
+                .new_type_error("__set_name__() takes no keyword arguments")
+                .into());
+        }
         let [owner, name]: [PyObjectRef; 2] =
             core::mem::take(&mut args.args)
                 .try_into()

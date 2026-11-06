@@ -8,7 +8,7 @@ pub(crate) mod typevar {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
-        function::{FuncArgs, OptionalArg, PosArgs, PyComparisonValue},
+        function::{FromArgs, FuncArgs, OptionalArg, PosArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
@@ -18,9 +18,11 @@ pub(crate) mod typevar {
     // checking the name or invoking any variance flag's __bool__ method.
     // Keep unused raw fields alive in slot_new through __module__ setup too.
     #[derive(FromArgs)]
-    struct TypeParameterArgs {
+    struct TypeParameterArgs<Constraints: FromArgs = ()> {
         #[pyarg(any)]
         name: PyObjectRef,
+        #[pyarg(flatten)]
+        constraints: Constraints,
         #[pyarg(named, optional)]
         bound: OptionalArg,
         #[pyarg(named, optional)]
@@ -33,13 +35,7 @@ pub(crate) mod typevar {
         infer_variance: OptionalArg,
     }
 
-    #[derive(FromArgs)]
-    struct TypeVarArgs {
-        #[pyarg(flatten)]
-        parameter: TypeParameterArgs,
-        #[pyarg(flatten)]
-        constraints: PosArgs,
-    }
+    type TypeVarArgs = TypeParameterArgs<PosArgs>;
 
     struct Variance {
         covariant: bool,
@@ -47,7 +43,7 @@ pub(crate) mod typevar {
         infer_variance: bool,
     }
 
-    impl TypeParameterArgs {
+    impl<Constraints: FromArgs> TypeParameterArgs<Constraints> {
         fn variance(&self, constructor: &str, vm: &VirtualMachine) -> PyResult<Variance> {
             if !self.name.downcastable::<PyStr>() {
                 return Err(vm.new_type_error(format!(
@@ -366,15 +362,13 @@ pub(crate) mod typevar {
         type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let TypeVarArgs {
-                parameter,
-                constraints,
-            } = args.bind_for(vm, "typevar")?;
+            let parameter: TypeVarArgs = args.bind_for(vm, "typevar")?;
             let Variance {
                 covariant,
                 contravariant,
                 infer_variance,
             } = parameter.variance("typevar", vm)?;
+            let constraints = parameter.constraints;
 
             // An explicit None is the same as an omitted bound. Check a real
             // bound before reporting constraint count or bound conflicts.

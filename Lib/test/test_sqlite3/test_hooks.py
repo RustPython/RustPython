@@ -285,7 +285,6 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
                 create table foo(a, b)
                 """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_progress_handler
     def test_set_progress_handler_keyword_args(self):
         with self.assertRaisesRegex(TypeError,
                 'takes at least 1 positional argument'):

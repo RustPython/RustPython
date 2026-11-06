@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::meta::ParseNestedMeta;
 use syn::{
@@ -576,11 +576,19 @@ fn signature_default(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> 
 }
 
 fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
+    param_token_with(field, attr, &format_ident!("PARAMS"))
+}
+
+fn param_token_with(
+    field: &Field,
+    attr: &ArgAttribute,
+    metadata: &syn::Ident,
+) -> Result<TokenStream> {
     if let ParameterKind::Flatten = attr.kind {
         let ty = &field.ty;
         return Ok(quote! {
             ::rustpython_vm::function::Param::flatten(
-                <#ty as ::rustpython_vm::function::FromArgs>::PARAMS
+                <#ty as ::rustpython_vm::function::FromArgs>::#metadata
             )
         });
     }
@@ -814,6 +822,29 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
 
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let binding_params = if legacy.is_some() {
+        quote! {
+            const BINDING_PARAMS: Option<&'static [::rustpython_vm::function::Param]> = None;
+        }
+    } else if flattened.is_empty() {
+        quote! {}
+    } else {
+        let params = struct_fields
+            .iter()
+            .filter(|field| !is_phantom(field))
+            .map(|field| {
+                param_token_with(
+                    field,
+                    &ArgAttribute::try_from(field)?,
+                    &format_ident!("BINDING_PARAMS"),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        quote! {
+            const BINDING_PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
+                Some(&[#(#params),*]);
+        }
+    };
     let check_before_convert = if legacy.is_some() {
         quote! {
             fn check_before_convert(
@@ -856,6 +887,8 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
+
+            #binding_params
 
             const HAS_REQUIRED_KEYWORD_ONLY: bool =
                 ::rustpython_vm::function::params_have_required_keyword_only(Self::PARAMS) #(
