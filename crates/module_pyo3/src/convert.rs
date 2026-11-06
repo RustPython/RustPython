@@ -25,16 +25,28 @@
 //!   protocol the object lacks is not added;
 //! - anything else is pickled and unpickled in CPython when possible (so a
 //!   `datetime` arrives as a CPython `datetime`), and proxied otherwise.
+//!
+//! A `str` or `bytes` converted while calling into CPython is copied once
+//! for that call: the same RustPython object passed twice arrives as one
+//! object. The callee may keep a raw pointer into that copy and not own
+//! the copy. The copies then live as long as that call's result: a weak
+//! reference drops them once the result is gone, and only after its
+//! destructor has returned. A result that cannot be weak-referenced leaves
+//! the copies with the proxy of the result, or drops them when a non-proxy
+//! result is converted back. Nothing keeps a copy after the result that
+//! needed it is gone.
 
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
 use pyo3::prelude::*;
 use pyo3::types::{
-    PyBool, PyByteArray, PyBytes, PyComplex, PyDict, PyFloat, PyFrozenSet, PyInt, PyList,
-    PyMemoryView, PySet, PyString, PyTuple, PyType as CPythonType,
+    PyBool, PyByteArray, PyBytes, PyCFunction, PyComplex, PyDict, PyFloat, PyFrozenSet, PyInt,
+    PyList, PyMemoryView, PySet, PyString, PyTuple, PyType as CPythonType, PyWeakrefReference,
 };
 use rustpython_vm::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
@@ -75,8 +87,9 @@ pub(crate) fn to_cpython<'py>(
     })? {
         return Ok(value);
     }
+    // A strided view is shared. An indirect layout is not described from here.
     if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj)
-        && buffer.desc.is_contiguous()
+        && !buffer.desc.has_suboffsets()
     {
         return RustPythonBuffer::memoryview(py, obj.to_owned(), buffer).to_pyresult(vm);
     }
@@ -90,8 +103,7 @@ pub(crate) fn to_cpython<'py>(
         .unwrap_or_else(|| RustPythonObject::wrap(py, obj.to_owned(), vm)))
 }
 
-/// Convert a CPython object for use in RustPython.
-pub(crate) fn to_rustpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
+fn to_rustpython_inner(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
     if let Some(original) = unwrap_rustpython_object(obj) {
         return Ok(original);
     }
@@ -103,8 +115,17 @@ pub(crate) fn to_rustpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyRe
     }
     // A memoryview has to be one: `bytes` and the buffer slot require a real
     // memoryview back from `__buffer__`, and this class cannot carry the
-    // proxy payload.
+    // proxy payload. When the exporter is ours, `.obj` is the RustPython
+    // object whose memory was shared, not the exporter itself.
     if obj.cast::<PyMemoryView>().is_ok() {
+        if let Some(owner) = RustPythonBuffer::memoryview_owner(obj)
+            && let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &owner)
+        {
+            return Ok(rustpython_vm::PyPayload::into_pyobject(
+                rustpython_vm::builtins::PyMemoryView::from_buffer(buffer, vm)?,
+                vm,
+            ));
+        }
         return memoryview_from_cpython(obj, vm);
     }
     instance_to_rustpython(obj, vm)
@@ -117,86 +138,217 @@ pub(crate) fn call_cpython<'py>(
     vm: &VirtualMachine,
 ) -> PyResult<Bound<'py, PyAny>> {
     let py = callable.py();
-    // One RustPython `str` or `bytes` passed twice (ctypes `cast(obj, obj, typ)`)
-    // must arrive as one object. `cast` then keeps a pointer into that copy and
-    // does not retain a non-ctypes source, so the copy is anchored on the result.
+    // One RustPython object converted twice in this call is one object on
+    // the far side. The copies stay alive as long as `result` does.
     with_value_memo(|| {
         let positional = items_to_cpython(py, &args.args, vm)?;
         let result = call_cpython_with(callable, positional, &args.kwargs, vm)?;
-        anchor_borrowed_buffers(py, &result);
+        retain_call_copies(&result, vm)?;
         Ok(result)
     })
 }
 
-/// Keep memoized `str` and `bytes` copies alive on a ctypes result.
-///
-/// The result (and anything that uses it as `_b_base_`) may point into those
-/// copies. Stashing them on the instance keeps the memory valid after this
-/// call returns; the attribute is absent when the call copied no such value.
-fn anchor_borrowed_buffers(py: Python<'_>, result: &Bound<'_, PyAny>) {
-    let buffers = VALUE_MEMO.with(|slot| {
-        let map = slot.borrow();
-        let Some(map) = map.as_ref() else {
-            return Vec::new();
-        };
-        map.values().map(|value| value.clone_ref(py)).collect()
-    });
-    if buffers.is_empty() {
-        return;
+/// Convert a CPython object for use in RustPython.
+pub(crate) fn to_rustpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
+    // Copies stashed for `obj` are claimed by its proxy. Anything left over
+    // belongs to a result that is not a proxy and is released with this call.
+    let _release = ReleaseUnclaimed(obj.as_ptr() as usize);
+    to_rustpython_inner(obj, vm)
+}
+
+struct ReleaseUnclaimed(usize);
+impl Drop for ReleaseUnclaimed {
+    fn drop(&mut self) {
+        drop(take_pending_copies(self.0));
     }
-    // `_objects` is the ctypes member. Other results do not borrow this memory.
-    if !result.hasattr("_objects").unwrap_or(false) {
-        return;
-    }
-    let Ok(kept) = PyTuple::new(py, buffers) else {
-        return;
-    };
-    let _ = result.setattr("_pyo3_keepalive", kept);
 }
 
 std::thread_local! {
-    static VALUE_MEMO: RefCell<Option<HashMap<usize, pyo3::Py<PyAny>>>> = const { RefCell::new(None) };
+    static VALUE_MEMO: RefCell<Vec<HashMap<usize, pyo3::Py<PyAny>>>> =
+        const { RefCell::new(Vec::new()) };
+    /// Copies from a call, keyed by the result object, until its proxy claims them.
+    static PENDING_COPIES: RefCell<HashMap<usize, Vec<pyo3::Py<PyAny>>>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Share immutable values for the duration of one call.
 fn with_value_memo<R>(f: impl FnOnce() -> R) -> R {
+    VALUE_MEMO.with(|slot| slot.borrow_mut().push(HashMap::new()));
     struct Guard;
     impl Drop for Guard {
         fn drop(&mut self) {
             VALUE_MEMO.with(|slot| {
-                slot.borrow_mut().take();
+                slot.borrow_mut().pop();
             });
         }
     }
-    let guard = VALUE_MEMO.with(|slot| {
-        if slot.borrow().is_some() {
-            None
-        } else {
-            *slot.borrow_mut() = Some(HashMap::new());
-            Some(Guard)
-        }
-    });
-    let result = f();
-    drop(guard);
-    result
+    let _guard = Guard;
+    f()
 }
 
 fn cached_value<'py>(py: Python<'py>, obj: &PyObject) -> Option<Bound<'py, PyAny>> {
     VALUE_MEMO.with(|slot| {
-        let map = slot.borrow();
-        let cached = map.as_ref()?.get(&(obj as *const PyObject as usize))?;
+        let stack = slot.borrow();
+        let cached = stack.last()?.get(&(obj as *const PyObject as usize))?;
         Some(cached.bind(py).clone())
     })
 }
 
 fn remember_value(obj: &PyObject, value: &Bound<'_, PyAny>) {
     VALUE_MEMO.with(|slot| {
-        let mut map = slot.borrow_mut();
-        let Some(map) = map.as_mut() else {
+        let mut stack = slot.borrow_mut();
+        let Some(map) = stack.last_mut() else {
             return;
         };
         map.insert(obj as *const PyObject as usize, value.clone().unbind());
     });
+}
+
+/// Copies kept alive for one call result, plus the weak reference that
+/// drops them when that result is released.
+struct AnchoredCopies {
+    copies: Vec<pyo3::Py<PyAny>>,
+    weakref: Option<pyo3::Py<PyAny>>,
+}
+
+impl Drop for AnchoredCopies {
+    fn drop(&mut self) {
+        // The copies first: the weak reference's callback has already run,
+        // and dropping it must not be what releases the bytes it guarded.
+        let copies = core::mem::take(&mut self.copies);
+        let weakref = self.weakref.take();
+        drop(copies);
+        drop(weakref);
+    }
+}
+
+fn anchored_copies() -> std::sync::MutexGuard<'static, HashMap<usize, AnchoredCopies>> {
+    static ANCHORED: LazyLock<Mutex<HashMap<usize, AnchoredCopies>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    ANCHORED.lock().unwrap_or_else(|err| err.into_inner())
+}
+
+std::thread_local! {
+    /// Copies whose result has started destruction. Dropped only from
+    /// [`flush_deferred_drops`], after that destructor has returned.
+    static DEFERRED_DROPS: RefCell<Vec<AnchoredCopies>> = const { RefCell::new(Vec::new()) };
+}
+
+fn defer_anchored(anchored: AnchoredCopies) {
+    DEFERRED_DROPS.with(|slot| slot.borrow_mut().push(anchored));
+}
+
+/// Drop copies queued by a weak-reference callback.
+///
+/// The callback runs at the start of the result's destructor, so the copies
+/// have to outlive the rest of that destructor. Called with the GIL held.
+pub(crate) fn flush_deferred_drops() {
+    loop {
+        let batch = DEFERRED_DROPS.with(|slot| {
+            let mut queue = slot.borrow_mut();
+            if queue.is_empty() {
+                return Vec::new();
+            }
+            core::mem::take(&mut *queue)
+        });
+        if batch.is_empty() {
+            break;
+        }
+        drop(batch);
+    }
+}
+
+fn release_anchored(id: usize) {
+    let anchored = {
+        let mut map = anchored_copies();
+        map.remove(&id)
+    };
+    if let Some(anchored) = anchored {
+        defer_anchored(anchored);
+    }
+}
+
+enum Anchor {
+    Kept,
+    /// `result` cannot be weak-referenced. The caller keeps `copies`.
+    Unsupported(Vec<pyo3::Py<PyAny>>),
+    Error(pyo3::PyErr),
+}
+
+/// Keep `copies` alive until `result` is released.
+///
+/// The weak reference itself is held here: the referent does not own it, so
+/// dropping it would unregister the callback. `copies` does not include
+/// `result`, or the result could never be released.
+fn anchor_to_result(result: &Bound<'_, PyAny>, copies: Vec<pyo3::Py<PyAny>>) -> Anchor {
+    static NEXT_ANCHOR: AtomicUsize = AtomicUsize::new(1);
+    let id = NEXT_ANCHOR.fetch_add(1, Ordering::Relaxed);
+    let py = result.py();
+    let callback = match PyCFunction::new_closure(
+        py,
+        None,
+        None,
+        move |_args: &Bound<'_, PyTuple>, _kwargs: Option<&Bound<'_, PyDict>>| {
+            release_anchored(id);
+            Ok::<(), pyo3::PyErr>(())
+        },
+    ) {
+        Ok(callback) => callback,
+        Err(err) => return Anchor::Error(err),
+    };
+    match PyWeakrefReference::new_with(result, &callback) {
+        Ok(weakref) => {
+            anchored_copies().insert(
+                id,
+                AnchoredCopies {
+                    copies,
+                    weakref: Some(weakref.into_any().unbind()),
+                },
+            );
+            Anchor::Kept
+        }
+        Err(err) if err.is_instance_of::<pyo3::exceptions::PyTypeError>(py) => {
+            Anchor::Unsupported(copies)
+        }
+        Err(err) => Anchor::Error(err),
+    }
+}
+
+/// Keep this call's copies alive as long as `result` may hold a pointer into them.
+fn retain_call_copies(result: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult<()> {
+    let mut copies = VALUE_MEMO.with(|slot| {
+        let mut stack = slot.borrow_mut();
+        let Some(map) = stack.last_mut() else {
+            return Vec::new();
+        };
+        map.drain().map(|(_, value)| value).collect::<Vec<_>>()
+    });
+    let result_ptr = result.as_ptr();
+    copies.retain(|copy| copy.as_ptr() != result_ptr);
+    if copies.is_empty() {
+        return Ok(());
+    }
+    let copies = match anchor_to_result(result, copies) {
+        Anchor::Kept => return Ok(()),
+        Anchor::Unsupported(copies) => copies,
+        Anchor::Error(err) => return Err(err).to_pyresult(vm),
+    };
+    let key = result_ptr as usize;
+    if key == 0 {
+        return Ok(());
+    }
+    PENDING_COPIES.with(|slot| {
+        slot.borrow_mut().entry(key).or_default().extend(copies);
+    });
+    Ok(())
+}
+
+/// Copies a call left for the object at `key`, if its proxy has not taken them.
+pub(crate) fn take_pending_copies(key: usize) -> Vec<pyo3::Py<PyAny>> {
+    if key == 0 {
+        return Vec::new();
+    }
+    PENDING_COPIES.with(|slot| slot.borrow_mut().remove(&key).unwrap_or_default())
 }
 
 fn memoized_immutable<'py>(

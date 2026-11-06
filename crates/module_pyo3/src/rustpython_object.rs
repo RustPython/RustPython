@@ -12,7 +12,9 @@
 //! and `__complex__` exist only on the proxy class of an object that has them.
 
 use alloc::ffi::CString;
-use core::ffi::c_int;
+use core::ffi::{c_char, c_int, c_void};
+use core::ops::Deref;
+use std::sync::Mutex;
 
 use pyo3::exceptions::PyBufferError;
 use pyo3::ffi;
@@ -23,7 +25,7 @@ use rustpython_vm::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::PyStrRef,
     function::{FuncArgs, KwArgs, PySetterValue},
-    protocol::{PyBuffer, PyIter, PyIterReturn},
+    protocol::{BufferFlags, PyBuffer, PyIter, PyIterReturn},
     types::PyComparisonOp,
 };
 
@@ -503,10 +505,97 @@ number_proxy_class!(
     __complex__ => nb_complex
 );
 
+/// One acquisition shared by every view of a [`RustPythonBuffer`].
+struct Exported {
+    buffer: PyBuffer,
+    format: CString,
+    shape: Vec<ffi::Py_ssize_t>,
+    strides: Vec<ffi::Py_ssize_t>,
+}
+
+struct ExportSlot {
+    exported: Option<Exported>,
+    /// Successful `__getbuffer__` calls that have not been released yet.
+    views: usize,
+}
+
+struct ViewParts {
+    buf: *mut c_void,
+    len: ffi::Py_ssize_t,
+    readonly: c_int,
+    itemsize: ffi::Py_ssize_t,
+    format: *mut c_char,
+    ndim: c_int,
+    shape: *mut ffi::Py_ssize_t,
+    strides: *mut ffi::Py_ssize_t,
+}
+
+impl Exported {
+    fn new(buffer: PyBuffer) -> pyo3::PyResult<Self> {
+        let format = CString::new(buffer.desc.format.as_bytes())
+            .map_err(|_| PyBufferError::new_err("buffer format contains a NUL character"))?;
+        let shape = buffer.desc.shape().to_vec();
+        let strides = buffer.desc.strides().to_vec();
+        Ok(Self {
+            buffer,
+            format,
+            shape,
+            strides,
+        })
+    }
+
+    fn view_parts(&self, flags: c_int) -> pyo3::PyResult<ViewParts> {
+        let desc = &self.buffer.desc;
+        if flags & ffi::PyBUF_WRITABLE == ffi::PyBUF_WRITABLE && desc.readonly {
+            return Err(PyBufferError::new_err("buffer is read-only"));
+        }
+        if !desc.is_contiguous() && flags & ffi::PyBUF_STRIDES != ffi::PyBUF_STRIDES {
+            return Err(PyBufferError::new_err("buffer is not contiguous"));
+        }
+        if desc.has_suboffsets() {
+            return Err(PyBufferError::new_err("buffer is not contiguous"));
+        }
+        let offset = desc.offset;
+        // The borrow only pins the bytes for this copy. The acquisition keeps
+        // them fixed for as long as a view stores the pointer.
+        let buf = {
+            let bytes = self.buffer.obj_bytes();
+            bytes.as_ptr().wrapping_offset(offset) as *mut c_void
+        };
+        let format = if flags & ffi::PyBUF_FORMAT == ffi::PyBUF_FORMAT {
+            self.format.as_ptr().cast_mut()
+        } else {
+            core::ptr::null_mut()
+        };
+        let shape = if flags & ffi::PyBUF_ND == ffi::PyBUF_ND {
+            self.shape.as_ptr().cast_mut()
+        } else {
+            core::ptr::null_mut()
+        };
+        let strides = if flags & ffi::PyBUF_STRIDES == ffi::PyBUF_STRIDES {
+            self.strides.as_ptr().cast_mut()
+        } else {
+            core::ptr::null_mut()
+        };
+        Ok(ViewParts {
+            buf,
+            len: desc.len as ffi::Py_ssize_t,
+            readonly: c_int::from(desc.readonly),
+            itemsize: desc.itemsize as ffi::Py_ssize_t,
+            format,
+            ndim: self.shape.len() as c_int,
+            shape,
+            strides,
+        })
+    }
+}
+
 /// Exports the memory of a RustPython buffer to CPython.
 ///
-/// The exporter keeps the RustPython export alive, and CPython keeps the
-/// exporter alive for as long as a view of it exists, so the memory stays put.
+/// One acquisition serves every view. It ends in `__releasebuffer__` when the
+/// last view is released, which is what lets the exporter resize again.
+/// Pointers in a live view address memory that acquisition keeps fixed, and
+/// the view keeps this object alive through `obj`.
 #[cfg_attr(
     feature = "threading",
     pyo3::pyclass(module = "rustpython", name = "buffer", frozen)
@@ -516,36 +605,93 @@ number_proxy_class!(
     pyo3::pyclass(module = "rustpython", name = "buffer", frozen, unsendable)
 )]
 pub(crate) struct RustPythonBuffer {
-    _owner: DropAttached<PyObjectRef>,
-    buffer: DropAttached<PyBuffer>,
-    format: CString,
-    shape: Vec<ffi::Py_ssize_t>,
-    strides: Vec<ffi::Py_ssize_t>,
+    slot: DropAttached<Mutex<ExportSlot>>,
+    owner: DropAttached<PyObjectRef>,
 }
 
 impl RustPythonBuffer {
-    /// A CPython `memoryview` of the contiguous `buffer` exported by `owner`.
+    /// A CPython `memoryview` of `buffer`, exported by `owner`.
     pub(crate) fn memoryview(
         py: Python<'_>,
         owner: PyObjectRef,
         buffer: PyBuffer,
     ) -> pyo3::PyResult<Bound<'_, PyAny>> {
-        let desc = &buffer.desc;
-        let format = CString::new(desc.format.as_bytes())
-            .map_err(|_| PyBufferError::new_err("buffer format contains a NUL character"))?;
-        let shape = desc.shape().to_vec();
-        let strides = desc.strides().to_vec();
         let exporter = Bound::new(
             py,
             Self {
-                _owner: DropAttached::new(owner),
-                buffer: DropAttached::new(buffer),
-                format,
-                shape,
-                strides,
+                slot: DropAttached::new(Mutex::new(ExportSlot {
+                    exported: Some(Exported::new(buffer)?),
+                    views: 0,
+                })),
+                owner: DropAttached::new(owner),
             },
         )?;
         Ok(PyMemoryView::from(exporter.as_any())?.into_any())
+    }
+
+    /// The RustPython object a CPython `memoryview` borrows, when the chain of
+    /// `obj` reaches an exporter created here.
+    pub(crate) fn memoryview_owner(obj: &Bound<'_, PyAny>) -> Option<PyObjectRef> {
+        let mut current = obj.clone();
+        for _ in 0..4 {
+            if let Ok(buffer) = current.cast::<Self>() {
+                return Some(buffer.borrow().owner.deref().clone());
+            }
+            if current.cast::<PyMemoryView>().is_err() {
+                return None;
+            }
+            current = current.getattr(pyo3::intern!(current.py(), "obj")).ok()?;
+            if current.is_none() {
+                return None;
+            }
+        }
+        None
+    }
+
+    fn acquire(py: Python<'_>, owner: PyObjectRef, flags: c_int) -> pyo3::PyResult<Exported> {
+        rustpython_vm::vm::thread::try_with_current_vm(|vm| {
+            vm.attach_for_callback(|| {
+                let flags = BufferFlags::from_bits_truncate(flags as u32);
+                let buffer = PyBuffer::from_object(vm, &owner, flags)
+                    .map_err(|exc| crate::errors::rustpython_exc_to_cpython(py, exc, vm))?;
+                Exported::new(buffer)
+            })
+        })
+        .unwrap_or_else(|| {
+            Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "no RustPython interpreter is running on this thread",
+            ))
+        })
+    }
+
+    /// Install an acquisition when the previous one has been released.
+    fn ensure_exported(slf: &Bound<'_, Self>, flags: c_int) -> pyo3::PyResult<()> {
+        let present = slf
+            .borrow()
+            .slot
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .exported
+            .is_some();
+        if present {
+            return Ok(());
+        }
+        let owner = slf.borrow().owner.deref().clone();
+        let exported = Self::acquire(slf.py(), owner, flags)?;
+        let spare = {
+            let this = slf.borrow();
+            let mut slot = this.slot.lock().unwrap_or_else(|err| err.into_inner());
+            if slot.exported.is_some() {
+                Some(exported)
+            } else {
+                slot.exported = Some(exported);
+                None
+            }
+        };
+        if let Some(spare) = spare {
+            drop(DropAttached::new(spare));
+        }
+        Ok(())
     }
 }
 
@@ -556,47 +702,54 @@ impl RustPythonBuffer {
         view: *mut ffi::Py_buffer,
         flags: c_int,
     ) -> pyo3::PyResult<()> {
-        let this = slf.borrow();
-        let desc = &this.buffer.desc;
-        if flags & ffi::PyBUF_WRITABLE == ffi::PyBUF_WRITABLE && desc.readonly {
-            return Err(PyBufferError::new_err("buffer is read-only"));
+        loop {
+            Self::ensure_exported(&slf, flags)?;
+            let this = slf.borrow();
+            let mut slot = this.slot.lock().unwrap_or_else(|err| err.into_inner());
+            let parts = {
+                let Some(exported) = slot.exported.as_ref() else {
+                    continue;
+                };
+                exported.view_parts(flags)?
+            };
+            slot.views += 1;
+            let obj = slf.clone().into_any().into_ptr();
+            // SAFETY: `view` is the caller's Py_buffer. The pointers address the
+            // acquisition inside `slot`, which stays put until the matching
+            // release takes it out. `obj` keeps this object alive that long.
+            unsafe {
+                (*view).obj = obj;
+                (*view).buf = parts.buf;
+                (*view).len = parts.len;
+                (*view).readonly = parts.readonly;
+                (*view).itemsize = parts.itemsize;
+                (*view).format = parts.format;
+                (*view).ndim = parts.ndim;
+                (*view).shape = parts.shape;
+                (*view).strides = parts.strides;
+                (*view).suboffsets = core::ptr::null_mut();
+                (*view).internal = core::ptr::null_mut();
+            }
+            return Ok(());
         }
-        let data = this
-            .buffer
-            .as_contiguous()
-            .ok_or_else(|| PyBufferError::new_err("buffer is not contiguous"))?;
-        let ptr = data.as_ptr();
-        drop(data);
-
-        // SAFETY: `view` is the caller's Py_buffer to fill. Every pointer stored
-        // in it points into `this`, which the view keeps alive through `obj`.
-        unsafe {
-            (*view).obj = slf.clone().into_any().into_ptr();
-            (*view).buf = ptr as *mut core::ffi::c_void;
-            (*view).len = desc.len as isize;
-            (*view).readonly = c_int::from(desc.readonly);
-            (*view).itemsize = desc.itemsize as isize;
-            (*view).format = if flags & ffi::PyBUF_FORMAT == ffi::PyBUF_FORMAT {
-                this.format.as_ptr().cast_mut()
-            } else {
-                core::ptr::null_mut()
-            };
-            (*view).ndim = this.shape.len() as c_int;
-            (*view).shape = if flags & ffi::PyBUF_ND == ffi::PyBUF_ND {
-                this.shape.as_ptr().cast_mut()
-            } else {
-                core::ptr::null_mut()
-            };
-            (*view).strides = if flags & ffi::PyBUF_STRIDES == ffi::PyBUF_STRIDES {
-                this.strides.as_ptr().cast_mut()
-            } else {
-                core::ptr::null_mut()
-            };
-            (*view).suboffsets = core::ptr::null_mut();
-            (*view).internal = core::ptr::null_mut();
-        }
-        Ok(())
     }
 
-    unsafe fn __releasebuffer__(&self, _view: *mut ffi::Py_buffer) {}
+    unsafe fn __releasebuffer__(&self, _view: *mut ffi::Py_buffer) {
+        let exported = {
+            let mut slot = self.slot.lock().unwrap_or_else(|err| err.into_inner());
+            if slot.views == 0 {
+                return;
+            }
+            slot.views -= 1;
+            if slot.views == 0 {
+                slot.exported.take()
+            } else {
+                None
+            }
+        };
+        // Releasing runs arbitrary Python, so the slot lock is already gone.
+        if let Some(exported) = exported {
+            drop(DropAttached::new(exported));
+        }
+    }
 }
