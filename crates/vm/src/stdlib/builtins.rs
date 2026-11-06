@@ -798,10 +798,7 @@ mod builtins {
 
         // Audit callbacks can replace sys.breakpointhook. Invoke the selected
         // hook, retaining the original arguments until that hook is released.
-        let result = hook.call(args.clone(), vm);
-        drop(hook);
-        drop(args);
-        result
+        hook.call(args.clone(), vm)
     }
 
     #[pyfunction]
