@@ -2,7 +2,8 @@
 
 use super::{FuncArgs, KwArgs, given_by_name_and_position_message};
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyBaseExceptionRef,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::PyBaseExceptionRef,
     common::wtf8::{Wtf8, Wtf8Buf},
 };
 
@@ -68,8 +69,9 @@ impl ArgSpec<'_> {
         })
     }
 
-    /// Bind only keywords while the caller retains ownership of raw arguments.
-    /// This entry point supplies CPython's keyword typo suggestions.
+    /// Bind the keyword portion of a vectorcall whose positional arguments
+    /// are handled separately. The caller keeps ownership of both portions.
+    /// This entry point also supplies CPython's keyword typo suggestions.
     pub(crate) fn parse_keywords(
         &self,
         kwargs: &KwArgs,
@@ -161,13 +163,15 @@ impl ArgSpec<'_> {
                     let mut message =
                         Wtf8Buf::from(format!("{fname}() got an unexpected keyword argument '"));
                     if suggest_keywords {
-                        // Preserve lone surrogates in the error message.
+                        // A keyword may contain a lone surrogate. Preserve it
+                        // in the error rather than formatting it as UTF-8.
                         message.push_wtf8(key);
                     } else {
                         message.push_str(&key.to_string());
                     }
                     message.push_str("'");
-                    // CPython skips suggestions for names that are not UTF-8.
+                    // CPython cannot calculate suggestions for a name that
+                    // does not encode as UTF-8, including lone surrogates.
                     if suggest_keywords && key.as_str().is_ok() {
                         let names: Vec<_> = self
                             .keywords
@@ -294,8 +298,7 @@ impl ArgSlots<'_> {
         let current = if i < nargs {
             Some(self.args[i].clone())
         } else if self.nkwargs > 0 {
-            self.args
-                .kwargs
+            self.kwargs
                 .get(self.spec.keywords[i])
                 .inspect(|_| self.nkwargs -= 1)
                 .cloned()
