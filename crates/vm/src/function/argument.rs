@@ -728,17 +728,21 @@ impl BindingShape {
             )));
         }
 
-        let mut matched = BindingMatch {
-            positional: 0,
-            position: 0,
-            skip: instance,
-            duplicate: None,
-        };
-        if let Err(missing) = matched.walk(params, nargs, &args.kwargs) {
-            return Some(missing.into_exception(arity, nargs, 0, callee, vm));
-        }
-        if let Some((name, pos)) = matched.duplicate {
-            return Some(callee.given_by_name_and_position(name, pos, vm));
+        // Without positional or required arguments, only keyword names need
+        // checking. Avoid walking optional fields on calls such as list.sort.
+        if nargs != 0 || self.required_positional != 0 || self.required_keyword_only {
+            let mut matched = BindingMatch {
+                positional: 0,
+                position: 0,
+                skip: instance,
+                duplicate: None,
+            };
+            if let Err(missing) = matched.walk(params, nargs, &args.kwargs) {
+                return Some(missing.into_exception(arity, nargs, 0, callee, vm));
+            }
+            if let Some((name, pos)) = matched.duplicate {
+                return Some(callee.given_by_name_and_position(name, pos, vm));
+            }
         }
         if !self.var_keyword {
             for name in args.kwargs.keys() {
