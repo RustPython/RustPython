@@ -547,8 +547,14 @@ impl Compressor {
         }
         let stream = match format {
             FORMAT_XZ => {
-                let check = int_to_check(check)
-                    .ok_or_else(|| Error::Value("Invalid check value".to_owned()))?;
+                let check = int_to_check(check).ok_or_else(|| {
+                    let message = if (0..=CHECK_ID_MAX).contains(&check) {
+                        "Unsupported integrity check"
+                    } else {
+                        "Internal error"
+                    };
+                    Error::Lzma(message.to_owned())
+                })?;
                 if let Some(specs) = filters {
                     Stream::new_stream_encoder(&build_filters(&specs)?, check)?
                 } else {
