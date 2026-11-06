@@ -12,6 +12,7 @@ import hashlib
 import itertools
 import math
 import operator
+import sys
 import typing
 import weakref
 
@@ -396,9 +397,20 @@ def test_custom_parsers_preserve_their_conversion_boundaries():
     except ImportError:
         pass
     else:
-        # This legacy parser converts daemon before rejecting unknown names.
-        with assert_raises(RuntimeError):
-            _thread.start_joinable_thread(None, daemon=FailingBool(), unexpected=1)
+        if "_thread" in sys.builtin_module_names:
+            # This legacy parser converts daemon before rejecting unknown names.
+            with assert_raises(RuntimeError):
+                _thread.start_joinable_thread(None, daemon=FailingBool(), unexpected=1)
+        else:
+            # The no-thread fallback is a Python function, not a native parser.
+            check(
+                TypeError,
+                "start_joinable_thread() got an unexpected keyword argument 'unexpected'",
+                _thread.start_joinable_thread,
+                None,
+                daemon=FailingBool(),
+                unexpected=1,
+            )
 
     # Native dispatch must allow the custom parser to choose its diagnostic.
     check(
