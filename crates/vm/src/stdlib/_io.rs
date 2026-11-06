@@ -6430,25 +6430,33 @@ mod fileio {
                 bytes.shrink_to_fit();
                 bytes
             } else {
-                let mut bytes = vec![];
-                // Loop on EINTR (PEP 475)
+                let mut bytes = Vec::new();
+                let mut used = 0;
+                // Read one syscall at a time so EINTR reaches the Python
+                // signal handler instead of being retried inside read_to_end.
                 loop {
-                    match vm.allow_threads(|| host_io::read_all(handle, &mut bytes)) {
-                        Ok(()) => break,
-                        Err(e) if host_io::is_interrupted_error(&e) => {
-                            vm.check_signals()?;
-                            continue;
-                        }
-                        // Non-blocking mode: return None if EAGAIN (only if no data read yet)
-                        Err(e) if host_io::is_would_block_error(&e) => {
-                            if bytes.is_empty() {
-                                return Ok(None);
-                            }
-                            break;
-                        }
-                        Err(e) => return Err(FileIO::io_error(zelf, e, vm)),
+                    if used == bytes.len() {
+                        // Match FileIO's amortized growth while leaving at least
+                        // one byte for the read that detects EOF.
+                        let growth = if used > 65_536 { used >> 3 } else { used + 256 }.max(8192);
+                        let size = used.checked_add(growth).filter(|&n| isize::try_from(n).is_ok())
+                            .ok_or_else(|| vm.new_overflow_error(
+                                "unbounded read returned more bytes than a Python bytes object can hold"
+                            ))?;
+                        bytes
+                            .try_reserve_exact(growth)
+                            .map_err(|_| vm.no_memory_error())?;
+                        bytes.resize(size, 0);
+                    }
+                    match FileIO::read_once_into(zelf, handle, &mut bytes[used..], vm)? {
+                        Some(0) => break,
+                        Some(n) => used += n,
+                        None if used == 0 => return Ok(None),
+                        None => break,
                     }
                 }
+                bytes.truncate(used);
+                bytes.shrink_to_fit();
                 bytes
             };
 
