@@ -69,6 +69,24 @@ mod _winapi {
     #[pyattr]
     const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
 
+    #[derive(FromArgs)]
+    struct DuplicateOptions {
+        #[pyarg(positional, default)]
+        options: u32,
+    }
+
+    #[derive(FromArgs)]
+    struct WaitTimeout {
+        #[pyarg(positional, default = host_winapi::INFINITE_TIMEOUT)]
+        milliseconds: u32,
+    }
+
+    #[derive(FromArgs)]
+    struct PeekSize {
+        #[pyarg(positional, default)]
+        size: i32,
+    }
+
     #[pyattr]
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
 
@@ -81,21 +99,23 @@ mod _winapi {
 
     #[pyfunction]
     fn RegisterEventSource(
-        server: Option<PyStrRef>,
-        source: PyStrRef,
+        unc_server_name: Option<PyStrRef>,
+        source_name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        let server = server
-            .map(|server| server.as_wtf8().to_wide_cstring())
+        let unc_server_name = unc_server_name
+            .map(|unc_server_name| unc_server_name.as_wtf8().to_wide_cstring())
             .transpose()
             .map_err(|_| nul_char_error(vm))?;
-        let source = source
+        let source_name = source_name
             .as_wtf8()
             .to_wide_cstring()
             .map_err(|_| nul_char_error(vm))?;
-        vm.allow_threads(|| host_winapi::register_event_source_w(server.as_deref(), &source))
-            .map(WinHandle)
-            .map_err(|error| error.to_pyexception(vm))
+        vm.allow_threads(|| {
+            host_winapi::register_event_source_w(unc_server_name.as_deref(), &source_name)
+        })
+        .map(WinHandle)
+        .map_err(|error| error.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -109,18 +129,18 @@ mod _winapi {
     #[pyfunction]
     fn ReportEvent(
         handle: WinHandle,
-        event_type: u16,
+        r#type: u16,
         category: u16,
         event_id: u32,
-        message: PyStrRef,
+        string: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let message = message
+        let string = string
             .as_wtf8()
             .to_wide_cstring()
             .map_err(|_| nul_char_error(vm))?;
         vm.allow_threads(|| {
-            host_winapi::report_event_w(handle.0, event_type, category, event_id, &message)
+            host_winapi::report_event_w(handle.0, r#type, category, event_id, &string)
         })
         .map_err(|error| error.to_pyexception(vm))
     }
@@ -178,21 +198,21 @@ mod _winapi {
 
     #[pyfunction]
     fn DuplicateHandle(
-        src_process: WinHandle,
-        src: WinHandle,
-        target_process: WinHandle,
-        access: u32,
-        inherit: i32,
-        options: OptionalArg<u32>,
+        source_process_handle: WinHandle,
+        source_handle: WinHandle,
+        target_process_handle: WinHandle,
+        desired_access: u32,
+        inherit_handle: i32,
+        DuplicateOptions { options }: DuplicateOptions,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
         host_winapi::duplicate_handle(
-            src_process.0,
-            src.0,
-            target_process.0,
-            access,
-            inherit,
-            options.unwrap_or(0),
+            source_process_handle.0,
+            source_handle.0,
+            target_process_handle.0,
+            desired_access,
+            inherit_handle,
+            options,
         )
         .map(WinHandle)
         .map_err(|e| e.to_pyexception(vm))
@@ -226,13 +246,15 @@ mod _winapi {
     #[derive(FromArgs)]
     struct CreateProcessArgs {
         #[pyarg(positional)]
-        name: Option<PyStrRef>,
+        application_name: Option<PyStrRef>,
         #[pyarg(positional)]
         command_line: Option<PyStrRef>,
         #[pyarg(positional)]
-        _proc_attrs: PyObjectRef,
+        #[allow(dead_code)]
+        proc_attrs: PyObjectRef,
         #[pyarg(positional)]
-        _thread_attrs: PyObjectRef,
+        #[allow(dead_code)]
+        thread_attrs: PyObjectRef,
         #[pyarg(positional)]
         inherit_handles: i32,
         #[pyarg(positional)]
@@ -240,7 +262,7 @@ mod _winapi {
         #[pyarg(positional)]
         env_mapping: Option<ArgMapping>,
         #[pyarg(positional)]
-        current_dir: Option<PyStrRef>,
+        current_directory: Option<PyStrRef>,
         #[pyarg(positional)]
         startup_info: PyObjectRef,
     }
@@ -299,8 +321,8 @@ mod _winapi {
                 .to_wide_cstring()
                 .map_err(|_| nul_char_error(vm))
         };
-        let app_name = args.name.map(wcstring).transpose()?;
-        let current_dir = args.current_dir.map(wcstring).transpose()?;
+        let app_name = args.application_name.map(wcstring).transpose()?;
+        let current_dir = args.current_directory.map(wcstring).transpose()?;
         let mut command_line = args
             .command_line
             .map(|s| wcstring(s).map(widestring::WideCString::into_vec_with_nul))
@@ -340,8 +362,8 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn ExitProcess(exit_code: u32) {
-        host_winapi::exit_process(exit_code)
+    fn ExitProcess(ExitCode: u32) {
+        host_winapi::exit_process(ExitCode)
     }
 
     #[pyfunction]
@@ -354,14 +376,10 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn CreateJunction(
-        src_path: PyStrRef,
-        dest_path: PyStrRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn CreateJunction(src_path: PyStrRef, dst_path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let src_path = std::path::Path::new(src_path.expect_str());
-        let dest_path = std::path::Path::new(dest_path.expect_str());
-        host_winapi::create_junction(src_path, dest_path).map_err(|e| e.to_pyexception(vm))
+        let dst_path = std::path::Path::new(dst_path.expect_str());
+        host_winapi::create_junction(src_path, dst_path).map_err(|e| e.to_pyexception(vm))
     }
 
     fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
@@ -407,12 +425,16 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(h: WinHandle, ms: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        let Some(index) = ms.try_index_opt(vm) else {
-            let actual = if vm.is_none(&ms) {
+    fn WaitForSingleObject(
+        handle: WinHandle,
+        milliseconds: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<u32> {
+        let Some(index) = milliseconds.try_index_opt(vm) else {
+            let actual = if vm.is_none(&milliseconds) {
                 "None".to_owned()
             } else {
-                let name = ms.class().slot_name();
+                let name = milliseconds.class().slot_name();
                 name[..name.floor_char_boundary(50.min(name.len()))].to_owned()
             };
             return Err(vm.new_type_error(format!(
@@ -432,16 +454,16 @@ mod _winapi {
                 vm,
             )?;
         }
-        let ms = index.as_u32_mask();
-        vm.allow_threads(|| host_winapi::wait_for_single_object(h.0, ms))
+        let milliseconds = index.as_u32_mask();
+        vm.allow_threads(|| host_winapi::wait_for_single_object(handle.0, milliseconds))
             .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
     fn WaitForMultipleObjects(
         handle_seq: ArgSequence<isize>,
-        wait_all: bool,
-        milliseconds: u32,
+        wait_flag: bool,
+        WaitTimeout { milliseconds }: WaitTimeout,
         vm: &VirtualMachine,
     ) -> PyResult<u32> {
         let handles: Vec<host_winapi::Handle> = handle_seq
@@ -459,21 +481,21 @@ mod _winapi {
         }
 
         vm.allow_threads(|| {
-            host_winapi::wait_for_multiple_objects(&handles, wait_all, milliseconds)
+            host_winapi::wait_for_multiple_objects(&handles, wait_flag, milliseconds)
         })
         .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
-    fn GetExitCodeProcess(h: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let value = WinHandle::from_bitfield(&h, vm, "GetExitCodeProcess", "argument")?;
+    fn GetExitCodeProcess(process: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&process, vm, "GetExitCodeProcess", "argument")?;
         let code = host_winapi::get_exit_code_process(value.0).map_err(|e| e.to_pyexception(vm))?;
         Ok(vm.ctx.new_int(code).into())
     }
 
     #[pyfunction]
-    fn TerminateProcess(h: WinHandle, exit_code: u32) -> WindowsSysResult<i32> {
-        WindowsSysResult(host_winapi::terminate_process(h.0, exit_code))
+    fn TerminateProcess(handle: WinHandle, exit_code: u32) -> WindowsSysResult<i32> {
+        WindowsSysResult(host_winapi::terminate_process(handle.0, exit_code))
     }
 
     #[derive(FromArgs)]
@@ -519,8 +541,8 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetModuleFileName(handle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let value = WinHandle::from_bitfield(&handle, vm, "GetModuleFileName", "argument")?;
+    fn GetModuleFileName(module_handle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = WinHandle::from_bitfield(&module_handle, vm, "GetModuleFileName", "argument")?;
         let mut path: Vec<u16> = vec![0; host_winapi::MAX_PATH_USIZE];
 
         let length = host_winapi::get_module_file_name(value.0, &mut path);
@@ -635,7 +657,8 @@ mod _winapi {
         #[pyarg(positional)]
         default_timeout: u32,
         #[pyarg(positional)]
-        _security_attributes: PyObjectRef, // Ignored, can be None
+        #[allow(dead_code)]
+        security_attributes: PyObjectRef, // Ignored, can be None
     }
 
     // CreateNamedPipe - Create a named pipe
@@ -741,14 +764,14 @@ mod _winapi {
     struct ConnectNamedPipeArgs {
         #[pyarg(any)]
         handle: WinHandle,
-        #[pyarg(any, optional)]
-        overlapped: OptionalArg<bool>,
+        #[pyarg(any, default)]
+        overlapped: bool,
     }
 
     #[pyfunction]
     fn ConnectNamedPipe(args: ConnectNamedPipeArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
-        let use_overlapped = args.overlapped.unwrap_or(false);
+        let use_overlapped = args.overlapped;
 
         if use_overlapped {
             let ov = Overlapped::new_with_handle(handle.0, vm)?;
@@ -807,11 +830,9 @@ mod _winapi {
     #[pyfunction]
     fn PeekNamedPipe(
         handle: WinHandle,
-        size: OptionalArg<i32>,
+        PeekSize { size }: PeekSize,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let size = size.unwrap_or(0);
-
         if size < 0 {
             return Err(vm.new_value_error("negative size"));
         }
