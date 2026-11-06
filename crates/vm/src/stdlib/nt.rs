@@ -9,7 +9,7 @@ pub(crate) mod module {
         AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytes, PyCapsule, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
-        exceptions::{self, OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::{self, OSErrorBuilder},
         function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
@@ -121,11 +121,9 @@ pub(crate) mod module {
             &dst,
             args.target_is_directory.target_is_directory,
         ) {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder
-                .filename(args.src.filename(vm))
-                .filename2(args.dst.filename(vm));
-            return Err(builder.build(vm).upcast());
+            return Err(OSErrorBuilder::with_filenames(
+                &err, &args.src, &args.dst, vm,
+            ));
         }
 
         Ok(())
@@ -597,7 +595,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let final_path = host_nt::getfinalpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(final_path, vm))
+        path.mode().process_path(final_path, vm)
     }
 
     #[pyfunction]
@@ -605,7 +603,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let buffer = host_nt::getfullpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(buffer, vm))
+        path.mode().process_path(buffer, vm)
     }
 
     #[pyfunction]
@@ -617,7 +615,7 @@ pub(crate) mod module {
         }
         let buffer = host_nt::getvolumepathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(buffer, vm))
+        path.mode().process_path(buffer, vm)
     }
 
     /// Implements _Py_skiproot logic for Windows paths
@@ -1067,7 +1065,7 @@ pub(crate) mod module {
         let mode = path.mode();
         let wide = path.to_wide_cstring(vm)?;
         match host_nt::readlink(&wide) {
-            Ok(result_path) => Ok(mode.process_path(std::path::PathBuf::from(result_path), vm)),
+            Ok(result_path) => mode.process_path(std::path::PathBuf::from(result_path), vm),
             Err(host_nt::ReadlinkError::Io(err)) => {
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             }

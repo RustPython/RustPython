@@ -13,6 +13,7 @@ pub(crate) mod compile_mode;
 pub use compile::VmCompileError;
 mod context;
 pub mod crossinterp;
+mod filesystem;
 mod interpreter;
 mod method;
 #[cfg(feature = "rustpython-compiler")]
@@ -32,8 +33,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         self, PyAnyDict, PyBaseExceptionRef, PyBaseObject, PyDict, PyFrozenSet, PyInt, PyList,
-        PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned,
-        PyWeak,
+        PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -54,7 +54,7 @@ use crate::{
     types::{GetAttr, GetattroFunc, fn_addr},
     warn::WarningsState,
 };
-use alloc::{borrow::Cow, collections::BTreeMap};
+use alloc::collections::BTreeMap;
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
 use core::{
@@ -64,10 +64,7 @@ use core::{
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "threading")]
 use std::collections::HashMap;
-use std::{
-    collections::HashSet,
-    ffi::{OsStr, OsString},
-};
+use std::collections::HashSet;
 
 pub use context::Context;
 pub use interpreter::{Interpreter, InterpreterBuilder};
@@ -893,6 +890,7 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    filesystem_codec_ready: AtomicBool,
     pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
@@ -1559,7 +1557,14 @@ impl VirtualMachine {
         let _ = self.state.lazy_imports.default_callback.set(lazy_callback);
         let callable_cache_init = self.init_callable_cache();
         self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
-        stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
+        if let Err(error) = self.check_filesystem_config() {
+            self.startup_error = Some(error);
+            return;
+        }
+        if let Err(error) = stdlib::sys::init_module(self, &self.sys_module, &self.builtins) {
+            self.startup_error = Some(error);
+            return;
+        }
         self.expect_pyresult(
             stdlib::sys::set_bootstrap_stderr(self),
             "failed to initialize bootstrap stderr",
@@ -1716,7 +1721,13 @@ impl VirtualMachine {
         };
 
         let res = essential_init();
-        let importlib = self.expect_pyresult(res, "essential initialization failed");
+        let importlib = match res {
+            Ok(importlib) => importlib,
+            Err(error) => {
+                self.startup_error = Some(error);
+                return;
+            }
+        };
         self.import_bootstrap_complete = true;
 
         #[cfg(feature = "host_env")]
@@ -1758,11 +1769,21 @@ impl VirtualMachine {
             );
         }
 
+        if let Err(error) = self.init_filesystem_codec() {
+            self.startup_error = Some(error);
+            return;
+        }
         self.initialized = true;
     }
 
+    /// Check initialization without printing diagnostics or exiting the process.
+    /// Embedding applications should call this before executing Python code.
+    pub fn check_initialization(&self) -> PyResult<()> {
+        self.startup_error.clone().map_or(Ok(()), Err)
+    }
+
     /// Report an invalid explicit standard-library configuration to a command-line
-    /// host. Embedding applications may continue using the bootstrap codecs without calling this.
+    /// host. Embedding applications can use `check_initialization` without diagnostics.
     pub fn check_stdlib_initialization(&self) -> PyResult<()> {
         let Some(error) = &self.startup_error else {
             return Ok(());
@@ -1796,7 +1817,7 @@ impl VirtualMachine {
         // A startup import failure is fatal even if the imported module raised
         // SystemExit(0) or SystemExit(None). Keep its exception as the cause,
         // without passing its exit code to ordinary user-code finalization.
-        let startup_error = self.new_runtime_error("Failed to import encodings module");
+        let startup_error = self.new_runtime_error("Failed to initialize interpreter");
         startup_error.set_cause(Some(error.clone()));
         Err(startup_error)
     }
@@ -4189,55 +4210,6 @@ impl VirtualMachine {
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
         run_module_as_main.call((module,), self)?;
         Ok(())
-    }
-
-    pub fn fs_encoding(&self) -> &'static PyStrInterned {
-        identifier!(self, utf_8)
-    }
-
-    pub fn fs_encode_errors(&self) -> &'static PyUtf8StrInterned {
-        if cfg!(windows) {
-            identifier_utf8!(self, surrogatepass)
-        } else {
-            identifier_utf8!(self, surrogateescape)
-        }
-    }
-
-    pub fn fsdecode(&self, s: impl Into<OsString>) -> PyStrRef {
-        match s.into().into_string() {
-            Ok(s) => self.ctx.new_str(s),
-            Err(s) => {
-                let bytes = self.ctx.new_bytes(s.into_encoded_bytes());
-                let errors = self.fs_encode_errors().to_owned();
-                let res = self.state.codec_registry.decode_text(
-                    bytes.into(),
-                    "utf-8",
-                    Some(errors),
-                    self,
-                );
-                self.expect_pyresult(res, "fsdecode should be lossless and never fail")
-            }
-        }
-    }
-
-    pub fn fsencode<'a>(&self, s: &'a Py<PyStr>) -> PyResult<Cow<'a, OsStr>> {
-        if cfg!(windows) || s.is_utf8() {
-            // XXX: this is sketchy on windows; it's not guaranteed that the
-            //      OsStr encoding will always be compatible with WTF-8.
-            let s = unsafe { OsStr::from_encoded_bytes_unchecked(s.as_bytes()) };
-            return Ok(Cow::Borrowed(s));
-        }
-        let errors = self.fs_encode_errors().to_owned();
-        let bytes = self
-            .state
-            .codec_registry
-            .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
-            .as_bytes()
-            .to_vec();
-        // XXX: this is sketchy on windows; it's not guaranteed that the
-        //      OsStr encoding will always be compatible with WTF-8.
-        let s = unsafe { OsString::from_encoded_bytes_unchecked(bytes) };
-        Ok(Cow::Owned(s))
     }
 }
 

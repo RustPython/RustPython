@@ -235,7 +235,7 @@ pub(super) mod _os {
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyException, ToPyObject},
-        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::OSErrorBuilder,
         function::{
             ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
         },
@@ -585,7 +585,7 @@ pub(super) mod _os {
                         .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?
                     {
                         if !entry.is_dot_or_dotdot() {
-                            names.push(path.mode().process_path(entry.name, vm));
+                            names.push(path.mode().process_path(entry.name, vm)?);
                         }
                     }
                     names
@@ -601,7 +601,7 @@ pub(super) mod _os {
                     let mode = path.mode();
                     dir_iter
                         .map(|entry| match entry {
-                            Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
+                            Ok(entry_path) => mode.process_path(entry_path.file_name(), vm),
                             Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
                         })
                         .collect::<PyResult<_>>()?
@@ -626,7 +626,7 @@ pub(super) mod _os {
                                 rustpython_host_env::os::bytes_as_os_str(&entry.name)
                                     .expect("unix dir entry names are arbitrary bytes"),
                                 vm,
-                            ),
+                            )?,
                         );
                     }
                     list
@@ -769,7 +769,7 @@ pub(super) mod _os {
         let [] = args.dir_fd.0;
         let path =
             fs::read_link(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
-        Ok(mode.process_path(path, vm))
+        mode.process_path(path, vm)
     }
 
     #[pyattr]
@@ -913,12 +913,12 @@ pub(super) mod _os {
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
     impl Py<DirEntry> {
         #[pygetset]
-        fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn name(&self, vm: &VirtualMachine) -> PyResult {
             self.mode.process_path(&self.file_name, vm)
         }
 
         #[pygetset]
-        fn path(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn path(&self, vm: &VirtualMachine) -> PyResult {
             self.mode.process_path(&self.pathval, vm)
         }
 
@@ -1050,7 +1050,7 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn __fspath__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn __fspath__(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)
         }
 
@@ -1663,12 +1663,12 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn getcwd(vm: &VirtualMachine) -> PyResult {
-        Ok(OutputMode::String.process_path(curdir_inner(vm)?, vm))
+        OutputMode::String.process_path(curdir_inner(vm)?, vm)
     }
 
     #[pyfunction]
     fn getcwdb(vm: &VirtualMachine) -> PyResult {
-        Ok(OutputMode::Bytes.process_path(curdir_inner(vm)?, vm))
+        OutputMode::Bytes.process_path(curdir_inner(vm)?, vm)
     }
 
     #[derive(FromArgs)]
@@ -1730,12 +1730,8 @@ pub(super) mod _os {
         #[cfg(not(any(unix, target_os = "wasi")))]
         let dst_dir_fd = None;
 
-        crate::host_env::posix::rename(&src, src_dir_fd, &dst, dst_dir_fd).map_err(|err| {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder.filename(src.filename(vm));
-            let builder = builder.filename2(dst.filename(vm));
-            builder.build(vm).upcast()
-        })
+        crate::host_env::posix::rename(&src, src_dir_fd, &dst, dst_dir_fd)
+            .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
     }
 
     #[pyfunction]
@@ -1759,12 +1755,8 @@ pub(super) mod _os {
         #[cfg(not(any(unix, target_os = "wasi")))]
         let dst_dir_fd = None;
 
-        crate::host_env::posix::replace(&src, src_dir_fd, &dst, dst_dir_fd).map_err(|err| {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder.filename(src.filename(vm));
-            let builder = builder.filename2(dst.filename(vm));
-            builder.build(vm).upcast()
-        })
+        crate::host_env::posix::replace(&src, src_dir_fd, &dst, dst_dir_fd)
+            .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
     }
 
     #[pyfunction]
@@ -1873,10 +1865,7 @@ pub(super) mod _os {
                 dst_cstr.as_c_str(),
                 follow_symlinks,
             ) {
-                let builder = err.to_os_error_builder(vm);
-                let builder = builder.filename(src.filename(vm));
-                let builder = builder.filename2(dst.filename(vm));
-                return Err(builder.build(vm).upcast());
+                return Err(OSErrorBuilder::with_filenames(&err, &src, &dst, vm));
             }
 
             Ok(())
@@ -1896,12 +1885,8 @@ pub(super) mod _os {
                 .to_wide_cstring()
                 .map_err(|err| err.into_pyexception(vm))?;
             let dst_wide = dst.to_wide_cstring(vm)?;
-            rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide).map_err(|err| {
-                let builder = err.to_os_error_builder(vm);
-                let builder = builder.filename(src.filename(vm));
-                let builder = builder.filename2(dst.filename(vm));
-                builder.build(vm).upcast()
-            })
+            rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide)
+                .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
         }
 
         #[cfg(not(any(unix, windows)))]
@@ -1914,12 +1899,8 @@ pub(super) mod _os {
                 PathBuf::from(src.path.clone())
             };
 
-            fs::hard_link(&src_path, &dst.path).map_err(|err| {
-                let builder = err.to_os_error_builder(vm);
-                let builder = builder.filename(src.filename(vm));
-                let builder = builder.filename2(dst.filename(vm));
-                builder.build(vm).upcast()
-            })
+            fs::hard_link(&src_path, &dst.path)
+                .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
         }
     }
 
@@ -2301,7 +2282,8 @@ pub(super) mod _os {
             OSErrorBuilder::with_filename(&error, path, vm)
         }
 
-        vm.audit("os.truncate", || (path.filename(vm), length))?;
+        let filename = path.filename(vm)?;
+        vm.audit("os.truncate", || (filename, length))?;
 
         // TODO: just call libc::truncate() on POSIX
         let f = match crate::host_env::fs::open_write(&path) {

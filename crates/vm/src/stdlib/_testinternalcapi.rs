@@ -347,7 +347,7 @@ mod _testinternalcapi {
     #[pyfunction(name = "EncodeLocaleEx")]
     fn encode_locale_ex(
         text: PyStrRef,
-        _current_locale: OptionalArg<i32>,
+        current_locale: OptionalArg<i32>,
         errors: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -356,6 +356,7 @@ mod _testinternalcapi {
             "encode",
             errors.into_option(),
             "encode error",
+            current_locale.unwrap_or(0) != 0,
             vm,
         )
     }
@@ -363,7 +364,7 @@ mod _testinternalcapi {
     #[pyfunction(name = "DecodeLocaleEx")]
     fn decode_locale_ex(
         encoded: PyBytesRef,
-        _current_locale: OptionalArg<i32>,
+        current_locale: OptionalArg<i32>,
         errors: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -372,6 +373,7 @@ mod _testinternalcapi {
             "decode",
             errors.into_option(),
             "decode error",
+            current_locale.unwrap_or(0) != 0,
             vm,
         )
     }
@@ -1795,10 +1797,28 @@ fn locale_codec(
     method: &str,
     errors: Option<PyStrRef>,
     kind: &str,
+    current_locale: bool,
     vm: &VirtualMachine,
 ) -> PyResult {
     let errors = locale_error_handler(errors, vm)?;
-    let encoding: PyObjectRef = vm.fs_encoding().to_owned().into();
+    // Py_Decode/EncodeLocaleEx use the current LC_CTYPE, not the filesystem
+    // snapshot. UTF-8 mode overrides it only when current_locale is false.
+    #[cfg(all(feature = "host_env", target_os = "linux"))]
+    let encoding = if (current_locale || vm.state.config.settings.utf8_mode == 0)
+        && let Some(codeset) = rustpython_host_env::locale::nl_langinfo_codeset()
+        && let Ok(name) = String::from_utf8(codeset)
+        && !name.is_empty()
+    {
+        name
+    } else {
+        "utf-8".to_owned()
+    };
+    #[cfg(not(all(feature = "host_env", target_os = "linux")))]
+    let encoding = {
+        let _ = current_locale;
+        "utf-8".to_owned()
+    };
+    let encoding: PyObjectRef = vm.ctx.new_str(encoding).into();
     match vm.call_method(obj, method, (encoding, errors)) {
         Ok(value) => Ok(value),
         Err(exc) => {

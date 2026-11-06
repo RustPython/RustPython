@@ -79,10 +79,10 @@ impl From<OsPath> for OsPathOrFd<'_> {
 }
 
 impl OsPathOrFd<'_> {
-    pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Path(path) => path.filename(vm),
-            Self::Fd(fd) => fd.as_raw().to_pyobject(vm),
+            Self::Fd(fd) => Ok(fd.as_raw().to_pyobject(vm)),
         }
     }
 }
@@ -97,8 +97,33 @@ impl OSErrorBuilder {
         // TODO: return type to PyRef<PyOSError>
         use crate::exceptions::ToOSErrorBuilder;
         let builder = error.to_os_error_builder(vm);
-        let builder = builder.filename(filename.into().filename(vm));
+        let filename = match filename.into().filename(vm) {
+            Ok(filename) => filename,
+            Err(error) => return error,
+        };
+        let builder = builder.filename(filename);
         builder.build(vm).upcast()
+    }
+
+    pub(crate) fn with_filenames(
+        error: &std::io::Error,
+        first: &OsPath,
+        second: &OsPath,
+        vm: &VirtualMachine,
+    ) -> crate::builtins::PyBaseExceptionRef {
+        use crate::exceptions::ToOSErrorBuilder;
+        match first
+            .filename(vm)
+            .and_then(|first| second.filename(vm).map(|second| (first, second)))
+        {
+            Ok((first, second)) => error
+                .to_os_error_builder(vm)
+                .filename(first)
+                .filename2(second)
+                .build(vm)
+                .upcast(),
+            Err(error) => error,
+        }
     }
 
     /// Like `with_filename`, but strips winerror on Windows.
@@ -114,7 +139,11 @@ impl OSErrorBuilder {
         let builder = error.to_os_error_builder(vm);
         #[cfg(windows)]
         let builder = builder.without_winerror();
-        let builder = builder.filename(filename.into().filename(vm));
+        let filename = match filename.into().filename(vm) {
+            Ok(filename) => filename,
+            Err(error) => return error,
+        };
+        let builder = builder.filename(filename);
         builder.build(vm).upcast()
     }
 }

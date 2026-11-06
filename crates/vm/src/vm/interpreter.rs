@@ -171,6 +171,7 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        filesystem_codec_ready: AtomicBool::new(false),
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
@@ -245,7 +246,9 @@ where
     // thread for the duration so type cache reads see it as ATTACHED.
     let vm_guard = thread::VmBootstrapGuard::new(&vm);
     vm.initialize();
-    vm.state.ready.store(true, Ordering::Release);
+    vm.state
+        .ready
+        .store(vm.startup_error.is_none(), Ordering::Release);
     drop(vm_guard);
 
     // Clone global_state for Interpreter after all initialization is done
@@ -290,6 +293,9 @@ fn create_subinterpreter_from_parent(
         |_| {},
     );
     let interp = Interpreter { global_state, vm };
+    if interp.vm.startup_error.is_some() {
+        return Err("subinterpreter initialization failed");
+    }
     // Every interpreter has a `__main__` module once it is initialized.
     interp.enter(|vm| {
         let _ = vm.ensure_main_module();
@@ -425,7 +431,9 @@ impl InterpreterBuilder {
 
     /// Build the interpreter.
     ///
-    /// This consumes the configuration and returns a fully initialized Interpreter.
+    /// This consumes the configuration and initializes an interpreter.
+    /// Use `VirtualMachine::check_initialization` before executing Python code
+    /// to handle a startup configuration or codec error without panicking.
     #[must_use]
     pub fn build(self) -> Interpreter {
         let (vm, global_state) = initialize_vm(

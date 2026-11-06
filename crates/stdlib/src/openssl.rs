@@ -450,8 +450,8 @@ mod _ssl {
     ) -> PyResult<(&'static str, PyObjectRef, &'static str, PyObjectRef)> {
         let (cert_file_env, cert_dir_env) = &*CERT_ENV_NAMES;
         let (cert_file, cert_dir) = get_cert_file_dir();
-        let cert_file = OsPath::new_str(cert_file.as_path()).filename(vm);
-        let cert_dir = OsPath::new_str(cert_dir.as_path()).filename(vm);
+        let cert_file = OsPath::new_str(cert_file.as_path()).filename(vm)?;
+        let cert_dir = OsPath::new_str(cert_dir.as_path()).filename(vm)?;
         Ok((
             cert_file_env.as_str(),
             cert_file,

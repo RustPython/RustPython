@@ -422,3 +422,288 @@ pub fn nl_langinfo_codeset() -> Option<Vec<u8>> {
     let codeset = unsafe { libc::nl_langinfo(libc::CODESET) };
     (!codeset.is_null()).then(|| unsafe { CStr::from_ptr(codeset) }.to_bytes().to_vec())
 }
+
+/// Initialize the command-line interpreter's locale from its environment.
+///
+/// Ordinary startup changes only LC_CTYPE. PEP 538 coercion additionally
+/// updates LC_CTYPE in the environment and refreshes the other categories,
+/// just as CPython's _coerce_default_locale_settings does. Embedders should
+/// preserve their application's locale and use a snapshot instead.
+///
+/// # Safety
+///
+/// Call only during single-threaded process startup, before other threads or
+/// libraries can read the environment or use the process-global locale.
+#[cfg(target_os = "linux")]
+pub unsafe fn initialize_ctype(ignore_environment: bool) {
+    use std::io::Write;
+
+    // An invalid environment locale is not a fatal initialization error.
+    let _ = setlocale(LC_CTYPE, Some(c""));
+    let control = (!ignore_environment)
+        .then(|| std::env::var_os("PYTHONCOERCECLOCALE"))
+        .flatten();
+    let warn = control.as_deref() == Some(std::ffi::OsStr::new("warn"));
+    let coerce = control.as_deref() != Some(std::ffi::OsStr::new("0"));
+    let legacy = |locale: &[u8]| locale == b"C" || locale == b"POSIX";
+    let Some(original) = setlocale(LC_CTYPE, None) else {
+        return;
+    };
+    if !legacy(&original) {
+        return;
+    }
+
+    let overridden = std::env::var_os("LC_ALL").is_some_and(|value| !value.is_empty());
+    if coerce && !overridden {
+        for candidate in [c"C.UTF-8", c"C.utf8", c"UTF-8"] {
+            if setlocale(LC_CTYPE, Some(candidate)).is_none() {
+                continue;
+            }
+            if nl_langinfo_codeset().is_none_or(|value| value.is_empty()) {
+                let _ = setlocale(LC_CTYPE, Some(c""));
+                continue;
+            }
+            let _ = setlocale(LC_ALL, Some(c""));
+            // SAFETY: the caller guarantees exclusive access to environment
+            // and global locale state for the entire initialization operation.
+            if unsafe { libc::setenv(c"LC_CTYPE".as_ptr(), candidate.as_ptr(), 1) } != 0 {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "Error setting LC_CTYPE, skipping C locale coercion"
+                );
+                break;
+            }
+            if warn {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "Python detected LC_CTYPE=C: LC_CTYPE coerced to {} (set another locale or PYTHONCOERCECLOCALE=0 to disable this locale coercion behavior).",
+                    candidate.to_string_lossy()
+                );
+            }
+            let _ = setlocale(LC_ALL, Some(c""));
+            return;
+        }
+        // setlocale's returned string contains no NUL bytes.
+        if let Ok(original) = alloc::ffi::CString::new(original) {
+            let _ = setlocale(LC_CTYPE, Some(&original));
+        }
+    }
+    if warn {
+        let _ = writeln!(
+            std::io::stderr(),
+            "Python runtime initialized with LC_CTYPE=C (a locale with default ASCII encoding), which may cause Unicode compatibility problems. Using C.UTF-8, C.utf8, or UTF-8 (if available) as alternative Unicode-compatible locales is recommended."
+        );
+    }
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub use snapshot::{LocaleEncodeError, LocaleSnapshot};
+
+// libc exposes mbstate_t on GNU Linux. Do not guess an opaque C conversion-
+// state layout on platforms where the crate does not expose this type.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod snapshot {
+    use core::{ffi::CStr, marker::PhantomData, ptr};
+    use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
+    use std::io;
+
+    unsafe extern "C" {
+        fn mbrtowc(
+            out: *mut libc::wchar_t,
+            input: *const libc::c_char,
+            count: usize,
+            state: *mut libc::mbstate_t,
+        ) -> usize;
+        fn wcrtomb(
+            out: *mut libc::c_char,
+            input: libc::wchar_t,
+            state: *mut libc::mbstate_t,
+        ) -> usize;
+        fn __ctype_get_mb_cur_max() -> usize;
+    }
+
+    /// A conversion failure with enough information for UnicodeEncodeError.
+    #[derive(Debug)]
+    pub enum LocaleEncodeError {
+        Native(io::Error),
+        Character { index: usize, reason: &'static str },
+    }
+
+    impl From<io::Error> for LocaleEncodeError {
+        fn from(error: io::Error) -> Self {
+            Self::Native(error)
+        }
+    }
+
+    /// An owned copy of the startup thread's locale for filesystem bootstrap.
+    /// Later process-global setlocale calls cannot change this conversion state.
+    pub struct LocaleSnapshot {
+        locale: libc::locale_t,
+        encoding: String,
+    }
+
+    // The owned locale is never modified after duplocale. uselocale installs
+    // it only in the calling thread; every conversion has its own mbstate_t.
+    // A borrowed guard keeps the locale alive until that thread restores its
+    // previous locale, so sharing an immutable snapshot is safe.
+    unsafe impl Send for LocaleSnapshot {}
+    unsafe impl Sync for LocaleSnapshot {}
+
+    impl Drop for LocaleSnapshot {
+        fn drop(&mut self) {
+            // SAFETY: capture owns a non-null duplicate, never LC_GLOBAL_LOCALE.
+            unsafe { libc::freelocale(self.locale) };
+        }
+    }
+
+    struct ThreadLocale<'a> {
+        previous: libc::locale_t,
+        _snapshot: &'a LocaleSnapshot,
+        // The guard must be restored on the same thread that installed it.
+        _not_send: PhantomData<*mut ()>,
+    }
+
+    impl Drop for ThreadLocale<'_> {
+        fn drop(&mut self) {
+            // SAFETY: previous is the valid locale returned by uselocale, and
+            // the non-Send guard cannot migrate to a different thread.
+            unsafe { libc::uselocale(self.previous) };
+        }
+    }
+
+    impl LocaleSnapshot {
+        pub fn capture() -> io::Result<Self> {
+            // A null argument queries the caller's locale without changing it.
+            let current = unsafe { libc::uselocale(ptr::null_mut()) };
+            if current.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            // duplocale also accepts the LC_GLOBAL_LOCALE sentinel.
+            let locale = unsafe { libc::duplocale(current) };
+            if locale.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let mut snapshot = Self {
+                locale,
+                encoding: String::new(),
+            };
+            let codeset = unsafe { libc::nl_langinfo_l(libc::CODESET, locale) };
+            if codeset.is_null() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "missing locale encoding",
+                ));
+            }
+            let encoding = unsafe { CStr::from_ptr(codeset) }
+                .to_str()
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            if encoding.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "empty locale encoding",
+                ));
+            }
+            encoding.clone_into(&mut snapshot.encoding);
+            Ok(snapshot)
+        }
+
+        pub fn encoding(&self) -> &str {
+            &self.encoding
+        }
+
+        fn enter(&self) -> io::Result<ThreadLocale<'_>> {
+            let previous = unsafe { libc::uselocale(self.locale) };
+            if previous.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(ThreadLocale {
+                previous,
+                _snapshot: self,
+                _not_send: PhantomData,
+            })
+        }
+
+        /// Decode with CPython's locale bootstrap surrogateescape behavior.
+        pub fn decode(&self, input: &[u8]) -> io::Result<Wtf8Buf> {
+            let _locale = self.enter()?;
+            let mut output = Wtf8Buf::with_capacity(input.len());
+            let mut input = input;
+            // C specifies an all-zero mbstate_t as the initial conversion state.
+            let mut state: libc::mbstate_t = unsafe { core::mem::zeroed() };
+            while !input.is_empty() {
+                let mut value: libc::wchar_t = 0;
+                let count =
+                    unsafe { mbrtowc(&mut value, input.as_ptr().cast(), input.len(), &mut state) };
+                let point = u32::try_from(value).ok().and_then(char::from_u32);
+                if count >= usize::MAX - 1 || point.is_none() {
+                    // Invalid, incomplete, surrogate, and out-of-Unicode-range
+                    // results all escape one byte and restart the shift state.
+                    output.push(CodePoint::from(0xdc00u16 + u16::from(input[0])));
+                    input = &input[1..];
+                    state = unsafe { core::mem::zeroed() };
+                } else {
+                    if let Some(point) = point {
+                        output.push_char(point);
+                    }
+                    // mbrtowc returns zero for an embedded NUL, consuming one
+                    // byte. Our slice API retains NULs for later path validation.
+                    input = &input[count.max(1)..];
+                }
+            }
+            Ok(output)
+        }
+
+        /// Encode with the locale captured at startup, preserving escaped bytes.
+        pub fn encode(&self, input: &Wtf8) -> Result<Vec<u8>, LocaleEncodeError> {
+            let _locale = self.enter()?;
+            let max_bytes = unsafe { __ctype_get_mb_cur_max() };
+            if max_bytes == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid locale character size",
+                )
+                .into());
+            }
+            let mut buffer = vec![0u8; max_bytes];
+            let mut output = Vec::with_capacity(input.len());
+            for (index, point) in input.code_points().enumerate() {
+                let value = point.to_u32();
+                if (0xdc80..=0xdcff).contains(&value) {
+                    output.push((value - 0xdc00) as u8);
+                    continue;
+                }
+                if char::from_u32(value).is_none() {
+                    return Err(LocaleEncodeError::Character {
+                        index,
+                        reason: "surrogates not allowed",
+                    });
+                }
+                // CPython's bootstrap encoder converts each character from the
+                // initial shift state (wcstombs on a one-character string).
+                let mut state: libc::mbstate_t = unsafe { core::mem::zeroed() };
+                let count = unsafe {
+                    wcrtomb(
+                        buffer.as_mut_ptr().cast(),
+                        value as libc::wchar_t,
+                        &mut state,
+                    )
+                };
+                if count == usize::MAX {
+                    return Err(LocaleEncodeError::Character {
+                        index,
+                        reason: "encoding error",
+                    });
+                }
+                output.extend_from_slice(&buffer[..count]);
+                // Preserve a stateful codec's shift-back bytes, excluding the
+                // terminator that wcstombs would not count in its result.
+                let count = unsafe { wcrtomb(buffer.as_mut_ptr().cast(), 0, &mut state) };
+                if count == usize::MAX {
+                    return Err(io::Error::last_os_error().into());
+                }
+                output.extend_from_slice(&buffer[..count.saturating_sub(1)]);
+            }
+            Ok(output)
+        }
+    }
+}
