@@ -1036,7 +1036,9 @@ pub mod sys {
 
         // Calling consumes FuncArgs. Keep the original owners alive through
         // release of the resolved callable, including when its call fails.
-        hook.call(args.clone(), vm)
+        // Scope cleanup drops the later hook binding before the retained args.
+        let (_retained_args, hook) = (args.clone(), hook);
+        hook.call(args, vm)
     }
 
     #[pyfunction]
