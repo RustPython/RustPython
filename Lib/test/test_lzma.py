@@ -22,7 +22,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
 
     # Test error cases.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Invalid format
     def test_simple_bad_args(self):
         self.assertRaises(TypeError, LZMACompressor, [])
         self.assertRaises(TypeError, LZMACompressor, format=3.45)
@@ -631,7 +630,6 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), "rw")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Invalid check value
     def test_init_bad_check(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", check=b"asd")
@@ -1521,7 +1519,6 @@ class MiscellaneousTestCase(unittest.TestCase):
         # This value should not be a valid check ID.
         self.assertFalse(lzma.is_check_supported(lzma.CHECK_UNKNOWN))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at most 0 arguments, got 1
     def test__encode_filter_properties(self):
         with self.assertRaises(TypeError):
             lzma._encode_filter_properties(b"not a dict")

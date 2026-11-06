@@ -14,7 +14,6 @@ use super::{CHUNKSIZE, Chunker};
 
 pub const BUFSIZ: usize = 8192;
 const DEF_BUF_SIZE: usize = 16 * 1024;
-const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 const LZMA_FILTERS_MAX: usize = 4;
 
 pub const CHECK_NONE: i32 = xz_sys::LZMA_CHECK_NONE as _;
@@ -267,9 +266,7 @@ pub fn encode_filter_properties(spec: &FilterSpec) -> Result<Vec<u8>, Error> {
         FILTER_DELTA => {
             let dist = spec.dist.unwrap_or(1);
             if !(1..=256).contains(&dist) {
-                return Err(Error::Value(
-                    "Invalid filter specifier for delta filter".to_owned(),
-                ));
+                return Err(Error::Lzma("Internal error".to_owned()));
             }
             Ok(vec![(dist - 1) as u8])
         }
@@ -547,8 +544,14 @@ impl Compressor {
         }
         let stream = match format {
             FORMAT_XZ => {
-                let check = int_to_check(check)
-                    .ok_or_else(|| Error::Value("Invalid check value".to_owned()))?;
+                let check = int_to_check(check).ok_or_else(|| {
+                    let message = if (0..=CHECK_ID_MAX).contains(&check) {
+                        "Unsupported integrity check"
+                    } else {
+                        "Internal error"
+                    };
+                    Error::Lzma(message.to_owned())
+                })?;
                 if let Some(specs) = filters {
                     Stream::new_stream_encoder(&build_filters(&specs)?, check)?
                 } else {
@@ -589,7 +592,7 @@ impl Compressor {
         let stream = self
             .stream
             .as_mut()
-            .ok_or_else(|| Error::Lzma(USE_AFTER_FINISH_ERR.to_owned()))?;
+            .ok_or_else(|| Error::Value("Compressor has been flushed".to_owned()))?;
         let mut output = Vec::new();
         for mut chunk in data.chunks(CHUNKSIZE) {
             while !chunk.is_empty() {
@@ -608,7 +611,7 @@ impl Compressor {
         let stream = self
             .stream
             .as_mut()
-            .ok_or_else(|| Error::Lzma(USE_AFTER_FINISH_ERR.to_owned()))?;
+            .ok_or_else(|| Error::Value("Repeated call to flush()".to_owned()))?;
         let mut output = Vec::new();
         let status = loop {
             if output.len() == output.capacity() {
