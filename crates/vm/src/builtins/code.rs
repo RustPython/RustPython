@@ -1203,10 +1203,10 @@ pub struct PyCodeNewArgs {
     stacksize: CodeInt,
     #[pyarg(positional)]
     flags: CodeInt,
-    #[pyarg(positional, name = "codestring")]
-    co_code: PyBytesRef,
-    #[pyarg(positional, name = "constants")]
-    consts: PyTupleRef,
+    #[pyarg(positional)]
+    codestring: PyBytesRef,
+    #[pyarg(positional)]
+    constants: PyTupleRef,
     #[pyarg(positional)]
     names: PyTupleRef,
     #[pyarg(positional)]
@@ -1436,8 +1436,8 @@ impl Constructor for PyCode {
             nlocals: args.nlocals.0,
             stacksize: args.stacksize.0,
             flags: args.flags.0,
-            co_code: args.co_code,
-            consts: args.consts,
+            co_code: args.codestring,
+            consts: args.constants,
             names: args.names,
             varnames: args.varnames,
             freevars: args
