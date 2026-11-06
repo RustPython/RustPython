@@ -1041,6 +1041,10 @@ pub fn parse_ancillary_messages(control: &[u8]) -> Vec<AncillaryMessage> {
 
 #[cfg(test)]
 #[cfg(all(unix, not(target_os = "redox")))]
+#[allow(
+    clippy::tests_outside_test_module,
+    reason = "the platform-gated module is compiled only for tests"
+)]
 mod ancillary_parse_tests {
     use super::{checked_cmsg_len, checked_cmsg_space, parse_ancillary_messages};
 

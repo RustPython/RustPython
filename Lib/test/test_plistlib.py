@@ -928,7 +928,6 @@ class TestPlistlib(unittest.TestCase):
         with self.assertRaises(OverflowError):
             plistlib.dumps(huge_uid, fmt=plistlib.FMT_BINARY)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_xml_plist_with_entity_decl(self):
         with self.assertRaisesRegex(plistlib.InvalidFileException,
                                     "XML entity declarations are not supported"):
