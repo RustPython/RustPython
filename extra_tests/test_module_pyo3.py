@@ -1099,4 +1099,224 @@ if np is not None:
     assert m.T.tolist() == [[1, 3], [2, 4]]
     assert (m @ m).tolist() == [[7, 10], [15, 22]]
 
+
+# Keyword names are interned, so a callee can match them by identity.
+
+
+@pyo3.wraps
+def keywords_are_interned(**kw):
+    import sys
+
+    return all(k is sys.intern(k) for k in kw)
+
+
+assert keywords_are_interned(default=1, option=2) is True
+assert cpython.sum([1, 2, 3], start=10) == 16
+assert cpython.max([], default=5) == 5
+
+
+# A callable that is not iterable does not look iterable. Iteration is
+# forwarded when the class defines it.
+
+
+@pyo3.wraps
+def iterable(obj):
+    import collections.abc
+
+    return isinstance(obj, collections.abc.Iterable)
+
+
+@pyo3.wraps
+def collect(obj):
+    return list(obj)
+
+
+assert iterable(lambda: None) is False
+assert iterable(range(2)) is True
+assert collect(range(3)) == [0, 1, 2]
+assert collect(x * 2 for x in range(3)) == [0, 2, 4]
+
+
+class Count:
+    def __iter__(self):
+        yield 7
+        yield 8
+
+
+assert collect(Count()) == [7, 8]
+try:
+    collect(lambda: 1)
+except TypeError:
+    pass
+else:
+    raise AssertionError("lambda was iterable")
+
+
+# An exact list, dict, set, frozenset or bytearray is copied as that
+# built-in. A subclass is pickled when the other interpreter can import
+# its class. When pickling fails, the subclass is copied as the base
+# built-in from its stored contents: no subclass methods, and writes do
+# not come back. A dict subclass defined here cannot be imported there.
+
+
+@pyo3.wraps
+def is_exact_type(obj, name):
+    return type(obj).__name__ == name
+
+
+class D(dict):
+    def custom(self):
+        return 1
+
+
+class L(list):
+    pass
+
+
+class S(set):
+    pass
+
+
+class F(frozenset):
+    pass
+
+
+class B(bytearray):
+    pass
+
+
+_json = pyo3.import_module("json")
+assert _json.dumps(D(a=1)) == '{"a": 1}'
+assert _json.dumps(L([1, 2])) == "[1, 2]"
+assert is_exact_type(D(a=1), "dict") is True
+assert is_exact_type(L([1, 2]), "list") is True
+assert is_exact_type(S([1]), "set") is True
+assert is_exact_type(F([1]), "frozenset") is True
+assert is_exact_type(B(b"ab"), "bytearray") is True
+
+
+@pyo3.wraps
+def has_custom(obj):
+    return hasattr(obj, "custom")
+
+
+assert has_custom(D(a=1)) is False
+
+orig = D(a=1)
+items = L([1])
+
+
+@pyo3.wraps
+def store(obj):
+    obj["b"] = 2
+    return obj["a"]
+
+
+@pyo3.wraps
+def append_item(obj):
+    obj.append(2)
+    return list(obj)
+
+
+assert store(orig) == 1
+assert "b" not in orig
+assert append_item(items) == [1, 2]
+assert items == [1]
+
+
+import collections as rp_collections
+
+embedded_collections = pyo3.import_module("collections")
+ordered = rp_collections.OrderedDict([("b", 1), ("a", 2)])
+counter = rp_collections.Counter("aab")
+default_map = rp_collections.defaultdict(list)
+default_map["k"].append(1)
+
+
+@pyo3.wraps
+def type_path(obj):
+    return type(obj).__module__ + "." + type(obj).__qualname__
+
+
+@pyo3.wraps
+def class_path(cls):
+    return cls.__module__ + "." + cls.__qualname__
+
+
+@pyo3.wraps
+def ordered_items(obj):
+    return list(obj.items())
+
+
+@pyo3.wraps
+def counter_count(obj):
+    return obj["a"]
+
+
+@pyo3.wraps
+def factory_name(obj):
+    return obj.default_factory.__name__
+
+
+@pyo3.wraps
+def default_value(obj, key):
+    return list(obj[key])
+
+
+assert type_path(ordered) == class_path(embedded_collections.OrderedDict)
+assert ordered_items(ordered) == [("b", 1), ("a", 2)]
+assert type_path(counter) == class_path(embedded_collections.Counter)
+assert counter_count(counter) == 2
+assert type_path(default_map) == class_path(embedded_collections.defaultdict)
+assert factory_name(default_map) == "list"
+assert default_value(default_map, "k") == [1]
+assert default_value(default_map, "missing") == []
+
+
+# A class that compares by identity is proxied, so reads and writes hit
+# the original. io.BytesIO does not override __eq__.
+
+
+import io
+
+buf = io.BytesIO()
+
+
+@pyo3.wraps
+def write_bytes(fp):
+    fp.write(b"PNG")
+    return fp.getvalue()
+
+
+assert write_bytes(buf) == b"PNG"
+assert buf.getvalue() == b"PNG"
+
+
+# An exception with empty args keeps the text of str().
+
+
+@pyo3.wraps
+def raise_formatted():
+    class Formatted(ValueError):
+        def __str__(self):
+            return "detail-from-str age int_parsing"
+
+    raise Formatted()
+
+
+try:
+    raise_formatted()
+except ValueError as exc:
+    assert "detail-from-str" in str(exc), exc
+    assert any("Formatted" in note for note in exc.__notes__), exc.__notes__
+else:
+    raise AssertionError("formatted error was swallowed")
+
+try:
+    cpython.int("nope")
+except ValueError as exc:
+    assert "nope" in str(exc)
+else:
+    raise AssertionError("int() did not raise")
+
 print("OK")
