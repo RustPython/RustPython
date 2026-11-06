@@ -4,6 +4,7 @@ use num_traits::ToPrimitive;
 use crate::{
     Py, VirtualMachine,
     builtins::PyFloat,
+    function::ArgumentError,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
 };
 
@@ -14,6 +15,13 @@ use crate::{
 pub trait TryFromObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
+
+    /// Convert a call argument. `PyRef<T>` turns an isinstance failure into
+    /// `_PyArg_BadArgument`; other types keep `try_from_object`.
+    #[inline]
+    fn try_from_argument(vm: &VirtualMachine, obj: PyObjectRef) -> Result<Self, ArgumentError> {
+        Self::try_from_object(vm, obj).map_err(Into::into)
+    }
 }
 
 /// Rust-side only version of TryFromObject to reduce unnecessary Rc::clone
@@ -86,6 +94,22 @@ where
             Err(vm.new_downcast_type_error(class, &obj))
         }
     }
+
+    #[inline]
+    fn try_from_argument(vm: &VirtualMachine, obj: PyObjectRef) -> Result<Self, ArgumentError> {
+        let class = T::class(&vm.ctx);
+        if obj.fast_isinstance(class) {
+            T::try_downcast_from(&obj, vm)?;
+            Ok(unsafe { obj.downcast_unchecked() })
+        } else {
+            Err(ArgumentError::BadArgument {
+                expected: class,
+                or_none: false,
+                found: obj,
+                name: None,
+            })
+        }
+    }
 }
 
 impl TryFromObject for PyObjectRef {
@@ -101,6 +125,16 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
             Ok(None)
         } else {
             T::try_from_object(vm, obj).map(Some)
+        }
+    }
+
+    fn try_from_argument(vm: &VirtualMachine, obj: PyObjectRef) -> Result<Self, ArgumentError> {
+        if vm.is_none(&obj) {
+            Ok(None)
+        } else {
+            T::try_from_argument(vm, obj)
+                .map(Some)
+                .map_err(ArgumentError::with_or_none)
         }
     }
 }

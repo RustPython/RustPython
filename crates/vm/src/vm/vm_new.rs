@@ -63,19 +63,36 @@ impl VirtualMachine {
         value.into_pytuple(self)
     }
 
+    /// Create a native module from a dictionary that cannot invoke failing callbacks.
+    /// Use `try_new_module` for dictionaries exposed to Python code.
     pub fn new_module(
         &self,
         name: &str,
         dict: PyDictRef,
         doc: Option<PyStrRef>,
     ) -> PyRef<PyModule> {
+        self.try_new_module(name, dict, doc)
+            .expect("Failed to initialize a native module dictionary")
+    }
+
+    /// Create a module, propagating errors from its initial dictionary writes.
+    pub fn try_new_module(
+        &self,
+        name: &str,
+        dict: PyDictRef,
+        doc: Option<PyStrRef>,
+    ) -> PyResult<PyRef<PyModule>> {
         let module = PyRef::new_ref(
             PyModule::new(),
             self.ctx.types.module_type.to_owned(),
             Some(dict),
         );
-        module.init_dict(self.ctx.intern_str(name), doc, self);
-        module
+        module.init_dict(
+            self.ctx.intern_str(name),
+            doc.as_ref().map(|doc| doc.as_object()),
+            self,
+        )?;
+        Ok(module)
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
@@ -472,6 +489,17 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        self.new_syntax_error_with_filename(error, source, allow_incomplete, None)
+    }
+
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub(super) fn new_syntax_error_with_filename(
+        &self,
+        error: &crate::compiler::CompileError,
+        source: Option<&str>,
+        allow_incomplete: bool,
+        filename: Option<&Py<crate::builtins::PyStr>>,
+    ) -> PyBaseExceptionRef {
         if matches!(
             error,
             crate::compiler::CompileError::Codegen(crate::compiler::codegen::error::CodegenError {
@@ -624,7 +652,13 @@ impl VirtualMachine {
         let mut statement = if let Some(eof_token) = eof_token {
             Some(eof_token.line.clone())
         } else if matches!(error, crate::compiler::CompileError::Codegen(_)) {
-            self.program_text(error.source_path(), error.python_location().0)
+            match filename {
+                Some(filename) => self
+                    .fsencode(filename)
+                    .ok()
+                    .and_then(|path| self.program_text(path, error.python_location().0)),
+                None => self.program_text(error.source_path(), error.python_location().0),
+            }
         } else {
             source.and_then(|src| get_statement(src, error.location()))
         };
@@ -763,7 +797,9 @@ impl VirtualMachine {
         set_attrs!(
             syntax_error.as_object(), self, unwrap,
             "text" => statement.to_pyobject(self),
-            "filename" => self.ctx.new_str(error.source_path())
+            "filename" => filename.map_or_else(
+                || self.ctx.new_str(error.source_path()), ToOwned::to_owned,
+            )
         );
 
         // Set _metadata for keyword typo suggestions in traceback module.

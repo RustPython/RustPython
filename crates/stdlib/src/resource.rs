@@ -5,10 +5,8 @@ pub(crate) use resource::module_def;
 #[pymodule]
 mod resource {
     use crate::vm::{
-        Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-        builtins::PyInt,
+        PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         convert::{ToPyException, ToPyObject},
-        function::ArgIndex,
         stdlib::_warnings,
         types::PyStructSequence,
     };
@@ -175,17 +173,6 @@ mod resource {
         }
     }
 
-    fn py2rlim(obj: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
-        let value = obj.try_to_primitive::<isize>(vm)?;
-
-        if value.is_negative() {
-            return Err(vm.new_value_error("Cannot convert negative int"));
-        }
-
-        host_resource::rlim_t::try_from(value)
-            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
-    }
-
     fn py2rlim_limit(obj: &PyObject, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
         let int = obj.try_index(vm)?;
         if int.as_bigint().is_negative() {
@@ -213,26 +200,25 @@ mod resource {
     }
 
     #[pyfunction]
-    fn getrlimit(resource: ArgIndex, vm: &VirtualMachine) -> PyResult<Limits> {
-        let resource = py2rlim(resource.as_ref(), vm)?;
-
-        if resource >= RLIM_NLIMITS as host_resource::rlim_t {
+    fn getrlimit(resource: i32, vm: &VirtualMachine) -> PyResult<Limits> {
+        if !(0..RLIM_NLIMITS).contains(&resource) {
             return Err(vm.new_value_error("invalid resource specified"));
         }
 
-        let rlimit = host_resource::getrlimit(resource).map_err(|_| vm.new_last_errno_error())?;
+        let rlimit = host_resource::getrlimit(resource as host_resource::rlim_t)
+            .map_err(|e| e.to_pyexception(vm))?;
         Ok(Limits(rlimit))
     }
 
     #[pyfunction]
-    fn setrlimit(resource: ArgIndex, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        let resource = py2rlim(resource.as_ref(), vm)?;
-
-        if resource >= RLIM_NLIMITS as host_resource::rlim_t {
+    fn setrlimit(resource: i32, limits: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !(0..RLIM_NLIMITS).contains(&resource) {
             return Err(vm.new_value_error("invalid resource specified"));
         }
 
-        let res = host_resource::setrlimit(resource, limits.0);
+        vm.audit("resource.setrlimit", || (resource, limits.clone()))?;
+        let limits = Limits::try_from_borrowed_object(vm, &limits)?;
+        let res = host_resource::setrlimit(resource as host_resource::rlim_t, limits.0);
 
         res.map_err(|e| match e.kind() {
             io::ErrorKind::InvalidInput => {

@@ -9,10 +9,10 @@ pub(crate) mod module {
         AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytes, PyCapsule, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
-        exceptions::{self, OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::{self, OSErrorBuilder},
         function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
-        ospath::{OsPath, OsPathOrFd},
+        ospath::{OsPath, OsPathOrFd, PathConverter},
         stdlib::os::{_os, AccessArgs, DirFd, SupportFunc, SymlinkArgs},
     };
     use core::hint::cold_path;
@@ -121,11 +121,9 @@ pub(crate) mod module {
             &dst,
             args.target_is_directory.target_is_directory,
         ) {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder
-                .filename(args.src.filename(vm))
-                .filename2(args.dst.filename(vm));
-            return Err(builder.build(vm).upcast());
+            return Err(OSErrorBuilder::with_filenames(
+                &err, &args.src, &args.dst, vm,
+            ));
         }
 
         Ok(())
@@ -244,8 +242,11 @@ pub(crate) mod module {
     }
 
     impl PathArg {
-        fn to_path_or_fd(&self, vm: &VirtualMachine) -> Option<OsPathOrFd<'static>> {
-            OsPathOrFd::try_from_object(vm, self.path.clone()).ok()
+        fn to_path_or_fd(&self, vm: &VirtualMachine) -> PyResult<Option<OsPathOrFd<'static>>> {
+            match PathConverter::new().try_path_or_fd_allow_invalid(self.path.clone(), vm) {
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.value_error) => Ok(None),
+                result => result,
+            }
         }
     }
 
@@ -330,45 +331,50 @@ pub(crate) mod module {
 
     // return _testFileType(path, PY_IFDIR)
     #[pyfunction]
-    fn _path_isdir(path: PyObjectRef, vm: &VirtualMachine) -> bool {
-        PathArg { path }
-            .to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFDIR))
+    fn _path_isdir(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(PathArg { path }
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFDIR)))
     }
 
     // return _testFileType(path, PY_IFREG)
     #[pyfunction]
-    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFREG))
+    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFREG)))
     }
 
     // return _testFileType(path, PY_IFLNK)
     #[pyfunction]
-    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFLNK))
+    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFLNK)))
     }
 
     // return _testFileType(path, PY_IFMNT)
     #[pyfunction]
-    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFMNT))
+    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFMNT)))
     }
 
     // return _testFileExists(path, TRUE)
     #[pyfunction]
-    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_exists(&p, true))
+    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_exists(&p, true)))
     }
 
     // return _testFileExists(path, FALSE)
     #[pyfunction]
-    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_exists(&p, false))
+    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_exists(&p, false)))
     }
 
     #[pyfunction]
@@ -597,7 +603,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let final_path = host_nt::getfinalpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(final_path, vm))
+        path.mode().process_path(final_path, vm)
     }
 
     #[pyfunction]
@@ -605,7 +611,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let buffer = host_nt::getfullpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(buffer, vm))
+        path.mode().process_path(buffer, vm)
     }
 
     #[pyfunction]
@@ -617,7 +623,7 @@ pub(crate) mod module {
         }
         let buffer = host_nt::getvolumepathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(buffer, vm))
+        path.mode().process_path(buffer, vm)
     }
 
     /// Implements _Py_skiproot logic for Windows paths
@@ -1067,7 +1073,7 @@ pub(crate) mod module {
         let mode = path.mode();
         let wide = path.to_wide_cstring(vm)?;
         match host_nt::readlink(&wide) {
-            Ok(result_path) => Ok(mode.process_path(std::path::PathBuf::from(result_path), vm)),
+            Ok(result_path) => mode.process_path(std::path::PathBuf::from(result_path), vm),
             Err(host_nt::ReadlinkError::Io(err)) => {
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             }

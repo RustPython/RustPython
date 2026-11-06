@@ -2,15 +2,30 @@
 # the arguments the caller wrote, and agrees with itself about singular and
 # plural. Every message here is the one CPython raises, so this file is run
 # against both.
+import _functools
 import array
+import codecs
 import collections
 import csv
+import datetime
+import hashlib
 import itertools
+import math
 import operator
 import typing
 import weakref
 
 from testutils import TestFailingIter, assert_raises
+
+
+class FailingIndex:
+    def __index__(self):
+        raise RuntimeError
+
+
+class FailingBool:
+    def __bool__(self):
+        raise RuntimeError
 
 
 def check(exc_type, message, fn, *args, **kwargs):
@@ -150,6 +165,57 @@ def test_a_keyword_check_of_its_own_says_the_same_thing():
     )
 
 
+def test_grouper_arguments():
+    G = type(next(itertools.groupby("a"))[1])
+    check(TypeError, "_grouper expected 2 arguments, got 0", G)
+    check(TypeError, "_grouper expected 2 arguments, got 1", G, 1)
+    check(TypeError, "_grouper expected 2 arguments, got 3", G, 1, 2, 3)
+    check(TypeError, "_grouper() takes no keyword arguments", G, x=1)
+    check(
+        TypeError,
+        "_grouper() argument 1 must be itertools.groupby, not int",
+        G,
+        1,
+        "a",
+    )
+    check(
+        TypeError,
+        "_grouper() argument 1 must be itertools.groupby, not None",
+        G,
+        None,
+        "a",
+    )
+    g = itertools.groupby("aab")
+    next(g)
+    assert list(G(g, "a")) == ["a", "a"]
+
+    class GroupBy(itertools.groupby):
+        pass
+
+    g = GroupBy("aab")
+    next(g)
+    assert list(G(g, "a")) == ["a", "a"]
+
+
+def test_bad_argument_type():
+    check(TypeError, "lookup() argument must be str, not int", codecs.lookup, 1)
+    G = type(next(itertools.groupby("a"))[1])
+    check(
+        TypeError,
+        "_grouper() argument 1 must be itertools.groupby, not int",
+        G,
+        1,
+        "a",
+    )
+    check(TypeError, "lookup() argument must be str, not None", codecs.lookup, None)
+    check(
+        TypeError,
+        "tobytes() argument 'order' must be str or None, not int",
+        memoryview(b"a").tobytes,
+        1,
+    )
+
+
 def test_too_many_arguments_are_counted_before_any_is_converted():
     class FailingIndex:
         def __index__(self):
@@ -167,6 +233,112 @@ def test_too_many_arguments_are_counted_before_any_is_converted():
         hex(FailingIndex(), 1)
 
 
+def test_a_missing_argument_is_reported_before_any_is_converted():
+    class FailingIndex:
+        def __index__(self):
+            raise RuntimeError
+
+    check(
+        TypeError,
+        "compress() missing required argument 'selectors' (pos 2)",
+        itertools.compress,
+        TestFailingIter(),
+    )
+    check(
+        TypeError,
+        "compress() missing required argument 'selectors' (pos 2)",
+        itertools.compress,
+        data=TestFailingIter(),
+    )
+    check(
+        TypeError,
+        "compress() missing required argument 'selectors' (pos 2)",
+        itertools.compress,
+        TestFailingIter(),
+        sel=1,
+    )
+    check(
+        TypeError,
+        "date() missing required argument 'month' (pos 2)",
+        datetime.date,
+        FailingIndex(),
+    )
+    check(
+        TypeError,
+        "comb expected 2 arguments, got 1",
+        math.comb,
+        FailingIndex(),
+    )
+    check(
+        TypeError,
+        "insert expected 2 arguments, got 1",
+        [].insert,
+        FailingIndex(),
+    )
+
+
+def test_required_keyword_only_is_reported_before_conversion():
+    # Modules/clinic/_hashopenssl.c.h
+    check(
+        TypeError,
+        "scrypt() missing required argument 'salt' (pos 2)",
+        hashlib.scrypt,
+        FailingIndex(),
+    )
+
+
+def test_legacy_parsers_convert_before_a_missing_argument():
+    def f():
+        pass
+
+    with assert_raises(RuntimeError):
+        _functools._lru_cache_wrapper(f, 1, FailingBool())
+
+    try:
+        import _posixshmem
+    except ImportError:
+        pass
+    else:
+        try:
+            _posixshmem.shm_open(1)
+        except TypeError as e:
+            message = str(e)
+            assert "missing required argument" not in message, message
+        else:
+            raise AssertionError("shm_open(1) did not raise TypeError")
+
+        try:
+            _posixshmem.shm_open(1, 2, path="x")
+        except TypeError as e:
+            message = str(e)
+            assert "given by name" not in message, message
+        else:
+            raise AssertionError("shm_open(1, 2, path='x') did not raise TypeError")
+
+        assert (
+            _posixshmem.shm_open.__text_signature__
+            == "($module, /, path, flags, mode=511)"
+        )
+
+    try:
+        import mmap
+    except ImportError:
+        pass
+    else:
+        try:
+            mmap.mmap("x")
+        except TypeError as e:
+            message = str(e)
+            assert "missing required argument" not in message, message
+        else:
+            raise AssertionError("mmap.mmap('x') did not raise TypeError")
+
+    import _json
+
+    with assert_raises(RuntimeError):
+        _json.make_encoder(None, None, None, None, ",", ",", FailingBool())
+
+
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
@@ -175,4 +347,9 @@ test_a_parameter_a_call_may_name_is_named_back()
 test_a_type_is_named_by_the_type_it_builds()
 test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
 test_a_keyword_check_of_its_own_says_the_same_thing()
+test_grouper_arguments()
+test_bad_argument_type()
 test_too_many_arguments_are_counted_before_any_is_converted()
+test_a_missing_argument_is_reported_before_any_is_converted()
+test_required_keyword_only_is_reported_before_conversion()
+test_legacy_parsers_convert_before_a_missing_argument()

@@ -212,7 +212,6 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-X', 'utf8', '-c', code, LC_ALL=loc)
                 self.assertEqual(out, 'utf-8 utf-8')
 
-    @unittest.expectedFailureIf(sys.platform.startswith("linux"), "TODO: RUSTPYTHON")
     @unittest.skipIf(MS_WINDOWS, 'test specific to Unix')
     def test_cmd_line(self):
         arg = 'h\xe9\u20ac'.encode('utf-8')

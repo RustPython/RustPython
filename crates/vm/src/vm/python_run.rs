@@ -23,12 +23,26 @@ impl VirtualMachine {
     ///
     /// Execute a string of Python code with explicit scope and source path.
     pub fn run_string(&self, scope: Scope, source: &str, source_path: &str) -> PyResult {
-        let code_obj = self
-            .compile(source, compiler::Mode::Exec, source_path)
-            .map_err(|err| err.into_pyexception(self, Some(source)))?;
+        self.run_string_with_filename(scope, source, &self.ctx.new_str(source_path))
+    }
+
+    /// Execute source while retaining a Python filename, including surrogates.
+    pub fn run_string_with_filename(
+        &self,
+        scope: Scope,
+        source: &str,
+        filename: &Py<PyStr>,
+    ) -> PyResult {
+        let code = self.compile_with_filename(
+            source,
+            compiler::Mode::Exec,
+            filename,
+            self.compile_opts(),
+            None,
+        )?;
         // linecache._register_code(code, source, filename)
-        let _ = self.register_code_in_linecache(&code_obj, source);
-        self.run_code_obj(code_obj, scope)
+        let _ = self.register_code_in_linecache(&code, source);
+        self.run_code_obj(code, scope)
     }
 
     /// Register a code object's source in linecache._interactive_cache
@@ -37,7 +51,7 @@ impl VirtualMachine {
         let linecache = self.import("linecache", 0)?;
         let register = linecache.get_attr("_register_code", self)?;
         let source_str = self.ctx.new_str(source);
-        let filename = self.ctx.new_str(code.source_path().as_str());
+        let filename = code.source_path().to_owned();
         register.call(
             (PyObjectRef::from(code.to_owned()), source_str, filename),
             self,
@@ -62,10 +76,12 @@ impl VirtualMachine {
 mod file_run {
     use crate::{
         Py, PyResult, VirtualMachine,
-        builtins::{PyCode, PyDict},
+        builtins::{PyCode, PyDict, PyStr},
         compiler::{self},
         scope::Scope,
     };
+
+    use std::path::Path;
 
     impl VirtualMachine {
         /// _PyRun_AnyFileObject (internal)
@@ -75,8 +91,13 @@ mod file_run {
         ///
         /// Note: This is an internal function. Use `run_file` for the public interface.
         #[doc(hidden)]
-        pub fn run_any_file(&self, scope: Scope, path: &str) -> PyResult<()> {
-            let path = if path.is_empty() { "???" } else { path };
+        pub fn run_any_file(&self, scope: Scope, path: impl AsRef<Path>) -> PyResult<()> {
+            let path = path.as_ref();
+            let path = if path.as_os_str().is_empty() {
+                Path::new("???")
+            } else {
+                path
+            };
             self.run_simple_file(scope, path)
         }
 
@@ -84,9 +105,10 @@ mod file_run {
         ///
         /// Execute a Python file with __main__ module setup.
         /// Sets __file__ and __cached__ before execution, removes them after.
-        fn run_simple_file(&self, scope: Scope, path: &str) -> PyResult<()> {
-            self.with_simple_run(path, |module_dict| {
-                self.run_simple_file_inner(module_dict, scope, path)
+        fn run_simple_file(&self, scope: Scope, path: &Path) -> PyResult<()> {
+            let filename = self.fsdecode(path.as_os_str())?;
+            self.with_simple_run(&filename, |module_dict| {
+                self.run_simple_file_inner(module_dict, scope, path, &filename)
             })
         }
 
@@ -94,12 +116,13 @@ mod file_run {
             &self,
             module_dict: &Py<PyDict>,
             scope: Scope,
-            path: &str,
+            path: &Path,
+            filename: &Py<PyStr>,
         ) -> PyResult<()> {
             let pyc = maybe_pyc_file(path);
             if pyc {
                 // pyc file execution
-                set_main_loader(module_dict, path, "SourcelessFileLoader", self)?;
+                set_main_loader(module_dict, filename, "SourcelessFileLoader", self)?;
                 let loader = module_dict.get_item("__loader__", self)?;
                 let get_code = loader.get_attr("get_code", self)?;
                 let code_obj = get_code.call((identifier!(self, __main__).to_owned(),), self)?;
@@ -108,35 +131,33 @@ mod file_run {
                     .map_err(|_| self.new_runtime_error("Bad code object in .pyc file"))?;
                 self.run_code_obj(code, scope)?;
             } else {
-                if path != "<stdin>" {
-                    set_main_loader(module_dict, path, "SourceFileLoader", self)?;
+                if path != Path::new("<stdin>") {
+                    set_main_loader(module_dict, filename, "SourceFileLoader", self)?;
                 }
                 match crate::host_env::fs::read(path) {
                     Ok(source_bytes) => {
                         if let Some(null_at) = source_bytes.iter().position(|&b| b == 0) {
                             return Err(super::null_byte_syntax_error(
                                 self,
-                                path,
+                                filename,
                                 &source_bytes,
                                 null_at,
                             ));
                         }
                         #[cfg(feature = "parser")]
                         // Match compile() by honoring BOMs and encoding cookies in files.
-                        let source = self.decode_source_bytes(&source_bytes, path, false)?;
+                        let source =
+                            self.decode_source_bytes_with_filename(&source_bytes, filename, false)?;
                         #[cfg(not(feature = "parser"))]
                         let source = String::from_utf8(source_bytes)
                             .map_err(|err| self.new_os_error(err.to_string()))?;
-                        let code_obj = self
-                            .compile_with_opts_and_module(
-                                &source,
-                                compiler::Mode::Exec,
-                                path,
-                                self.compile_opts(),
-                                Some(identifier!(self, __main__)),
-                                &[],
-                            )
-                            .map_err(|err| err.into_pyexception(self, Some(&source)))?;
+                        let code_obj = self.compile_with_filename(
+                            &source,
+                            compiler::Mode::Exec,
+                            filename,
+                            self.compile_opts(),
+                            Some(identifier!(self, __main__)),
+                        )?;
                         self.run_code_obj(code_obj, scope)?;
                     }
                     Err(err) => {
@@ -155,7 +176,7 @@ mod file_run {
 
     fn set_main_loader(
         module_dict: &Py<PyDict>,
-        filename: &str,
+        filename: &Py<PyStr>,
         loader_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -164,7 +185,10 @@ mod file_run {
         let machinery = sys_modules.get_item("importlib.machinery", vm)?;
         let loader_name = vm.ctx.new_str(loader_name);
         let loader_class = machinery.get_attr(&loader_name, vm)?;
-        let loader = loader_class.call((identifier!(vm, __main__).to_owned(), filename), vm)?;
+        let loader = loader_class.call(
+            (identifier!(vm, __main__).to_owned(), filename.to_owned()),
+            vm,
+        )?;
         module_dict.set_item("__loader__", loader, vm)?;
         Ok(())
     }
@@ -174,16 +198,15 @@ mod file_run {
     /// Detection is performed by:
     /// 1. Checking if the filename ends with ".pyc"
     /// 2. If not, reading the first 2 bytes and comparing with the magic number
-    fn maybe_pyc_file(path: &str) -> bool {
-        if path.ends_with(".pyc") {
+    fn maybe_pyc_file(path: &Path) -> bool {
+        if path.as_os_str().as_encoded_bytes().ends_with(b".pyc") {
             return true;
         }
         maybe_pyc_file_with_magic(path).unwrap_or(false)
     }
 
-    fn maybe_pyc_file_with_magic(path: &str) -> std::io::Result<bool> {
-        let path_obj = std::path::Path::new(path);
-        if !path_obj.is_file() {
+    fn maybe_pyc_file_with_magic(path: &Path) -> std::io::Result<bool> {
+        if !path.is_file() {
             return Ok(false);
         }
 
@@ -521,7 +544,7 @@ impl VirtualMachine {
     /// _PyRun_SimpleFile(stdin, "<stdin>")
     fn run_simple_stdin(&self) -> PyResult<()> {
         use std::io::Read;
-        self.with_simple_run("<stdin>", |module_dict| {
+        self.with_simple_run(&self.ctx.new_str("<stdin>"), |module_dict| {
             // _PyParser_ASTFromFile
             self.audit("compile", || (self.ctx.none(), self.ctx.new_str("<stdin>")))?;
             let mut bytes = Vec::new();
@@ -538,7 +561,12 @@ impl VirtualMachine {
                 }
             }
             if let Some(null_at) = bytes.iter().position(|&b| b == 0) {
-                return Err(null_byte_syntax_error(self, "<stdin>", &bytes, null_at));
+                return Err(null_byte_syntax_error(
+                    self,
+                    &self.ctx.new_str("<stdin>"),
+                    &bytes,
+                    null_at,
+                ));
             }
             #[cfg(feature = "parser")]
             let source = self.decode_source_bytes(&bytes, "<stdin>", false)?;
@@ -564,7 +592,7 @@ impl VirtualMachine {
 
 fn null_byte_syntax_error(
     vm: &VirtualMachine,
-    path: &str,
+    path: &Py<PyStr>,
     source_bytes: &[u8],
     null_at: usize,
 ) -> PyBaseExceptionRef {
@@ -580,7 +608,7 @@ fn null_byte_syntax_error(
         "source code cannot contain null bytes".into(),
     );
     let obj = syntax_error.as_object();
-    obj.set_attr("filename", vm.ctx.new_str(path), vm).unwrap();
+    obj.set_attr("filename", path.to_owned(), vm).unwrap();
     obj.set_attr("lineno", vm.ctx.new_int(lineno), vm).unwrap();
     obj.set_attr("text", vm.ctx.new_str(format!("{line}\n")), vm)
         .unwrap();

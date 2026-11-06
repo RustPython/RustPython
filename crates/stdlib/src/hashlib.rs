@@ -14,7 +14,7 @@ pub(crate) mod _hashlib {
             PyValueError,
         },
         class::StaticType,
-        function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgCInt, ArgIntoBool, ArgStrOrBytesLike, FuncArgs, OptionalArg},
         types::{Constructor, Representable},
     };
     use core::mem::MaybeUninit;
@@ -87,7 +87,11 @@ pub(crate) mod _hashlib {
                     &name[..end]
                 )));
             }
-            PyUtf8StrRef::try_from_object(vm, obj).map(Self)
+            let name = PyUtf8StrRef::try_from_object(vm, obj)?;
+            if name.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            Ok(Self(name))
         }
     }
 
@@ -95,48 +99,163 @@ pub(crate) mod _hashlib {
     #[allow(unused)]
     struct NewHashArgs {
         #[pyarg(any)]
-        name: HashName,
+        name: PyObjectRef,
         // Missing still allows the string keyword; b'' does not.
         #[pyarg(any, optional, py_default = "b''")]
-        data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = true)]
-        usedforsecurity: bool,
-        // None means no string data.
-        #[pyarg(named, optional)]
-        string: Option<ArgBytesLike>,
+        data: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "True")]
+        usedforsecurity: OptionalArg<PyObjectRef>,
+        // Preserve explicit None as a supplied argument.
+        #[pyarg(named, optional, py_default = "None")]
+        string: OptionalArg<PyObjectRef>,
     }
 
+    // Bind raw objects first: Clinic rejects unknown keywords before conversion.
+    // The two constructors share options, but have different digest defaults.
+    macro_rules! blake_args {
+        ($name:ident, $digest:literal, $signature:literal) => {
+            #[derive(FromArgs)]
+            pub(crate) struct $name {
+                #[pyarg(any, optional, py_default = "b''")]
+                data: OptionalArg<PyObjectRef>,
+                #[pyarg(named, optional, py_default = $signature)]
+                digest_size: OptionalArg<PyObjectRef>,
+                #[pyarg(flatten)]
+                options: BlakeOptions,
+            }
+
+            impl $name {
+                fn convert(&self, vm: &VirtualMachine) -> PyResult<BlakeHashArgs> {
+                    let digest_size = match &self.digest_size {
+                        OptionalArg::Present(value) => {
+                            ArgCInt::try_from_object(vm, value.clone())?.value
+                        }
+                        OptionalArg::Missing => $digest,
+                    };
+                    self.options.convert(&self.data, digest_size, vm)
+                }
+            }
+        };
+    }
+
+    blake_args!(Blake2bArgs, 64, "64");
+    blake_args!(Blake2sArgs, 32, "32");
+
     #[derive(FromArgs)]
-    #[allow(unused)]
-    pub(crate) struct BlakeHashArgs {
-        #[pyarg(any, optional)]
-        pub data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional)]
-        digest_size: OptionalArg<i64>,
-        #[pyarg(named, optional)]
-        key: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional)]
-        salt: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional)]
-        person: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, optional)]
-        fanout: OptionalArg<i64>,
-        #[pyarg(named, optional)]
-        depth: OptionalArg<i64>,
-        #[pyarg(named, optional)]
+    struct BlakeOptions {
+        #[pyarg(named, optional, py_default = "b''")]
+        key: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "b''")]
+        salt: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "b''")]
+        person: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "1")]
+        fanout: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "1")]
+        depth: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "0")]
         leaf_size: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "0")]
         node_offset: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        node_depth: OptionalArg<i64>,
-        #[pyarg(named, optional)]
-        inner_size: OptionalArg<i64>,
-        #[pyarg(named, default)]
+        #[pyarg(named, optional, py_default = "0")]
+        node_depth: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "0")]
+        inner_size: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "False")]
+        last_node: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "True")]
+        usedforsecurity: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "None")]
+        string: OptionalArg<PyObjectRef>,
+    }
+
+    struct BlakeHashArgs {
+        data: OptionalArg<PyObjectRef>,
+        digest_size: i32,
+        key: OptionalArg<ArgBytesLike>,
+        salt: OptionalArg<ArgBytesLike>,
+        person: OptionalArg<ArgBytesLike>,
+        fanout: i32,
+        depth: i32,
+        leaf_size: u64,
+        node_offset: u64,
+        node_depth: i32,
+        inner_size: i32,
         last_node: bool,
-        #[pyarg(named, default = true)]
-        usedforsecurity: bool,
-        #[pyarg(named, optional)]
-        pub string: Option<ArgBytesLike>,
+    }
+
+    fn optional_conversion<T: TryFromObject>(
+        value: &OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<OptionalArg<T>> {
+        value
+            .as_ref()
+            .into_option()
+            .map(|value| T::try_from_object(vm, value.clone()))
+            .transpose()
+            .map(OptionalArg::from_option)
+    }
+
+    fn blake_int(
+        value: &OptionalArg<PyObjectRef>,
+        default: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<i32> {
+        Ok(optional_conversion::<ArgCInt>(value, vm)?
+            .into_option()
+            .map_or(default, |value| value.value))
+    }
+
+    fn hash_bool(
+        value: &OptionalArg<PyObjectRef>,
+        default: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        Ok(optional_conversion::<ArgIntoBool>(value, vm)?
+            .into_option()
+            .map_or(default, ArgIntoBool::into_bool))
+    }
+
+    impl BlakeOptions {
+        fn convert(
+            &self,
+            data: &OptionalArg<PyObjectRef>,
+            digest_size: i32,
+            vm: &VirtualMachine,
+        ) -> PyResult<BlakeHashArgs> {
+            let key = optional_conversion(&self.key, vm)?;
+            let salt = optional_conversion(&self.salt, vm)?;
+            let person = optional_conversion(&self.person, vm)?;
+            let fanout = blake_int(&self.fanout, 1, vm)?;
+            let depth = blake_int(&self.depth, 1, vm)?;
+            let leaf_size = blake_unsigned(
+                &self.leaf_size,
+                u64::MAX >> (u64::BITS - core::ffi::c_ulong::BITS),
+                "unsigned long",
+                vm,
+            )?;
+            let node_offset =
+                blake_unsigned(&self.node_offset, u64::MAX, "unsigned long long", vm)?;
+            let node_depth = blake_int(&self.node_depth, 0, vm)?;
+            let inner_size = blake_int(&self.inner_size, 0, vm)?;
+            let last_node = hash_bool(&self.last_node, false, vm)?;
+            hash_bool(&self.usedforsecurity, true, vm)?;
+            let data = resolve_data(data, &self.string, vm)?;
+            Ok(BlakeHashArgs {
+                data,
+                digest_size,
+                key,
+                salt,
+                person,
+                fanout,
+                depth,
+                leaf_size,
+                node_offset,
+                node_depth,
+                inner_size,
+                last_node,
+            })
+        }
     }
 
     #[derive(FromArgs, Debug)]
@@ -144,21 +263,17 @@ pub(crate) mod _hashlib {
     pub(crate) struct HashArgs {
         // Missing still allows the string keyword; b'' does not.
         #[pyarg(any, optional, py_default = "b''")]
-        pub data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = true)]
-        usedforsecurity: bool,
-        // Missing string is None.
-        #[pyarg(named, optional)]
-        pub string: Option<ArgBytesLike>,
+        pub data: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "True")]
+        usedforsecurity: OptionalArg<PyObjectRef>,
+        // Missing and explicit None are distinct for the deprecated alias.
+        #[pyarg(named, optional, py_default = "None")]
+        pub string: OptionalArg<PyObjectRef>,
     }
 
-    impl From<NewHashArgs> for HashArgs {
-        fn from(args: NewHashArgs) -> Self {
-            Self {
-                data: args.data,
-                usedforsecurity: args.usedforsecurity,
-                string: args.string,
-            }
+    impl HashArgs {
+        fn convert(&self, vm: &VirtualMachine) -> PyResult<OptionalArg<ArgBytesLike>> {
+            convert_hash_data(&self.data, &self.usedforsecurity, &self.string, vm)
         }
     }
 
@@ -237,13 +352,23 @@ pub(crate) mod _hashlib {
         dklen: Option<PyObjectRef>,
     }
 
-    fn resolve_data(
-        data: OptionalArg<ArgBytesLike>,
-        string: Option<ArgBytesLike>,
+    fn convert_hash_data(
+        data: &OptionalArg<PyObjectRef>,
+        usedforsecurity: &OptionalArg<PyObjectRef>,
+        string: &OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<OptionalArg<ArgBytesLike>> {
-        match (data.into_option(), string) {
-            (Some(d), None) => Ok(OptionalArg::Present(d)),
+        hash_bool(usedforsecurity, true, vm)?;
+        optional_conversion(&resolve_data(data, string, vm)?, vm)
+    }
+
+    fn resolve_data(
+        data: &OptionalArg<PyObjectRef>,
+        string: &OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<OptionalArg<PyObjectRef>> {
+        match (data.as_ref().into_option(), string.as_ref().into_option()) {
+            (Some(d), None) => Ok(OptionalArg::Present(d.clone())),
             (None, Some(s)) => {
                 crate::vm::stdlib::_warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
@@ -254,7 +379,7 @@ pub(crate) mod _hashlib {
                     1,
                     vm,
                 )?;
-                Ok(OptionalArg::Present(s))
+                Ok(OptionalArg::Present(s.clone()))
             }
             (None, None) => Ok(OptionalArg::Missing),
             (Some(_), Some(_)) => Err(vm.new_type_error(
@@ -819,8 +944,9 @@ pub(crate) mod _hashlib {
 
     #[pyfunction(name = "new")]
     fn hashlib_new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let data = resolve_data(args.data, args.string, vm)?;
-        match args.name.0.as_str().to_lowercase().as_str() {
+        let name = HashName::try_from_object(vm, args.name.clone())?;
+        let data = convert_hash_data(&args.data, &args.usedforsecurity, &args.string, vm)?;
+        match name.0.as_str().to_lowercase().as_str() {
             "md5" => Ok(new_fixed_hasher("md5", data).into_pyobject(vm)),
             "sha1" => Ok(new_fixed_hasher("sha1", data).into_pyobject(vm)),
             "sha224" => Ok(new_fixed_hasher("sha224", data).into_pyobject(vm)),
@@ -841,88 +967,99 @@ pub(crate) mod _hashlib {
 
     #[pyfunction(name = "openssl_md5")]
     pub(crate) fn local_md5(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("md5", data))
     }
 
     #[pyfunction(name = "openssl_sha1")]
     pub(crate) fn local_sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha1", data))
     }
 
     #[pyfunction(name = "openssl_sha224")]
     pub(crate) fn local_sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha224", data))
     }
 
     #[pyfunction(name = "openssl_sha256")]
     pub(crate) fn local_sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha256", data))
     }
 
     #[pyfunction(name = "openssl_sha384")]
     pub(crate) fn local_sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha384", data))
     }
 
     #[pyfunction(name = "openssl_sha512")]
     pub(crate) fn local_sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha512", data))
     }
 
     #[pyfunction(name = "openssl_sha3_224")]
     pub(crate) fn local_sha3_224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_224", data))
     }
 
     #[pyfunction(name = "openssl_sha3_256")]
     pub(crate) fn local_sha3_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_256", data))
     }
 
     #[pyfunction(name = "openssl_sha3_384")]
     pub(crate) fn local_sha3_384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_384", data))
     }
 
     #[pyfunction(name = "openssl_sha3_512")]
     pub(crate) fn local_sha3_512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_512", data))
     }
 
     #[pyfunction(name = "openssl_shake_128")]
     pub(crate) fn local_shake_128(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_xof_hasher("shake_128", data))
     }
 
     #[pyfunction(name = "openssl_shake_256")]
     pub(crate) fn local_shake_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
-        let data = resolve_data(args.data, args.string, vm)?;
+        let data = args.convert(vm)?;
         Ok(new_xof_hasher("shake_256", data))
     }
 
-    fn parse_unsigned_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<u64> {
+    fn blake_unsigned(
+        obj: &OptionalArg<PyObjectRef>,
+        max: u64,
+        c_type: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<u64> {
+        let Some(obj) = obj.as_ref().into_option() else {
+            return Ok(0);
+        };
         let value = obj.try_index(vm)?;
         if value.as_bigint().sign() == malachite_bigint::Sign::Minus {
             return Err(vm.new_value_error("Cannot convert negative int"));
         }
-        value.try_to_primitive(vm)
+        let overflow = || vm.new_overflow_error(format!("Python int too large for C {c_type}"));
+        let value = value.try_to_primitive::<u64>(vm).map_err(|_| overflow())?;
+        if value > max {
+            return Err(overflow());
+        }
+        Ok(value)
     }
 
     struct Blake2Limits {
         name: &'static str,
-        display: &'static str,
-        default_digest_size: i64,
         max_digest_size: usize,
         max_key_size: usize,
         max_salt_size: usize,
@@ -981,105 +1118,89 @@ pub(crate) mod _hashlib {
     ) -> PyResult<Blake2Hash> {
         let Blake2Limits {
             name,
-            display,
-            default_digest_size,
             max_digest_size,
             max_key_size,
             max_salt_size,
             max_person_size,
             max_node_offset,
         } = limits;
-        let data = resolve_data(args.data, args.string, vm)?;
-        let digest_size = args.digest_size.unwrap_or(default_digest_size);
+        let data = args.data;
+        let digest_size = args.digest_size;
         if digest_size < 1 || digest_size as u64 > max_digest_size as u64 {
             return Err(vm.new_value_error(format!(
-                "digest_size for {display} must be between 1 and {max_digest_size} bytes, here it is {digest_size}"
+                "digest_size for {name} must be between 1 and {max_digest_size} bytes, got {digest_size}"
             )));
         }
         let digest_size = digest_size as usize;
 
-        let empty: &[u8] = &[];
-        let key_buf;
-        let salt_buf;
-        let person_buf;
-        let key = match args.key {
-            OptionalArg::Present(ref buf) => {
-                key_buf = buf.borrow_buf();
-                &*key_buf
+        for (name, buffer, max) in [
+            ("key", &args.key, max_key_size),
+            ("salt", &args.salt, max_salt_size),
+            ("person", &args.person, max_person_size),
+        ] {
+            let len = buffer
+                .as_ref()
+                .into_option()
+                .map_or(0, |buffer| buffer.len());
+            if len > max {
+                return Err(
+                    vm.new_value_error(format!("maximum {name} length is {max} bytes, got {len}"))
+                );
             }
-            OptionalArg::Missing => empty,
-        };
-        let salt = match args.salt {
-            OptionalArg::Present(ref buf) => {
-                salt_buf = buf.borrow_buf();
-                &*salt_buf
-            }
-            OptionalArg::Missing => empty,
-        };
-        let person = match args.person {
-            OptionalArg::Present(ref buf) => {
-                person_buf = buf.borrow_buf();
-                &*person_buf
-            }
-            OptionalArg::Missing => empty,
-        };
-
-        if salt.len() > max_salt_size {
-            return Err(vm.new_value_error(format!("maximum salt length is {max_salt_size} bytes")));
-        }
-        if person.len() > max_person_size {
-            return Err(
-                vm.new_value_error(format!("maximum person length is {max_person_size} bytes"))
-            );
         }
 
-        let fanout = args.fanout.unwrap_or(1);
+        let fanout = args.fanout;
         if !(0..=255).contains(&fanout) {
-            return Err(vm.new_value_error("fanout must be between 0 and 255"));
+            return Err(vm.new_value_error("'fanout' must be between 0 and 255"));
         }
-        let depth = args.depth.unwrap_or(1);
+        let depth = args.depth;
         if !(1..=255).contains(&depth) {
-            return Err(vm.new_value_error("depth must be between 1 and 255"));
+            return Err(vm.new_value_error("'depth' must be between 1 and 255"));
         }
 
-        let leaf_size = match args.leaf_size.into_option() {
-            Some(obj) => {
-                let value = parse_unsigned_int(&obj, vm)?;
-                u32::try_from(value).map_err(|_| vm.new_overflow_error("leaf_size is too large"))?
-            }
-            None => 0,
-        };
-        let node_offset = match args.node_offset.into_option() {
-            Some(obj) => {
-                let value = parse_unsigned_int(&obj, vm)?;
-                if value > max_node_offset {
-                    return Err(vm.new_overflow_error("node_offset is too large"));
-                }
-                value
-            }
-            None => 0,
-        };
-
-        let node_depth = args.node_depth.unwrap_or(0);
+        let node_depth = args.node_depth;
         if !(0..=255).contains(&node_depth) {
-            return Err(vm.new_value_error("node_depth must be between 0 and 255"));
+            return Err(vm.new_value_error("'node_depth' must be between 0 and 255"));
         }
-        let inner_size = args.inner_size.unwrap_or(0);
+        let inner_size = args.inner_size;
         if inner_size < 0 || inner_size as u64 > max_digest_size as u64 {
             return Err(vm.new_value_error(format!(
-                "inner_size must be between 0 and is {max_digest_size}"
+                "'inner_size' must be between 0 and {max_digest_size}"
             )));
         }
-        if key.len() > max_key_size {
-            return Err(vm.new_value_error(format!("maximum key length is {max_key_size} bytes")));
+        let leaf_size = u32::try_from(args.leaf_size)
+            .map_err(|_| vm.new_overflow_error("'leaf_size' is too large"))?;
+        let node_offset = args.node_offset;
+        if node_offset > max_node_offset {
+            return Err(vm.new_overflow_error("'node_offset' is too large"));
         }
 
+        // Snapshot mutable options one at a time, without nested exporter locks.
+        // Keep their exports alive while acquiring the initial data buffer.
+        let key = args
+            .key
+            .as_ref()
+            .into_option()
+            .map(|buf| buf.borrow_buf_unlocked(vm))
+            .transpose()?;
+        let salt = args
+            .salt
+            .as_ref()
+            .into_option()
+            .map(|buf| buf.borrow_buf_unlocked(vm))
+            .transpose()?;
+        let person = args
+            .person
+            .as_ref()
+            .into_option()
+            .map(|buf| buf.borrow_buf_unlocked(vm))
+            .transpose()?;
         let ctx = HashCtx::new_blake2(
             name,
             digest_size,
-            key,
-            salt,
-            person,
+            key.as_deref().unwrap_or(&[]),
+            salt.as_deref().unwrap_or(&[]),
+            person.as_deref().unwrap_or(&[]),
             fanout as u8,
             depth as u8,
             leaf_size,
@@ -1090,7 +1211,7 @@ pub(crate) mod _hashlib {
         )
         .ok_or_else(|| vm.new_value_error(format!("failed to initialize {name}")))?;
         if let OptionalArg::Present(d) = data {
-            d.with_ref(|bytes| ctx.update(bytes));
+            ArgBytesLike::try_from_object(vm, d)?.with_ref(|bytes| ctx.update(bytes));
         }
         Ok(Blake2Hash {
             name,
@@ -1099,47 +1220,43 @@ pub(crate) mod _hashlib {
         })
     }
 
-    pub(crate) fn local_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<Blake2Hash> {
+    pub(crate) fn local_blake2b(args: Blake2bArgs, vm: &VirtualMachine) -> PyResult<Blake2Hash> {
         blake2_hasher(
             Blake2Limits {
                 name: "blake2b",
-                display: "Blake2b",
-                default_digest_size: 64,
                 max_digest_size: 64,
                 max_key_size: 64,
                 max_salt_size: 16,
                 max_person_size: 16,
                 max_node_offset: u64::MAX,
             },
-            args,
+            args.convert(vm)?,
             vm,
         )
     }
 
-    pub(crate) fn local_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<Blake2Hash> {
+    pub(crate) fn local_blake2s(args: Blake2sArgs, vm: &VirtualMachine) -> PyResult<Blake2Hash> {
         blake2_hasher(
             Blake2Limits {
                 name: "blake2s",
-                display: "Blake2s",
-                default_digest_size: 32,
                 max_digest_size: 32,
                 max_key_size: 32,
                 max_salt_size: 8,
                 max_person_size: 8,
                 max_node_offset: (1 << 48) - 1,
             },
-            args,
+            args.convert(vm)?,
             vm,
         )
     }
 
     #[pyfunction(name = "openssl_blake2b")]
-    fn openssl_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    fn openssl_blake2b(args: Blake2bArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         Ok(local_blake2b(args, vm)?.into_hasher())
     }
 
     #[pyfunction(name = "openssl_blake2s")]
-    fn openssl_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    fn openssl_blake2s(args: Blake2sArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         Ok(local_blake2s(args, vm)?.into_hasher())
     }
 

@@ -608,7 +608,7 @@ pub(crate) mod _thread {
                 host_thread::current_thread_name(host_thread::NAME_MAXLEN.saturating_add(1))
                     .map_err(|e| e.to_pyexception(vm))?;
             let os = unsafe { std::ffi::OsString::from_encoded_bytes_unchecked(bytes) };
-            Ok(vm.fsdecode(os).into())
+            Ok(vm.fsdecode(os)?.into())
         }
     }
 

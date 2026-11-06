@@ -26,9 +26,9 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
-        AsNumber, Callable, Constructor, GetAttr, Initializer, NewFunc, PyTypeFlags, PyTypeSlots,
-        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
-        VectorCallFunc, fn_addr, new_wrapper,
+        AsNumber, CSlots, Callable, Constructor, GetAttr, Initializer, OwnedCSlots, PyTypeFlags,
+        PyTypeSlots, Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        VectorCallFunc,
     },
 };
 use core::{
@@ -42,7 +42,7 @@ use core::{
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use rustpython_common::wtf8::Wtf8;
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat};
 use std::collections::HashSet;
 
 pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
@@ -358,6 +358,9 @@ pub struct HeapTypeExt {
     pub qualname: PyRwLock<PyStrRef>,
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
+    /// The C slot table this type owns, once an extension has filled one in.
+    /// Types that inherit from it point at this same table.
+    pub(crate) c_slots: PyRwLock<Option<OwnedCSlots>>,
     pub specialization_cache: TypeSpecializationCache,
     /// The interpreter this type was created in, or `None` for the types the
     /// shared context builds before any interpreter exists.
@@ -861,6 +864,7 @@ impl PyType {
             qualname: PyRwLock::new(name),
             slots: None,
             type_data: PyRwLock::new(None),
+            c_slots: PyRwLock::new(None),
             specialization_cache: TypeSpecializationCache::new(),
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
@@ -1324,6 +1328,7 @@ impl PyType {
 
         if slots.flags.has_feature(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None);
+            slots.c_slots.store(None);
         } else if slots.new.load().is_none() {
             let inherited = base.and_then(|base| base.slots.new.load());
             if !is_heap
@@ -1338,6 +1343,9 @@ impl PyType {
                 );
             }
             slots.new.store(inherited);
+            slots
+                .c_slots
+                .store(base.and_then(|base| base.slots.c_slots.load()));
         }
     }
 
@@ -1657,8 +1665,34 @@ impl PyType {
         attributes
     }
 
+    /// Give this type a C tp_new, taking ownership of the table it is read
+    /// from and installing the trampoline that reaches it.
+    ///
+    /// Errors if `self` is not a heap type, which is the only kind that can own
+    /// a table, or if it already owns one.
+    pub fn set_c_slots(&self, c_slots: CSlots, vm: &VirtualMachine) -> PyResult<()> {
+        let ext = self.heaptype_ext.as_ref().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot set C slots on static type '{}'",
+                self.name()
+            ))
+        })?;
+        let mut owned = ext.c_slots.write();
+        if owned.is_some() {
+            return Err(vm.new_type_error(format!("type '{}' already has C slots", self.name())));
+        }
+        let has_new = c_slots.new.load().is_some();
+        let table = OwnedCSlots::new(c_slots);
+        self.slots.c_slots.store(Some(table.as_ptr()));
+        if has_new {
+            self.slots.new.store(Some(crate::types::c_new_trampoline));
+        }
+        *owned = Some(table);
+        Ok(())
+    }
+
     // bound method for every type
-    pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
         if !subtype.fast_issubclass(&zelf) {
             return Err(vm.new_type_error(format!(
@@ -1717,19 +1751,26 @@ impl PyType {
 
     /// The type's fully qualified name, the way the `%T` format code prints it:
     /// `module.qualname`, with a `builtins` or `__main__` module left off.
-    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        // Static types use tp_name verbatim, including its module prefix.
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Ok((&*self.slot_name()).into());
+        }
+        // Read the stored metadata, bypassing metaclass and str-subclass hooks.
+        // A Python name can contain lone surrogates, so neither this helper nor
+        // its callers may pass it through Rust's UTF-8 Display formatting.
         let qualname = self.__qualname__(vm);
         let qualname = qualname
             .downcast_ref::<PyStr>()
-            .and_then(|qualname| qualname.to_str())
-            .map_or_else(|| self.name().to_string(), str::to_owned);
+            .expect("type qualname is a string")
+            .as_wtf8();
         let module = self.__module__(vm)?;
-        Ok(
-            match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
-                Some("builtins" | "__main__") | None => qualname,
-                Some(module) => format!("{module}.{qualname}"),
-            },
-        )
+        match module.downcast_ref::<PyStr>() {
+            Some(module) if !matches!(module.to_str(), Some("builtins" | "__main__")) => {
+                Ok(wtf8_concat!(module.as_wtf8(), '.', qualname))
+            }
+            _ => Ok(qualname.to_owned()),
+        }
     }
 
     pub fn name(&self) -> BorrowedValue<'_, str> {
@@ -1962,8 +2003,8 @@ impl Constructor for PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyObjectRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
         let Some(dict) = PyAnyDict::from_object(&dict) else {
-            return Err(vm.new_type_error(format!(
-                "type.__new__() argument 3 must be dict or frozendict, not {}",
+            return Err(vm.new_type_error(wtf8_concat!(
+                "type.__new__() argument 3 must be dict or frozendict, not ",
                 dict.class().fully_qualified_name(vm)?
             )));
         };
@@ -2268,6 +2309,7 @@ impl Constructor for PyType {
                 qualname: PyRwLock::new(qualname),
                 slots: heaptype_slots.clone(),
                 type_data: PyRwLock::new(None),
+                c_slots: PyRwLock::new(None),
                 specialization_cache: TypeSpecializationCache::new(),
                 interpreter_id: HeapTypeExt::creating_interpreter_id(),
             };
@@ -3136,8 +3178,8 @@ impl Py<PyType> {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
             if !result.downcastable::<PyDict>() {
-                return Err(vm.new_type_error(format!(
-                    "__annotate__() must return a dict, not {}",
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "__annotate__() must return a dict, not ",
                     result.class().fully_qualified_name(vm)?
                 )));
             }
@@ -3660,15 +3702,22 @@ pub(crate) fn call_slot_new(
         return Err(vm.new_type_error(format!("cannot create '{}' instances", subtype.slot_name())));
     }
 
-    // "is not safe" check (tp_new_wrapper). Walk past bases whose tp_new is
-    // new_wrapper so a Python subclass of a native heap type still reaches
-    // that type's tp_new; reject object.__new__(dict) and similar.
+    // "is not safe" check (tp_new_wrapper logic)
+    // Check that the user doesn't do something silly and unsafe like
+    // object.__new__(dict). To do this, we check that the most derived base
+    // that owns a real tp_new is this type. Walking past the types whose slot
+    // is only the dynamic wrapper, rather than past every heap type, keeps a
+    // heap type that carries its own tp_new, as one built from a C spec does,
+    // from being skipped.
     let mut staticbase = subtype.clone();
     while staticbase
         .slots
         .new
         .load()
-        .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
+        .map(|f| crate::types::fn_addr(f))
+        == Some(crate::types::fn_addr(
+            crate::types::new_wrapper as crate::types::NewFunc,
+        ))
     {
         match staticbase.base.load_owned() {
             Some(base) => staticbase = base,
@@ -3676,9 +3725,10 @@ pub(crate) fn call_slot_new(
         }
     }
 
-    let typ_new = typ.slots.new.load();
-    let staticbase_new = staticbase.slots.new.load();
-    if typ_new.map(fn_addr) != staticbase_new.map(fn_addr) {
+    // Check if staticbase's tp_new differs from typ's tp_new. Compare what the
+    // slot dispatches to, so that two types reached through the same C
+    // trampoline are still told apart by their C functions.
+    if typ.slots.new_identity() != staticbase.slots.new_identity() {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
             typ.slot_name(),

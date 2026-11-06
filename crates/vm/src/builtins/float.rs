@@ -9,7 +9,8 @@ use crate::{
     common::{float_ops, hash, wtf8::Wtf8Buf},
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        ArgBytesLike, ArgIndex, ArgIntoFloat, FuncArgs, OptionalArg, PyArithmeticValue,
+        PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -251,21 +252,12 @@ impl Constructor for PyFloat {
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here. Extra keywords are
         // accepted only when a subclass has replaced tp_init.
-        let arg: Self::Args = if cls.is(float_type) || uses_float_init {
-            args.bind_for(vm, Self::NAME)?
+        let (args, retained_args) = if cls.is(float_type) || uses_float_init {
+            (args, None)
         } else {
-            match args.args.as_slice() {
-                [] => Self::Args {
-                    x: OptionalArg::Missing,
-                },
-                [value] => Self::Args {
-                    x: OptionalArg::Present(value.clone()),
-                },
-                slice => {
-                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
-                }
-            }
+            (FuncArgs::from(args.args.clone()), Some(args))
         };
+        let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
         let arg_value = &arg.x;
 
         // Optimization: return exact float as-is
@@ -277,7 +269,9 @@ impl Constructor for PyFloat {
         }
 
         let payload = Self::py_new(&cls, arg, vm)?;
-        payload.into_ref_with_type(vm, cls).map(Into::into)
+        let result = payload.into_ref_with_type(vm, cls).map(Into::into);
+        drop(retained_args);
+        result
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
@@ -296,26 +290,32 @@ impl Constructor for PyFloat {
 }
 
 pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
-    let (bytearray, buffer, buffer_lock, mapped_string);
-    let b = if let Some(s) = val.downcast_ref::<PyStr>() {
-        mapped_string = crate::protocol::numeric_literal_from_str(s);
-        mapped_string.as_bytes()
-    } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
-        bytes.as_bytes()
-    } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
-        bytearray = buf.borrow_buf();
-        &*bytearray
-    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
-        buffer = b;
-        buffer_lock = buffer.borrow_buf();
-        &*buffer_lock
-    } else {
-        return Err(vm.new_type_error(format!(
-            "float() argument must be a string or a real number, not '{}'",
-            val.class().slot_name()
-        )));
+    // Keep the buffer export alive through repr, but release data guards first
+    // so repr can mutate the original object.
+    let buffer;
+    let parsed = {
+        let (bytearray, buffer_lock, mapped_string);
+        let b = if let Some(s) = val.downcast_ref::<PyStr>() {
+            mapped_string = crate::protocol::numeric_literal_from_str(s);
+            mapped_string.as_bytes()
+        } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
+            bytes.as_bytes()
+        } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
+            bytearray = buf.borrow_buf();
+            &*bytearray
+        } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
+            buffer = b;
+            buffer_lock = buffer.borrow_buf();
+            &*buffer_lock
+        } else {
+            return Err(vm.new_type_error(format!(
+                "float() argument must be a string or a real number, not '{}'",
+                val.class().slot_name()
+            )));
+        };
+        crate::literal::float::parse_bytes(b)
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| invalid_float_literal_error(val, vm))
+    parsed.ok_or_else(|| invalid_float_literal_error(val, vm))
 }
 
 /// Build the existing float-conversion error after native parsing has failed.
@@ -407,28 +407,18 @@ impl Py<PyFloat> {
                 None => i32::MIN,
             };
             let float = float_ops::round_float_digits(self.value, ndigits)
-                .ok_or_else(|| vm.new_overflow_error("overflow occurred during round"))?;
+                .ok_or_else(|| vm.new_overflow_error("rounded value too large to represent"))?;
             vm.ctx.new_float(float).into()
         } else {
-            let fract = self.value.fract();
-            let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
-                if self.value.trunc() % 2.0 == 0.0 {
-                    self.value - fract
-                } else {
-                    self.value + fract
-                }
-            } else {
-                self.value.round()
-            };
-            let int = try_to_bigint(value, vm)?;
+            let int = try_to_bigint(self.value.round_ties_even(), vm)?;
             vm.ctx.new_int(int).into()
         };
         Ok(value)
     }
 
     #[pygetset]
-    const fn real(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
-        zelf
+    fn real(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        PyFloat::number_downcast_exact(zelf.as_object().number(), vm)
     }
 
     #[pygetset]
@@ -437,8 +427,8 @@ impl Py<PyFloat> {
     }
 
     #[pymethod]
-    const fn conjugate(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
-        zelf
+    fn conjugate(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        PyFloat::number_downcast_exact(zelf.as_object().number(), vm)
     }
 
     #[pymethod]
@@ -469,13 +459,15 @@ impl Py<PyFloat> {
             return Ok(number);
         }
 
-        let value = number.try_float(vm)?.to_f64();
+        let value = ArgIntoFloat::try_from_object(vm, number.clone())?.into_float();
         let result = vm.ctx.new_float(value);
-        if cls.is(vm.ctx.types.float_type) {
+        let result = if cls.is(vm.ctx.types.float_type) {
             Ok(result.into())
         } else {
             PyType::call(&cls, vec![result.into()].into(), vm)
-        }
+        };
+        drop(number);
+        result
     }
 
     #[pyclassmethod]

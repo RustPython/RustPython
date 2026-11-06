@@ -1155,24 +1155,25 @@ fn compute_ret_spec(
 
 /// Extract call information (argtypes, restype) from PyCFuncPtr
 fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<CallInfo> {
+    // Clone before calling Python sequence methods, which can change argtypes.
+    let argtypes = zelf.argtypes.read().clone();
     // Get argtypes - first from instance, then from type's _argtypes_
-    let explicit_arg_types: Option<Vec<PyTypeRef>> =
-        if let Some(argtypes_obj) = zelf.argtypes.read().as_ref() {
-            if !vm.is_none(argtypes_obj) {
-                Some(extract_arg_types(argtypes_obj, vm)?)
-            } else {
-                None // argtypes is None -> use ConvParam
-            }
-        } else if let Some(class_argtypes) = zelf
-            .as_object()
-            .class()
-            .get_attr(vm.ctx.intern_str("_argtypes_"))
-            && !vm.is_none(&class_argtypes)
-        {
-            Some(extract_arg_types(&class_argtypes, vm)?)
+    let explicit_arg_types: Option<Vec<PyTypeRef>> = if let Some(argtypes_obj) = argtypes.as_ref() {
+        if !vm.is_none(argtypes_obj) {
+            Some(extract_arg_types(argtypes_obj, vm)?)
         } else {
-            None // No argtypes -> use ConvParam
-        };
+            None // argtypes is None -> use ConvParam
+        }
+    } else if let Some(class_argtypes) = zelf
+        .as_object()
+        .class()
+        .get_attr(vm.ctx.intern_str("_argtypes_"))
+        && !vm.is_none(&class_argtypes)
+    {
+        Some(extract_arg_types(&class_argtypes, vm)?)
+    } else {
+        None // No argtypes -> use ConvParam
+    };
 
     // Get restype - first from instance, then from class's _restype_
     let restype_obj = zelf.restype.read().clone().or_else(|| {
@@ -1312,11 +1313,12 @@ fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
 /// Create OUT buffer for a parameter type
 fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
-    if arg_type.fast_issubclass(PyCPointer::static_type())
-        && let Some(stg_info) = arg_type.stg_info_opt()
-        && let Some(ref proto) = stg_info.proto
-    {
-        return proto.as_object().call((), vm);
+    if arg_type.fast_issubclass(PyCPointer::static_type()) {
+        // Constructing the pointed-to type can re-enter pointer type setup.
+        let proto = arg_type.stg_info_opt().and_then(|info| info.proto.clone());
+        if let Some(proto) = proto {
+            return proto.as_object().call((), vm);
+        }
     }
     // Not a pointer type or no proto, create instance directly
     arg_type.as_object().call((), vm)
@@ -1428,6 +1430,14 @@ fn build_callargs_with_paramflags(
             let (value, keep) = arg_type.convert_object(arg, vm)?;
             arguments.push(Argument { value, keep });
         }
+    }
+
+    if !arg_types.is_empty() && args.kwargs.is_empty() && caller_arg_idx < args.args.len() {
+        return Err(vm.new_type_error(format!(
+            "call takes exactly {} arguments ({} given)",
+            caller_arg_idx,
+            args.args.len(),
+        )));
     }
 
     Ok((arguments, out_buffers))
@@ -1697,17 +1707,19 @@ fn build_result(
     }
 
     // Convert the foreign-call result to a Python object
-    let mut result = convert_raw_result(&call_result, call_info, vm)?;
+    let result = convert_raw_result(&call_result, call_info, vm)?;
 
     // Apply errcheck if set
-    if let Some(errcheck) = zelf.errcheck.read().as_ref() {
+    // Clone before calling Python so the callback can change errcheck.
+    let errcheck = zelf.errcheck.read().clone();
+    if let Some(errcheck) = errcheck.as_ref() {
         let args_tuple = PyTuple::new_ref(args.args.clone(), &vm.ctx);
         let func_obj = zelf.as_object().to_owned();
         let result_obj = result.clone().unwrap_or_else(|| vm.ctx.none());
         let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
         // Returning the original args tuple requests normal result processing.
         if !checked.is(&args_tuple) {
-            result = Some(checked);
+            return Ok(checked);
         }
     }
 
@@ -1848,40 +1860,50 @@ impl AsBuffer for PyCFuncPtr {
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
-    fn restype(&self) -> Option<PyObjectRef> {
-        self.restype.read().clone()
+    fn restype(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let restype = zelf.restype.read().clone();
+        restype.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_restype_"))
+        })
     }
 
     #[pygetset(setter)]
     fn set_restype(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Must be type, callable, or None
-        if vm.is_none(&value) {
-            *self.restype.write() = None;
-        } else if value.downcast_ref::<PyType>().is_some() || value.is_callable() {
-            *self.restype.write() = Some(value);
-        } else {
+        if !vm.is_none(&value) && value.downcast_ref::<PyType>().is_none() && !value.is_callable() {
             return Err(vm.new_type_error("restype must be a type, a callable, or None"));
         }
+        // An explicit None requests a void result; it is distinct from unset.
+        let old = self.restype.write().replace(value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
     // argtypes getter/setter
     #[pygetset]
-    fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.argtypes
-            .read()
-            .clone()
-            .unwrap_or_else(|| vm.ctx.empty_tuple.clone().into())
+    fn argtypes(zelf: &Self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let argtypes = zelf.argtypes.read().clone();
+        argtypes.or_else(|| {
+            zelf.as_object()
+                .class()
+                .get_attr(vm.ctx.intern_str("_argtypes_"))
+        })
     }
 
     #[pygetset(name = "argtypes", setter)]
     fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        if vm.is_none(&value) {
-            *self.argtypes.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else {
             // Store the argtypes object directly as it is
-            *self.argtypes.write() = Some(value);
-        }
+            Some(value)
+        };
+        let old = core::mem::replace(&mut *self.argtypes.write(), value);
+        // Finalizers on the previous value can re-enter this setter.
+        drop(old);
     }
 
     // errcheck getter/setter
@@ -1892,13 +1914,16 @@ impl Py<PyCFuncPtr> {
 
     #[pygetset(setter)]
     fn set_errcheck(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.is_none(&value) {
-            *self.errcheck.write() = None;
+        let value = if vm.is_none(&value) {
+            None
         } else if value.is_callable() {
-            *self.errcheck.write() = Some(value);
+            Some(value)
         } else {
             return Err(vm.new_type_error("errcheck must be a callable or None"));
-        }
+        };
+        let old = core::mem::replace(&mut *self.errcheck.write(), value);
+        // Finalizers on the previous callable can re-enter this setter.
+        drop(old);
         Ok(())
     }
 
@@ -1979,6 +2004,23 @@ fn ffi_to_python(
     }
 
     let type_code = ty.type_code(vm);
+    #[cfg(windows)]
+    if type_code.as_deref() == Some("X") && is_simple_subclass(ty, vm) {
+        // CPython constructs non-direct simple subclasses without arguments,
+        // then copies the slot. Decoding and reconstructing a BSTR would allocate
+        // a different COM string and lose the caller's pointer identity.
+        let rustpython_host_env::ctypes::DecodedValue::Pointer(address) =
+            (unsafe { rustpython_host_env::ctypes::callback_arg_value_at(Some("P"), args, index) })
+        else {
+            return Err(vm.new_type_error("invalid BSTR callback argument"));
+        };
+        let instance = ty.as_object().call((), vm)?;
+        let cdata = instance
+            .downcast_ref::<PyCData>()
+            .ok_or_else(|| vm.new_type_error("BSTR constructor returned a non-ctypes object"))?;
+        cdata.write_bytes_at_offset(0, &address.to_ne_bytes());
+        return Ok(instance);
+    }
     let raw_value: PyObjectRef = match unsafe {
         rustpython_host_env::ctypes::callback_arg_value_at(type_code.as_deref(), args, index)
     } {
@@ -1989,6 +2031,10 @@ fn ffi_to_python(
         rustpython_host_env::ctypes::DecodedValue::Bool(value) => vm.ctx.new_bool(value).into(),
         rustpython_host_env::ctypes::DecodedValue::Pointer(value) => vm.ctx.new_int(value).into(),
         rustpython_host_env::ctypes::DecodedValue::String(value) => vm.ctx.new_str(value).into(),
+        #[cfg(windows)]
+        rustpython_host_env::ctypes::DecodedValue::WideString(value) => {
+            vm.ctx.new_str(value).into()
+        }
         rustpython_host_env::ctypes::DecodedValue::None => vm.ctx.none(),
     };
 
@@ -2042,6 +2088,31 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                         rustpython_host_env::ctypes::CallbackResultValue::Float(f.to_f64()),
                     );
                 }
+            }
+        }
+        #[cfg(windows)]
+        Some("X") => {
+            match super::simple::assignment_value("X", &obj, false, vm) {
+                Ok((mut bytes, _, _)) => {
+                    let address = rustpython_host_env::ctypes::read_pointer_from_buffer(&bytes);
+                    // libffi's result slot is fresh storage, not a previous BSTR.
+                    bytes.commit();
+                    unsafe {
+                        rustpython_host_env::ctypes::write_callback_result(
+                            Some("X"),
+                            result,
+                            rustpython_host_env::ctypes::CallbackResultValue::Pointer(address),
+                        );
+                    }
+                }
+                Err(exc) => vm.run_unraisable(
+                    exc,
+                    Some(
+                        "Exception ignored while converting result of ctypes callback function"
+                            .to_owned(),
+                    ),
+                    obj,
+                ),
             }
         }
         Some("P" | "z" | "Z") => {

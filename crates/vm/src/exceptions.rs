@@ -274,7 +274,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            write_traceback(output, &tb)?;
+            write_traceback(output, &tb, vm)?;
         }
 
         let varargs = exc.args();
@@ -510,7 +510,7 @@ impl VirtualMachine {
 #[cfg(feature = "host_env")]
 fn print_source_line<W: Write>(
     output: &mut W,
-    filename: &str,
+    filename: &std::path::Path,
     lineno: usize,
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
@@ -537,10 +537,11 @@ fn print_source_line<W: Write>(
 pub(crate) fn write_traceback<W: Write>(
     output: &mut W,
     traceback: &PyTracebackRef,
+    vm: &VirtualMachine,
 ) -> Result<(), W::Error> {
     writeln!(output, "Traceback (most recent call last):")?;
     for entry in traceback.iter() {
-        write_traceback_entry(output, &entry)?;
+        write_traceback_entry(output, &entry, vm)?;
     }
     Ok(())
 }
@@ -549,18 +550,34 @@ pub(crate) fn write_traceback<W: Write>(
 fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
+    vm: &VirtualMachine,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.iframe().code().source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path();
+    // This fallback writer accepts UTF-8, unlike Python's traceback formatter.
+    // Escape lone surrogates as stderr's backslashreplace handler does, rather
+    // than replacing them or letting the interned-string UTF-8 accessor panic.
+    let mut display_filename = String::new();
+    for point in filename.as_wtf8().code_points() {
+        if let Some(ch) = point.to_char() {
+            display_filename.push(ch);
+        } else {
+            display_filename.push_str(&format!("\\u{:04x}", point.to_u32()));
+        }
+    }
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
-        filename.trim_start_matches(r"\\?\"),
+        display_filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
         tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]
-    print_source_line(output, filename, tb_entry.lineno.get())?;
+    if let Ok(path) = vm.fsencode(filename) {
+        print_source_line(output, path.as_ref(), tb_entry.lineno.get())?;
+    }
+    #[cfg(not(feature = "host_env"))]
+    let _ = vm;
 
     Ok(())
 }
@@ -743,18 +760,30 @@ impl PyBaseException {
 }
 
 impl PyBaseException {
+    // Replaced references may run Python finalizers. Release their locks
+    // before dropping the old values so those finalizers can reenter safely.
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        *self.traceback.write() = traceback;
+        let old = core::mem::replace(&mut *self.traceback.write(), traceback);
+        drop(old);
     }
 
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
-        let mut c = self.cause.write();
-        self.set_suppress_context(true);
-        *c = cause;
+        let old = {
+            let mut current = self.cause.write();
+            self.set_suppress_context(true);
+            core::mem::replace(&mut *current, cause)
+        };
+        drop(old);
     }
 
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
-        *self.context.write() = context;
+        let old = core::mem::replace(&mut *self.context.write(), context);
+        drop(old);
+    }
+
+    fn set_args_tuple(&self, args: PyTupleRef) {
+        let old = core::mem::replace(&mut *self.args.write(), args);
+        drop(old);
     }
 
     pub(super) fn __suppress_context__(&self) -> bool {
@@ -873,7 +902,7 @@ impl Py<PyBaseException> {
         };
         let args: ArgIterable = value.try_into_value(vm)?;
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
+        self.set_args_tuple(PyTuple::new_ref(args, &vm.ctx));
         Ok(())
     }
 
@@ -958,7 +987,7 @@ impl Py<PyBaseException> {
 impl PyRef<PyBaseException> {
     #[pymethod]
     fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
-        *self.traceback.write() = tb;
+        self.set_traceback(tb);
         self
     }
 }
@@ -984,7 +1013,7 @@ impl Initializer for PyBaseException {
     type Args = FuncArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
+        zelf.set_args_tuple(PyTuple::new_ref(args.args, &vm.ctx));
         Ok(())
     }
 }
@@ -3758,6 +3787,8 @@ fn check_except_star_type_valid(match_type: &PyObject, vm: &VirtualMachine) -> P
 
 /// Match exception against except* handler type.
 /// Returns (rest, match) tuple.
+/// A caller matching a naked exception must attach the handler-frame
+/// traceback to the resulting wrapper before exposing it.
 pub fn exception_group_match(
     exc_value: &PyObject,
     match_type: &PyObject,
@@ -3780,18 +3811,10 @@ pub fn exception_group_match(
         let matched = if is_eg {
             exc_value.to_owned()
         } else {
-            // Naked exception - wrap it in ExceptionGroup
+            // Naked exception: let BaseExceptionGroup choose the group type.
             let excs = vm.ctx.new_tuple(vec![exc_value.to_owned()]);
-            let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
-            let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
-            // Copy traceback from original exception
-            if let Ok(exc) = exc_value.to_owned().downcast::<types::PyBaseException>()
-                && let Some(tb) = exc.traceback()
-                && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
-            {
-                wrapped_exc.set_traceback(Some(tb));
-            }
-            wrapped
+            let eg_type: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
+            eg_type.call((vm.ctx.new_str(""), excs), vm)?
         };
         return Ok((vm.ctx.none(), matched));
     }
@@ -3886,9 +3909,9 @@ pub fn prep_reraise_star(orig: &PyObject, excs: &PyObject, vm: &VirtualMachine) 
         return Ok(raised.into_iter().next().unwrap());
     }
 
-    // Create new ExceptionGroup for multiple exceptions
+    // Let BaseExceptionGroup select ExceptionGroup when all children permit it.
     let excs_tuple = vm.ctx.new_tuple(raised);
-    let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+    let eg_type: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
     eg_type.call((vm.ctx.new_str(""), excs_tuple), vm)
 }
 

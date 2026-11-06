@@ -338,35 +338,8 @@ impl PyCArrayType {
     }
 
     #[pymethod]
-    fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // zelf is the array type class that from_param was called on
-        let cls = zelf
-            .downcast::<PyType>()
-            .map_err(|_| vm.new_type_error("from_param: expected a type"))?;
-
-        // 1. If already an instance of the requested type, return it
-        if value.is_instance(cls.as_object(), vm)? {
-            return Ok(value);
-        }
-
-        // 2. Check for CArgObject (PyCArg_CheckExact)
-        if let Some(carg) = value.downcast_ref::<super::_ctypes::CArgObject>() {
-            // Check if the wrapped object is an instance of the requested type
-            if carg.obj.is_instance(cls.as_object(), vm)? {
-                return Ok(value); // Return the CArgObject as-is
-            }
-        }
-
-        // 3. Check for _as_parameter_ attribute
-        if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
-        }
-
-        Err(vm.new_type_error(format!(
-            "expected {} instance instead of {}",
-            cls.name(),
-            value.class().name()
-        )))
+    fn from_param(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        PyCData::from_param(zelf, value, vm)
     }
 }
 
@@ -594,6 +567,8 @@ impl PyCArray {
             DecodedValue::Float(value) => vm.ctx.new_float(value).into(),
             DecodedValue::Signed(value) => vm.ctx.new_int(value).into(),
             DecodedValue::Unsigned(value) => vm.ctx.new_int(value).into(),
+            #[cfg(windows)]
+            DecodedValue::WideString(value) => vm.ctx.new_str(value).into(),
             DecodedValue::None => vm.ctx.none(),
             DecodedValue::Pointer(value) => vm.ctx.new_int(value).into(),
             DecodedValue::Bool(value) => vm.ctx.new_bool(value).into(),
@@ -633,7 +608,7 @@ impl PyCArray {
         } else {
             super::base::CDataWrite::default()
         };
-        let prepared = super::base::CDataValue::new(
+        let mut prepared = super::base::CDataValue::new(
             &element_type,
             value,
             element_size,
@@ -642,7 +617,7 @@ impl PyCArray {
         )?;
         write.publish(vm)?;
         zelf.0
-            .write_bytes_at_offset(index * element_size, &prepared.bytes);
+            .write_value_at_offset(index * element_size, &mut prepared.bytes);
         prepared.keep(&zelf.0, index, vm)
     }
 

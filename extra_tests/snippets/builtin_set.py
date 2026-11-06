@@ -498,6 +498,56 @@ for set_type in (set, frozenset):
     assert_raises(RuntimeError, set_type([3]).isdisjoint, subclass)
 
 
+# A disabled iterator does not disable the predicates' native set paths.
+for set_type in (set, frozenset):
+
+    class DisabledIterator(set_type):
+        __iter__ = None
+
+    subclass = DisabledIterator([1])
+    assert set_type([1]).issubset(subclass)
+    assert set_type([1, 2]).issuperset(subclass)
+    assert not subclass.isdisjoint(subclass)
+    empty_subclass = DisabledIterator()
+    assert empty_subclass.isdisjoint(empty_subclass)
+    assert_raises(TypeError, set_type([2]).isdisjoint, subclass)
+
+
+class InvalidPredicateIterator:
+    def __iter__(self):
+        return []
+
+
+# Typed bindings must preserve both binder errors and GetIter validation.
+with assert_raises(TypeError) as invalid_iterator:
+    iter(InvalidPredicateIterator())
+for set_type in (set, frozenset):
+    for method_name in ("issubset", "issuperset", "isdisjoint"):
+        predicate = getattr(set_type([1]), method_name)
+        with assert_raises(TypeError) as rejected_keyword:
+            predicate(42, unexpected=True)
+        assert "takes no keyword arguments" in str(rejected_keyword.exception)
+        with assert_raises(TypeError) as rejected_iterator:
+            predicate(InvalidPredicateIterator())
+        assert str(rejected_iterator.exception) == str(invalid_iterator.exception)
+
+
+# A temporary source remains alive through issubset's final size comparison.
+subset_target = {1}
+
+
+class TemporarySubsetSource:
+    def __iter__(self):
+        return iter([1])
+
+    def __del__(self):
+        subset_target.clear()
+
+
+assert subset_target.issubset(TemporarySubsetSource())
+assert subset_target == set()
+
+
 # Intersections retain the key from the smaller operand, or RHS on a tie.
 small_key = float("1")
 small = {small_key}

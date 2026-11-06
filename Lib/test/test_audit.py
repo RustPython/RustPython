@@ -248,7 +248,6 @@ class AuditTest(unittest.TestCase):
 
         self.assertEqual(actual, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syslog(self):
         syslog = import_helper.import_module("syslog")
 

@@ -102,36 +102,21 @@ impl PyCPointerType {
     }
 
     #[pymethod]
-    fn from_param(zelf: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // zelf is the pointer type class that from_param was called on
-        let cls = zelf
-            .downcast::<PyType>()
-            .map_err(|_| vm.new_type_error("from_param: expected a type"))?;
-
-        // 1. None is allowed for pointer types
+    fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // None is allowed for pointer types
         if vm.is_none(&value) {
             return Ok(value);
         }
 
-        // 1.5 CArgObject (from byref()) - check if underlying obj is instance of _type_
-        if let Some(carg) = value.downcast_ref::<super::_ctypes::CArgObject>()
-            && let Ok(type_attr) = cls.as_object().get_attr("_type_", vm)
-            && let Ok(type_ref) = type_attr.downcast::<PyType>()
-            && carg.obj.is_instance(type_ref.as_object(), vm)?
-        {
-            return Ok(value);
-        }
+        // Conversion follows the initialized prototype, not a later assignment
+        // to _type_. Release the metadata borrow before instance/subclass checks.
+        let proto = cls.stg_info(vm)?.proto.clone().ok_or_else(|| {
+            vm.new_type_error("cannot convert argument: POINTER _type_ type is not set")
+        })?;
 
-        // 2. If already an instance of the requested type, return it
-        if value.is_instance(cls.as_object(), vm)? {
-            return Ok(value);
-        }
-
-        // 3. If value is an instance of _type_ (the pointed-to type), wrap with byref
-        if let Ok(type_attr) = cls.as_object().get_attr("_type_", vm)
-            && let Ok(type_ref) = type_attr.downcast::<PyType>()
-            && value.is_instance(type_ref.as_object(), vm)?
-        {
+        // A direct referent is implicitly passed by reference. This special
+        // conversion does not apply to values found through _as_parameter_.
+        if value.is_instance(proto.as_object(), vm)? {
             // Return byref(value)
             return super::_ctypes::byref(
                 super::_ctypes::ByRefArgs {
@@ -142,39 +127,20 @@ impl PyCPointerType {
             );
         }
 
-        // 4. Array/Pointer instances with compatible proto
+        // Array/Pointer instances with compatible proto
         // "Array instances are also pointers when the item types are the same."
-        let is_pointer_or_array = value.downcast_ref::<PyCPointer>().is_some()
-            || value.downcast_ref::<super::array::PyCArray>().is_some();
-
-        if is_pointer_or_array {
-            let is_compatible = {
-                if let Some(value_stginfo) = value.class().stg_info_opt()
-                    && let Some(ref value_proto) = value_stginfo.proto
-                    && let Some(cls_stginfo) = cls.stg_info_opt()
-                    && let Some(ref cls_proto) = cls_stginfo.proto
-                {
-                    // Check if value's proto is a subclass of target's proto
-                    value_proto.fast_issubclass(cls_proto)
-                } else {
-                    false
-                }
-            };
-            if is_compatible {
+        if value.downcast_ref::<PyCPointer>().is_some()
+            || value.downcast_ref::<super::array::PyCArray>().is_some()
+        {
+            let value_proto = value.class().stg_info(vm)?.proto.clone();
+            if let Some(value_proto) = value_proto
+                && value_proto.as_object().is_subclass(proto.as_object(), vm)?
+            {
                 return Ok(value);
             }
         }
 
-        // 5. Check for _as_parameter_ attribute
-        if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
-        }
-
-        Err(vm.new_type_error(format!(
-            "expected {} instance instead of {}",
-            cls.name(),
-            value.class().name()
-        )))
+        PyCData::from_param(cls, value, vm)
     }
 
     // PyCPointerType_set_type: Complete an incomplete pointer type
@@ -596,7 +562,7 @@ impl PyCPointer {
         } else {
             super::base::CDataWrite::default()
         };
-        let prepared = super::base::CDataValue::new(
+        let mut prepared = super::base::CDataValue::new(
             &proto_type,
             &value,
             element_size,
@@ -607,6 +573,9 @@ impl PyCPointer {
         // SAFETY: pointer indexing has the same caller-provided valid-storage
         // requirement as reading the element. The source snapshot cannot overlap it.
         unsafe {
+            let previous =
+                rustpython_host_env::ctypes::borrow_memory(addr as *const u8, element_size);
+            prepared.bytes.replace(previous);
             rustpython_host_env::ctypes::copy_bytes_to_address(addr, &prepared.bytes, element_size);
         }
         prepared.keep(&zelf.0, index as usize, vm)

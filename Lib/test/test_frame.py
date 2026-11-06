@@ -776,7 +776,6 @@ class TestIncompleteFrameAreInvisible(unittest.TestCase):
             )
             sneaky_frame_object = sneaky_frame_object.f_back
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
     def test_entry_frames_are_invisible_during_teardown(self):
         class C:
             """A weakref'able class."""

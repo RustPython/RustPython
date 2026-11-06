@@ -12,12 +12,13 @@ mod _pickle {
         VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat, PyFrozenSet,
-            PyInt, PyList, PySet, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
+            PyInt, PyList, PySet, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
         },
-        function::{FuncArgs, OptionalArg, PySetterValue},
+        function::{ArgIntoBool, FuncArgs, OptionalArg, PySetterValue},
         object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIter, PyIterReturn},
         types::{AsBuffer, Constructor, Initializer, Representable},
+        utils::ToCString,
     };
     use alloc::collections::TryReserveError;
     use core::sync::atomic::{AtomicI32, Ordering};
@@ -241,6 +242,7 @@ mod _pickle {
     #[derive(Debug, Default)]
     pub(super) struct ReadState {
         read: Option<PyObjectRef>,
+        readinto: Option<PyObjectRef>,
         readline: Option<PyObjectRef>,
         peek: Option<PyObjectRef>,
         /// Bytes currently available to the opcode loop.
@@ -258,6 +260,7 @@ mod _pickle {
     unsafe impl Traverse for ReadState {
         fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
             self.read.traverse(traverse_fn);
+            self.readinto.traverse(traverse_fn);
             self.readline.traverse(traverse_fn);
             self.peek.traverse(traverse_fn);
         }
@@ -284,6 +287,17 @@ mod _pickle {
     }
 
     impl ReadState {
+        fn set_file(&mut self, file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            self.peek = vm.get_attribute_opt(file, "peek")?;
+            self.readinto = vm.get_attribute_opt(file, "readinto")?;
+            self.read = vm.get_attribute_opt(file, "read")?;
+            self.readline = vm.get_attribute_opt(file, "readline")?;
+            if self.read.is_none() || self.readline.is_none() {
+                return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
+            }
+            Ok(())
+        }
+
         fn set_input(&mut self, data: Vec<u8>, consumed: bool) {
             self.prefetched = if consumed { data.len() } else { 0 };
             self.buf = data;
@@ -545,6 +559,7 @@ mod _pickle {
         fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
             let state = self.read_state.get_mut();
             out.extend(state.read.take());
+            out.extend(state.readinto.take());
             out.extend(state.readline.take());
             out.extend(state.peek.take());
             out.extend(self.memo.get_mut().drain().map(|(_, value)| value));
@@ -554,21 +569,59 @@ mod _pickle {
         }
     }
 
+    fn pickle_string(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        let value = PyUtf8StrRef::try_from_object(vm, obj.clone())?;
+        value.to_cstring(vm)?;
+        Ok(value.as_str().to_owned())
+    }
+
+    // Bind the whole call before converting options: Clinic rejects unknown
+    // keywords before invoking __bool__. Raw arguments also keep subclasses
+    // alive until all stream and buffer callbacks have finished.
     #[derive(FromArgs)]
-    pub(super) struct UnpicklerNewArgs {
-        #[pyarg(any)]
-        file: PyObjectRef,
+    struct UnpicklerOptions {
         #[pyarg(named, default = true)]
-        fix_imports: bool,
-        // None means ASCII.
+        fix_imports: PyObjectRef,
         #[pyarg(named, default = "ASCII")]
         encoding: PyObjectRef,
-        // None means strict.
         #[pyarg(named, default = "strict")]
         errors: PyObjectRef,
         // Missing or None means no buffers.
         #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
+    }
+
+    impl UnpicklerOptions {
+        fn config(&self, vm: &VirtualMachine) -> PyResult<UnpicklerConfig> {
+            Ok(UnpicklerConfig {
+                initialized: true,
+                proto: 0,
+                fix_imports: ArgIntoBool::try_from_object(vm, self.fix_imports.clone())?
+                    .into_bool(),
+                encoding: pickle_string(&self.encoding, vm)?,
+                errors: pickle_string(&self.errors, vm)?,
+                buffers: None,
+            })
+        }
+
+        // Unlike the Clinic converters above, iter(buffers) belongs after
+        // file/data setup and inside an initializer's recursion guard.
+        fn buffers(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            match &self.buffers {
+                OptionalArg::Present(obj) if !vm.is_none(obj) => {
+                    Ok(Some(PyIter::try_from_object(vm, obj.clone())?.into()))
+                }
+                _ => Ok(None),
+            }
+        }
+    }
+
+    #[derive(FromArgs)]
+    pub(super) struct UnpicklerNewArgs {
+        #[pyarg(any)]
+        file: PyObjectRef,
+        #[pyarg(flatten)]
+        options: UnpicklerOptions,
     }
 
     impl Constructor for PyUnpickler {
@@ -587,64 +640,18 @@ mod _pickle {
         type Args = UnpicklerNewArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let mut config = args.options.config(vm)?;
+            // On setup failure, the guard must go before staged references:
+            // dropping a file method or iterator can run a Python finalizer.
+            let mut new_state = ReadState::default();
             let Some(mut state) = zelf.read_state.try_lock() else {
                 return Err(vm.new_runtime_error("Unpickler.__init__() called recursively"));
             };
-            let encoding = if vm.is_none(&args.encoding) {
-                "ASCII".to_owned()
-            } else {
-                args.encoding
-                    .downcast_ref::<PyStr>()
-                    .and_then(|s| s.to_str())
-                    .ok_or_else(|| vm.new_type_error("encoding must be a string"))?
-                    .to_owned()
-            };
-            let errors = if vm.is_none(&args.errors) {
-                "strict".to_owned()
-            } else {
-                args.errors
-                    .downcast_ref::<PyStr>()
-                    .and_then(|s| s.to_str())
-                    .ok_or_else(|| vm.new_type_error("errors must be a string"))?
-                    .to_owned()
-            };
-            let buffers = match args.buffers {
-                OptionalArg::Present(o) if !vm.is_none(&o) => {
-                    Some(PyIter::try_from_object(vm, o)?.into())
-                }
-                _ => None,
-            };
-
-            let file = args.file;
-            let peek = vm.get_attribute_opt(&file, "peek")?;
-            let _readinto = vm.get_attribute_opt(&file, "readinto")?;
-            let read = vm.get_attribute_opt(&file, "read")?;
-            let readline = vm.get_attribute_opt(&file, "readline")?;
-            if read.is_none() || readline.is_none() {
-                return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
-            }
-
-            let old_state = core::mem::replace(
-                &mut *state,
-                ReadState {
-                    read,
-                    readline,
-                    peek,
-                    ..ReadState::default()
-                },
-            );
+            new_state.set_file(&args.file, vm)?;
+            config.buffers = args.options.buffers(vm)?;
+            let old_state = core::mem::replace(&mut *state, new_state);
             let old_memo = core::mem::take(&mut *zelf.memo.write());
-            let old_config = core::mem::replace(
-                &mut *zelf.config.write(),
-                UnpicklerConfig {
-                    initialized: true,
-                    proto: 0,
-                    fix_imports: args.fix_imports,
-                    encoding,
-                    errors,
-                    buffers,
-                },
-            );
+            let old_config = core::mem::replace(&mut *zelf.config.write(), config);
             drop(state);
             drop((old_state, old_memo, old_config));
             Ok(())
@@ -1726,62 +1733,13 @@ mod _pickle {
     pub(super) struct LoadsArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(named, default = true)]
-        fix_imports: bool,
-        // None means ASCII.
-        #[pyarg(named, default = "ASCII")]
-        encoding: PyObjectRef,
-        // None means strict.
-        #[pyarg(named, default = "strict")]
-        errors: PyObjectRef,
-        // Missing or None means no buffers.
-        #[pyarg(named, optional, py_default = "()")]
-        buffers: OptionalArg<PyObjectRef>,
-    }
-
-    fn unpickler_config(
-        fix_imports: bool,
-        encoding: PyObjectRef,
-        errors: PyObjectRef,
-        buffers: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<UnpicklerConfig> {
-        let encoding = if vm.is_none(&encoding) {
-            "ASCII".to_owned()
-        } else {
-            encoding
-                .downcast_ref::<PyStr>()
-                .and_then(|s| s.to_str())
-                .ok_or_else(|| vm.new_type_error("encoding must be a string"))?
-                .to_owned()
-        };
-        let errors = if vm.is_none(&errors) {
-            "strict".to_owned()
-        } else {
-            errors
-                .downcast_ref::<PyStr>()
-                .and_then(|s| s.to_str())
-                .ok_or_else(|| vm.new_type_error("errors must be a string"))?
-                .to_owned()
-        };
-        let buffers = match buffers {
-            OptionalArg::Present(o) if !vm.is_none(&o) => {
-                Some(PyIter::try_from_object(vm, o)?.into())
-            }
-            _ => None,
-        };
-        Ok(UnpicklerConfig {
-            initialized: true,
-            proto: 0,
-            fix_imports,
-            encoding,
-            errors,
-            buffers,
-        })
+        #[pyarg(flatten)]
+        options: UnpicklerOptions,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let mut config = args.options.config(vm)?;
         if args.data.downcastable::<PyStr>() {
             return Err(vm.new_type_error("Can't load pickle from unicode string"));
         }
@@ -1794,13 +1752,7 @@ mod _pickle {
                 ));
             }
         };
-        let config = unpickler_config(
-            args.fix_imports,
-            args.encoding,
-            args.errors,
-            args.buffers,
-            vm,
-        )?;
+        config.buffers = args.options.buffers(vm)?;
         let unpickler = PyUnpickler {
             read_state: PyMutex::new(ReadState {
                 buf: data,
@@ -1817,41 +1769,18 @@ mod _pickle {
     pub(super) struct LoadArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(named, default = true)]
-        fix_imports: bool,
-        // None means ASCII.
-        #[pyarg(named, default = "ASCII")]
-        encoding: PyObjectRef,
-        // None means strict.
-        #[pyarg(named, default = "strict")]
-        errors: PyObjectRef,
-        // Missing or None means no buffers.
-        #[pyarg(named, optional, py_default = "()")]
-        buffers: OptionalArg<PyObjectRef>,
+        #[pyarg(flatten)]
+        options: UnpicklerOptions,
     }
 
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let peek = vm.get_attribute_opt(&args.file, "peek")?;
-        let read = vm.get_attribute_opt(&args.file, "read")?;
-        let readline = vm.get_attribute_opt(&args.file, "readline")?;
-        if read.is_none() || readline.is_none() {
-            return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
-        }
-        let config = unpickler_config(
-            args.fix_imports,
-            args.encoding,
-            args.errors,
-            args.buffers,
-            vm,
-        )?;
+        let mut config = args.options.config(vm)?;
+        let mut state = ReadState::default();
+        state.set_file(&args.file, vm)?;
+        config.buffers = args.options.buffers(vm)?;
         let unpickler = PyUnpickler {
-            read_state: PyMutex::new(ReadState {
-                read,
-                readline,
-                peek,
-                ..ReadState::default()
-            }),
+            read_state: PyMutex::new(state),
             memo: PyRwLock::new(UnpicklerMemo::new()),
             config: PyRwLock::new(config),
         }
@@ -2067,24 +1996,20 @@ mod _pickle {
         #[pyarg(any, optional)]
         protocol: Option<PyObjectRef>,
         #[pyarg(any, default = true)]
-        fix_imports: bool,
+        fix_imports: PyObjectRef,
         #[pyarg(any, optional)]
         buffer_callback: Option<PyObjectRef>,
     }
 
-    fn resolve_protocol(protocol: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<u8> {
+    fn resolve_protocol(protocol: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<u8> {
         let value = match protocol {
-            Some(o) => o
-                .try_index(vm)?
-                .as_bigint()
-                .to_i64()
-                .unwrap_or_else(|| i64::from(i32::MAX)),
-            None => i64::from(DEFAULT_PROTOCOL),
+            Some(obj) => core::ffi::c_long::try_from_object(vm, obj.clone())?,
+            None => core::ffi::c_long::from(DEFAULT_PROTOCOL),
         };
         if value < 0 {
             return Ok(HIGHEST_PROTOCOL);
         }
-        if value > i64::from(HIGHEST_PROTOCOL) {
+        if value > core::ffi::c_long::from(HIGHEST_PROTOCOL) {
             return Err(
                 vm.new_value_error(format!("pickle protocol must be <= {HIGHEST_PROTOCOL}"))
             );
@@ -2092,20 +2017,32 @@ mod _pickle {
         Ok(value as u8)
     }
 
-    fn pickler_config(args: &PicklerNewArgs, vm: &VirtualMachine) -> PyResult<PicklerConfig> {
-        let proto = resolve_protocol(args.protocol.clone(), vm)?;
-        let buffer_callback = match &args.buffer_callback {
-            Some(o) if !vm.is_none(o) => Some(o.clone()),
-            _ => None,
-        };
+    fn pickler_config(
+        protocol: Option<&PyObjectRef>,
+        fix_imports: bool,
+        buffer_callback: Option<&PyObjectRef>,
+        file: Option<&PyObject>,
+        output: &mut Output,
+        vm: &VirtualMachine,
+    ) -> PyResult<PicklerConfig> {
+        let proto = resolve_protocol(protocol, vm)?;
+        // File setup precedes callback validation for Pickler and dump. dumps
+        // has no stream, so it goes straight from protocol to callback.
+        if let Some(file) = file {
+            output.write = vm.get_attribute_opt(file, "write")?;
+            if output.write.is_none() {
+                return Err(vm.new_type_error("file must have a 'write' attribute"));
+            }
+        }
+        let buffer_callback = buffer_callback.filter(|obj| !vm.is_none(obj));
         if buffer_callback.is_some() && proto < 5 {
             return Err(vm.new_value_error("buffer_callback needs protocol >= 5"));
         }
         Ok(PicklerConfig {
             initialized: true,
             proto,
-            fix_imports: args.fix_imports && proto < 3,
-            buffer_callback,
+            fix_imports: fix_imports && proto < 3,
+            buffer_callback: buffer_callback.cloned(),
         })
     }
 
@@ -2127,26 +2064,28 @@ mod _pickle {
         type Args = PicklerNewArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let fix_imports =
+                ArgIntoBool::try_from_object(vm, args.fix_imports.clone())?.into_bool();
+            let mut new_output = Output::default();
             let Some(mut out) = zelf.out.try_lock() else {
                 return Err(vm.new_runtime_error("Pickler.__init__() called recursively"));
             };
-            let config = pickler_config(&args, vm)?;
-            let write = args.file.get_attr("write", vm).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.attribute_error) {
-                    vm.new_type_error("file must have a 'write' attribute")
-                } else {
-                    e
-                }
-            })?;
-            *out = Output {
-                write: Some(write),
-                ..Output::default()
-            };
-            zelf.memo.write().clear();
+            let config = pickler_config(
+                args.protocol.as_ref(),
+                fix_imports,
+                args.buffer_callback.as_ref(),
+                Some(&args.file),
+                &mut new_output,
+                vm,
+            )?;
+            let old_output = core::mem::replace(&mut *out, new_output);
+            let old_memo = core::mem::take(&mut *zelf.memo.write());
             zelf.bin
                 .store(i32::from(config.proto >= 1), Ordering::Relaxed);
             zelf.fast.store(0, Ordering::Relaxed);
-            *zelf.config.write() = config;
+            let old_config = core::mem::replace(&mut *zelf.config.write(), config);
+            drop(out);
+            drop((old_output, old_memo, old_config));
             Ok(())
         }
     }
@@ -2639,17 +2578,24 @@ mod _pickle {
             }
             self.memoize(obj);
             let list = obj.downcast_ref::<PyList>().expect("list");
-            self.batch_appends_list(list, obj, vm)
+            if self.proto > 0 {
+                self.batch_appends_list(list, obj, vm)
+            } else {
+                let iter = obj.to_owned().get_iter(vm)?;
+                self.batch_appends_iter(&iter, Some(obj), vm)
+            }
         }
 
         fn save_item(
             &mut self,
-            item: &PyObject,
+            item: PyObjectRef,
             index: usize,
             obj: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.save(item, false, vm).map_err(|e| {
+            let result = self.save(&item, false, vm);
+            drop(item);
+            result.map_err(|e| {
                 add_note(
                     e,
                     format!("when serializing {} item {index}", obj_type_name(obj, vm)),
@@ -2665,34 +2611,31 @@ mod _pickle {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let initial_len = list.borrow_vec().len();
-            let mut start = 0usize;
-            loop {
-                let batch: Vec<PyObjectRef> = {
-                    let items = list.borrow_vec();
-                    if start >= items.len() {
-                        break;
-                    }
-                    items[start..items.len().min(start + BATCH_SIZE)].to_vec()
-                };
-                if batch.is_empty() {
-                    break;
-                }
-                if !self.bin {
-                    for (k, item) in batch.iter().enumerate() {
-                        self.save_item(item, start + k, obj, vm)?;
-                        self.write(&[APPEND as u8]);
-                    }
-                } else if batch.len() != 1 {
-                    self.write(&[MARK as u8]);
-                    for (k, item) in batch.iter().enumerate() {
-                        self.save_item(item, start + k, obj, vm)?;
-                    }
-                    self.write(&[APPENDS as u8]);
-                } else {
-                    self.save_item(&batch[0], start, obj, vm)?;
+            let mut index = 0usize;
+            while index < initial_len {
+                if initial_len - index == 1 {
+                    let item = list.borrow_vec().get(index).cloned();
+                    let item = item.ok_or_else(|| {
+                        add_note(
+                            vm.new_index_error("list index out of range"),
+                            format!("when serializing {} item {index}", obj_type_name(obj, vm)),
+                            vm,
+                        )
+                    })?;
+                    self.save_item(item, index, obj, vm)?;
                     self.write(&[APPEND as u8]);
+                    return Ok(());
                 }
-                start += batch.len();
+
+                self.write(&[MARK as u8]);
+                for _ in 0..BATCH_SIZE {
+                    // Saving an item may replace or remove later list entries.
+                    let item = list.borrow_vec().get(index).cloned();
+                    let Some(item) = item else { break };
+                    self.save_item(item, index, obj, vm)?;
+                    index += 1;
+                }
+                self.write(&[APPENDS as u8]);
                 if list.borrow_vec().len() != initial_len {
                     return Err(vm.new_runtime_error("list changed size during iteration"));
                 }
@@ -2707,50 +2650,78 @@ mod _pickle {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = |vm: &VirtualMachine| obj.map_or_else(String::new, |o| obj_type_name(o, vm));
-            let iter = items.to_owned().get_iter(vm)?;
-            let mut index = 0usize;
-            let mut pending: Vec<PyObjectRef> = Vec::new();
-            let mut exhausted = false;
-            while !exhausted {
-                pending.clear();
-                while pending.len() < BATCH_SIZE {
-                    match iter.next(vm)? {
-                        PyIterReturn::Return(o) => pending.push(o),
-                        PyIterReturn::StopIteration(_) => {
-                            exhausted = true;
-                            break;
-                        }
+            self.batch_iter(
+                items,
+                Ok,
+                |ctx, item: PyObjectRef, index| {
+                    let result = ctx.save(&item, false, vm);
+                    if ctx.proto == 0 {
+                        drop(item);
                     }
-                }
-                if pending.is_empty() {
-                    break;
-                }
-                if !self.bin {
-                    for item in &pending {
-                        self.save(item, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
-                        })?;
-                        self.write(&[APPEND as u8]);
-                        index += 1;
-                    }
-                } else if pending.len() != 1 {
-                    self.write(&[MARK as u8]);
-                    for item in &pending {
-                        self.save(item, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
-                        })?;
-                        index += 1;
-                    }
-                    self.write(&[APPENDS as u8]);
-                } else {
-                    self.save(&pending[0], false, vm).map_err(|e| {
+                    result.map_err(|e| {
                         add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
-                    })?;
-                    self.write(&[APPEND as u8]);
+                    })
+                },
+                (APPEND as u8, APPENDS as u8),
+                vm,
+            )
+        }
+
+        fn batch_iter<T>(
+            &mut self,
+            items: &PyObject,
+            validate: impl Fn(PyObjectRef) -> PyResult<T>,
+            mut save: impl FnMut(&mut Self, T, usize) -> PyResult<()>,
+            (single, multiple): (u8, u8),
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            // Reduction items are already iterators; do not call __iter__ again.
+            let iter = PyIter::new(items);
+            let mut index = 0usize;
+            if self.proto == 0 {
+                while let Ok(item) = iter.next(vm)?.into_result() {
+                    let item = validate(item)?;
+                    save(self, item, index)?;
+                    self.write(&[single]);
                     index += 1;
                 }
+                return Ok(());
             }
-            Ok(())
+
+            loop {
+                let Some(first) = iter.next(vm)?.into_result().ok() else {
+                    return Ok(());
+                };
+                let first = validate(first)?;
+                let Some(mut item) = iter.next(vm)?.into_result().ok() else {
+                    save(self, first, index)?;
+                    self.write(&[single]);
+                    return Ok(());
+                };
+
+                self.write(&[MARK as u8]);
+                save(self, first, index)?;
+                index += 1;
+                let mut count = 1;
+                loop {
+                    // Validate the second pair only after saving the first one.
+                    let current = validate(item)?;
+                    save(self, current, index)?;
+                    index += 1;
+                    count += 1;
+                    if count == BATCH_SIZE {
+                        break;
+                    }
+                    match iter.next(vm)?.into_result().ok() {
+                        Some(next) => item = next,
+                        None => break,
+                    }
+                }
+                self.write(&[multiple]);
+                if count < BATCH_SIZE {
+                    return Ok(());
+                }
+            }
         }
 
         fn save_dict(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -2762,33 +2733,48 @@ mod _pickle {
             self.memoize(obj);
             let dict = obj.downcast_ref::<PyDict>().expect("dict");
             let initial_len = dict.__len__();
-            let entries: Vec<(PyObjectRef, PyObjectRef)> = dict.into_iter().collect();
-            let mut start = 0usize;
-            while start < entries.len() {
-                let end = entries.len().min(start + BATCH_SIZE);
-                let batch = &entries[start..end];
-                if !self.bin {
-                    for (k, v) in batch {
-                        self.save(k, false, vm)?;
-                        self.save_value(v, k, obj, vm)?;
-                        self.write(&[SETITEM as u8]);
-                    }
-                } else if batch.len() != 1 {
-                    self.write(&[MARK as u8]);
-                    for (k, v) in batch {
-                        self.save(k, false, vm)?;
-                        self.save_value(v, k, obj, vm)?;
-                    }
-                    self.write(&[SETITEMS as u8]);
-                } else {
-                    let (k, v) = &batch[0];
-                    self.save(k, false, vm)?;
-                    self.save_value(v, k, obj, vm)?;
+            if initial_len == 0 {
+                return Ok(());
+            }
+            if self.proto == 0 {
+                let items = vm.call_method(obj, "items", ())?;
+                let iter = items.get_iter(vm)?;
+                return self.batch_setitems_iter(&iter, Some(obj), vm);
+            }
+
+            let mut position = 0;
+            let mut total = 0;
+            while total < initial_len {
+                if initial_len - total == 1 {
+                    let (_, key, value) = dict.next_entry(position).ok_or_else(|| {
+                        vm.new_runtime_error("dictionary changed size during iteration")
+                    })?;
+                    let result = self.save_dict_item(&key, &value, Some(obj), vm);
+                    drop((key, value));
+                    result?;
                     self.write(&[SETITEM as u8]);
+                    return Ok(());
                 }
-                start = end;
+
+                self.write(&[MARK as u8]);
+                let mut exhausted = false;
+                for _ in 0..BATCH_SIZE {
+                    let Some((next, key, value)) = dict.next_entry(position) else {
+                        exhausted = true;
+                        break;
+                    };
+                    position = next;
+                    let result = self.save_dict_item(&key, &value, Some(obj), vm);
+                    drop((key, value));
+                    result?;
+                    total += 1;
+                }
+                self.write(&[SETITEMS as u8]);
                 if dict.__len__() != initial_len {
                     return Err(vm.new_runtime_error("dictionary changed size during iteration"));
+                }
+                if exhausted {
+                    break;
                 }
             }
             Ok(())
@@ -2820,52 +2806,38 @@ mod _pickle {
             obj: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let iter = items.to_owned().get_iter(vm)?;
-            let mut pending: Vec<(PyObjectRef, PyObjectRef)> = Vec::new();
-            let mut exhausted = false;
-            while !exhausted {
-                pending.clear();
-                while pending.len() < BATCH_SIZE {
-                    match iter.next(vm)? {
-                        PyIterReturn::Return(o) => {
-                            let pair: PyTupleRef = o.downcast().map_err(|_| {
-                                vm.new_type_error("dict items iterator must return 2-tuples")
-                            })?;
-                            if pair.as_slice().len() != 2 {
-                                return Err(
-                                    vm.new_type_error("dict items iterator must return 2-tuples")
-                                );
-                            }
-                            pending.push((pair.as_slice()[0].clone(), pair.as_slice()[1].clone()));
-                        }
-                        PyIterReturn::StopIteration(_) => {
-                            exhausted = true;
-                            break;
-                        }
+            self.batch_iter(
+                items,
+                |item| {
+                    let pair: PyTupleRef = item.downcast().map_err(|_| {
+                        vm.new_type_error("dict items iterator must return 2-tuples")
+                    })?;
+                    if pair.as_slice().len() != 2 {
+                        return Err(vm.new_type_error("dict items iterator must return 2-tuples"));
                     }
-                }
-                if pending.is_empty() {
-                    break;
-                }
-                let single = pending.len() == 1;
-                if self.bin && !single {
-                    self.write(&[MARK as u8]);
-                }
-                for (k, v) in &pending {
-                    self.save(k, false, vm)?;
-                    match obj {
-                        Some(o) => self.save_value(v, k, o, vm)?,
-                        None => self.save(v, false, vm)?,
-                    }
-                    if !self.bin || single {
-                        self.write(&[SETITEM as u8]);
-                    }
-                }
-                if self.bin && !single {
-                    self.write(&[SETITEMS as u8]);
-                }
+                    Ok(pair)
+                },
+                |ctx, pair, _| {
+                    let pair = pair.as_slice();
+                    ctx.save_dict_item(&pair[0], &pair[1], obj, vm)
+                },
+                (SETITEM as u8, SETITEMS as u8),
+                vm,
+            )
+        }
+
+        fn save_dict_item(
+            &mut self,
+            key: &PyObject,
+            value: &PyObject,
+            obj: Option<&PyObject>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            self.save(key, false, vm)?;
+            match obj {
+                Some(obj) => self.save_value(value, key, obj, vm),
+                None => self.save(value, false, vm),
             }
-            Ok(())
         }
 
         fn save_set(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -2886,19 +2858,36 @@ mod _pickle {
             }
             self.write(&[EMPTY_SET as u8]);
             self.memoize(obj);
-            let elements = set.elements();
-            for batch in elements.chunks(BATCH_SIZE) {
+            let initial_len = obj.length(vm)?;
+            let mut position = 0;
+            let mut total = 0;
+            while total < initial_len {
                 self.write(&[MARK as u8]);
-                for item in batch {
-                    self.save(item, false, vm).map_err(|e| {
+                let mut exhausted = false;
+                for _ in 0..BATCH_SIZE {
+                    let Some((next, item)) = set.next_entry(position) else {
+                        exhausted = true;
+                        break;
+                    };
+                    position = next;
+                    let result = self.save(&item, false, vm);
+                    drop(item);
+                    result.map_err(|e| {
                         add_note(
                             e,
                             format!("when serializing {} element", obj_type_name(obj, vm)),
                             vm,
                         )
                     })?;
+                    total += 1;
                 }
                 self.write(&[ADDITEMS as u8]);
+                if obj.length(vm)? != initial_len {
+                    return Err(vm.new_runtime_error("set changed size during iteration"));
+                }
+                if exhausted {
+                    break;
+                }
             }
             Ok(())
         }
@@ -3891,32 +3880,25 @@ mod _pickle {
         #[pyarg(any, optional)]
         protocol: Option<PyObjectRef>,
         #[pyarg(named, default = true)]
-        fix_imports: bool,
+        fix_imports: PyObjectRef,
         #[pyarg(named, optional)]
         buffer_callback: Option<PyObjectRef>,
     }
 
     #[pyfunction]
     fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let new_args = PicklerNewArgs {
-            file: args.file,
-            protocol: args.protocol,
-            fix_imports: args.fix_imports,
-            buffer_callback: args.buffer_callback,
-        };
-        let config = pickler_config(&new_args, vm)?;
-        let write = new_args.file.get_attr("write", vm).map_err(|e| {
-            if e.fast_isinstance(vm.ctx.exceptions.attribute_error) {
-                vm.new_type_error("file must have a 'write' attribute")
-            } else {
-                e
-            }
-        })?;
+        let fix_imports = ArgIntoBool::try_from_object(vm, args.fix_imports.clone())?.into_bool();
+        let mut output = Output::default();
+        let config = pickler_config(
+            args.protocol.as_ref(),
+            fix_imports,
+            args.buffer_callback.as_ref(),
+            Some(&args.file),
+            &mut output,
+            vm,
+        )?;
         let pickler = PyPickler {
-            out: PyMutex::new(Output {
-                write: Some(write),
-                ..Output::default()
-            }),
+            out: PyMutex::new(output),
             memo: PyRwLock::new(MemoTable::default()),
             bin: AtomicI32::new(i32::from(config.proto >= 1)),
             fast: AtomicI32::new(0),
@@ -3933,22 +3915,25 @@ mod _pickle {
         #[pyarg(any, optional)]
         protocol: Option<PyObjectRef>,
         #[pyarg(named, default = true)]
-        fix_imports: bool,
+        fix_imports: PyObjectRef,
         #[pyarg(named, optional)]
         buffer_callback: Option<PyObjectRef>,
     }
 
     #[pyfunction]
     fn dumps(args: DumpsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let new_args = PicklerNewArgs {
-            file: vm.ctx.none(),
-            protocol: args.protocol,
-            fix_imports: args.fix_imports,
-            buffer_callback: args.buffer_callback,
-        };
-        let config = pickler_config(&new_args, vm)?;
+        let fix_imports = ArgIntoBool::try_from_object(vm, args.fix_imports.clone())?.into_bool();
+        let mut output = Output::default();
+        let config = pickler_config(
+            args.protocol.as_ref(),
+            fix_imports,
+            args.buffer_callback.as_ref(),
+            None,
+            &mut output,
+            vm,
+        )?;
         let pickler = PyPickler {
-            out: PyMutex::new(Output::default()),
+            out: PyMutex::new(output),
             memo: PyRwLock::new(MemoTable::default()),
             bin: AtomicI32::new(i32::from(config.proto >= 1)),
             fast: AtomicI32::new(0),

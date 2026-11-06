@@ -959,7 +959,9 @@ impl WeakRefList {
             if let Some(cb) = callback {
                 crate::vm::thread::with_vm(&cb, |vm| {
                     let _raised = vm.preserve_raised_exception();
-                    let _ = cb.call((wr.clone(),), vm);
+                    if let Err(e) = cb.call((wr.clone(),), vm) {
+                        vm.run_unraisable(e, Some("weakref callback".to_owned()), cb.clone());
+                    }
                 });
             }
         }

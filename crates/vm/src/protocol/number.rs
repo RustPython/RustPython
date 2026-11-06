@@ -1,4 +1,5 @@
 use core::ops::Deref;
+use rustpython_common::wtf8::wtf8_concat;
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -27,13 +28,16 @@ use alloc::borrow::Cow;
 /// a base, and only `int` and `float` accept bytes-like input, so each keeps its own
 /// entry point around this one.
 ///
-/// A string holding surrogates can never be a valid literal, so it folds to an
-/// empty — and therefore invalid — one.
+/// Surrogates cannot form a valid literal. Normalize their valid prefix too,
+/// so underscore validation can still distinguish a malformed separator from
+/// another invalid character.
 pub fn numeric_literal_from_str(s: &Py<PyStr>) -> Cow<'_, str> {
     match s.as_str_kind() {
-        PyKindStr::Ascii(s) => Cow::Borrowed(s.trim().as_str()),
-        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s.trim()),
-        PyKindStr::Wtf8(_) => Cow::Borrowed(""),
+        PyKindStr::Ascii(s) => Cow::Borrowed(s.as_str()),
+        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s),
+        PyKindStr::Wtf8(s) => {
+            Cow::Owned(transform_decimal_and_space_to_ascii(&s.to_string_lossy()).into_owned())
+        }
     }
 }
 
@@ -710,17 +714,9 @@ and may be removed in a future version of Python.",
             }
 
             let ret_class = ret.class().to_owned();
-            let message = format!(
-                "{}.__index__() must return an int, not {}",
-                self.class().fully_qualified_name(vm)?,
-                ret_class.fully_qualified_name(vm)?
-            );
+            let message = wtf8_concat!(self.class().fully_qualified_name(vm)?, ".__index__() must return an int, not ", ret_class.fully_qualified_name(vm)?);
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                let msg = format!(
-                    "{message}.  \
-The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python."
-                );
+                let msg = wtf8_concat!(message, ".  The ability to return an instance of a strict subclass of int is deprecated, and may be removed in a future version of Python.");
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
@@ -740,17 +736,9 @@ and may be removed in a future version of Python."
             }
 
             let ret_class = ret.class().to_owned();
-            let message = format!(
-                "{}.__float__() must return a float, not {}",
-                self.class().fully_qualified_name(vm)?,
-                ret_class.fully_qualified_name(vm)?
-            );
+            let message = wtf8_concat!(self.class().fully_qualified_name(vm)?, ".__float__() must return a float, not ", ret_class.fully_qualified_name(vm)?);
             if let Some(ret) = ret.downcast_ref::<PyFloat>() {
-                let msg = format!(
-                    "{message}.  \
-The ability to return an instance of a strict subclass of float is deprecated, \
-and may be removed in a future version of Python."
-                );
+                let msg = wtf8_concat!(message, ".  The ability to return an instance of a strict subclass of float is deprecated, and may be removed in a future version of Python.");
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())

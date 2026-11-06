@@ -1,12 +1,12 @@
 use super::argument::OptionalArg;
 use crate::{
-    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyFloat, PyInt, PyIntRef},
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyComplex, PyFloat, PyInt, PyIntRef},
 };
-use core::ops::Deref;
+use core::{ffi::c_int, ops::Deref};
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::PrimInt;
+use num_traits::{PrimInt, ToPrimitive};
 
 /// A Python complex-like object.
 ///
@@ -14,7 +14,7 @@ use num_traits::PrimInt;
 /// any object that can be transformed into a complex.
 ///
 /// If the object is not a Python complex object but has a `__complex__()`
-/// method, this method will first be called to convert the object into a float.
+/// method, this method will first be called to convert the object into a complex.
 /// If `__complex__()` is not defined then it falls back to `__float__()`. If
 /// `__float__()` is not defined it falls back to `__index__()`.
 #[derive(Debug, PartialEq)]
@@ -40,10 +40,20 @@ impl From<ArgIntoComplex> for Complex64 {
 impl TryFromObject for ArgIntoComplex {
     // Equivalent to PyComplex_AsCComplex
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // We do not care if it was already a complex.
-        let (value, _) = obj.try_complex(vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
-        })?;
+        // Native scalar conversion reads complex subclasses directly. Only the
+        // complex constructor prefers their overridden __complex__ method.
+        let value = if let Some(complex) = obj.downcast_ref::<PyComplex>() {
+            complex.as_complex()
+        } else {
+            obj.try_complex(vm)?
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "must be real number, not {}",
+                        obj.class().slot_name()
+                    ))
+                })?
+                .0
+        };
         Ok(Self { value })
     }
 }
@@ -56,7 +66,7 @@ impl TryFromObject for ArgIntoComplex {
 /// If the object is not a Python floating point object but has a `__float__()`
 /// method, this method will first be called to convert the object into a float.
 /// If `__float__()` is not defined then it falls back to `__index__()`.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ArgIntoFloat {
     value: f64,
@@ -107,7 +117,7 @@ impl TryFromObject for ArgIntoFloat {
 /// By default an object is considered true unless its class defines either a
 /// `__bool__()` method that returns False or a `__len__()` method that returns
 /// zero, when called with the object.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ArgIntoBool {
     value: bool,
 }
@@ -155,6 +165,29 @@ impl ArgIndex {
     pub fn into_int_ref(self) -> PyIntRef {
         self.value
     }
+
+    /// Mask a Clinic unsigned bitfield, warning if neither signed nor unsigned
+    /// storage of the requested width can represent the original integer.
+    pub fn as_unsigned_bitfield<const BITS: u32>(&self, vm: &VirtualMachine) -> PyResult<u64> {
+        const { assert!(BITS > 0 && BITS <= 64) };
+        let minimum = -(1_i128 << (BITS - 1));
+        let maximum = (1_i128 << BITS) - 1;
+        let fits = self
+            .value
+            .as_bigint()
+            .to_i128()
+            .is_some_and(|value| (minimum..=maximum).contains(&value));
+        if !fits {
+            crate::warn::warn(
+                vm.ctx.new_str("integer value out of range").into(),
+                Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
+                1,
+                None,
+                vm,
+            )?;
+        }
+        Ok(self.value.as_u64_mask() & (u64::MAX >> (64 - BITS)))
+    }
 }
 
 impl AsRef<Py<PyInt>> for ArgIndex {
@@ -177,10 +210,52 @@ impl TryFromObject for ArgIndex {
     }
 }
 
+/// An index argument converted with CPython's `PyLong_AsInt` semantics.
+///
+/// Conversion errors raised by `__index__` are preserved. Only an integer
+/// outside the C `int` range gets the C integer overflow diagnostic.
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct ArgCInt {
+    pub value: c_int,
+}
+
+impl ArgCInt {
+    #[inline]
+    #[must_use]
+    pub fn into_primitive(self) -> c_int {
+        self.value
+    }
+}
+
+impl From<c_int> for ArgCInt {
+    fn from(value: c_int) -> Self {
+        Self { value }
+    }
+}
+
+impl TryFromObject for ArgCInt {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let value = c_int::try_from(obj.try_index(vm)?.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))?;
+        Ok(Self { value })
+    }
+}
+
 /// A signed size or index argument (`Py_ssize_t`).
 pub type PySsize = isize;
 /// An unsigned size argument (`size_t`).
 pub type PySize = usize;
+
+// PyLong_AsSsize_t differs from index conversion: only actual ints (including
+// subclasses) are accepted, and overflow has a size-specific diagnostic.
+pub(crate) fn int_as_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySsize> {
+    let int = obj
+        .downcast_ref::<PyInt>()
+        .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+    PySsize::try_from(int.as_bigint())
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+}
 
 /// An `int` (or subclass, including `bool`) converted to a Rust primitive.
 ///

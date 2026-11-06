@@ -5,8 +5,8 @@ mod builtin;
 mod doctext;
 mod either;
 mod fspath;
-mod getargs;
 mod getset;
+mod legacy_args;
 pub(crate) mod method;
 mod number;
 mod protocol;
@@ -18,24 +18,27 @@ pub use argument::{
     NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
     NameKeywords, NameKwargs, NameKwds, NameKws, NameObjects, NameObjs, NameOthers, NameValues,
     OptionalArg, OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
+    params_have_required_keyword_only,
 };
 pub(crate) use argument::{
     arity_message, given_by_name_and_position_message, unexpected_keyword_message,
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{
-    ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
+    ArgAsciiBuffer, ArgBytesLike, ArgBytesOrStr, ArgContiguousBytesLike, ArgMemoryBuffer,
+    ArgStrOrBytesLike,
 };
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use doctext::{ItemDoc, db_doc, plain_doc};
 pub use either::Either;
 pub use fspath::FsPath;
-pub(crate) use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
+pub use legacy_args::{ArgSlots, ArgSpec};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
+pub(crate) use number::int_as_ssize;
 pub use number::{
-    ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
+    ArgCInt, ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
 };
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{

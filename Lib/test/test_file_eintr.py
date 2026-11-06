@@ -186,10 +186,6 @@ class TestFileIOSignalInterrupt:
 class CTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - _io.FileIO.readall uses read_to_end which differs from _pyio.FileIO.readall
-    def test_readall(self):
-        return super().test_readall()
-
 class PyTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'
 

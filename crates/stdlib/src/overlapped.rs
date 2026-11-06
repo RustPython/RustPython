@@ -10,7 +10,7 @@ mod _overlapped {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyBaseExceptionRef, PyBytesRef, PyInt, PyModule, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
@@ -78,7 +78,7 @@ mod _overlapped {
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
 
     #[pyattr]
-    const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
+    const INVALID_HANDLE_VALUE: usize = usize::MAX;
 
     #[pyattr]
     const NULL: isize = 0;
@@ -215,6 +215,19 @@ mod _overlapped {
         }
     }
 
+    // Match PyLong_AsVoidPtr: accept signed negatives and unsigned positive
+    // pointer-width integers, without invoking arbitrary __index__ methods.
+    fn pointer_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let int = obj
+            .downcast_ref::<PyInt>()
+            .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+        if int.as_bigint().sign() == malachite_bigint::Sign::Minus {
+            int.try_to_primitive_in_range::<isize>(vm)
+        } else {
+            Ok(int.try_to_primitive_in_range::<usize>(vm)? as isize)
+        }
+    }
+
     fn set_from_windows_err(err: u32, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let err = if err == 0 {
             host_winapi::get_last_error()
@@ -281,6 +294,12 @@ mod _overlapped {
                 scope_id,
             } => Ok((host, port, flowinfo, scope_id).to_pyobject(vm)),
         }
+    }
+
+    #[derive(FromArgs)]
+    struct RecvFromIntoFlags {
+        #[pyarg(positional, default)]
+        flags: u32,
     }
 
     #[pyclass(with(Constructor, Destructor))]
@@ -1042,8 +1061,20 @@ mod _overlapped {
             }
         }
 
-        // WSARecvFromInto
-        #[pymethod]
+        // Preserve the Rust entry point used by existing tests while exposing
+        // the native default to Python's signature machinery.
+        #[pymethod(name = "WSARecvFromInto")]
+        fn recvfrom_into(
+            zelf: &Py<Self>,
+            handle: isize,
+            buf: ArgMemoryBuffer,
+            size: u32,
+            RecvFromIntoFlags { flags }: RecvFromIntoFlags,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            Self::WSARecvFromInto(zelf, handle, buf, size, OptionalArg::Present(flags), vm)
+        }
+
         fn WSARecvFromInto(
             zelf: &Py<Self>,
             handle: isize,
@@ -1123,13 +1154,24 @@ mod _overlapped {
         }
     }
 
+    #[derive(FromArgs)]
+    struct OverlappedArgs {
+        #[pyarg(any, optional, py_default = "_overlapped.INVALID_HANDLE_VALUE")]
+        event: OptionalArg<PyObjectRef>,
+    }
+
     impl Constructor for Overlapped {
-        type Args = (OptionalArg<isize>,);
+        type Args = OverlappedArgs;
 
-        fn py_new(_cls: &Py<PyType>, (event,): Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let mut event = event.unwrap_or(INVALID_HANDLE_VALUE);
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            // PyLong_AsVoidPtr accepts actual integers, not arbitrary __index__ objects.
+            // Borrow the integer payload to avoid boxing int subclasses.
+            let mut event = match &args.event {
+                OptionalArg::Missing => host_overlapped::INVALID_HANDLE_VALUE_ISIZE,
+                OptionalArg::Present(event) => pointer_value(event, vm)?,
+            };
 
-            if event == INVALID_HANDLE_VALUE {
+            if event == host_overlapped::INVALID_HANDLE_VALUE_ISIZE {
                 event = host_winapi::create_event_w(true, false, None)
                     .map(|handle| handle as isize)
                     .map_err(|err| {
@@ -1210,14 +1252,24 @@ mod _overlapped {
 
     #[pyfunction]
     fn CreateIoCompletionPort(
-        handle: isize,
-        port: isize,
-        key: usize,
-        concurrency: u32,
+        handle: PyObjectRef,
+        port: PyObjectRef,
+        key: PyObjectRef,
+        concurrency: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<isize> {
-        host_overlapped::create_io_completion_port(handle, port, key, concurrency)
-            .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+    ) -> PyResult<usize> {
+        let handle_value = pointer_value(&handle, vm)?;
+        let port_value = pointer_value(&port, vm)?;
+        let key_value = pointer_value(&key, vm)? as usize;
+        let concurrency_value: u32 = concurrency.try_to_value(vm)?;
+        host_overlapped::create_io_completion_port(
+            handle_value,
+            port_value,
+            key_value,
+            concurrency_value,
+        )
+        .map(|port| port as usize)
+        .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]

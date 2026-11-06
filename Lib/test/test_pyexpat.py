@@ -404,7 +404,6 @@ class NamespaceSeparatorTest(unittest.TestCase):
         expat.ParserCreate(namespace_separator=None)
         expat.ParserCreate(namespace_separator=' ')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_illegal(self):
         with self.assertRaisesRegex(TypeError,
                 r"ParserCreate\(\) argument (2|'namespace_separator') "

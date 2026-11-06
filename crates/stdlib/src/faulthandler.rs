@@ -64,17 +64,19 @@ mod decl {
     // _Py_DumpHexadecimal (traceback.c)
     #[cfg(any(unix, windows))]
     fn dump_hexadecimal(fd: i32, value: u64, width: usize) {
+        puts(fd, "0x");
+        dump_hex_digits(fd, value, width);
+    }
+
+    #[cfg(any(unix, windows))]
+    fn dump_hex_digits(fd: i32, value: u64, width: usize) {
         const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
-        let mut buf = [0u8; 18]; // "0x" + 16 hex digits
-        buf[0] = b'0';
-        buf[1] = b'x';
-
-        for i in 0..width {
+        let mut buf = [0u8; 16];
+        for (i, byte) in buf.iter_mut().take(width).enumerate() {
             let digit = ((value >> (4 * (width - 1 - i))) & 0xf) as usize;
-            buf[2 + i] = HEX_CHARS[digit];
+            *byte = HEX_CHARS[digit];
         }
-
-        puts_bytes(fd, &buf[..2 + width]);
+        puts_bytes(fd, &buf[..width]);
     }
 
     // _Py_DumpDecimal (traceback.c)
@@ -145,8 +147,8 @@ mod decl {
     #[cfg(any(unix, windows))]
     fn dump_iframe(fd: i32, iframe: &rustpython_vm::frame::InterpreterFrame) {
         let code = iframe.code();
-        let filename = code.source_path().as_str();
-        let funcname = code.obj_name.as_str();
+        let filename = code.source_path().as_wtf8();
+        let funcname = code.obj_name.as_wtf8();
         let lasti = iframe.get_lasti();
         let lineno = if lasti == 0 {
             code.first_line_number.map_or(1, |n| n.get()) as u32
@@ -193,27 +195,36 @@ mod decl {
     #[cfg(any(unix, windows))]
     const MAX_STRING_LENGTH: usize = 500;
 
-    /// Truncate a UTF-8 string to at most `max_bytes` without splitting a
-    /// multi-byte codepoint. Signal-safe (no allocation, no panic).
+    /// `_Py_DumpASCII`: escape non-printable code points and truncate by
+    /// character count, without allocation or Python calls in a signal handler.
     #[cfg(any(unix, windows))]
-    fn safe_truncate(s: &str, max_bytes: usize) -> (&str, bool) {
-        if s.len() <= max_bytes {
-            return (s, false);
+    fn dump_ascii(fd: i32, s: &rustpython_common::wtf8::Wtf8) {
+        let prefix = &s.as_bytes()[..s.len().min(MAX_STRING_LENGTH)];
+        if prefix.iter().all(|byte| (0x20..=0x7e).contains(byte)) {
+            puts_bytes(fd, prefix);
+            if s.len() > MAX_STRING_LENGTH {
+                puts(fd, "...");
+            }
+            return;
         }
-        let mut end = max_bytes;
-        while end > 0 && !s.is_char_boundary(end) {
-            end -= 1;
+        let mut points = s.code_points();
+        for point in points.by_ref().take(MAX_STRING_LENGTH) {
+            let value = point.to_u32();
+            if (0x20..=0x7e).contains(&value) {
+                puts_bytes(fd, &[value as u8]);
+            } else {
+                let (prefix, width) = if value <= 0xff {
+                    ("\\x", 2)
+                } else if value <= 0xffff {
+                    ("\\u", 4)
+                } else {
+                    ("\\U", 8)
+                };
+                puts(fd, prefix);
+                dump_hex_digits(fd, u64::from(value), width);
+            }
         }
-        (&s[..end], true)
-    }
-
-    /// Write a string to fd, truncating with "..." if it exceeds MAX_STRING_LENGTH.
-    /// Mirrors `_Py_DumpASCII` truncation behavior.
-    #[cfg(any(unix, windows))]
-    fn dump_ascii(fd: i32, s: &str) {
-        let (truncated_s, was_truncated) = safe_truncate(s, MAX_STRING_LENGTH);
-        puts(fd, truncated_s);
-        if was_truncated {
+        if points.next().is_some() {
             puts(fd, "...");
         }
     }

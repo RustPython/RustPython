@@ -551,7 +551,7 @@ class CmdLineTest(unittest.TestCase):
             self.assertStartsWith(text[1], '  File ')
             self.assertStartsWith(text[3], 'NameError')
 
-    @unittest.expectedFailureIf(sys.platform in ("android", "linux"), "TODO: RUSTPYTHON")
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON")
     def test_non_ascii(self):
         # Apple platforms deny the creation of a file with an invalid UTF-8 name.
         # Windows allows creating a name with an arbitrary bytes name, but
