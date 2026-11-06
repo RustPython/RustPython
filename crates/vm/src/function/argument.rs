@@ -103,7 +103,6 @@ impl<Name: ArgName> From<KwArgs<PyObjectRef, Name>> for FuncArgs {
 impl FromArgs for FuncArgs {
     const PARAMS: Option<&'static [Param]> =
         Some(&[Param::var_positional("args"), Param::var_keyword("kwargs")]);
-    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(core::mem::take(args))
@@ -575,6 +574,41 @@ struct BindingShape {
 }
 
 impl BindingShape {
+    const fn validated(params: Option<&[Param]>, skip: usize) -> Option<Self> {
+        const fn known(params: Option<&[Param]>) -> bool {
+            let Some(params) = params else {
+                return false;
+            };
+            let mut i = 0;
+            while i < params.len() {
+                if let ParamKind::Flatten(inner) = params[i].kind
+                    && !known(inner)
+                {
+                    return false;
+                }
+                i += 1;
+            }
+            true
+        }
+
+        if !known(params) {
+            return None;
+        }
+        assert!(
+            Self::from_params(params, 0).is_some(),
+            "FromArgs binding parameters must describe one Clinic signature; use an explicit custom binding override for a staged parser",
+        );
+        Self::from_params(params, skip)
+    }
+
+    const fn arity(&self) -> RangeInclusive<usize> {
+        self.required_positional..=if self.var_positional {
+            usize::MAX
+        } else {
+            self.positional
+        }
+    }
+
     const fn from_params(params: Option<&[Param]>, mut skip: usize) -> Option<Self> {
         let Some(params) = params else {
             return None;
@@ -667,19 +701,30 @@ impl BindingShape {
     ) -> Option<PyBaseExceptionRef> {
         let nargs = args.args.len().saturating_sub(instance);
         let nkwargs = args.kwargs.len();
+        let binding_arity = self.arity();
         if !self.has_keywords {
             if nkwargs > 0 {
                 return Some(callee.no_keywords(vm));
             }
-            return Some(callee.wrong_arity(arity, nargs < *arity.start(), nargs, vm));
+            return Some(callee.wrong_arity(
+                &binding_arity,
+                nargs < self.required_positional,
+                nargs,
+                vm,
+            ));
         }
 
         // Bare positional Rust arguments use _PyArg_CheckPositional, including
         // an outer argument followed by a separately bound options struct.
         if self.anonymous_positional
-            && (nargs > *arity.end() || nargs < self.required_positional_only)
+            && (nargs > *binding_arity.end() || nargs < self.required_positional_only)
         {
-            return Some(callee.wrong_arity(arity, nargs < *arity.start(), nargs, vm));
+            return Some(callee.wrong_arity(
+                &binding_arity,
+                nargs < self.required_positional,
+                nargs,
+                vm,
+            ));
         }
         let (name, parens) = call_form(callee.name, "function");
         if !self.anonymous_positional
@@ -1029,11 +1074,14 @@ impl ArgumentError {
 pub trait FromArgs: Sized {
     /// The range of positional arguments permitted by the function signature.
     ///
-    /// The default has no upper bound, so a type that takes positional
-    /// arguments itself is never rejected before `from_args` runs.
+    /// By default this is computed from the binding parameters. An explicit
+    /// custom parser without binding metadata has no positional upper bound.
     #[must_use]
     fn arity() -> RangeInclusive<usize> {
-        0..=usize::MAX
+        match const { BindingShape::validated(Self::BINDING_PARAMS, 0) } {
+            Some(shape) => shape.arity(),
+            None => 0..=usize::MAX,
+        }
     }
 
     /// Parameters this type contributes to a text signature.
@@ -1044,12 +1092,18 @@ pub trait FromArgs: Sized {
     /// is ignored.
     const PARAMS: Option<&'static [Param]> = None;
 
-    /// Parameters whose binding shape is known before conversion. Unlike
-    /// `PARAMS`, an unnamed scalar is represented by one positional-only slot.
-    /// `None` leaves validation to a parser whose shape is not known here.
-    /// Manual parsers opt in explicitly: text signatures alone do not promise
-    /// that a parser follows Clinic validation rules.
-    const BINDING_PARAMS: Option<&'static [Param]> = None;
+    /// Parameters validated with Clinic rules before any argument conversion.
+    /// Both manual implementations and derives use `PARAMS` by default; its
+    /// unnamed scalar is represented here by one positional-only slot.
+    ///
+    /// Override this when the accepted arguments differ from the displayed
+    /// signature. `None` explicitly delegates validation to a custom parser,
+    /// retaining the conservative checks below. Such exceptions should explain
+    /// why CPython needs different validation order or diagnostics.
+    const BINDING_PARAMS: Option<&'static [Param]> = match Self::PARAMS {
+        Some(params) => Some(params),
+        None => Some(&[Param::positional_only("")]),
+    };
 
     /// True when every parameter is positional-only or `*args`.
     const TAKES_NO_KEYWORDS: bool = match Self::PARAMS {
@@ -1097,8 +1151,9 @@ pub trait FromArgs: Sized {
     }
 
     /// Validate a known binding shape before converting any argument, following
-    /// `_PyArg_UnpackKeywords` error ordering. Opaque parsers keep the conservative
-    /// positional-count, duplicate, and missing-argument checks.
+    /// `_PyArg_UnpackKeywords` error ordering. Explicit custom parsers keep the
+    /// conservative positional-count, duplicate, and missing-argument checks.
+    /// Invalid known parameter ordering is rejected at compile time.
     ///
     /// The missing-argument walk is skipped when every required positional
     /// argument is present and the type has no required keyword-only parameter.
@@ -1112,9 +1167,9 @@ pub trait FromArgs: Sized {
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         let shape = if instance == 0 {
-            const { BindingShape::from_params(Self::BINDING_PARAMS, 0) }
+            const { BindingShape::validated(Self::BINDING_PARAMS, 0) }
         } else {
-            const { BindingShape::from_params(Self::BINDING_PARAMS, 1) }
+            const { BindingShape::validated(Self::BINDING_PARAMS, 1) }
         };
         if let Some(shape) = shape {
             if args.kwargs.is_empty()
@@ -1372,7 +1427,6 @@ where
     T: TryFromObject,
 {
     const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword(Name::NAME)]);
-    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn arity() -> RangeInclusive<usize> {
         0..=0
@@ -1463,7 +1517,6 @@ where
     T: TryFromObject,
 {
     const PARAMS: Option<&'static [Param]> = Some(&[Param::var_positional(Name::NAME)]);
-    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
@@ -1487,8 +1540,6 @@ impl<T> FromArgs for T
 where
     T: TryFromObject,
 {
-    const BINDING_PARAMS: Option<&'static [Param]> = Some(&[Param::positional_only("")]);
-
     fn arity() -> RangeInclusive<usize> {
         1..=1
     }
@@ -1551,7 +1602,6 @@ where
         kind: super::signature::ParamKind::PositionalOnly,
         default: Some(super::signature::DefaultRepr::Unrepresentable),
     }]);
-    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn arity() -> RangeInclusive<usize> {
         0..=1
@@ -1571,7 +1621,6 @@ where
 // macro below to avoid unused warnings.
 impl FromArgs for () {
     const PARAMS: Option<&'static [Param]> = Some(&[]);
-    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn arity() -> RangeInclusive<usize> {
         0..=0
@@ -1683,6 +1732,9 @@ mod arity_composition_tests {
     struct Bounds<const MIN: usize, const MAX: usize>;
 
     impl<const MIN: usize, const MAX: usize> FromArgs for Bounds<MIN, MAX> {
+        // This fixture supplies bounds rather than a fixed parameter list.
+        const BINDING_PARAMS: Option<&'static [Param]> = None;
+
         fn arity() -> RangeInclusive<usize> {
             MIN..=MAX
         }
@@ -1832,6 +1884,9 @@ mod tests {
     struct DisplayOnly(FuncArgs);
 
     impl FromArgs for DisplayOnly {
+        // An explicit custom parser, unlike the default manual implementation.
+        const BINDING_PARAMS: Option<&'static [super::Param]> = None;
+
         const PARAMS: Option<&'static [super::Param]> =
             Some(&[super::Param::positional_or_keyword("display")]);
 
@@ -1971,7 +2026,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_signatures_do_not_opt_in_to_clinic_validation() {
+    fn explicitly_custom_signatures_do_not_opt_in_to_clinic_validation() {
         const { assert!(DisplayOnly::BINDING_PARAMS.is_none()) };
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let bound = FuncArgs::default()
@@ -1979,6 +2034,73 @@ mod tests {
                 .unwrap_or_else(|_| panic!("a display signature must not require arguments"));
             assert!(bound.0.args.is_empty());
         });
+    }
+
+    struct ManualNamed;
+
+    impl FromArgs for ManualNamed {
+        const PARAMS: Option<&'static [super::Param]> = ClinicNamed::PARAMS;
+
+        fn from_args(_: &VirtualMachine, _: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            panic!("invalid calls must be rejected before the manual parser runs")
+        }
+    }
+
+    struct ManualPositional;
+
+    impl FromArgs for ManualPositional {
+        const PARAMS: Option<&'static [super::Param]> =
+            Some(&[super::Param::positional_only("value")]);
+
+        fn from_args(_: &VirtualMachine, _: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            panic!("invalid calls must be rejected before the manual parser runs")
+        }
+    }
+
+    #[test]
+    fn manual_parsers_use_clinic_validation_and_shape_bounds_by_default() {
+        assert_eq!(ManualNamed::arity(), 2..=2);
+        assert_eq!(ManualPositional::arity(), 1..=1);
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(
+                binding_error::<ManualNamed>(1, &["first"], false, vm),
+                "example() missing required argument 'second' (pos 2)",
+            );
+            assert_eq!(
+                binding_error::<ManualNamed>(2, &["unknown"], false, vm),
+                "example() got an unexpected keyword argument 'unknown'",
+            );
+            assert_eq!(
+                binding_error::<ManualPositional>(0, &[], false, vm),
+                "example expected 1 argument, got 0",
+            );
+            assert_eq!(
+                binding_error::<(PyObjectRef, ManualPositional)>(3, &[], true, vm),
+                "example expected 1 argument, got 2",
+            );
+        });
+    }
+
+    #[test]
+    fn a_receiver_does_not_restore_clinic_validation_for_an_explicit_custom_parser() {
+        const { assert!(<(PyObjectRef, DisplayOnly)>::BINDING_PARAMS.is_none()) };
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let (_, bound) = FuncArgs::from(vec![vm.ctx.none()])
+                .bind_for::<(PyObjectRef, DisplayOnly)>(
+                    vm,
+                    Callee::named("example").with_instance_arg(true),
+                )
+                .unwrap_or_else(|_| {
+                    panic!("the custom parser does not require display parameters")
+                });
+            assert!(bound.0.args.is_empty());
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "must describe one Clinic signature")]
+    fn malformed_known_compositions_cannot_silently_disable_clinic_validation() {
+        BindingShape::validated(<(PosArgs, i32)>::BINDING_PARAMS, 0);
     }
 
     fn missing<T: FromArgs>(nargs: usize, skip: usize) -> Result<(), Option<ArgumentError>> {

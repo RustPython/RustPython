@@ -432,6 +432,9 @@ mod _operator {
     struct AttrGetterArgs(Vec<PyObjectRef>);
 
     impl FromArgs for AttrGetterArgs {
+        // CPython reports "expected 1 argument" even though this is variadic.
+        const BINDING_PARAMS: Option<&'static [Param]> = None;
+
         const PARAMS: Option<&'static [Param]> = Some(&[
             Param::positional_only("attr"),
             Param::var_positional("attrs"),
@@ -517,6 +520,9 @@ mod _operator {
     struct ItemGetterArgs(Vec<PyObjectRef>);
 
     impl FromArgs for ItemGetterArgs {
+        // CPython reports "expected 1 argument" even though this is variadic.
+        const BINDING_PARAMS: Option<&'static [Param]> = None;
+
         const PARAMS: Option<&'static [Param]> = Some(&[
             Param::positional_only("item"),
             Param::var_positional("items"),
@@ -614,6 +620,9 @@ mod _operator {
     }
 
     impl FromArgs for MethodCallerArgs {
+        // CPython names the missing method name in a bespoke constructor error.
+        const BINDING_PARAMS: Option<&'static [Param]> = None;
+
         const PARAMS: Option<&'static [Param]> = Some(&[
             Param::positional_only("name"),
             Param::var_positional("args"),

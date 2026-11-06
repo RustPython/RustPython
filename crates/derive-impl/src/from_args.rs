@@ -823,9 +823,11 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let binding_params = if legacy.is_some() {
-        quote!(None)
+        quote! {
+            const BINDING_PARAMS: Option<&'static [::rustpython_vm::function::Param]> = None;
+        }
     } else if flattened.is_empty() {
-        quote!(Self::PARAMS)
+        quote! {}
     } else {
         let params = struct_fields
             .iter()
@@ -838,7 +840,10 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        quote!(Some(&[#(#params),*]))
+        quote! {
+            const BINDING_PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
+                Some(&[#(#params),*]);
+        }
     };
     let check_before_convert = if legacy.is_some() {
         quote! {
@@ -883,8 +888,7 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
 
-            const BINDING_PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
-                #binding_params;
+            #binding_params
 
             const HAS_REQUIRED_KEYWORD_ONLY: bool =
                 ::rustpython_vm::function::params_have_required_keyword_only(Self::PARAMS) #(

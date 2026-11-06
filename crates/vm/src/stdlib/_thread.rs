@@ -695,21 +695,8 @@ pub(crate) mod _thread {
         ]);
 
         fn from_args(vm: &VirtualMachine, f_args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            if !f_args.kwargs.is_empty() {
-                return Err(vm
-                    .new_type_error("start_new_thread() takes no keyword arguments")
-                    .into());
-            }
-
-            let given = f_args.args.len();
-            if !(2..=3).contains(&given) {
-                return Err(vm
-                    .new_arity_type_error("start_new_thread", 2..=3, given)
-                    .into());
-            }
-
-            let func_obj = f_args.take_positional().unwrap();
-            let args_obj = f_args.take_positional().unwrap();
+            let func_obj = f_args.take_positional().ok_or(ArgumentError::TooFewArgs)?;
+            let args_obj = f_args.take_positional().ok_or(ArgumentError::TooFewArgs)?;
             let kwargs_obj = f_args.take_positional();
 
             if func_obj.to_callable().is_none() {
@@ -2050,6 +2037,9 @@ pub(crate) mod _thread {
     }
 
     impl FromArgs for StartJoinableThreadArgs {
+        // PyArg_ParseTupleAndKeywords converts daemon before checking unknown names.
+        const BINDING_PARAMS: Option<&'static [Param]> = None;
+
         const PARAMS: Option<&'static [Param]> = Some(&[
             Param::positional_or_keyword("function"),
             Param {

@@ -1966,6 +1966,9 @@ impl PyType {}
 struct PrepareArgs;
 
 impl FromArgs for PrepareArgs {
+    // CPython accepts and ignores every argument, independent of the display signature.
+    const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
     const PARAMS: Option<&'static [Param]> = Some(&[
         Param::positional_only("name"),
         Param::positional_only("bases"),

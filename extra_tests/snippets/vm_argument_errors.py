@@ -376,6 +376,23 @@ def test_legacy_parsers_convert_before_a_missing_argument():
         _json.make_encoder(None, None, None, None, ",", ",", FailingBool())
 
 
+def test_custom_parsers_preserve_their_conversion_boundaries():
+    # The reader starts iteration before its separate dialect parser runs.
+    with assert_raises(RuntimeError):
+        csv.reader(TestFailingIter(), "excel", dialect="excel")
+    with assert_raises(RuntimeError):
+        csv.reader(TestFailingIter(), unexpected=1)
+
+    try:
+        import _thread
+    except ImportError:
+        pass
+    else:
+        # This legacy parser converts daemon before rejecting unknown names.
+        with assert_raises(RuntimeError):
+            _thread.start_joinable_thread(None, daemon=FailingBool(), unexpected=1)
+
+
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
@@ -391,3 +408,4 @@ test_a_missing_argument_is_reported_before_any_is_converted()
 test_required_keyword_only_is_reported_before_conversion()
 test_clinic_checks_all_arguments_before_conversion()
 test_legacy_parsers_convert_before_a_missing_argument()
+test_custom_parsers_preserve_their_conversion_boundaries()

@@ -18,6 +18,9 @@ struct SetNameArgs {
 }
 
 impl FromArgs for SetNameArgs {
+    // CPython uses a bespoke positional-count error in property_set_name.
+    const BINDING_PARAMS: Option<&'static [Param]> = None;
+
     const PARAMS: Option<&'static [Param]> = Some(&[
         Param::positional_only("owner"),
         Param::positional_only("name"),

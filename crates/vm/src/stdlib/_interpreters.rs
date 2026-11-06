@@ -398,6 +398,9 @@ pub(crate) mod _interpreters {
     struct NewConfigArgs(FuncArgs);
 
     impl FromArgs for NewConfigArgs {
+        // CPython uses a bespoke positional-count error before reading overrides.
+        const BINDING_PARAMS: Option<&'static [Param]> = None;
+
         const PARAMS: Option<&'static [Param]> = Some(&[
             Param {
                 name: "name",
