@@ -2333,6 +2333,21 @@ impl IntParser {
 mod subprocess_raw_fd_tests {
     use super::*;
 
+    fn pipe_above_stdio() -> (OwnedFd, OwnedFd) {
+        let duplicate = |fd: OwnedFd, minimum| {
+            let raw =
+                nix::fcntl::fcntl(&fd, nix::fcntl::FcntlArg::F_DUPFD_CLOEXEC(minimum)).unwrap();
+            // SAFETY: F_DUPFD_CLOEXEC returned a fresh descriptor owned by this test.
+            unsafe { OwnedFd::from_raw_fd(raw) }
+        };
+        let (reader, writer) = nix::unistd::pipe().unwrap();
+        // pipe() orders endpoints by direction, not descriptor number. Allocate
+        // the fixture above stderr and in the order required by the keep list.
+        let reader = duplicate(reader, 3);
+        let writer = duplicate(writer, reader.as_raw_fd() + 1);
+        (reader, writer)
+    }
+
     #[test]
     fn invalid_raw_descriptors_return_ebadf() {
         for err in [
@@ -2353,7 +2368,7 @@ mod subprocess_raw_fd_tests {
 
     #[test]
     fn raw_and_borrowed_keep_lists_select_the_same_descriptors() {
-        let (reader, writer) = nix::unistd::pipe().unwrap();
+        let (reader, writer) = pipe_above_stdio();
         let raw = [reader.as_raw_fd(), writer.as_raw_fd()];
         assert!(raw[0] > 2 && raw[1] > raw[0]);
         let borrowed = [reader.as_fd(), writer.as_fd()];
@@ -2369,7 +2384,7 @@ mod subprocess_raw_fd_tests {
 
     #[test]
     fn raw_helpers_preserve_pipe_ownership_and_flags() {
-        let (reader, writer) = nix::unistd::pipe().unwrap();
+        let (reader, writer) = pipe_above_stdio();
         assert!(reader.as_raw_fd() > 2 && writer.as_raw_fd() > 2);
         let high = nix::fcntl::fcntl(&writer, nix::fcntl::FcntlArg::F_DUPFD_CLOEXEC(64)).unwrap();
         // SAFETY: F_DUPFD_CLOEXEC returned a fresh descriptor owned by this test.
