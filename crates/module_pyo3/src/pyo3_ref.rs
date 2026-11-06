@@ -2,9 +2,22 @@
 //!
 //! A CPython instance whose class can carry this payload is an instance of
 //! the wrapper of that class (see [`crate::pyo3_type`]). `pyo3.ref` holds the
-//! `Py<PyAny>` and forwards ordinary attribute access. It defines no other
+//! `Py<PyAny>` and forwards ordinary attribute access. It defines no protocol
 //! slot, so a wrapper gains `__iter__`, `__bytes__` and the rest only when
 //! the wrapped class actually has them.
+//!
+//! Copying and pickling are the exception. `__copy__` and `__deepcopy__` call
+//! the embedded `copy` module, so a shallow copy stays shallow. `__deepcopy__`
+//! records the copy in the memo it was given, under this proxy's id, and a
+//! second reference in the same deepcopy is that copy. The embedded deepcopy
+//! keeps its own memo for the value's internal structure. `__reduce__` and
+//! `__reduce_ex__` return `pyo3.load_embedded` plus the bytes the embedded
+//! `pickle` produced at the requested protocol. Protocol 5 buffers are stored
+//! in those bytes. Unpickling calls `load_embedded`, which unpickles in the
+//! embedded interpreter and converts the result. An object the embedded
+//! pickle refuses raises that failure. These four names are answered from
+//! this class: the reducers the embedded object would return name globals
+//! only the embedded interpreter can import.
 //!
 //! Instances whose class cannot carry the payload — subclasses of `int`,
 //! `str` and the other built-in layouts, and static descriptor types — use
@@ -17,7 +30,7 @@
 //! wrapper to copy it from.
 
 pub(crate) use pyo3_ref::{
-    Pyo3Ref, binary_op, buffer_method, call_method, memoryview_from_cpython,
+    Pyo3Ref, binary_op, buffer_method, call_method, is_persistence_method, memoryview_from_cpython,
 };
 
 #[pymodule(sub)]
@@ -317,10 +330,88 @@ pub(crate) mod pyo3_ref {
         fn call(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             self.apply(vm, |obj| call_cpython(obj, args, vm))
         }
+
+        /// Call `module.function` on the wrapped object. `extra` is a second
+        /// argument, such as a pickle protocol. The embedded `copy` memo is
+        /// not passed: its ids are not this interpreter's.
+        fn call_embedded(
+            &self,
+            module: &str,
+            function: &str,
+            extra: Option<&PyObject>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            with_gil(vm, |py| {
+                let obj = self.py_obj.bind(py);
+                let imported = run_cpython(vm, || py.import(module))?;
+                let callable = run_cpython(vm, || imported.getattr(function))?;
+                let mut args = vec![obj.clone()];
+                if let Some(extra) = extra {
+                    args.push(to_cpython(py, extra, vm)?);
+                }
+                let args = PyTuple::new(py, args).to_pyresult(vm)?;
+                let result = run_cpython(vm, || callable.call1(&args))?;
+                to_rustpython(&result, vm)
+            })
+        }
+
+        /// `(pyo3.load_embedded, (embedded_pickle_bytes,))`.
+        fn embedded_reduce(&self, protocol: Option<&PyObject>, vm: &VirtualMachine) -> PyResult {
+            let bytes = self.call_embedded("pickle", "dumps", protocol, vm)?;
+            let loader = vm.import("pyo3", 0)?.get_attr("load_embedded", vm)?;
+            let args = vm.ctx.new_tuple(vec![bytes]);
+            Ok(vm.ctx.new_tuple(vec![loader, args.into()]).into())
+        }
+    }
+
+    /// Names answered from this class rather than the wrapped object.
+    pub(crate) fn is_persistence_method(name: &str) -> bool {
+        matches!(
+            name,
+            "__copy__" | "__deepcopy__" | "__reduce__" | "__reduce_ex__"
+        )
     }
 
     #[pyclass(with(Constructor, GetAttr, SetAttr), flags(BASETYPE))]
-    impl Pyo3Ref {}
+    impl Pyo3Ref {
+        /// Shallow copy through the embedded `copy` module.
+        #[pymethod]
+        fn __copy__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.call_embedded("copy", "copy", None, vm)
+        }
+
+        /// Deep copy through the embedded `copy` module.
+        ///
+        /// `memo` is this interpreter's memo. An entry for this proxy is
+        /// reused. The copy is stored there unless it is this proxy, so a
+        /// later reference in the same deepcopy is the same object.
+        #[pymethod]
+        fn __deepcopy__(zelf: &Py<Self>, memo: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let key = vm.ctx.new_int(zelf.as_object().get_id() as u64);
+            match memo.get_item(key.as_object(), vm) {
+                Ok(found) => return Ok(found),
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => {}
+                Err(err) => return Err(err),
+            }
+            let copied = zelf.call_embedded("copy", "deepcopy", None, vm)?;
+            if !copied.is(zelf.as_object()) {
+                memo.set_item(key.as_object(), copied.clone(), vm)?;
+            }
+            Ok(copied)
+        }
+
+        /// Reduce to `pyo3.load_embedded` and the embedded pickle of this object.
+        #[pymethod]
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.embedded_reduce(None, vm)
+        }
+
+        /// Reduce at `protocol` to `pyo3.load_embedded` and the embedded pickle.
+        #[pymethod]
+        fn __reduce_ex__(zelf: &Py<Self>, protocol: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            zelf.embedded_reduce(Some(&protocol), vm)
+        }
+    }
 
     #[pyclass(
         with(
@@ -438,11 +529,26 @@ pub(crate) mod pyo3_ref {
 
     impl GetAttr for Pyo3Ref {
         fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+            // Instance lookup would otherwise return the embedded method,
+            // whose globals this interpreter cannot import.
+            if name.to_str().is_some_and(is_persistence_method) {
+                return bind_persistence_method(zelf.as_object(), name, vm);
+            }
             zelf.apply(vm, |obj| {
                 let name = str_to_cpython(obj.py(), name.as_wtf8()).to_pyresult(vm)?;
                 run_cpython(vm, || obj.getattr(name))
             })
         }
+    }
+
+    /// The persistence method from this proxy's class, bound to `obj`.
+    fn bind_persistence_method(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        let cls = obj.class();
+        let attr = cls.as_object().get_attr(name, vm)?;
+        let Some(descr_get) = attr.class().slots.descr_get.load() else {
+            return Ok(attr);
+        };
+        descr_get(&attr, Some(obj), Some(cls.as_object()), vm)
     }
 
     impl SetAttr for Pyo3Ref {

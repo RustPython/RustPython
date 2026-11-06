@@ -51,6 +51,7 @@ dllhandle
 docstring
 docstrings
 dunder
+dunders
 endianness
 endpos
 eventmask

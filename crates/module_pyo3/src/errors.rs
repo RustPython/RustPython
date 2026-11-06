@@ -176,6 +176,20 @@ pub(crate) fn rustpython_exc_to_cpython(
     PyErr::from_value(instance)
 }
 
+/// The built-in class on this side that corresponds to `ty`, when `ty`'s
+/// MRO contains a class defined in `builtins`.
+pub(crate) fn matching_builtin_type(
+    ty: &Bound<'_, CPythonType>,
+    vm: &VirtualMachine,
+) -> Option<rustpython_vm::PyRef<PyType>> {
+    let (name, _) = cpython_mro_builtin(ty)?;
+    vm.builtins
+        .get_attr(&vm.ctx.new_str(name.as_str()), vm)
+        .ok()?
+        .downcast::<PyType>()
+        .ok()
+}
+
 /// The first class in `ty.__mro__` defined in `builtins`, and whether that is
 /// `ty` itself.
 fn cpython_mro_builtin(ty: &Bound<'_, CPythonType>) -> Option<(String, bool)> {

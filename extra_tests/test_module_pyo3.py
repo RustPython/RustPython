@@ -10,6 +10,7 @@ import array
 import collections.abc
 import copy
 import gc
+import pickle
 import struct
 import sys
 import time
@@ -333,6 +334,123 @@ Rect._fields_ = [("a", Point), ("b", Point)]  # processed by CPython's metaclass
 assert Rect(Point(1, 2), Point(3, 4)).b.y == 4
 assert ctypes.sizeof(Rect) == 16
 
+# Embedded objects copy and pickle through the embedded interpreters of those
+# modules. The reducer is a global of this pyo3 module.
+
+collections = pyo3.import_module("collections")
+OrderedDict = collections.OrderedDict
+marker = Decimal("1.5")
+point = Point(3, -4)
+ordered = OrderedDict([("b", marker), ("a", Decimal("2.5"))])
+with_point = OrderedDict([("p", point)])
+shallow = copy.copy(ordered)
+assert shallow["b"] is marker and shallow["b"] is ordered["b"]
+assert shallow is not ordered
+shallow_point = copy.copy(with_point)
+assert shallow_point["p"] is point
+deep = copy.deepcopy(with_point)
+assert deep["p"] is not point and deep["p"].x == 3
+assert list(copy.deepcopy(ordered).keys()) == ["b", "a"]
+
+point_pair = [point, point]
+copied_points = copy.deepcopy(point_pair)
+assert copied_points[0] is copied_points[1]
+assert copied_points[0] is not point
+assert (copied_points[0].x, copied_points[0].y) == (3, -4)
+assert copy.copy(point).x == 3 and copy.copy(point) is not point
+
+reducer, reduce_args = marker.__reduce_ex__(5)
+assert reducer is pyo3.load_embedded
+assert isinstance(reduce_args, tuple) and isinstance(reduce_args[0], bytes)
+assert reducer(*reduce_args) == marker
+assert pickle.loads(pickle.dumps(marker)) == marker
+assert pickle.loads(pickle.dumps(marker, protocol=5)) == marker
+restored = pickle.loads(pickle.dumps(ordered))
+assert list(restored.keys()) == ["b", "a"]
+assert restored["a"] == Decimal("2.5")
+# Point's class lives only in this interpreter, so the embedded pickle
+# reports that it cannot import the class. That error is the one surfaced.
+try:
+    pickle.dumps(point)
+except Exception as e:
+    assert "function" not in str(e)
+    assert "Point" in str(e)
+else:
+    raise AssertionError("expected the embedded pickle error")
+
+try:
+    pickle.dumps(pyo3.import_module("sys"))
+except TypeError as e:
+    assert "function" not in str(e)
+    assert "module" in str(e)
+else:
+    raise AssertionError("expected TypeError")
+
+
+# A ctypes structure whose class the embedded interpreter can import.
+@pyo3.wraps
+def embedded_point(x, y):
+    import sys
+
+    main = sys.modules["__main__"]
+    if not hasattr(main, "BridgePoint"):
+        exec(
+            "import ctypes\n"
+            "class BridgePoint(ctypes.Structure):\n"
+            "    _fields_ = [('x', ctypes.c_int), ('y', ctypes.c_int)]\n",
+            main.__dict__,
+        )
+    return main.BridgePoint(x, y)
+
+
+bridge_point = embedded_point(8, 9)
+restored_bridge = pickle.loads(pickle.dumps(bridge_point))
+assert type(restored_bridge) is type(bridge_point)
+assert (restored_bridge.x, restored_bridge.y) == (8, 9)
+c_int_value = ctypes.c_int(5)
+assert pickle.loads(pickle.dumps(c_int_value)).value == 5
+
+
+@pyo3.wraps
+def echo(obj):
+    return obj
+
+
+assert echo(123) == 123 and type(echo(123)) is int
+assert pickle.loads(pickle.dumps(echo(123))) == 123
+assert pickle.loads(pickle.dumps(echo("xy"))) == "xy"
+
+
+class EchoBox:
+    def __init__(self, v):
+        self.v = v
+
+
+echo_box = EchoBox(5)
+assert echo(echo_box) is echo_box
+assert pickle.loads(pickle.dumps(echo_box)).v == 5
+
+
+@pyo3.wraps
+def complex_value(value):
+    class C(complex):
+        pass
+
+    return C(value)
+
+
+complex_proxy = complex_value(3 + 4j)
+assert complex(copy.copy(complex_proxy)) == 3 + 4j
+assert complex(copy.deepcopy(complex_proxy)) == 3 + 4j
+# The class is local to the embedded function, so pickle names that.
+try:
+    pickle.dumps(complex_proxy)
+except Exception as e:
+    assert "function" not in str(e)
+    assert "local" in str(e)
+else:
+    raise AssertionError("expected the embedded pickle error")
+
 n = c_int(5)
 ctypes.pointer(n).contents.value = 7
 assert n.value == 7
@@ -383,6 +501,90 @@ assert ctypes.Structure.mro() == list(ctypes.Structure.__mro__)
 meta_mro = type(ctypes.Structure).__mro__
 assert pyo3.pyo3_type not in meta_mro
 assert type in meta_mro
+# The wrapper of a metaclass is an instance of type. Assignment on a class
+# created from it still reaches the wrapped class (Rect._fields_ above).
+assert type(type(ctypes.Structure)) is type
+assert type(type(ctypes.Array)) is type
+assert type(type(ctypes.c_int)) is type
+
+
+# A mutable embedded metaclass keeps forwarding. Writes from here show up
+# on the embedded class, and writes from there show up here.
+@pyo3.wraps
+def embedded_metaclass():
+    import sys
+
+    main = sys.modules["__main__"]
+    if not hasattr(main, "BridgeMeta"):
+        exec("class BridgeMeta(type):\n    pass\n", main.__dict__)
+    return main.BridgeMeta
+
+
+@pyo3.wraps
+def read_embedded_attr(cls, name):
+    return getattr(cls, name)
+
+
+@pyo3.wraps
+def write_embedded_attr(cls, name, value):
+    setattr(cls, name, value)
+
+
+bridge_meta = embedded_metaclass()
+assert type(bridge_meta) is pyo3.pyo3_type
+bridge_meta.from_here = 5
+assert read_embedded_attr(bridge_meta, "from_here") == 5
+write_embedded_attr(bridge_meta, "from_embedded", 9)
+assert bridge_meta.from_embedded == 9
+
+# This interpreter's ctypes package subclasses the embedded _ctypes types.
+# A class body with a method keeps its cell here, and a mixin setter reaches
+# the metaclass wrapper.
+import ctypes as stdlib_ctypes
+
+
+class StdlibCInt(stdlib_ctypes.c_int):
+    def twice(self):
+        return self.value * 2
+
+
+assert StdlibCInt(4).twice() == 8
+
+
+class StdlibBE(stdlib_ctypes.BigEndianStructure):
+    _fields_ = [("x", stdlib_ctypes.c_int), ("y", stdlib_ctypes.c_int)]
+
+
+assert (StdlibBE(1, 2).x, StdlibBE(1, 2).y) == (1, 2)
+
+
+class StdlibRect(stdlib_ctypes.Structure):
+    pass
+
+
+StdlibRect._fields_ = [("w", stdlib_ctypes.c_int)]
+assert StdlibRect(6).w == 6
+
+# Metaclass __new__ only allocates. The following __init__ still reaches the
+# wrapped metaclass, and a subclass of that metaclass still forwards.
+SimpleMeta = type(stdlib_ctypes.c_int)
+Made = SimpleMeta.__new__(SimpleMeta, "Made", (), {"_type_": "i"})
+SimpleMeta.__init__(Made, "Made", (), {"_type_": "i"})
+# Bases are empty, so the class is not a simple-data instance constructor.
+# The metaclass initializer still records the endian copies.
+assert Made.__ctype_le__._type_ == "i"
+
+
+class StructMeta(type(stdlib_ctypes.Structure)):
+    pass
+
+
+class Box(stdlib_ctypes.Structure, metaclass=StructMeta):
+    _fields_ = [("n", stdlib_ctypes.c_int)]
+
+
+assert Box(n=4).n == 4
+assert stdlib_ctypes.POINTER(Box) is Box.__pointer_type__
 
 # The same CPython object comes back as the same proxy.
 array_p = (ctypes.c_char_p * 1)()
@@ -698,6 +900,183 @@ def c_pow(obj, exp, mod):
 
 
 assert c_pow(_Pow(2), 10, 1000).v == 24
+
+
+# Sequence length is visible to the sequence slot, including a negative index.
+# A dunder function is visible on the proxy class; a property stays a value.
+# A dunder the class does not define is absent there.
+
+
+@pyo3.wraps
+def sequence_ops(obj):
+    import ctypes
+
+    py = ctypes.pythonapi
+    py.PySequence_Size.argtypes = (ctypes.py_object,)
+    py.PySequence_Size.restype = ctypes.c_ssize_t
+    py.PySequence_GetItem.argtypes = (ctypes.py_object, ctypes.c_ssize_t)
+    py.PySequence_GetItem.restype = ctypes.py_object
+    py.PyErr_Occurred.argtypes = ()
+    py.PyErr_Occurred.restype = ctypes.c_void_p
+    py.PyErr_Clear.argtypes = ()
+    py.PyErr_Clear.restype = None
+    py.PyErr_Clear()
+    size = py.PySequence_Size(obj)
+    if py.PyErr_Occurred():
+        py.PyErr_Clear()
+        raise RuntimeError(f"PySequence_Size -> {size}")
+    item = py.PySequence_GetItem(obj, -1)
+    if py.PyErr_Occurred():
+        py.PyErr_Clear()
+        raise RuntimeError("PySequence_GetItem failed")
+    return (size, item)
+
+
+@pyo3.wraps
+def sequence_size_failed(obj):
+    import ctypes
+
+    py = ctypes.pythonapi
+    py.PySequence_Size.argtypes = (ctypes.py_object,)
+    py.PySequence_Size.restype = ctypes.c_ssize_t
+    try:
+        py.PySequence_Size(obj)
+    except TypeError:
+        return True
+    return False
+
+
+class SeqBridge:
+    def __len__(self):
+        return 3
+
+    def __getitem__(self, i):
+        if not isinstance(i, int) or not 0 <= i < 3:
+            raise IndexError(i)
+        return i + 1
+
+
+class NotSeqBridge:
+    pass
+
+
+assert sequence_ops(SeqBridge()) == (3, 3)
+assert sequence_size_failed(NotSeqBridge()) is True
+
+
+class Hooked:
+    def __bridge_hook__(self, value):
+        return value + 1
+
+    def plain(self):
+        return "plain"
+
+
+class Unhooked:
+    pass
+
+
+class Valued:
+    @property
+    def __bridge_value__(self):
+        return 7
+
+
+@pyo3.wraps
+def call_on_type(obj, name, arg):
+    return getattr(type(obj), name)(obj, arg)
+
+
+@pyo3.wraps
+def type_has(obj, name):
+    return hasattr(type(obj), name)
+
+
+@pyo3.wraps
+def read_attr(obj, name):
+    return getattr(obj, name)
+
+
+assert call_on_type(Hooked(), "__bridge_hook__", 41) == 42
+assert type_has(Hooked(), "__bridge_hook__") is True
+assert type_has(Unhooked(), "__bridge_hook__") is False
+assert type_has(Hooked(), "plain") is False
+assert type_has(Valued(), "__bridge_value__") is False
+assert read_attr(Valued(), "__bridge_value__") == 7
+assert same_proxy_class(Hooked(), Hooked()) is True
+assert same_proxy_class(Hooked(), Unhooked()) is False
+assert proxy_hasattr(Hooked(), "__add__") is False
+
+
+class HookOff(Hooked):
+    __bridge_hook__ = None
+
+
+class Directed:
+    def __dir__(self):
+        return ["bridge-dir"]
+
+
+class Reducible:
+    def __reduce__(self):
+        return (Reducible, ())
+
+
+@pyo3.wraps
+def type_defines(obj, name):
+    return name in type(obj).__dict__
+
+
+assert type_has(HookOff(), "__bridge_hook__") is False
+assert type_defines(Hooked(), "__bridge_hook__") is True
+assert type_defines(HookOff(), "__bridge_hook__") is False
+assert type_defines(Directed(), "__dir__") is True
+assert read_attr(Directed(), "__dir__")() == ["bridge-dir"]
+assert type_defines(Unhooked(), "__dir__") is False
+assert type_defines(Reducible(), "__reduce__") is True
+assert type_defines(Unhooked(), "__reduce__") is False
+
+
+# Replacing the method after a proxy was built drops the published name.
+class MutableHook:
+    def __bridge_hook__(self, value):
+        return value
+
+
+assert type_has(MutableHook(), "__bridge_hook__") is True
+MutableHook.__bridge_hook__ = None
+assert type_has(MutableHook(), "__bridge_hook__") is False
+
+
+# Embedded warnings are delivered to this interpreter's warnings.
+
+
+import warnings
+
+_embedded_warnings = pyo3.import_module("warnings")
+with warnings.catch_warnings(record=True) as _caught:
+    warnings.simplefilter("always")
+    _embedded_warnings.warn("bridge-warn", RuntimeWarning)
+assert _caught, "embedded warning was not delivered"
+assert issubclass(_caught[0].category, RuntimeWarning)
+assert "bridge-warn" in str(_caught[0].message)
+
+
+def _boom_showwarning(*_args, **_kwargs):
+    raise RuntimeError("shown")
+
+
+_saved_showwarning = warnings.showwarning
+warnings.showwarning = _boom_showwarning
+try:
+    try:
+        _embedded_warnings.warn("bridge-raise", RuntimeWarning)
+    except RuntimeError as _exc:
+        assert "shown" in str(_exc)
+    else:
+        raise AssertionError("showwarning error was swallowed")
+finally:
+    warnings.showwarning = _saved_showwarning
 
 
 # numpy, when available
