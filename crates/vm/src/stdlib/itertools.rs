@@ -302,7 +302,7 @@ mod decl {
                     }
                     PyIterReturn::StopIteration(value) => {
                         drop(value);
-                        let previous = {
+                        let _previous = {
                             let mut iterator = zelf.iter.lock();
                             zelf.index.store(0);
                             iterator.take()
@@ -310,7 +310,6 @@ mod decl {
                         // Publish replay mode before releasing the source. Its
                         // finalizer may advance this cycle, but this call still
                         // starts replay at its own index zero.
-                        drop(previous);
                         true
                     }
                 }
@@ -1959,19 +1958,16 @@ mod decl {
                 return Ok(PyIterReturn::StopIteration(None));
             };
             let next = iterator.next(vm);
-            drop(iterator);
             next
         }
 
         fn clear_iterator(&self) {
             self.terminal.store(true, Ordering::Release);
-            let previous = self.iterator.lock().take();
-            drop(previous);
+            let _previous = self.iterator.lock().take();
         }
 
         fn clear_old(&self) {
-            let previous = self.old.write().take();
-            drop(previous);
+            let _previous = self.old.write().take();
         }
     }
 
@@ -2021,7 +2017,6 @@ mod decl {
                     // the stored previous item and this call's owned copy.
                     zelf.clear_iterator();
                     zelf.clear_old();
-                    drop(old);
                     return result;
                 }
             };
