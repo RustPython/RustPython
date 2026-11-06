@@ -421,7 +421,6 @@ class FunctionTests(unittest.TestCase):
         self.assertRaisesRegex(sqlite.OperationalError, msg,
                                self.con.execute, "select badreturn()")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; deprecation warning not emitted for keyword args
     def test_func_keyword_args(self):
         with self.assertRaisesRegex(TypeError,
                 'takes exactly 3 positional arguments'):
