@@ -245,12 +245,11 @@ where
     // and `encodings`) before any `enter_vm` scope exists, so attach this
     // thread for the duration so type cache reads see it as ATTACHED.
     if whence != InterpreterWhence::Unknown {
-        let vm_guard = thread::VmBootstrapGuard::new(&vm);
+        let _vm_guard = thread::VmBootstrapGuard::new(&vm);
         vm.initialize();
         vm.state
             .ready
             .store(vm.startup_error.is_none(), Ordering::Release);
-        drop(vm_guard);
     }
 
     // Clone global_state for Interpreter after all initialization is done
