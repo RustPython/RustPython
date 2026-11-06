@@ -1288,8 +1288,7 @@ impl Py<PyFunction> {
             .into_option()
             .and_then(|value| value.downcast::<PyTuple>().ok())
             .ok_or_else(|| vm.new_type_error("__type_params__ must be set to a tuple"))?;
-        let old = core::mem::replace(&mut *self.type_params.lock(), type_params);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.type_params.lock(), type_params);
         Ok(())
     }
 
@@ -1484,7 +1483,6 @@ impl Constructor for PyFunction {
         }
 
         // Keep the original arguments alive through audits and globals lookups.
-        drop(args);
         Ok(func)
     }
 }
