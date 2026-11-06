@@ -248,6 +248,7 @@ mod mmap {
 
     #[cfg(unix)]
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "mmap")]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,
@@ -267,6 +268,7 @@ mod mmap {
 
     #[cfg(windows)]
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "mmap")]
     struct MmapNewArgs {
         #[pyarg(any)]
         fileno: i32,

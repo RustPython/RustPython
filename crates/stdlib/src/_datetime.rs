@@ -1744,7 +1744,7 @@ mod _datetime {
                 drop(args);
                 return payload.into_ref_with_type(vm, cls).map(Into::into);
             }
-            let args = args.bind(vm)?;
+            let args = args.bind_for(vm, "date")?;
             Self::py_new(&cls, args, vm)?
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
@@ -3632,7 +3632,7 @@ mod _datetime {
                 drop(args);
                 return payload.into_ref_with_type(vm, cls).map(Into::into);
             }
-            let args = args.bind(vm)?;
+            let args = args.bind_for(vm, "datetime")?;
             Self::py_new(&cls, args, vm)?
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)

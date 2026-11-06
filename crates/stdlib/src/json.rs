@@ -807,6 +807,7 @@ mod _json {
     }
 
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "make_encoder")]
     struct EncoderArgs {
         #[pyarg(any)]
         markers: PyObjectRef,

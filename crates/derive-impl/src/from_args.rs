@@ -159,7 +159,102 @@ impl TryFrom<&Field> for ArgAttribute {
     }
 }
 
-fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
+#[derive(Clone, Copy)]
+enum FieldMode {
+    Clinic,
+    Legacy,
+}
+
+fn try_from_object_expr(attr: &ArgAttribute, pyname: &str) -> TokenStream {
+    if let Some(error_msg) = &attr.error_msg {
+        return quote! {
+            ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)
+                .map_err(|_| vm.new_type_error(#error_msg))
+        };
+    }
+    match attr.kind {
+        ParameterKind::PositionalOnly => quote! {
+            ::rustpython_vm::convert::TryFromObject::try_from_argument(vm, x)
+        },
+        _ => quote! {
+            ::rustpython_vm::convert::TryFromObject::try_from_argument(vm, x)
+                .map_err(|err| err.with_argument_name(#pyname))
+        },
+    }
+}
+
+fn default_ending_tokens(field: &Field, default: DefaultValue) -> Result<TokenStream> {
+    let ty = &field.ty;
+    let literal_obj = match &default {
+        Some(expr) if !keeps_direct_literal(ty) && !is_wrapped_arg_ty(ty) => {
+            literal_object_expr(expr)
+        }
+        _ => None,
+    };
+    if let Some(obj) = literal_obj {
+        Ok(quote! {
+            .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
+            .map(::core::result::Result::Ok)
+            .unwrap_or_else(|| {
+                <#ty as ::rustpython_vm::convert::TryFromObject>::try_from_object(
+                    vm,
+                    ::rustpython_vm::convert::ToPyObject::to_pyobject(#obj, vm),
+                )
+                .map_err(::rustpython_vm::function::ArgumentError::from)
+            })?
+        })
+    } else {
+        let default = match default {
+            Some(expr) => match absolute_const_ident(&expr)? {
+                Some(name) => parse_quote!(::core::convert::Into::into(#name)),
+                None => expr,
+            },
+            None => parse_quote!(::std::default::Default::default()),
+        };
+        Ok(quote! {
+            .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
+            .unwrap_or_else(|| #default)
+        })
+    }
+}
+
+fn missing_ending_tokens(kind: ParameterKind, pyname: &str, i: usize) -> TokenStream {
+    // Flatten returns before this is called. A named-or-positional missing
+    // argument is named back; a positional-only one is only counted.
+    let err = if kind == ParameterKind::PositionalOnly {
+        quote! {
+            ::rustpython_vm::function::ArgumentError::TooFewArgs
+        }
+    } else {
+        let pos = i + 1;
+        quote! {
+            ::rustpython_vm::function::ArgumentError::MissingRequiredArgument {
+                name: #pyname.to_owned(),
+                pos: #pos,
+            }
+        }
+    };
+    quote! {
+        .ok_or_else(|| #err)?
+    }
+}
+
+fn take_option_tokens(kind: ParameterKind, pyname: &str) -> TokenStream {
+    if kind == ParameterKind::PositionalOnly {
+        quote!(args.take_positional())
+    } else if kind == ParameterKind::KeywordOnly {
+        quote!(args.take_keyword(#pyname))
+    } else {
+        quote!(args.take_positional_keyword(#pyname))
+    }
+}
+
+#[cfg(test)]
+fn generate_field(item: (usize, &Field)) -> Result<TokenStream> {
+    generate_field_with(item, FieldMode::Clinic)
+}
+
+fn generate_field_with((i, field): (usize, &Field), mode: FieldMode) -> Result<TokenStream> {
     let attr = ArgAttribute::try_from(field)?;
     let name = field.ident.as_ref();
     let name_string = name.map(|ident| ident.unraw().to_string());
@@ -182,101 +277,36 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
 
     let pyname = attr
         .name
+        .clone()
         .or(name_string)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
+    let convert = try_from_object_expr(&attr, &pyname);
 
-    let convert = match attr.kind {
-        ParameterKind::PositionalOnly => quote! {
-            |x| ::rustpython_vm::convert::TryFromObject::try_from_argument(vm, x)
-        },
-        ParameterKind::PositionalOrKeyword | ParameterKind::KeywordOnly => quote! {
-            |x| ::rustpython_vm::convert::TryFromObject::try_from_argument(vm, x)
-                .map_err(|err| err.with_argument_name(#pyname))
-        },
-        ParameterKind::Flatten => unreachable!(),
-    };
-
-    let middle = if let Some(error_msg) = &attr.error_msg {
-        quote! {
-            .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)
-                .map_err(|_| vm.new_type_error(#error_msg))).transpose()?
-        }
-    } else {
-        quote! {
-            .map(#convert).transpose()?
-        }
-    };
-
-    let ending = if let Some(default) = attr.default {
-        let ty = &field.ty;
-        let literal_obj = match &default {
-            Some(expr) if !keeps_direct_literal(ty) && !is_wrapped_arg_ty(ty) => {
-                literal_object_expr(expr)
-            }
-            _ => None,
-        };
-        if let Some(obj) = literal_obj {
-            quote! {
-                .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
-                .map(::core::result::Result::Ok)
-                .unwrap_or_else(|| {
-                    <#ty as ::rustpython_vm::convert::TryFromObject>::try_from_object(
-                        vm,
-                        ::rustpython_vm::convert::ToPyObject::to_pyobject(#obj, vm),
-                    )
-                    .map_err(::rustpython_vm::function::ArgumentError::from)
-                })?
-            }
-        } else {
-            let default = match default {
-                Some(expr) => match absolute_const_ident(&expr)? {
-                    Some(name) => parse_quote!(::core::convert::Into::into(#name)),
-                    None => expr,
-                },
-                None => parse_quote!(::std::default::Default::default()),
-            };
-            quote! {
-                .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
-                .unwrap_or_else(|| #default)
-            }
-        }
-    } else {
-        // A parameter a call may name is named back when it is missing; one
-        // that can only be passed by position is only ever counted.
-        let err = match attr.kind {
-            ParameterKind::PositionalOnly => quote! {
-                ::rustpython_vm::function::ArgumentError::TooFewArgs
+    if let FieldMode::Legacy = mode
+        && attr.default.is_none()
+    {
+        return Ok(quote! {
+            #field_name: {
+                let x = slots.required(vm)?;
+                #convert?
             },
-            ParameterKind::PositionalOrKeyword | ParameterKind::KeywordOnly => {
-                let pos = i + 1;
-                quote! {
-                    ::rustpython_vm::function::ArgumentError::MissingRequiredArgument {
-                        name: #pyname.to_owned(),
-                        pos: #pos,
-                    }
-                }
-            }
-            ParameterKind::Flatten => unreachable!(),
-        };
-        quote! {
-            .ok_or_else(|| #err)?
-        }
+        });
+    }
+
+    let middle = quote! { .map(|x| #convert).transpose()? };
+    let taken = match mode {
+        FieldMode::Clinic => take_option_tokens(attr.kind, &pyname),
+        FieldMode::Legacy => quote!(slots.optional(vm)?),
+    };
+    let ending = if let Some(default) = attr.default {
+        default_ending_tokens(field, default)?
+    } else {
+        missing_ending_tokens(attr.kind, &pyname, i)
     };
 
-    let file_output = match attr.kind {
-        ParameterKind::PositionalOnly => quote! {
-            #field_name: args.take_positional()#middle #ending,
-        },
-        ParameterKind::PositionalOrKeyword => quote! {
-            #field_name: args.take_positional_keyword(#pyname)#middle #ending,
-        },
-        ParameterKind::KeywordOnly => quote! {
-            #field_name: args.take_keyword(#pyname)#middle #ending,
-        },
-        ParameterKind::Flatten => unreachable!(),
-    };
-
-    Ok(file_output)
+    Ok(quote! {
+        #field_name: #taken #middle #ending,
+    })
 }
 
 fn is_phantom(field: &Field) -> bool {
@@ -581,6 +611,138 @@ fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
     })
 }
 
+struct LegacyFromArgs {
+    fname: String,
+}
+
+fn parse_from_args_attr(attrs: &[Attribute]) -> Result<Option<LegacyFromArgs>> {
+    let mut found = None;
+    for attr in attrs {
+        if !attr.path().is_ident("from_args") {
+            continue;
+        }
+        if found.is_some() {
+            bail_span!(attr, "multiple #[from_args] attributes");
+        }
+        found = Some(attr);
+    }
+    let Some(attr) = found else {
+        return Ok(None);
+    };
+
+    let mut legacy = false;
+    let mut fname = None;
+    attr.parse_nested_meta(|meta| {
+        if meta.path.is_ident("legacy") {
+            if legacy {
+                return Err(meta.error("duplicate `legacy`"));
+            }
+            legacy = true;
+            Ok(())
+        } else if meta.path.is_ident("fname") {
+            if fname.is_some() {
+                return Err(meta.error("duplicate `fname`"));
+            }
+            let val = meta.value()?.parse::<syn::LitStr>()?;
+            fname = Some(val.value());
+            Ok(())
+        } else {
+            Err(meta.error("unknown #[from_args] key; expected `legacy` or `fname = \"...\"`"))
+        }
+    })?;
+
+    match (legacy, fname) {
+        (true, Some(fname)) => Ok(Some(LegacyFromArgs { fname })),
+        (true, None) => Err(err_span!(
+            attr,
+            "#[from_args(legacy)] requires fname = \"...\""
+        )),
+        (false, Some(_)) => Err(err_span!(
+            attr,
+            "#[from_args(fname = \"...\")] requires `legacy`"
+        )),
+        (false, None) => Err(err_span!(
+            attr,
+            "#[from_args] requires `legacy` and fname = \"...\""
+        )),
+    }
+}
+
+fn field_pyname(field: &Field, attr: &ArgAttribute) -> Result<String> {
+    let name = field.ident.as_ref().map(|ident| ident.unraw().to_string());
+    attr.name
+        .clone()
+        .or(name)
+        .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))
+}
+
+fn validate_legacy_fields<'a>(fields: impl IntoIterator<Item = &'a Field>) -> Result<()> {
+    let mut seen_optional = false;
+    let mut seen_keyword_only = false;
+    for field in fields {
+        if is_phantom(field) {
+            continue;
+        }
+        let attr = ArgAttribute::try_from(field)?;
+        match attr.kind {
+            ParameterKind::PositionalOnly => {
+                bail_span!(
+                    field,
+                    "#[from_args(legacy)] does not support positional-only fields"
+                );
+            }
+            ParameterKind::Flatten => {
+                bail_span!(
+                    field,
+                    "#[from_args(legacy)] does not support flatten fields"
+                );
+            }
+            ParameterKind::KeywordOnly => {
+                seen_keyword_only = true;
+            }
+            ParameterKind::PositionalOrKeyword => {
+                if seen_keyword_only {
+                    bail_span!(
+                        field,
+                        "#[from_args(legacy)] does not allow a non-keyword-only field after a keyword-only field"
+                    );
+                }
+            }
+        }
+        if attr.default.is_some() {
+            seen_optional = true;
+        } else if seen_optional {
+            bail_span!(
+                field,
+                "#[from_args(legacy)] does not allow a required field after an optional one"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn legacy_spec_parts<'a>(
+    fields: impl IntoIterator<Item = &'a Field>,
+) -> Result<(Vec<String>, usize, usize)> {
+    let mut keywords = Vec::new();
+    let mut required = 0;
+    let mut max_positional = 0;
+    for field in fields {
+        if is_phantom(field) {
+            continue;
+        }
+        let attr = ArgAttribute::try_from(field)?;
+        keywords.push(field_pyname(field, &attr)?);
+        if attr.default.is_none() {
+            required += 1;
+        }
+        if attr.kind != ParameterKind::KeywordOnly {
+            max_positional += 1;
+        }
+    }
+    Ok((keywords, required, max_positional))
+}
+
 fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     let positional_fields = field_attrs.iter().filter(|attr| {
         matches!(
@@ -607,10 +769,20 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         bail_span!(input, "FromArgs input must be a struct")
     };
 
+    let legacy = parse_from_args_attr(&input.attrs)?;
+    if legacy.is_some() {
+        validate_legacy_fields(&struct_fields)?;
+    }
+
+    let mode = if legacy.is_some() {
+        FieldMode::Legacy
+    } else {
+        FieldMode::Clinic
+    };
     let fields = struct_fields
         .iter()
         .enumerate()
-        .map(generate_field)
+        .map(|item| generate_field_with(item, mode))
         .collect::<Result<TokenStream>>()?;
     let field_attrs = struct_fields
         .iter()
@@ -642,10 +814,53 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
 
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let output = quote! {
+    let check_before_convert = if legacy.is_some() {
+        quote! {
+            fn check_before_convert(
+                _: &::rustpython_vm::function::FuncArgs,
+                _: &::std::ops::RangeInclusive<usize>,
+                _: usize,
+                _: usize,
+                _: ::rustpython_vm::function::Callee,
+                _: &::rustpython_vm::VirtualMachine,
+            ) -> ::core::option::Option<::rustpython_vm::builtins::PyBaseExceptionRef> {
+                None
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let from_args_body = if let Some(LegacyFromArgs { fname }) = legacy {
+        let (keywords, required, max_positional) = legacy_spec_parts(&struct_fields)?;
+        quote! {
+            const SPEC: ::rustpython_vm::function::ArgSpec<'static> =
+                ::rustpython_vm::function::ArgSpec {
+                    fname: #fname,
+                    keywords: &[#(#keywords),*],
+                    required: #required,
+                    max_positional: #max_positional,
+                };
+            let bound = SPEC.bind(args, vm, |slots| -> ::core::result::Result<
+                Self,
+                ::rustpython_vm::function::ArgumentError,
+            > { Ok(Self { #fields }) })?;
+            *args = ::core::default::Default::default();
+            Ok(bound)
+        }
+    } else {
+        quote! {
+            Ok(Self { #fields })
+        }
+    };
+    Ok(quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
+
+            const HAS_REQUIRED_KEYWORD_ONLY: bool =
+                ::rustpython_vm::function::params_have_required_keyword_only(Self::PARAMS) #(
+                    || <#flattened as ::rustpython_vm::function::FromArgs>::HAS_REQUIRED_KEYWORD_ONLY
+                )*;
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 let min = #min_arity;
@@ -658,15 +873,16 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 min..=max
             }
 
+            #check_before_convert
+
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::FuncArgs
             ) -> ::core::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
-                Ok(Self { #fields })
+                #from_args_body
             }
         }
-    };
-    Ok(output)
+    })
 }
 
 #[cfg(test)]
@@ -736,5 +952,155 @@ mod tests {
         let tokens = generate_field((0, &field)).unwrap().to_string();
         assert!(tokens.contains("< PyStrRef as :: rustpython_vm :: convert :: TryFromObject >"));
         assert!(!tokens.contains("vm . ctx . none"));
+    }
+
+    fn tokens_of(input: DeriveInput) -> String {
+        match impl_from_args(input) {
+            Ok(tokens) => tokens.to_string(),
+            Err(err) => panic!("{err}"),
+        }
+    }
+
+    fn error_of(input: DeriveInput) -> String {
+        match impl_from_args(input) {
+            Ok(_) => panic!("expected a compile error"),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    #[test]
+    fn without_from_args_attribute_does_not_use_arg_spec() {
+        let input: DeriveInput = parse_quote! {
+            struct ExampleArgs {
+                #[pyarg(any)]
+                first: i32,
+            }
+        };
+        let tokens = tokens_of(input);
+        assert!(!tokens.contains("ArgSpec"));
+        assert!(!tokens.contains("check_before_convert"));
+        assert!(tokens.contains("take_positional_keyword"));
+    }
+
+    #[test]
+    fn legacy_from_args_binds_with_arg_spec() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy, fname = "example")]
+            struct ExampleArgs {
+                #[pyarg(any)]
+                first: i32,
+                #[pyarg(any, default)]
+                second: i32,
+                #[pyarg(named, default)]
+                third: i32,
+            }
+        };
+        let tokens = tokens_of(input);
+        assert!(tokens.contains("ArgSpec"));
+        assert!(tokens.contains("example"));
+        assert!(tokens.contains("check_before_convert"));
+        assert!(tokens.contains("slots . required"));
+        assert!(tokens.contains("optional"));
+        assert!(tokens.contains("first"));
+        assert!(tokens.contains("second"));
+        assert!(tokens.contains("third"));
+    }
+
+    #[test]
+    fn legacy_without_fname_is_an_error() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy)]
+            struct ExampleArgs {
+                #[pyarg(any)]
+                first: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(err.contains("fname"), "{err}");
+    }
+
+    #[test]
+    fn fname_without_legacy_is_an_error() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(fname = "example")]
+            struct ExampleArgs {
+                #[pyarg(any)]
+                first: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(err.contains("legacy"), "{err}");
+    }
+
+    #[test]
+    fn unknown_from_args_key_is_an_error() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy, fname = "example", extra)]
+            struct ExampleArgs {
+                #[pyarg(any)]
+                first: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(err.contains("unknown"), "{err}");
+    }
+
+    #[test]
+    fn legacy_rejects_positional_fields() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy, fname = "example")]
+            struct ExampleArgs {
+                #[pyarg(positional)]
+                first: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(err.contains("positional-only"), "{err}");
+    }
+
+    #[test]
+    fn legacy_rejects_flatten_fields() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy, fname = "example")]
+            struct ExampleArgs {
+                #[pyarg(flatten)]
+                first: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(err.contains("flatten"), "{err}");
+    }
+
+    #[test]
+    fn legacy_rejects_required_after_optional() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy, fname = "example")]
+            struct ExampleArgs {
+                #[pyarg(any, default)]
+                first: i32,
+                #[pyarg(any)]
+                second: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(err.contains("required field after an optional"), "{err}");
+    }
+
+    #[test]
+    fn legacy_rejects_non_keyword_only_after_named() {
+        let input: DeriveInput = parse_quote! {
+            #[from_args(legacy, fname = "example")]
+            struct ExampleArgs {
+                #[pyarg(named, default)]
+                first: i32,
+                #[pyarg(any, default)]
+                second: i32,
+            }
+        };
+        let err = error_of(input);
+        assert!(
+            err.contains("non-keyword-only field after a keyword-only"),
+            "{err}"
+        );
     }
 }
