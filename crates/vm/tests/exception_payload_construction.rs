@@ -85,7 +85,7 @@ mod native_subclass {
     #[derive(Debug)]
     struct NativeError {
         base: PyException,
-        marker: u64,
+        marker: usize,
     }
 
     // SAFETY: repr(C) keeps the valid base as the first field for Self's entire
@@ -108,7 +108,7 @@ mod native_subclass {
     #[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor))]
     impl NativeError {
         #[pymethod]
-        fn marker(zelf: &Py<Self>) -> u64 {
+        fn marker(zelf: &Py<Self>) -> usize {
             zelf.marker
         }
     }
