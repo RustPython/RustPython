@@ -12,7 +12,7 @@ mod _sre {
         common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
-        function::{ArgCallable, DefaultRepr, OptionalArg, PosArgs, PyComparisonValue},
+        function::{ArgCallable, DefaultRepr, PosArgs, PyComparisonValue},
         protocol::{BufferFlags, PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable, Representable},
@@ -338,8 +338,8 @@ mod _sre {
     #[derive(FromArgs)]
     struct DefaultArg {
         // Missing default is None.
-        #[pyarg(any, optional, py_default = "None")]
-        default: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        default: Option<PyObjectRef>,
     }
 
     /// A position in the searched string, taken as a Py_ssize_t; a negative
@@ -376,7 +376,7 @@ mod _sre {
         repl: PyObjectRef,
         string: PyObjectRef,
         #[pyarg(any, default)]
-        count: usize,
+        count: isize,
     }
 
     #[derive(FromArgs)]
@@ -424,13 +424,6 @@ mod _sre {
             string.downcast_ref::<PyStr>().ok_or_else(|| {
                 vm.new_type_error(format!("expected string got '{}'", string.class()))
             })
-        }
-
-        fn with_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
-        where
-            F: FnOnce(&Wtf8) -> PyResult<R>,
-        {
-            f(Self::downcast_str(string, vm)?.as_wtf8())
         }
 
         /// Whether a `str` subject can take the [`AsciiStr`] drive.
@@ -487,64 +480,124 @@ mod _sre {
             let filter = if let Some(callable) = repl.to_callable() {
                 FilterType::Callable(callable)
             } else {
-                let is_template = if zelf.isbytes {
-                    Self::with_bytes(&repl, vm, |x| Ok(x.contains(&b'\\')))?
+                // Literal detection is independent of the pattern's type. A
+                // mismatched literal only fails when a match actually uses it.
+                // Other objects must go through re's template compiler, which
+                // also supplies the replacement conversion errors.
+                let literal = if let Some(repl) = repl.downcast_ref::<PyStr>() {
+                    !repl.as_wtf8().contains("\\".as_ref())
                 } else {
-                    Self::with_str(&repl, vm, |x| Ok(x.contains("\\".as_ref())))?
+                    Self::with_bytes(&repl, vm, |x| Ok(!x.contains(&b'\\'))).unwrap_or(false)
                 };
-
-                if is_template {
-                    FilterType::Template(Template::compile(zelf.to_owned(), repl, vm)?)
-                } else {
+                if literal {
                     FilterType::Literal(repl)
+                } else {
+                    let template = Template::compile(zelf.to_owned(), repl, vm)?;
+                    if template.items.is_empty() {
+                        FilterType::Literal(template.literal.clone())
+                    } else {
+                        FilterType::Template(template)
+                    }
                 }
             };
 
-            with_sre_str!(zelf, &string, vm, |s| {
-                let req = s.create_request(zelf, 0, usize::MAX);
-                let state = State::default();
-                let mut sub_list: Vec<PyObjectRef> = Vec::new();
-                let mut iter = SearchIter { req, state };
-                let mut n = 0;
-                let mut last_pos = 0;
+            // Keep the export until searching finishes, but never hold a byte
+            // borrow while invoking a replacement. Callbacks may mutate bytes
+            // in place or inspect their match; resizing must remain forbidden.
+            let buffer = if zelf.isbytes {
+                Some(PyBuffer::from_object(vm, &string, BufferFlags::SIMPLE)?)
+            } else {
+                Self::downcast_str(&string, vm)?;
+                None
+            };
+            let mut sub_list: Vec<PyObjectRef> = Vec::new();
+            let mut n = 0;
+            let mut last_pos = 0;
+            let mut must_advance = false;
+            let mut state = State::default();
 
-                while (count == 0 || n < count) && iter.next().is_some() {
-                    if last_pos < iter.state.start {
-                        /* get segment before this match */
-                        sub_list.push(s.slice(last_pos, iter.state.start, vm));
-                    }
-
-                    match &filter {
-                        FilterType::Literal(literal) => sub_list.push(literal.clone()),
-                        FilterType::Callable(callable) => {
-                            let m = Match::new(&mut iter.state, zelf.to_owned(), string.clone())
-                                .into_ref(&vm.ctx);
-                            sub_list.push(callable.invoke((m,), vm)?);
+            while count == 0 || n < count {
+                let matched = with_sre_str!(
+                    zelf,
+                    &string,
+                    vm,
+                    |s| {
+                        let mut req = s.create_request(zelf, last_pos, usize::MAX);
+                        req.must_advance = must_advance;
+                        // Reuse mark storage, replacing the cursor with one
+                        // from this borrow before the engine can read it.
+                        state.reset(&req, last_pos);
+                        if !state.search(req) {
+                            return Ok(None);
                         }
-                        FilterType::Template(template) => {
-                            let m = Match::new(&mut iter.state, zelf.to_owned(), string.clone());
-                            m.expand_template(template, s, &mut sub_list, vm);
+
+                        if last_pos < state.start {
+                            sub_list.push(s.slice(last_pos, state.start, vm));
                         }
-                    };
-
-                    last_pos = iter.state.cursor.position;
-                    n += 1;
-                }
-
-                /* get segment following last match */
-                sub_list.push(s.slice(last_pos, iter.req.end, vm));
-
-                let list = PyList::from(sub_list).into_pyobject(vm);
-
-                let join_type: PyObjectRef = if zelf.isbytes {
-                    vm.ctx.new_bytes(vec![]).into()
-                } else {
-                    vm.ctx.new_str(ascii!("")).into()
+                        last_pos = state.cursor.position;
+                        must_advance = last_pos == state.start;
+                        let callback = match &filter {
+                            FilterType::Literal(literal) => {
+                                sub_list.push(literal.clone());
+                                None
+                            }
+                            FilterType::Template(template) => {
+                                let matched =
+                                    Match::new(&mut state, zelf.to_owned(), string.clone());
+                                matched.expand_template(template, s, &mut sub_list, vm);
+                                None
+                            }
+                            FilterType::Callable(callable) => {
+                                let mut matched =
+                                    Match::new(&mut state, zelf.to_owned(), string.clone());
+                                matched.pos = 0;
+                                matched.endpos = s.count();
+                                Some((matched, callable))
+                            }
+                        };
+                        Ok(Some(callback))
+                    },
+                    buffer.as_ref()
+                )?;
+                let Some(matched) = matched else {
+                    break;
                 };
-                let ret = vm.call_method(&join_type, "join", (list,))?;
 
-                Ok(if subn { (ret, n).to_pyobject(vm) } else { ret })
-            })
+                if let Some((matched, callable)) = matched {
+                    // Only offsets and the original subject escape the search
+                    // borrow. Reacquiring it next time observes in-place edits.
+                    let replacement = callable.invoke((matched.into_ref(&vm.ctx),), vm)?;
+                    if !vm.is_none(&replacement) {
+                        sub_list.push(replacement);
+                    }
+                }
+                n += 1;
+            }
+
+            with_sre_str!(
+                zelf,
+                &string,
+                vm,
+                |s| {
+                    if last_pos < s.count() {
+                        sub_list.push(s.slice(last_pos, s.count(), vm));
+                    }
+                    Ok(())
+                },
+                buffer.as_ref()
+            )?;
+            // Joining can itself access buffer-valued replacements. Release
+            // the subject export and replacement filter before that step.
+            drop(buffer);
+            drop(filter);
+            let list = PyList::from(sub_list).into_pyobject(vm);
+            let join_type: PyObjectRef = if zelf.isbytes {
+                vm.ctx.new_bytes(vec![]).into()
+            } else {
+                vm.ctx.new_str(ascii!("")).into()
+            };
+            let ret = vm.call_method(&join_type, "join", (list,))?;
+            Ok(if subn { (ret, n).to_pyobject(vm) } else { ret })
         }
     }
 
@@ -648,7 +701,7 @@ mod _sre {
                     } else {
                         m.groups(
                             DefaultArg {
-                                default: OptionalArg::Present(empty.clone()),
+                                default: Some(empty.clone()),
                             },
                             vm,
                         )?

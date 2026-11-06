@@ -4,10 +4,11 @@ pub(crate) use _operator::module_def;
 mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
-        class::PyClassDef,
+        builtins::{PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, Param},
+        function::{
+            ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, OptionalArg, Param, PosArgs,
+        },
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -181,7 +182,7 @@ mod _operator {
         let mut count: usize = 0;
         for element in a.iter::<PyObjectRef>(vm)? {
             let element = element?;
-            if element.is(&b) || vm.bool_eq(&b, &element)? {
+            if element.is(&b) || vm.bool_eq(&element, &b)? {
                 count += 1;
             }
         }
@@ -202,7 +203,7 @@ mod _operator {
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in a.iter::<PyObjectRef>(vm)?.enumerate() {
             let element = element?;
-            if element.is(&b) || vm.bool_eq(&b, &element)? {
+            if element.is(&b) || vm.bool_eq(&element, &b)? {
                 return Ok(index);
             }
         }
@@ -345,25 +346,47 @@ mod _operator {
     #[pyclass(name = "attrgetter", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyAttrGetter {
-        attrs: Vec<PyStrRef>,
+        attrs: Vec<Vec<PyStrRef>>,
     }
 
     impl PyAttrGetter {
+        // Split at construction, as CPython does. Dotted str subclasses become
+        // exact strings; names without a dot keep the original string object.
+        fn prepare_attr(attr: PyStrRef, vm: &VirtualMachine) -> Vec<PyStrRef> {
+            if !attr.as_bytes().contains(&b'.') {
+                return vec![attr];
+            }
+            attr.as_bytes()
+                .split(|&b| b == b'.')
+                .map(|part| {
+                    let part = Wtf8::from_bytes(part).expect("originally valid WTF-8");
+                    vm.ctx.new_str(part)
+                })
+                .collect()
+        }
+
+        fn attr_name(parts: &[PyStrRef], vm: &VirtualMachine) -> PyStrRef {
+            if parts.len() == 1 {
+                return parts[0].clone();
+            }
+            let mut name = Wtf8Buf::new();
+            for (index, part) in parts.iter().enumerate() {
+                if index != 0 {
+                    name.push_char('.');
+                }
+                name.push_wtf8(part.as_wtf8());
+            }
+            vm.ctx.new_str(name)
+        }
+
         // Go through dotted parts of string and call getattr on whatever is returned.
         fn get_single_attr(
-            obj: PyObjectRef,
-            attr: &Py<PyStr>,
+            mut obj: PyObjectRef,
+            parts: &[PyStrRef],
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let attr_str = attr.as_bytes();
-            let parts = attr_str.split(|&b| b == b'.').collect::<Vec<_>>();
-            if parts.len() == 1 {
-                return obj.get_attr(attr, vm);
-            }
-            let mut obj = obj;
             for part in parts {
-                let part = Wtf8::from_bytes(part).expect("originally valid WTF-8");
-                obj = obj.get_attr(&vm.ctx.new_str(part), vm)?;
+                obj = obj.get_attr(part, vm)?;
             }
             Ok(obj)
         }
@@ -378,14 +401,35 @@ mod _operator {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyAttrGetter>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-            let attrs = vm
-                .ctx
-                .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
+            let attrs = vm.ctx.new_tuple(
+                zelf.attrs
+                    .iter()
+                    .map(|parts| PyAttrGetter::attr_name(parts, vm).into())
+                    .collect(),
+            );
             (zelf.class().to_owned(), attrs)
         }
     }
 
-    struct AttrGetterArgs(FuncArgs);
+    // These constructors reject keywords before checking arity or converting
+    // values. Keep that ordering while sharing the positional binder.
+    fn getter_args(
+        args: &mut FuncArgs,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> Result<Vec<PyObjectRef>, ArgumentError> {
+        if !args.kwargs.is_empty() {
+            return Err(vm
+                .new_type_error(format!("{name}() takes no keyword arguments"))
+                .into());
+        }
+        if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(name, 1..=1, 0).into());
+        }
+        Ok(PosArgs::<PyObjectRef>::from_args(vm, args)?.into_vec())
+    }
+
+    struct AttrGetterArgs(Vec<PyObjectRef>);
 
     impl FromArgs for AttrGetterArgs {
         const PARAMS: Option<&'static [Param]> = Some(&[
@@ -393,8 +437,8 @@ mod _operator {
             Param::var_positional("attrs"),
         ]);
 
-        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            Ok(Self(core::mem::take(args)))
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            getter_args(args, "attrgetter", vm).map(Self)
         }
     }
 
@@ -402,22 +446,12 @@ mod _operator {
         type Args = AttrGetterArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let args = args.0;
-            let n_attr = args.args.len();
-            // Check we get no keyword and at least one positional.
-            if !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("attrgetter() takes no keyword arguments"));
-            }
-            if n_attr == 0 {
-                return Err(vm.new_arity_type_error(Self::NAME, 1..=1, 0));
-            }
-            let mut attrs = Vec::with_capacity(n_attr);
-            for o in args.args {
-                if let Ok(r) = o.try_into_value(vm) {
-                    attrs.push(r);
-                } else {
-                    return Err(vm.new_type_error("attribute name must be a string"));
-                }
+            let mut attrs = Vec::with_capacity(args.0.len());
+            for obj in args.0 {
+                let attr = obj
+                    .downcast::<PyStr>()
+                    .map_err(|_| vm.new_type_error("attribute name must be a string"))?;
+                attrs.push(Self::prepare_attr(attr, vm));
             }
             Ok(Self { attrs })
         }
@@ -450,7 +484,7 @@ mod _operator {
                         result.push_str(", ");
                     }
                     first = false;
-                    result.push_wtf8(part.as_object().repr(vm)?.as_wtf8());
+                    result.push_wtf8(Self::attr_name(part, vm).as_object().repr(vm)?.as_wtf8());
                 }
             } else {
                 result.push_str("...");
@@ -480,7 +514,7 @@ mod _operator {
             vm.new_pyobj((zelf.class().to_owned(), items))
         }
     }
-    struct ItemGetterArgs(FuncArgs);
+    struct ItemGetterArgs(Vec<PyObjectRef>);
 
     impl FromArgs for ItemGetterArgs {
         const PARAMS: Option<&'static [Param]> = Some(&[
@@ -488,24 +522,16 @@ mod _operator {
             Param::var_positional("items"),
         ]);
 
-        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            Ok(Self(core::mem::take(args)))
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            getter_args(args, "itemgetter", vm).map(Self)
         }
     }
 
     impl Constructor for PyItemGetter {
         type Args = ItemGetterArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let args = args.0;
-            // Check we get no keyword and at least one positional.
-            if !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
-            }
-            if args.args.is_empty() {
-                return Err(vm.new_arity_type_error(Self::NAME, 1..=1, 0));
-            }
-            Ok(Self { items: args.args })
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self { items: args.0 })
         }
     }
 
@@ -550,7 +576,7 @@ mod _operator {
     #[pyclass(name = "methodcaller", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyMethodCaller {
-        name: PyUtf8StrRef,
+        name: PyStrRef,
         args: FuncArgs,
     }
 
@@ -582,7 +608,10 @@ mod _operator {
         }
     }
 
-    struct MethodCallerArgs(FuncArgs);
+    struct MethodCallerArgs {
+        name: PyStrRef,
+        args: FuncArgs,
+    }
 
     impl FromArgs for MethodCallerArgs {
         const PARAMS: Option<&'static [Param]> = Some(&[
@@ -591,23 +620,29 @@ mod _operator {
             Param::var_keyword("kwargs"),
         ]);
 
-        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            Ok(Self(core::mem::take(args)))
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            let name = OptionalArg::<PyObjectRef>::from_args(vm, args)?
+                .into_option()
+                .ok_or_else(|| {
+                    vm.new_type_error("methodcaller needs at least one argument, the method name")
+                })?
+                .downcast::<PyStr>()
+                .map_err(|_| vm.new_type_error("method name must be a string"))?;
+            Ok(Self {
+                name,
+                args: FuncArgs::from_args(vm, args)?,
+            })
         }
     }
 
     impl Constructor for PyMethodCaller {
         type Args = MethodCallerArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let mut args = args.0;
-            let name = args.take_positional().ok_or_else(|| {
-                vm.new_type_error("methodcaller needs at least one argument, the method name")
-            })?;
-            let name = name
-                .try_into_value(vm)
-                .map_err(|_| vm.new_type_error("method name must be a string"))?;
-            Ok(Self { name, args })
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                name: args.name,
+                args: args.args,
+            })
         }
     }
 
@@ -616,7 +651,7 @@ mod _operator {
 
         #[inline]
         fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
+            obj.get_attr(&zelf.name, vm)?.call(zelf.args.clone(), vm)
         }
     }
 

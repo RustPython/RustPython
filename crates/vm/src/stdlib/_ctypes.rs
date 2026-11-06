@@ -433,10 +433,10 @@ pub(crate) mod _ctypes {
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[pyfunction]
-    fn dllist(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    fn dllist(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         rustpython_host_env::ctypes::dllist()
             .into_iter()
-            .map(|name| vm.fsdecode(name).into())
+            .map(|name| vm.fsdecode(name).map(Into::into))
             .collect()
     }
 
@@ -608,13 +608,16 @@ pub(crate) mod _ctypes {
 
     #[cfg(target_os = "windows")]
     #[pyfunction(name = "_check_HRESULT")]
-    fn check_hresult(_self: PyObjectRef, hr: i32, _vm: &VirtualMachine) -> i32 {
-        // TODO: fixme
+    fn check_hresult(hr: i32, vm: &VirtualMachine) -> PyResult<i32> {
         if hr < 0 {
-            // vm.ctx.new_windows_error(hr)
-            todo!();
+            let errno = crate::host_env::os::winerror_to_errno(hr);
+            let message = crate::host_env::uuid::format_error_message(hr);
+            let error = crate::exceptions::OSErrorBuilder::with_errno(errno, message, vm)
+                .winerror(hr.to_pyobject(vm))
+                .build(vm);
+            return Err(error.upcast());
         }
-        hr
+        Ok(hr)
     }
 
     #[pyfunction]

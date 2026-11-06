@@ -92,7 +92,10 @@ impl Py<PyTraceback> {
                 }
             }
         }
-        *zelf.next.lock() = value;
+        // Dropping the old chain can finalize a frame whose locals reenter
+        // this traceback. Publish the replacement before releasing the lock.
+        let old = core::mem::replace(&mut *zelf.next.lock(), value);
+        drop(old);
         Ok(())
     }
 }
@@ -128,7 +131,7 @@ impl serde::Serialize for PyTraceback {
         struc.serialize_field("lineno", &self.lineno.get())?;
         struc.serialize_field(
             "filename",
-            self.frame.iframe().code().source_path().as_str(),
+            &self.frame.iframe().code().source_path().to_string_lossy(),
         )?;
         struc.end()
     }

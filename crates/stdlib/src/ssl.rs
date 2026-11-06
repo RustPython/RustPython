@@ -64,8 +64,8 @@ mod _ssl {
             },
             convert::IntoPyException,
             function::{
-                ArgBytesLike, ArgMemoryBuffer, Either, FsPath, FuncArgs, OptionalArg,
-                PyComparisonValue, PySetterValue,
+                ArgBytesLike, ArgIntoBool, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike,
+                Either, FsPath, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue,
             },
             stdlib::_warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -420,7 +420,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct WrapSocketArgs {
         sock: PyObjectRef,
-        server_side: bool,
+        server_side: ArgIntoBool,
         #[pyarg(any, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
@@ -433,7 +433,7 @@ mod _ssl {
     struct WrapBioArgs {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
-        server_side: bool,
+        server_side: ArgIntoBool,
         #[pyarg(any, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
@@ -464,14 +464,14 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, default)]
-        der: bool,
+        #[pyarg(positional, default = ArgIntoBool::FALSE)]
+        der: ArgIntoBool,
     }
 
     #[derive(FromArgs)]
     struct GetCaCertsArgs {
-        #[pyarg(any, default)]
-        binary_form: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        binary_form: ArgIntoBool,
     }
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
@@ -576,7 +576,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_check_hostname(zelf: &Py<Self>, value: bool) {
+        fn set_check_hostname(zelf: &Py<Self>, value: ArgIntoBool) {
+            let value = value.into_bool();
             *zelf.check_hostname.write() = value;
             // When check_hostname is enabled, ensure verify_mode is at least CERT_REQUIRED
             if value {
@@ -642,7 +643,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_post_handshake_auth(zelf: &Py<Self>, value: bool) {
+        fn set_post_handshake_auth(zelf: &Py<Self>, value: ArgIntoBool) {
+            let value = value.into_bool();
             *zelf.post_handshake_auth.write() = value;
             zelf.invalidate_policy();
         }
@@ -1596,7 +1598,7 @@ mod _ssl {
             args: GetCaCertsArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyListRef> {
-            let binary_form = args.binary_form;
+            let binary_form = args.binary_form.into_bool();
             let ca_certs_der = zelf.ca_certs_der.read();
 
             let mut certs = Vec::new();
@@ -1726,6 +1728,7 @@ mod _ssl {
             args: WrapSocketArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<PySSLSocket>> {
+            let server_side = args.server_side.into_bool();
             let socket_mod = vm.import("socket", 0)?;
             let socket_class = socket_mod.get_attr("socket", vm)?;
 
@@ -1741,7 +1744,7 @@ mod _ssl {
             };
 
             // Validate socket type and context protocol
-            if args.server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
+            if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -1750,7 +1753,7 @@ mod _ssl {
                     )
                     .upcast());
             }
-            if !args.server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
+            if !server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -1770,10 +1773,10 @@ mod _ssl {
                 record_cursor: PyMutex::new(RecordCursor::default()),
                 key_log: Arc::new(super::keylog::ConnectionKeyLog::new(zelf.key_log.clone())),
                 context: PyRwLock::new(zelf),
-                server_side: args.server_side,
+                server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                state: PyMutex::new(TlsState::new(args.server_side)),
+                state: PyMutex::new(TlsState::new(server_side)),
                 got_eof_error: AtomicBool::new(false),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
@@ -1819,7 +1822,7 @@ mod _ssl {
                 None => None,
             };
 
-            let server_side = args.server_side;
+            let server_side = args.server_side.into_bool();
 
             // Validate socket type and context protocol
             if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
@@ -3604,7 +3607,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = args.der;
+            let binary = args.der.into_bool();
 
             // Check if handshake is complete
             if !zelf.handshake_completed() {
@@ -4485,9 +4488,8 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn RAND_add(_string: PyObjectRef, _entropy: f64) {
+    fn RAND_add(_string: ArgStrOrBytesLike, _entropy: ArgIntoFloat) {
         // No-op: the configured rustls provider handles its own entropy.
-        // Accept any type (str, bytes, bytearray)
     }
 
     #[pyfunction]

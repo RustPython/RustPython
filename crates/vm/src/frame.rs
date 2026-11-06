@@ -4658,6 +4658,8 @@ impl ExecutingFrame<'_> {
             Instruction::CheckEgMatch => {
                 let match_type = self.pop_value();
                 let exc_value = self.pop_value();
+                let naked = !vm.is_none(&exc_value)
+                    && !exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group);
                 let (rest, matched) =
                     crate::exceptions::exception_group_match(&exc_value, &match_type, vm)?;
 
@@ -4666,6 +4668,21 @@ impl ExecutingFrame<'_> {
                 if !vm.is_none(&matched)
                     && let Some(exc) = matched.downcast_ref::<PyBaseException>()
                 {
+                    if naked {
+                        // CPython gives a newly wrapped exception its own
+                        // traceback at the except* handler, not the child's
+                        // original traceback.
+                        let idx = self.lasti().saturating_sub(1) as usize;
+                        if let Some((loc, _)) = self.code.locations.get(idx) {
+                            let tb = PyTraceback::new(
+                                None,
+                                self.frame_object(vm),
+                                idx as i32 * 2,
+                                loc.line,
+                            );
+                            exc.set_traceback(Some(tb.into_ref(&vm.ctx)));
+                        }
+                    }
                     vm.set_exception(Some(exc.to_owned()));
                 }
 
@@ -4863,8 +4880,8 @@ impl ExecutingFrame<'_> {
                         // Only missing keys make this a non-mapping. Preserve callback
                         // errors, chaining a failed recheck as _PyEval_FormatKwargsError does.
                         match vm.get_attribute_opt(&source, identifier!(vm, keys)) {
-                            Ok(None) => Err(vm.new_type_error(format!(
-                                "Value after ** must be a mapping, not {}",
+                            Ok(None) => Err(vm.new_type_error(wtf8_concat!(
+                                "Value after ** must be a mapping, not ",
                                 source.class().fully_qualified_name(vm)?
                             ))),
                             Ok(Some(_)) => Err(error),

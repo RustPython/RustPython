@@ -7,12 +7,9 @@ use crate::{
     atomic_func,
     class::{PyClassDef, PyClassImpl},
     common::lock::LazyLock,
-    function::{FuncArgs, PyComparisonValue},
+    function::FuncArgs,
     protocol::{PyIterReturn, PySequenceMethods},
-    types::{
-        AsSequence, Comparable, Constructor, IterNext, Iterable, PyComparisonOp, Representable,
-        SelfIter,
-    },
+    types::{AsSequence, Constructor, IterNext, Iterable, Representable, SelfIter},
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
@@ -76,9 +73,9 @@ impl Constructor for PyTemplate {
                 interpolations.push(item.clone());
                 last_was_str = false;
             } else {
-                return Err(vm.new_type_error(format!(
-                    "Template.__new__ *args need to be of type 'str' or 'Interpolation', got {}",
-                    item.class().name()
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "Template.__new__ *args need to be of type 'str' or 'Interpolation', got ",
+                    item.class().fully_qualified_name(vm)?,
                 )));
             }
         }
@@ -97,13 +94,16 @@ impl Constructor for PyTemplate {
 
 impl PyTemplate {
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let other = other.downcast_ref::<Self>().ok_or_else(|| {
-            vm.new_type_error(format!(
-                r#"can only concatenate {name} (not "{}") to {name}"#,
-                other.class().slot_name(),
-                name = Self::TP_NAME,
-            ))
-        })?;
+        let Some(other) = other.downcast_ref::<Self>() else {
+            return Err(vm.new_type_error(wtf8_concat!(
+                "can only concatenate ",
+                Self::TP_NAME,
+                " (not \"",
+                other.class().fully_qualified_name(vm)?,
+                "\") to ",
+                Self::TP_NAME,
+            )));
+        };
 
         // Concatenate the two templates
         let mut new_strings: Vec<PyObjectRef> = Vec::new();
@@ -163,7 +163,7 @@ impl PyTemplate {
     }
 }
 
-#[pyclass(with(Constructor, Comparable, Iterable, Representable, AsSequence))]
+#[pyclass(with(Constructor, Iterable, Representable, AsSequence))]
 impl Py<PyTemplate> {
     #[pygetset]
     fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
@@ -217,27 +217,6 @@ impl AsSequence for PyTemplate {
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
-    }
-}
-
-impl Comparable for PyTemplate {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| {
-            let other = class_or_notimplemented!(Self, other);
-
-            let eq = vm.bool_eq(zelf.strings.as_object(), other.strings.as_object())?
-                && vm.bool_eq(
-                    zelf.interpolations.as_object(),
-                    other.interpolations.as_object(),
-                )?;
-
-            Ok(eq.into())
-        })
     }
 }
 

@@ -318,11 +318,16 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
 /// import path below and by [`crate::VirtualMachine::import`]'s
 /// `sys.modules`-cache fast path).
 pub(crate) fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-    match vm.get_attribute_opt(module, vm.ctx.intern_str("__spec__"))? {
-        Some(spec) => match vm.get_attribute_opt(&spec, vm.ctx.intern_str("_initializing"))? {
-            Some(v) => v.try_to_bool(vm),
-            None => Ok(false),
-        },
+    let spec = vm.get_attribute_opt(module, vm.ctx.intern_str("__spec__"))?;
+    is_spec_initializing(spec.as_deref(), vm)
+}
+
+pub(crate) fn is_spec_initializing(spec: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<bool> {
+    let Some(spec) = spec else {
+        return Ok(false);
+    };
+    match vm.get_attribute_opt(spec, "_initializing")? {
+        Some(value) => value.try_to_bool(vm),
         None => Ok(false),
     }
 }
@@ -384,14 +389,14 @@ fn remove_importlib_frames_inner(
         return (None, false);
     };
 
-    let file_name = traceback.frame.iframe().code().source_path().as_str();
+    let file_name = traceback.frame.iframe().code().source_path().as_bytes();
 
     let (inner_tb, mut now_in_importlib) =
         remove_importlib_frames_inner(vm, traceback.next.lock().clone(), always_trim);
-    if file_name == "<frozen importlib._bootstrap>"
-        || file_name == "<frozen importlib._bootstrap_external>"
-        || file_name == "_frozen_importlib"
-        || file_name == "_frozen_importlib_external"
+    if file_name == b"<frozen importlib._bootstrap>"
+        || file_name == b"<frozen importlib._bootstrap_external>"
+        || file_name == b"_frozen_importlib"
+        || file_name == b"_frozen_importlib_external"
     {
         if traceback.frame.iframe().code().obj_name.as_str() == "_call_with_frames_removed" {
             now_in_importlib = true;
@@ -433,36 +438,37 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
 }
 
 /// Get origin path from a module spec, checking has_location first.
-pub(crate) fn get_spec_file_origin(spec: Option<&PyObject>, vm: &VirtualMachine) -> Option<String> {
-    let spec = spec?;
-
-    let has_location = spec
-        .get_attr("has_location", vm)
-        .ok()
-        .and_then(|v| v.try_to_bool(vm).ok())
-        .unwrap_or(false);
+pub(crate) fn get_spec_file_origin(
+    spec: Option<&PyObject>,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyStrRef>> {
+    let Some(spec) = spec else {
+        return Ok(None);
+    };
+    let Some(has_location_value) = vm.get_attribute_opt(spec, "has_location")? else {
+        return Ok(None);
+    };
+    let has_location = has_location_value.try_to_bool(vm)?;
+    drop(has_location_value);
     if !has_location {
-        return None;
+        return Ok(None);
     }
-    spec.get_attr("origin", vm).ok().and_then(|origin| {
-        if vm.is_none(&origin) {
-            None
-        } else {
-            origin
-                .downcast_ref::<PyStr>()
-                .and_then(|s| s.to_str().map(|s| s.to_owned()))
-        }
-    })
+    Ok(vm
+        .get_attribute_opt(spec, "origin")?
+        .and_then(|origin| origin.downcast::<PyStr>().ok()))
 }
 
 /// Check if a module file possibly shadows another module of the same name.
 /// Compares the module's directory with the original sys.path[0] (derived from sys.argv[0]).
-pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> bool {
+pub(crate) fn is_possibly_shadowing_path(origin: &Py<PyStr>, vm: &VirtualMachine) -> bool {
     use std::path::Path;
 
     if vm.state.config.settings.safe_path {
         return false;
     }
+    let Some(origin) = origin.to_str() else {
+        return false;
+    };
 
     let origin_path = Path::new(origin);
     let parent = match origin_path.parent() {
@@ -853,12 +859,9 @@ pub(crate) fn import_from_attribute(
         .and_then(|n| n.downcast_ref::<PyUtf8Str>());
     let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
 
-    let spec = module
-        .get_attr("__spec__", vm)
-        .ok()
-        .filter(|s| !vm.is_none(s));
+    let spec = vm.get_attribute_opt(module, vm.ctx.intern_str("__spec__"))?;
 
-    let origin = get_spec_file_origin(spec.as_deref(), vm);
+    let origin = get_spec_file_origin(spec.as_deref(), vm)?;
 
     let is_possibly_shadowing = origin
         .as_ref()
@@ -882,7 +885,7 @@ pub(crate) fn import_from_attribute(
                  and prevents importing that standard library module)"
         )
     } else {
-        let is_init = is_module_initializing(module, vm).unwrap_or(false);
+        let is_init = is_spec_initializing(spec.as_deref(), vm)?;
         if is_init {
             if is_possibly_shadowing {
                 let origin = origin.as_ref().unwrap();
@@ -917,9 +920,7 @@ pub(crate) fn import_from_attribute(
     );
 
     if let Some(ref path) = origin {
-        let _ignore = err
-            .as_object()
-            .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
+        let _ignore = err.as_object().set_attr("path", path.clone(), vm);
     }
 
     // name_from = the attribute name that failed to import (best-effort metadata)

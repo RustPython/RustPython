@@ -26,6 +26,10 @@ use syn::punctuated::Punctuated;
 ///   `OptionalArg<T>` is converted only when the argument is missing:
 ///   `<FieldTy as TryFromObject>::try_from_object(vm, ToPyObject::to_pyobject(LIT, vm))?`.
 ///   A byte-string literal becomes a Python `bytes` object.
+///   `default = None` on `Option<T>`, including `Option<PyObjectRef>`, stores
+///   Rust `None` and displays `None` in the signature without `py_default`.
+///   It does not construct Python's None object for an unwrapped field or
+///   mean `OptionalArg::Missing`.
 /// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
 ///   name, and the missing argument stores `Into::into(NAME)` (the leading
 ///   `::` is not Rust syntax for a local constant). A longer `::` path is a
@@ -40,6 +44,7 @@ use syn::punctuated::Punctuated;
 ///   when a missing argument is a distinct state, or give the default's type a
 ///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
+///
 /// # Signature default
 /// An explicit `py_default` is used as written. Otherwise:
 /// - a literal, a negative literal, or the path `None` becomes a typed default
@@ -80,6 +85,18 @@ use syn::punctuated::Punctuated;
 /// | `Option<T>` | `None` or a value. A missing argument and an explicit `None` are the same | `= None` | `None` |
 /// | `OptionalOption<T>` (`OptionalArg<Option<T>>`) | missing, `None`, and a value are all distinct | `= NULL`, and `None` is accepted | `<unrepresentable>` |
 ///
+/// # `#[from_args(legacy, fname = "...")]`
+/// Bind arguments the way `PyArg_ParseTupleAndKeywords` does: convert each
+/// supplied value in parameter order, then report a missing argument, a leftover
+/// keyword, or a name given both by position and by keyword. `fname` is the name
+/// those messages use. `PARAMS` and `arity()` are still generated, so
+/// `__text_signature__` and docs keep working.
+///
+/// Both `legacy` and `fname` are required. An unknown key is rejected.
+/// A `legacy` struct may not contain `positional` or `flatten` fields, a
+/// required field after an optional one, or a non-keyword-only field after a
+/// keyword-only (`named`) field.
+///
 /// Keep `py_default` when the expression needs `vm` (so it is not const), or
 /// when an `OptionalArg` is missing in the body and the shown default is a
 /// concrete value the Rust type cannot store.
@@ -101,7 +118,7 @@ use syn::punctuated::Punctuated;
 ///     file: Option<PyObjectRef>,
 /// }
 /// ```
-#[proc_macro_derive(FromArgs, attributes(pyarg))]
+#[proc_macro_derive(FromArgs, attributes(pyarg, from_args))]
 pub fn derive_from_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input);
     derive_impl::derive_from_args(input).into()

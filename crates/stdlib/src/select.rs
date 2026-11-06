@@ -477,6 +477,12 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        struct EpollUnregisterArgs {
+            #[pyarg(any)]
+            fd: PyObjectRef,
+        }
+
+        #[derive(FromArgs)]
         struct EpollModifyArgs {
             #[pyarg(any)]
             fd: PyObjectRef,
@@ -485,23 +491,14 @@ mod decl {
         }
 
         fn epoll_eventmask(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-            use num_traits::ToPrimitive;
+            use crate::vm::function::ArgIndex;
 
-            let value = obj.try_index(vm)?;
-            // Clinic's unsigned-int bitfield conversion accepts signed values too.
-            if !value
-                .as_bigint()
-                .to_i64()
-                .is_some_and(|value| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value))
-            {
-                crate::vm::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    "integer value out of range".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
-            Ok(value.as_u32_mask())
+            let result = (|| {
+                let value = ArgIndex::try_from_object(vm, obj.clone())?;
+                Ok(value.as_unsigned_bitfield::<32>(vm)? as u32)
+            })();
+            drop(obj);
+            result
         }
 
         #[derive(FromArgs)]
@@ -513,13 +510,14 @@ mod decl {
         }
 
         #[derive(FromArgs)]
+        #[allow(dead_code)]
         struct EpollExitArgs {
-            #[pyarg(positional, optional, name = "exc_type", py_default = "None")]
-            _exc_type: OptionalArg,
-            #[pyarg(positional, optional, name = "exc_value", py_default = "None")]
-            _exc_value: OptionalArg,
-            #[pyarg(positional, optional, name = "exc_tb", py_default = "None")]
-            _exc_tb: OptionalArg,
+            #[pyarg(positional, default = None)]
+            exc_type: Option<PyObjectRef>,
+            #[pyarg(positional, default = None)]
+            exc_value: Option<PyObjectRef>,
+            #[pyarg(positional, default = None)]
+            exc_tb: Option<PyObjectRef>,
         }
 
         #[pyclass(with(Constructor))]
@@ -601,7 +599,13 @@ mod decl {
             }
 
             #[pymethod]
-            fn unregister(zelf: &Py<Self>, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
+            fn unregister(
+                zelf: &Py<Self>,
+                args: EpollUnregisterArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                // Validate the argument shape before fileno() can run Python code.
+                let fd = Fildes::try_from_object(vm, args.fd)?;
                 let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::delete(epoll_fd, fd.as_raw_fd())
                     .map_err(|e| e.into_pyexception(vm))

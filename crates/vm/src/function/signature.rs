@@ -251,6 +251,28 @@ const fn params_representable(params: &[Param]) -> bool {
     true
 }
 
+/// True when every parameter is positional-only or `*args`.
+#[must_use]
+pub(crate) const fn params_take_no_keywords(params: &[Param]) -> bool {
+    let mut i = 0;
+    while i < params.len() {
+        match params[i].kind {
+            ParamKind::PositionalOnly | ParamKind::VarPositional => {}
+            ParamKind::Flatten(Some(inner)) => {
+                if !params_take_no_keywords(inner) {
+                    return false;
+                }
+            }
+            ParamKind::Flatten(None)
+            | ParamKind::PositionalOrKeyword
+            | ParamKind::KeywordOnly
+            | ParamKind::VarKeyword => return false,
+        }
+        i += 1;
+    }
+    true
+}
+
 /// `None`, a bare `FuncArgs`, and a default of `<unrepresentable>` contribute
 /// no signature. `Some(&[])` is `()`.
 #[must_use]

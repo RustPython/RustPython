@@ -663,7 +663,7 @@ pub enum CheckedTmError {
 }
 
 #[cfg(any(unix, windows))]
-pub fn checked_tm_from_parts(parts: CheckedTmParts) -> Result<CheckedTm, CheckedTmError> {
+pub fn tm_from_parts(parts: CheckedTmParts) -> Result<CheckedTm, CheckedTmError> {
     if parts.year < i64::from(i32::MIN) + 1900 || parts.year > i64::from(i32::MAX) {
         return Err(CheckedTmError::YearOutOfRange);
     }
@@ -679,6 +679,34 @@ pub fn checked_tm_from_parts(parts: CheckedTmParts) -> Result<CheckedTm, Checked
     tm.tm_yday = parts.tm_yday;
     tm.tm_isdst = parts.tm_isdst;
 
+    #[cfg(unix)]
+    {
+        // tm_zone is a C string: CPython accepts an embedded NUL in the
+        // Python string and the calendar functions see only its prefix.
+        let zone = parts.zone.map(|zone| {
+            let bytes = zone.as_bytes();
+            let end = bytes
+                .iter()
+                .position(|&byte| byte == 0)
+                .unwrap_or(bytes.len());
+            CString::new(&bytes[..end]).expect("timezone prefix has no NUL")
+        });
+        if let Some(zone) = &zone {
+            tm.tm_zone = zone.as_ptr().cast_mut();
+        }
+        if let Some(gmtoff) = parts.gmtoff {
+            tm.tm_gmtoff = gmtoff as _;
+        }
+        Ok(CheckedTm { tm, zone })
+    }
+    #[cfg(windows)]
+    {
+        Ok(CheckedTm { tm })
+    }
+}
+
+#[cfg(any(unix, windows))]
+pub fn check_tm(tm: &mut libc::tm) -> Result<(), CheckedTmError> {
     if tm.tm_mon == -1 {
         tm.tm_mon = 0;
     } else if !(0..=11).contains(&tm.tm_mon) {
@@ -707,42 +735,34 @@ pub fn checked_tm_from_parts(parts: CheckedTmParts) -> Result<CheckedTm, Checked
         return Err(CheckedTmError::DayOfYearOutOfRange);
     }
 
-    #[cfg(unix)]
-    {
-        let zone = match parts.zone {
-            Some(zone) => Some(CString::new(zone).map_err(|_| CheckedTmError::EmbeddedNul)?),
-            None => None,
-        };
-        if let Some(zone) = &zone {
-            tm.tm_zone = zone.as_ptr().cast_mut();
-        }
-        if let Some(gmtoff) = parts.gmtoff {
-            tm.tm_gmtoff = gmtoff as _;
-        }
-        Ok(CheckedTm { tm, zone })
-    }
-    #[cfg(windows)]
-    {
-        Ok(CheckedTm { tm })
-    }
+    Ok(())
+}
+
+#[cfg(any(unix, windows))]
+pub fn checked_tm_from_parts(parts: CheckedTmParts) -> Result<CheckedTm, CheckedTmError> {
+    let mut checked = tm_from_parts(parts)?;
+    check_tm(&mut checked.tm)?;
+    Ok(checked)
 }
 
 #[cfg(any(unix, windows))]
 pub fn mktime_tm_from_parts(parts: MktimeTmParts) -> Result<libc::tm, CheckedTmError> {
-    if parts.year < i32::MIN + 1900 {
-        return Err(CheckedTmError::YearOutOfRange);
-    }
-    let mut tm: libc::tm = unsafe { core::mem::zeroed() };
-    tm.tm_sec = parts.tm_sec;
-    tm.tm_min = parts.tm_min;
-    tm.tm_hour = parts.tm_hour;
-    tm.tm_mday = parts.tm_mday;
-    tm.tm_mon = parts.tm_mon - 1;
-    tm.tm_year = parts.year - 1900;
-    tm.tm_wday = -1;
-    tm.tm_yday = parts.tm_yday - 1;
-    tm.tm_isdst = parts.tm_isdst;
-    Ok(tm)
+    tm_from_parts(CheckedTmParts {
+        year: parts.year.into(),
+        tm_mon: parts.tm_mon.wrapping_sub(1),
+        tm_mday: parts.tm_mday,
+        tm_hour: parts.tm_hour,
+        tm_min: parts.tm_min,
+        tm_sec: parts.tm_sec,
+        tm_wday: -1,
+        tm_yday: parts.tm_yday.wrapping_sub(1),
+        tm_isdst: parts.tm_isdst,
+        #[cfg(unix)]
+        zone: None,
+        #[cfg(unix)]
+        gmtoff: None,
+    })
+    .map(|checked| checked.tm)
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]

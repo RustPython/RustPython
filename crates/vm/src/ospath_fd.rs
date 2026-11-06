@@ -9,14 +9,47 @@ use crate::{
 use rustpython_host_env::crt_fd;
 
 impl PathConverter {
-    /// Convert to a path or a file descriptor. Integers are treated as fds
-    /// before `__fspath__` is considered.
+    /// Convert str and bytes to paths first, then treat indexable objects as
+    /// file descriptors before considering `__fspath__`.
     pub(crate) fn try_path_or_fd<'fd>(
         &self,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<OsPathOrFd<'fd>> {
-        if let Some(int) = obj.try_index_opt(vm) {
+        self.try_path_or_fd_allow_invalid(obj, vm)?.ok_or_else(|| {
+            // Preserve the usual EBADF result for the -1 descriptor.
+            unsafe { crt_fd::Borrowed::try_borrow_raw(-1) }
+                .expect_err("-1 is not a valid borrowed descriptor")
+                .into_pyexception(vm)
+        })
+    }
+
+    /// Convert an invalid -1 descriptor to None for path predicates.
+    pub(crate) fn try_path_or_fd_allow_invalid<'fd>(
+        &self,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<OsPathOrFd<'fd>>> {
+        let obj = match self.try_match_str_bytes(obj, vm)? {
+            Ok(path) => return Ok(Some(OsPathOrFd::Path(path))),
+            Err(obj) => obj,
+        };
+
+        if let Some(fd) = self.try_index_as_fd(&obj, vm) {
+            return fd;
+        }
+
+        self.try_pathlike(obj, true, vm)
+            .map(|path| Some(OsPathOrFd::Path(path)))
+    }
+
+    fn try_index_as_fd<'fd>(
+        &self,
+        obj: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<Option<OsPathOrFd<'fd>>>> {
+        let int = obj.try_index_opt(vm)?;
+        Some((|| {
             if obj
                 .class()
                 .is(crate::builtins::bool_::PyBool::static_type())
@@ -29,12 +62,13 @@ impl PathConverter {
                 )?;
             }
             let fd = int?.try_to_primitive(vm)?;
-            return unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
-                .map(OsPathOrFd::Fd)
-                .map_err(|e| e.into_pyexception(vm));
-        }
-
-        self.try_path_inner(obj, true, vm).map(OsPathOrFd::Path)
+            if fd == -1 {
+                return Ok(None);
+            }
+            unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                .map(|fd| Some(OsPathOrFd::Fd(fd)))
+                .map_err(|e| e.into_pyexception(vm))
+        })())
     }
 }
 
@@ -79,10 +113,10 @@ impl From<OsPath> for OsPathOrFd<'_> {
 }
 
 impl OsPathOrFd<'_> {
-    pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Path(path) => path.filename(vm),
-            Self::Fd(fd) => fd.as_raw().to_pyobject(vm),
+            Self::Fd(fd) => Ok(fd.as_raw().to_pyobject(vm)),
         }
     }
 }
@@ -97,8 +131,33 @@ impl OSErrorBuilder {
         // TODO: return type to PyRef<PyOSError>
         use crate::exceptions::ToOSErrorBuilder;
         let builder = error.to_os_error_builder(vm);
-        let builder = builder.filename(filename.into().filename(vm));
+        let filename = match filename.into().filename(vm) {
+            Ok(filename) => filename,
+            Err(error) => return error,
+        };
+        let builder = builder.filename(filename);
         builder.build(vm).upcast()
+    }
+
+    pub(crate) fn with_filenames(
+        error: &std::io::Error,
+        first: &OsPath,
+        second: &OsPath,
+        vm: &VirtualMachine,
+    ) -> crate::builtins::PyBaseExceptionRef {
+        use crate::exceptions::ToOSErrorBuilder;
+        match first
+            .filename(vm)
+            .and_then(|first| second.filename(vm).map(|second| (first, second)))
+        {
+            Ok((first, second)) => error
+                .to_os_error_builder(vm)
+                .filename(first)
+                .filename2(second)
+                .build(vm)
+                .upcast(),
+            Err(error) => error,
+        }
     }
 
     /// Like `with_filename`, but strips winerror on Windows.
@@ -114,7 +173,11 @@ impl OSErrorBuilder {
         let builder = error.to_os_error_builder(vm);
         #[cfg(windows)]
         let builder = builder.without_winerror();
-        let builder = builder.filename(filename.into().filename(vm));
+        let filename = match filename.into().filename(vm) {
+            Ok(filename) => filename,
+            Err(error) => return error,
+        };
+        let builder = builder.filename(filename);
         builder.build(vm).upcast()
     }
 }

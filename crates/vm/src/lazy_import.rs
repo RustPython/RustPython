@@ -737,7 +737,7 @@ pub(crate) fn resolved_dict_item(
     name: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> PyResult<Option<PyObjectRef>> {
-    let Some(value) = dict.get_item_opt(name, vm)? else {
+    let Some(value) = dict.inner_getitem_opt(name, vm)? else {
         return Ok(None);
     };
     if let Some(deferred) = value.downcast_ref_if_exact::<PyLazyImport>(vm) {

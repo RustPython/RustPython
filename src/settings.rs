@@ -8,7 +8,7 @@ use std::env;
 use std::ffi::OsString;
 
 pub enum RunMode {
-    Script(String),
+    Script(OsString),
     Command(OsString),
     Module(String),
     InstallPip(InstallPipMode),
@@ -116,12 +116,10 @@ arg ...: arguments passed to program in sys.argv[1:]
 fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
     let mut args = CliArgs::default();
     let mut parser = lexopt::Parser::from_env();
-    fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<OsString>, lexopt::Error> {
+    fn argv(argv0: OsString, mut parser: lexopt::Parser) -> Result<Vec<OsString>, lexopt::Error> {
         // Arguments after the entry point are filesystem-encoded data, not
         // necessarily Unicode. Decode only when constructing Python strings.
-        Ok(core::iter::once(argv0.into())
-            .chain(parser.raw_args()?)
-            .collect())
+        Ok(core::iter::once(argv0).chain(parser.raw_args()?).collect())
     }
     while let Some(arg) = parser.next()? {
         match arg {
@@ -129,7 +127,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
                 let cmd = parser.value()?;
-                return Ok((args, RunMode::Command(cmd), argv("-c".to_owned(), parser)?));
+                return Ok((args, RunMode::Command(cmd), argv("-c".into(), parser)?));
             }
             Short('d') => args.debug += 1,
             Short('E') => args.ignore_environment = true,
@@ -138,7 +136,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
             Short('I') => args.isolate = true,
             Short('m') => {
                 let module = parser.value()?.string()?;
-                let argv = argv("-m".to_owned(), parser)?;
+                let argv = argv("-m".into(), parser)?;
                 return Ok((args, RunMode::Module(module), argv));
             }
             Short('O') => args.optimize += 1,
@@ -173,7 +171,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
                     (val.parse()?, vec![val])
                 } else if let Ok(argv0) = parser.value() {
                     let mode = argv0.parse()?;
-                    (mode, argv(argv0.string()?, parser)?)
+                    (mode, argv(argv0, parser)?)
                 } else {
                     (
                         InstallPipMode::Ensurepip,
@@ -185,7 +183,6 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<OsString>), lexopt::Error> {
                 return Ok((args, RunMode::InstallPip(mode), argv));
             }
             Value(script_name) => {
-                let script_name = script_name.string()?;
                 let mode = if script_name == "-" {
                     RunMode::Repl
                 } else {
@@ -436,8 +433,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     }
 
     // Resolve utf8_mode if not explicitly set by PYTHONUTF8 or -X utf8.
-    // Default to UTF-8 mode since RustPython's locale encoding detection
-    // is incomplete. Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
+    // CPython 3.15 defaults to UTF-8 mode (PEP 686).
+    // Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
     if settings.utf8_mode < 0 {
         settings.utf8_mode = 1;
     }

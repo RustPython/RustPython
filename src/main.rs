@@ -11,5 +11,6 @@ pub fn main() -> std::process::ExitCode {
     {
         config = config.init_stdlib();
     }
-    rustpython::run(config)
+    // SAFETY: the executable has not started threads or initialized the VM.
+    unsafe { rustpython::run_with_locale(config) }
 }

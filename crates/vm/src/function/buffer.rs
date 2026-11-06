@@ -1,7 +1,7 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
-    builtins::{PyBytes, PyStr, PyStrRef},
+    builtins::{PyBytes, PyBytesRef, PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
     protocol::{BufferFlags, PyBuffer},
 };
@@ -235,6 +235,56 @@ impl<'a> TryFromBorrowedObject<'a> for ArgMemoryBuffer {
     }
 }
 
+/// A bytes object or text string, including subclasses, without buffer conversion.
+#[derive(Debug)]
+pub enum ArgBytesOrStr {
+    Bytes(PyBytesRef),
+    Str(PyStrRef),
+}
+
+impl ArgBytesOrStr {
+    #[must_use]
+    pub fn as_object(&self) -> &PyObject {
+        match self {
+            Self::Bytes(b) => b.as_object(),
+            Self::Str(s) => s.as_object(),
+        }
+    }
+
+    /// Borrow the payload directly, using WTF-8 for strings.
+    pub fn with_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
+        match self {
+            Self::Bytes(b) => f(b.as_bytes()),
+            Self::Str(s) => f(s.as_bytes()),
+        }
+    }
+
+    /// Borrow an object's payload without allocating or invoking Python conversion.
+    /// Other objects return `None`, rather than raising a conversion error.
+    pub fn with_object_ref<F, R>(obj: &PyObject, f: F) -> Option<R>
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
+        if let Some(b) = obj.downcast_ref::<PyBytes>() {
+            Some(f(b.as_bytes()))
+        } else {
+            obj.downcast_ref::<PyStr>().map(|s| f(s.as_bytes()))
+        }
+    }
+}
+
+impl TryFromObject for ArgBytesOrStr {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        obj.downcast()
+            .map(Self::Bytes)
+            .or_else(|obj| obj.downcast().map(Self::Str))
+            .map_err(|obj| vm.new_type_error(format!("unexpected type {}", obj.class())))
+    }
+}
+
 /// A text string or bytes-like object. Like the `s*` format code for `PyArg_Parse` in CPython.
 pub enum ArgStrOrBytesLike {
     Buf(ArgBytesLike),
@@ -313,5 +363,66 @@ impl ArgAsciiBuffer {
             Self::String(s) => f(s.as_bytes()),
             Self::Buffer(buffer) => buffer.with_ref(f),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Interpreter, common::wtf8::Wtf8Buf};
+
+    #[test]
+    fn bytes_or_str_borrows_original_payloads() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let expected = [0xed, 0xa0, 0x80];
+            let objects: [PyObjectRef; 2] = [
+                vm.ctx.new_bytes(expected.to_vec()).into(),
+                vm.ctx.new_str(Wtf8Buf::from_wide(&[0xd800])).into(),
+            ];
+            for obj in objects {
+                let original = if let Some(b) = obj.downcast_ref::<PyBytes>() {
+                    b.as_bytes()
+                } else {
+                    obj.downcast_ref::<PyStr>().unwrap().as_bytes()
+                };
+                let ptr = original.as_ptr();
+                let arg = ArgBytesOrStr::try_from_object(vm, obj.clone()).unwrap();
+                assert!(arg.as_object().is(&obj));
+                let count = obj.strong_count();
+                let mut calls = 0;
+                assert_eq!(
+                    ArgBytesOrStr::with_object_ref(&obj, |bytes| {
+                        calls += 1;
+                        assert_eq!(obj.strong_count(), count);
+                        assert_eq!(bytes.as_ptr(), ptr);
+                        assert_eq!(bytes, expected);
+                    }),
+                    Some(())
+                );
+                assert_eq!(calls, 1);
+                drop(obj);
+                arg.with_ref(|bytes| {
+                    assert_eq!(bytes.as_ptr(), ptr);
+                    assert_eq!(bytes, expected);
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn bytes_or_str_rejects_other_objects_without_borrowing() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let objects: [PyObjectRef; 2] = [
+                vm.ctx.new_bytearray(vec![b'*']).into(),
+                vm.ctx.new_int(42).into(),
+            ];
+            for obj in objects {
+                assert_eq!(
+                    ArgBytesOrStr::with_object_ref(&obj, |_| panic!("unexpected borrow")),
+                    None::<()>
+                );
+                assert!(ArgBytesOrStr::try_from_object(vm, obj).is_err());
+            }
+        });
     }
 }

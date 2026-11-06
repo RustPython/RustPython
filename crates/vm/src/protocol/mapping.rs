@@ -1,4 +1,5 @@
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::wtf8::wtf8_concat;
 
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
@@ -228,10 +229,11 @@ impl PyMapping<'_> {
         let iter = match meth_output.get_iter(vm) {
             Ok(iter) => iter,
             Err(error) if error.fast_isinstance(vm.ctx.exceptions.type_error) => {
-                return Err(vm.new_type_error(format!(
-                    "{}.{}() must return an iterable, not {}",
+                return Err(vm.new_type_error(wtf8_concat!(
                     self.obj.class().fully_qualified_name(vm)?,
+                    ".",
                     method_name.as_str(),
+                    "() must return an iterable, not ",
                     meth_output.class().fully_qualified_name(vm)?
                 )));
             }

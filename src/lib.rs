@@ -64,6 +64,7 @@ use rustpython_vm::{
 };
 use std::env;
 use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 pub use interpreter::InterpreterBuilderExt;
@@ -83,11 +84,30 @@ compile_error!(
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
 ///
+/// This retains the caller's process locale. The standalone executable uses
+/// `run_with_locale` to opt into environment setup during single-threaded startup.
+///
 /// **Note**: This function provides no way to further initialize the VM after the builder is applied.
 /// All VM initialization (adding native modules, init hooks, etc.) must be done through the
 /// [`InterpreterBuilder`] parameter before calling this function.
 #[must_use]
-pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
+pub fn run(builder: InterpreterBuilder) -> ExitCode {
+    run_impl(builder, false)
+}
+
+/// Run the command-line interpreter, configuring LC_CTYPE from the environment.
+///
+/// # Safety
+///
+/// Call only during single-threaded startup, before other threads or libraries
+/// can read the environment or use the process-global locale. Embedded callers
+/// that cannot guarantee this should use `run` or build an interpreter directly.
+#[must_use]
+pub unsafe fn run_with_locale(builder: InterpreterBuilder) -> ExitCode {
+    run_impl(builder, true)
+}
+
+fn run_impl(mut builder: InterpreterBuilder, configure_locale: bool) -> ExitCode {
     env_logger::init();
 
     // NOTE: This is not a WASI convention. But it will be convenient since POSIX shell always defines it.
@@ -105,6 +125,15 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    #[cfg(all(feature = "host_env", target_os = "linux"))]
+    if configure_locale {
+        // SAFETY: only run_with_locale enables this, under its caller's
+        // single-threaded process-startup contract.
+        unsafe { vm::host_env::locale::initialize_ctype(settings.ignore_environment) };
+    }
+    #[cfg(not(all(feature = "host_env", target_os = "linux")))]
+    let _ = configure_locale;
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -162,67 +191,47 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
-/// The working directory, when it can be named.
-fn current_dir() -> Option<String> {
-    env::current_dir().ok()?.into_os_string().into_string().ok()
-}
-
 /// `_Py_abspath`: `path` joined onto the working directory. Windows normalizes
 /// the result through `GetFullPathNameW`; elsewhere it is left as joined.
-fn abs_path(path: &str) -> String {
-    if path.is_empty() || path == "." {
-        return current_dir().unwrap_or_else(|| path.to_owned());
+fn abs_path(path: &Path) -> PathBuf {
+    if path.as_os_str().is_empty() || path == Path::new(".") {
+        return env::current_dir().unwrap_or_else(|_| path.to_owned());
     }
     if cfg!(windows) {
-        return std::path::absolute(path)
-            .ok()
-            .and_then(|p| p.into_os_string().into_string().ok())
-            .unwrap_or_else(|| path.to_owned());
+        return std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
     }
-    if std::path::Path::new(path).is_absolute() {
+    if path.is_absolute() {
         return path.to_owned();
     }
     // Keep the relative path when the working directory is unavailable.
-    current_dir().map_or_else(
-        || path.to_owned(),
-        |cwd| format!("{cwd}{}{path}", std::path::MAIN_SEPARATOR),
-    )
+    env::current_dir().map_or_else(|_| path.to_owned(), |cwd| cwd.join(path))
 }
 
 /// `_PyPathConfig_ComputeSysPath0` for a script argument: the directory holding
 /// the script, with symlinks resolved.
-fn script_sys_path0(argv0: &str) -> String {
+fn script_sys_path0(argv0: &Path) -> PathBuf {
     // `realpath()`, which Windows has no counterpart for; there the path is
     // only made absolute.
     let resolved = if cfg!(windows) {
         Some(abs_path(argv0))
     } else {
-        std::fs::canonicalize(argv0)
-            .ok()
-            .and_then(|p| p.into_os_string().into_string().ok())
+        std::fs::canonicalize(argv0).ok()
     };
     let path0 = resolved.as_deref().unwrap_or(argv0);
-    let Some(sep) = path0.rfind(std::path::is_separator) else {
-        return String::new();
-    };
-    // Drop the trailing separator unless it is all that is left of a root.
-    let end = if sep == 0 || (cfg!(windows) && path0[..sep].ends_with(':')) {
-        sep + 1
-    } else {
-        sep
-    };
-    path0[..end].to_owned()
+    path0.parent().unwrap_or_else(|| Path::new("")).to_owned()
 }
 
 // pymain_run_file_obj in Modules/main.c
-fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<u32> {
+fn run_file(vm: &VirtualMachine, scope: Scope, argv0: impl AsRef<Path>) -> PyResult<u32> {
+    let argv0 = argv0.as_ref();
     // config_run_filename_abspath: __file__ and co_filename are absolute even
     // when the script was named relative to the working directory.
-    let path = &abs_path(argv0);
+    let path = abs_path(argv0);
+    let filename = vm.fsdecode(path.as_os_str())?;
 
     // Check if path is a package/directory with __main__.py
-    if let Some(_importer) = get_importer(path, vm)? {
-        vm.insert_sys_path(vm.new_pyobj(path.clone()))?;
+    if let Some(_importer) = get_importer(&filename, vm)? {
+        vm.insert_sys_path(filename.clone().into())?;
         let runpy = vm.import("runpy", 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
         run_module_as_main.call((vm::identifier!(vm, __main__).to_owned(), false), vm)?;
@@ -231,29 +240,35 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<u32> {
 
     // Add script directory to sys.path[0]
     if !vm.state.config.settings.safe_path {
-        vm.insert_sys_path(vm.new_pyobj(script_sys_path0(argv0)))?;
+        vm.insert_sys_path(
+            vm.fsdecode(script_sys_path0(argv0).into_os_string())?
+                .into(),
+        )?;
     }
 
     cfg_select! {
-        feature = "host_env" => match rustpython_vm::host_env::fs::metadata(path) {
-            Ok(_) => vm.run_any_file(scope, path).map(|()| 0),
-            Err(err) => cant_open_file(vm, path, &err),
+        feature = "host_env" => match rustpython_vm::host_env::fs::metadata(&path) {
+            Ok(_) => vm.run_any_file(scope, &path).map(|()| 0),
+            Err(err) => cant_open_file(vm, &filename, &err),
         },
         _ => {
             // In sandbox mode, the binary reads the file and feeds source to the VM.
             // The VM itself has no filesystem access.
-            let path = if path.is_empty() { "???" } else { path };
-            match std::fs::read_to_string(path) {
-                Ok(source) => vm.run_string(scope, &source, path).map(|_| 0),
-                Err(err) => cant_open_file(vm, path, &err),
+            match std::fs::read_to_string(&path) {
+                Ok(source) => vm.run_string_with_filename(scope, &source, &filename).map(|_| 0),
+                Err(err) => cant_open_file(vm, &filename, &err),
             }
         }
     }
 }
 
-fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<u32> {
-    let program_name = vm.fsdecode(vm.state.config.paths.program_name.clone());
-    let filename_repr = vm.ctx.new_str(path).as_object().repr(vm)?;
+fn cant_open_file(
+    vm: &VirtualMachine,
+    path: &vm::Py<vm::builtins::PyStr>,
+    err: &std::io::Error,
+) -> PyResult<u32> {
+    let program_name = vm.fsdecode(vm.state.config.paths.program_name.clone())?;
+    let filename_repr = path.as_object().repr(vm)?;
     let errno = err.raw_os_error().unwrap_or(2);
     let strerror = vm::host_env::errno::strerror_string(errno).unwrap_or_default();
     writeln!(
@@ -263,7 +278,10 @@ fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyRe
     Ok(2)
 }
 
-fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+fn get_importer(
+    path: &vm::Py<vm::builtins::PyStr>,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
     use rustpython_vm::builtins::PyDictRef;
     use rustpython_vm::convert::TryFromObject;
 
@@ -272,7 +290,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     if let Some(importer) = path_importer_cache.get_item_opt(path, vm)? {
         return Ok(Some(importer));
     }
-    let path_obj = vm.ctx.new_str(path);
+    let path_obj = path.to_owned();
     let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
     let mut importer = None;
     let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
@@ -344,17 +362,15 @@ fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
 
     // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
     if !vm.state.config.settings.safe_path {
-        let path0: Option<String> = match &run_mode {
-            RunMode::Command(_) => Some(String::new()),
-            RunMode::Module(_) => env::current_dir()
-                .ok()
-                .and_then(|p| p.to_str().map(|s| s.to_owned())),
+        let path0 = match &run_mode {
+            RunMode::Command(_) => Some(PathBuf::new()),
+            RunMode::Module(_) => env::current_dir().ok(),
             RunMode::Script(_) | RunMode::InstallPip(_) => None, // handled by run_script
-            RunMode::Repl => Some(String::new()),
+            RunMode::Repl => Some(PathBuf::new()),
         };
 
         if let Some(path) = path0 {
-            vm.insert_sys_path(vm.new_pyobj(path))?;
+            vm.insert_sys_path(vm.fsdecode(path.into_os_string())?.into())?;
         }
     }
 
@@ -409,7 +425,7 @@ fn pymain_run_main(vm: &VirtualMachine, scope: Scope, run_mode: RunMode) -> PyRe
         RunMode::InstallPip(installer) => install_pip(installer, scope, vm).map(|()| 0),
         RunMode::Script(script_path) => {
             // pymain_run_file_obj
-            debug!("Running script {script_path}");
+            debug!("Running script {script_path:?}");
             run_file(vm, scope, &script_path)
         }
         RunMode::Repl => Ok(pymain_run_stdin(vm, scope)),
@@ -428,7 +444,7 @@ fn run_command(
 ) -> PyResult<u32> {
     // CPython appends a newline before auditing and executing -c.
     command.push("\n");
-    let command = vm.fsdecode(command);
+    let command = vm.fsdecode(command)?;
     // Audit failures do not receive the command-decoding error prefix.
     vm.audit("cpython.run_command", || (command.clone(),))?;
 
@@ -491,7 +507,7 @@ fn run_startup(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let Some(startup) = env::var_os("PYTHONSTARTUP").filter(|value| !value.is_empty()) else {
         return Ok(());
     };
-    let startup = vm.fsdecode(startup);
+    let startup = vm.fsdecode(startup)?;
     vm.audit("cpython.run_startup", || (startup.clone(),))?;
     let could_not_open = |err: std::io::Error| {
         use vm::convert::ToPyException;
@@ -503,14 +519,14 @@ fn run_startup(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         exc.as_object().set_attr("filename", startup.clone(), vm)?;
         Err(exc)
     };
-    let path = startup.expect_str();
+    let path = vm.fsencode(&startup)?;
     cfg_select! {
-        feature = "host_env" => match vm::host_env::fs::open(path) {
-            Ok(_) => vm.run_any_file(scope, path),
+        feature = "host_env" => match vm::host_env::fs::open(&path) {
+            Ok(_) => vm.run_any_file(scope, &path),
             Err(err) => could_not_open(err),
         },
-        _ => match std::fs::read_to_string(path) {
-            Ok(source) => vm.run_string(scope, &source, path).map(drop),
+        _ => match std::fs::read_to_string(&path) {
+            Ok(source) => vm.run_string_with_filename(scope, &source, &startup).map(drop),
             Err(err) => could_not_open(err),
         },
     }

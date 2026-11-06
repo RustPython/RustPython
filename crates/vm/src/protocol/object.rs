@@ -90,6 +90,14 @@ impl PyObjectRef {
 }
 
 impl PyObject {
+    /// Return the truth value of an optional abstract-method marker.
+    pub(crate) fn is_abstract(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        match vm.get_attribute_opt(self, "__isabstractmethod__")? {
+            Some(marker) => marker.try_to_bool(vm),
+            None => Ok(false),
+        }
+    }
+
     /// Takes an object and returns an iterator for it.
     /// This is typically a new iterator but if the argument is an iterator, this
     /// returns itself.

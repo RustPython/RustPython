@@ -10,6 +10,7 @@ use crate::{
     vm::GenFrameLink,
 };
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::wtf8::wtf8_concat;
 
 impl ExecutionResult {
     /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
@@ -637,7 +638,9 @@ impl Coro {
     }
 
     pub fn set_name(&self, name: PyStrRef) {
-        *self.name.lock() = name;
+        // A string subclass can run a finalizer that reenters this object.
+        let old = core::mem::replace(&mut *self.name.lock(), name);
+        drop(old);
     }
 
     pub fn qualname(&self) -> PyStrRef {
@@ -645,7 +648,8 @@ impl Coro {
     }
 
     pub fn set_qualname(&self, qualname: PyStrRef) {
-        *self.qualname.lock() = qualname;
+        let old = core::mem::replace(&mut *self.qualname.lock(), qualname);
+        drop(old);
     }
 
     pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
@@ -736,15 +740,15 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error(format!(
-                "{}.__await__() must return an iterator, not coroutine",
-                obj.class().fully_qualified_name(vm)?
+            return Err(vm.new_type_error(wtf8_concat!(
+                obj.class().fully_qualified_name(vm)?,
+                ".__await__() must return an iterator, not coroutine"
             )));
         }
         if !PyIter::check(&result) {
-            return Err(vm.new_type_error(format!(
-                "{}.__await__() must return an iterator, not {}",
+            return Err(vm.new_type_error(wtf8_concat!(
                 obj.class().fully_qualified_name(vm)?,
+                ".__await__() must return an iterator, not ",
                 result.class().fully_qualified_name(vm)?
             )));
         }

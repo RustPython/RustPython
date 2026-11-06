@@ -14,7 +14,7 @@ use crate::{
 use itertools::Itertools;
 
 #[pyclass(module = false, name = "object")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
@@ -64,7 +64,9 @@ impl Constructor for PyBaseObject {
                 {
                     // Both __new__ and __init__ are object's versions,
                     // so the type accepts no arguments
-                    return Err(vm.new_type_error(format!("{}() takes no arguments", cls.name())));
+                    return Err(
+                        vm.new_type_error(format!("{}() takes no arguments", cls.slot_name()))
+                    );
                 }
                 // If tp_init != object_init, then the type has custom __init__
                 // which might accept arguments, so we allow it
@@ -93,7 +95,9 @@ impl Constructor for PyBaseObject {
             }
         }
 
-        generic_alloc(cls, 0, vm)
+        // Every type inherits tp_alloc via set_alloc; object keeps generic_alloc.
+        let alloc = cls.slots.alloc.load().unwrap_or(generic_alloc);
+        alloc(cls, 0, vm)
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
@@ -101,20 +105,24 @@ impl Constructor for PyBaseObject {
     }
 }
 
-#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine) -> PyResult {
+/// Allocate `T::default()` with the same HAS_DICT handling as object tp_alloc.
+pub fn alloc_default<T: PyPayload + Default + core::fmt::Debug>(
+    cls: PyTypeRef,
+    _nitems: usize,
+    vm: &VirtualMachine,
+) -> PyResult {
     // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
     // or __dict__ is in __slots__)
-    let dict = if cls
-        .slots
-        .flags
-        .has_feature(crate::types::PyTypeFlags::HAS_DICT)
-    {
+    let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
         Some(vm.ctx.new_dict())
     } else {
         None
     };
-    Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
+    Ok(crate::PyRef::new_ref(T::default(), cls, dict).into())
+}
+
+pub(crate) fn generic_alloc(cls: PyTypeRef, nitems: usize, vm: &VirtualMachine) -> PyResult {
+    alloc_default::<PyBaseObject>(cls, nitems, vm)
 }
 
 impl Initializer for PyBaseObject {
@@ -151,7 +159,7 @@ impl Initializer for PyBaseObject {
         {
             return Err(vm.new_type_error(format!(
                 "{}.__init__() takes exactly one argument (the instance to initialize)",
-                typ.name()
+                typ.slot_name()
             )));
         }
 

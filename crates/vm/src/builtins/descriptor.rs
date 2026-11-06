@@ -19,6 +19,7 @@ use crate::{
 };
 use core::mem::{align_of, size_of};
 use rustpython_common::lock::PyRwLock;
+use rustpython_common::wtf8::wtf8_concat;
 
 #[derive(Debug)]
 pub struct PyDescriptor {
@@ -1134,10 +1135,12 @@ fn member_get_one(
         MemberKind::ObjectEx => match obj.get_slot(offset) {
             Some(value) => value,
             None => {
-                return Err(vm.new_attribute_error(format!(
-                    "'{}' object has no attribute '{}'",
+                return Err(vm.new_attribute_error(wtf8_concat!(
+                    "'",
                     obj.class().fully_qualified_name(vm)?,
-                    member.name
+                    "' object has no attribute '",
+                    member.name,
+                    "'"
                 )));
             }
         },

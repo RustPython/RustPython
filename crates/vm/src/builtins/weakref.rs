@@ -1,16 +1,19 @@
 use super::{PyGenericAlias, PyType, PyTypeRef};
+#[cfg(not(feature = "threading"))]
+use crate::common::atomic::Radium;
 use crate::common::{
-    atomic::{Ordering, Radium},
+    atomic::Ordering,
     hash::{self, PyHash},
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     types::{
         Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
     },
 };
+use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 pub use crate::object::PyWeak;
 
@@ -75,11 +78,58 @@ impl Initializer for PyWeak {
     }
 }
 
+impl Comparable for PyWeak {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        }
+        // PyWeakref_Check also accepts both proxy types, which share this payload.
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        let a = zelf.upgrade();
+        let b = other.upgrade();
+        let result = match (&a, &b) {
+            // PyObject_RichCompare preserves the exact operation and raw result,
+            // including when both references point to the same object.
+            (Some(a), Some(b)) => PyObject::rich_compare(a, b, op, vm).map(Either::A),
+            _ => {
+                let equal = zelf.is(other);
+                Ok(Either::B((equal == (op == PyComparisonOp::Eq)).into()))
+            }
+        };
+        // Release the upgraded referents in argument order, also on errors.
+        drop(a);
+        drop(b);
+        result
+    }
+
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
+        }
+    }
+}
+
 #[pyclass(
     with(
         Callable,
-        Hashable,
         Comparable,
+        Hashable,
         Constructor,
         Initializer,
         Representable
@@ -104,58 +154,28 @@ impl Py<PyWeak> {
 
 impl Hashable for PyWeak {
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let hash = match zelf.hash.load(Ordering::Relaxed) {
-            hash::SENTINEL => {
-                let obj = zelf
-                    .upgrade()
-                    .ok_or_else(|| vm.new_type_error("weak object has gone away"))?;
-                let hash = obj.hash(vm)?;
-                match Radium::compare_exchange(
-                    &zelf.hash,
-                    hash::SENTINEL,
-                    hash::fix_sentinel(hash),
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => hash,
-                    Err(prev_stored) => prev_stored,
-                }
-            }
-            hash => hash,
-        };
-        Ok(hash)
-    }
-}
-
-impl Comparable for PyWeak {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| {
-            let other = class_or_notimplemented!(Self, other);
-            let both = zelf.upgrade().zip(other.upgrade());
-            match both {
-                // CPython parity (Objects/weakref.c::weakref_richcompare): use
-                // PyObject_RichCompare on the referents, not the bool variant,
-                // so referent __eq__ runs even when referents share identity.
-                Some((a, b)) => {
-                    let res = a.rich_compare(b, PyComparisonOp::Eq, vm)?;
-                    PyArithmeticValue::from_object(vm, res)
-                        .map(|obj| obj.try_to_bool(vm))
-                        .transpose()
-                }
-                None => Ok(zelf.is(other).into()),
-            }
-        })
+        let cached = zelf.hash.load(Ordering::Relaxed);
+        if cached != hash::SENTINEL {
+            return Ok(cached);
+        }
+        let obj = zelf
+            .upgrade()
+            .ok_or_else(|| vm.new_type_error("weak object has gone away"))?;
+        let result = obj.hash(vm).map(hash::fix_sentinel);
+        // A recursive hash may have filled the cache. The outer call still
+        // replaces it, or clears it on failure, before releasing the referent.
+        zelf.hash.store(
+            result.as_ref().copied().unwrap_or(hash::SENTINEL),
+            Ordering::Relaxed,
+        );
+        drop(obj);
+        result
     }
 }
 
 /// `__name__` when that lookup yields a string. A missing name or a non-string
 /// value is left off the repr.
-fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<String>> {
+fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Wtf8Buf>> {
     let found =
         crate::vm::PyMethod::get_special_ex::<false>(obj, identifier!(vm, __name__), vm, true)?;
     let Some(crate::vm::PyMethod::Attribute(attr)) = found else {
@@ -163,25 +183,28 @@ fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<String>
     };
     Ok(attr
         .downcast_ref::<crate::builtins::PyStr>()
-        .and_then(|name| name.to_str())
-        .map(str::to_owned))
+        .map(|name| name.as_wtf8().to_owned()))
 }
 
 impl Representable for PyWeak {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let id = zelf.get_id();
         let Some(obj) = zelf.upgrade() else {
-            return Ok(format!("<weakref at {id:#x}; dead>"));
+            return Ok(format!("<weakref at {id:#x}; dead>").into());
         };
         let type_name = obj.class().fully_qualified_name(vm)?;
         let obj_id = obj.get_id();
         let suffix = match instance_name(&obj, vm)? {
-            Some(name) => format!(" ({name})"),
-            None => String::new(),
+            Some(name) => wtf8_concat!(" (", name, ")"),
+            None => Wtf8Buf::new(),
         };
-        Ok(format!(
-            "<weakref at {id:#x}; to '{type_name}' at {obj_id:#x}{suffix}>"
+        Ok(wtf8_concat!(
+            format!("<weakref at {id:#x}; to '"),
+            type_name,
+            format!("' at {obj_id:#x}"),
+            suffix,
+            ">"
         ))
     }
 }

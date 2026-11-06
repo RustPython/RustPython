@@ -171,6 +171,7 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        filesystem_codec_ready: AtomicBool::new(false),
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
@@ -245,7 +246,9 @@ where
     // thread for the duration so type cache reads see it as ATTACHED.
     let vm_guard = thread::VmBootstrapGuard::new(&vm);
     vm.initialize();
-    vm.state.ready.store(true, Ordering::Release);
+    vm.state
+        .ready
+        .store(vm.startup_error.is_none(), Ordering::Release);
     drop(vm_guard);
 
     // Clone global_state for Interpreter after all initialization is done
@@ -290,6 +293,9 @@ fn create_subinterpreter_from_parent(
         |_| {},
     );
     let interp = Interpreter { global_state, vm };
+    if interp.vm.startup_error.is_some() {
+        return Err("subinterpreter initialization failed");
+    }
     // Every interpreter has a `__main__` module once it is initialized.
     interp.enter(|vm| {
         let _ = vm.ensure_main_module();
@@ -425,7 +431,9 @@ impl InterpreterBuilder {
 
     /// Build the interpreter.
     ///
-    /// This consumes the configuration and returns a fully initialized Interpreter.
+    /// This consumes the configuration and initializes an interpreter.
+    /// Use `VirtualMachine::check_initialization` before executing Python code
+    /// to handle a startup configuration or codec error without panicking.
     #[must_use]
     pub fn build(self) -> Interpreter {
         let (vm, global_state) = initialize_vm(
@@ -798,33 +806,41 @@ impl VirtualMachine {
             );
         }
 
-        // Run atexit handlers before setting finalizing flag.
-        // This allows unraisable exceptions from atexit handlers to be reported.
-        atexit::_run_exitfuncs(vm);
-
-        // Clean up any lingering subinterpreters. This has to happen before
-        // the finalizing flag is set, or else threads might get prematurely
-        // blocked.
+        // Exit callbacks and subinterpreter cleanup can start non-daemon
+        // threads. Recheck after stopping all interpreters so new work cannot
+        // race the transition to finalization.
         #[cfg(feature = "threading")]
-        finalize_subinterpreters(vm);
+        loop {
+            atexit::_run_exitfuncs(vm);
+            finalize_subinterpreters(vm);
+            crate::stdlib::_thread::_thread::_shutdown(vm);
 
-        // Remaining daemon threads hang in `_PyThreadState_HangThread` when
-        // they next attach (or at the eval-breaker if they are already
-        // running). Their `_ThreadHandle` stays not-done so `is_alive()`
-        // is still true for `join()` during the GC that follows.
-        #[cfg(feature = "threading")]
-        {
-            vm.state.stop_the_world.stop_the_world(&vm.state);
+            let mut stopped = super::stop_the_world::StopTheWorldGroup::new();
+            let has_callbacks = !vm.state.atexit_funcs.lock().is_empty();
+            let has_subinterpreters = vm.state.is_main
+                && !runtime::owned_interpreter_ids_for(vm.state.runtime_root_id).is_empty();
+            let has_threads = crate::stdlib::_thread::_thread::has_pending_shutdown_threads(vm);
+            if has_callbacks || has_subinterpreters || has_threads {
+                stopped.restart();
+                continue;
+            }
+
+            // Remaining daemon threads hang when they next attach or reach a
+            // safepoint. Publish finalization while the world is still stopped.
             vm.state
                 .finalizing_thread_ident
                 .store(crate::stdlib::_thread::get_ident());
-        }
-        vm.state.finalizing.store(true, Ordering::Release);
-        #[cfg(feature = "threading")]
-        {
+            vm.state.finalizing.store(true, Ordering::Release);
             thread::set_other_threads_shutting_down(&vm.state);
-            vm.state.stop_the_world.start_the_world(&vm.state);
+            stopped.restart();
             crate::signal::set_finalizing_bit();
+            break;
+        }
+
+        #[cfg(not(feature = "threading"))]
+        {
+            atexit::_run_exitfuncs(vm);
+            vm.state.finalizing.store(true, Ordering::Release);
         }
 
         // GC pass - collect cycles before module cleanup

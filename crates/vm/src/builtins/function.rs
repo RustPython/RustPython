@@ -1053,12 +1053,16 @@ impl Py<PyFunction> {
     }
     #[pygetset(setter)]
     fn set___defaults__(&self, defaults: PySetterValue<Option<PyTupleRef>>) {
-        self.defaults_and_kwdefaults.lock().0 = match defaults {
+        let defaults = match defaults {
             PySetterValue::Assign(d) => d,
             PySetterValue::Delete => None,
         };
+        // The old tuple may run finalizers that access this function again.
+        // Invalidate the version before dropping it, with the lock released.
+        let old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().0, defaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
+        drop(old);
     }
 
     #[pygetset]
@@ -1067,12 +1071,14 @@ impl Py<PyFunction> {
     }
     #[pygetset(setter)]
     fn set___kwdefaults__(&self, kwdefaults: PySetterValue<Option<PyDictRef>>) {
-        self.defaults_and_kwdefaults.lock().1 = match kwdefaults {
+        let kwdefaults = match kwdefaults {
             PySetterValue::Assign(d) => d,
             PySetterValue::Delete => None,
         };
+        let old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().1, kwdefaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
+        drop(old);
     }
 
     #[pygetset]
@@ -1082,7 +1088,8 @@ impl Py<PyFunction> {
 
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
-        *self.name.lock() = name;
+        let old = core::mem::replace(&mut *self.name.lock(), name);
+        drop(old);
     }
 
     #[pygetset]
@@ -1115,8 +1122,8 @@ impl Py<PyFunction> {
             let ann_dict = match result?.downcast::<crate::builtins::PyDict>() {
                 Ok(dict) => dict,
                 Err(obj) => {
-                    return Err(vm.new_type_error(format!(
-                        "__annotate__() must return a dict, not {}",
+                    return Err(vm.new_type_error(wtf8_concat!(
+                        "__annotate__() must return a dict, not ",
                         obj.class().fully_qualified_name(vm)?
                     )));
                 }
@@ -1215,7 +1222,8 @@ impl Py<PyFunction> {
                 let Ok(qualname) = value.downcast::<PyStr>() else {
                     return Err(vm.new_type_error("__qualname__ must be set to a string object"));
                 };
-                *self.qualname.lock() = qualname;
+                let old = core::mem::replace(&mut *self.qualname.lock(), qualname);
+                drop(old);
             }
             PySetterValue::Delete => {
                 return Err(vm.new_type_error("__qualname__ must be set to a string object"));
@@ -1237,7 +1245,8 @@ impl Py<PyFunction> {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                *self.type_params.lock() = value;
+                let old = core::mem::replace(&mut *self.type_params.lock(), value);
+                drop(old);
             }
             PySetterValue::Delete => {
                 return Err(vm.new_type_error("__type_params__ must be set to a tuple object"));
@@ -1654,7 +1663,12 @@ impl Py<PyCell> {
         };
         // compare cells by contents; empty cells come before anything else
         match (zelf.get(), other.get()) {
-            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (Some(a), Some(b)) => {
+                let result = PyObject::rich_compare(&a, &b, op, vm).map(Either::A);
+                drop(a);
+                drop(b);
+                result
+            }
             (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
         }
     }

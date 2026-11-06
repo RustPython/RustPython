@@ -13,7 +13,8 @@
 
 extern crate alloc;
 
-use alloc::string::FromUtf16Error;
+use alloc::{borrow::Cow, string::FromUtf16Error};
+use rustpython_wtf8::Wtf8Buf;
 
 use windows_sys::Win32::{
     Foundation,
@@ -94,6 +95,26 @@ pub fn bytes_as_wide_slice(bytes: &[u8]) -> &[u16] {
         "Registry data should be u16-aligned"
     );
     u16_slice
+}
+
+pub fn registry_wide_units(bytes: &[u8]) -> Cow<'_, [u16]> {
+    // Windows strings use complete native-endian UTF-16 code units; CPython
+    // ignores a trailing incomplete byte.
+    let bytes = &bytes[..bytes.len() & !1];
+    // SAFETY: Every u16 bit pattern is valid and align_to checks alignment.
+    let (prefix, u16_slice, _) = unsafe { bytes.align_to::<u16>() };
+    if prefix.is_empty() {
+        Cow::Borrowed(u16_slice)
+    } else {
+        Cow::Owned(
+            bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| u16::from_ne_bytes(pair))
+                .collect(),
+        )
+    }
 }
 
 pub fn close_key(hkey: Registry::HKEY) -> u32 {
@@ -355,6 +376,23 @@ pub fn query_default_value(
     hkey: Registry::HKEY,
     sub_key: Option<&widestring::WideCStr>,
 ) -> Result<String, QueryStringError> {
+    query_default_value_with(hkey, sub_key, |value| {
+        String::from_utf16(value).map_err(QueryStringError::Utf16)
+    })
+}
+
+pub fn query_default_value_wtf8(
+    hkey: Registry::HKEY,
+    sub_key: Option<&widestring::WideCStr>,
+) -> Result<Wtf8Buf, QueryStringError> {
+    query_default_value_with(hkey, sub_key, |value| Ok(Wtf8Buf::from_wide(value)))
+}
+
+fn query_default_value_with<T>(
+    hkey: Registry::HKEY,
+    sub_key: Option<&widestring::WideCStr>,
+    decode: impl Fn(&[u16]) -> Result<T, QueryStringError>,
+) -> Result<T, QueryStringError> {
     let child_key = if let Some(sub_key) = sub_key.filter(|s| !s.is_empty()) {
         let mut out_key = core::ptr::null_mut();
         let res = unsafe {
@@ -396,7 +434,7 @@ pub fn query_default_value(
             continue;
         }
         if res == Foundation::ERROR_FILE_NOT_FOUND {
-            break Ok(String::new());
+            break decode(&[]);
         }
         if res != 0 {
             break Err(QueryStringError::Code(res));
@@ -405,12 +443,12 @@ pub fn query_default_value(
             break Err(QueryStringError::Code(Foundation::ERROR_INVALID_DATA));
         }
 
-        let u16_slice = bytes_as_wide_slice(&buffer[..size as usize]);
+        let u16_slice = registry_wide_units(&buffer[..size as usize]);
         let len = u16_slice
             .iter()
             .position(|&c| c == 0)
             .unwrap_or(u16_slice.len());
-        break String::from_utf16(&u16_slice[..len]).map_err(QueryStringError::Utf16);
+        break decode(&u16_slice[..len]);
     };
 
     if let Some(ck) = child_key {
@@ -422,22 +460,25 @@ pub fn query_default_value(
 
 pub fn query_value_bytes(
     hkey: Registry::HKEY,
-    wide_name: &widestring::WideCStr,
+    wide_name: Option<&widestring::WideCStr>,
 ) -> Result<(Vec<u8>, u32), u32> {
     let mut buf_size: u32 = 0;
     let res = unsafe {
         query_value_ex(
             hkey,
-            Some(wide_name),
+            wide_name,
             core::ptr::null_mut(),
             core::ptr::null_mut(),
             &mut buf_size,
         )
     };
-    if res == Foundation::ERROR_MORE_DATA || buf_size == 0 {
+    if res == Foundation::ERROR_MORE_DATA {
         buf_size = 256;
     } else if res != 0 {
         return Err(res);
+    } else if buf_size == 0 {
+        // Keep a nonzero buffer so a value that grows between calls can retry.
+        buf_size = 256;
     }
 
     let mut ret_buf = vec![0u8; buf_size as usize];
@@ -448,7 +489,7 @@ pub fn query_value_bytes(
         let res = unsafe {
             query_value_ex(
                 hkey,
-                Some(wide_name),
+                wide_name,
                 &mut typ,
                 ret_buf.as_mut_ptr(),
                 &mut ret_size,

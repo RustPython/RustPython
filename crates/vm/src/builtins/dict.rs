@@ -31,6 +31,7 @@ use core::ptr::NonNull;
 use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_common::wtf8::wtf8_concat;
 
 pub(crate) type DictContentType = dict_inner::Dict;
 
@@ -39,24 +40,46 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
     mapping_name: &str,
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {
-    match key.key_hash(vm) {
-        // Exact TypeError only: exception subclasses retain their identity.
-        Err(exc) if exc.class().is(vm.ctx.exceptions.type_error) => {
-            let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
-            // Match BaseException_str without the diagnostic formatter's
-            // fallback: argument __str__/__repr__ failures must propagate.
-            let args = exc.args();
-            let message = match args.as_slice() {
-                [] => vm.ctx.empty_str.to_owned(),
-                [arg] => arg.str(vm)?,
-                _ => args.as_object().str(vm)?,
-            };
-            Err(vm.new_type_error(format!(
-                "cannot use '{name}' as a {mapping_name} key ({message})"
-            )))
+    key.key_hash(vm)
+        .map_err(|exc| contextualize_hash_error(key, mapping_name, "key", exc, vm))
+}
+
+pub(crate) fn contextualize_hash_error<K: DictKey + ?Sized>(
+    key: &K,
+    container: &str,
+    role: &str,
+    exc: PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    let format_error = || -> PyResult<PyBaseExceptionRef> {
+        match exc {
+            // Exact TypeError only: exception subclasses retain their identity.
+            exc if exc.class().is(vm.ctx.exceptions.type_error) => {
+                let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
+                // Match BaseException_str without the diagnostic formatter's
+                // fallback: argument __str__/__repr__ failures must propagate.
+                let args = exc.args();
+                let message = match args.as_slice() {
+                    [] => vm.ctx.empty_str.to_owned(),
+                    [arg] => arg.str(vm)?,
+                    _ => args.as_object().str(vm)?,
+                };
+                Ok(vm.new_type_error(wtf8_concat!(
+                    "cannot use '",
+                    name,
+                    "' as a ",
+                    container,
+                    " ",
+                    role,
+                    " (",
+                    message.as_wtf8(),
+                    ")"
+                )))
+            }
+            exc => Ok(exc),
         }
-        result => result,
-    }
+    };
+    format_error().unwrap_or_else(|exc| exc)
 }
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse = "manual")]
@@ -609,17 +632,22 @@ impl PyDict {
         self.entries.insert(vm, key, hash, value)
     }
 
-    pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
-        &self,
-        key: &K,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn inner_delitem<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult<()> {
         let hash = Self::hash_or_unhashable(key, vm)?;
         if self.entries.delete_if_exists(vm, key, hash)? {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
         }
+    }
+
+    pub(crate) fn inner_pop_item<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.remove_if_exists(vm, key, hash)
     }
 
     pub fn get_or_insert(
@@ -1340,8 +1368,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            let hash = PyDict::hash_or_unhashable(key, vm)?;
-            self.entries.remove_if_exists(vm, key, hash)
+            self.inner_pop_item(key, vm)
         } else {
             let value = self.as_object().get_item(key, vm)?;
             self.as_object().del_item(key, vm)?;
@@ -1486,8 +1513,7 @@ impl PyFrozenDict {
     #[pymethod]
     fn get(
         zelf: &Py<Self>,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
+        DictGetArgs { key, default }: DictGetArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         Ok(zelf
@@ -1503,8 +1529,7 @@ impl PyFrozenDict {
     #[pyclassmethod]
     fn fromkeys(
         cls: PyTypeRef,
-        iterable: PyObjectRef,
-        value: OptionalArg<PyObjectRef>,
+        FromKeysArgs { iterable, value }: FromKeysArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         dict_fromkeys(cls, iterable, value.unwrap_or_else(|| vm.ctx.none()), vm)

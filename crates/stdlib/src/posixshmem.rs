@@ -12,6 +12,7 @@ mod _posixshmem {
     use rustpython_host_env::shm;
 
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "shm_open")]
     struct ShmOpenArgs {
         #[pyarg(any)]
         path: PyUtf8StrRef,
