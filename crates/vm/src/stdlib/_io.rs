@@ -6697,7 +6697,10 @@ mod winconsoleio {
                 let Ok(path) = path.as_os_str(vm) else {
                     return '\0';
                 };
-                vm.fsdecode(path.into_owned())
+                let Ok(name) = vm.fsdecode(path.into_owned()) else {
+                    return '\0';
+                };
+                name
             }
         };
         let Some(name_str) = name.to_str() else {
@@ -6783,7 +6786,7 @@ mod winconsoleio {
                 let path = FsPath::try_from_path_like(nameobj.clone(), true, vm)?;
                 let decoded = match &path {
                     FsPath::Str(s) => s.to_owned(),
-                    FsPath::Bytes(_) => vm.fsdecode(path.as_os_str(vm)?.into_owned()),
+                    FsPath::Bytes(_) => vm.fsdecode(path.as_os_str(vm)?.into_owned())?,
                 };
                 let wide = decoded
                     .as_wtf8()
