@@ -355,7 +355,7 @@ mod _ssl {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
         server_side: ArgIntoBool,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
         owner: Option<PyObjectRef>,
@@ -367,7 +367,7 @@ mod _ssl {
     struct WrapSocketArgs {
         sock: PyObjectRef,
         server_side: ArgIntoBool,
-        #[pyarg(positional, optional)]
+        #[pyarg(any, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
         owner: Option<PyObjectRef>,
