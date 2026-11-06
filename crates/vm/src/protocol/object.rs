@@ -3,14 +3,13 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseObject, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+        PyBaseObject, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyListRef, PyStr, PyTuple,
         PyTupleRef, PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
     convert::ToPyObject,
     dict_inner::DictKey,
     function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
-    object::PyPayload,
     protocol::PyIter,
     types::{Constructor, PyComparisonOp},
 };
@@ -70,22 +69,8 @@ impl PyObjectRef {
     }
 
     // PyObject *PyObject_Dir(PyObject *o)
-    pub fn dir(self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes = self.class().get_attributes(&vm.ctx);
-
-        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
-
-        if let Some(object_dict) = self.dict() {
-            vm.call_method(
-                dict.as_object(),
-                identifier!(vm, update).as_str(),
-                (object_dict,),
-            )?;
-        }
-
-        let attributes = dict.into_iter().map(|(k, _v)| k).collect::<Vec<_>>();
-
-        Ok(PyList::from(attributes))
+    pub fn dir(self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        vm.dir(Some(self))
     }
 }
 

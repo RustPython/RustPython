@@ -2772,13 +2772,10 @@ impl Py<PyType> {
     }
 
     #[pymethod]
-    fn __dir__(&self, vm: &VirtualMachine) -> PyList {
-        let attributes: Vec<PyObjectRef> = self
-            .get_attributes(&vm.ctx)
-            .into_iter()
-            .map(|(k, _)| k.to_object())
-            .collect();
-        PyList::from(attributes)
+    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
+        let dict = PyDict::default();
+        object::merge_class_dict(&dict, self.as_object(), vm)?;
+        Ok(PyList::from(dict.keys_vec()))
     }
 
     #[pymethod]

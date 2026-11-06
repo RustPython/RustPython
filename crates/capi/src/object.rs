@@ -7,7 +7,7 @@ use rustpython_vm::builtins::{PyStr, object_generic_set_dict, object_get_dict};
 use rustpython_vm::bytecode::ComparisonOperator;
 use rustpython_vm::function::PySetterValue;
 use rustpython_vm::types::{PyComparisonOp, hash_not_implemented};
-use rustpython_vm::{AsObject, PyPayload, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, PyResult, VirtualMachine};
 
 mod pytype;
 
@@ -355,9 +355,8 @@ pub unsafe extern "C" fn PyObject_ClearWeakRefs(obj: *mut PyObject) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Dir(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        unsafe { obj.assume_borrowed_or_opt() }
-            .map_or_else(|| vm.dir(None), |obj| obj.to_owned().dir(vm))
-            .map(|list| list.into_ref(&vm.ctx))
+        let obj = unsafe { obj.assume_borrowed_or_opt() }.map(ToOwned::to_owned);
+        vm.dir(obj)
     })
 }
 

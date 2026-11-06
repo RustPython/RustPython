@@ -6,7 +6,7 @@ use super::type_;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyList, PyListRef, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassDef, PyClassImpl},
     common::{hash, wtf8::Wtf8Buf},
     convert::ToPyObject,
@@ -225,7 +225,7 @@ impl Py<PyGenericAlias> {
     }
 
     #[pymethod]
-    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
+    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
         let dir = vm.dir(Some(self.origin.clone()))?;
         for exc in &ATTR_EXCEPTIONS {
             let exc_obj = (*exc).to_pyobject(vm);

@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, object,
+    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef,
+    PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -1373,10 +1373,10 @@ impl Constructor for PyFunction {
 #[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
-    #[pymember(name = "__self__")]
-    object: PyObjectRef,
     #[pymember(name = "__func__")]
     function: PyObjectRef,
+    #[pymember(name = "__self__")]
+    object: PyObjectRef,
 }
 
 impl Callable for PyBoundMethod {
@@ -1393,12 +1393,13 @@ impl Comparable for PyBoundMethod {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
             Ok(PyComparisonValue::Implemented(
-                zelf.function.is(&other.function) && zelf.object.is(&other.object),
+                vm.identical_or_equal(&zelf.function, &other.function)?
+                    && zelf.object.is(&other.object),
             ))
         })
     }
@@ -1465,7 +1466,7 @@ impl Constructor for PyBoundMethod {
 impl PyBoundMethod {
     #[must_use]
     pub const fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        Self { object, function }
+        Self { function, object }
     }
 
     #[inline]
@@ -1530,44 +1531,6 @@ impl Py<PyBoundMethod> {
     #[pygetset]
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
-    }
-
-    #[pygetset]
-    fn __module__(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.function.get_attr("__module__", vm).ok()
-    }
-
-    #[pymethod]
-    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let func_dir = vm.dir(Some(self.function.clone()))?;
-
-        let bound_only = [
-            "__self__",
-            "__func__",
-            "__doc__",
-            "__module__",
-            "__call__",
-            "__get__",
-            "__repr__",
-        ];
-
-        let mut seen = std::collections::HashSet::new();
-        let mut result: Vec<PyObjectRef> = Vec::new();
-
-        for item in func_dir.borrow_vec().iter() {
-            if let Ok(s) = item.clone().downcast::<PyStr>() {
-                seen.insert(s.as_wtf8().to_string());
-            }
-            result.push(item.clone());
-        }
-
-        for name in bound_only {
-            if seen.insert(name.to_owned()) {
-                result.push(vm.ctx.new_str(name).into());
-            }
-        }
-
-        Ok(PyList::from(result))
     }
 }
 

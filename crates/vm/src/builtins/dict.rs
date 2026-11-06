@@ -235,7 +235,7 @@ impl PyAnyDict {
             return Ok(self.as_dict().copy());
         }
         let copied = PyDict::default();
-        copied.merge_object(self.as_object().to_owned(), vm)?;
+        copied.merge_mapping(self.as_object().to_owned(), vm)?;
         Ok(copied)
     }
 
@@ -436,6 +436,22 @@ impl PyDict {
         mapping_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        self.merge_arg(other, override_existing, mapping_name, true, vm)
+    }
+
+    // PyDict_Update accepts mappings, without dict.update's sequence fallback.
+    pub(crate) fn merge_mapping(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.merge_arg(other, true, "dict", false, vm)
+    }
+
+    fn merge_arg(
+        &self,
+        other: PyObjectRef,
+        override_existing: bool,
+        mapping_name: &str,
+        allow_sequence: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if let Some(other_dict) = PyAnyDict::from_object(&other)
             && other_dict.uses_builtin_iter(vm)
         {
@@ -445,14 +461,16 @@ impl PyDict {
         // Use get_attr to properly invoke __getattribute__ for proxy objects
         let keys_method = match other.get_attr(vm.ctx.intern_str("keys"), vm) {
             Ok(keys_method) => keys_method,
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+            Err(e) if allow_sequence && e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
                 return self.merge_seq2(&other, override_existing, mapping_name, vm);
             }
             Err(e) => return Err(e),
         };
+        let keys_result = keys_method.call((), vm);
+        drop(keys_method);
         let keys = other.mapping_unchecked().collect_method_output(
             vm.ctx.intern_str("keys"),
-            keys_method.call((), vm)?,
+            keys_result?,
             vm,
         )?;
         let keys = PyIter::try_from_object(vm, keys)?;
@@ -463,9 +481,20 @@ impl PyDict {
                     continue;
                 }
             }
-            let value = other.get_item(&*key, vm)?;
-            let hash = key_hash(&*key, mapping_name, vm)?;
-            dict.insert(vm, &*key, hash, value)?;
+            let value = match other.get_item(&*key, vm) {
+                Ok(value) => value,
+                Err(exc) => {
+                    drop(keys);
+                    drop(key);
+                    return Err(exc);
+                }
+            };
+            let outcome = key_hash(&*key, mapping_name, vm)
+                .and_then(|hash| dict.insert(vm, &*key, hash, value.clone()));
+            // Keep both owners until insertion returns, including on failure.
+            drop(key);
+            drop(value);
+            outcome?;
         }
         Ok(())
     }
