@@ -1271,7 +1271,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
         let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
         let res = handler.call((decode_exc.clone(),), vm)?;
         let new_data = decode_exc.as_object().get_attr("object", vm)?;
-        if !new_data.is(&data_bytes) {
+        if self.use_registry || !new_data.is(&data_bytes) {
             let new_data: PyBytesRef = new_data
                 .downcast()
                 .map_err(|_| vm.new_type_error("object attribute must be bytes"))?;
