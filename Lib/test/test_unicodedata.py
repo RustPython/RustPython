@@ -199,7 +199,6 @@ class BaseUnicodeFunctionsTest:
             char = chr(i)
             self.assertRaises(ValueError, self.db.name, char)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
     def test_lookup_nonexistant(self):
         # just make sure that lookup can fail
         for nonexistent in [
@@ -360,7 +359,6 @@ class BaseUnicodeFunctionsTest:
         self.assertEqual(self.db.bidirectional('\U0001FFFE'), '' if self.old else 'BN')
         self.assertEqual(self.db.bidirectional('\U00010D01'), '' if self.old else 'AL')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '<compat> 03A3 != ''
     def test_decomposition(self):
         self.assertEqual(self.db.decomposition('\uFFFE'),'')
         self.assertEqual(self.db.decomposition('\u00bc'), '<fraction> 0031 2044 0034')
@@ -700,7 +698,6 @@ class BaseUnicodeFunctionsTest:
         # New in 17.0.0
         self.assertEqual(eaw('\U00016FF2'), 'N' if self.old else 'W')
 
-    @unittest.skip("TODO: RUSTPYTHON; AssertionError: 'N' != 'W' (passed on latest, fails on 3.2)")
     def test_east_asian_width_unassigned(self):
         eaw = self.db.east_asian_width
         # unassigned
@@ -1101,18 +1098,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.block, 120)
         self.assertRaises(TypeError, self.db.block, '')
         self.assertRaises(TypeError, self.db.block, 'xx')
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + N
-    def test_east_asian_width_9_0_changes(self):
-        return super().test_east_asian_width_9_0_changes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'D4CC 11B6' != '1111 1171 11B6'
-    def test_decomposition(self):
-        return super().test_decomposition()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
-    def test_lookup_nonexistant(self):
-        return super().test_lookup_nonexistant()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
     def test_function_checksum(self):
