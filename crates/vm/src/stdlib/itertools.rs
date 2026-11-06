@@ -145,7 +145,7 @@ mod decl {
     #[derive(FromArgs)]
     struct IterablePosArg {
         #[pyarg(positional)]
-        iterable: PyObjectRef,
+        iterable: PyIter,
     }
 
     #[derive(FromArgs)]
@@ -279,8 +279,8 @@ mod decl {
         type Args = IterablePosArg;
         const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let iter = args.iterable.get_iter(vm)?;
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            let iter = args.iterable;
             Ok(Self {
                 iter,
                 exhausted: AtomicBool::new(false),
@@ -421,7 +421,7 @@ mod decl {
         #[pyarg(positional)]
         function: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyObjectRef,
+        iterable: PyIter,
     }
 
     impl Constructor for PyItertoolsStarmap {
@@ -431,13 +431,9 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { function, iterable }: Self::Args,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let iterator = iterable.get_iter(vm)?;
-            Ok(Self {
-                function,
-                iterable: iterator,
-            })
+            Ok(Self { function, iterable })
         }
     }
 
@@ -475,7 +471,7 @@ mod decl {
         #[pyarg(positional)]
         predicate: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyObjectRef,
+        iterable: PyIter,
     }
 
     impl Constructor for PyItertoolsTakewhile {
@@ -488,12 +484,11 @@ mod decl {
                 predicate,
                 iterable,
             }: Self::Args,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
                 predicate,
-                iterable: iterator,
+                iterable,
                 stop_flag: AtomicCell::new(false),
             })
         }
@@ -542,7 +537,7 @@ mod decl {
         #[pyarg(positional)]
         predicate: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyObjectRef,
+        iterable: PyIter,
     }
 
     impl Constructor for PyItertoolsDropwhile {
@@ -555,12 +550,11 @@ mod decl {
                 predicate,
                 iterable,
             }: Self::Args,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
                 predicate,
-                iterable: iterator,
+                iterable,
                 start_flag: AtomicCell::new(false),
             })
         }
@@ -900,12 +894,13 @@ mod decl {
                 ));
             }
 
-            let mut step = 1;
-            if let OptionalArg::Present(a3) = &a3
+            let step = if let OptionalArg::Present(a3) = &a3
                 && !vm.is_none(a3)
             {
-                step = to_ssize(a3);
-            }
+                to_ssize(a3)
+            } else {
+                1
+            };
             if step < 1 {
                 return Err(
                     vm.new_value_error("Step for islice() must be a positive integer or None.")
@@ -985,7 +980,7 @@ mod decl {
         #[pyarg(positional)]
         function: PyObjectRef,
         #[pyarg(positional)]
-        iterable: PyObjectRef,
+        iterable: PyIter,
     }
 
     impl Constructor for PyItertoolsFilterFalse {
@@ -995,12 +990,11 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { function, iterable }: Self::Args,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
                 predicate: function,
-                iterable: iterator,
+                iterable,
             })
         }
     }
@@ -1154,10 +1148,18 @@ mod decl {
         advancing: AtomicBool,
     }
 
+    #[derive(FromArgs)]
+    struct TeeNewArgs {
+        #[pyarg(positional)]
+        iterable: PyObjectRef,
+    }
+
     impl Constructor for PyItertoolsTee {
-        type Args = IterablePosArg;
+        type Args = TeeNewArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            // Keep the source alive until an existing tee's position is copied:
+            // its finalizer can advance the iterator returned by __iter__.
             let iterator = args.iterable.get_iter(vm)?;
             // An iterator that is already a tee shares its buffer rather than
             // getting one of its own.
@@ -1902,8 +1904,8 @@ mod decl {
 
         const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let iterator = args.iterable.get_iter(vm)?;
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            let iterator = args.iterable;
             Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),

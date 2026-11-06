@@ -745,3 +745,68 @@ for _ in range(199):
     next(tee_left)
     next(tee_right)
 assert tee_ref() is None
+
+
+def check_positional_constructor_binding():
+    events = []
+
+    class Source:
+        def __iter__(self):
+            events.append("iter")
+            return iter(())
+
+    for base, prefix in (
+        (itertools.cycle, ()),
+        (itertools.starmap, (None,)),
+        (itertools.takewhile, (None,)),
+        (itertools.dropwhile, (None,)),
+        (itertools.filterfalse, (None,)),
+        (itertools.pairwise, ()),
+    ):
+        for constructor, leading in ((base, ()), (base.__new__, (base,))):
+            events.clear()
+            with assert_raises(TypeError):
+                constructor(*leading, *prefix, Source(), unexpected=True)
+            assert events == [], (base, events)
+
+            with assert_raises(TypeError):
+                constructor(*leading, *prefix, Source(), None)
+            assert events == [], (base, events)
+
+            constructor(*leading, *prefix, Source())
+            assert events == ["iter"], (base, events)
+
+        class Subclass(base):
+            def __init__(self, *args, label):
+                events.append(label)
+
+        events.clear()
+        Subclass(*prefix, Source(), label="init")
+        assert events == ["iter", "init"], (base, events)
+
+
+check_positional_constructor_binding()
+
+
+def check_tee_source_lifetime():
+    for construct, leading in (
+        (itertools._tee, ()),
+        (itertools._tee.__new__, (itertools._tee,)),
+    ):
+        original = itertools._tee(range(3))
+        events = []
+
+        class Source:
+            def __iter__(self):
+                return original
+
+            def __del__(self):
+                events.append(next(original))
+
+        copied = construct(*leading, Source())
+        assert events == [0], events
+        assert next(copied) == 0
+        assert next(original) == 1
+
+
+check_tee_source_lifetime()
