@@ -15,7 +15,7 @@ mod _sre {
         function::{ArgCallable, DefaultRepr, PosArgs, PyComparisonValue},
         protocol::{BufferFlags, PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
-        types::{AsMapping, Comparable, Hashable, Representable},
+        types::{AsMapping, Comparable, Hashable},
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;
@@ -603,7 +603,7 @@ mod _sre {
 
     #[pyclass(
         itemsize = core::mem::size_of::<u32>(),
-        with(Hashable, Comparable, Representable),
+        with(Hashable, Comparable),
         flags(HAS_WEAKREF)
     )]
     impl Py<Pattern> {
@@ -836,47 +836,10 @@ mod _sre {
         ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, object, vm)
         }
-    }
 
-    impl Hashable for Pattern {
-        fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-            let hash = zelf.pattern.hash(vm)?;
-            let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
-            let hash = hash ^ crate::vm::hash_secret().hash_bytes(code);
-            let hash = hash ^ (zelf.flags as PyHash);
-            let hash = hash ^ (zelf.isbytes as i64);
-            Ok(hash)
-        }
-    }
-
-    impl Comparable for Pattern {
-        fn cmp(
-            zelf: &crate::Py<Self>,
-            other: &PyObject,
-            op: crate::types::PyComparisonOp,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            if let Some(res) = op.identical_optimization(zelf, other) {
-                return Ok(res.into());
-            }
-            op.eq_only(|| {
-                if let Some(other) = other.downcast_ref::<Self>() {
-                    Ok(PyComparisonValue::Implemented(
-                        zelf.flags == other.flags
-                            && zelf.isbytes == other.isbytes
-                            && zelf.code == other.code
-                            && vm.bool_eq(&zelf.pattern, &other.pattern)?,
-                    ))
-                } else {
-                    Ok(PyComparisonValue::NotImplemented)
-                }
-            })
-        }
-    }
-
-    impl Representable for Pattern {
         #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let flag_names = [
                 ("re.IGNORECASE", SreFlag::IGNORECASE),
                 ("re.LOCALE", SreFlag::LOCALE),
@@ -924,6 +887,42 @@ mod _sre {
             }
             result.push_char(')');
             Ok(result)
+        }
+    }
+
+    impl Hashable for Pattern {
+        fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+            let hash = zelf.pattern.hash(vm)?;
+            let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
+            let hash = hash ^ crate::vm::hash_secret().hash_bytes(code);
+            let hash = hash ^ (zelf.flags as PyHash);
+            let hash = hash ^ (zelf.isbytes as i64);
+            Ok(hash)
+        }
+    }
+
+    impl Comparable for Pattern {
+        fn cmp(
+            zelf: &crate::Py<Self>,
+            other: &PyObject,
+            op: crate::types::PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            if let Some(res) = op.identical_optimization(zelf, other) {
+                return Ok(res.into());
+            }
+            op.eq_only(|| {
+                if let Some(other) = other.downcast_ref::<Self>() {
+                    Ok(PyComparisonValue::Implemented(
+                        zelf.flags == other.flags
+                            && zelf.isbytes == other.isbytes
+                            && zelf.code == other.code
+                            && vm.bool_eq(&zelf.pattern, &other.pattern)?,
+                    ))
+                } else {
+                    Ok(PyComparisonValue::NotImplemented)
+                }
+            })
         }
     }
 
@@ -1048,7 +1047,7 @@ mod _sre {
 
     #[pyclass(
         itemsize = core::mem::size_of::<isize>(),
-        with(AsMapping, Representable),
+        with(AsMapping),
         flags(DISALLOW_INSTANTIATION)
     )]
     impl Py<Match> {
@@ -1201,6 +1200,23 @@ mod _sre {
         ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, object, vm)
         }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            with_sre_str!(zelf.pattern, &zelf.string, vm, |str_drive| {
+                let match_repr = zelf.get_slice(0, str_drive, vm).unwrap().repr(vm)?;
+                Ok(wtf8_concat!(
+                    "<re.Match object; span=(",
+                    zelf.regs[0].0,
+                    ", ",
+                    zelf.regs[0].1,
+                    "), match=",
+                    match_repr.as_wtf8(),
+                    '>',
+                ))
+            })
+        }
     }
 
     impl AsMapping for Match {
@@ -1215,24 +1231,6 @@ mod _sre {
                     ..PyMappingMethods::NOT_IMPLEMENTED
                 });
             &AS_MAPPING
-        }
-    }
-
-    impl Representable for Match {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            with_sre_str!(zelf.pattern, &zelf.string, vm, |str_drive| {
-                let match_repr = zelf.get_slice(0, str_drive, vm).unwrap().repr(vm)?;
-                Ok(wtf8_concat!(
-                    "<re.Match object; span=(",
-                    zelf.regs[0].0,
-                    ", ",
-                    zelf.regs[0].1,
-                    "), match=",
-                    match_repr.as_wtf8(),
-                    '>',
-                ))
-            })
         }
     }
 

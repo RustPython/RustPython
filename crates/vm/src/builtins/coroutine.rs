@@ -7,7 +7,7 @@ use crate::{
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
-    types::{Destructor, IterNext, Iterable, Representable, SelfIter},
+    types::{Destructor, IterNext, Iterable, SelfIter},
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -63,9 +63,15 @@ impl PyCoroutine {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(Py, Representable, Destructor)
+    with(Py, Destructor)
 )]
-impl PyCoroutine {}
+impl PyCoroutine {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> String {
+        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
+    }
+}
 
 #[pyclass]
 impl Py<PyCoroutine> {
@@ -168,13 +174,6 @@ impl Py<PyCoroutine> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
-    }
-}
-
-impl Representable for PyCoroutine {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
     }
 }
 

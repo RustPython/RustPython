@@ -7,7 +7,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSpec, FuncArgs},
-    types::{Constructor, Representable},
+    types::Constructor,
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
@@ -122,7 +122,7 @@ impl Constructor for PyInterpolation {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
+#[pyclass(with(Constructor))]
 impl PyInterpolation {
     #[pyattr]
     fn __match_args__(ctx: &Context) -> PyTupleRef {
@@ -154,11 +154,10 @@ impl PyInterpolation {
         );
         (cls, args.to_pyobject(vm)).into_pytuple(vm)
     }
-}
 
-impl Representable for PyInterpolation {
     #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let mut result = Wtf8Buf::from("Interpolation(");
         // Release each repr result before invoking the next field's callback.
         result.push_wtf8(zelf.value.repr(vm)?.as_wtf8());

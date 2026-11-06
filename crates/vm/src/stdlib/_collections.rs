@@ -29,8 +29,7 @@ mod _collections {
         sliceable::SequenceIndexOp,
         types::{
             AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
-            GetDescriptor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
-            SelfIter,
+            GetDescriptor, Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
         },
         utils::collection_repr,
         vm::{MAX_MEMORY_SIZE, thread::PyOperation},
@@ -465,15 +464,7 @@ mod _collections {
 
     #[pyclass(
         flags(BASETYPE, HAS_WEAKREF),
-        with(
-            Constructor,
-            Initializer,
-            AsNumber,
-            AsSequence,
-            Comparable,
-            Iterable,
-            Representable
-        )
+        with(Constructor, Initializer, AsNumber, AsSequence, Comparable, Iterable)
     )]
     impl Py<PyDeque> {
         #[pymethod]
@@ -760,6 +751,34 @@ mod _collections {
         ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, object, vm)
         }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+            let (deque, maxlen, _) = zelf.snapshot();
+            let class = zelf.class();
+            let class_name = class.name();
+            let closing_part =
+                maxlen.map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
+            let empty = format!("{class_name}([{closing_part})");
+
+            if deque.is_empty() {
+                return Ok(vm.ctx.new_str(empty));
+            }
+
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                Ok(vm.ctx.new_str(collection_repr(
+                    Some(&class_name),
+                    "[",
+                    &closing_part,
+                    &empty,
+                    deque.iter().map(|o| &**o),
+                    vm,
+                )?))
+            } else {
+                Ok(vm.ctx.intern_str("[...]").to_owned())
+            }
+        }
     }
 
     impl MutObjectSequenceOp for PyDeque {
@@ -921,39 +940,6 @@ mod _collections {
     impl Iterable for PyDeque {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(PyDequeIterator::new(zelf).into_pyobject(vm))
-        }
-    }
-
-    impl Representable for PyDeque {
-        #[inline]
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            let (deque, maxlen, _) = zelf.snapshot();
-            let class = zelf.class();
-            let class_name = class.name();
-            let closing_part =
-                maxlen.map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
-            let empty = format!("{class_name}([{closing_part})");
-
-            if deque.is_empty() {
-                return Ok(vm.ctx.new_str(empty));
-            }
-
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                Ok(vm.ctx.new_str(collection_repr(
-                    Some(&class_name),
-                    "[",
-                    &closing_part,
-                    &empty,
-                    deque.iter().map(|o| &**o),
-                    vm,
-                )?))
-            } else {
-                Ok(vm.ctx.intern_str("[...]").to_owned())
-            }
-        }
-
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            unreachable!("repr() is overridden directly")
         }
     }
 
@@ -1229,7 +1215,7 @@ mod _collections {
     }
 
     #[pyclass(
-        with(AsMapping, AsNumber, Constructor, Initializer, Representable),
+        with(AsMapping, AsNumber, Constructor, Initializer),
         flags(BASETYPE, MAPPING, HAS_DICT)
     )]
     impl Py<PyDefaultDict> {
@@ -1290,6 +1276,31 @@ mod _collections {
                     iter.into(),
                 ])
                 .into())
+        }
+
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+            let default_factory = zelf.default_factory.load_owned();
+
+            let factory_repr = match default_factory.as_ref() {
+                Some(factory) => {
+                    if let Some(_guard) = ReprGuard::enter(vm, factory) {
+                        factory.repr(vm)?.to_string()
+                    } else {
+                        String::from("...")
+                    }
+                }
+                None => String::from("None"),
+            };
+
+            let dict_repr = PyDict::__repr__(&zelf.dict.copy().into_ref(&vm.ctx), vm)?;
+
+            Ok(format!(
+                "{}({}, {})",
+                zelf.class().name(),
+                factory_repr,
+                dict_repr
+            ))
         }
     }
 
@@ -1355,32 +1366,6 @@ mod _collections {
             )?;
 
             Ok(())
-        }
-    }
-
-    impl Representable for PyDefaultDict {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let default_factory = zelf.default_factory.load_owned();
-
-            let factory_repr = match default_factory.as_ref() {
-                Some(factory) => {
-                    if let Some(_guard) = ReprGuard::enter(vm, factory) {
-                        factory.repr(vm)?.to_string()
-                    } else {
-                        String::from("...")
-                    }
-                }
-                None => String::from("None"),
-            };
-
-            let dict_repr = Representable::repr(&zelf.dict.copy().into_ref(&vm.ctx), vm)?;
-
-            Ok(format!(
-                "{}({}, {})",
-                zelf.class().name(),
-                factory_repr,
-                dict_repr
-            ))
         }
     }
 
@@ -1471,7 +1456,7 @@ mod _collections {
         }
     }
 
-    #[pyclass(with(Constructor, GetDescriptor, Representable))]
+    #[pyclass(with(Constructor, GetDescriptor))]
     impl PyTupleGetter {
         fn doc(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.doc.load_owned().unwrap_or_else(|| vm.ctx.none())
@@ -1493,6 +1478,12 @@ mod _collections {
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, (isize, PyObjectRef)) {
             (zelf.class().to_owned(), (zelf.index, zelf.doc(vm)))
+        }
+
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let doc = zelf.doc(vm).repr(vm)?;
+            Ok(format!("{}({}, {})", zelf.class().name(), zelf.index, doc))
         }
     }
 
@@ -1519,13 +1510,6 @@ mod _collections {
                 .and_then(|index| tuple.as_slice().get(index))
                 .cloned()
                 .ok_or_else(|| vm.new_index_error("tuple index out of range"))
-        }
-    }
-
-    impl Representable for PyTupleGetter {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let doc = zelf.doc(vm).repr(vm)?;
-            Ok(format!("{}({}, {})", zelf.class().name(), zelf.index, doc))
         }
     }
 }

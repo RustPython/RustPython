@@ -2348,31 +2348,6 @@ pub trait Hashable: PyPayload {
 }
 
 #[pyclass]
-pub trait Representable: PyPayload {
-    #[inline]
-    #[pyslot]
-    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let zelf = zelf
-            .downcast_ref()
-            .ok_or_else(|| vm.new_type_error("unexpected payload for __repr__"))?;
-        Self::repr(zelf, vm)
-    }
-
-    #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let repr = Self::repr_wtf8(zelf, vm)?;
-        Ok(vm.ctx.new_str(repr))
-    }
-
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        Self::repr_str(zelf, vm).map(|utf8| utf8.into())
-    }
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("Representable requires overriding either repr_str or repr_wtf8")
-    }
-}
-
-#[pyclass]
 pub trait Comparable: PyPayload {
     #[inline]
     #[pyslot]

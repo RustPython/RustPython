@@ -35,8 +35,7 @@ use crate::{
     },
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
-        DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
-        SelfIter,
+        DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
     },
 };
 use bstr::ByteSlice;
@@ -612,11 +611,18 @@ impl PyByteArray {
         AsMapping,
         AsSequence,
         AsNumber,
-        Iterable,
-        Representable
+        Iterable
     )
 )]
-impl PyByteArray {}
+impl PyByteArray {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = zelf.class();
+        let class_name = class.name();
+        zelf.inner().repr_with_name(&class_name, vm)
+    }
+}
 
 #[derive(FromArgs)]
 struct ByteArrayReduceExArgs {
@@ -897,14 +903,11 @@ impl Py<PyByteArray> {
         size_of::<PyByteArray>() + self.borrow_buf().len() * size_of::<u8>()
     }
 
-    #[pyslot]
-    fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let zelf = zelf
-            .downcast_ref::<PyByteArray>()
-            .expect("expected bytearray");
+    #[pymethod]
+    fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         PyBytesInner::warn_on_str("str() on a bytearray instance", vm)?;
-        let class_name = zelf.class().name();
-        let repr = zelf.inner().repr_with_name(&class_name, vm)?;
+        let class_name = self.class().name();
+        let repr = self.inner().repr_with_name(&class_name, vm)?;
         Ok(vm.ctx.new_str(repr))
     }
 
@@ -1553,15 +1556,6 @@ impl Iterable for PyByteArray {
             internal: NativeSequenceIter::new(zelf, NativeIterKind::ByteArray, 0),
         }
         .into_pyobject(vm))
-    }
-}
-
-impl Representable for PyByteArray {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = zelf.class();
-        let class_name = class.name();
-        zelf.inner().repr_with_name(&class_name, vm)
     }
 }
 

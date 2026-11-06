@@ -15,7 +15,7 @@ pub(crate) mod _hashlib {
         },
         class::StaticType,
         function::{ArgBytesLike, ArgCInt, ArgIntoBool, ArgStrOrBytesLike, FuncArgs, OptionalArg},
-        types::{Constructor, Representable},
+        types::Constructor,
     };
     use core::mem::MaybeUninit;
     use rustpython_common::hashlib as backend;
@@ -630,8 +630,16 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyHmac {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!(
+                "<{} HMAC object @ {:#x}>",
+                zelf.algo_name, zelf as *const _ as usize
+            )
+        }
+
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create '_hashlib.HMAC' instances"))
@@ -675,15 +683,6 @@ pub(crate) mod _hashlib {
                 block_size: zelf.block_size,
                 ctx: zelf.ctx.copy(),
             }
-        }
-    }
-
-    impl Representable for PyHmac {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "<{} HMAC object @ {:#x}>",
-                zelf.algo_name, zelf as *const _ as usize
-            ))
         }
     }
 
@@ -738,8 +737,16 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyHasher {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!(
+                "<{} _hashlib.HASH object @ {:#x}>",
+                zelf.name, zelf as *const _ as usize
+            )
+        }
+
         fn new(name: &str, ctx: HashCtx, digest_size: usize) -> Self {
             Self {
                 name: name.to_owned(),
@@ -815,15 +822,6 @@ pub(crate) mod _hashlib {
         }
     }
 
-    impl Representable for PyHasher {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "<{} _hashlib.HASH object @ {:#x}>",
-                zelf.name, zelf as *const _ as usize
-            ))
-        }
-    }
-
     #[pyattr]
     #[pyclass(module = "_hashlib", name = "HASHXOF")]
     #[derive(PyPayload)]
@@ -838,8 +836,16 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyHasherXof {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!(
+                "<{} _hashlib.HASHXOF object @ {:#x}>",
+                zelf.name, zelf as *const _ as usize
+            )
+        }
+
         fn new(name: &str, ctx: HashCtx) -> Self {
             Self {
                 name: name.to_owned(),
@@ -915,15 +921,6 @@ pub(crate) mod _hashlib {
         #[pymethod]
         fn copy(zelf: &Py<Self>) -> Self {
             Self::new(&zelf.name, zelf.ctx.copy())
-        }
-    }
-
-    impl Representable for PyHasherXof {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "<{} _hashlib.HASHXOF object @ {:#x}>",
-                zelf.name, zelf as *const _ as usize
-            ))
         }
     }
 

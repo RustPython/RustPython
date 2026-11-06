@@ -17,10 +17,7 @@ use crate::{
     frame::{FrameObject, FrameObjectRef},
     function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
-    types::{
-        Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
-        Representable,
-    },
+    types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp},
 };
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
@@ -999,7 +996,7 @@ impl PyPayload for PyFunction {
 }
 
 #[pyclass(
-    with(GetDescriptor, Callable, Representable, Constructor),
+    with(GetDescriptor, Callable, Constructor),
     flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
 )]
 impl Py<PyFunction> {
@@ -1270,6 +1267,12 @@ impl Py<PyFunction> {
         *jit_guard = Some(compiled);
         Ok(())
     }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        format!("<function {} at {:#x}>", zelf.__qualname__(), zelf.get_id())
+    }
 }
 
 impl GetDescriptor for PyFunction {
@@ -1295,17 +1298,6 @@ impl Callable for PyFunction {
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
-    }
-}
-
-impl Representable for PyFunction {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
-            "<function {} at {:#x}>",
-            zelf.__qualname__(),
-            zelf.get_id()
-        ))
     }
 }
 
@@ -1485,15 +1477,7 @@ impl PyBoundMethod {
 }
 
 #[pyclass(
-    with(
-        Callable,
-        Comparable,
-        Hashable,
-        GetAttr,
-        GetDescriptor,
-        Constructor,
-        Representable
-    ),
+    with(Callable, Comparable, Hashable, GetAttr, GetDescriptor, Constructor),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
 impl Py<PyBoundMethod> {
@@ -1569,18 +1553,10 @@ impl Py<PyBoundMethod> {
 
         Ok(PyList::from(result))
     }
-}
 
-impl PyPayload for PyBoundMethod {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bound_method_type
-    }
-}
-
-impl Representable for PyBoundMethod {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let func_name = if let Some(qname) =
             vm.get_attribute_opt(&zelf.function, identifier!(vm, __qualname__))?
         {
@@ -1600,6 +1576,13 @@ impl Representable for PyBoundMethod {
             object_repr.as_wtf8(),
             ">"
         ))
+    }
+}
+
+impl PyPayload for PyBoundMethod {
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bound_method_type
     }
 }
 
@@ -1646,7 +1629,7 @@ impl PyCell {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
+#[pyclass(with(Constructor))]
 impl Py<PyCell> {
     #[pyslot]
     fn slot_richcompare(
@@ -1686,13 +1669,12 @@ impl Py<PyCell> {
             PySetterValue::Delete => self.set(None),
         }
     }
-}
 
-impl Representable for PyCell {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
         let id = zelf.get_id();
-        Ok(match zelf.get() {
+        match zelf.get() {
             Some(value) => {
                 let type_name = value.class().slot_name();
                 // CPython renders the type name with "%.80s", which reads at
@@ -1708,7 +1690,7 @@ impl Representable for PyCell {
                 )
             }
             None => format!("<cell at {id:#x}: empty>"),
-        })
+        }
     }
 }
 

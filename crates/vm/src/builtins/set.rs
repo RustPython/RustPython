@@ -28,7 +28,7 @@ use crate::{
     types::AsNumber,
     types::{
         AsSequence, Comparable, Constructor, DefaultConstructor, Hashable, Initializer, IterNext,
-        Iterable, PyComparisonOp, Representable, SelfIter,
+        Iterable, PyComparisonOp, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -970,15 +970,7 @@ impl PySet {
 }
 
 #[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsSequence,
-        Comparable,
-        Iterable,
-        AsNumber,
-        Representable
-    ),
+    with(Constructor, Initializer, AsSequence, Comparable, Iterable, AsNumber),
     flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF)
 )]
 impl Py<PySet> {
@@ -1131,6 +1123,25 @@ impl Py<PySet> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let class = zelf.class();
+        let borrowed_name = class.name();
+        let class_name = &*borrowed_name;
+
+        if zelf.inner.len() == 0 {
+            return Ok(Wtf8Buf::from(format!("{class_name}()")));
+        }
+
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let name = (class_name != "set").then_some(class_name);
+            zelf.inner.repr(name, vm)
+        } else {
+            Ok(Wtf8Buf::from(format!("{class_name}(...)")))
+        }
     }
 }
 
@@ -1304,26 +1315,6 @@ impl AsNumber for PySet {
     }
 }
 
-impl Representable for PySet {
-    #[inline]
-    fn repr_wtf8(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let class = zelf.class();
-        let borrowed_name = class.name();
-        let class_name = &*borrowed_name;
-
-        if zelf.inner.len() == 0 {
-            return Ok(Wtf8Buf::from(format!("{class_name}()")));
-        }
-
-        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let name = (class_name != "set").then_some(class_name);
-            zelf.inner.repr(name, vm)
-        } else {
-            Ok(Wtf8Buf::from(format!("{class_name}(...)")))
-        }
-    }
-}
-
 impl Constructor for PyFrozenSet {
     type Args = crate::function::PositionalIterable;
 
@@ -1485,15 +1476,7 @@ impl PyFrozenSet {
 
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF),
-    with(
-        Constructor,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        AsNumber,
-        Representable
-    )
+    with(Constructor, AsSequence, Hashable, Comparable, Iterable, AsNumber)
 )]
 impl Py<PyFrozenSet> {
     #[pymethod(coexist)]
@@ -1595,6 +1578,22 @@ impl Py<PyFrozenSet> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let inner = &zelf.inner;
+        let class = zelf.class();
+        let class_name = class.name();
+        if inner.len() == 0 {
+            return Ok(Wtf8Buf::from(format!("{class_name}()")));
+        }
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            inner.repr(Some(&class_name), vm)
+        } else {
+            Ok(Wtf8Buf::from(format!("{class_name}(...)")))
+        }
     }
 }
 
@@ -1710,23 +1709,6 @@ impl AsNumber for PyFrozenSet {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
-    }
-}
-
-impl Representable for PyFrozenSet {
-    #[inline]
-    fn repr_wtf8(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let inner = &zelf.inner;
-        let class = zelf.class();
-        let class_name = class.name();
-        if inner.len() == 0 {
-            return Ok(Wtf8Buf::from(format!("{class_name}()")));
-        }
-        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            inner.repr(Some(&class_name), vm)
-        } else {
-            Ok(Wtf8Buf::from(format!("{class_name}(...)")))
-        }
     }
 }
 

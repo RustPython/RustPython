@@ -13,7 +13,7 @@ mod decl {
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
-        types::{Constructor, IterNext, Iterable, Representable, SelfIter},
+        types::{Constructor, IterNext, Iterable, SelfIter},
     };
     use core::sync::atomic::{AtomicBool, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
@@ -228,24 +228,11 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor, Representable), flags(BASETYPE))]
-    impl PyItertoolsCount {}
-
-    impl SelfIter for PyItertoolsCount {}
-
-    impl IterNext for PyItertoolsCount {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let mut cur = zelf.cur.write();
-            let step = zelf.step.clone();
-            let result = cur.clone();
-            *cur = vm._iadd(&cur, step.as_object())?;
-            Ok(PyIterReturn::Return(result.to_pyobject(vm)))
-        }
-    }
-
-    impl Representable for PyItertoolsCount {
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
+    impl PyItertoolsCount {
         #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let cur_repr = zelf.cur.read().clone().repr(vm)?;
             let step = &zelf.step;
             let mut result = Wtf8Buf::from("count(");
@@ -258,6 +245,18 @@ mod decl {
             }
             result.push_char(')');
             Ok(result)
+        }
+    }
+
+    impl SelfIter for PyItertoolsCount {}
+
+    impl IterNext for PyItertoolsCount {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let mut cur = zelf.cur.write();
+            let step = zelf.step.clone();
+            let result = cur.clone();
+            *cur = vm._iadd(&cur, step.as_object())?;
+            Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }
 
@@ -365,7 +364,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl Py<PyItertoolsRepeat> {
         #[pymethod]
         fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -375,6 +374,19 @@ mod decl {
                 .as_ref()
                 .ok_or_else(|| vm.new_type_error("length of unsized object."))?;
             Ok(*times.read())
+        }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("repeat(");
+            result.push_wtf8(zelf.object.repr(vm)?.as_wtf8());
+            if let Some(ref times) = zelf.times {
+                result.push_str(", ");
+                result.push_str(&times.read().to_string());
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -390,20 +402,6 @@ mod decl {
                 *times -= 1;
             }
             Ok(PyIterReturn::Return(zelf.object.clone()))
-        }
-    }
-
-    impl Representable for PyItertoolsRepeat {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let mut result = Wtf8Buf::from("repeat(");
-            result.push_wtf8(zelf.object.repr(vm)?.as_wtf8());
-            if let Some(ref times) = zelf.times {
-                result.push_str(", ");
-                result.push_str(&times.read().to_string());
-            }
-            result.push_char(')');
-            Ok(result)
         }
     }
 

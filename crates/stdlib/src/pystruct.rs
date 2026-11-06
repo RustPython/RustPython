@@ -19,7 +19,7 @@ pub(crate) mod _struct {
         match_class,
         protocol::PyIterReturn,
         stdlib::_warnings,
-        types::{Constructor, Initializer, IterNext, Iterable, Representable, SelfIter},
+        types::{Constructor, Initializer, IterNext, Iterable, SelfIter},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
@@ -423,8 +423,18 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyclass(with(Constructor, Initializer, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl PyStruct {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            Ok(wtf8_concat!(
+                "Struct('",
+                zelf.ready(vm)?.format.as_wtf8(),
+                "')"
+            ))
+        }
+
         // Hold an owned snapshot while conversions and warning hooks can reenter.
         fn ready(&self, vm: &VirtualMachine) -> PyResult<StructSpec> {
             let inner = self.inner.read().clone();
@@ -510,17 +520,6 @@ pub(crate) mod _struct {
         fn __sizeof__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
             let inner = zelf.ready(vm)?;
             Ok(core::mem::size_of::<Self>() + inner.spec.codes_sizeof())
-        }
-    }
-
-    impl Representable for PyStruct {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            Ok(wtf8_concat!(
-                "Struct('",
-                zelf.ready(vm)?.format.as_wtf8(),
-                "')"
-            ))
         }
     }
 

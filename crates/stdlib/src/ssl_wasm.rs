@@ -24,7 +24,7 @@ mod _ssl {
             builtins::{PyBytesRef, PyType, PyUtf8StrRef},
             function::{ArgBytesLike, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
             stdlib::_warnings,
-            types::{Comparable, Constructor, PyComparisonOp, Representable},
+            types::{Comparable, Constructor, PyComparisonOp},
         },
     };
     use rustpython_host_env::ssl::oid;
@@ -213,8 +213,14 @@ mod _ssl {
         keylog_filename: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySSLContext {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("<SSLContext(protocol={})>", zelf.protocol)
+        }
+
         #[pygetset]
         fn check_hostname(zelf: &Py<Self>) -> bool {
             *zelf.check_hostname.read()
@@ -591,13 +597,6 @@ mod _ssl {
         }
     }
 
-    impl Representable for PySSLContext {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("<SSLContext(protocol={})>", zelf.protocol))
-        }
-    }
-
     impl Constructor for PySSLContext {
         type Args = (i32,);
 
@@ -707,8 +706,14 @@ mod _ssl {
         inner: PyMutex<rustpython_host_env::ssl::MemoryBio>,
     }
 
-    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
+        #[inline]
+        #[pymethod]
+        fn __repr__(_zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            "<MemoryBIO>".to_owned()
+        }
+
         #[pymethod]
         fn read(
             zelf: &Py<Self>,
@@ -759,13 +764,6 @@ mod _ssl {
         }
     }
 
-    impl Representable for PyMemoryBIO {
-        #[inline]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("<MemoryBIO>".to_owned())
-        }
-    }
-
     impl Constructor for PyMemoryBIO {
         type Args = ();
 
@@ -785,8 +783,14 @@ mod _ssl {
         has_ticket: bool,
     }
 
-    #[pyclass(flags(BASETYPE), with(Comparable, Representable))]
+    #[pyclass(flags(BASETYPE), with(Comparable))]
     impl PySSLSession {
+        #[inline]
+        #[pymethod]
+        fn __repr__(_zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            "<SSLSession>".to_owned()
+        }
+
         #[pygetset]
         fn time(_zelf: &Py<Self>) -> i64 {
             0
@@ -827,13 +831,6 @@ mod _ssl {
                     Ok(PyComparisonValue::NotImplemented)
                 }
             })
-        }
-    }
-
-    impl Representable for PySSLSession {
-        #[inline]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("<SSLSession>".to_owned())
         }
     }
 

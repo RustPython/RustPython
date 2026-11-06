@@ -11,7 +11,7 @@ mod _queue {
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
         function::TimeoutSeconds,
         protocol::PyNumberMethods,
-        types::{AsNumber, Constructor, Representable},
+        types::{AsNumber, Constructor},
     };
 
     type BufInner = VecDeque<PyObjectRef>;
@@ -226,11 +226,17 @@ mod _queue {
         timeout: Option<TimeoutSeconds>,
     }
 
-    #[pyclass(
-        with(Constructor, Representable),
-        flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
-    )]
+    #[pyclass(with(Constructor), flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE))]
     impl PySimpleQueue {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+            vm.ctx.new_str(format!(
+                "<{} at {:#x}>",
+                Self::class(&vm.ctx).slot_name(),
+                zelf.get_id()
+            ))
+        }
+
         #[pymethod]
         fn __sizeof__(zelf: &Py<Self>) -> usize {
             core::mem::size_of::<Self>()
@@ -332,20 +338,6 @@ mod _queue {
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
-        }
-    }
-
-    impl Representable for PySimpleQueue {
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            Ok(vm.ctx.new_str(format!(
-                "<{} at {:#x}>",
-                Self::class(&vm.ctx).slot_name(),
-                zelf.get_id()
-            )))
-        }
-
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            unreachable!("repr() is overridden directly")
         }
     }
 }

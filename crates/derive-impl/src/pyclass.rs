@@ -1216,8 +1216,6 @@ where
                 // Constructor/Initializer traits
                 ("__new__", "Constructor"),
                 ("__init__", "Initializer"),
-                // Representable trait
-                ("__repr__", "Representable"),
                 // ("__str__", "???"), // allow __str__
                 // Hashable trait
                 ("__hash__", "Hashable"),
@@ -1342,6 +1340,52 @@ where
             args.attrs.push(allow_attr);
         }
 
+        // __str__ and __repr__ are single-method protocols: register its implementation as a
+        // slot and let add_operators expose the usual wrapper_descriptor. Other
+        // protocols still use their traits. Reuse native argument and result
+        // conversion so this keeps the same Rust signatures as a normal method.
+        if matches!(py_name.as_str(), "__str__" | "__repr__")
+            && self.inner.attr_name == AttrName::Method
+            && !coexist
+        {
+            let slot_name = py_name.trim_matches('_');
+            let slot_ident = Ident::new(slot_name, ident.span());
+            let return_error = format!("{py_name} returned non-string (type {{}})");
+            if raw {
+                return Err(syn::Error::new_spanned(
+                    item_attr,
+                    format!(
+                        "#[pymethod(raw)] cannot define '{py_name}'; use #[pyslot({slot_name})] instead"
+                    ),
+                ));
+            }
+            let slot_tokens = quote_spanned! { ident.span() =>
+                slots.#slot_ident.store(Some(|zelf, vm| {
+                    use ::rustpython_vm::{AsObject as _, function::IntoPyNativeFn};
+                    let result = IntoPyNativeFn::call(
+                        &Self::#ident,
+                        vm,
+                        vec![zelf.to_owned()].into(),
+                        ::rustpython_vm::function::Callee::named(#py_name).with_instance_arg(true),
+                    )?;
+                    result.downcast::<::rustpython_vm::builtins::PyStr>().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            #return_error,
+                            obj.class().slot_name()
+                        ))
+                    })
+                }));
+            };
+            args.context.extend_slots_items.add_item(
+                ident.clone(),
+                vec![format!("(slot {slot_name})")],
+                args.cfgs.to_vec(),
+                slot_tokens,
+                2,
+            );
+            return Ok(());
+        }
+
         let rust_doc = args.attrs.doc();
         let doc = internal_doc_tokens(
             func.sig(),
@@ -1367,6 +1411,7 @@ where
             coexist,
             attr_name: self.inner.attr_name,
         });
+
         Ok(())
     }
 }
@@ -2841,4 +2886,165 @@ fn parse_vec_ident(
             )
         })?
         .to_string())
+}
+
+#[cfg(test)]
+mod string_slot_tests {
+    use super::*;
+
+    fn expand(item: Item) -> String {
+        impl_pyclass_impl(parse_quote!(), item)
+            .expect("class expansion should succeed")
+            .to_string()
+    }
+
+    fn protocols() -> [(Ident, &'static str); 2] {
+        [("__str__", "str"), ("__repr__", "repr")]
+            .map(|(method, slot)| (Ident::new(method, Span::call_site()), slot))
+    }
+
+    #[test]
+    fn alias_uses_native_conversion_without_method_entry() {
+        for (method, slot) in protocols() {
+            let method = method.to_string();
+            let tokens = expand(parse_quote! {
+                impl Py<Example> {
+                    #[pymethod(name = #method)]
+                    fn display(&self) -> String { String::new() }
+                }
+            });
+            assert!(tokens.contains(&format!("slots . {slot} . store")));
+            assert!(tokens.contains("& Self :: display"));
+            assert!(tokens.contains("IntoPyNativeFn"));
+            assert!(!tokens.contains("PyMethodDef :: new_const"));
+            assert!(!tokens.contains(&format!("fn slot_{slot}")));
+        }
+    }
+
+    #[test]
+    fn slot_preserves_cfg_on_assignment() {
+        for (method, slot) in protocols() {
+            let tokens = expand(parse_quote! {
+                impl Py<Example> {
+                    #[cfg(feature = "example")]
+                    #[pymethod]
+                    fn #method(&self) -> String { String::new() }
+                }
+            });
+            assert!(tokens.contains(&format!(
+                "# [cfg (feature = \"example\")] {{ slots . {slot} . store"
+            )));
+            assert_eq!(tokens.matches("cfg (feature = \"example\")").count(), 2);
+            assert!(!tokens.contains(&format!("fn slot_{slot}")));
+        }
+    }
+
+    #[test]
+    fn trait_method_is_registered_inside_extend_slots() {
+        for (method, slot) in protocols() {
+            let tokens = expand(parse_quote! {
+                trait Display: PyPayload {
+                    #[pymethod]
+                    fn #method(zelf: &Py<Self>) -> String { String::new() }
+                }
+            });
+            assert!(tokens.contains("fn __extend_slots"));
+            assert!(tokens.contains(&format!("slots . {slot} . store")));
+            assert!(tokens.contains(&format!("& Self :: {method}")));
+            assert!(!tokens.contains(&format!("fn slot_{slot}")));
+            assert!(!tokens.contains("PyMethodDef :: new_const"));
+        }
+
+        let consumer = impl_pyclass_impl(
+            parse_quote!(with(Display)),
+            parse_quote!(impl Py<Example> {}),
+        )
+        .unwrap()
+        .to_string();
+        assert!(consumer.contains("< Self as Display > :: __extend_slots (slots)"));
+    }
+
+    #[test]
+    fn method_is_registered_as_slot() {
+        for (method, slot) in protocols() {
+            let tokens = expand(parse_quote! {
+                impl Py<Example> {
+                    #[pymethod]
+                    fn #method(&self) -> String { String::new() }
+                }
+            });
+            assert!(!tokens.contains("compile_error"));
+            assert!(tokens.contains(&format!("slots . {slot} . store")));
+            assert!(tokens.contains(&format!("{method} returned non-string (type {{}})")));
+            assert!(!tokens.contains("PyMethodDef :: new_const"));
+        }
+    }
+
+    #[test]
+    fn class_and_static_methods_remain_methods() {
+        for (method, slot) in protocols() {
+            for attribute in [quote!(pyclassmethod), quote!(pystaticmethod)] {
+                let tokens = expand(parse_quote! {
+                    impl Py<Example> {
+                        #[#attribute]
+                        fn #method() -> String { String::new() }
+                    }
+                });
+                assert!(tokens.contains("PyMethodDef :: new_const"));
+                assert!(!tokens.contains(&format!("slots . {slot} . store")));
+            }
+        }
+    }
+
+    #[test]
+    fn coexist_remains_an_ordinary_method() {
+        for (method, slot) in protocols() {
+            let tokens = expand(parse_quote! {
+                impl Py<Example> {
+                    #[pymethod(coexist)]
+                    fn #method(&self) -> String { String::new() }
+                }
+            });
+            assert!(tokens.contains("PyMethodDef :: new_const"));
+            assert!(tokens.contains("COEXIST"));
+            assert!(!tokens.contains(&format!("slots . {slot} . store")));
+        }
+    }
+
+    #[test]
+    fn explicit_and_method_slots_conflict() {
+        for (method, slot) in protocols() {
+            let slot_ident = Ident::new(slot, Span::call_site());
+            let error = impl_pyclass_impl(
+                parse_quote!(),
+                parse_quote! {
+                    impl Py<Example> {
+                        #[pymethod]
+                        fn #method(&self) -> String { String::new() }
+                        #[pyslot(#slot_ident)]
+                        fn stringify(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+                            todo!()
+                        }
+                    }
+                },
+            )
+            .expect_err("two implementations of the same slot must be rejected");
+            assert!(error.to_string().contains(&format!("(slot {slot})")));
+        }
+    }
+
+    #[test]
+    fn raw_method_reports_an_explicit_error() {
+        for (method, slot) in protocols() {
+            let tokens = expand(parse_quote! {
+                impl Py<Example> {
+                    #[pymethod(raw)]
+                    fn #method(vm: &VirtualMachine, args: FuncArgs) -> PyResult { todo!() }
+                }
+            });
+            assert!(tokens.contains("compile_error"));
+            assert!(tokens.contains(&format!("#[pymethod(raw)] cannot define '{method}'")));
+            assert!(!tokens.contains(&format!("slots . {slot} . store")));
+        }
+    }
 }

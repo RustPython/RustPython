@@ -17,7 +17,7 @@ use crate::{
     sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter,
+        PyComparisonOp, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -549,7 +549,7 @@ impl PyTuple {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
-    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
+    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor)
 )]
 impl Py<PyTuple> {
     #[pymethod]
@@ -599,6 +599,31 @@ impl Py<PyTuple> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if zelf.as_slice().is_empty() {
+            vm.ctx.intern_str("()").to_owned()
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let s = if zelf.as_slice().len() == 1 {
+                wtf8_concat!("(", zelf.as_slice()[0].repr(vm)?.as_wtf8(), ",)")
+            } else {
+                collection_repr(
+                    None,
+                    "(",
+                    ")",
+                    "()",
+                    zelf.as_slice().iter().map(|o| &**o),
+                    vm,
+                )?
+            };
+            vm.ctx.new_str(s)
+        } else {
+            vm.ctx.intern_str("(...)").to_owned()
+        };
+        Ok(s)
     }
 }
 
@@ -700,37 +725,6 @@ impl Iterable for PyTuple {
             internal: NativeSequenceIter::new(zelf, NativeIterKind::Sequence, 0),
         }
         .into_pyobject(vm))
-    }
-}
-
-impl Representable for PyTuple {
-    #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let s = if zelf.as_slice().is_empty() {
-            vm.ctx.intern_str("()").to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let s = if zelf.as_slice().len() == 1 {
-                wtf8_concat!("(", zelf.as_slice()[0].repr(vm)?.as_wtf8(), ",)")
-            } else {
-                collection_repr(
-                    None,
-                    "(",
-                    ")",
-                    "()",
-                    zelf.as_slice().iter().map(|o| &**o),
-                    vm,
-                )?
-            };
-            vm.ctx.new_str(s)
-        } else {
-            vm.ctx.intern_str("(...)").to_owned()
-        };
-        Ok(s)
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
     }
 }
 

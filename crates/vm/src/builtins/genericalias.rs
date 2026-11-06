@@ -14,7 +14,7 @@ use crate::{
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{
         AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
-        Iterable, PyComparisonOp, Representable,
+        Iterable, PyComparisonOp,
     },
 };
 use alloc::fmt;
@@ -234,8 +234,7 @@ impl PyGenericAlias {
         Constructor,
         GetAttr,
         Hashable,
-        Iterable,
-        Representable
+        Iterable
     ),
     flags(BASETYPE, HAS_WEAKREF)
 )]
@@ -314,6 +313,12 @@ impl Py<PyGenericAlias> {
         vm: &VirtualMachine,
     ) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
     }
 }
 
@@ -714,13 +719,6 @@ impl GetAttr for PyGenericAlias {
     }
 }
 
-impl Representable for PyGenericAlias {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.repr(vm)
-    }
-}
-
 impl Iterable for PyGenericAlias {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyGenericAliasIterator {
@@ -737,7 +735,7 @@ pub(crate) struct PyGenericAliasIterator {
     obj: crate::common::lock::PyMutex<Option<PyObjectRef>>,
 }
 
-#[pyclass(with(Representable, Iterable, IterNext))]
+#[pyclass(with(Iterable, IterNext))]
 impl Py<PyGenericAliasIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
@@ -753,11 +751,10 @@ impl Py<PyGenericAliasIterator> {
         };
         Ok(PyTuple::new_ref(vec![iter_fn, arg], &vm.ctx))
     }
-}
 
-impl Representable for PyGenericAliasIterator {
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok("<generic_alias_iterator>".to_owned())
+    #[pymethod]
+    fn __repr__(_zelf: &Self, _vm: &VirtualMachine) -> String {
+        "<generic_alias_iterator>".to_owned()
     }
 }
 

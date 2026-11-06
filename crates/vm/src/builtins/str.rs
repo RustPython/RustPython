@@ -27,7 +27,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter,
+        PyComparisonOp, SelfIter,
     },
 };
 use alloc::{borrow::Cow, fmt};
@@ -916,7 +916,6 @@ impl PyStr {
         AsMapping,
         AsNumber,
         AsSequence,
-        Representable,
         Hashable,
         Comparable,
         Iterable,
@@ -1688,6 +1687,12 @@ impl Py<PyStr> {
             PyStr::from(zelf.data.clone()).into_ref(&vm.ctx)
         }
     }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
+    }
 }
 
 impl PyRef<PyStr> {
@@ -1735,13 +1740,6 @@ impl core::ops::Deref for CharLenStr<'_> {
 impl crate::common::format::CharLen for CharLenStr<'_> {
     fn char_len(&self) -> usize {
         self.1
-    }
-}
-
-impl Representable for PyStr {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.repr(vm)
     }
 }
 

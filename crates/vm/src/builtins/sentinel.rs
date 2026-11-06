@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyNumberMethods,
-    types::{AsNumber, Constructor, Representable},
+    types::{AsNumber, Constructor},
 };
 
 /// Create a unique sentinel object with the given name.
@@ -79,7 +79,7 @@ impl Constructor for PySentinel {
     }
 }
 
-#[pyclass(with(Constructor, Representable, AsNumber), flags(HAVE_GC))]
+#[pyclass(with(Constructor, AsNumber), flags(HAVE_GC))]
 impl PySentinel {
     #[pymethod]
     fn __copy__(zelf: PyRef<Self>) -> PyRef<Self> {
@@ -95,11 +95,10 @@ impl PySentinel {
     fn __reduce__(zelf: &Py<Self>) -> PyStrRef {
         zelf.name.clone()
     }
-}
 
-impl Representable for PySentinel {
-    fn repr(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(zelf.repr.as_ref().unwrap_or(&zelf.name).clone())
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyStrRef {
+        zelf.repr.as_ref().unwrap_or(&zelf.name).clone()
     }
 }
 

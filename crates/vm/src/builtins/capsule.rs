@@ -1,8 +1,7 @@
 use super::PyType;
 use crate::{
-    AsObject, Context, Py, PyObject, PyPayload, PyResult, VirtualMachine,
-    class::PyClassImpl,
-    types::{Destructor, Representable},
+    AsObject, Context, Py, PyObject, PyPayload, PyResult, VirtualMachine, class::PyClassImpl,
+    types::Destructor,
 };
 use core::ffi::{CStr, c_void};
 use core::sync::atomic::AtomicPtr;
@@ -24,7 +23,7 @@ impl PyPayload for PyCapsule {
     }
 }
 
-#[pyclass(with(Representable, Destructor), flags(DISALLOW_INSTANTIATION))]
+#[pyclass(with(Destructor), flags(DISALLOW_INSTANTIATION))]
 impl PyCapsule {
     pub fn new(
         ptr: *mut c_void,
@@ -64,12 +63,11 @@ impl PyCapsule {
     fn destructor(&self) -> Option<unsafe extern "C" fn(_: *mut PyObject)> {
         self.destructor
     }
-}
 
-impl Representable for PyCapsule {
     #[inline]
-    fn repr_str(_zelf: &Py<Self>, _vm: &crate::VirtualMachine) -> PyResult<String> {
-        Ok("<capsule object>".to_string())
+    #[pymethod]
+    fn __repr__(_zelf: &Py<Self>, _vm: &crate::VirtualMachine) -> String {
+        "<capsule object>".to_string()
     }
 }
 

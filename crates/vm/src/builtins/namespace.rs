@@ -5,9 +5,7 @@ use crate::{
     class::PyClassImpl,
     function::{KwArgs, NameChanges, OptionalArg, PyComparisonValue},
     recursion::ReprGuard,
-    types::{
-        Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp, Representable,
-    },
+    types::{Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp},
 };
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -29,7 +27,7 @@ impl DefaultConstructor for PyNamespace {}
 
 #[pyclass(
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
-    with(Constructor, Initializer, Comparable, Representable)
+    with(Constructor, Initializer, Comparable)
 )]
 impl PyNamespace {
     #[pymethod]
@@ -83,6 +81,43 @@ impl PyNamespace {
         }
 
         Ok(result)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let o = zelf.as_object();
+        let name = if o.class().is(vm.ctx.types.namespace_type) {
+            "namespace".to_owned()
+        } else {
+            o.class().slot_name().to_owned()
+        };
+
+        let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let dict = zelf.as_object().dict().unwrap();
+            let mut result = Wtf8Buf::from(format!("{name}("));
+            let mut first = true;
+            for (key, value) in dict {
+                let Some(key_str) = key.downcast_ref::<PyStr>() else {
+                    continue;
+                };
+                if key_str.as_wtf8().is_empty() {
+                    continue;
+                }
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                result.push_wtf8(key_str.as_wtf8());
+                result.push_char('=');
+                result.push_wtf8(value.repr(vm)?.as_wtf8());
+            }
+            result.push_char(')');
+            result
+        } else {
+            Wtf8Buf::from(format!("{name}(...)"))
+        };
+        Ok(repr)
     }
 }
 
@@ -148,44 +183,6 @@ impl Comparable for PyNamespace {
             other.as_object().dict().unwrap(),
         );
         PyDict::cmp(&d1, d2.as_object(), op, vm)
-    }
-}
-
-impl Representable for PyNamespace {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let o = zelf.as_object();
-        let name = if o.class().is(vm.ctx.types.namespace_type) {
-            "namespace".to_owned()
-        } else {
-            o.class().slot_name().to_owned()
-        };
-
-        let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let dict = zelf.as_object().dict().unwrap();
-            let mut result = Wtf8Buf::from(format!("{name}("));
-            let mut first = true;
-            for (key, value) in dict {
-                let Some(key_str) = key.downcast_ref::<PyStr>() else {
-                    continue;
-                };
-                if key_str.as_wtf8().is_empty() {
-                    continue;
-                }
-                if !first {
-                    result.push_str(", ");
-                }
-                first = false;
-                result.push_wtf8(key_str.as_wtf8());
-                result.push_char('=');
-                result.push_wtf8(value.repr(vm)?.as_wtf8());
-            }
-            result.push_char(')');
-            result
-        } else {
-            Wtf8Buf::from(format!("{name}(...)"))
-        };
-        Ok(repr)
     }
 }
 

@@ -11,7 +11,7 @@ mod _operator {
         },
         protocol::PyIter,
         recursion::ReprGuard,
-        types::{Callable, Constructor, PyComparisonOp, Representable},
+        types::{Callable, Constructor, PyComparisonOp},
     };
     use constant_time_eq::constant_time_eq;
 
@@ -392,7 +392,7 @@ mod _operator {
         }
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor))]
     impl Py<PyAttrGetter> {
         #[pygetset]
         fn __text_signature__(&self) -> &'static str {
@@ -408,6 +408,31 @@ mod _operator {
                     .collect(),
             );
             (zelf.class().to_owned(), attrs)
+        }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("operator.attrgetter(");
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let mut first = true;
+                for part in &zelf.attrs {
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_wtf8(
+                        PyAttrGetter::attr_name(part, vm)
+                            .as_object()
+                            .repr(vm)?
+                            .as_wtf8(),
+                    );
+                }
+            } else {
+                result.push_str("...");
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -473,27 +498,6 @@ mod _operator {
         }
     }
 
-    impl Representable for PyAttrGetter {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let mut result = Wtf8Buf::from("operator.attrgetter(");
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut first = true;
-                for part in &zelf.attrs {
-                    if !first {
-                        result.push_str(", ");
-                    }
-                    first = false;
-                    result.push_wtf8(Self::attr_name(part, vm).as_object().repr(vm)?.as_wtf8());
-                }
-            } else {
-                result.push_str("...");
-            }
-            result.push_char(')');
-            Ok(result)
-        }
-    }
-
     #[pyattr]
     #[pyclass(name = "itemgetter", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
@@ -501,7 +505,7 @@ mod _operator {
         items: Vec<PyObjectRef>,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor))]
     impl Py<PyItemGetter> {
         #[pygetset]
         fn __text_signature__(&self) -> &'static str {
@@ -512,6 +516,26 @@ mod _operator {
         fn __reduce__(zelf: PyRef<PyItemGetter>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
             vm.new_pyobj((zelf.class().to_owned(), items))
+        }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("operator.itemgetter(");
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let mut first = true;
+                for item in &zelf.items {
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_wtf8(item.repr(vm)?.as_wtf8());
+                }
+            } else {
+                result.push_str("...");
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
     struct ItemGetterArgs(Vec<PyObjectRef>);
@@ -551,27 +575,6 @@ mod _operator {
         }
     }
 
-    impl Representable for PyItemGetter {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let mut result = Wtf8Buf::from("operator.itemgetter(");
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut first = true;
-                for item in &zelf.items {
-                    if !first {
-                        result.push_str(", ");
-                    }
-                    first = false;
-                    result.push_wtf8(item.repr(vm)?.as_wtf8());
-                }
-            } else {
-                result.push_str("...");
-            }
-            result.push_char(')');
-            Ok(result)
-        }
-    }
-
     #[pyattr]
     #[pyclass(name = "methodcaller", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
@@ -580,7 +583,7 @@ mod _operator {
         args: FuncArgs,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor))]
     impl Py<PyMethodCaller> {
         #[pygetset]
         fn __text_signature__(&self) -> &'static str {
@@ -605,6 +608,31 @@ mod _operator {
                 let callable = partial.call(args, vm)?;
                 Ok(vm.new_tuple((callable, vm.ctx.new_tuple(zelf.args.args.clone()))))
             }
+        }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut result = Wtf8Buf::from("operator.methodcaller(");
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let args = &zelf.args.args;
+                let kwargs = &zelf.args.kwargs;
+                result.push_wtf8(zelf.name.as_object().repr(vm)?.as_wtf8());
+                for v in args {
+                    result.push_str(", ");
+                    result.push_wtf8(v.repr(vm)?.as_wtf8());
+                }
+                for (key, value) in kwargs {
+                    result.push_str(", ");
+                    result.push_wtf8(key);
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
+                }
+            } else {
+                result.push_str("...");
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 
@@ -652,32 +680,6 @@ mod _operator {
         #[inline]
         fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             obj.get_attr(&zelf.name, vm)?.call(zelf.args.clone(), vm)
-        }
-    }
-
-    impl Representable for PyMethodCaller {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let mut result = Wtf8Buf::from("operator.methodcaller(");
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let args = &zelf.args.args;
-                let kwargs = &zelf.args.kwargs;
-                result.push_wtf8(zelf.name.as_object().repr(vm)?.as_wtf8());
-                for v in args {
-                    result.push_str(", ");
-                    result.push_wtf8(v.repr(vm)?.as_wtf8());
-                }
-                for (key, value) in kwargs {
-                    result.push_str(", ");
-                    result.push_wtf8(key);
-                    result.push_char('=');
-                    result.push_wtf8(value.repr(vm)?.as_wtf8());
-                }
-            } else {
-                result.push_str("...");
-            }
-            result.push_char(')');
-            Ok(result)
         }
     }
 }

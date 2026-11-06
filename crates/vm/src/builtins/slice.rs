@@ -11,7 +11,7 @@ use crate::{
     common::hash::{PyHash, PyUHash},
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp},
 };
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
@@ -189,7 +189,7 @@ impl PySlice {
     }
 }
 
-#[pyclass(with(Comparable, Representable, Hashable))]
+#[pyclass(with(Comparable, Hashable))]
 impl Py<PySlice> {
     #[pyclassmethod]
     fn __class_getitem__(
@@ -249,6 +249,24 @@ impl Py<PySlice> {
             zelf.class().to_owned(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         )
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let start_repr = zelf.start_ref(vm).repr(vm)?;
+        let stop_repr = zelf.stop.repr(vm)?;
+        let step_repr = zelf.step_ref(vm).repr(vm)?;
+
+        Ok(wtf8_concat!(
+            "slice(",
+            start_repr.as_wtf8(),
+            ", ",
+            stop_repr.as_wtf8(),
+            ", ",
+            step_repr.as_wtf8(),
+            ")"
+        ))
     }
 }
 
@@ -343,25 +361,6 @@ impl Comparable for PySlice {
     }
 }
 
-impl Representable for PySlice {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let start_repr = zelf.start_ref(vm).repr(vm)?;
-        let stop_repr = zelf.stop.repr(vm)?;
-        let step_repr = zelf.step_ref(vm).repr(vm)?;
-
-        Ok(wtf8_concat!(
-            "slice(",
-            start_repr.as_wtf8(),
-            ", ",
-            stop_repr.as_wtf8(),
-            ", ",
-            step_repr.as_wtf8(),
-            ")"
-        ))
-    }
-}
-
 #[pyclass(module = false, name = "ellipsis")]
 #[derive(Debug)]
 pub struct PyEllipsis;
@@ -386,23 +385,17 @@ impl Constructor for PyEllipsis {
     }
 }
 
-#[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
+#[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
 impl Py<PyEllipsis> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.Ellipsis.to_owned()
     }
-}
 
-impl Representable for PyEllipsis {
     #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(vm.ctx.names.Ellipsis.to_owned())
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
+    #[pymethod]
+    fn __repr__(_zelf: &Self, vm: &VirtualMachine) -> PyStrRef {
+        vm.ctx.names.Ellipsis.to_owned()
     }
 }
 

@@ -20,10 +20,7 @@ pub(crate) mod _asyncio {
             function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
             protocol::PyIterReturn,
             recursion::ReprGuard,
-            types::{
-                Callable, Constructor, Destructor, Initializer, IterNext, Iterable, Representable,
-                SelfIter,
-            },
+            types::{Callable, Constructor, Destructor, Initializer, IterNext, Iterable, SelfIter},
             warn,
         },
     };
@@ -160,9 +157,20 @@ pub(crate) mod _asyncio {
 
     #[pyclass(
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
-        with(Constructor, Initializer, Destructor, Representable, Iterable)
+        with(Constructor, Initializer, Destructor, Iterable)
     )]
     impl PyFuture {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let class_name = zelf.class().name().to_string();
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let info = get_future_repr_info(zelf.as_object(), vm)?;
+                Ok(format!("<{class_name} {info}>"))
+            } else {
+                Ok(format!("<{class_name} ...>"))
+            }
+        }
+
         fn new_empty() -> Self {
             Self {
                 fut_loop: PyRwLock::new(None),
@@ -883,18 +891,6 @@ pub(crate) mod _asyncio {
         }
     }
 
-    impl Representable for PyFuture {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let class_name = zelf.class().name().to_string();
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let info = get_future_repr_info(zelf.as_object(), vm)?;
-                Ok(format!("<{class_name} {info}>"))
-            } else {
-                Ok(format!("<{class_name} ...>"))
-            }
-        }
-    }
-
     impl Iterable for PyFuture {
         fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
             Ok(PyFutureIter {
@@ -1224,9 +1220,37 @@ pub(crate) mod _asyncio {
 
     #[pyclass(
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
-        with(Constructor, Initializer, Destructor, Representable, Iterable)
+        with(Constructor, Initializer, Destructor, Iterable)
     )]
     impl PyTask {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> Wtf8Buf {
+            let class_name = zelf.class().name().to_string();
+
+            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                // Try to use _task_repr_info if available
+                if let Ok(info) = get_task_repr_info(zelf.as_object(), vm)
+                    && info.as_bytes() != b"state=unknown"
+                {
+                    return wtf8_concat!("<", class_name, " ", info, ">");
+                }
+
+                // Fallback: build repr from task properties directly
+                let state = zelf.base.fut_state.load().as_str().to_lowercase();
+                let name = zelf.task_name.read().as_ref().and_then(|n| n.str(vm).ok());
+                let coro_repr = zelf.task_coro.read().as_ref().and_then(|c| c.repr(vm).ok());
+                let name = name.as_ref().map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
+                let coro_repr = coro_repr
+                    .as_ref()
+                    .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
+                wtf8_concat!(
+                    "<", class_name, " ", state, " name='", name, "' coro=", coro_repr, ">"
+                )
+            } else {
+                Wtf8Buf::from(format!("<{class_name} ...>"))
+            }
+        }
+
         fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.base.fut_loop.read().is_some() {
                 return Err(vm.new_runtime_error(wtf8_concat!(
@@ -1840,35 +1864,6 @@ pub(crate) mod _asyncio {
             // Call loop.call_exception_handler(context)
             let _ = vm.call_method(&loop_obj, "call_exception_handler", (context,));
             Ok(())
-        }
-    }
-
-    impl Representable for PyTask {
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let class_name = zelf.class().name().to_string();
-
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                // Try to use _task_repr_info if available
-                if let Ok(info) = get_task_repr_info(zelf.as_object(), vm)
-                    && info.as_bytes() != b"state=unknown"
-                {
-                    return Ok(wtf8_concat!("<", class_name, " ", info, ">"));
-                }
-
-                // Fallback: build repr from task properties directly
-                let state = zelf.base.fut_state.load().as_str().to_lowercase();
-                let name = zelf.task_name.read().as_ref().and_then(|n| n.str(vm).ok());
-                let coro_repr = zelf.task_coro.read().as_ref().and_then(|c| c.repr(vm).ok());
-                let name = name.as_ref().map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
-                let coro_repr = coro_repr
-                    .as_ref()
-                    .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
-                Ok(wtf8_concat!(
-                    "<", class_name, " ", state, " name='", name, "' coro=", coro_repr, ">"
-                ))
-            } else {
-                Ok(Wtf8Buf::from(format!("<{class_name} ...>")))
-            }
         }
     }
 
@@ -2792,11 +2787,16 @@ pub(crate) mod _asyncio {
         task: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(Callable, Representable), flags(HEAPTYPE))]
+    #[pyclass(with(Callable), flags(HEAPTYPE))]
     impl TaskStepMethWrapper {
         #[pyslot]
         fn slot_alloc(cls: PyTypeRef, nitems: usize, vm: &VirtualMachine) -> PyResult {
             alloc_default::<Self>(cls, nitems, vm)
+        }
+
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("<{} object at {:#x}>", zelf.class().name(), zelf.get_id())
         }
 
         fn new(task: PyObjectRef) -> Self {
@@ -2831,16 +2831,6 @@ pub(crate) mod _asyncio {
         }
     }
 
-    impl Representable for TaskStepMethWrapper {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "<{} object at {:#x}>",
-                zelf.class().name(),
-                zelf.get_id()
-            ))
-        }
-    }
-
     // TaskWakeupMethWrapper - wrapper for task wakeup callback with proper repr
     #[pyattr]
     #[pyclass(name, traverse)]
@@ -2849,8 +2839,13 @@ pub(crate) mod _asyncio {
         task: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(Callable, Representable))]
+    #[pyclass(with(Callable))]
     impl TaskWakeupMethWrapper {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("<{} object at {:#x}>", zelf.class().name(), zelf.get_id())
+        }
+
         fn new(task: PyObjectRef) -> Self {
             Self {
                 task: PyRwLock::new(Some(task)),
@@ -2874,16 +2869,6 @@ pub(crate) mod _asyncio {
                 Some(t) => task_wakeup_impl(&t, &args.0, vm),
                 None => Ok(vm.ctx.none()),
             }
-        }
-    }
-
-    impl Representable for TaskWakeupMethWrapper {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "<{} object at {:#x}>",
-                zelf.class().name(),
-                zelf.get_id()
-            ))
         }
     }
 

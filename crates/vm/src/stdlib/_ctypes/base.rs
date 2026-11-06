@@ -10,7 +10,7 @@ use crate::dict_inner::DictKey;
 use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::object::{Traverse, TraverseFn};
 use crate::protocol::{BufferMethods, PyBuffer};
-use crate::types::{Constructor, GetDescriptor, Representable};
+use crate::types::{Constructor, GetDescriptor};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -3590,27 +3590,6 @@ impl Constructor for PyCField {
     }
 }
 
-impl Representable for PyCField {
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        // Get type name from proto (which is always PyTypeRef)
-        let tp_name = zelf.proto.name().to_string();
-
-        // Bitfield: <Field type=TYPE, ofs=OFFSET:BIT_OFFSET, bits=NUM_BITS>
-        // Regular:  <Field type=TYPE, ofs=OFFSET, size=SIZE>
-        if zelf.bitfield_size > 0 {
-            Ok(format!(
-                "<Field type={}, ofs={}:{}, bits={}>",
-                tp_name, zelf.offset, zelf.bit_offset_val, zelf.bitfield_size
-            ))
-        } else {
-            Ok(format!(
-                "<Field type={}, ofs={}, size={}>",
-                tp_name, zelf.offset, zelf.byte_size_val
-            ))
-        }
-    }
-}
-
 /// PyCField_get
 impl GetDescriptor for PyCField {
     fn descr_get(
@@ -3714,7 +3693,7 @@ impl PyCField {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
+#[pyclass(flags(IMMUTABLETYPE), with(GetDescriptor, Constructor))]
 impl Py<PyCField> {
     // PyCField_set
     #[pyslot]
@@ -3850,6 +3829,26 @@ impl Py<PyCField> {
     #[pygetset]
     fn is_anonymous(&self) -> bool {
         self.anonymous
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        // Get type name from proto (which is always PyTypeRef)
+        let tp_name = zelf.proto.name().to_string();
+
+        // Bitfield: <Field type=TYPE, ofs=OFFSET:BIT_OFFSET, bits=NUM_BITS>
+        // Regular:  <Field type=TYPE, ofs=OFFSET, size=SIZE>
+        if zelf.bitfield_size > 0 {
+            format!(
+                "<Field type={}, ofs={}:{}, bits={}>",
+                tp_name, zelf.offset, zelf.bit_offset_val, zelf.bitfield_size
+            )
+        } else {
+            format!(
+                "<Field type={}, ofs={}, size={}>",
+                tp_name, zelf.offset, zelf.byte_size_val
+            )
+        }
     }
 }
 

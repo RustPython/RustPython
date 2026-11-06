@@ -26,7 +26,7 @@ use crate::{
     sliceable::{NameByte, SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+        IterNext, Iterable, PyComparisonOp, SelfIter,
     },
 };
 use bstr::ByteSlice;
@@ -248,10 +248,15 @@ impl PyBytes {
         Iterable,
         Constructor,
         AsNumber,
-        Representable,
     )
 )]
-impl PyBytes {}
+impl PyBytes {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.payload.inner.repr_bytes(vm)
+    }
+}
 
 #[pyclass]
 impl Py<PyBytes> {
@@ -302,11 +307,10 @@ impl Py<PyBytes> {
         size_of::<PyBytes>() + self.len() * size_of::<u8>()
     }
 
-    #[pyslot]
-    fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let zelf = zelf.downcast_ref::<PyBytes>().expect("expected bytes");
+    #[pymethod]
+    fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         PyBytesInner::warn_on_str("str() on a bytes instance", vm)?;
-        Ok(vm.ctx.new_str(zelf.payload.inner.repr_bytes(vm)?))
+        Ok(vm.ctx.new_str(self.payload.inner.repr_bytes(vm)?))
     }
 
     #[pystaticmethod]
@@ -763,13 +767,6 @@ impl Iterable for PyBytes {
             internal: NativeSequenceIter::new(zelf, NativeIterKind::Sequence, 0),
         }
         .into_pyobject(vm))
-    }
-}
-
-impl Representable for PyBytes {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.payload.inner.repr_bytes(vm)
     }
 }
 

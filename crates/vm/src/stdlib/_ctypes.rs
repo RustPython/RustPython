@@ -108,7 +108,6 @@ pub(crate) mod _ctypes {
     use crate::convert::ToPyException;
     use crate::convert::ToPyObject;
     use crate::function::{ArgStrictInt, Either, OptionalArg};
-    use crate::types::Representable;
     use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use num_traits::ToPrimitive;
 
@@ -143,9 +142,16 @@ pub(crate) mod _ctypes {
         c < 128 && c.is_ascii_graphic() && c != b'\\' && c != b'\''
     }
 
-    impl Representable for CArgObject {
+    #[pyclass(with())]
+    impl Py<CArgObject> {
+        #[pygetset]
+        fn _obj(&self) -> PyObjectRef {
+            self.obj.clone()
+        }
+
         // PyCArg_repr - use tag and value fields directly
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
             use rustpython_host_env::ctypes::{FfiValue, ffi_value_from_type_code};
 
             let tag_char = zelf.tag as char;
@@ -174,7 +180,7 @@ pub(crate) mod _ctypes {
                         FfiValue::I64(v) => v,
                         _ => 0,
                     };
-                    Ok(format!("<cparam '{tag_char}' ({n})>"))
+                    format!("<cparam '{tag_char}' ({n})>")
                 }
                 b'B' | b'H' | b'I' | b'L' | b'Q' => {
                     // Unsigned integers
@@ -185,7 +191,7 @@ pub(crate) mod _ctypes {
                         FfiValue::U64(v) => v,
                         _ => 0,
                     };
-                    Ok(format!("<cparam '{tag_char}' ({n})>"))
+                    format!("<cparam '{tag_char}' ({n})>")
                 }
                 b'f' => {
                     let v = match ffi_val {
@@ -193,7 +199,7 @@ pub(crate) mod _ctypes {
                         _ => 0.0,
                     };
                     let v = crate::literal::float::to_string(v);
-                    Ok(format!("<cparam '{tag_char}' ({v})>"))
+                    format!("<cparam '{tag_char}' ({v})>")
                 }
                 b'd' => {
                     let v = match ffi_val {
@@ -202,7 +208,7 @@ pub(crate) mod _ctypes {
                         _ => 0.0,
                     };
                     let v = crate::literal::float::to_string(v);
-                    Ok(format!("<cparam '{tag_char}' ({v})>"))
+                    format!("<cparam '{tag_char}' ({v})>")
                 }
                 b'c' => {
                     // c_char - single byte
@@ -212,9 +218,9 @@ pub(crate) mod _ctypes {
                         _ => 0,
                     };
                     if is_literal_char(byte) {
-                        Ok(format!("<cparam '{}' ('{}')>", tag_char, byte as char))
+                        format!("<cparam '{}' ('{}')>", tag_char, byte as char)
                     } else {
-                        Ok(format!("<cparam '{tag_char}' ('\\x{byte:02x}')>"))
+                        format!("<cparam '{tag_char}' ('\\x{byte:02x}')>")
                     }
                 }
                 b'z' | b'Z' | b'P' => {
@@ -224,29 +230,21 @@ pub(crate) mod _ctypes {
                         _ => 0,
                     };
                     if ptr == 0 {
-                        Ok(format!("<cparam '{tag_char}' (nil)>"))
+                        format!("<cparam '{tag_char}' (nil)>")
                     } else {
-                        Ok(format!("<cparam '{tag_char}' ({ptr:#x})>"))
+                        format!("<cparam '{tag_char}' ({ptr:#x})>")
                     }
                 }
                 _ => {
                     // Default fallback
                     let addr = zelf.get_id();
                     if is_literal_char(zelf.tag) {
-                        Ok(format!("<cparam '{tag_char}' at {addr:#x}>"))
+                        format!("<cparam '{tag_char}' at {addr:#x}>")
                     } else {
-                        Ok(format!("<cparam {:#04x} at {:#x}>", zelf.tag, addr))
+                        format!("<cparam {:#04x} at {:#x}>", zelf.tag, addr)
                     }
                 }
             }
-        }
-    }
-
-    #[pyclass(with(Representable))]
-    impl Py<CArgObject> {
-        #[pygetset]
-        fn _obj(&self) -> PyObjectRef {
-            self.obj.clone()
         }
     }
 

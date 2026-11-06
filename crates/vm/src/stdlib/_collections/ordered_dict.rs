@@ -21,7 +21,7 @@ pub(crate) mod ordered_dict {
         recursion::ReprGuard,
         types::{
             AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
-            Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+            Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
         },
     };
     use std::collections::HashMap;
@@ -350,8 +350,7 @@ pub(crate) mod ordered_dict {
             Comparable,
             Constructor,
             Initializer,
-            Iterable,
-            Representable
+            Iterable
         ),
         flags(BASETYPE, MAPPING, HAS_DICT, HAS_WEAKREF)
     )]
@@ -592,26 +591,9 @@ pub(crate) mod ordered_dict {
         ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
-    }
 
-    impl DefaultConstructor for PyOrderedDict {}
-
-    impl Initializer for PyOrderedDict {
-        type Args = FuncArgs;
-
-        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            if args.args.len() > 1 {
-                return Err(vm.new_type_error(format!(
-                    "OrderedDict expected at most 1 argument, got {}",
-                    args.args.len()
-                )));
-            }
-            Py::<Self>::update(zelf.to_owned(), args, vm)
-        }
-    }
-
-    impl Representable for PyOrderedDict {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
             if zelf.dict.__len__() == 0 {
                 return Ok(format!("{}()", zelf.class().name()));
             }
@@ -631,6 +613,22 @@ pub(crate) mod ordered_dict {
             let dcopy = tmp.into_ref(&vm.ctx);
             let dict_repr = dcopy.as_object().repr(vm)?;
             Ok(format!("{}({dict_repr})", zelf.class().name()))
+        }
+    }
+
+    impl DefaultConstructor for PyOrderedDict {}
+
+    impl Initializer for PyOrderedDict {
+        type Args = FuncArgs;
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            if args.args.len() > 1 {
+                return Err(vm.new_type_error(format!(
+                    "OrderedDict expected at most 1 argument, got {}",
+                    args.args.len()
+                )));
+            }
+            Py::<Self>::update(zelf.to_owned(), args, vm)
         }
     }
 

@@ -31,7 +31,7 @@ pub(crate) mod _thread {
             OptionalArg, Param, ParamKind, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
-        types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
+        types::{Constructor, GetAttr, PyStructSequence, SetAttr},
     };
 
     use alloc::sync::{Arc, Weak};
@@ -214,7 +214,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Constructor, Representable), flags(HAS_WEAKREF))]
+    #[pyclass(with(Constructor), flags(HAS_WEAKREF))]
     impl Py<Lock> {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -261,6 +261,12 @@ pub(crate) mod _thread {
         fn locked(&self) -> bool {
             self.mu.is_locked()
         }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> PyResult<String> {
+            repr_lock_impl!(zelf)
+        }
     }
 
     impl Constructor for Lock {
@@ -268,13 +274,6 @@ pub(crate) mod _thread {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self { mu: RawMutex::INIT })
-        }
-    }
-
-    impl Representable for Lock {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            repr_lock_impl!(zelf)
         }
     }
 
@@ -293,7 +292,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
+    #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl Py<RLock> {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -428,24 +427,23 @@ pub(crate) mod _thread {
         ) -> PyResult<()> {
             self.release(vm)
         }
-    }
 
-    impl Representable for RLock {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
             let count = zelf.count.load(core::sync::atomic::Ordering::Relaxed);
             let status = if zelf.mu.is_locked() {
                 "locked"
             } else {
                 "unlocked"
             };
-            Ok(format!(
+            format!(
                 "<{} {} object count={} at {:#x}>",
                 status,
                 zelf.class().name(),
                 count,
                 zelf.get_id()
-            ))
+            )
         }
     }
 
@@ -1981,7 +1979,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Representable))]
+    #[pyclass(with())]
     impl Py<ThreadHandle> {
         #[pygetset]
         fn ident(&self) -> u64 {
@@ -2030,15 +2028,11 @@ pub(crate) mod _thread {
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
-    }
 
-    impl Representable for ThreadHandle {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
             let ident = zelf.inner.lock().ident;
-            Ok(format!(
-                "<{} object: ident={ident}>",
-                zelf.class().slot_name()
-            ))
+            format!("<{} object: ident={ident}>", zelf.class().slot_name())
         }
     }
 

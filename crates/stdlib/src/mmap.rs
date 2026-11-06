@@ -19,7 +19,7 @@ mod mmap {
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
         sliceable::{NameMmap, SaturatedSlice, SequenceIndex, SequenceIndexOp},
-        types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
+        types::{AsBuffer, AsMapping, AsSequence, Constructor},
     };
     use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
@@ -773,10 +773,35 @@ mod mmap {
     }
 
     #[pyclass(
-        with(Constructor, AsMapping, AsSequence, AsBuffer, Representable),
+        with(Constructor, AsMapping, AsSequence, AsBuffer),
         flags(BASETYPE, HAS_WEAKREF)
     )]
     impl PyMmap {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            let mmap = zelf.mmap.lock();
+
+            if mmap.is_none() {
+                return "<mmap.mmap closed=True>".to_owned();
+            }
+
+            let access_str = match zelf.access {
+                AccessMode::Default => "ACCESS_DEFAULT",
+                AccessMode::Read => "ACCESS_READ",
+                AccessMode::Write => "ACCESS_WRITE",
+                AccessMode::Copy => "ACCESS_COPY",
+            };
+
+            format!(
+                "<mmap.mmap closed=False, access={}, length={}, pos={}, offset={}>",
+                access_str,
+                zelf.__len__(),
+                zelf.pos(),
+                zelf.offset
+            )
+        }
+
         fn as_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
             PyMutexGuard::map(self.mmap.lock(), |m| {
                 match m.as_mut().expect("mmap closed or invalid") {
@@ -1745,34 +1770,6 @@ mod mmap {
         #[test]
         fn resize_rejects_borrowed_buffer() {
             rejects_borrowed_buffer(true);
-        }
-    }
-
-    impl Representable for PyMmap {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            let mmap = zelf.mmap.lock();
-
-            if mmap.is_none() {
-                return Ok("<mmap.mmap closed=True>".to_owned());
-            }
-
-            let access_str = match zelf.access {
-                AccessMode::Default => "ACCESS_DEFAULT",
-                AccessMode::Read => "ACCESS_READ",
-                AccessMode::Write => "ACCESS_WRITE",
-                AccessMode::Copy => "ACCESS_COPY",
-            };
-
-            let repr = format!(
-                "<mmap.mmap closed=False, access={}, length={}, pos={}, offset={}>",
-                access_str,
-                zelf.__len__(),
-                zelf.pos(),
-                zelf.offset
-            );
-
-            Ok(repr)
         }
     }
 }

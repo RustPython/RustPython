@@ -10,7 +10,7 @@ use crate::{
     stdlib::builtins::reversed,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Hashable,
-        IterNext, Iterable, PyComparisonOp, Representable, SetAttr,
+        IterNext, Iterable, PyComparisonOp, SetAttr,
     },
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
@@ -172,7 +172,6 @@ impl Comparable for PyWeakProxy {
     AsNumber,
     AsSequence,
     AsMapping,
-    Representable,
     IterNext
 ))]
 impl Py<PyWeakProxy> {
@@ -191,6 +190,22 @@ impl Py<PyWeakProxy> {
     fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.try_upgrade(vm)?;
         reversed(obj, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let id = zelf.get_id();
+        let Some(obj) = zelf.0.upgrade() else {
+            return Ok(format!("<weakproxy at {id:#x}; dead>").into());
+        };
+        let type_name = obj.class().fully_qualified_name(vm)?;
+        let obj_id = obj.get_id();
+        Ok(wtf8_concat!(
+            format!("<weakproxy at {id:#x}; to '"),
+            type_name,
+            format!("' at {obj_id:#x}>")
+        ))
     }
 }
 
@@ -400,23 +415,6 @@ impl AsMapping for PyWeakProxy {
             }),
         };
         &AS_MAPPING
-    }
-}
-
-impl Representable for PyWeakProxy {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let id = zelf.get_id();
-        let Some(obj) = zelf.0.upgrade() else {
-            return Ok(format!("<weakproxy at {id:#x}; dead>").into());
-        };
-        let type_name = obj.class().fully_qualified_name(vm)?;
-        let obj_id = obj.get_id();
-        Ok(wtf8_concat!(
-            format!("<weakproxy at {id:#x}; to '"),
-            type_name,
-            format!("' at {obj_id:#x}>")
-        ))
     }
 }
 

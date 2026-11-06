@@ -15,7 +15,7 @@ pub(crate) mod _interpchannels {
         convert::ToPyObject,
         function::{ArgSpec, Either, FuncArgs, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
-        types::{AsNumber, Constructor, Hashable, PyComparisonOp, PyStructSequence, Representable},
+        types::{AsNumber, Constructor, Hashable, PyComparisonOp, PyStructSequence},
         vm::crossinterp::{Fallback, SharedValue, UnboundOp},
     };
     use alloc::collections::BTreeMap;
@@ -647,18 +647,6 @@ pub(crate) mod _interpchannels {
         }
     }
 
-    impl Representable for ChannelID {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.class().name().to_string();
-            Ok(match zelf.end {
-                ChannelEnd::Send => format!("{name}({}, send=True)", zelf.cid),
-                ChannelEnd::Recv => format!("{name}({}, recv=True)", zelf.cid),
-                ChannelEnd::Both => format!("{name}({})", zelf.cid),
-            })
-        }
-    }
-
     impl Hashable for ChannelID {
         #[inline]
         fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<rustpython_common::hash::PyHash> {
@@ -684,7 +672,7 @@ pub(crate) mod _interpchannels {
     }
 
     #[pyclass(
-        with(Representable, Hashable, AsNumber),
+        with(Hashable, AsNumber),
         flags(BASETYPE, IMMUTABLETYPE, DISALLOW_INSTANTIATION)
     )]
     impl Py<ChannelID> {
@@ -741,6 +729,17 @@ pub(crate) mod _interpchannels {
         #[pymethod]
         fn __str__(&self) -> String {
             self.cid.to_string()
+        }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+            let name = zelf.class().name().to_string();
+            match zelf.end {
+                ChannelEnd::Send => format!("{name}({}, send=True)", zelf.cid),
+                ChannelEnd::Recv => format!("{name}({}, recv=True)", zelf.cid),
+                ChannelEnd::Both => format!("{name}({})", zelf.cid),
+            }
         }
     }
 

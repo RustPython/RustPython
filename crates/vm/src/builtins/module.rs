@@ -9,7 +9,7 @@ use crate::{
         get_spec_file_origin, is_possibly_shadowing_path, is_spec_initializing,
         is_stdlib_module_name,
     },
-    types::{GetAttr, Initializer, Representable},
+    types::{GetAttr, Initializer},
 };
 use rustpython_common::wtf8::wtf8_concat;
 
@@ -355,10 +355,7 @@ impl Py<PyModule> {
     }
 }
 
-#[pyclass(
-    with(GetAttr, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
-)]
+#[pyclass(with(GetAttr, Initializer), flags(BASETYPE, HAS_DICT, HAS_WEAKREF))]
 impl PyModule {
     fn load_dict(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
         zelf.as_object()
@@ -493,6 +490,16 @@ impl PyModule {
         dict.inner_pop_item(identifier!(vm, __annotate__), vm)?;
         Ok(())
     }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // Use cached importlib reference (like interp->importlib)
+        let module_repr = vm.importlib.get_attr("_module_repr", vm)?;
+        let repr = module_repr.call((zelf.to_owned(),), vm)?;
+        repr.downcast()
+            .map_err(|_| vm.new_type_error("_module_repr did not return a string"))
+    }
 }
 
 impl Initializer for PyModule {
@@ -513,22 +520,6 @@ impl Initializer for PyModule {
 impl GetAttr for PyModule {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         zelf.getattr_inner(name, false, vm)
-    }
-}
-
-impl Representable for PyModule {
-    #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        // Use cached importlib reference (like interp->importlib)
-        let module_repr = vm.importlib.get_attr("_module_repr", vm)?;
-        let repr = module_repr.call((zelf.to_owned(),), vm)?;
-        repr.downcast()
-            .map_err(|_| vm.new_type_error("_module_repr did not return a string"))
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
     }
 }
 

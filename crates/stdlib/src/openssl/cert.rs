@@ -11,7 +11,7 @@ pub(crate) mod ssl_cert {
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
             function::{FsPath, OptionalArg, PyComparisonValue},
-            types::{Comparable, Hashable, PyComparisonOp, Representable},
+            types::{Comparable, Hashable, PyComparisonOp},
         },
     };
     use foreign_types_shared::ForeignTypeRef;
@@ -69,9 +69,31 @@ pub(crate) mod ssl_cert {
 
     #[pyclass(
         flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
-        with(Comparable, Hashable, Representable)
+        with(Comparable, Hashable)
     )]
     impl PySSLCertificate {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            // Build subject string like "CN=localhost, O=Python"
+            let subject = zelf.cert.subject_name();
+            let mut parts: Vec<String> = Vec::new();
+            for entry in subject.entries() {
+                // Use short name (SN) if available, otherwise use OID
+                let name = match entry.object().nid().short_name() {
+                    Ok(sn) => sn.to_string(),
+                    Err(_) => obj2txt(entry.object(), true).unwrap_or_default(),
+                };
+                if let Ok(value) = entry.data().as_utf8() {
+                    parts.push(format!("{}={}", name, value));
+                }
+            }
+            if parts.is_empty() {
+                "<Certificate>".to_string()
+            } else {
+                format!("<Certificate '{}'>", parts.join(", "))
+            }
+        }
+
         #[pymethod]
         fn public_bytes(
             zelf: &Py<Self>,
@@ -143,29 +165,6 @@ pub(crate) mod ssl_cert {
             // Use subject name hash as certificate hash
             let hash = unsafe { sys::X509_subject_name_hash(zelf.cert.as_ptr()) };
             Ok(hash as PyHash)
-        }
-    }
-
-    impl Representable for PySSLCertificate {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            // Build subject string like "CN=localhost, O=Python"
-            let subject = zelf.cert.subject_name();
-            let mut parts: Vec<String> = Vec::new();
-            for entry in subject.entries() {
-                // Use short name (SN) if available, otherwise use OID
-                let name = match entry.object().nid().short_name() {
-                    Ok(sn) => sn.to_string(),
-                    Err(_) => obj2txt(entry.object(), true).unwrap_or_default(),
-                };
-                if let Ok(value) = entry.data().as_utf8() {
-                    parts.push(format!("{}={}", name, value));
-                }
-            }
-            if parts.is_empty() {
-                Ok("<Certificate>".to_string())
-            } else {
-                Ok(format!("<Certificate '{}'>", parts.join(", ")))
-            }
         }
     }
 

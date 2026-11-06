@@ -12,7 +12,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
-        Representable, SelfIter,
+        SelfIter,
     },
 };
 use core::cell::Cell;
@@ -286,19 +286,20 @@ impl PyRange {
 }
 
 #[pyclass(
-    with(
-        Py,
-        AsMapping,
-        AsNumber,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        Representable
-    ),
+    with(Py, AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable),
     flags(SEQUENCE)
 )]
-impl PyRange {}
+impl PyRange {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+        if zelf.step.as_bigint().is_one() {
+            format!("range({}, {})", zelf.start, zelf.stop)
+        } else {
+            format!("range({}, {}, {})", zelf.start, zelf.stop, zelf.step)
+        }
+    }
+}
 
 #[pyclass]
 impl Py<PyRange> {
@@ -505,18 +506,6 @@ impl Comparable for PyRange {
 impl Iterable for PyRange {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(zelf.iterator(false, vm))
-    }
-}
-
-impl Representable for PyRange {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let repr = if zelf.step.as_bigint().is_one() {
-            format!("range({}, {})", zelf.start, zelf.stop)
-        } else {
-            format!("range({}, {}, {})", zelf.start, zelf.stop, zelf.step)
-        };
-        Ok(repr)
     }
 }
 
