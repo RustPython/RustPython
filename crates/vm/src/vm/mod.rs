@@ -56,7 +56,7 @@ use alloc::collections::BTreeMap;
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
 use core::{
-    cell::{Cell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -947,9 +947,6 @@ pub struct PyGlobalState {
     pub monitoring: PyMutex<stdlib::sys::monitoring::MonitoringState>,
     /// Fast-path mask: OR of all tools' events. 0 means no monitoring overhead.
     pub monitoring_events: stdlib::sys::monitoring::MonitoringEventsMask,
-    /// Incremented on every monitoring state change. Code objects compare their
-    /// local version against this to decide whether re-instrumentation is needed.
-    pub instrumentation_version: AtomicU64,
     /// Stop-the-world state for pre-fork thread suspension
     #[cfg(feature = "threading")]
     pub stop_the_world: StopTheWorldState,
