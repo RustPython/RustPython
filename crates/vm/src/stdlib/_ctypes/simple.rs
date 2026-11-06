@@ -110,13 +110,17 @@ pub(crate) struct PyCSimpleType(PyType);
 
 #[pyclass(flags(BASETYPE), with(AsSequence, Initializer))]
 impl PyCSimpleType {
-    #[pygetset(name = "__pointer_type__")]
-    fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __pointer_type__(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         super::base::pointer_type_get(&zelf, vm)
     }
 
-    #[pygetset(name = "__pointer_type__", setter)]
-    fn set_pointer_type(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___pointer_type__(
+        zelf: PyTypeRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         super::base::pointer_type_set(&zelf, value, vm)
     }
 

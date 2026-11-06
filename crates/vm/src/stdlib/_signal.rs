@@ -411,8 +411,8 @@ pub(crate) mod _signal {
     struct PidfdSendSignalArgs {
         #[pyarg(positional)]
         pidfd: i32,
-        #[pyarg(positional, name = "signalnum")]
-        sig: core::ffi::c_int,
+        #[pyarg(positional)]
+        signalnum: core::ffi::c_int,
         #[pyarg(positional, default = None)]
         siginfo: Option<PyObjectRef>,
         #[pyarg(positional, default)]
@@ -424,7 +424,7 @@ pub(crate) mod _signal {
     fn pidfd_send_signal(
         PidfdSendSignalArgs {
             pidfd,
-            sig,
+            signalnum,
             siginfo,
             flags,
         }: PidfdSendSignalArgs,
@@ -434,13 +434,13 @@ pub(crate) mod _signal {
             return Err(vm.new_type_error("siginfo must be None"));
         }
 
-        host_signal::pidfd_send_signal(pidfd, sig, flags as u32)
+        host_signal::pidfd_send_signal(pidfd, signalnum, flags as u32)
             .map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
-    #[pyfunction(name = "siginterrupt")]
-    fn py_siginterrupt(signalnum: SignalNum, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
+    #[pyfunction]
+    fn siginterrupt(signalnum: SignalNum, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
         host_signal::siginterrupt(signalnum.into(), flag).map_err(|_| vm.new_last_errno_error())
     }
 

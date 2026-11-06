@@ -1,16 +1,16 @@
 #[pymodule]
 mod _sha256 {
-    use crate::hashlib::_hashlib::{HashArgs, local_sha224, local_sha256};
+    use crate::hashlib::_hashlib::{HashArgs, openssl_sha224, openssl_sha256};
     use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
     #[pyfunction]
     fn sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha224(args, vm)?.into_pyobject(vm))
+        Ok(openssl_sha224(args, vm)?.into_pyobject(vm))
     }
 
     #[pyfunction]
     fn sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha256(args, vm)?.into_pyobject(vm))
+        Ok(openssl_sha256(args, vm)?.into_pyobject(vm))
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]

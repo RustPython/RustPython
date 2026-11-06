@@ -208,13 +208,13 @@ pub mod sys {
             .to_owned()
         }
 
-        #[pygetset(name = "name")]
-        fn name_prop(&self) -> String {
+        #[pygetset]
+        fn name(&self) -> String {
             self.name.clone()
         }
 
-        #[pygetset(name = "mode")]
-        fn mode_prop(&self) -> String {
+        #[pygetset]
+        fn mode(&self) -> String {
             self.mode.clone()
         }
     }

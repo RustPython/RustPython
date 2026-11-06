@@ -431,8 +431,8 @@ pub(crate) mod _ctypes {
     }
 
     #[cfg(not(windows))]
-    #[pyfunction(name = "dlopen")]
-    fn load_library_unix(
+    #[pyfunction]
+    fn dlopen(
         name: Option<crate::function::FsPath>,
         load_flags: OptionalArg<i32>,
         vm: &VirtualMachine,

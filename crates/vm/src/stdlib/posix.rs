@@ -3259,14 +3259,14 @@ mod posix_sched {
         pid: i32,
         #[pyarg(positional)]
         policy: i32,
-        #[pyarg(positional, name = "param")]
-        sched_param: PyObjectRef,
+        #[pyarg(positional)]
+        param: PyObjectRef,
     }
 
     #[cfg(not(target_env = "musl"))]
     #[pyfunction]
     fn sched_setscheduler(args: SchedSetschedulerArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let libc_sched_param = convert_sched_param(&args.sched_param, vm)?;
+        let libc_sched_param = convert_sched_param(&args.param, vm)?;
         rustpython_host_env::posix::sched_setscheduler(args.pid, args.policy, &libc_sched_param)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -3288,14 +3288,14 @@ mod posix_sched {
     struct SchedSetParamArgs {
         #[pyarg(positional)]
         pid: i32,
-        #[pyarg(positional, name = "param")]
-        sched_param: PyObjectRef,
+        #[pyarg(positional)]
+        param: PyObjectRef,
     }
 
     #[cfg(not(target_env = "musl"))]
     #[pyfunction]
     fn sched_setparam(args: SchedSetParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let libc_sched_param = convert_sched_param(&args.sched_param, vm)?;
+        let libc_sched_param = convert_sched_param(&args.param, vm)?;
         rustpython_host_env::posix::sched_setparam(args.pid, &libc_sched_param)
             .map_err(|err| err.into_pyexception(vm))
     }

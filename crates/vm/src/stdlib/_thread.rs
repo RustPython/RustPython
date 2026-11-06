@@ -594,8 +594,8 @@ pub(crate) mod _thread {
     }
 
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-    #[pyfunction(name = "_get_name")]
-    fn get_name(vm: &VirtualMachine) -> PyResult {
+    #[pyfunction]
+    fn _get_name(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
             let units =
@@ -1417,8 +1417,8 @@ pub(crate) mod _thread {
             Ok(dict)
         }
 
-        #[pygetset(name = "__dict__")]
-        fn dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        #[pygetset]
+        fn __dict__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
             Self::l_dict(&zelf, vm)
         }
 

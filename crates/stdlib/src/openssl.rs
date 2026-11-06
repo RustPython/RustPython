@@ -1888,13 +1888,13 @@ mod _ssl {
             Self::set_sni_callback(zelf, callback, vm)
         }
 
-        #[pygetset(name = "_msg_callback")]
-        fn msg_callback(zelf: &Py<Self>) -> Option<PyObjectRef> {
+        #[pygetset]
+        fn _msg_callback(zelf: &Py<Self>) -> Option<PyObjectRef> {
             zelf.msg_callback.lock().clone()
         }
 
-        #[pygetset(setter, name = "_msg_callback")]
-        fn set_msg_callback(
+        #[pygetset(setter)]
+        fn set__msg_callback(
             zelf: &Py<Self>,
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,

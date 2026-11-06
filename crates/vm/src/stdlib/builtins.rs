@@ -1121,8 +1121,8 @@ mod builtins {
     struct PowArgs {
         base: PyObjectRef,
         exp: PyObjectRef,
-        #[pyarg(any, optional, name = "mod")]
-        modulus: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        r#mod: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1130,7 +1130,7 @@ mod builtins {
         let PowArgs {
             base: x,
             exp: y,
-            modulus,
+            r#mod: modulus,
         } = args;
         let modulus = modulus
             .as_deref()

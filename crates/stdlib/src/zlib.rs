@@ -93,7 +93,7 @@ mod zlib {
     #[pyfunction]
     fn crc32(args: Crc32Args) -> u32 {
         let Crc32Args { data, value } = args;
-        crate::binascii::crc32(data, value)
+        crate::binascii::crc32_impl(data, value)
     }
 
     struct ChecksumValue(u32);
@@ -319,13 +319,17 @@ mod zlib {
             zelf.copy_inner(vm)
         }
 
-        #[pymethod(name = "__copy__")]
-        fn copy_dunder(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
+        #[pymethod]
+        fn __copy__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
             zelf.copy_inner(vm)
         }
 
-        #[pymethod(name = "__deepcopy__")]
-        fn deepcopy(zelf: &Py<Self>, _memo: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        #[pymethod]
+        fn __deepcopy__(
+            zelf: &Py<Self>,
+            _memo: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             zelf.copy_inner(vm)
         }
     }
@@ -422,13 +426,17 @@ mod zlib {
             zelf.copy_inner(vm)
         }
 
-        #[pymethod(name = "__copy__")]
-        fn copy_dunder(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
+        #[pymethod]
+        fn __copy__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
             zelf.copy_inner(vm)
         }
 
-        #[pymethod(name = "__deepcopy__")]
-        fn deepcopy(zelf: &Py<Self>, _memo: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        #[pymethod]
+        fn __deepcopy__(
+            zelf: &Py<Self>,
+            _memo: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             zelf.copy_inner(vm)
         }
     }

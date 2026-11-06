@@ -809,7 +809,7 @@ pub(crate) fn clear_submodule(name: &Py<PyStr>, bind: bool, vm: &VirtualMachine)
     {
         parent
             .dict()
-            .setdefault(vm.ctx.new_str(child).into(), value, vm)?;
+            .setdefault_value(vm.ctx.new_str(child).into(), value, vm)?;
     }
     let _removed = {
         let mut pending = state.pending.lock();

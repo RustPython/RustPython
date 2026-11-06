@@ -693,7 +693,7 @@ impl Py<PyMemoryView> {
 impl PyMemoryView {
     /// Give up the view's share without asking whether anything is reading it.
     /// The teardown paths have nowhere to report a refusal.
-    pub fn release(&self) {
+    pub fn release_buffer(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
             self.buffer.release();
         }
@@ -868,8 +868,8 @@ impl Py<PyMemoryView> {
         PyMemoryView::from_object_with_flags(&args.object, flags, vm).map(|mv| mv.into_ref(&vm.ctx))
     }
 
-    #[pymethod(name = "release")]
-    fn py_release(&self, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
         // _memory_release: what still reads this view holds it open.
         let exports = self.exports.load();
         if !self.released.load() && exports > 0 {
@@ -878,7 +878,7 @@ impl Py<PyMemoryView> {
                 vm.new_buffer_error(format!("memoryview has {exports} exported buffer{plural}"))
             );
         }
-        self.release();
+        self.release_buffer();
         Ok(())
     }
 
@@ -994,7 +994,7 @@ impl Py<PyMemoryView> {
         _exc_info: PosArgs<PyObjectRef, NameExcInfo>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.py_release(vm)
+        self.release(vm)
     }
 
     #[pymethod]
@@ -1629,7 +1629,7 @@ pub(crate) fn release_buffer_from_python(
     if mv.released.load() {
         return Err(vm.new_value_error("memoryview's buffer has already been released"));
     }
-    mv.release();
+    mv.release_buffer();
     Ok(())
 }
 
@@ -1659,7 +1659,7 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
         let mv = mv.into_ref(&vm.ctx);
         call_python_release_buffer(&exporter, mv.clone());
         // The window does not outlive the release it was made for.
-        mv.release();
+        mv.release_buffer();
     });
 }
 

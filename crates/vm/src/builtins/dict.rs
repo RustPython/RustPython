@@ -817,7 +817,7 @@ impl PyDict {
         self.inner_setitem(key, value, vm)
     }
 
-    pub(crate) fn setdefault(
+    pub(crate) fn setdefault_value(
         &self,
         key: PyObjectRef,
         default: PyObjectRef,
@@ -908,10 +908,10 @@ impl Py<PyDict> {
         Ok(found.unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
-    #[pymethod(name = "setdefault")]
-    fn setdefault_py(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn setdefault(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
         let default = args.default.unwrap_or_else(|| vm.ctx.none());
-        self.setdefault(args.key, default, vm)
+        self.setdefault_value(args.key, default, vm)
     }
 
     #[pymethod]

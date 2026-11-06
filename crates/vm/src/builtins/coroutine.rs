@@ -119,8 +119,8 @@ impl Py<PyCoroutine> {
         self.inner.set_qualname(qualname)
     }
 
-    #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<PyCoroutine>) -> PyCoroutineWrapper {
+    #[pymethod]
+    fn __await__(zelf: PyRef<PyCoroutine>) -> PyCoroutineWrapper {
         PyCoroutineWrapper {
             coro: zelf,
             closed: AtomicCell::new(false),

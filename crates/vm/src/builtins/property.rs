@@ -249,16 +249,16 @@ impl Py<PyProperty> {
         }
     }
 
-    #[pygetset(name = "__name__")]
-    fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __name__(&self, vm: &VirtualMachine) -> PyResult {
         match self.get_property_name(vm)? {
             Some(name) => Ok(name),
             None => Err(vm.new_attribute_error("'property' object has no attribute '__name__'")),
         }
     }
 
-    #[pygetset(name = "__name__", setter)]
-    fn name_setter(&self, value: PySetterValue) {
+    #[pygetset(setter)]
+    fn set___name__(&self, value: PySetterValue) {
         self.set_property_name(match value {
             PySetterValue::Assign(value) => Some(value),
             PySetterValue::Delete => None,

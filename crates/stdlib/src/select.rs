@@ -414,7 +414,7 @@ mod decl {
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
-    #[pyattr(name = "epoll", once)]
+    #[pyattr(once)]
     fn epoll(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
         epoll::PyEpoll::make_static_type()

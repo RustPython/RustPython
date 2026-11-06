@@ -137,8 +137,8 @@ mod _csv {
             Some(vm.ctx.new_str(zelf.escapechar?))
         }
 
-        #[pygetset(name = "strict")]
-        fn get_strict(zelf: &Py<Self>) -> bool {
+        #[pygetset]
+        fn strict(zelf: &Py<Self>) -> bool {
             zelf.strict
         }
     }
@@ -1062,8 +1062,8 @@ mod _csv {
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Writer {
-        #[pygetset(name = "dialect")]
-        fn get_dialect(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyDialect {
+        #[pygetset]
+        fn dialect(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyDialect {
             zelf.dialect.clone()
         }
 

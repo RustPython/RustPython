@@ -942,8 +942,8 @@ pub(crate) mod _hashlib {
         )
     }
 
-    #[pyfunction(name = "new")]
-    fn hashlib_new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    #[pyfunction]
+    fn new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let name = HashName::try_from_object(vm, args.name.clone())?;
         let data = convert_hash_data(&args.data, &args.usedforsecurity, &args.string, vm)?;
         match name.0.as_str().to_lowercase().as_str() {
@@ -965,74 +965,74 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyfunction(name = "openssl_md5")]
-    pub(crate) fn local_md5(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_md5(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("md5", data))
     }
 
-    #[pyfunction(name = "openssl_sha1")]
-    pub(crate) fn local_sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha1", data))
     }
 
-    #[pyfunction(name = "openssl_sha224")]
-    pub(crate) fn local_sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha224", data))
     }
 
-    #[pyfunction(name = "openssl_sha256")]
-    pub(crate) fn local_sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha256", data))
     }
 
-    #[pyfunction(name = "openssl_sha384")]
-    pub(crate) fn local_sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha384", data))
     }
 
-    #[pyfunction(name = "openssl_sha512")]
-    pub(crate) fn local_sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha512", data))
     }
 
-    #[pyfunction(name = "openssl_sha3_224")]
-    pub(crate) fn local_sha3_224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha3_224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_224", data))
     }
 
-    #[pyfunction(name = "openssl_sha3_256")]
-    pub(crate) fn local_sha3_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha3_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_256", data))
     }
 
-    #[pyfunction(name = "openssl_sha3_384")]
-    pub(crate) fn local_sha3_384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha3_384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_384", data))
     }
 
-    #[pyfunction(name = "openssl_sha3_512")]
-    pub(crate) fn local_sha3_512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    #[pyfunction]
+    pub(crate) fn openssl_sha3_512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = args.convert(vm)?;
         Ok(new_fixed_hasher("sha3_512", data))
     }
 
-    #[pyfunction(name = "openssl_shake_128")]
-    pub(crate) fn local_shake_128(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
+    #[pyfunction]
+    pub(crate) fn openssl_shake_128(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
         let data = args.convert(vm)?;
         Ok(new_xof_hasher("shake_128", data))
     }
 
-    #[pyfunction(name = "openssl_shake_256")]
-    pub(crate) fn local_shake_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
+    #[pyfunction]
+    pub(crate) fn openssl_shake_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
         let data = args.convert(vm)?;
         Ok(new_xof_hasher("shake_256", data))
     }
@@ -1250,12 +1250,12 @@ pub(crate) mod _hashlib {
         )
     }
 
-    #[pyfunction(name = "openssl_blake2b")]
+    #[pyfunction]
     fn openssl_blake2b(args: Blake2bArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         Ok(local_blake2b(args, vm)?.into_hasher())
     }
 
-    #[pyfunction(name = "openssl_blake2s")]
+    #[pyfunction]
     fn openssl_blake2s(args: Blake2sArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         Ok(local_blake2s(args, vm)?.into_hasher())
     }

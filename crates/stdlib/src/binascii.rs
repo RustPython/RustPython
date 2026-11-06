@@ -2,7 +2,7 @@
 
 mod base_n;
 
-pub(super) use decl::crc32;
+pub(super) use decl::crc32_impl;
 pub(crate) use decl::module_def;
 
 use rustpython_common::binascii::{Base64DecodeError, Error};
@@ -218,15 +218,15 @@ mod decl {
         crc: ArgIndex,
     }
 
-    pub(crate) fn crc32(data: ArgBytesLike, crc: ArgIndex) -> u32 {
+    pub(crate) fn crc32_impl(data: ArgBytesLike, crc: ArgIndex) -> u32 {
         let crc = crc.into_int_ref().as_u32_mask();
         data.with_ref(|bytes| binascii::crc32(bytes, crc))
     }
 
-    #[pyfunction(name = "crc32")]
-    fn crc32_py(args: Crc32Args) -> u32 {
+    #[pyfunction]
+    fn crc32(args: Crc32Args) -> u32 {
         let Crc32Args { data, crc } = args;
-        crc32(data, crc)
+        crc32_impl(data, crc)
     }
 
     #[pyfunction]

@@ -3540,8 +3540,8 @@ mod _socket {
 
         #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
-        #[pyarg(any, name = "type", default)]
-        ty: i32,
+        #[pyarg(any, default)]
+        r#type: i32,
         #[pyarg(any, default)]
         proto: i32,
         #[pyarg(any, default)]
@@ -3554,7 +3554,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<Vec<PyObjectRef>, IoOrPyException> {
         let hints = host_socket::dns::AddrInfoHints {
-            socktype: opts.ty,
+            socktype: opts.r#type,
             protocol: opts.proto,
             address: opts.family,
             flags: opts.flags,

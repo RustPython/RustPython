@@ -352,8 +352,11 @@ impl PyAsyncGenASend {
 
 #[pyclass(with(IterNext, Iterable, Destructor))]
 impl Py<PyAsyncGenASend> {
-    #[pymethod(name = "__await__")]
-    const fn r#await(zelf: PyRef<PyAsyncGenASend>, _vm: &VirtualMachine) -> PyRef<PyAsyncGenASend> {
+    #[pymethod]
+    const fn __await__(
+        zelf: PyRef<PyAsyncGenASend>,
+        _vm: &VirtualMachine,
+    ) -> PyRef<PyAsyncGenASend> {
         zelf
     }
 
@@ -524,8 +527,8 @@ impl PyAsyncGenAThrow {
 
 #[pyclass(with(IterNext, Iterable, Destructor))]
 impl Py<PyAsyncGenAThrow> {
-    #[pymethod(name = "__await__")]
-    const fn r#await(
+    #[pymethod]
+    const fn __await__(
         zelf: PyRef<PyAsyncGenAThrow>,
         _vm: &VirtualMachine,
     ) -> PyRef<PyAsyncGenAThrow> {
@@ -766,8 +769,8 @@ impl PyAnextAwaitable {
 
 #[pyclass(with(IterNext, Iterable))]
 impl Py<PyAnextAwaitable> {
-    #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<PyAnextAwaitable>, _vm: &VirtualMachine) -> PyRef<PyAnextAwaitable> {
+    #[pymethod]
+    fn __await__(zelf: PyRef<PyAnextAwaitable>, _vm: &VirtualMachine) -> PyRef<PyAnextAwaitable> {
         zelf
     }
 
