@@ -3,7 +3,7 @@ Tests for the pyo3 module, the bridge from RustPython to an embedded CPython.
 
 Requires the `pyo3` feature:
     cargo build --release --features pyo3
-    ./target/release/rustpython extra_tests/test_module_pyo3.py
+    ./target/release/rustpython crates/module_pyo3/tests/test_module_pyo3.py
 """
 
 import array
