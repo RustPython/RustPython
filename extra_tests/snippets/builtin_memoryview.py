@@ -733,6 +733,104 @@ def test_index_error_names_the_dimension():
 test_index_error_names_the_dimension()
 
 
+def test_index_clinic_bounds_and_reflected_comparisons():
+    view = memoryview(b"abcd")
+    assert view.index(97, -(1 << 100), 1 << 100) == 0
+
+    class HugeIndex:
+        def __index__(self):
+            return 1 << 100
+
+    assert view.index(97, 0, HugeIndex()) == 0
+    for args, expected, message in (
+        ((0, 1 << 100), ValueError, "memoryview.index(x): x not found"),
+        (
+            (0, None),
+            TypeError,
+            "slice indices must be integers or have an __index__ method",
+        ),
+    ):
+        with assert_raises(expected) as caught:
+            view.index(*args)
+        assert str(caught.exception) == message
+
+    class Reflected:
+        def __eq__(self, other):
+            return "equal"
+
+        def __ne__(self, other):
+            return "not equal"
+
+        def __gt__(self, other):
+            return "greater"
+
+    other = Reflected()
+    assert (view == other) == "equal"
+    assert (view != other) == "not equal"
+    assert (view < other) == "greater"
+
+
+test_index_clinic_bounds_and_reflected_comparisons()
+
+
+def test_cast_clinic_validation_before_conversion():
+    view = memoryview(b"abcd")
+    for args, keywords, message in (
+        ((1,), {}, "cast() argument 'format' must be str, not int"),
+        ((None,), {}, "cast() argument 'format' must be str, not None"),
+        ((1,), {"unknown": 1}, "cast() got an unexpected keyword argument 'unknown'"),
+        (
+            (1,),
+            {"format": "B"},
+            "argument for cast() given by name ('format') and position (1)",
+        ),
+    ):
+        with assert_raises(TypeError) as caught:
+            view.cast(*args, **keywords)
+        assert str(caught.exception) == message
+
+    view.release()
+    with assert_raises(TypeError) as caught:
+        view.cast(1)
+    assert str(caught.exception) == "cast() argument 'format' must be str, not int"
+
+
+test_cast_clinic_validation_before_conversion()
+
+
+def test_half_rounding_and_signaling_payloads():
+    import math
+    import struct
+    import sys
+
+    view = memoryview(bytearray(2)).cast("e")
+    # The bits below binary32 precision still determine which side of an
+    # exactly representable binary16 midpoint a binary64 value falls on.
+    view[0] = math.nextafter(1.00048828125, 2.0)
+    assert view.tobytes() == (0x3C01).to_bytes(2, sys.byteorder)
+
+    for half_bits in (0x7C01, 0x7DFF, 0xFC01, 0xFDFF):
+        raw = half_bits.to_bytes(2, sys.byteorder)
+        value = memoryview(raw).cast("e")[0]
+        expected = (
+            ((half_bits & 0x8000) << 48)
+            | 0x7FF0000000000000
+            | ((half_bits & 0x3FF) << 42)
+        )
+        assert struct.pack("=d", value) == expected.to_bytes(8, sys.byteorder)
+        view[0] = value
+        assert view.tobytes() == raw
+
+    raw = (0x7F800001).to_bytes(4, sys.byteorder) + bytes(4)
+    value = memoryview(raw).cast("Zf")[0]
+    assert struct.pack("=d", value.real) == (0x7FF0000020000000).to_bytes(
+        8, sys.byteorder
+    )
+
+
+test_half_rounding_and_signaling_payloads()
+
+
 def test_release_refuses_while_exported():
     ba = bytearray(b"abc")
     mv = memoryview(ba)
@@ -961,3 +1059,107 @@ def test_bool_format_keeps_its_own_error():
 
 
 test_bool_format_keeps_its_own_error()
+
+
+def test_cast_clinic_type_name_bytes():
+    import struct
+
+    view = memoryview(b"a")
+    for value, expected in (
+        (type("A" * 70, (), {})(), "A" * 50),
+        (type("é" * 30, (), {})(), "é" * 25),
+        (type("😀" * 20, (), {})(), "😀" * 12),
+        (struct.Struct("B"), "_struct.Struct"),
+    ):
+        try:
+            view.cast(value)
+        except TypeError as error:
+            assert str(error) == (
+                "cast() argument 'format' must be str, not " + expected
+            ), error
+        else:
+            raise AssertionError("accepted a non-string format")
+
+
+test_cast_clinic_type_name_bytes()
+
+
+def test_scalar_assignment_keeps_temporary_value_until_write():
+    import struct
+
+    for fmt, method, converted in (
+        ("d", "__float__", 2.5),
+        ("f", "__float__", 2.5),
+        ("e", "__float__", 2.5),
+        ("Zf", "__complex__", 1 + 2j),
+        ("Zd", "__complex__", 1 + 2j),
+        ("?", "__bool__", True),
+    ):
+        data = bytearray(struct.calcsize(fmt))
+        view = memoryview(data).cast(fmt)
+        seen = []
+
+        def convert(self):
+            return converted
+
+        def finalize(self):
+            seen.append(view[0])
+            view.release()
+
+        value_type = type("Temporary", (), {method: convert, "__del__": finalize})
+        view[0] = value_type()
+        assert seen == [converted], (fmt, seen)
+        assert struct.unpack(fmt, data) == (converted,), fmt
+
+
+test_scalar_assignment_keeps_temporary_value_until_write()
+
+
+def test_index_keeps_temporary_bounds_until_search_finishes():
+    for which in ("start", "stop"):
+        view = memoryview(b"x")
+        events = []
+
+        class Bound:
+            def __index__(self):
+                events.append("index")
+                return 0 if which == "start" else 1
+
+            def __del__(self):
+                events.append("del")
+                view.release()
+
+        result = (
+            view.index(120, Bound())
+            if which == "start"
+            else view.index(120, 0, Bound())
+        )
+        assert result == 0
+        assert events == ["index", "del"], events
+
+
+test_index_keeps_temporary_bounds_until_search_finishes()
+
+
+def test_buffered_writer_can_compare_its_buffer_views():
+    import io
+
+    class Raw(io.RawIOBase):
+        def writable(self):
+            return True
+
+        def write(self, view):
+            assert view == view[:]
+            scalar = view[:1].cast("B", [])
+            assert scalar == scalar.cast("B").cast("B", [])
+            return len(view)
+
+    stream = io.BufferedWriter(Raw(), buffer_size=4)
+    assert stream.write(b"abc") == 3
+    stream.flush()
+    assert stream.write(b"abcdef") == 6
+    stream.flush()
+    stream.close()
+
+
+test_buffered_writer_can_compare_its_buffer_views()

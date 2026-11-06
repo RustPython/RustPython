@@ -338,6 +338,17 @@ impl Constructor for PyInt {
 }
 
 impl PyInt {
+    /// PyNumber_AsSsize_t with no overflow exception, as used by slice indices.
+    pub(crate) fn as_saturated_index(&self) -> isize {
+        self.value.to_isize().unwrap_or_else(|| {
+            if self.value.is_negative() {
+                isize::MIN
+            } else {
+                isize::MAX
+            }
+        })
+    }
+
     fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         T: Into<BigInt> + ToPrimitive,

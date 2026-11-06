@@ -607,9 +607,5 @@ pub(crate) fn to_saturated_index(
     let result = obj
         .try_index_opt(vm)
         .unwrap_or_else(|| Err(vm.new_type_error(type_error)))?;
-    let value = result.as_bigint();
-    let is_negative = value.is_negative();
-    Ok(value
-        .to_isize()
-        .unwrap_or(if is_negative { isize::MIN } else { isize::MAX }))
+    Ok(result.as_saturated_index())
 }

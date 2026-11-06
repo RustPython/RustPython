@@ -16,7 +16,7 @@ use crate::{
 
 /// Converts an index key the way a sequence does before it refuses the
 /// operation, so an error from `__index__` or the size check wins.
-fn sequence_index_key(key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<isize>> {
+pub(crate) fn sequence_index_key(key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<isize>> {
     let Some(index) = key.try_index_opt(vm) else {
         return Ok(None);
     };

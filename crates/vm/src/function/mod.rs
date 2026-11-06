@@ -38,7 +38,8 @@ pub use legacy_args::{ArgSlots, ArgSpec};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub(crate) use number::int_as_ssize;
 pub use number::{
-    ArgCInt, ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
+    ArgCInt, ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgSliceIndex, ArgStrictInt,
+    PySize, PySsize,
 };
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{

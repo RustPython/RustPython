@@ -5,7 +5,7 @@ use crate::{
     Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
-        lock::{MapImmutable, PyMutex, PyMutexGuard},
+        lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         rc::PyRc,
     },
     object::PyObjectPayload,
@@ -700,29 +700,30 @@ impl BufferDescriptor {
 
     /// panic if indices.len() != ndim
     pub fn position(&self, indices: &[isize], vm: &VirtualMachine) -> PyResult<isize> {
+        assert_eq!(indices.len(), self.ndim());
+        self.position_with(|dim| Ok(indices[dim]), vm)
+    }
+
+    /// Convert and check one index at a time, stopping before later conversions
+    /// if an earlier dimension is out of bounds.
+    pub(crate) fn position_with(
+        &self,
+        mut index: impl FnMut(usize) -> PyResult<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
         let mut pos = self.offset;
-        for (dim, (i, (shape, stride, suboffset))) in indices
+        for (dim, ((&shape, &stride), &suboffset)) in self
+            .shape()
             .iter()
-            .copied()
-            .zip_eq(
-                self.shape()
-                    .iter()
-                    .zip(self.strides().iter())
-                    .zip(self.suboffsets().iter())
-                    .map(|((&shape, &stride), &suboffset)| {
-                        (
-                            shape as usize,
-                            stride,
-                            if suboffset == -1 { 0 } else { suboffset },
-                        )
-                    }),
-            )
+            .zip(self.strides().iter())
+            .zip(self.suboffsets().iter())
             .enumerate()
         {
             // The dimension is named the way a person counts it. lookup_dimension
-            let i = i.wrapped_at(shape).ok_or_else(|| {
+            let i = index(dim)?.wrapped_at(shape as usize).ok_or_else(|| {
                 vm.new_index_error(format!("index out of bounds on dimension {}", dim + 1))
             })?;
+            let suboffset = if suboffset == -1 { 0 } else { suboffset };
             pos += i as isize * stride + suboffset;
         }
         Ok(pos)
@@ -853,7 +854,8 @@ impl BufferDescriptor {
         mut b_index: isize,
         dim: usize,
         f: &mut F,
-    ) where
+    ) -> bool
+    where
         F: FnMut(Range<isize>, Range<isize>) -> bool,
     {
         let shape = self.shape()[dim] as usize;
@@ -877,7 +879,7 @@ impl BufferDescriptor {
                     a_index..a_index + (shape * self.itemsize) as isize,
                     b_index..b_index + (shape * other.itemsize) as isize,
                 ) {
-                    return;
+                    return true;
                 }
             } else {
                 for _ in 0..shape {
@@ -887,26 +889,29 @@ impl BufferDescriptor {
                         a_pos..a_pos + self.itemsize as isize,
                         b_pos..b_pos + other.itemsize as isize,
                     ) {
-                        return;
+                        return true;
                     }
                     a_index += a_stride;
                     b_index += b_stride;
                 }
             }
-            return;
+            return false;
         }
 
         for _ in 0..shape {
-            self._zip_eq::<F, CONTIGUOUS>(
+            if self._zip_eq::<F, CONTIGUOUS>(
                 other,
                 a_index + a_suboffset,
                 b_index + b_suboffset,
                 dim + 1,
                 f,
-            );
+            ) {
+                return true;
+            }
             a_index += a_stride;
             b_index += b_stride;
         }
+        false
     }
 
     #[must_use]
@@ -938,20 +943,20 @@ pub trait BufferResizeGuard {
 #[pyclass(module = false, name = "vec_buffer")]
 #[derive(Debug, PyPayload)]
 pub struct VecBuffer {
-    data: PyMutex<Vec<u8>>,
+    data: PyRwLock<Vec<u8>>,
 }
 
 #[pyclass(flags(BASETYPE, DISALLOW_INSTANTIATION))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
-        core::mem::take(&mut self.data.lock())
+        core::mem::take(&mut self.data.write())
     }
 }
 
 impl From<Vec<u8>> for VecBuffer {
     fn from(data: Vec<u8>) -> Self {
         Self {
-            data: PyMutex::new(data),
+            data: PyRwLock::new(data),
         }
     }
 }
@@ -959,7 +964,7 @@ impl From<Vec<u8>> for VecBuffer {
 impl PyRef<VecBuffer> {
     #[must_use]
     pub fn into_pybuffer(self, readonly: bool) -> PyBuffer {
-        let len = self.data.lock().len();
+        let len = self.data.read().len();
         PyBuffer::new(
             self.into(),
             BufferDescriptor::simple(len, readonly),
@@ -975,11 +980,10 @@ impl PyRef<VecBuffer> {
 
 static VEC_BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| {
-        PyMutexGuard::map_immutable(buffer.obj_as::<VecBuffer>().data.lock(), |x| x.as_slice())
-            .into()
+        PyRwLockReadGuard::map(buffer.obj_as::<VecBuffer>().data.read(), |x| x.as_slice()).into()
     },
     obj_bytes_mut: |buffer| {
-        PyMutexGuard::map(buffer.obj_as::<VecBuffer>().data.lock(), |x| {
+        PyRwLockWriteGuard::map(buffer.obj_as::<VecBuffer>().data.write(), |x| {
             x.as_mut_slice()
         })
         .into()
@@ -987,3 +991,32 @@ static VEC_BUFFER_METHODS: BufferMethods = BufferMethods {
     release: |_| {},
     retain: |_| {},
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multidimensional_zip_propagates_early_stop() {
+        let desc = BufferDescriptor::from_dim_desc(
+            8,
+            0,
+            true,
+            1,
+            "B".into(),
+            vec![(2, 4, -1), (2, 2, -1), (2, 1, -1)],
+        );
+        for contiguous in [false, true] {
+            let runs = if contiguous { 4 } else { 8 };
+            for stop in 1..=runs {
+                let mut visited = 0;
+                desc.zip_eq(&desc, contiguous, |a, b| {
+                    assert_eq!(a, b);
+                    visited += 1;
+                    visited == stop
+                });
+                assert_eq!(visited, stop);
+            }
+        }
+    }
+}

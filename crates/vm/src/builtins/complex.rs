@@ -92,7 +92,7 @@ impl From<Complex64> for PyComplex {
     }
 }
 
-impl PyObjectRef {
+impl PyObject {
     /// Convert a constructor argument, preferring an overridden `__complex__`.
     /// The flag records whether the result came from a complex value or method,
     /// rather than a real-number conversion.
@@ -111,7 +111,7 @@ impl PyObjectRef {
         // Unlike the two-component constructor, the single-argument form uses
         // PyFloat_AsDouble: read float subclasses without invoking __float__.
         if self.downcastable::<PyFloat>() || has_real_number_conversion(self) {
-            let real = ArgIntoFloat::try_from_object(vm, self.clone())?.into_float();
+            let real = self.try_to_value::<ArgIntoFloat>(vm)?.into_float();
             return Ok(Some((Complex64::new(real, 0.0), false)));
         }
 
@@ -122,7 +122,7 @@ impl PyObjectRef {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyRef<PyComplex>>> {
-        let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) else {
+        let Some(method) = vm.get_method(self.to_owned(), identifier!(vm, __complex__)) else {
             return Ok(None);
         };
         let result = method?.call((), vm)?;

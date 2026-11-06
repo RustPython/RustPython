@@ -548,6 +548,11 @@ pub(crate) fn bad_argument_message(
     found: &str,
 ) -> String {
     let (name, parens) = call_form(name, "this function");
+    // _PyArg_BadArgument caps UTF-8 byte lengths, excluding a partial code point.
+    let name = &name[..name.floor_char_boundary(200)];
+    let displayname = &displayname[..displayname.floor_char_boundary(200)];
+    let expected = &expected[..expected.floor_char_boundary(50)];
+    let found = &found[..found.floor_char_boundary(50)];
     format!("{name}{parens} {displayname} must be {expected}, not {found}")
 }
 

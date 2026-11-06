@@ -1,9 +1,6 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{
-        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyComplex, PyTuple, PyTupleRef,
-        PyType, PyTypeRef,
-    },
+    Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyByteArray, PyBytes, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::{lock::PyRwLock, rc::PyRc, static_cell, str::wchar_t},
     convert::ToPyObject,
     exceptions,
@@ -20,62 +17,8 @@ use num_complex::Complex64;
 use num_traits::{PrimInt, ToPrimitive};
 use std::{collections::HashMap, os::raw};
 
-type PackFunc =
-    fn(&VirtualMachine, FormatType, PyObjectRef, &mut dyn FnMut(&[u8])) -> Result<(), PackError>;
+type PackFunc = fn(&VirtualMachine, FormatType, &PyObject, &mut dyn FnMut(&[u8])) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
-
-/// Why a value could not be packed.
-///
-/// `struct` reports both as `struct.error`, so the kind travels beside the
-/// exception rather than in it; `memoryview`, which reports them as TypeError
-/// and ValueError, is what needs to tell them apart.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PackErrorKind {
-    /// The value was not the kind of thing the format takes.
-    Type,
-    /// The value was the right kind, and the format has no room for it.
-    Value,
-    /// The value's own code raised, and that error is the answer as it is.
-    Raised,
-}
-
-pub struct PackError {
-    pub kind: PackErrorKind,
-    pub exception: PyBaseExceptionRef,
-}
-
-impl PackError {
-    fn new<T: Into<Wtf8Buf>>(kind: PackErrorKind, vm: &VirtualMachine, msg: T) -> Self {
-        Self {
-            kind,
-            exception: new_struct_error(vm, msg),
-        }
-    }
-
-    /// An error raised by something other than the packing itself, such as a
-    /// conversion running the value's own code.
-    fn from_exception(exception: PyBaseExceptionRef, vm: &VirtualMachine) -> Self {
-        let kind = if exception.fast_isinstance(vm.ctx.exceptions.type_error) {
-            PackErrorKind::Type
-        } else if exception.fast_isinstance(vm.ctx.exceptions.overflow_error)
-            || exception.fast_isinstance(vm.ctx.exceptions.value_error)
-        {
-            PackErrorKind::Value
-        } else {
-            PackErrorKind::Raised
-        };
-        Self { kind, exception }
-    }
-
-    /// An error that is the answer exactly as it was raised. `pack_single()`
-    /// leaves `'?'` to `PyObject_IsTrue()` this way, with no message of its own.
-    fn raised(exception: PyBaseExceptionRef) -> Self {
-        Self {
-            kind: PackErrorKind::Raised,
-            exception,
-        }
-    }
-}
 
 static OVERFLOW_MSG: &str = "total struct size too long"; // not a const to reduce code size
 
@@ -175,7 +118,7 @@ impl fmt::Debug for FormatType {
 }
 
 impl FormatType {
-    fn info(self, e: Endianness) -> &'static FormatInfo {
+    pub(crate) fn info(self, e: Endianness) -> &'static FormatInfo {
         use mem::{align_of, size_of};
 
         macro_rules! native_info {
@@ -310,8 +253,11 @@ impl FormatCode {
         let mut codes = vec![];
         while chars.peek().is_some() {
             // Skip whitespace before repeat count or format char
-            while let Some(b' ' | b'\t' | b'\n' | b'\r') = chars.peek() {
+            while let Some(b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) = chars.peek() {
                 chars.next();
+            }
+            if chars.peek().is_none() {
+                break;
             }
 
             // determine repeat operator:
@@ -335,84 +281,15 @@ impl FormatCode {
             // determine format char:
             let c = match chars.next() {
                 Some(c) => c,
-                None => {
-                    // If we have a repeat count but only whitespace follows, error
-                    if repeat != 1 {
-                        return Err("repeat count given without format specifier".to_owned());
-                    }
-                    // Otherwise, we're done parsing
-                    break;
-                }
+                None => return Err("repeat count given without format specifier".to_owned()),
             };
 
-            // Check for embedded null character
-            if c == 0 {
-                return Err(exceptions::NulError.to_string());
-            }
-
-            // PEP3118: Handle extended format specifiers
-            // T{...} - struct, X{} - function pointer, (...) - array shape, :name: - field name
-            if c == b'T' || c == b'X' {
-                // Skip struct/function pointer: consume until matching '}'
-                if chars.peek() == Some(&b'{') {
-                    chars.next(); // consume '{'
-                    let mut depth = 1;
-                    while depth > 0 {
-                        match chars.next() {
-                            Some(b'{') => depth += 1,
-                            Some(b'}') => depth -= 1,
-                            None => return Err("unmatched '{' in format".to_owned()),
-                            _ => {}
-                        }
-                    }
-                    continue;
-                }
-            }
-
-            if c == b'(' {
-                // Skip array shape: consume until matching ')'
-                let mut depth = 1;
-                while depth > 0 {
-                    match chars.next() {
-                        Some(b'(') => depth += 1,
-                        Some(b')') => depth -= 1,
-                        None => return Err("unmatched '(' in format".to_owned()),
-                        _ => {}
-                    }
-                }
-                continue;
-            }
-
-            if c == b':' {
-                // Skip field name: consume until next ':'
-                loop {
-                    match chars.next() {
-                        Some(b':') => break,
-                        None => return Err("unmatched ':' in format".to_owned()),
-                        _ => {}
-                    }
-                }
-                continue;
-            }
-
-            if c == b'{'
-                || c == b'}'
-                || c == b'&'
-                || c == b'<'
-                || c == b'>'
-                || c == b'@'
-                || c == b'='
-                || c == b'!'
-            {
-                // Skip standalone braces (pointer targets, etc.), pointer prefix, and nested endianness markers
-                continue;
-            }
-
+            // prepare_s: struct accepts primitive fields, not the extended
+            // exporter grammar (records, subarrays, names or nested byte order).
             let c = if c == b'Z' {
                 match chars.next() {
                     Some(b'f') => b'F',
                     Some(b'd') => b'D',
-                    Some(0) => return Err(exceptions::NulError.to_string()),
                     _ => return Err("bad char in struct format".to_owned()),
                 }
             } else {
@@ -421,10 +298,13 @@ impl FormatCode {
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {
-                    FormatType::SSizeT
-                    | FormatType::SizeT
-                    | FormatType::VoidP
-                    | FormatType::Ucs4Char => endianness == Endianness::Native,
+                    FormatType::SSizeT | FormatType::SizeT | FormatType::VoidP => {
+                        endianness == Endianness::Native
+                    }
+                    FormatType::WideChar
+                    | FormatType::Ucs4Char
+                    | FormatType::LongDouble
+                    | FormatType::PyObject => false,
                     _ => true,
                 })
                 .ok_or_else(|| "bad char in struct format".to_owned())?;
@@ -444,7 +324,10 @@ impl FormatCode {
                 info,
                 pre_padding: padding,
             };
-            arg_count += code.arg_count();
+            arg_count = arg_count
+                .checked_add(code.arg_count())
+                .filter(|&count| isize::try_from(count).is_ok())
+                .ok_or_else(|| OVERFLOW_MSG.to_owned())?;
             codes.push(code);
 
             offset = (info.size as isize)
@@ -492,7 +375,7 @@ pub struct FormatSpec {
     pub arg_count: usize,
 }
 
-/// Bounded, interpreter-local cache for the module-level `struct` functions.
+/// Bounded, interpreter-local cache for `struct` functions and buffer comparison.
 /// Keys and specifications contain no Python objects or user callbacks.
 #[derive(Default)]
 pub struct FormatSpecCache {
@@ -565,6 +448,10 @@ impl PackBuffer for MemoryPackBuffer<'_> {
 
 impl FormatSpec {
     pub fn parse(fmt: &[u8], vm: &VirtualMachine) -> PyResult<Self> {
+        // prepare_s rejects embedded NULs before examining any format code.
+        if fmt.contains(&0) {
+            return Err(new_struct_error(vm, exceptions::NulError.to_string()));
+        }
         let mut chars = fmt.iter().copied().peekable();
 
         // First determine "@", "<", ">","!" or "="
@@ -583,22 +470,8 @@ impl FormatSpec {
     }
 
     pub fn pack(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        self.try_pack(args, vm).map_err(|e| e.exception)
-    }
-
-    /// [`Self::pack`], keeping why a value could not be packed.
-    pub fn try_pack(
-        &self,
-        args: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> Result<Vec<u8>, PackError> {
-        // Create data vector:
-        let mut data = vm
-            .new_zeroed_bytes(self.size)
-            .map_err(|e| PackError::from_exception(e, vm))?;
-
-        self.try_pack_into(&mut data, args, vm)?;
-
+        let mut data = vm.new_zeroed_bytes(self.size)?;
+        self.pack_into(&mut data, args, vm)?;
         Ok(data)
     }
 
@@ -608,8 +481,7 @@ impl FormatSpec {
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.try_pack_into(buffer, args, vm)
-            .map_err(|e| e.exception)
+        self.pack_to(buffer, &args, "pack", vm)
     }
 
     pub fn pack_into_buffer(
@@ -625,17 +497,6 @@ impl FormatSpec {
             "pack_into",
             vm,
         )
-        .map_err(|e| e.exception)
-    }
-
-    /// [`Self::pack_into`], keeping why a value could not be packed.
-    pub fn try_pack_into(
-        &self,
-        buffer: &mut [u8],
-        args: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> Result<(), PackError> {
-        self.pack_to(buffer, &args, "pack", vm)
     }
 
     fn pack_to(
@@ -644,10 +505,9 @@ impl FormatSpec {
         args: &[PyObjectRef],
         operation: &str,
         vm: &VirtualMachine,
-    ) -> Result<(), PackError> {
+    ) -> PyResult<()> {
         if self.arg_count != args.len() {
-            return Err(PackError::new(
-                PackErrorKind::Type,
+            return Err(new_struct_error(
                 vm,
                 format!(
                     "{operation} expected {} items for packing (got {})",
@@ -676,7 +536,7 @@ impl FormatSpec {
                     let pack = code.info.pack.unwrap();
                     for arg in args.by_ref().take(code.repeat) {
                         let mut cursor = offset;
-                        pack(vm, code.code, arg.clone(), &mut |bytes| {
+                        pack(vm, code.code, arg, &mut |bytes| {
                             buffer.write(cursor, bytes);
                             cursor += bytes.len();
                         })?;
@@ -746,9 +606,9 @@ trait Packable {
     fn pack<E: ByteOrder>(
         vm: &VirtualMachine,
         code: FormatType,
-        arg: PyObjectRef,
+        arg: &PyObject,
         write: &mut dyn FnMut(&[u8]),
-    ) -> Result<(), PackError>;
+    ) -> PyResult<()>;
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef;
 }
 
@@ -776,10 +636,10 @@ macro_rules! make_pack_prim_int {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
                 code: FormatType,
-                arg: PyObjectRef,
+                arg: &PyObject,
                 write: &mut dyn FnMut(&[u8]),
-            ) -> Result<(), PackError> {
-                let i: $T = get_int_or_index(vm, code, &arg)?;
+            ) -> PyResult<()> {
+                let i: $T = get_int_or_index(vm, code, arg)?;
                 i.pack_int::<E>(write);
                 Ok(())
             }
@@ -792,23 +652,15 @@ macro_rules! make_pack_prim_int {
     };
 }
 
-fn get_int_or_index<T>(
-    vm: &VirtualMachine,
-    code: FormatType,
-    arg: &PyObject,
-) -> Result<T, PackError>
+fn get_int_or_index<T>(vm: &VirtualMachine, code: FormatType, arg: &PyObject) -> PyResult<T>
 where
     T: PrimInt + fmt::Display + for<'a> TryFrom<&'a BigInt>,
 {
     let index = match arg.try_index_opt(vm) {
         None => {
-            return Err(PackError::new(
-                PackErrorKind::Type,
-                vm,
-                "required argument is not an integer",
-            ));
+            return Err(new_struct_error(vm, "required argument is not an integer"));
         }
-        Some(Err(e)) => return Err(PackError::from_exception(e, vm)),
+        Some(Err(e)) => return Err(e),
         Some(Ok(index)) => index,
     };
     index.try_to_primitive(vm).map_err(|_| {
@@ -824,7 +676,7 @@ where
                 T::max_value()
             )
         };
-        PackError::new(PackErrorKind::Value, vm, msg)
+        new_struct_error(vm, msg)
     })
 }
 
@@ -845,22 +697,17 @@ macro_rules! make_pack_float {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
                 _code: FormatType,
-                arg: PyObjectRef,
+                arg: &PyObject,
                 write: &mut dyn FnMut(&[u8]),
-            ) -> Result<(), PackError> {
-                let f_64 = ArgIntoFloat::try_from_object(vm, arg)
-                    .map_err(|e| PackError::from_exception(e, vm))?
-                    .into_float();
+            ) -> PyResult<()> {
+                let f_64 = arg.try_to_value::<ArgIntoFloat>(vm)?.into_float();
                 let f = f_64 as $T;
                 if f.is_infinite() != f_64.is_infinite() {
-                    return Err(PackError {
-                        kind: PackErrorKind::Value,
-                        exception: vm.new_overflow_error(concat!(
-                            "float too large to pack with ",
-                            $fmt,
-                            " format"
-                        )),
-                    });
+                    return Err(vm.new_overflow_error(concat!(
+                        "float too large to pack with ",
+                        $fmt,
+                        " format"
+                    )));
                 }
                 f.to_bits().pack_int::<E>(write);
                 Ok(())
@@ -889,34 +736,22 @@ macro_rules! make_pack_complex {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
                 _code: FormatType,
-                arg: PyObjectRef,
+                arg: &PyObject,
                 write: &mut dyn FnMut(&[u8]),
-            ) -> Result<(), PackError> {
-                let c = if let Some(value) = arg.downcast_ref::<PyComplex>() {
-                    value.as_complex()
-                } else {
-                    ArgIntoComplex::try_from_object(vm, arg)
-                        .map_err(|_| {
-                            PackError::new(
-                                PackErrorKind::Type,
-                                vm,
-                                "required argument is not a complex",
-                            )
-                        })?
-                        .into_complex()
-                };
+            ) -> PyResult<()> {
+                let c = arg
+                    .try_to_value::<ArgIntoComplex>(vm)
+                    .map_err(|_| new_struct_error(vm, "required argument is not a complex"))?
+                    .into_complex();
                 for component in [c.re, c.im] {
                     let narrowed = component as $Elem;
                     // CPython uses native casts for matching-endian complex formats.
                     if E::convert(1u16) != 1 && narrowed.is_infinite() != component.is_infinite() {
-                        return Err(PackError {
-                            kind: PackErrorKind::Value,
-                            exception: vm.new_overflow_error(concat!(
-                                "float too large to pack with ",
-                                $fmt,
-                                " format"
-                            )),
-                        });
+                        return Err(vm.new_overflow_error(concat!(
+                            "float too large to pack with ",
+                            $fmt,
+                            " format"
+                        )));
                     }
                     narrowed.to_bits().pack_int::<E>(write);
                 }
@@ -936,31 +771,91 @@ macro_rules! make_pack_complex {
 make_pack_complex!(PackFloatComplex, f32, u32, "f");
 make_pack_complex!(PackDoubleComplex, f64, u64, "d");
 
+/// PyFloat_Pack2: round the full binary64 significand to nearest-even and
+/// preserve the sign, signaling bit and representable payload of NaNs.
+pub(crate) fn pack_float16(value: f64) -> Option<u16> {
+    let bits = value.to_bits();
+    let sign = ((bits >> 48) & 0x8000) as u16;
+    let exponent = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & 0x000f_ffff_ffff_ffff;
+    if exponent == 0x7ff {
+        let mut payload = (fraction >> 42) as u16;
+        if fraction != 0 && payload == 0 {
+            payload = 0x0200;
+        }
+        return Some(sign | 0x7c00 | payload);
+    }
+    let exponent = exponent - 1023;
+    if exponent > 15 {
+        return None;
+    }
+    if exponent < -25 {
+        return Some(sign);
+    }
+    let significand = (1_u64 << 52) | fraction;
+    let shift = if exponent < -14 {
+        (28 - exponent) as u32
+    } else {
+        42
+    };
+    let truncated = significand >> shift;
+    let remainder = significand & ((1_u64 << shift) - 1);
+    let halfway = 1_u64 << (shift - 1);
+    let rounded =
+        truncated + u64::from(remainder > halfway || (remainder == halfway && truncated & 1 != 0));
+    let exponent_bits = if exponent < -14 {
+        0
+    } else {
+        ((exponent + 14) as u16) << 10
+    };
+    let magnitude = exponent_bits + rounded as u16;
+    (magnitude < 0x7c00).then_some(sign | magnitude)
+}
+
+/// PyFloat_Unpack2. A hardware half conversion would quiet signaling NaNs.
+fn unpack_float16(bits: u16) -> f64 {
+    if bits & 0x7fff > 0x7c00 {
+        f64::from_bits(
+            (u64::from(bits & 0x8000) << 48)
+                | 0x7ff0_0000_0000_0000
+                | (u64::from(bits & 0x03ff) << 42),
+        )
+    } else {
+        f16::from_bits(bits).to_f64()
+    }
+}
+
+/// PyFloat_Unpack4, as used by memoryview's complex scalar conversion.
+pub(crate) fn unpack_float32(bits: u32) -> f64 {
+    if bits & 0x7fff_ffff > 0x7f80_0000 {
+        f64::from_bits(
+            (u64::from(bits & 0x8000_0000) << 32)
+                | 0x7ff0_0000_0000_0000
+                | (u64::from(bits & 0x007f_ffff) << 29),
+        )
+    } else {
+        f32::from_bits(bits) as f64
+    }
+}
+
 impl Packable for f16 {
     fn pack<E: ByteOrder>(
         vm: &VirtualMachine,
         _code: FormatType,
-        arg: PyObjectRef,
+        arg: &PyObject,
         write: &mut dyn FnMut(&[u8]),
-    ) -> Result<(), PackError> {
-        let f_64 = ArgIntoFloat::try_from_object(vm, arg)
-            .map_err(|e| PackError::from_exception(e, vm))?
-            .into_float();
-        // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
-        let f_16 = Self::from_f64_const(f_64);
-        if f_16.is_infinite() != f_64.is_infinite() {
-            return Err(PackError {
-                kind: PackErrorKind::Value,
-                exception: vm.new_overflow_error("float too large to pack with e format"),
-            });
-        }
-        f_16.to_bits().pack_int::<E>(write);
+    ) -> PyResult<()> {
+        let f_64 = arg.try_to_value::<ArgIntoFloat>(vm)?.into_float();
+        let bits = pack_float16(f_64)
+            .ok_or_else(|| vm.new_overflow_error("float too large to pack with e format"))?;
+        bits.pack_int::<E>(write);
+
         Ok(())
     }
 
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
         let i = PackInt::unpack_int::<E>(rdr);
-        Self::from_bits(i).to_f64().to_pyobject(vm)
+        unpack_float16(i).to_pyobject(vm)
     }
 }
 
@@ -968,9 +863,9 @@ impl Packable for *mut raw::c_void {
     fn pack<E: ByteOrder>(
         vm: &VirtualMachine,
         code: FormatType,
-        arg: PyObjectRef,
+        arg: &PyObject,
         write: &mut dyn FnMut(&[u8]),
-    ) -> Result<(), PackError> {
+    ) -> PyResult<()> {
         usize::pack::<E>(vm, code, arg, write)
     }
 
@@ -983,12 +878,10 @@ impl Packable for bool {
     fn pack<E: ByteOrder>(
         vm: &VirtualMachine,
         _code: FormatType,
-        arg: PyObjectRef,
+        arg: &PyObject,
         write: &mut dyn FnMut(&[u8]),
-    ) -> Result<(), PackError> {
-        let v = ArgIntoBool::try_from_object(vm, arg)
-            .map_err(PackError::raised)?
-            .into_bool() as u8;
+    ) -> PyResult<()> {
+        let v = arg.try_to_value::<ArgIntoBool>(vm)?.into_bool() as u8;
         v.pack_int::<E>(write);
         Ok(())
     }
@@ -1002,17 +895,15 @@ impl Packable for bool {
 fn pack_char(
     vm: &VirtualMachine,
     _code: FormatType,
-    arg: PyObjectRef,
+    arg: &PyObject,
     write: &mut dyn FnMut(&[u8]),
-) -> Result<(), PackError> {
-    let v = PyBytesRef::try_from_object(vm, arg).map_err(|e| PackError::from_exception(e, vm))?;
-    let ch = *v.as_bytes().iter().exactly_one().map_err(|_| {
-        PackError::new(
-            PackErrorKind::Value,
-            vm,
-            "char format requires a bytes object of length 1",
-        )
-    })?;
+) -> PyResult<()> {
+    let v = arg.try_to_ref::<PyBytes>(vm)?;
+    let ch = *v
+        .as_bytes()
+        .iter()
+        .exactly_one()
+        .map_err(|_| new_struct_error(vm, "char format requires a bytes object of length 1"))?;
     write(&[ch]);
     Ok(())
 }
@@ -1023,7 +914,7 @@ fn pack_string(
     code: &FormatCode,
     buffer: &mut (impl PackBuffer + ?Sized),
     offset: usize,
-) -> Result<(), PackError> {
+) -> PyResult<()> {
     let pascal = code.code == FormatType::Pascal;
     let capacity = if pascal {
         code.repeat.saturating_sub(1)
@@ -1054,8 +945,7 @@ fn pack_string(
             write(&bytes.borrow_buf());
         }
     } else {
-        return Err(PackError::new(
-            PackErrorKind::Type,
+        return Err(new_struct_error(
             vm,
             format!(
                 "argument for '{}' must be a bytes object",
@@ -1074,7 +964,7 @@ fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
     let (&len, data) = match data.split_first() {
         Some(x) => x,
         None => {
-            // cpython throws an internal SystemError here
+            // Zero-width Pascal strings unpack to empty bytes (CPython 3.15).
             return vm.ctx.new_bytes(vec![]).into();
         }
     };
@@ -1100,6 +990,53 @@ pub fn new_struct_error<T: Into<Wtf8Buf>>(vm: &VirtualMachine, msg: T) -> PyBase
 mod tests {
     use super::*;
     use crate::Interpreter;
+
+    #[test]
+    fn struct_parser_rejects_exporter_extensions_and_dangling_counts() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for format in ["B\u{b}", "B\u{c}", " \t\n\r\u{b}\u{c}B"] {
+                assert_eq!(FormatSpec::parse(format.as_bytes(), vm).unwrap().size(), 1);
+            }
+            for format in [
+                "1", "B1", "0", "1 ", "B@B", "<P", "u", "w", "g", "O", "T{B:x:}", "(2)B", "&B",
+                "B:name:",
+            ] {
+                assert!(
+                    FormatSpec::parse(format.as_bytes(), vm).is_err(),
+                    "{format:?}"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn half_conversion_preserves_every_encoding_and_rounds_full_precision() {
+        for bits in 0..=u16::MAX {
+            assert_eq!(pack_float16(unpack_float16(bits)), Some(bits), "{bits:04x}");
+        }
+        for bits in 0..0x7bff_u16 {
+            let low = unpack_float16(bits);
+            let high = unpack_float16(bits + 1);
+            let midpoint = (low + high) * 0.5;
+            let below = f64::from_bits(midpoint.to_bits() - 1);
+            let above = f64::from_bits(midpoint.to_bits() + 1);
+            let even = bits + (bits & 1);
+            for (value, expected) in [(below, bits), (midpoint, even), (above, bits + 1)] {
+                assert_eq!(pack_float16(value), Some(expected));
+                assert_eq!(pack_float16(-value), Some(expected | 0x8000));
+            }
+        }
+        assert_eq!(pack_float16(65520.0), None);
+        assert_eq!(pack_float16(-65520.0), None);
+        assert_eq!(
+            pack_float16(f64::from_bits(0x7ff0_0000_0000_0001)),
+            Some(0x7e00)
+        );
+        assert_eq!(
+            pack_float16(f64::from_bits(0xfff0_0000_0000_0001)),
+            Some(0xfe00)
+        );
+    }
 
     #[test]
     fn format_cache_reuses_specs_and_releases_evicted_entries() {

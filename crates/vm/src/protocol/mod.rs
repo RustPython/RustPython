@@ -18,4 +18,5 @@ pub use number::{
     PyNumberTernaryFunc, PyNumberTernaryOp, PyNumberUnaryFunc, handle_bytes_to_int_err,
     numeric_literal_from_str,
 };
+pub(crate) use object::sequence_index_key;
 pub use sequence::{PySequence, PySequenceMethods, PySequenceSlots};
