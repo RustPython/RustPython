@@ -4,11 +4,11 @@ pub(crate) use grp::module_def;
 #[pymodule]
 mod grp {
     use crate::vm::{
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyListRef, PyUtf8StrRef},
         convert::{ToPyObject, TryFromObject},
         exceptions,
-        function::ArgIndex,
+        stdlib::posix::module::RawGid,
         types::PyStructSequence,
     };
     use core::hint::cold_path;
@@ -50,38 +50,14 @@ mod grp {
 
     #[pyfunction]
     fn getgrgid(id: GetGrGidArgs, vm: &VirtualMachine) -> PyResult<GroupData> {
-        let index = ArgIndex::try_from_object(vm, id.id.clone()).map_err(|_| {
-            let name = id.id.class().slot_name().to_string();
-            let name = &name[..name.floor_char_boundary(200.min(name.len()))];
-            vm.new_type_error(format!("gid should be integer, not {name}"))
-        })?;
-        let index = index.into_int_ref();
-        let value = index.as_bigint();
-        // Match CPython's _Py_Gid_Converter, including the -1 sentinel and
-        // the different overflow paths before and after signed-long conversion.
-        let gid = if let Ok(value) = libc::c_long::try_from(value) {
-            if value == -1 {
-                -1_i32 as host_grp::gid_t
-            } else {
-                if value < 0 {
-                    return Err(vm.new_overflow_error("gid is less than minimum"));
-                }
-                host_grp::gid_t::try_from(value)
-                    .map_err(|_| vm.new_overflow_error("gid is less than minimum"))?
-            }
-        } else if value < &0.into() {
-            return Err(vm.new_overflow_error("gid is less than minimum"));
-        } else {
-            libc::c_ulong::try_from(value)
-                .ok()
-                .and_then(|value| host_grp::gid_t::try_from(value).ok())
-                .filter(|&gid| gid != -1_i32 as host_grp::gid_t)
-                .ok_or_else(|| vm.new_overflow_error("gid is greater than maximum"))?
-        };
+        let gid = RawGid::try_from_object(vm, id.id)?.0;
         let group = host_grp::getgrgid(gid).ok().flatten().ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getgrgid(): gid not found: {gid}"))
+                    .new_str(format!(
+                        "getgrgid(): gid not found: {}",
+                        if gid == u32::MAX { -1 } else { i64::from(gid) }
+                    ))
                     .into(),
             )
         })?;
