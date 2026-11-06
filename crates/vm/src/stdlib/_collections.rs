@@ -325,10 +325,8 @@ mod _collections {
             let item = self.borrow_deque().get(index).cloned();
             let item =
                 item.ok_or_else(|| vm.new_runtime_error("deque mutated during iteration"))?;
-            let equal = item.rich_compare_bool(needle, PyComparisonOp::Eq, vm);
             // Releasing the comparison reference can also mutate the deque.
-            drop(item);
-            equal
+            item.rich_compare_bool(needle, PyComparisonOp::Eq, vm)
         }
 
         // Called inside the deque's operation guard, without holding its data lock
@@ -930,7 +928,6 @@ mod _collections {
             let result = crate::iter::richcompare_iterators(&lhs, &rhs, op, vm);
             // Iterator finalizers run in operand order, after item cleanup.
             drop(lhs);
-            drop(rhs);
             result.map(PyComparisonValue::Implemented)
         }
     }

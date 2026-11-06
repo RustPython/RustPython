@@ -81,7 +81,6 @@ pub(crate) fn richcompare_iterators(
         };
         // Finalizers may mutate either stream before the next iteration.
         drop(a);
-        drop(b);
         if let Some(result) = result? {
             return Ok(result);
         }
