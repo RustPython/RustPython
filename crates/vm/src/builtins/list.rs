@@ -13,7 +13,7 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::{PyClassDef, PyClassImpl},
     convert::ToPyObject,
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
@@ -73,11 +73,14 @@ unsafe impl Traverse for PyList {
         // This is safe because during GC collection, the object is unreachable
         // and no other code should be accessing it.
         if let Some(mut guard) = self.elements.try_write() {
+            let mut elements = core::mem::take(&mut *guard);
+            // Only detached children are reversed; callbacks run after unlocking.
+            elements.reverse();
             if out.is_empty() {
                 // Reuse the allocation so deallocation does not need more memory.
-                *out = core::mem::take(&mut *guard);
+                *out = elements;
             } else {
-                out.extend(guard.drain(..));
+                out.extend(elements);
             }
         }
     }
@@ -215,13 +218,16 @@ impl PyList {
             core::mem::swap(&mut *guard, &mut elements);
             mutated
         };
-        res?;
-
-        if mutated {
-            return Err(vm.new_value_error("list modified during sort"));
-        }
-
-        Ok(())
+        let result = res.and_then(|()| {
+            if mutated {
+                Err(vm.new_value_error("list modified during sort"))
+            } else {
+                Ok(())
+            }
+        });
+        // The original list is visible and unlocked before finalizers run.
+        elements.into_iter().rev().for_each(drop);
+        result
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -544,12 +550,12 @@ impl Py<PyList> {
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (start, stop) = range.saturate(self.__len__(), vm)?;
-        let index = self.mut_index_range(vm, &value, start..stop)?;
+        let bounds = range.index_range(|| self.__len__(), vm)?;
+        let index = self.mut_index_range(vm, &value, bounds)?;
         if let Some(index) = index.into() {
             Ok(index)
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
+            Err(vm.new_value_error("list.index(x): x not in list"))
         }
     }
 
@@ -582,7 +588,7 @@ impl Py<PyList> {
             drop(removed);
             Ok(())
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
+            Err(vm.new_value_error("list.remove(x): x not in list"))
         }
     }
 
@@ -774,31 +780,77 @@ impl Iterable for PyList {
 }
 
 impl Comparable for PyList {
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        if let Some(equal) = op.identical_optimization(zelf, other) {
+            return Ok(Either::B(equal.into()));
+        }
+        if matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne)
+            && zelf.__len__() != other.__len__()
+        {
+            return Ok(Either::B((op == PyComparisonOp::Ne).into()));
+        }
+
+        let mut index = 0;
+        loop {
+            let a = zelf.borrow_vec().get(index).cloned();
+            let b = other.borrow_vec().get(index).cloned();
+            let (Some(a), Some(b)) = (a, b) else {
+                break;
+            };
+            let equal = vm.identical_or_equal(&a, &b);
+            // Equality and finalizers may replace, remove, or append elements.
+            // Release both roots before observing the lists again, left first.
+            drop(a);
+            drop(b);
+            if !equal? {
+                break;
+            }
+            index += 1;
+        }
+
+        let a_len = zelf.__len__();
+        let b_len = other.__len__();
+        if index >= a_len || index >= b_len {
+            return Ok(Either::B(op.eval_ord(a_len.cmp(&b_len)).into()));
+        }
+        if let Some(equal) = op.eval_eq(|| false) {
+            return Ok(Either::B(equal.into()));
+        }
+        // CPython reloads the first unequal pair after its equality callback.
+        let a = zelf.borrow_vec().get(index).cloned();
+        let b = other.borrow_vec().get(index).cloned();
+        let (Some(a), Some(b)) = (a, b) else {
+            return Ok(Either::B(
+                op.eval_ord(zelf.__len__().cmp(&other.__len__())).into(),
+            ));
+        };
+        let result = PyObject::rich_compare(&a, &b, op, vm);
+        drop(a);
+        drop(b);
+        result.map(Either::A)
+    }
+
     fn cmp(
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        if let Some(res) = op.identical_optimization(zelf, other) {
-            return Ok(res.into());
+        match Self::slot_richcompare(zelf.as_object(), other, op, vm)? {
+            Either::A(value) => PyArithmeticValue::from_object(vm, value)
+                .map(|value| value.try_to_bool(vm))
+                .transpose(),
+            Either::B(value) => Ok(value),
         }
-        let other = class_or_notimplemented!(Self, other);
-        // Item comparison can mutate either list (clear, resize). Holding the
-        // element lock across that callback deadlocks on the write side.
-        crate::iter::richcompare_mutating_seqs(
-            |i| {
-                let a = zelf.borrow_vec();
-                (a.len(), a.get(i).cloned())
-            },
-            |i| {
-                let b = other.borrow_vec();
-                (b.len(), b.get(i).cloned())
-            },
-            op,
-            vm,
-        )
-        .map(PyComparisonValue::Implemented)
     }
 }
 
@@ -1009,39 +1061,27 @@ fn tuple_lt(elem: &Elem, a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyR
     }
 }
 
-fn timsort_by<T, K, L>(items: &mut [T], reverse: bool, key: &K, mut lt: L) -> PyResult<()>
+fn timsort_by<T, K, L>(items: &mut [T], key: &K, mut lt: L) -> PyResult<()>
 where
     T: Clone,
     K: Fn(&T) -> &PyObject,
     L: FnMut(&PyObject, &PyObject) -> PyResult<bool>,
 {
-    timsort(items, &mut |a, b| {
-        let (a, b) = if reverse {
-            (key(b), key(a))
-        } else {
-            (key(a), key(b))
-        };
-        lt(a, b)
-    })
+    timsort(items, &mut |a, b| lt(key(a), key(b)))
 }
 
-fn timsort_specialized<T, K>(
-    vm: &VirtualMachine,
-    items: &mut [T],
-    reverse: bool,
-    key: K,
-) -> PyResult<()>
+fn timsort_specialized<T, K>(vm: &VirtualMachine, items: &mut [T], key: K) -> PyResult<()>
 where
     T: Clone,
     K: Fn(&T) -> &PyObject,
 {
     match pre_sort_check(items.iter().map(&key), vm) {
-        PreSort::Str => timsort_by(items, reverse, &key, |a, b| Ok(str_lt(a, b))),
-        PreSort::Int => timsort_by(items, reverse, &key, |a, b| Ok(int_lt(a, b))),
-        PreSort::Float => timsort_by(items, reverse, &key, |a, b| Ok(float_lt(a, b))),
-        PreSort::Object(cmp) => timsort_by(items, reverse, &key, |a, b| object_lt(cmp, a, b, vm)),
-        PreSort::Tuple(elem) => timsort_by(items, reverse, &key, |a, b| tuple_lt(&elem, a, b, vm)),
-        PreSort::Generic => timsort_by(items, reverse, &key, |a, b| {
+        PreSort::Str => timsort_by(items, &key, |a, b| Ok(str_lt(a, b))),
+        PreSort::Int => timsort_by(items, &key, |a, b| Ok(int_lt(a, b))),
+        PreSort::Float => timsort_by(items, &key, |a, b| Ok(float_lt(a, b))),
+        PreSort::Object(cmp) => timsort_by(items, &key, |a, b| object_lt(cmp, a, b, vm)),
+        PreSort::Tuple(elem) => timsort_by(items, &key, |a, b| tuple_lt(&elem, a, b, vm)),
+        PreSort::Generic => timsort_by(items, &key, |a, b| {
             a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
         }),
     }
@@ -1054,22 +1094,43 @@ fn do_sort(
     reverse: bool,
 ) -> PyResult<()> {
     if let Some(key_func) = key_func {
-        let mut items = values
-            .iter()
-            .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
-            .collect::<Result<Vec<_>, _>>()?;
-        timsort_specialized(
-            vm,
-            &mut items,
-            reverse,
-            |item: &(PyObjectRef, PyObjectRef)| &*item.1,
-        )?;
+        let mut items = Vec::new();
+        items
+            .try_reserve_exact(values.len())
+            .map_err(|_| vm.no_memory_error())?;
+        for value in values.iter() {
+            let key = match key_func.call((value.clone(),), vm) {
+                Ok(key) => key,
+                Err(error) => {
+                    // Key construction unwinds in reverse, unlike completed sorting.
+                    items.into_iter().rev().for_each(drop);
+                    return Err(error);
+                }
+            };
+            items.push((value.clone(), key));
+        }
+        if reverse {
+            items.reverse();
+        }
+        let result =
+            timsort_specialized(vm, &mut items, |item: &(PyObjectRef, PyObjectRef)| &*item.1);
+        // Even a failed comparison may have permuted the elements. Preserve that
+        // permutation and release keys in its order before restoring the list.
         *values = items.into_iter().map(|(val, _)| val).collect();
+        if reverse {
+            values.reverse();
+        }
+        result
     } else {
-        timsort_specialized(vm, values, reverse, |x| x)?
+        if reverse {
+            values.reverse();
+        }
+        let result = timsort_specialized(vm, values, |x| x);
+        if reverse {
+            values.reverse();
+        }
+        result
     }
-
-    Ok(())
 }
 
 #[pyclass(module = false, name = "list_iterator", traverse)]

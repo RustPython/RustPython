@@ -1,7 +1,7 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult,
     function::OptionalArg,
-    sliceable::SequenceIndexOp,
+    sliceable::to_saturated_index,
     types::PyComparisonOp,
     vm::{MAX_MEMORY_SIZE, VirtualMachine},
 };
@@ -160,18 +160,47 @@ impl<T: Clone> SequenceMutExt<T> for Vec<T> {
 pub struct OptionalRangeArgs {
     #[pyarg(positional, default = 0)]
     start: PyObjectRef,
-    // Platform ssize maximum. Missing is clamped to the sequence length.
+    // Platform ssize maximum; a growing list may reach beyond its initial length.
     #[pyarg(positional, optional, py_default = "9223372036854775807")]
     stop: OptionalArg<PyObjectRef>,
 }
 
+impl Drop for OptionalRangeArgs {
+    fn drop(&mut self) {
+        // Call arguments are released right to left after conversion and search.
+        // Keep both bounds alive until then, but release stop before start.
+        drop(core::mem::replace(&mut self.stop, OptionalArg::Missing));
+    }
+}
+
 impl OptionalRangeArgs {
-    pub fn saturate(self, len: usize, vm: &VirtualMachine) -> PyResult<(usize, usize)> {
-        let saturate = |obj: PyObjectRef| -> PyResult<_> {
-            Ok(obj.try_index(vm)?.as_bigint().saturated_at(len))
+    pub fn index_range(
+        &self,
+        len: impl FnOnce() -> usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<Range<usize>> {
+        let convert = |obj: &PyObject| {
+            to_saturated_index(
+                vm,
+                obj,
+                "slice indices must be integers or have an __index__ method",
+            )
         };
-        let start = saturate(self.start)?;
-        let stop = self.stop.map_or(Ok(len), saturate)?;
-        Ok((start, stop))
+        let start = convert(&self.start)?;
+        let stop = match &self.stop {
+            OptionalArg::Present(stop) => convert(stop)?,
+            OptionalArg::Missing => isize::MAX,
+        };
+        // Both conversions may mutate the list. Normalize negative bounds only
+        // after they finish, and leave positive bounds open to later growth.
+        let len = len() as isize;
+        let normalize = |index: isize| {
+            if index < 0 {
+                index.saturating_add(len).max(0) as usize
+            } else {
+                index as usize
+            }
+        };
+        Ok(normalize(start)..normalize(stop))
     }
 }
