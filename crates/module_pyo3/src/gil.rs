@@ -20,6 +20,7 @@ use core::ops::Deref;
 use pyo3::Python;
 use rustpython_vm::{PyResult, VirtualMachine};
 
+use crate::cpython_init::ensure_cpython_initialized;
 use crate::errors::Pyo3ResultExt;
 
 /// Run `f` holding the CPython GIL, with the RustPython thread attached.
@@ -27,7 +28,10 @@ use crate::errors::Pyo3ResultExt;
 /// The thread detaches from RustPython while it waits for the GIL and attaches
 /// again once it has it, so `f` may freely touch objects of both runtimes.
 pub(crate) fn with_gil<R>(vm: &VirtualMachine, f: impl for<'py> FnOnce(Python<'py>) -> R) -> R {
-    vm.allow_threads(|| Python::attach(|py| vm.attach_for_callback(|| f(py))))
+    vm.allow_threads(|| {
+        ensure_cpython_initialized();
+        Python::attach(|py| vm.attach_for_callback(|| f(py)))
+    })
 }
 
 /// Run `f` on behalf of CPython code calling back into RustPython.

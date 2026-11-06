@@ -8,7 +8,8 @@
 //!
 //! As with `weakref.proxy`, callables get a class of their own, so `callable()`
 //! answers truthfully; so do data descriptors, whose `__set__` must not be seen
-//! on other objects.
+//! on other objects. Number protocols are the same: `__index__`, `__float__`
+//! and `__complex__` exist only on the proxy class of an object that has them.
 
 use alloc::ffi::CString;
 use core::ffi::c_int;
@@ -81,23 +82,78 @@ pub(crate) struct RustPythonCallable;
 )]
 pub(crate) struct RustPythonDataDescriptor;
 
+struct ProxyKind {
+    callable: bool,
+    data_descriptor: bool,
+    index: bool,
+    float: bool,
+    complex: bool,
+}
+
+fn proxy_kind(obj: &PyObject, vm: &VirtualMachine) -> ProxyKind {
+    let number = &obj.class().slots.as_number;
+    ProxyKind {
+        callable: obj.is_callable(),
+        data_descriptor: obj.class().slots.descr_set.load().is_some(),
+        index: number.index.load().is_some(),
+        float: number.float.load().is_some(),
+        complex: obj
+            .class()
+            .get_attr(vm.ctx.intern_str("__complex__"))
+            .is_some(),
+    }
+}
+
+/// Whether `obj` supports `__index__`, `__float__` or `__complex__`.
+pub(crate) fn has_number_protocol(obj: &PyObject, vm: &VirtualMachine) -> bool {
+    let kind = proxy_kind(obj, vm);
+    kind.index || kind.float || kind.complex
+}
+
 impl RustPythonObject {
     /// Wrap `obj` in the proxy class matching what it supports.
-    pub(crate) fn wrap(py: Python<'_>, obj: PyObjectRef) -> Bound<'_, PyAny> {
-        let slots = &obj.class().slots;
-        let callable = obj.is_callable();
-        let data_descriptor = slots.descr_set.load().is_some();
+    pub(crate) fn wrap<'py>(
+        py: Python<'py>,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> Bound<'py, PyAny> {
+        let kind = proxy_kind(&obj, vm);
         let base = Self {
             obj: DropAttached::new(obj),
         };
-        let proxy = if callable {
+        let proxy = if kind.callable {
             Bound::new(py, (RustPythonCallable, base)).map(Bound::into_any)
-        } else if data_descriptor {
+        } else if kind.data_descriptor {
             Bound::new(py, (RustPythonDataDescriptor, base)).map(Bound::into_any)
         } else {
-            Bound::new(py, base).map(Bound::into_any)
+            number_proxy(py, base, kind)
         };
         proxy.expect("allocating a rustpython.object proxy failed")
+    }
+
+    fn nb_index<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        self.run_for_cpython(py, NO_ARGS, |obj, (), vm| match obj.number().index(vm) {
+            Some(result) => result.map(Into::into),
+            None => Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                obj.class().name()
+            ))),
+        })
+    }
+
+    fn nb_float<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        self.run_for_cpython(py, NO_ARGS, |obj, (), vm| match obj.number().float(vm) {
+            Some(result) => result.map(Into::into),
+            None => {
+                Err(vm.new_type_error(format!("must be real number, not {}", obj.class().name())))
+            }
+        })
+    }
+
+    fn nb_complex<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        self.run_for_cpython(py, NO_ARGS, |obj, (), vm| {
+            obj.get_attr("__complex__", vm)?.call((), vm)
+        })
     }
 
     /// Run `op` on the wrapped object with the arguments `args` converts.
@@ -364,6 +420,88 @@ fn descr_set(
         },
     )
 }
+
+fn number_proxy(
+    py: Python<'_>,
+    base: RustPythonObject,
+    kind: ProxyKind,
+) -> pyo3::PyResult<Bound<'_, PyAny>> {
+    match (kind.index, kind.float, kind.complex) {
+        (false, false, false) => Bound::new(py, base).map(Bound::into_any),
+        (true, false, false) => Bound::new(py, (RustPythonIndex, base)).map(Bound::into_any),
+        (false, true, false) => Bound::new(py, (RustPythonFloat, base)).map(Bound::into_any),
+        (false, false, true) => Bound::new(py, (RustPythonComplex, base)).map(Bound::into_any),
+        (true, true, false) => Bound::new(py, (RustPythonIndexFloat, base)).map(Bound::into_any),
+        (true, false, true) => Bound::new(py, (RustPythonIndexComplex, base)).map(Bound::into_any),
+        (false, true, true) => Bound::new(py, (RustPythonFloatComplex, base)).map(Bound::into_any),
+        (true, true, true) => Bound::new(py, (RustPythonNumber, base)).map(Bound::into_any),
+    }
+}
+
+macro_rules! number_proxy_class {
+    ($struct:ident, $name:literal, $($method:ident => $body:ident),+ $(,)?) => {
+        #[cfg_attr(
+            feature = "threading",
+            pyo3::pyclass(
+                module = "rustpython",
+                name = $name,
+                extends = RustPythonObject,
+                frozen
+            )
+        )]
+        #[cfg_attr(
+            not(feature = "threading"),
+            pyo3::pyclass(
+                module = "rustpython",
+                name = $name,
+                extends = RustPythonObject,
+                frozen,
+                unsendable
+            )
+        )]
+        struct $struct;
+
+        #[pyo3::pymethods]
+        impl $struct {
+            $(
+                fn $method<'py>(
+                    slf: &Bound<'py, Self>,
+                ) -> pyo3::PyResult<Bound<'py, PyAny>> {
+                    slf.as_super().borrow().$body(slf.py())
+                }
+            )+
+        }
+    };
+}
+
+number_proxy_class!(RustPythonIndex, "index", __index__ => nb_index);
+number_proxy_class!(RustPythonFloat, "float", __float__ => nb_float);
+number_proxy_class!(RustPythonComplex, "complex", __complex__ => nb_complex);
+number_proxy_class!(
+    RustPythonIndexFloat,
+    "index_float",
+    __index__ => nb_index,
+    __float__ => nb_float
+);
+number_proxy_class!(
+    RustPythonIndexComplex,
+    "index_complex",
+    __index__ => nb_index,
+    __complex__ => nb_complex
+);
+number_proxy_class!(
+    RustPythonFloatComplex,
+    "float_complex",
+    __float__ => nb_float,
+    __complex__ => nb_complex
+);
+number_proxy_class!(
+    RustPythonNumber,
+    "number",
+    __index__ => nb_index,
+    __float__ => nb_float,
+    __complex__ => nb_complex
+);
 
 /// Exports the memory of a RustPython buffer to CPython.
 ///

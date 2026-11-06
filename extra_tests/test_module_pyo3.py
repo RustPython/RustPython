@@ -12,6 +12,7 @@ import copy
 import struct
 import sys
 import time
+import weakref
 
 import pyo3
 
@@ -360,6 +361,118 @@ ctypes.resize(empty, 5)
 memoryview(empty).cast("B")[:] = b"hello"
 assert bytes(memoryview(empty)) == b"hello"
 
+
+# The embedded interpreter keeps its own prefix. PYTHONHOME belongs to this one.
+cpython_sys = pyo3.import_module("sys")
+assert cpython_sys.implementation.name == "cpython"
+assert cpython_sys.prefix != sys.prefix
+
+# A wrapped class supports weak references when its class does.
+types_mod = pyo3.import_module("types")
+alias = types_mod.GenericAlias(ctypes.c_int, int)
+assert weakref.ref(alias)() is alias
+
+# Published MRO is the wrapped class's MRO. Layout bases stay off it.
+assert ctypes.Structure.__mro__[0] is ctypes.Structure
+assert ctypes.Structure.__mro__[-1] is object
+assert pyo3.ref not in ctypes.Structure.__mro__
+assert not any(base.__name__ == "proxy" for base in ctypes.Structure.__mro__)
+assert ctypes.Structure.__mro__[1].__name__ == "_CData"
+assert ctypes.Structure.mro() == list(ctypes.Structure.__mro__)
+meta_mro = type(ctypes.Structure).__mro__
+assert pyo3.pyo3_type not in meta_mro
+assert type in meta_mro
+
+# The same CPython object comes back as the same proxy.
+array_p = (ctypes.c_char_p * 1)()
+array_p[0] = b"foo"
+cast_p = ctypes.cast(array_p, ctypes.POINTER(ctypes.c_char_p))
+assert cast_p._objects is array_p._objects
+
+
+class WeirdString(str):
+    def __str__(self):
+        return "unwanted value"
+
+
+class Named(ctypes.Structure):
+    _fields_ = [(WeirdString("f"), ctypes.c_int)]
+
+
+assert Named.f.name == "f"
+
+
+class IndexLike:
+    def __index__(self):
+        return 2
+
+
+class IntLike:
+    def __int__(self):
+        return 2
+
+
+class FloatLike:
+    def __float__(self):
+        return 2.0
+
+
+class MyInt(int):
+    pass
+
+
+class MyFloat(float):
+    pass
+
+
+assert ctypes.c_int(IndexLike()).value == 2
+raised = False
+try:
+    ctypes.c_int(IntLike())
+except TypeError:
+    raised = True
+assert raised
+assert ctypes.c_double(FloatLike()).value == 2.0
+assert ctypes.c_int(MyInt(7)).value == 7
+assert ctypes.c_double(MyFloat(1.25)).value == 1.25
+
+
+class BePoint(ctypes.BigEndianStructure):
+    _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int)]
+
+
+class BeLine(ctypes.BigEndianStructure):
+    _fields_ = [("point", BePoint)]
+
+
+be = ctypes.cast(b"\x00\x00\x00\x01\x00\x00\x00\x02", ctypes.POINTER(BeLine))[0]
+assert (be.point.x, be.point.y) == (1, 2)
+
+# Callback exceptions are reported through this interpreter's unraisable hook.
+caught = []
+
+
+def hook(unraisable):
+    caught.append(unraisable)
+
+
+def boom(arg):
+    raise ValueError(arg)
+
+
+callback = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int)(boom)
+sys.unraisablehook = hook
+try:
+    callback(42)
+finally:
+    sys.unraisablehook = sys.__unraisablehook__
+assert len(caught) == 1
+assert type(caught[0].exc_value) is ValueError
+assert str(caught[0].exc_value) == "42"
+assert caught[0].err_msg == (
+    f"Exception ignored while calling ctypes callback function {boom!r}"
+)
+assert caught[0].object is None
 
 # numpy, when available
 

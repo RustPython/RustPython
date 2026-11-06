@@ -39,6 +39,7 @@ extern crate alloc;
 extern crate rustpython_derive;
 
 mod convert;
+mod cpython_init;
 mod errors;
 mod gil;
 mod pyo3_ref;
@@ -91,6 +92,8 @@ mod _pyo3 {
         /// address of the CPython class. An entry keeps the CPython class
         /// alive, so the address cannot be reused by another class.
         types: PyMutex<HashMap<usize, (pyo3::Py<pyo3::PyAny>, PyTypeRef)>>,
+        /// Tuple subclass passed to `sys.unraisablehook`. One per interpreter.
+        unraisable_args: PyMutex<Option<PyTypeRef>>,
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
@@ -120,6 +123,20 @@ mod _pyo3 {
                 .values()
                 .find(|(_, rustpython)| rustpython.is(ty))
                 .map(|(cpython, _)| cpython.bind(py).clone())
+        }
+
+        pub(crate) fn cached_unraisable_args(&self) -> Option<PyTypeRef> {
+            self.unraisable_args.lock().clone()
+        }
+
+        /// Remember `ty` unless another thread stored one first.
+        pub(crate) fn store_unraisable_args(&self, ty: PyTypeRef) -> PyTypeRef {
+            let mut slot = self.unraisable_args.lock();
+            if let Some(existing) = slot.clone() {
+                return existing;
+            }
+            *slot = Some(ty.clone());
+            ty
         }
     }
 

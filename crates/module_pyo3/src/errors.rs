@@ -46,7 +46,10 @@ pub(crate) fn cpython_err_to_rustpython(err: PyErr, vm: &VirtualMachine) -> PyBa
     })
 }
 
-fn cpython_exc_to_rustpython(value: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyBaseExceptionRef {
+pub(crate) fn cpython_exc_to_rustpython(
+    value: &Bound<'_, PyAny>,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
     let py = value.py();
     if let Ok(origin) = value.getattr(pyo3::intern!(py, RUSTPYTHON_ORIGIN_ATTR))
         && let Some(obj) = unwrap_rustpython_object(&origin)
@@ -163,7 +166,7 @@ pub(crate) fn rustpython_exc_to_cpython(
     let origin: PyObjectRef = exc.clone().into();
     let _ = instance.setattr(
         pyo3::intern!(py, RUSTPYTHON_ORIGIN_ATTR),
-        RustPythonObject::wrap(py, origin),
+        RustPythonObject::wrap(py, origin, vm),
     );
     if !exact && let Ok(name) = rustpython_type.fully_qualified_name(vm) {
         let _ = instance.call_method1(

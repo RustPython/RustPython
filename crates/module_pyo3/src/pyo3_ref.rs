@@ -18,6 +18,10 @@ pub(crate) use pyo3_ref::{
 
 #[pymodule(sub)]
 pub(crate) mod pyo3_ref {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
     use pyo3::exceptions::PyBufferError;
     use pyo3::pyclass::CompareOp;
     use pyo3::types::{PyIterator, PyTuple};
@@ -60,6 +64,23 @@ pub(crate) mod pyo3_ref {
     #[derive(PyPayload)]
     pub(crate) struct Pyo3Ref {
         pub(crate) py_obj: pyo3::Py<pyo3::PyAny>,
+        /// Address of the CPython object this proxy stands for.
+        /// Zero when this value is not the cached proxy (the class's
+        /// `_pyo3_cpython_type` holder, an exception origin).
+        identity_key: usize,
+        /// Address of the RustPython object, written once it exists.
+        identity_ptr: AtomicUsize,
+    }
+
+    /// CPython object address to the RustPython proxy address.
+    ///
+    /// The proxy's `Drop` removes the entry, so a strong map does not leak.
+    /// The lock is held across the try-incref: the allocation is freed only
+    /// after `Drop` returns and releases the lock.
+    fn proxy_identity() -> std::sync::MutexGuard<'static, HashMap<usize, usize>> {
+        static PROXY_IDENTITY: std::sync::LazyLock<Mutex<HashMap<usize, usize>>> =
+            std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+        PROXY_IDENTITY.lock().unwrap_or_else(|err| err.into_inner())
     }
 
     /// Generic proxy: every protocol, for classes that cannot carry [`Pyo3Ref`]
@@ -94,21 +115,118 @@ pub(crate) mod pyo3_ref {
         }
     }
 
+    impl Drop for Pyo3Ref {
+        fn drop(&mut self) {
+            let key = self.identity_key;
+            let ptr = self.identity_ptr.load(Ordering::Acquire);
+            if key == 0 || ptr == 0 {
+                return;
+            }
+            let mut map = proxy_identity();
+            if map.get(&key).copied() == Some(ptr) {
+                map.remove(&key);
+            }
+        }
+    }
+
+    /// The `Pyo3Ref` payload of a proxy, including the generic ones.
+    fn proxy_payload(obj: &PyObject) -> Option<&Pyo3Ref> {
+        if let Some(obj) = obj.downcast_ref::<Pyo3Ref>() {
+            return Some(obj.payload());
+        }
+        if let Some(obj) = obj.downcast_ref::<Pyo3Proxy>() {
+            return Some(&obj.payload().base);
+        }
+        obj.downcast_ref::<Pyo3CallableRef>()
+            .map(|obj| &obj.payload().base.base)
+    }
+
     impl Pyo3Ref {
         pub(crate) const fn new(py_obj: pyo3::Py<pyo3::PyAny>) -> Self {
-            Self { py_obj }
+            Self {
+                py_obj,
+                identity_key: 0,
+                identity_ptr: AtomicUsize::new(0),
+            }
+        }
+
+        /// A proxy that remembers `py_obj`'s identity once published.
+        pub(crate) fn tracked(py_obj: pyo3::Py<pyo3::PyAny>) -> Self {
+            let identity_key = py_obj.as_ptr() as usize;
+            Self {
+                py_obj,
+                identity_key,
+                identity_ptr: AtomicUsize::new(0),
+            }
+        }
+
+        /// The proxy already handed out for `obj`, if it is still alive.
+        pub(crate) fn cached(obj: &Bound<'_, PyAny>) -> Option<PyObjectRef> {
+            let key = obj.as_ptr() as usize;
+            if key == 0 {
+                return None;
+            }
+            let mut map = proxy_identity();
+            let ptr = *map.get(&key)?;
+            // SAFETY: `ptr` came from the map, whose entry is removed only
+            // while this same lock is held, and only from the proxy's Drop.
+            // The object allocation outlives Drop, so the refcount is still
+            // readable. `safe_inc` fails once destruction has started.
+            let owned = unsafe { PyObject::try_to_owned_from_ptr(ptr as *mut PyObject) };
+            if owned.is_none() {
+                map.remove(&key);
+            }
+            owned
+        }
+
+        /// Record `proxy` as the identity of its CPython object.
+        ///
+        /// If another live proxy won the race, that one is returned instead.
+        pub(crate) fn publish(proxy: PyObjectRef) -> PyObjectRef {
+            let (key, ptr) = {
+                let Some(payload) = proxy_payload(&proxy) else {
+                    return proxy;
+                };
+                let key = payload.identity_key;
+                if key == 0 {
+                    return proxy;
+                }
+                let ptr = proxy.as_object() as *const PyObject as usize;
+                payload.identity_ptr.store(ptr, Ordering::Release);
+                (key, ptr)
+            };
+            let mut map = proxy_identity();
+            let existing = map.get(&key).copied().filter(|existing| *existing != ptr);
+            let owner = existing.and_then(|existing| {
+                // SAFETY: `existing` is a map entry. It is removed only under
+                // this lock, from the proxy's Drop, and the allocation is
+                // freed only after that Drop returns.
+                unsafe { PyObject::try_to_owned_from_ptr(existing as *mut PyObject) }
+            });
+            if let Some(owner) = owner {
+                drop(map);
+                drop(proxy);
+                return owner;
+            }
+            map.insert(key, ptr);
+            drop(map);
+            proxy
         }
 
         /// A generic proxy for `obj`, callable if `obj` is.
         pub(crate) fn wrap(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyObjectRef {
+            if let Some(cached) = Self::cached(obj) {
+                return cached;
+            }
             let base = Pyo3Proxy {
-                base: Self::new(obj.clone().unbind()),
+                base: Self::tracked(obj.clone().unbind()),
             };
-            if obj.is_callable() {
+            let proxy = if obj.is_callable() {
                 Pyo3CallableRef { base }.into_ref(&vm.ctx).into()
             } else {
                 base.into_ref(&vm.ctx).into()
-            }
+            };
+            Self::publish(proxy)
         }
 
         /// Apply `f` to the wrapped object and bring the result back.
