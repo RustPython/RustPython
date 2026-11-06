@@ -85,7 +85,9 @@ unic
 unistd
 unparked
 unparking
+ungil
 unraw
+unsendable
 unsync
 wasip1
 wasip2
