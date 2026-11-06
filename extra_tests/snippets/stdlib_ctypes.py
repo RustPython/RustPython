@@ -1276,3 +1276,519 @@ for _value in (
     _pointer[0] = _value
     assert _original.value is _object
     assert _redirected.value is (None if _value is None else _object)
+
+
+# These identity and checker-cache cases extend the canonical ctypes tests.
+import sys as _sys
+import unittest as _unittest
+
+
+class _CtypesTypeIdentityTests(_unittest.TestCase):
+    def test_callback_requires_class_local_argtypes_metadata(self):
+        class Base(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = c_int
+
+        class Child(Base):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _restype_ = c_int
+
+        for _ in range(2):
+            with self.assertRaisesRegex(TypeError, "no argtypes"):
+                Child(lambda: 37)
+            Child._argtypes_ = ()
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 37)
+        ordinary = Child(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertIsNone(ordinary.argtypes)
+        self.assertEqual(ordinary(), 37)
+
+    def test_function_uses_cached_argtypes_metadata(self):
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = c_int
+
+        Prototype._argtypes_ = (c_int,)
+        function = Prototype(lambda: 37)
+        self.assertEqual(function.argtypes, ())
+        self.assertEqual(function(), 37)
+        ordinary = Prototype(ctypes.cast(function, ctypes.c_void_p).value)
+        self.assertEqual(ordinary.argtypes, ())
+        self.assertEqual(ordinary(), 37)
+        ordinary.argtypes = (c_int,)
+        self.assertEqual(ordinary.argtypes, (c_int,))
+        ordinary.argtypes = None
+        self.assertEqual(ordinary.argtypes, ())
+        self.assertEqual(ordinary(), 37)
+
+    @_unittest.skipUnless(
+        _sys.implementation.name == "rustpython",
+        "CPython 3.15 crashes on missing callback restype",
+    )
+    def test_callback_missing_restype_is_rejected_safely(self):
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+
+        with self.assertRaisesRegex(
+            TypeError, "invalid result type for callback function"
+        ):
+            Prototype(lambda: 37)
+
+    def test_restype_deletion_restores_class_checker(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("class", value.value))
+
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = Checked
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 23)
+        function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        function.restype = None
+        del function.restype
+        self.assertIs(function.restype, Checked)
+        self.assertEqual(function(), ("class", 23))
+        del function.restype
+        self.assertEqual(function(), ("class", 23))
+
+    def test_restype_deletion_reenters_before_clearing_checker(self):
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 17)
+        events = []
+
+        class Nested(c_int):
+            _check_retval_ = staticmethod(lambda value: ("nested", value.value))
+
+        class Restype:
+            def __call__(self, value):
+                return value
+
+            def __del__(self):
+                events.append(function.restype)
+                function.restype = Nested
+
+        function.restype = Restype()
+        del function.restype
+        self.assertEqual(events, [c_int])
+        self.assertIs(function.restype, Nested)
+        result = function()
+        self.assertIs(type(result), Nested)
+        self.assertEqual(result.value, 17)
+
+    def test_redundant_simple_base_uses_primary_base(self):
+        class Redundant(c_int, ctypes._SimpleCData):
+            pass
+
+        value = Redundant(42)
+        self.assertIs(Redundant.__base__, c_int)
+        self.assertTrue(repr(value).startswith("<Redundant object at "))
+        self.assertIs(value.__ctypes_from_outparam__(), value)
+
+    def test_function_subclass_does_not_inherit_restype_metadata(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("checked", value.value))
+
+        class Base(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+            _argtypes_ = ()
+            _restype_ = Checked
+
+        class Child(Base):
+            _flags_ = ctypes._FUNCFLAG_CDECL
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: -7)
+        function = Child(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertIs(Child._restype_, Checked)
+        self.assertIsNone(function.restype)
+        self.assertEqual(function(), -7)
+
+    def test_checker_finalizer_observes_old_restype(self):
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 17)
+        events = []
+
+        class Checker:
+            def __call__(self, value):
+                return value
+
+            def __del__(self):
+                events.append(function.restype)
+
+        class Checked(c_int):
+            pass
+
+        checker = Checker()
+        Checked._check_retval_ = checker
+        function.restype = Checked
+        del Checked._check_retval_
+        del checker
+        function.restype = c_int
+        self.assertEqual(events, [Checked])
+
+    def test_checker_finalizer_reenters_restype_setter(self):
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 17)
+
+        class Nested(c_int):
+            _check_retval_ = staticmethod(lambda value: ("nested", value))
+
+        class Checker:
+            def __call__(self, value):
+                return value
+
+            def __del__(self):
+                function.restype = Nested
+
+        class Checked(c_int):
+            pass
+
+        checker = Checker()
+        Checked._check_retval_ = checker
+        function.restype = Checked
+        del Checked._check_retval_
+        del checker
+        function.restype = c_int
+        self.assertIs(function.restype, c_int)
+        self.assertEqual(function(), ("nested", 17))
+
+    def test_simple_base_name_spoof(self):
+        class Base(c_int):
+            pass
+
+        Base.__name__ = "_SimpleCData"
+
+        class Child(Base):
+            pass
+
+        value = Child(42)
+        self.assertTrue(repr(value).startswith("<Child object at "))
+        self.assertIs(value.__ctypes_from_outparam__(), value)
+
+    def test_renamed_checked_restype(self):
+        class Checked(c_int):
+            @staticmethod
+            def _check_retval_(value):
+                self.assertIs(type(value), Checked)
+                return ("checked", value.value)
+
+        Checked.__name__ = "RenamedCheckedResult"
+        function = ctypes.CFUNCTYPE(c_int)(lambda: -7)
+        function.restype = Checked
+        self.assertEqual(function(), ("checked", -7))
+
+    def test_hresult_name_spoof(self):
+        class Unchecked(c_int):
+            pass
+
+        Unchecked.__name__ = "HRESULT"
+        function = ctypes.CFUNCTYPE(c_int)(lambda: -7)
+        function.restype = Unchecked
+        result = function()
+        self.assertIs(type(result), Unchecked)
+        self.assertEqual(result.value, -7)
+
+    def test_checker_cached_at_assignment(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("old", value.value))
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = Checked
+        Checked._check_retval_ = staticmethod(lambda value: "new")
+        self.assertEqual(function(), ("old", 31))
+
+        class Unchecked(c_int):
+            pass
+
+        function.restype = Unchecked
+        Unchecked._check_retval_ = staticmethod(lambda value: "added")
+        result = function()
+        self.assertIs(type(result), Unchecked)
+        self.assertEqual(result.value, 31)
+
+    def test_callback_replaces_checker(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("old", value.value))
+
+        def callback():
+            Checked._check_retval_ = staticmethod(lambda value: "replacement")
+            return 23
+
+        function = ctypes.CFUNCTYPE(c_int)(callback)
+        function.restype = Checked
+        self.assertEqual(function(), ("old", 23))
+
+    def test_direct_simple_checker_receives_scalar(self):
+        class Checked(ctypes._SimpleCData):
+            _type_ = "i"
+
+            @staticmethod
+            def _check_retval_(value):
+                self.assertIs(type(value), int)
+                return ("direct", value)
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = Checked
+        self.assertEqual(function(), ("direct", 31))
+
+    def test_function_type_caches_checker(self):
+        class Checked(c_int):
+            _check_retval_ = staticmethod(lambda value: ("old", value.value))
+
+        prototype = ctypes.CFUNCTYPE(Checked)
+        Checked._check_retval_ = staticmethod(lambda value: "new")
+        prototype._restype_ = ctypes.c_long
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 19)
+        function = prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertIs(function.restype, Checked)
+        self.assertEqual(function(), ("old", 19))
+
+    def test_callable_restype_ignores_checker(self):
+        def restype(value):
+            return ("callable", value)
+
+        restype._check_retval_ = lambda value: "ignored"
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = restype
+        self.assertEqual(function(), ("callable", 31))
+
+    def test_subclass_result_bypasses_constructors(self):
+        class Result(c_int):
+            def __new__(cls, *args):
+                raise AssertionError("native result called __new__")
+
+            def __init__(self, *args):
+                raise AssertionError("native result called __init__")
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        function.restype = Result
+        result = function()
+        self.assertIs(type(result), Result)
+        self.assertEqual(result.value, 31)
+
+    def test_instance_restype_falls_back_to_class_checker(self):
+        class Checked(ctypes._SimpleCData):
+            _type_ = "i"
+            _check_retval_ = staticmethod(lambda value: ("fallback", value))
+
+        prototype = ctypes.CFUNCTYPE(Checked)
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 19)
+        function = prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        function.restype = c_int
+        self.assertEqual(function(), ("fallback", 19))
+
+    def test_callable_checker_lookup_error(self):
+        class Restype:
+            def __call__(self, value):
+                return value
+
+            @property
+            def _check_retval_(self):
+                raise RuntimeError("checker lookup failed")
+
+        function = ctypes.CFUNCTYPE(c_int)(lambda: 31)
+        with self.assertRaisesRegex(RuntimeError, "checker lookup failed"):
+            function.restype = Restype()
+        self.assertIs(function.restype, c_int)
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_renamed_hresult_and_rebound_alias(self):
+        hresult = ctypes.HRESULT
+        original_name = hresult.__name__
+        function = ctypes.CFUNCTYPE(c_int)(lambda: -2147467259)
+        function.restype = hresult
+        try:
+            hresult.__name__ = "RenamedHRESULT"
+            ctypes.HRESULT = c_int
+            with self.assertRaises(OSError):
+                function()
+        finally:
+            hresult.__name__ = original_name
+            ctypes.HRESULT = hresult
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_format_error_signed_code_and_zero(self):
+        import _ctypes
+
+        self.assertIsInstance(_ctypes.FormatError(-2147467259), str)
+        with self.assertRaises(OverflowError):
+            _ctypes.FormatError(0x80004005)
+        expected = _ctypes.FormatError(87)
+        ctypes.windll.kernel32.SetLastError(87)
+        self.assertEqual(_ctypes.FormatError(0), expected)
+        ctypes.windll.kernel32.SetLastError(87)
+        self.assertEqual(_ctypes.FormatError(), expected)
+
+    @_unittest.skipUnless(hasattr(ctypes, "COMError"), "Windows-only")
+    def test_com_error_args_and_constructor_arity(self):
+        details = (None, None, None, 0, None)
+        error = ctypes.COMError(-2147467259, "failure", details)
+        self.assertEqual(error.args, (-2147467259, "failure", details))
+        events = []
+
+        class Observed(ctypes.COMError):
+            def __setattr__(self, name, value):
+                events.append((name, value))
+                super().__setattr__(name, value)
+
+        observed = Observed(-1, "text", details)
+        self.assertEqual(
+            events,
+            [
+                ("args", ("text", details)),
+                ("hresult", -1),
+                ("text", "text"),
+                ("details", details),
+            ],
+        )
+        self.assertEqual(observed.args, (-1, "text", details))
+        for args in ((), (1,), (1, "text"), (1, "text", details, 4)):
+            with self.assertRaises(TypeError):
+                ctypes.COMError(*args)
+
+    @_unittest.skipUnless(hasattr(ctypes, "COMError"), "Windows-only")
+    def test_com_error_without_error_info(self):
+        import _ctypes
+        import gc
+
+        query_type = ctypes.WINFUNCTYPE(
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        )
+        method_type = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+        seen = []
+
+        def query_interface(this, iid, output):
+            seen.append(this)
+            output[0] = None
+            return -2147467262  # E_NOINTERFACE: no ISupportErrorInfo
+
+        query = query_type(query_interface)
+        fail = method_type(lambda this: -2147467259)
+        table = (ctypes.c_void_p * 4)(
+            ctypes.cast(query, ctypes.c_void_p).value,
+            None,
+            None,
+            ctypes.cast(fail, ctypes.c_void_p).value,
+        )
+        instance = ctypes.c_void_p(ctypes.addressof(table))
+        pointer = ctypes.c_void_p(ctypes.addressof(instance))
+        prototype = ctypes.WINFUNCTYPE(ctypes.HRESULT)
+        iid = bytes(range(16))
+        function = prototype(3, "Failure", None, iid)
+        del iid
+        gc.collect()
+        with self.assertRaises(ctypes.COMError) as raised:
+            function(pointer)
+        error = raised.exception
+        self.assertEqual(seen, [pointer.value])
+        self.assertEqual(error.hresult, -2147467259)
+        self.assertEqual(error.text, _ctypes.FormatError(-2147467259))
+        self.assertEqual(error.details, (None, None, None, 0, None))
+        self.assertEqual(error.args, (error.hresult, error.text, error.details))
+
+    @_unittest.skipUnless(hasattr(ctypes, "COMError"), "Windows-only")
+    def test_com_error_reads_current_iid_and_releases_support(self):
+        query_type = ctypes.WINFUNCTYPE(
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        )
+        supports_type = ctypes.WINFUNCTYPE(
+            ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p
+        )
+        release_type = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)
+        method_type = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+        seen = []
+        released = []
+
+        def supports_error_info(this, iid):
+            seen.append(ctypes.string_at(iid, 16))
+            return -2147467259
+
+        supports = supports_type(supports_error_info)
+        release = release_type(lambda this: released.append(this) or 1)
+        support_table = (ctypes.c_void_p * 4)(
+            None,
+            None,
+            ctypes.cast(release, ctypes.c_void_p).value,
+            ctypes.cast(supports, ctypes.c_void_p).value,
+        )
+        support = ctypes.c_void_p(ctypes.addressof(support_table))
+
+        def query_interface(this, iid, output):
+            output[0] = ctypes.addressof(support)
+            return 0
+
+        query = query_type(query_interface)
+        fail = method_type(lambda this: -2147467259)
+        table = (ctypes.c_void_p * 4)(
+            ctypes.cast(query, ctypes.c_void_p).value,
+            None,
+            None,
+            ctypes.cast(fail, ctypes.c_void_p).value,
+        )
+        instance = ctypes.c_void_p(ctypes.addressof(table))
+        prototype = ctypes.WINFUNCTYPE(ctypes.HRESULT)
+        iid = (ctypes.c_ubyte * 16)()
+        function = prototype(3, "Failure", None, iid)
+        iid[0] = 42
+        with self.assertRaises(ctypes.COMError):
+            function(ctypes.c_void_p(ctypes.addressof(instance)))
+        self.assertEqual(seen, [bytes(iid)])
+        self.assertEqual(released, [ctypes.addressof(support)])
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_hresult_convention_error_details(self):
+        import _ctypes
+
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL | 0x2  # FUNCFLAG_HRESULT
+            _argtypes_ = ()
+            _restype_ = c_int
+
+        for status in (-2147024891, -2147467259, -2147220991):
+            callback = ctypes.CFUNCTYPE(c_int)(lambda: status)
+            function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+            with self.assertRaises(OSError) as expected:
+                _ctypes._check_HRESULT(status)
+            with self.assertRaises(OSError) as actual:
+                function()
+            self.assertIs(type(actual.exception), type(expected.exception))
+            for name in (
+                "args",
+                "errno",
+                "winerror",
+                "strerror",
+                "filename",
+                "filename2",
+            ):
+                self.assertEqual(
+                    getattr(actual.exception, name), getattr(expected.exception, name)
+                )
+
+    @_unittest.skipUnless(hasattr(ctypes, "HRESULT"), "Windows-only")
+    def test_hresult_convention_bypasses_checker(self):
+        class Checked(ctypes._SimpleCData):
+            _type_ = "i"
+            _check_retval_ = staticmethod(lambda value: ("checked", value))
+
+        class Prototype(ctypes._CFuncPtr):
+            _flags_ = ctypes._FUNCFLAG_CDECL | 0x2  # FUNCFLAG_HRESULT
+            _argtypes_ = ()
+            _restype_ = Checked
+
+        callback = ctypes.CFUNCTYPE(c_int)(lambda: 19)
+        function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
+        self.assertEqual(function(), 19)
+
+
+for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
+    if _identity_test_name.startswith("test_"):
+        _identity_test = _CtypesTypeIdentityTests(_identity_test_name)
+        _identity_method = getattr(_identity_test, _identity_test_name)
+        if not getattr(_identity_method, "__unittest_skip__", False):
+            _identity_method()

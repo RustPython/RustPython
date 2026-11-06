@@ -2631,7 +2631,7 @@ pub(super) mod types {
             // We need this method, because of how `CPython` copies `init`
             // from `BaseException` in `SimpleExtendsException` macro.
             // See: `BaseException_new`
-            if *cls.name() == *vm.ctx.exceptions.os_error.name() {
+            if cls.is(vm.ctx.exceptions.os_error) {
                 let args_vec = args.args.to_vec();
                 let len = args_vec.len();
                 if (2..=5).contains(&len) {

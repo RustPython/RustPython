@@ -100,6 +100,9 @@ pub struct StgInfo {
 
     // Function parameter conversion
     pub(super) paramfunc: ParamFunc, // how to pass to foreign functions
+    pub(super) argtypes: Option<PyObjectRef>,
+    pub(super) restype: Option<PyObjectRef>,
+    pub(super) checker: Option<PyObjectRef>,
 
     // Byte order (for _swappedbytes_)
     pub big_endian: bool, // true if big endian, false if little endian
@@ -154,6 +157,9 @@ impl Default for StgInfo {
             format: None,
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
+            argtypes: None,
+            restype: None,
+            checker: None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
@@ -167,12 +173,18 @@ unsafe impl Traverse for StgInfo {
         self.proto.traverse(tracer);
         self.element_type.traverse(tracer);
         self.pointer_type.traverse(tracer);
+        self.argtypes.traverse(tracer);
+        self.restype.traverse(tracer);
+        self.checker.traverse(tracer);
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         out.extend(self.proto.take().map(Into::into));
         out.extend(self.element_type.take().map(Into::into));
         out.extend(self.pointer_type.take());
+        out.extend(self.argtypes.take());
+        out.extend(self.restype.take());
+        out.extend(self.checker.take());
     }
 }
 
@@ -191,6 +203,9 @@ impl StgInfo {
             format: None,
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
+            argtypes: None,
+            restype: None,
+            checker: None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
@@ -244,6 +259,9 @@ impl StgInfo {
             format,
             shape,
             paramfunc: ParamFunc::Array,
+            argtypes: None,
+            restype: None,
+            checker: None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
@@ -3067,7 +3085,7 @@ impl PyCData {
 
     pub(super) fn into_view(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         if cls.fast_issubclass(super::function::PyCFuncPtr::static_type()) {
-            super::function::PyCFuncPtr::from_cdata(self)
+            super::function::PyCFuncPtr::from_cdata(self, vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         } else {
@@ -4100,16 +4118,6 @@ pub(super) fn get_usize_attr(
         return Err(vm.new_value_error(format!("{attr} must be a non-negative integer")));
     }
     Ok(val.to_usize().unwrap_or(default))
-}
-
-/// Check if a type is a "simple instance" (direct subclass of a simple type)
-/// Returns TRUE for c_int, c_void_p, etc. (simple types with _type_ attribute)
-/// Returns FALSE for Structure, Array, POINTER(T), etc.
-pub(super) fn is_simple_instance(typ: &Py<PyType>) -> bool {
-    // _ctypes_simple_instance
-    // Check if the type's metaclass is PyCSimpleType
-    let metaclass = typ.class();
-    metaclass.fast_issubclass(super::simple::PyCSimpleType::static_type())
 }
 
 /// Set or initialize StgInfo on a type

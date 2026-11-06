@@ -753,11 +753,7 @@ impl Representable for PyCSimple {
 
         // Check if base is _SimpleCData (direct simple type like c_int, c_char)
         // vs subclass of simple type (like class X(c_int): pass)
-        let bases = cls.bases.read();
-        let is_direct_simple = bases
-            .as_slice()
-            .iter()
-            .any(|base| base.name().to_string() == "_SimpleCData");
+        let is_direct_simple = returns_scalar(cls);
 
         if is_direct_simple {
             // Direct SimpleCData: "typename(repr(value))"
@@ -895,15 +891,7 @@ impl Py<PyCSimple> {
     ) -> PyResult<PyObjectRef> {
         // _ctypes_simple_instance: returns true if NOT a direct subclass of Simple_Type
         // i.e., c_int (direct) -> false, MyInt(c_int) (subclass) -> true
-        let is_subclass_of_simple = {
-            let cls = zelf.class();
-            let bases = cls.bases.read();
-            // If base is NOT _SimpleCData, then it's a subclass of a subclass
-            !bases
-                .as_slice()
-                .iter()
-                .any(|base| base.name().to_string() == "_SimpleCData")
-        };
+        let is_subclass_of_simple = !returns_scalar(zelf.class());
 
         if is_subclass_of_simple {
             // Subclass of simple type (e.g., MyInt(c_int)): return self

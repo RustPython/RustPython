@@ -778,3 +778,22 @@ for method, operation, expected in (
 for predicate in (set().issuperset, frozenset().isdisjoint):
     with assert_raises(TypeError):
         predicate([{1}])
+
+
+# A subclass named like the builtin still needs the subclass repr wrapper.
+SetNamedSet = type("set", (set,), {})
+assert repr(SetNamedSet([1])) == "set({1})"
+assert repr(SetNamedSet()) == "set()"
+assert repr({1}) == "{1}"
+
+
+class RenamedSet(set):
+    pass
+
+
+renamed_set = RenamedSet([1])
+assert repr(renamed_set) == "RenamedSet({1})"
+RenamedSet.__name__ = "set"
+assert repr(renamed_set) == "set({1})"
+RenamedSet.__name__ = "RenamedAgain"
+assert repr(renamed_set) == "RenamedAgain({1})"
