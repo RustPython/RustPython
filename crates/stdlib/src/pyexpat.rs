@@ -2753,7 +2753,7 @@ mod _pyexpat {
             if self.namespace_separator.is_some()
                 && let Some((namespace, _)) = self.namespace_stack.read().last()
             {
-                for (prefix, uri) in namespace.iter() {
+                for (prefix, uri) in namespace {
                     if (prefix == "xml" && uri == xml::namespace::NS_XML_URI)
                         || (prefix == "xmlns" && uri == xml::namespace::NS_XMLNS_URI)
                     {

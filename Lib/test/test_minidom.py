@@ -1266,7 +1266,6 @@ class MinidomTest(unittest.TestCase):
         self.assertIs(handler.src, entity)
         self.assertIs(handler.dst, dst)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneNodeEntity(self):
         self.check_clone_node_entity(False)
         self.check_clone_node_entity(True)
