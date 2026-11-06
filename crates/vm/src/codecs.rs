@@ -1185,6 +1185,17 @@ impl<'a> PyDecodeContext<'a> {
             exception: OnceCell::new(),
         }
     }
+
+    pub(crate) fn new_owned(encoding: &'a str, data: PyBytesRef, vm: &'a VirtualMachine) -> Self {
+        Self {
+            vm,
+            encoding,
+            data: PyDecodeData::Modified(data),
+            orig_bytes: None,
+            pos: 0,
+            exception: OnceCell::new(),
+        }
+    }
 }
 
 impl CodecContext for PyDecodeContext<'_> {
@@ -1333,6 +1344,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
 pub(crate) struct ErrorsHandler<'a> {
     errors: &'a Py<PyUtf8Str>,
     resolved: OnceCell<ResolvedError>,
+    use_registry: bool,
 }
 
 enum ResolvedError {
@@ -1347,12 +1359,22 @@ impl<'a> ErrorsHandler<'a> {
             Self {
                 errors,
                 resolved: OnceCell::new(),
+                use_registry: false,
             }
         } else {
             Self {
                 errors: identifier_utf8!(vm, strict),
                 resolved: OnceCell::from(ResolvedError::Standard(StandardError::Strict)),
+                use_registry: false,
             }
+        }
+    }
+
+    pub(crate) fn new_registered(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
+        Self {
+            errors: errors.unwrap_or_else(|| identifier_utf8!(vm, strict)),
+            resolved: OnceCell::new(),
+            use_registry: true,
         }
     }
 
@@ -1362,7 +1384,9 @@ impl<'a> ErrorsHandler<'a> {
             return Ok(val);
         }
         let errors_str = self.errors.as_str();
-        let val = if let Ok(standard) = errors_str.parse() {
+        let val = if !self.use_registry
+            && let Ok(standard) = errors_str.parse()
+        {
             ResolvedError::Standard(standard)
         } else {
             vm.state
