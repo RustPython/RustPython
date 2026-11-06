@@ -386,6 +386,9 @@ mod _ssl {
         fn set_check_hostname(zelf: &Py<Self>, value: ArgIntoBool) {
             let value = value.into_bool();
             *zelf.check_hostname.write() = value;
+            if value && *zelf.verify_mode.read() == CERT_NONE {
+                *zelf.verify_mode.write() = CERT_REQUIRED;
+            }
         }
 
         #[pygetset]
