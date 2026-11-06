@@ -1270,6 +1270,17 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
         let decode_exc = ctx.error_decoding(byte_range, reason);
         let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
         let res = handler.call((decode_exc.clone(),), vm)?;
+        let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
+        let Some([replace, restart]) = res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice())
+        else {
+            return Err(tuple_err());
+        };
+        let replace = replace
+            .downcast_ref::<PyStr>()
+            .ok_or_else(tuple_err)?
+            .to_owned();
+        let restart = isize::try_from_borrowed_object(vm, restart)
+            .map_err(|e| if self.use_registry { e } else { tuple_err() })?;
         let new_data = decode_exc.as_object().get_attr("object", vm)?;
         if self.use_registry || !new_data.is(&data_bytes) {
             let new_data: PyBytesRef = new_data
@@ -1278,25 +1289,13 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             ctx.data = PyDecodeData::Modified(new_data);
         }
         let data = &*ctx.data;
-        let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
-        match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
-            Some([replace, restart]) => {
-                let replace = replace
-                    .downcast_ref::<PyStr>()
-                    .ok_or_else(tuple_err)?
-                    .to_owned();
-                let restart =
-                    isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
-                let restart = if restart < 0 {
-                    // will still be out of bounds if it underflows ¯\_(ツ)_/¯
-                    data.len().wrapping_sub(restart.unsigned_abs())
-                } else {
-                    restart as usize
-                };
-                Ok((replace, restart))
-            }
-            _ => Err(tuple_err()),
-        }
+        let restart = if restart < 0 {
+            // will still be out of bounds if it underflows ¯\_(ツ)_/¯
+            data.len().wrapping_sub(restart.unsigned_abs())
+        } else {
+            restart as usize
+        };
+        Ok((replace, restart))
     }
 }
 
