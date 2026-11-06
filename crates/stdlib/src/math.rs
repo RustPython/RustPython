@@ -14,7 +14,9 @@ mod math {
         function::{ArgIndex, ArgIntoFloat, ArgIterable, NameCoordinates, OptionalArg, PosArgs},
         identifier,
     };
+    use itertools::Itertools;
     use malachite_bigint::BigInt;
+    use num_traits::{Signed, ToPrimitive};
 
     use super::{float_repr, pymath_exception};
 
@@ -150,8 +152,8 @@ mod math {
         if let Some(i) = x.downcast_ref::<PyInt>() {
             return integer_log(i);
         }
-        let val = match x.try_float(vm) {
-            Ok(value) => value.to_f64(),
+        let val = match x.to_owned().try_into_value::<ArgIntoFloat>(vm) {
+            Ok(value) => value.into_float(),
             Err(error) => {
                 if error.fast_isinstance(vm.ctx.exceptions.overflow_error)
                     && let Some(index) = x.try_index_opt(vm)
@@ -402,64 +404,47 @@ mod math {
         pymath::math::lgamma(x.into_float()).map_err(|err| pymath_exception(err, vm))
     }
 
-    fn try_magic_method(
-        func_name: &'static PyStrInterned,
+    fn round_to_int(
+        x: &PyObject,
+        method: &'static PyStrInterned,
+        round: fn(f64) -> f64,
         vm: &VirtualMachine,
-        value: &PyObject,
     ) -> PyResult {
-        let method = vm.get_method_or_type_error(value.to_owned(), func_name, || {
-            format!(
-                "type '{}' doesn't define '{}' method",
-                value.class().name(),
-                func_name.as_str(),
-            )
-        })?;
-        method.call((), vm)
+        // Exact floats skip special-method lookup. Other types may provide a
+        // result of any type, or fall back to the native float conversion.
+        let value = if let Some(float) = x.downcast_ref_if_exact::<PyFloat>(vm) {
+            float.to_f64()
+        } else {
+            if let Some(result) = vm.call_special_method_opt(x, method, ())? {
+                return Ok(result);
+            }
+            x.to_owned()
+                .try_into_value::<ArgIntoFloat>(vm)?
+                .into_float()
+        };
+        let value = try_f64_to_bigint(round(value), vm)?;
+        Ok(vm.ctx.new_int(value).into())
     }
 
     #[pyfunction]
     fn trunc(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_magic_method(identifier!(vm, __trunc__), vm, &x)
+        vm.call_special_method_opt(&x, identifier!(vm, __trunc__), ())?
+            .ok_or_else(|| {
+                let class = x.class();
+                let name = class.slot_name();
+                let name = &name[..name.floor_char_boundary(100)];
+                vm.new_type_error(format!("type {name} doesn't define __trunc__ method"))
+            })
     }
 
     #[pyfunction]
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // `math_ceil`: an exact float skips the `__ceil__` lookup.
-        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
-            let v = try_f64_to_bigint(f.to_f64().ceil(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        // Only call __ceil__ if the class defines it - if it exists but is not callable,
-        // the error should be propagated (not fall back to float conversion)
-        if x.class().has_attr(identifier!(vm, __ceil__)) {
-            return try_magic_method(identifier!(vm, __ceil__), vm, &x);
-        }
-        // __ceil__ not defined - fall back to float conversion
-        if let Some(v) = x.try_float_opt(vm) {
-            let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
+        round_to_int(&x, identifier!(vm, __ceil__), f64::ceil, vm)
     }
 
     #[pyfunction]
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // `math_floor`: an exact float skips the `__floor__` lookup.
-        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
-            let v = try_f64_to_bigint(f.to_f64().floor(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        // Only call __floor__ if the class defines it - if it exists but is not callable,
-        // the error should be propagated (not fall back to float conversion)
-        if x.class().has_attr(identifier!(vm, __floor__)) {
-            return try_magic_method(identifier!(vm, __floor__), vm, &x);
-        }
-        // __floor__ not defined - fall back to float conversion
-        if let Some(v) = x.try_float_opt(vm) {
-            let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
+        round_to_int(&x, identifier!(vm, __floor__), f64::floor, vm)
     }
 
     #[pyfunction]
@@ -489,10 +474,20 @@ mod math {
     }
 
     #[pyfunction]
-    fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let values: Result<Vec<f64>, _> =
-            seq.iter(vm)?.map(|r| r.map(|v| v.into_float())).collect();
-        pymath::math::fsum(values?).map_err(|err| pymath_exception(err, vm))
+    fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult {
+        // Stream conversions so an intermediate overflow does not advance the
+        // Python iterator or invoke __float__ on any later summands.
+        let mut values = seq
+            .iter(vm)?
+            .map(|value| value.map(ArgIntoFloat::into_float));
+        values
+            .by_ref()
+            .process_results(|values| pymath::math::fsum(values))?
+            .map(|value| vm.ctx.new_float(value).into())
+            .map_err(|err| match err {
+                pymath::Error::ERANGE => vm.new_overflow_error("intermediate overflow in fsum"),
+                pymath::Error::EDOM => vm.new_value_error("-inf + inf in fsum"),
+            })
     }
 
     #[pyfunction]
@@ -518,11 +513,13 @@ mod math {
 
         let steps = match arg.steps {
             Some(steps) => {
-                let steps: i64 = steps.into_int_ref().try_to_primitive(vm)?;
-                if steps < 0 {
+                let steps = steps.as_ref().as_bigint();
+                if steps.is_negative() {
                     return Err(vm.new_value_error("steps must be a non-negative integer"));
                 }
-                Some(steps as u64)
+                // Every finite IEEE-754 path fits in u64 steps. Larger indices
+                // reach the destination, just like CPython's saturated count.
+                Some(steps.to_u64().unwrap_or(u64::MAX))
             }
             None => None,
         };

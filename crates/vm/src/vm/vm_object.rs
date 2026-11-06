@@ -184,6 +184,20 @@ impl VirtualMachine {
         PyMethod::get_special::<false>(obj, method, self)
     }
 
+    /// Call a special method, treating AttributeError from descriptor binding
+    /// as a missing method. Errors raised by the method itself are preserved.
+    #[doc(hidden)]
+    pub fn call_special_method_opt(
+        &self,
+        obj: &PyObject,
+        method: &'static PyStrInterned,
+        args: impl IntoFuncArgs,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.get_special_method(obj, method)?
+            .map(|method| method.invoke(args, self))
+            .transpose()
+    }
+
     /// NOT PUBLIC API
     #[doc(hidden)]
     pub fn call_special_method(

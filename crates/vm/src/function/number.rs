@@ -1,7 +1,7 @@
 use super::argument::OptionalArg;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyFloat, PyInt, PyIntRef},
+    builtins::{PyComplex, PyFloat, PyInt, PyIntRef},
 };
 use core::{ffi::c_int, ops::Deref};
 use malachite_bigint::BigInt;
@@ -14,7 +14,7 @@ use num_traits::{PrimInt, ToPrimitive};
 /// any object that can be transformed into a complex.
 ///
 /// If the object is not a Python complex object but has a `__complex__()`
-/// method, this method will first be called to convert the object into a float.
+/// method, this method will first be called to convert the object into a complex.
 /// If `__complex__()` is not defined then it falls back to `__float__()`. If
 /// `__float__()` is not defined it falls back to `__index__()`.
 #[derive(Debug, PartialEq)]
@@ -40,10 +40,20 @@ impl From<ArgIntoComplex> for Complex64 {
 impl TryFromObject for ArgIntoComplex {
     // Equivalent to PyComplex_AsCComplex
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // We do not care if it was already a complex.
-        let (value, _) = obj.try_complex(vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
-        })?;
+        // Native scalar conversion reads complex subclasses directly. Only the
+        // complex constructor prefers their overridden __complex__ method.
+        let value = if let Some(complex) = obj.downcast_ref::<PyComplex>() {
+            complex.as_complex()
+        } else {
+            obj.try_complex(vm)?
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "must be real number, not {}",
+                        obj.class().slot_name()
+                    ))
+                })?
+                .0
+        };
         Ok(Self { value })
     }
 }
