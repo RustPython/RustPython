@@ -911,9 +911,9 @@ mod _json {
     /// being serialized when an error occurred), then return it unchanged so
     /// it can be re-raised.
     fn add_note(exc: PyBaseExceptionRef, note: Wtf8Buf, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        // `PyBaseException::add_note` is `pub`, so call it directly instead
+        // `PyBaseException::add_note_str` is `pub`, so call it directly instead
         // of going through the generic attribute-lookup + call machinery.
-        let _ = exc.add_note(vm.ctx.new_str(note), vm);
+        let _ = exc.add_note_str(vm.ctx.new_str(note), vm);
         exc
     }
 

@@ -1,5 +1,5 @@
 use super::native_iter::{NativeIterKind, NativeSequenceIter};
-use super::{PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter};
+use super::{PyGenericAlias, PyInt, PyList, PyStrRef, PyType, PyTypeRef, iter::builtins_iter};
 use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::common::lock::LazyLock;
 use crate::common::{hash, hash::PyHash, wtf8::wtf8_concat};
@@ -263,19 +263,12 @@ impl Constructor for PyTuple {
         };
         let iterable = parsed.iterable;
 
-        // Optimizations for exact tuple type
         if cls.is(vm.ctx.types.tuple_type) {
-            // Return exact tuple as-is
-            if let OptionalArg::Present(ref input) = iterable
-                && let Ok(tuple) = input.clone().downcast_exact::<Self>(vm)
-            {
-                return Ok(tuple.into_pyref().into());
-            }
-
-            // Return empty tuple singleton
-            if iterable.is_missing() {
-                return Ok(vm.ctx.empty_tuple.clone().into());
-            }
+            let tuple = match iterable {
+                OptionalArg::Present(input) => Self::from_sequence(&input, vm)?,
+                OptionalArg::Missing => vm.ctx.empty_tuple.clone(),
+            };
+            return Ok(tuple.into());
         }
 
         let elements = if let OptionalArg::Present(iterable) = iterable {
@@ -283,11 +276,6 @@ impl Constructor for PyTuple {
         } else {
             vec![]
         };
-
-        // Return empty tuple singleton for exact tuple types (when iterable was empty)
-        if elements.is_empty() && cls.is(vm.ctx.types.tuple_type) {
-            return Ok(vm.ctx.empty_tuple.clone().into());
-        }
 
         let payload = Self::from_elements(elements);
         payload.into_ref_with_type(vm, cls).map(Into::into)
@@ -304,6 +292,21 @@ impl Constructor for PyTuple {
 }
 
 impl PyTuple {
+    /// Convert a sequence to an exact tuple without querying length hints.
+    pub(crate) fn from_sequence(value: &PyObject, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        if let Some(tuple) = value.downcast_ref_if_exact::<Self>(vm) {
+            return Ok(tuple.to_owned());
+        }
+        let elements = if let Some(list) = value.downcast_ref_if_exact::<PyList>(vm) {
+            list.borrow_vec().to_vec()
+        } else {
+            // Subclasses must use their iterator. Neither the iterable nor
+            // its iterator is asked for a length hint by PySequence_Tuple.
+            value.try_to_value(vm)?
+        };
+        Ok(Self::new_ref(elements, &vm.ctx))
+    }
+
     fn from_elements(elements: Vec<PyObjectRef>) -> Self {
         Self {
             elements: TupleElements::new(elements.into_boxed_slice()),

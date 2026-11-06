@@ -359,7 +359,7 @@ mod _pyexpat {
                 Some(value)
             })
             .inspect_err(|error| {
-                let _ = error.add_note(
+                let _ = error.add_note_str(
                     vm.ctx
                         .new_str(format!("invalid '{name}' event handler return value")),
                     vm,

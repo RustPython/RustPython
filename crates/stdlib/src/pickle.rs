@@ -2157,7 +2157,7 @@ mod _pickle {
     // saving
 
     fn add_note(err: PyBaseExceptionRef, note: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let _ = err.add_note(vm.ctx.new_str(note), vm);
+        let _ = err.add_note_str(vm.ctx.new_str(note), vm);
         err
     }
 

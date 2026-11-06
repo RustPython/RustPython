@@ -1811,7 +1811,7 @@ mod _io {
             let zelf: &Py<Self> = zelf.try_to_ref(vm)?;
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
-                    let str_repr = e.__str__(vm).as_wtf8().to_owned();
+                    let str_repr = e.diagnostic_str(vm).as_wtf8().to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
                     vm.new_exception_msg(e.class().to_owned(), msg.into())
                 })?;
