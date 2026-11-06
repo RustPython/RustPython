@@ -301,9 +301,8 @@ mod _csv {
         vm: &VirtualMachine,
     ) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(&fileobj, "write")? {
-            Some(write_meth) => write_meth,
-            None if fileobj.is_callable() => fileobj,
-            None => {
+            Some(write) if write.is_callable() => write,
+            _ => {
                 return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
             }
         };
