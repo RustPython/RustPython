@@ -7,7 +7,7 @@ mod _random {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyInt, PyTupleRef},
+        builtins::{PyInt, PyTuple, PyTupleRef},
         types::{Constructor, Initializer},
     };
     use itertools::Itertools;
@@ -124,24 +124,44 @@ mod _random {
         }
 
         #[pymethod]
-        fn setstate(zelf: &Py<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn setstate(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let state = state
+                .downcast_ref::<PyTuple>()
+                .ok_or_else(|| vm.new_type_error("state vector must be a tuple"))?;
             let state: &[_; mt19937::N + 1] = state
                 .as_slice()
                 .try_into()
                 .map_err(|_| vm.new_value_error("state vector is the wrong size"))?;
             let (index, state) = state.split_last().unwrap();
-            let index: usize = index.try_to_value(vm)?;
-            if index > mt19937::N {
-                return Err(vm.new_value_error("invalid state"));
-            }
             let state: [u32; mt19937::N] = state
                 .iter()
-                .map(|i| i.try_to_value(vm))
+                .map(|item| {
+                    let value = item
+                        .downcast_ref::<PyInt>()
+                        .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+                    if value.as_bigint().is_negative() {
+                        return Err(
+                            vm.new_overflow_error("can't convert negative value to unsigned int")
+                        );
+                    }
+                    let value = core::ffi::c_ulong::try_from(value.as_bigint()).map_err(|_| {
+                        vm.new_overflow_error("Python int too large to convert to C unsigned long")
+                    })?;
+                    #[allow(clippy::unnecessary_cast)] // c_ulong is u32 on some platforms.
+                    let value = value as u32;
+                    Ok(value)
+                })
                 .process_results(|it| it.collect_array())?
                 .unwrap();
+            let index = index.try_index(vm)?;
+            let index = core::ffi::c_long::try_from(index.as_bigint())
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+            if index < 0 || index > mt19937::N as core::ffi::c_long {
+                return Err(vm.new_value_error("invalid state"));
+            }
             let mut rng = zelf.rng.lock();
             rng.set_state(&state);
-            rng.set_index(index);
+            rng.set_index(index as usize);
             Ok(())
         }
     }
