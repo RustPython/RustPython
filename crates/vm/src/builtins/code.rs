@@ -1118,7 +1118,6 @@ impl Comparable for PyCode {
                     // Release both temporary keys in comparison order, including
                     // on errors, before comparing the remaining code fields.
                     drop(left);
-                    drop(right);
                     eq?
                 }
                 && vm.bool_eq(zelf.co_names.as_object(), other.co_names.as_object())?
