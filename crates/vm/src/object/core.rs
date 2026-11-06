@@ -3706,7 +3706,7 @@ mod tests {
                     } else {
                         Vec::new()
                     };
-                    sequence.clear(&mut out);
+                    sequence.clear_refs(&mut out);
                     if existing {
                         assert_eq!(out[0].try_to_value::<i32>(vm).unwrap(), 1);
                     } else {
