@@ -695,7 +695,7 @@ fn register_callback(
 
     vm.audit("sys.monitoring.register_callback", || (func.clone(),))?;
 
-    let (prev, displaced) = {
+    let (prev, _displaced) = {
         let mut state = vm.state.monitoring.lock();
         let prev = state
             .callbacks
@@ -723,7 +723,6 @@ fn register_callback(
         }
         (prev, displaced)
     };
-    drop(displaced);
     Ok(prev)
 }
 

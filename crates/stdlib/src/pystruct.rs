@@ -352,8 +352,7 @@ pub(crate) mod _struct {
             if let Some(format) = format {
                 match Self::parse_format(format, vm) {
                     Ok(inner) => {
-                        let old = zelf.inner.write().replace(inner);
-                        drop(old);
+                        let _old = zelf.inner.write().replace(inner);
                     }
                     Err(err) if uses_struct_new && !uses_struct_init => {
                         _warnings::warn(

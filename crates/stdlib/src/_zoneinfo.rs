@@ -265,14 +265,13 @@ mod _zoneinfo {
         if !is_base(cls) {
             return Ok(());
         }
-        let evicted = with_cache(vm, |cache| {
+        let _evicted = with_cache(vm, |cache| {
             cache.strong.push_front((key, zone));
             cache
                 .strong
                 .split_off(STRONG_CACHE_MAX.min(cache.strong.len()))
         })?;
         // Dropping a zone or its key can reenter the cache through Python.
-        drop(evicted);
         Ok(())
     }
 
@@ -282,14 +281,13 @@ mod _zoneinfo {
         }
         for (cached_key, zone) in strong_entries(vm)? {
             if vm.bool_eq(key, &cached_key)? {
-                let removed = with_cache(vm, |cache| {
+                let _removed = with_cache(vm, |cache| {
                     cache
                         .strong
                         .iter()
                         .position(|(_, cached)| cached.is(&zone))
                         .and_then(|pos| cache.strong.remove(pos))
                 })?;
-                drop(removed);
                 return Ok(());
             }
         }
@@ -300,8 +298,7 @@ mod _zoneinfo {
         if !is_base(cls) {
             return Ok(());
         }
-        let removed = with_cache(vm, |cache| core::mem::take(&mut cache.strong))?;
-        drop(removed);
+        let _removed = with_cache(vm, |cache| core::mem::take(&mut cache.strong))?;
         Ok(())
     }
 

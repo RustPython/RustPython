@@ -268,14 +268,13 @@ impl SequenceIter {
     }
 
     fn exhaust(&self) {
-        let released = {
+        let _released = {
             let mut state = self.state.lock();
             if matches!(self.direction, SequenceIterDirection::Reverse) {
                 state.index = -1;
             }
             state.sequence.take()
         };
-        drop(released);
     }
 
     fn get_item(sequence: &PyObject, mut index: isize, vm: &VirtualMachine) -> PyResult {
@@ -327,7 +326,6 @@ impl SequenceIter {
                     // Keep the sequence at -1 until the next next() call.
                     SequenceIterDirection::Reverse => index - 1,
                 };
-                drop(state);
                 Ok(PyIterReturn::Return(item))
             }
             Err(error)
@@ -497,13 +495,12 @@ impl PyCallableIterator {
     }
 
     fn exhaust(&self) {
-        let released = {
+        let _released = {
             let mut status = self.status.write();
             core::mem::replace(&mut *status, IterStatus::Exhausted)
         };
         // Dropping the callable or sentinel can invoke a finalizer that calls
         // next() again, so both must be released after the state lock.
-        drop(released);
     }
 }
 

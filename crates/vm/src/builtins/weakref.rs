@@ -106,7 +106,6 @@ impl Comparable for PyWeak {
         };
         // Release the upgraded referents in argument order, also on errors.
         drop(a);
-        drop(b);
         result
     }
 
@@ -168,7 +167,6 @@ impl Hashable for PyWeak {
             result.as_ref().copied().unwrap_or(hash::SENTINEL),
             Ordering::Relaxed,
         );
-        drop(obj);
         result
     }
 }

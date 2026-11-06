@@ -90,7 +90,6 @@ mod _heapq {
 
                 let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm);
                 drop(a);
-                drop(b);
                 let cmp = cmp?;
                 if !cmp {
                     childpos += 1;
@@ -415,7 +414,6 @@ mod _heapq {
 
                 let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm);
                 drop(a);
-                drop(b);
                 let cmp = cmp?;
                 if !cmp {
                     childpos += 1;

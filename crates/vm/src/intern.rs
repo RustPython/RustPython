@@ -65,7 +65,6 @@ impl StringPool {
                 // attribute name, a dict key or a docstring.
                 unsafe { interned.as_object().mark_intern() };
                 // Publish the interned flag before another lookup can return this entry.
-                drop(inner);
                 interned
             } else {
                 unsafe {

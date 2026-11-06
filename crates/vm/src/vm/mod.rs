@@ -4069,9 +4069,8 @@ impl VirtualMachine {
     }
 
     pub fn set_raised_exception(&self, exc: Option<PyBaseExceptionRef>) {
-        let previous = core::mem::replace(&mut self.exceptions.borrow_mut().raised, exc);
+        let _previous = core::mem::replace(&mut self.exceptions.borrow_mut().raised, exc);
         // Release the RefCell borrow before dropping a potentially final reference.
-        drop(previous);
     }
 
     pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {

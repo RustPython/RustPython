@@ -3148,12 +3148,11 @@ impl Py<PyType> {
         drop(old_annotate);
         // Clear cached annotations only when setting to a new callable.
         if clear_annotations {
-            let old_annotations = PyType::with_type_lock(vm, || {
+            let _old_annotations = PyType::with_type_lock(vm, || {
                 self.modified_inner();
                 self.attributes
                     .remove(identifier!(vm, __annotations_cache__))
             });
-            drop(old_annotations);
         }
 
         Ok(())
@@ -3215,12 +3214,11 @@ impl Py<PyType> {
         };
 
         drop(annotate);
-        let old_annotations = PyType::with_type_lock(vm, || {
+        let _old_annotations = PyType::with_type_lock(vm, || {
             self.modified_inner();
             self.attributes
                 .insert(annotations_cache_key, annotations.clone())
         });
-        drop(old_annotations);
         Ok(annotations)
     }
 
@@ -3257,22 +3255,20 @@ impl Py<PyType> {
         }
         drop(old_annotations);
         if has_annotations {
-            let old_cache = PyType::with_type_lock(vm, || {
+            let _old_cache = PyType::with_type_lock(vm, || {
                 self.modified_inner();
                 self.attributes
                     .remove(identifier!(vm, __annotations_cache__))
             });
-            drop(old_cache);
         }
         for key in [
             identifier!(vm, __annotate_func__),
             identifier!(vm, __annotate__),
         ] {
-            let old_annotate = PyType::with_type_lock(vm, || {
+            let _old_annotate = PyType::with_type_lock(vm, || {
                 self.modified_inner();
                 self.attributes.remove(key)
             });
-            drop(old_annotate);
         }
 
         Ok(())

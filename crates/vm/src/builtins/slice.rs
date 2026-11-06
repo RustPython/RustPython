@@ -244,7 +244,7 @@ impl Py<PySlice> {
     #[pymethod]
     fn indices(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         // Keep the original length alive while all slice components convert.
-        let result = (|| {
+        (|| {
             let length = object.try_index(vm)?;
             let length = length.as_bigint();
             if length.is_negative() {
@@ -252,9 +252,7 @@ impl Py<PySlice> {
             }
             let (start, stop, step) = self.inner_indices(length, vm)?;
             Ok(vm.new_tuple((start, stop, step)))
-        })();
-        drop(object);
-        result
+        })()
     }
 
     #[allow(clippy::type_complexity)]

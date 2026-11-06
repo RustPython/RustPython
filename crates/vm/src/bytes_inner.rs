@@ -888,8 +888,6 @@ impl PyBytesInner {
                 result.extend(self.elements.iter().map(|&byte| table[usize::from(byte)]));
             });
             // The no-deletion fast path releases in the opposite order.
-            drop(delete);
-            drop(table);
             return Ok(result);
         }
         let mut translation = match &table {

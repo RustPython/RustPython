@@ -101,8 +101,7 @@ mod decl {
                             break Ok(PyIterReturn::Return(ok));
                         }
                         Ok(PyIterReturn::StopIteration(_)) => {
-                            let previous = zelf.active.write().take();
-                            drop(previous);
+                            let _previous = zelf.active.write().take();
                         }
                         Err(err) => {
                             return Err(err);
@@ -112,8 +111,7 @@ mod decl {
                     match source.next(vm) {
                         Ok(PyIterReturn::Return(ok)) => match PyIter::try_from_object(vm, ok) {
                             Ok(iter) => {
-                                let previous = zelf.active.write().replace(iter);
-                                drop(previous);
+                                let _previous = zelf.active.write().replace(iter);
                             }
                             Err(err) => {
                                 break Err(err);
@@ -184,7 +182,6 @@ mod decl {
                 let data_obj = raise_if_stop!(zelf.data.next(vm)?);
                 let sel_obj = raise_if_stop!(zelf.selectors.next(vm)?);
                 let selected = sel_obj.try_to_bool(vm)?;
-                drop(sel_obj);
                 if selected {
                     return Ok(PyIterReturn::Return(data_obj));
                 }
@@ -693,15 +690,13 @@ mod decl {
                     }
                 }
                 let (value, key) = raise_if_stop!(zelf.advance(vm)?);
-                let (old_value, old_key) = {
+                let (_old_value, _old_key) = {
                     let mut state = zelf.state.lock();
                     (
                         state.current_value.replace(value),
                         state.current_key.replace(key),
                     )
                 };
-                drop(old_key);
-                drop(old_value);
             }
 
             let old_tgtkey = {
@@ -786,15 +781,13 @@ mod decl {
 
             if zelf.groupby.state.lock().current_value.is_none() {
                 let (value, key) = raise_if_stop!(zelf.groupby.advance(vm)?);
-                let (old_value, old_key) = {
+                let (_old_value, _old_key) = {
                     let mut state = zelf.groupby.state.lock();
                     (
                         state.current_value.replace(value),
                         state.current_key.replace(key),
                     )
                 };
-                drop(old_key);
-                drop(old_value);
             }
 
             let current;
@@ -816,7 +809,7 @@ mod decl {
             }
 
             let current;
-            let (value, old_key) = {
+            let (value, _old_key) = {
                 let mut state = zelf.groupby.state.lock();
                 current = state.current_grouper();
                 if !current.as_ref().is_some_and(|g| zelf.is(g)) {
@@ -825,7 +818,6 @@ mod decl {
                 (state.current_value.take(), state.current_key.take())
             };
             drop(current);
-            drop(old_key);
             match value {
                 Some(v) => Ok(PyIterReturn::Return(v)),
                 None => Ok(PyIterReturn::StopIteration(None)),
@@ -945,8 +937,7 @@ mod decl {
 
     impl PyItertoolsIslice {
         fn clear_iterable(&self) {
-            let previous = self.iterable.lock().take();
-            drop(previous);
+            let _previous = self.iterable.lock().take();
         }
 
         fn next_source(&self, iterable: &PyIter, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -1037,7 +1028,6 @@ mod decl {
                 };
 
                 let verdict = pred_value.try_to_bool(vm)?;
-                drop(pred_value);
                 if !verdict {
                     return Ok(PyIterReturn::Return(obj));
                 }
@@ -1115,8 +1105,7 @@ mod decl {
                     }
                 }
             };
-            let previous = zelf.acc_value.write().replace(next_acc_value.clone());
-            drop(previous);
+            let _previous = zelf.acc_value.write().replace(next_acc_value.clone());
 
             Ok(PyIterReturn::Return(next_acc_value))
         }

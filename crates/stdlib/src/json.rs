@@ -1256,7 +1256,6 @@ mod _json {
                     // Match PyDict_Next's owned-reference release order even
                     // when callbacks remove these objects from the dictionary.
                     drop(key);
-                    drop(value);
                     result?;
                 }
             }

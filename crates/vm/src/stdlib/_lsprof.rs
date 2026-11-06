@@ -609,7 +609,7 @@ mod _lsprof {
                 if zelf.state.lock().in_timer {
                     return Err(vm.new_runtime_error("cannot clear profiler in external timer"));
                 }
-                let entries = {
+                let _entries = {
                     let mut state = zelf.state.lock();
                     state.stack.clear();
                     state.epoch = state
@@ -618,7 +618,6 @@ mod _lsprof {
                         .expect("profiler epoch exhausted");
                     core::mem::take(&mut state.entries)
                 };
-                drop(entries);
                 Ok(())
             })
         }

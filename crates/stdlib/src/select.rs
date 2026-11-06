@@ -493,12 +493,10 @@ mod decl {
         fn epoll_eventmask(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
             use crate::vm::function::ArgIndex;
 
-            let result = (|| {
+            (|| {
                 let value = ArgIndex::try_from_object(vm, obj.clone())?;
                 Ok(value.as_unsigned_bitfield::<32>(vm)? as u32)
-            })();
-            drop(obj);
-            result
+            })()
         }
 
         #[derive(FromArgs)]

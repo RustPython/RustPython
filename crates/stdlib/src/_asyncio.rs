@@ -421,8 +421,7 @@ pub(crate) mod _asyncio {
                     // each field lock before dropping the previous reference.
                     let callback = self.fut_callback0.write().take();
                     drop(callback);
-                    let context = self.fut_context0.write().take();
-                    drop(context);
+                    let _context = self.fut_context0.write().take();
                     cleared_callback0 = 1;
                 }
             }
@@ -439,8 +438,7 @@ pub(crate) mod _asyncio {
                     .len()
             };
             if len == 0 {
-                let callbacks = self.fut_callbacks.write().take();
-                drop(callbacks);
+                let _callbacks = self.fut_callbacks.write().take();
                 return Ok(cleared_callback0);
             }
             if len == 1 {
@@ -452,8 +450,7 @@ pub(crate) mod _asyncio {
                 let cmp = vm.identical_or_equal(&tuple.as_slice()[0], func);
                 drop(item);
                 if cmp? {
-                    let callbacks = self.fut_callbacks.write().take();
-                    drop(callbacks);
+                    let _callbacks = self.fut_callbacks.write().take();
                     return Ok(1 + cleared_callback0);
                 }
                 return Ok(cleared_callback0);
@@ -483,8 +480,7 @@ pub(crate) mod _asyncio {
 
             let callbacks = self.fut_callbacks.read().clone();
             if new_callbacks.is_empty() || callbacks.is_none() {
-                let callbacks = self.fut_callbacks.write().take();
-                drop(callbacks);
+                let _callbacks = self.fut_callbacks.write().take();
                 return Ok(len as isize + cleared_callback0);
             }
             let callbacks = callbacks.unwrap();
@@ -496,14 +492,10 @@ pub(crate) mod _asyncio {
                 // finalizers: they can recursively remove the surviving callbacks.
                 let previous =
                     core::mem::replace(&mut *list.borrow_vec_mut(), new_callbacks.clone());
-                for item in previous.into_iter().rev() {
-                    drop(item);
-                }
+                for _item in previous.into_iter().rev() {}
             }
             drop(callbacks);
-            for item in new_callbacks.into_iter().rev() {
-                drop(item);
-            }
+            for _item in new_callbacks.into_iter().rev() {}
             Ok(current_len as isize - remaining as isize + cleared_callback0)
         }
 
@@ -575,8 +567,7 @@ pub(crate) mod _asyncio {
                 // Keep the list visible until the first call_soon returns: it
                 // may remove callbacks, and may also fail while scheduling.
                 if let Err(err) = self.call_soon_with_context(owner, callback, context, vm) {
-                    let callbacks = self.fut_callbacks.write().take();
-                    drop(callbacks);
+                    let _callbacks = self.fut_callbacks.write().take();
                     return Err(err);
                 }
             }

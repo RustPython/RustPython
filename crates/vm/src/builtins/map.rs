@@ -70,7 +70,6 @@ impl Constructor for PyMap {
             payload.into_ref_with_type(vm, cls).map(Into::into)
         })();
         release_iterables(strict, iterables);
-        drop(function);
         result
     }
 
@@ -91,8 +90,6 @@ impl Constructor for PyMap {
             )
         })();
         release_iterables(strict, iterables);
-        drop(iterable);
-        drop(function);
         result
     }
 }

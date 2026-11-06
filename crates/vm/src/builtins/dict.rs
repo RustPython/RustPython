@@ -485,7 +485,6 @@ impl PyDict {
                 Ok(value) => value,
                 Err(exc) => {
                     drop(keys);
-                    drop(key);
                     return Err(exc);
                 }
             };
@@ -493,7 +492,6 @@ impl PyDict {
                 .and_then(|hash| dict.insert(vm, &*key, hash, value.clone()));
             // Keep both owners until insertion returns, including on failure.
             drop(key);
-            drop(value);
             outcome?;
         }
         Ok(())
@@ -1952,16 +1950,14 @@ impl DictIterState {
 }
 
 fn finish_dict_iter_step<T>(step: DictIterStep<T>, vm: &VirtualMachine) -> PyResult<Option<T>> {
-    let (result, released) = step;
-    let result = result.map_err(|error| {
+    let (result, _released) = step;
+    result.map_err(|error| {
         let message = match error {
             DictIterError::SizeChanged => "dictionary changed size during iteration",
             DictIterError::KeysChanged => "dictionary keys changed during iteration",
         };
         vm.new_runtime_error(message)
-    });
-    drop(released);
-    result
+    })
 }
 
 macro_rules! dict_iterator {
@@ -2476,7 +2472,6 @@ pub(crate) fn set_view_number_and(
     drop(iterator);
     if let Err(exc) = outcome {
         drop(result);
-        drop(current);
         return Err(exc);
     }
     Ok(result.into_pyobject(vm))
@@ -2544,7 +2539,6 @@ fn set_item_view_number_xor(a: &PyDictItems, b: &PyDictItems, vm: &VirtualMachin
     if let Err(exc) = outcome {
         drop(result);
         drop(current_key);
-        drop(current_value);
         return Err(exc);
     }
     Ok(result.into_pyobject(vm))

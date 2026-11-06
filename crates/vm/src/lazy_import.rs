@@ -50,8 +50,7 @@ impl LazyImportsState {
 
     pub(crate) fn set_filter(&self, filter: Option<PyObjectRef>) {
         // A removed callable's finalizer can re-enter this API.
-        let old = core::mem::replace(&mut *self.filter.lock(), filter);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.filter.lock(), filter);
     }
 
     fn register(
@@ -68,7 +67,7 @@ impl LazyImportsState {
             } else {
                 source.map(ToOwned::to_owned)
             };
-            let replaced = {
+            let _replaced = {
                 let mut pending = self.pending.lock();
                 let children = pending.entry(parent.to_owned()).or_default();
                 if source.is_some() {
@@ -78,7 +77,6 @@ impl LazyImportsState {
                     None
                 }
             };
-            drop(replaced);
             full = parent;
         }
         Ok(())
@@ -813,7 +811,7 @@ pub(crate) fn clear_submodule(name: &Py<PyStr>, bind: bool, vm: &VirtualMachine)
             .dict()
             .setdefault(vm.ctx.new_str(child).into(), value, vm)?;
     }
-    let removed = {
+    let _removed = {
         let mut pending = state.pending.lock();
         if let Some(children) = pending.get_mut(parent_name) {
             if initializing {
@@ -825,7 +823,6 @@ pub(crate) fn clear_submodule(name: &Py<PyStr>, bind: bool, vm: &VirtualMachine)
             None
         }
     };
-    drop(removed);
     Ok(())
 }
 
@@ -906,14 +903,13 @@ pub(crate) fn try_load_submodule(
     };
     if !initializing {
         module.dict().set_item(name, imported.clone(), vm)?;
-        let removed = vm
+        let _removed = vm
             .state
             .lazy_imports
             .pending
             .lock()
             .get_mut(module_name)
             .and_then(|children| children.remove(child));
-        drop(removed);
     }
     Ok(Some(imported))
 }

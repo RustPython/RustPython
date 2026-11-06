@@ -299,10 +299,9 @@ pub(crate) fn cached_parameters(
     // Attribute lookup can re-enter this alias or union. Compute without the
     // lock, then replace even a cache populated by the re-entrant lookup.
     let parameters = make_parameters(args, vm);
-    let previous = core::mem::replace(&mut *cache.lock(), parameters.as_ref().ok().cloned());
+    let _previous = core::mem::replace(&mut *cache.lock(), parameters.as_ref().ok().cloned());
     // A failed outer lookup clears the cache populated by a nested lookup too.
     // Cached parameters can own objects with Python finalizers.
-    drop(previous);
     parameters
 }
 

@@ -1269,7 +1269,6 @@ impl<T: Clone> Dict<T> {
             let Some(entry) = entry else {
                 // A callback may recycle the same entry and bucket for a
                 // different key, or rebuild the table around the same key.
-                drop(inner);
                 idxs = None;
                 free_slot = None;
                 continue;
@@ -1429,7 +1428,6 @@ impl<T: Clone> Dict<T> {
                     && prefix.iter().all(|witness| witness.matches(&inner))
                 {
                     let result = update(&mut inner, slot, &mut prepared);
-                    drop(inner);
                     return Ok(result);
                 }
                 drop(inner);
@@ -1513,7 +1511,6 @@ impl<T: Clone> Dict<T> {
                 continue;
             }
             let result = update(&mut inner, slot, &mut prepared);
-            drop(inner);
             return Ok(result);
         }
     }

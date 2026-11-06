@@ -175,15 +175,13 @@ impl VirtualMachine {
                 let keys = locals.mapping().keys(self)?;
                 // Mapping keys preserve an exact list returned by user code.
                 // The exact-dict fast path instead supplies a keys view.
-                let list = match keys.downcast::<PyList>() {
+                match keys.downcast::<PyList>() {
                     Ok(list) => list,
                     Err(keys) => {
                         self.ctx
                             .new_list(self.extract_elements_sized(&keys, &|| 0, Ok)?)
                     }
-                };
-                drop(locals);
-                list
+                }
             }
         };
         lst.sort(Default::default(), self)?;

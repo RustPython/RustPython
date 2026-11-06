@@ -314,7 +314,6 @@ mod decl {
         })();
         // Match Argument Clinic cleanup order, including failures in __bool__.
         drop(data);
-        drop(ignorechars);
         result
     }
 
@@ -363,7 +362,6 @@ mod decl {
             .map_err(|e| new_binascii_error(e, vm))
         });
         drop(data);
-        drop(alphabet);
         result
     }
 

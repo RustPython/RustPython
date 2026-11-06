@@ -239,9 +239,7 @@ struct ReverseReferences<T>(Vec<T>);
 
 impl<T> Drop for ReverseReferences<T> {
     fn drop(&mut self) {
-        while let Some(item) = self.0.pop() {
-            drop(item);
-        }
+        while let Some(_item) = self.0.pop() {}
     }
 }
 

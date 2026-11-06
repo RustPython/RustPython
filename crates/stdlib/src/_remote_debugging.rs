@@ -525,10 +525,7 @@ mod _remote_debugging {
                 }
             };
             match result {
-                Ok(writer) => {
-                    drop(writer);
-                    Ok(())
-                }
+                Ok(_writer) => Ok(()),
                 Err(Some(error)) => Err(codec_error(error, vm)),
                 Err(None) => Err(vm.new_value_error("Writer is already closed")),
             }
@@ -536,8 +533,7 @@ mod _remote_debugging {
 
         #[pymethod]
         fn close(zelf: &Py<Self>) {
-            let writer = zelf.state.lock().writer.take();
-            drop(writer);
+            let _writer = zelf.state.lock().writer.take();
         }
 
         #[pygetset]
@@ -717,8 +713,7 @@ mod _remote_debugging {
 
         #[pymethod]
         fn close(zelf: &Py<Self>) {
-            let old = zelf.state.lock().take();
-            drop(old);
+            let _old = zelf.state.lock().take();
         }
 
         #[pygetset]

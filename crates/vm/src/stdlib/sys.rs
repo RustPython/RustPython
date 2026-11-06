@@ -1476,11 +1476,10 @@ pub mod sys {
         #[cfg(feature = "threading")]
         let old_slot = crate::vm::thread::current_thread_slot()
             .map(|slot| core::mem::replace(&mut *slot.profile_func.lock(), function.clone()));
-        let old_vm = vm.profile_func.replace(function);
+        let _old_vm = vm.profile_func.replace(function);
         update_use_tracing(vm);
         #[cfg(feature = "threading")]
         drop(old_slot);
-        drop(old_vm);
     }
 
     #[pyfunction]
@@ -1505,7 +1504,7 @@ pub mod sys {
         #[cfg(feature = "threading")]
         let old_slot = crate::vm::thread::current_thread_slot()
             .map(|slot| core::mem::replace(&mut *slot.trace_func.lock(), function.clone()));
-        let old_vm = vm.trace_func.replace(function);
+        let _old_vm = vm.trace_func.replace(function);
         update_use_tracing(vm);
         // The rest of the current line already started before tracing was
         // enabled; sync prev_line so leftover opcodes on this line do not
@@ -1515,7 +1514,6 @@ pub mod sys {
         }
         #[cfg(feature = "threading")]
         drop(old_slot);
-        drop(old_vm);
     }
 
     #[pyfunction]
@@ -1556,12 +1554,11 @@ pub mod sys {
         {
             old_global = core::mem::replace(&mut *vm.state.global_trace_func.lock(), func);
         }
-        let old_vm = vm.trace_func.replace(function);
+        let _old_vm = vm.trace_func.replace(function);
         update_use_tracing(vm);
         drop(old_global);
         #[cfg(feature = "threading")]
         drop(old_slots);
-        drop(old_vm);
         Ok(())
     }
 
@@ -1603,12 +1600,11 @@ pub mod sys {
         {
             old_global = core::mem::replace(&mut *vm.state.global_profile_func.lock(), func);
         }
-        let old_vm = vm.profile_func.replace(function);
+        let _old_vm = vm.profile_func.replace(function);
         update_use_tracing(vm);
         drop(old_global);
         #[cfg(feature = "threading")]
         drop(old_slots);
-        drop(old_vm);
         Ok(())
     }
 

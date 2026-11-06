@@ -782,27 +782,23 @@ impl PyBaseException {
     // Replaced references may run Python finalizers. Release their locks
     // before dropping the old values so those finalizers can reenter safely.
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        let old = core::mem::replace(&mut *self.traceback.write(), traceback);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.traceback.write(), traceback);
     }
 
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
-        let old = {
+        let _old = {
             let mut current = self.cause.write();
             self.set_suppress_context(true);
             core::mem::replace(&mut *current, cause)
         };
-        drop(old);
     }
 
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
-        let old = core::mem::replace(&mut *self.context.write(), context);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.context.write(), context);
     }
 
     fn set_args_tuple(&self, args: PyTupleRef) {
-        let old = core::mem::replace(&mut *self.args.write(), args);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.args.write(), args);
     }
 
     pub(super) fn __suppress_context__(&self) -> bool {

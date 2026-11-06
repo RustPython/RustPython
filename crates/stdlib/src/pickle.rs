@@ -118,8 +118,7 @@ mod _pickle {
         fn release(zelf: &Py<Self>) {
             // Releasing the last share can invoke Python's __release_buffer__.
             // Publish the released state and drop the lock before that callback.
-            let buffer = zelf.buffer.write().take();
-            drop(buffer);
+            let _buffer = zelf.buffer.write().take();
         }
     }
 
@@ -455,8 +454,7 @@ mod _pickle {
     impl UnpicklerMemoProxy {
         #[pymethod]
         fn clear(zelf: &Py<Self>) {
-            let old_memo = core::mem::take(&mut *zelf.unpickler.memo.write());
-            drop(old_memo);
+            let _old_memo = core::mem::take(&mut *zelf.unpickler.memo.write());
         }
 
         #[pymethod]
@@ -725,8 +723,7 @@ mod _pickle {
                     value.class().name()
                 )));
             };
-            let old_memo = core::mem::replace(&mut *zelf.memo.write(), new_memo);
-            drop(old_memo);
+            let _old_memo = core::mem::replace(&mut *zelf.memo.write(), new_memo);
             Ok(())
         }
     }

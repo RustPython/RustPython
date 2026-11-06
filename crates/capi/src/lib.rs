@@ -91,9 +91,8 @@ pub fn run_main_interpreter(
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             MAIN_INTERP_PTR.store(core::ptr::null_mut(), Ordering::Release);
-            let interpreter = registered.take();
+            let _interpreter = registered.take();
             drop(registered);
-            drop(interpreter);
         }
     }
     let _registration = RegistrationGuard;
