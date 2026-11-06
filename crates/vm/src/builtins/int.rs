@@ -701,7 +701,6 @@ impl Py<PyInt> {
             }
         })();
         release_byte_conversion_options(signed, byteorder);
-        drop(bytes);
         result
     }
 
@@ -767,7 +766,6 @@ impl Py<PyInt> {
             Ok(bytes.into())
         })();
         release_byte_conversion_options(signed, byteorder);
-        drop(length);
         result
     }
 
@@ -970,10 +968,9 @@ struct IntToByteArgs {
 // them in reverse parameter order even when conversion returned an error.
 fn release_byte_conversion_options(
     signed: OptionalArg<PyObjectRef>,
-    byteorder: OptionalArg<PyObjectRef>,
+    _byteorder: OptionalArg<PyObjectRef>,
 ) {
     drop(signed);
-    drop(byteorder);
 }
 
 fn byte_conversion_options(
