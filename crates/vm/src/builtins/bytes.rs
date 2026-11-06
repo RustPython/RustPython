@@ -6,14 +6,13 @@ use super::{
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
-    anystr::{self, AnyStr},
-    atomic_func,
+    TryFromBorrowedObject, VirtualMachine, anystr, atomic_func,
     byte::bytes_from_object,
     bytes_inner::{
-        ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerBuffer, ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions,
+        ByteInnerPaddingOptions, ByteInnerReplaceOptions, ByteInnerSplitOptions,
+        ByteInnerStripOptions, ByteInnerSub, ByteInnerTranslateOptions, BytesJoin, DecodeArgs,
+        PyBytesInner, bytes_decode,
     },
     class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
@@ -32,6 +31,7 @@ use crate::{
 use bstr::ByteSlice;
 use core::{mem::size_of, ops::Deref};
 use memchr::memchr;
+use rustpython_common::wtf8::wtf8_concat;
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
@@ -131,15 +131,23 @@ impl Constructor for PyBytes {
             && let Some(bytes_method) = vm.get_method(obj.clone(), identifier!(vm, __bytes__))
         {
             let bytes = bytes_method?.call((), vm)?;
-            // If exact bytes type and __bytes__ returns bytes, use it directly
-            if cls.is(vm.ctx.types.bytes_type)
-                && let Ok(b) = bytes.clone().downcast::<Self>()
-            {
-                return Ok(b.into());
+            let bytes = bytes.downcast::<Self>().map_err(|result| {
+                match (
+                    obj.class().fully_qualified_name(vm),
+                    result.class().fully_qualified_name(vm),
+                ) {
+                    (Ok(source), Ok(result)) => vm.new_type_error(wtf8_concat!(
+                        source,
+                        ".__bytes__() must return a bytes, not ",
+                        result
+                    )),
+                    (Err(error), _) | (_, Err(error)) => error,
+                }
+            })?;
+            if cls.is(vm.ctx.types.bytes_type) {
+                return Ok(bytes.into());
             }
-            // Otherwise convert to Vec<u8>
-            let inner = PyBytesInner::try_from_borrowed_object(vm, &bytes)?;
-            let payload = Self::py_new(&cls, inner.elements, vm)?;
+            let payload = Self::py_new(&cls, bytes.as_bytes().to_vec(), vm)?;
             return payload.into_ref_with_type(vm, cls).map(Into::into);
         }
 
@@ -424,16 +432,15 @@ impl Py<PyBytes> {
 
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let (affix, substr) =
-            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
-        substr.py_starts_ends_with(
-            &affix,
+        options.matches(
+            self.len(),
             "endswith",
             "bytes",
-            |s, x: PyBytesInner| s.ends_with(x.as_bytes()),
+            |affix: ByteInnerBuffer<'_>, range| {
+                self.as_bytes()
+                    .get(range.unwrap_or(0..self.len()))
+                    .is_some_and(|text| affix.with_ref(|affix| text.ends_with(affix)))
+            },
             vm,
         )
     }
@@ -444,16 +451,15 @@ impl Py<PyBytes> {
         options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (affix, substr) =
-            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
-        substr.py_starts_ends_with(
-            &affix,
+        options.matches(
+            self.len(),
             "startswith",
             "bytes",
-            |s, x: PyBytesInner| s.starts_with(x.as_bytes()),
+            |affix: ByteInnerBuffer<'_>, range| {
+                self.as_bytes()
+                    .get(range.unwrap_or(0..self.len()))
+                    .is_some_and(|text| affix.with_ref(|affix| text.starts_with(affix)))
+            },
             vm,
         )
     }
@@ -480,15 +486,6 @@ impl Py<PyBytes> {
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner.find(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))
-    }
-
-    #[pymethod]
-    fn translate(
-        &self,
-        options: ByteInnerTranslateOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytes> {
-        Ok(self.inner.translate(options, vm)?.into())
     }
 
     #[pymethod]
@@ -607,8 +604,18 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
+    fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult<Self> {
+        let result = self.inner.translate(options, vm)?;
+        if self.class().is(vm.ctx.types.bytes_type) && result == self.as_bytes() {
+            Ok(self)
+        } else {
+            Ok(vm.ctx.new_bytes(result))
+        }
+    }
+
+    #[pymethod]
     fn __bytes__(self, vm: &VirtualMachine) -> Self {
-        if self.is(vm.ctx.types.bytes_type) {
+        if self.class().is(vm.ctx.types.bytes_type) {
             self
         } else {
             PyBytes::from(self.payload.inner.clone()).into_ref(&vm.ctx)
