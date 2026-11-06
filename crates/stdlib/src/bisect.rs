@@ -3,7 +3,7 @@ pub(crate) use _bisect::module_def;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         function::{ArgIndex, Either, OptionalArg, PyComparisonValue},
         protocol::PySequence,
         types::PyComparisonOp,
@@ -29,18 +29,36 @@ mod _bisect {
         hi: Option<&PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, isize)> {
-        let to_index = |obj: &PyObjectRef| {
-            ArgIndex::try_from_object(vm, obj.clone())?
-                .into_int_ref()
-                .try_to_primitive::<isize>(vm)
-        };
         let lo = match lo {
             OptionalArg::Missing => 0,
-            OptionalArg::Present(obj) => to_index(obj)?,
+            OptionalArg::Present(obj) => {
+                let index = ArgIndex::try_from_borrowed_object(vm, obj)?;
+                isize::try_from(index.as_ref().as_bigint()).map_err(|_| {
+                    vm.new_overflow_error("Python int too large to convert to C ssize_t")
+                })?
+            }
         };
         let lo = usize::try_from(lo).map_err(|_| vm.new_value_error("lo cannot be negative"))?;
         let hi = match hi {
-            Some(obj) => to_index(obj)?,
+            Some(obj) => {
+                if !obj.number().is_index() {
+                    let name = obj.class().slot_name();
+                    let end = name.floor_char_boundary(name.len().min(200));
+                    return Err(vm.new_type_error(format!(
+                        "argument should be integer or None, not '{}'",
+                        &name[..end]
+                    )));
+                }
+                let index = ArgIndex::try_from_borrowed_object(vm, obj)?;
+                isize::try_from(index.as_ref().as_bigint()).map_err(|_| {
+                    let name = obj.class().slot_name();
+                    let end = name.floor_char_boundary(name.len().min(200));
+                    vm.new_overflow_error(format!(
+                        "cannot fit '{}' into an index-sized integer",
+                        &name[..end]
+                    ))
+                })?
+            }
             None => -1,
         };
         Ok((lo, hi))
@@ -89,44 +107,69 @@ mod _bisect {
         let sequence = a.sequence_unchecked();
         let mut hi = resolve_hi(hi, sequence, vm)?;
         let get_item = sequence_item(sequence, vm)?;
-        // Keep the original needle type alive if a callback changes __class__.
-        // The same-type shortcut uses its slot, not the midpoint's current slot.
-        let needle_type = x.class().to_owned();
-        let mut compare = needle_type.slots().richcompare.load();
+        // On failure, leave the recursion section before releasing the current
+        // item. This owner must be declared before the guard for drop ordering.
+        let mut error_item = None;
+        let recursion_context = if LEFT {
+            " in _bisect.bisect_left"
+        } else {
+            " in _bisect.bisect_right"
+        };
+        vm.enter_recursive_call(recursion_context)?;
+        let recursion_guard = scopeguard::guard((), |()| vm.leave_recursive_call());
+        // Snapshot identity and slot without keeping the original class alive:
+        // a callback can change x.__class__ and collect the old heap type.
+        let (needle_type_id, mut compare) = {
+            let class = x.class();
+            (class.get_id(), class.slots().richcompare.load())
+        };
 
-        while lo < hi {
+        let result = loop {
+            if lo >= hi {
+                break Ok(lo);
+            }
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
             let a_mid = get_item(sequence, mid as isize, vm)?;
             let comp = if let Some(key) = key {
                 // The callback may delete its argument. Release our reference
                 // only after it returns, including when it raises an exception.
-                let result = key.call((&*a_mid,), vm);
+                let result = match key.call((&*a_mid,), vm) {
+                    Ok(result) => result,
+                    Err(err) => {
+                        error_item = Some(a_mid);
+                        break Err(err);
+                    }
+                };
                 drop(a_mid);
-                result?
+                result
             } else {
                 a_mid
             };
             let (left, right) = if LEFT { (&*comp, x) } else { (x, &*comp) };
-            let direct = if let Some(compare) = compare.filter(|_| comp.class().is(&needle_type)) {
-                match compare(left, right, PyComparisonOp::Lt, vm)? {
-                    Either::A(obj) if obj.is(&vm.ctx.not_implemented) => None,
-                    Either::A(obj) => Some(obj.try_to_bool(vm)?),
-                    Either::B(PyComparisonValue::Implemented(value)) => Some(value),
-                    Either::B(PyComparisonValue::NotImplemented) => None,
-                }
-            } else {
-                // A different type does not disable the same-type shortcut
-                // for subsequent midpoint objects.
-                Some(left.rich_compare_bool(right, PyComparisonOp::Lt, vm)?)
-            };
-            let less = match direct {
-                Some(value) => value,
-                None => {
+            let less = (|| {
+                if let Some(compare_fn) =
+                    compare.filter(|_| comp.class().get_id() == needle_type_id)
+                {
+                    match compare_fn(left, right, PyComparisonOp::Lt, vm)? {
+                        Either::A(obj) if obj.is(&vm.ctx.not_implemented) => {}
+                        Either::A(obj) => return obj.try_to_bool(vm),
+                        Either::B(PyComparisonValue::Implemented(value)) => return Ok(value),
+                        Either::B(PyComparisonValue::NotImplemented) => {}
+                    }
                     // NotImplemented disables the shortcut for this search.
                     // Generic dispatch retries __lt__ before reflected __gt__.
                     compare = None;
-                    left.rich_compare_bool(right, PyComparisonOp::Lt, vm)?
+                }
+                // A different type does not disable the same-type shortcut
+                // for subsequent midpoint objects.
+                left.rich_compare_bool(right, PyComparisonOp::Lt, vm)
+            })();
+            let less = match less {
+                Ok(value) => value,
+                Err(err) => {
+                    error_item = Some(comp);
+                    break Err(err);
                 }
             };
             // Comparison results have already been released after conversion
@@ -137,8 +180,10 @@ mod _bisect {
             } else {
                 hi = mid;
             }
-        }
-        Ok(lo)
+        };
+        drop(recursion_guard);
+        drop(error_item);
+        result
     }
 
     #[inline]
@@ -166,10 +211,17 @@ mod _bisect {
         let (low, high) = parse_bounds(&lo, hi.as_ref(), vm)?;
         // The search runs on the key, the insert has to put back the item itself.
         let needle = match &key {
-            Some(key) => key.call((x.clone(),), vm)?,
-            None => x.clone(),
+            Some(key) => Some(key.call((&*x,), vm)?),
+            None => None,
         };
-        let index = bisect_impl::<true>(&a, &needle, low, high, key.as_ref(), vm);
+        let index = bisect_impl::<true>(
+            &a,
+            needle.as_deref().unwrap_or(&x),
+            low,
+            high,
+            key.as_ref(),
+            vm,
+        );
         drop(needle);
         let index = index?;
         let result = vm.call_method(&a, "insert", (index, &*x))?;
@@ -182,10 +234,17 @@ mod _bisect {
         let (low, high) = parse_bounds(&lo, hi.as_ref(), vm)?;
         // The search runs on the key, the insert has to put back the item itself.
         let needle = match &key {
-            Some(key) => key.call((x.clone(),), vm)?,
-            None => x.clone(),
+            Some(key) => Some(key.call((&*x,), vm)?),
+            None => None,
         };
-        let index = bisect_impl::<false>(&a, &needle, low, high, key.as_ref(), vm);
+        let index = bisect_impl::<false>(
+            &a,
+            needle.as_deref().unwrap_or(&x),
+            low,
+            high,
+            key.as_ref(),
+            vm,
+        );
         drop(needle);
         let index = index?;
         let result = vm.call_method(&a, "insert", (index, &*x))?;

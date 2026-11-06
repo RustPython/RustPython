@@ -1,6 +1,7 @@
 use super::argument::OptionalArg;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
     builtins::{PyComplex, PyFloat, PyInt, PyIntRef},
 };
 use core::{ffi::c_int, ops::Deref};
@@ -202,8 +203,8 @@ impl From<ArgIndex> for PyIntRef {
     }
 }
 
-impl TryFromObject for ArgIndex {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for ArgIndex {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         Ok(Self {
             value: obj.try_index(vm)?,
         })
