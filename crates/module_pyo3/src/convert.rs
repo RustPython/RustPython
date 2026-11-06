@@ -256,19 +256,10 @@ fn remember_value(obj: &PyObject, value: &Bound<'_, PyAny>) {
 /// Copies kept alive for one call result, plus the weak reference that
 /// drops them when that result is released.
 struct AnchoredCopies {
-    copies: Vec<pyo3::Py<PyAny>>,
-    weakref: Option<pyo3::Py<PyAny>>,
-}
-
-impl Drop for AnchoredCopies {
-    fn drop(&mut self) {
-        // The copies first: the weak reference's callback has already run,
-        // and dropping it must not be what releases the bytes it guarded.
-        let copies = core::mem::take(&mut self.copies);
-        let weakref = self.weakref.take();
-        drop(copies);
-        drop(weakref);
-    }
+    // Fields drop in declaration order. The weak reference's callback has
+    // already run, and dropping it must not release the bytes it guarded.
+    _copies: Vec<pyo3::Py<PyAny>>,
+    _weakref: pyo3::Py<PyAny>,
 }
 
 fn anchored_copies() -> std::sync::MutexGuard<'static, HashMap<usize, AnchoredCopies>> {
@@ -350,8 +341,8 @@ fn anchor_to_result(result: &Bound<'_, PyAny>, copies: Vec<pyo3::Py<PyAny>>) -> 
             anchored_copies().insert(
                 id,
                 AnchoredCopies {
-                    copies,
-                    weakref: Some(weakref.into_any().unbind()),
+                    _copies: copies,
+                    _weakref: weakref.into_any().unbind(),
                 },
             );
             Anchor::Kept

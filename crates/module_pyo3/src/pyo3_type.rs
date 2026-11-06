@@ -711,8 +711,8 @@ pub(crate) mod pyo3_type {
     /// Slots and published MRO for a metaclass wrapper whose metaclass is `type`.
     ///
     /// The wrapper does not subclass `pyo3.pyo3_type`, so it does not inherit
-    /// those slots. `vectorcall` inherited from `type` is cleared: it would
-    /// build instances with `type.__call__` and never reach the wrapped class.
+    /// those slots. Automatic vectorcall inherited from `type` is disabled:
+    /// it would bypass the wrapped class's call slot.
     /// The immutable-type bit is copied from the wrapped class. `type`'s
     /// `__flags__` member reads it here. Classes created from the wrapper do
     /// not take the bit: assigning on them still mirrors into the class dict.
@@ -724,7 +724,7 @@ pub(crate) mod pyo3_type {
         wrapper.slots.getattro.store(Some(plain_meta_getattro));
         wrapper.slots.setattro.store(Some(plain_meta_setattro));
         wrapper.slots.call.store(Some(plain_meta_call));
-        wrapper.slots.vectorcall.store(None);
+        wrapper.slots.flags.remove(PyTypeFlags::HAVE_VECTORCALL);
         wrapper
             .slots
             .as_number
