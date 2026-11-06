@@ -639,8 +639,8 @@ unsafe impl crate::object::Traverse for PyCStructure {
     fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
         self.0.traverse(tracer);
     }
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        self.0.clear(out);
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear_refs(out);
     }
 }
 

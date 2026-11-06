@@ -147,7 +147,7 @@ mod _lsprof {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             let state = self.state.get_mut();
             out.extend(state.timer.take());
             #[expect(

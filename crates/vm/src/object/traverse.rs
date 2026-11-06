@@ -20,7 +20,7 @@ pub trait MaybeTraverse {
     // if this type is traceable, then call with tracer_fn, default to do nothing
     fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>);
     // if this type has clear, extract child refs for circular reference resolution (tp_clear)
-    fn try_clear(&mut self, _out: &mut Vec<PyObjectRef>) {}
+    fn try_clear_refs(&mut self, _out: &mut Vec<PyObjectRef>) {}
 }
 
 /// Type that need traverse it's children should impl [`Traverse`] (not [`MaybeTraverse`])
@@ -38,7 +38,7 @@ pub unsafe trait Traverse {
     /// Extract all owned child PyObjectRefs for circular reference resolution (tp_clear).
     /// Called just before object deallocation to break circular references.
     /// Default implementation does nothing.
-    fn clear(&mut self, _out: &mut Vec<PyObjectRef>) {}
+    fn clear_refs(&mut self, _out: &mut Vec<PyObjectRef>) {}
 }
 
 unsafe impl Traverse for PyObjectRef {
