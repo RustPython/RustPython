@@ -392,6 +392,16 @@ def test_custom_parsers_preserve_their_conversion_boundaries():
         with assert_raises(RuntimeError):
             _thread.start_joinable_thread(None, daemon=FailingBool(), unexpected=1)
 
+    # Native dispatch must allow the custom parser to choose its diagnostic.
+    check(
+        TypeError,
+        "__set_name__() takes no keyword arguments",
+        property().__set_name__,
+        object,
+        "name",
+        unexpected=1,
+    )
+
 
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
