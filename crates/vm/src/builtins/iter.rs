@@ -4,14 +4,14 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::ArgCallable,
+    function::{ArgCallable, int_as_ssize},
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, SelfIter},
+    types::{IterNext, Iterable, PyComparisonOp, SelfIter},
 };
-use rustpython_common::lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
+use rustpython_common::lock::{PyMutex, PyRwLock};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -224,10 +224,208 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> PyResult {
     vm.eval_get_builtin(vm.ctx.intern_str("reversed"))
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SequenceIterDirection {
+    Forward,
+    Reverse,
+}
+
+#[derive(Debug, Traverse)]
+struct SequenceIterState {
+    sequence: Option<PyObjectRef>,
+    #[pytraverse(skip)]
+    index: isize,
+}
+
+/// State for generic iterators whose sequence slots can execute Python code.
+/// Unlike the concrete container iterators, these must release their state
+/// lock before invoking a slot, allocating a Python object, or dropping an owner.
+#[derive(Debug, Traverse)]
+pub(crate) struct SequenceIter {
+    state: PyMutex<SequenceIterState>,
+    #[pytraverse(skip)]
+    direction: SequenceIterDirection,
+}
+
+impl SequenceIter {
+    pub(crate) const fn new(
+        sequence: PyObjectRef,
+        index: isize,
+        direction: SequenceIterDirection,
+    ) -> Self {
+        Self {
+            state: PyMutex::new(SequenceIterState {
+                sequence: Some(sequence),
+                index,
+            }),
+            direction,
+        }
+    }
+
+    fn snapshot(&self) -> (Option<PyObjectRef>, isize) {
+        let state = self.state.lock();
+        (state.sequence.clone(), state.index)
+    }
+
+    fn exhaust(&self) {
+        let released = {
+            let mut state = self.state.lock();
+            if matches!(self.direction, SequenceIterDirection::Reverse) {
+                state.index = -1;
+            }
+            state.sequence.take()
+        };
+        drop(released);
+    }
+
+    fn get_item(sequence: &PyObject, mut index: isize, vm: &VirtualMachine) -> PyResult {
+        let seq = sequence.sequence_unchecked();
+        // A reentrant state change can wrap the forward index below zero.
+        // PySequence_GetItem adjusts it once using the sequence length slot.
+        // Keep this separate from the concrete containers' index handling.
+        if index < 0
+            && seq.slots().has_item()
+            && let Some(length) = seq.length_opt(vm)
+        {
+            index = index.wrapping_add(length? as isize);
+        }
+        seq.get_item(index, vm)
+    }
+
+    pub(crate) fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let (sequence, index) = self.snapshot();
+        let Some(sequence) = sequence else {
+            return Ok(PyIterReturn::StopIteration(None));
+        };
+        match self.direction {
+            SequenceIterDirection::Forward if index == isize::MAX => {
+                drop(sequence);
+                return Err(vm.new_overflow_error("iter index too large"));
+            }
+            SequenceIterDirection::Reverse if index < 0 => {
+                drop(sequence);
+                self.exhaust();
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+            _ => {}
+        }
+
+        let result = Self::get_item(&sequence, index, vm);
+        // A reentrant call can have removed the iterator's sequence owner.
+        // Release our temporary owner before publishing the outer result.
+        drop(sequence);
+        match result {
+            Ok(item) => {
+                let mut state = self.state.lock();
+                state.index = match self.direction {
+                    // Forward iteration advances the current index, including
+                    // changes made by __getitem__ or a nested next().
+                    // CPython's default no-strict-overflow build wraps if
+                    // that callback restored PY_SSIZE_T_MAX.
+                    SequenceIterDirection::Forward => state.index.wrapping_add(1),
+                    // Reverse iteration instead advances the captured index.
+                    // Keep the sequence at -1 until the next next() call.
+                    SequenceIterDirection::Reverse => index - 1,
+                };
+                drop(state);
+                Ok(PyIterReturn::Return(item))
+            }
+            Err(error)
+                if error.fast_isinstance(vm.ctx.exceptions.index_error)
+                    || error.fast_isinstance(vm.ctx.exceptions.stop_iteration) =>
+            {
+                // Clear the whole exception, including StopIteration.value,
+                // before publishing exhaustion. Its finalizer may reenter.
+                drop(error);
+                self.exhaust();
+                Ok(PyIterReturn::StopIteration(None))
+            }
+            Err(error) => {
+                if matches!(self.direction, SequenceIterDirection::Reverse) {
+                    self.exhaust();
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub(crate) fn length_hint(&self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        let (sequence, index) = self.snapshot();
+        let Some(sequence) = sequence else {
+            return Ok(Some(0));
+        };
+        if matches!(self.direction, SequenceIterDirection::Reverse) && index < 0 {
+            return Ok(Some(0));
+        }
+        let seq = sequence.sequence_unchecked();
+        if matches!(self.direction, SequenceIterDirection::Forward)
+            && seq.slots().length.load().is_none()
+            && sequence.mapping_unchecked().slots().length.load().is_none()
+        {
+            return Ok(None);
+        }
+        let length = seq.length(vm)?;
+        drop(sequence);
+        let remaining = match self.direction {
+            SequenceIterDirection::Forward => {
+                // iter_len reads the index after the length callback.
+                let index = self.state.lock().index;
+                (length as isize).wrapping_sub(index).max(0) as usize
+            }
+            SequenceIterDirection::Reverse => {
+                // reversed_len uses the index captured before the callback.
+                let remaining = index as usize + 1;
+                if length < remaining { 0 } else { remaining }
+            }
+        };
+        Ok(Some(remaining))
+    }
+
+    pub(crate) fn set_state(&self, state: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        // PyLong_AsSsize_t accepts int subclasses, not __index__. Convert even
+        // when exhausted, and retain the original argument through callbacks.
+        let index = int_as_ssize(state, vm)?;
+        match self.direction {
+            SequenceIterDirection::Forward => {
+                let mut state = self.state.lock();
+                if state.sequence.is_some() {
+                    state.index = index.max(0);
+                }
+            }
+            SequenceIterDirection::Reverse => {
+                let (sequence, current) = self.snapshot();
+                if current < 0 {
+                    return Ok(());
+                }
+                let Some(sequence) = sequence else {
+                    return Ok(());
+                };
+                let length = sequence.sequence_unchecked().length(vm)?;
+                drop(sequence);
+                self.state.lock().index = index.clamp(-1, length as isize - 1);
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolve the reconstruction function before taking this snapshot. Tuple
+    /// allocation can also run GC and finalizers, so it follows the lock scope.
+    pub(crate) fn reduce(&self, func: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+        let (sequence, index) = self.snapshot();
+        if let Some(sequence) = sequence
+            && (matches!(self.direction, SequenceIterDirection::Forward) || index >= 0)
+        {
+            vm.new_tuple((func, (sequence,), index))
+        } else {
+            vm.new_tuple((func, (vm.ctx.empty_tuple.clone(),)))
+        }
+    }
+}
+
 #[pyclass(module = false, name = "iterator", traverse)]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
+    internal: SequenceIter,
 }
 
 impl PyPayload for PySequenceIterator {
@@ -241,7 +439,7 @@ impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let _seq = obj.try_sequence(vm)?;
         Ok(Self {
-            internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
+            internal: SequenceIter::new(obj, 0, SequenceIterDirection::Forward),
         })
     }
 }
@@ -251,59 +449,36 @@ impl Py<PySequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         vm.with_recursion(" in __length_hint__", || {
-            let (obj, position) = {
-                let internal = self.internal.lock();
-                match &internal.status {
-                    IterStatus::Active(obj) => (Some(obj.clone()), internal.position),
-                    IterStatus::Exhausted => (None, 0),
-                }
-            };
-            if let Some(obj) = obj {
-                let seq = obj.sequence_unchecked();
-                match seq.length_opt(vm) {
-                    Some(len) => {
-                        len.map(|len| PyInt::from(len.saturating_sub(position)).into_pyobject(vm))
-                    }
-                    None => Ok(vm.ctx.not_implemented()),
-                }
-            } else {
-                Ok(PyInt::from(0).into_pyobject(vm))
-            }
+            Ok(match self.internal.length_hint(vm)? {
+                Some(length) => PyInt::from(length).into_pyobject(vm),
+                None => vm.ctx.not_implemented(),
+            })
         })
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        Ok(self.internal.lock().reduce(
-            func,
-            |x| x.clone(),
-            |vm| vm.ctx.empty_tuple.clone().into(),
-            vm,
-        ))
+        Ok(self.internal.reduce(func, vm))
     }
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(&state, |_, pos| pos, vm)
+        self.internal.set_state(&state, vm)
     }
 }
 
 impl SelfIter for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_next(&zelf.internal, |obj, pos| {
-            let seq = obj.sequence_unchecked();
-            PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
-        })
+        zelf.internal.next(vm)
     }
 }
 
 #[pyclass(module = false, name = "callable_iterator", traverse)]
 #[derive(Debug)]
 pub struct PyCallableIterator {
-    sentinel: PyObjectRef,
-    status: PyRwLock<IterStatus<ArgCallable>>,
+    status: PyRwLock<IterStatus<(ArgCallable, PyObjectRef)>>,
 }
 
 impl PyPayload for PyCallableIterator {
@@ -317,9 +492,18 @@ impl PyCallableIterator {
     #[must_use]
     pub const fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
-            sentinel,
-            status: PyRwLock::new(IterStatus::Active(callable)),
+            status: PyRwLock::new(IterStatus::Active((callable, sentinel))),
         }
+    }
+
+    fn exhaust(&self) {
+        let released = {
+            let mut status = self.status.write();
+            core::mem::replace(&mut *status, IterStatus::Exhausted)
+        };
+        // Dropping the callable or sentinel can invoke a finalizer that calls
+        // next() again, so both must be released after the state lock.
+        drop(released);
     }
 }
 
@@ -328,10 +512,19 @@ impl Py<PyCallableIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        let status = self.status.read();
-        if let IterStatus::Active(callable) = &*status {
-            let callable_obj: PyObjectRef = callable.clone().into();
-            Ok(vm.new_tuple((func, (callable_obj, self.sentinel.clone()))))
+        let active = {
+            let status = self.status.read();
+            match &*status {
+                IterStatus::Active((callable, sentinel)) => {
+                    let callable: PyObjectRef = callable.clone().into();
+                    Some((callable, sentinel.clone()))
+                }
+                IterStatus::Exhausted => None,
+            }
+        };
+        // Tuple allocation may collect objects whose finalizers re-enter next().
+        if let Some(args) = active {
+            Ok(vm.new_tuple((func, args)))
         } else {
             Ok(vm.new_tuple((func, (vm.ctx.empty_tuple.clone(),))))
         }
@@ -346,30 +539,42 @@ impl IterNext for PyCallableIterator {
         let callable = {
             let status = zelf.status.read();
             match &*status {
-                IterStatus::Active(callable) => callable.clone(),
+                IterStatus::Active((callable, _)) => callable.clone(),
                 IterStatus::Exhausted => return Ok(PyIterReturn::StopIteration(None)),
             }
         };
 
-        let ret = callable.invoke((), vm)?;
+        let ret = callable.invoke((), vm);
+        drop(callable);
+        let ret = match PyIterReturn::from_pyresult(ret, vm)? {
+            PyIterReturn::Return(ret) => ret,
+            PyIterReturn::StopIteration(value) => {
+                drop(value);
+                zelf.exhaust();
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+        };
 
-        // Re-check before comparing, but don't hold the lock while running
-        // sentinel equality. User __eq__ code can re-enter this iterator.
-        {
+        // Re-check after calling, and release the lock before equality: either
+        // callback can re-enter and exhaust this iterator.
+        let sentinel = {
             let status = zelf.status.read();
-            if !matches!(&*status, IterStatus::Active(_)) {
-                return Ok(PyIterReturn::StopIteration(None));
+            match &*status {
+                IterStatus::Active((_, sentinel)) => sentinel.clone(),
+                IterStatus::Exhausted => return Ok(PyIterReturn::StopIteration(None)),
             }
-        }
-
-        let is_sentinel = vm.identical_or_equal(&ret, &zelf.sentinel)?;
-
+        };
+        let is_sentinel = if sentinel.is(&ret) {
+            drop(sentinel);
+            true
+        } else {
+            // Consume the snapshot before truth conversion: __bool__ can
+            // exhaust us and observe the sentinel's finalizer immediately.
+            let comparison = sentinel.rich_compare(ret.clone(), PyComparisonOp::Eq, vm)?;
+            comparison.try_to_bool(vm)?
+        };
         if is_sentinel {
-            let status = zelf.status.upgradable_read();
-            if !matches!(&*status, IterStatus::Active(_)) {
-                return Ok(PyIterReturn::StopIteration(None));
-            }
-            *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
+            zelf.exhaust();
             Ok(PyIterReturn::StopIteration(None))
         } else {
             Ok(PyIterReturn::Return(ret))

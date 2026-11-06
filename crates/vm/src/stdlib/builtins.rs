@@ -3,7 +3,7 @@
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{Py, VirtualMachine, builtins::PyModule, class::PyClassImpl};
 pub(crate) use builtins::{DOC, module_def};
-pub use builtins::{ascii, print, reversed};
+pub use builtins::{ascii, print};
 
 #[pymodule]
 mod builtins {
@@ -13,7 +13,6 @@ mod builtins {
         builtins::{
             PyAnyDict, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyStrRef, PyTuple,
             PyTupleRef, PyType, PyUtf8StrRef,
-            enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
@@ -1199,23 +1198,6 @@ mod builtins {
         obj.repr(vm)
     }
 
-    #[pyfunction]
-    pub fn reversed(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sequence = object;
-        if let Some(reversed_method) =
-            vm.get_method(sequence.clone(), identifier!(vm, __reversed__))
-        {
-            reversed_method?.call((), vm)
-        } else {
-            vm.get_method_or_type_error(sequence.clone(), identifier!(vm, __getitem__), || {
-                "argument to reversed() must be a sequence".to_owned()
-            })?;
-            let len = sequence.length(vm)?;
-            let obj_iterator = PyReverseSequenceIterator::new(sequence, len);
-            Ok(obj_iterator.into_pyobject(vm))
-        }
-    }
-
     #[derive(FromArgs)]
     pub(super) struct RoundArgs {
         number: PyObjectRef,
@@ -1695,6 +1677,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "complex" => ctx.types.complex_type.to_owned(),
         "dict" => ctx.types.dict_type.to_owned(),
         "enumerate" => ctx.types.enumerate_type.to_owned(),
+        "reversed" => ctx.types.reverse_iter_type.to_owned(),
         "float" => ctx.types.float_type.to_owned(),
         "frozendict" => ctx.types.frozendict_type.to_owned(),
         "frozenset" => ctx.types.frozenset_type.to_owned(),
