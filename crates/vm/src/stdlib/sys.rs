@@ -1036,10 +1036,7 @@ pub mod sys {
 
         // Calling consumes FuncArgs. Keep the original owners alive through
         // release of the resolved callable, including when its call fails.
-        let result = hook.call(args.clone(), vm);
-        drop(hook);
-        drop(args);
-        result
+        hook.call(args.clone(), vm)
     }
 
     #[pyfunction]
