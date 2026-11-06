@@ -969,7 +969,7 @@ mod _functools {
                             result: result.clone(),
                         }
                         .into_pyobject(vm);
-                        let evicted = if cache.__len__() >= maxsize {
+                        let _evicted = if cache.__len__() >= maxsize {
                             if let Some((oldest_key, oldest_value)) = cache.into_iter().next() {
                                 let Some(elem) = oldest_value.downcast_ref::<PyLruListElem>()
                                 else {
@@ -1000,12 +1000,10 @@ mod _functools {
                             // reenter and inspect or repopulate the cache.
                             drop(key);
                             drop(result);
-                            drop(evicted);
                             return Err(error);
                         }
                         // Neither keys nor results may be finalized between
                         // eviction and insertion into the now-consistent cache.
-                        drop(evicted);
                     }
                 } else {
                     // An unbounded cache always installs the newly computed
