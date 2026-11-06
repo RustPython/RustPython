@@ -8,6 +8,9 @@
 )]
 #![allow(static_mut_refs)]
 
+mod c_stack;
+pub use c_stack::dump_c_stack;
+
 #[cfg(unix)]
 use alloc::vec::Vec;
 #[cfg(unix)]

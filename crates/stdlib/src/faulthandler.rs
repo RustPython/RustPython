@@ -4,12 +4,14 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "faulthandler")]
 mod decl {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine,
-        function::{ArgIntoFloat, OptionalArg},
+        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        builtins::PyInt,
+        function::{ArgIntoBool, ArgIntoFloat, OptionalArg},
     };
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use core::time::Duration;
+    use num_traits::ToPrimitive;
     use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
     use rustpython_host_env::faulthandler as host_faulthandler;
@@ -233,19 +235,19 @@ mod decl {
     struct DumpTracebackArgs {
         #[pyarg(any, default)]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default = true)]
-        all_threads: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        all_threads: ArgIntoBool,
         #[pyarg(named, default = 100)]
         max_threads: isize,
     }
 
     #[pyfunction]
     fn dump_traceback(args: DumpTracebackArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let fd = get_fd_from_file_opt(args.file, vm)?;
+        let (fd, _file) = get_fd_from_file_opt(args.file, vm)?;
 
         #[cfg(any(unix, windows))]
         {
-            if args.all_threads {
+            if args.all_threads.into_bool() {
                 dump_all_threads(fd, args.max_threads, vm);
             } else {
                 puts(fd, "Stack (most recent call first):\n");
@@ -259,6 +261,25 @@ mod decl {
         }
 
         Ok(())
+    }
+
+    #[cfg(any(unix, windows))]
+    #[derive(FromArgs)]
+    struct DumpCStackArgs {
+        #[pyarg(any, default)]
+        file: OptionalArg<PyObjectRef>,
+    }
+
+    /// Dump the C stack of the current thread.
+    #[cfg(any(unix, windows))]
+    #[pyfunction]
+    fn dump_c_stack(args: DumpCStackArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let (fd, file) = get_fd_from_file_opt(args.file, vm)?;
+        // Native unwinding and loader lookup run in ordinary execution only,
+        // never in one of this module's asynchronous signal callbacks.
+        host_faulthandler::dump_c_stack(fd);
+        drop(file);
+        vm.check_signals()
     }
 
     /// Dump tracebacks of all threads.
@@ -349,21 +370,21 @@ mod decl {
     struct EnableArgs {
         #[pyarg(any, default)]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default = true)]
-        all_threads: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        all_threads: ArgIntoBool,
     }
 
     // faulthandler_py_enable
     #[pyfunction]
     fn enable(args: EnableArgs, vm: &VirtualMachine) -> PyResult<()> {
         // Get file descriptor
-        let fd = get_fd_from_file_opt(args.file, vm)?;
+        let (fd, _file) = get_fd_from_file_opt(args.file, vm)?;
 
         // Store fd and all_threads in global state
         FATAL_ERROR.fd.store(fd, Ordering::Relaxed);
         FATAL_ERROR
             .all_threads
-            .store(args.all_threads, Ordering::Relaxed);
+            .store(args.all_threads.into_bool(), Ordering::Relaxed);
 
         // Install signal handlers
         if !faulthandler_enable_internal() {
@@ -588,25 +609,31 @@ mod decl {
         }
     }
 
-    fn get_fd_from_file_opt(file: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<i32> {
-        match file {
-            OptionalArg::Present(f) if !vm.is_none(&f) => {
+    fn get_fd_from_file_opt(
+        file: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i32, PyObjectRef)> {
+        let file = match file {
+            OptionalArg::Present(file) if !vm.is_none(&file) => {
                 // Check if it's an integer (file descriptor)
-                if let Ok(fd) = f.try_to_value::<i32>(vm) {
+                if let Some(int) = file.downcast_ref::<PyInt>() {
+                    if file.class().is(vm.ctx.types.bool_type) {
+                        rustpython_vm::stdlib::_warnings::warn(
+                            vm.ctx.exceptions.runtime_warning,
+                            "bool is used as a file descriptor".to_owned(),
+                            1,
+                            vm,
+                        )?;
+                    }
+                    let fd = int.try_to_primitive(vm).map_err(|_| {
+                        vm.new_overflow_error("Python int too large to convert to C int")
+                    })?;
                     if fd < 0 {
                         return Err(vm.new_value_error("file is not a valid file descriptor"));
                     }
-                    return Ok(fd);
+                    return Ok((fd, file));
                 }
-                // Try to get fileno() from file object
-                let fileno = vm.call_method(&f, "fileno", ())?;
-                let fd: i32 = fileno.try_to_value(vm)?;
-                if fd < 0 {
-                    return Err(vm.new_value_error("file is not a valid file descriptor"));
-                }
-                // Try to flush the file
-                let _ = vm.call_method(&f, "flush", ());
-                Ok(fd)
+                file
             }
             _ => {
                 // file=None or file not passed: fall back to sys.stderr
@@ -614,12 +641,25 @@ mod decl {
                 if vm.is_none(&stderr) {
                     return Err(vm.new_runtime_error("sys.stderr is None"));
                 }
-                let fileno = vm.call_method(&stderr, "fileno", ())?;
-                let fd: i32 = fileno.try_to_value(vm)?;
-                let _ = vm.call_method(&stderr, "flush", ());
-                Ok(fd)
+                stderr
             }
-        }
+        };
+
+        // fileno() must return an actual int, not an object with __index__.
+        // Unlike an integer passed directly, its upper bound excludes INT_MAX.
+        // Try to get fileno() from file object
+        let fileno = vm.call_method(&file, "fileno", ())?;
+        let fd = fileno
+            .downcast_ref::<PyInt>()
+            .and_then(|value| value.as_bigint().to_i32())
+            .filter(|&fd| (0..i32::MAX).contains(&fd));
+        drop(fileno);
+        let fd =
+            fd.ok_or_else(|| vm.new_runtime_error("file.fileno() is not a valid file descriptor"))?;
+        // Try to flush the file
+        let _ = vm.call_method(&file, "flush", ());
+        // Keep the selected file alive until the caller has used its descriptor.
+        Ok((fd, file))
     }
 
     fn watchdog_thread(state: WatchdogHandle) {
@@ -738,11 +778,11 @@ mod decl {
         #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
         timeout: ArgIntoFloat,
         #[pyarg(any, default)]
-        repeat: bool,
+        repeat: ArgIntoBool,
         #[pyarg(any, default)]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default)]
-        exit: bool,
+        exit: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -753,7 +793,7 @@ mod decl {
             return Err(vm.new_value_error("timeout must be greater than 0"));
         }
 
-        let fd = get_fd_from_file_opt(args.file, vm)?;
+        let (fd, _file) = get_fd_from_file_opt(args.file, vm)?;
 
         // Convert timeout to microseconds
         let timeout_us = (timeout * 1_000_000.0) as u64;
@@ -782,8 +822,8 @@ mod decl {
                 cancel: false,
                 fd,
                 timeout_us,
-                repeat: args.repeat,
-                exit: args.exit,
+                repeat: args.repeat.into_bool(),
+                exit: args.exit.into_bool(),
                 header,
                 #[cfg(feature = "threading")]
                 thread_frame_slots,
@@ -864,10 +904,10 @@ mod decl {
         signum: i32,
         #[pyarg(any, default)]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default = true)]
-        all_threads: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        all_threads: ArgIntoBool,
         #[pyarg(any, default)]
-        chain: bool,
+        chain: ArgIntoBool,
     }
 
     #[cfg(unix)]
@@ -875,13 +915,13 @@ mod decl {
     fn register(args: RegisterArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_signum(args.signum, vm)?;
 
-        let fd = get_fd_from_file_opt(args.file, vm)?;
+        let (fd, _file) = get_fd_from_file_opt(args.file, vm)?;
 
         host_faulthandler::register_user_signal(
             args.signum,
             fd,
-            args.all_threads,
-            args.chain,
+            args.all_threads.into_bool(),
+            args.chain.into_bool(),
             faulthandler_user_signal,
         )
         .map_err(|_| {
@@ -920,7 +960,7 @@ mod decl {
     #[allow(dead_code)]
     struct SigsegvArgs {
         #[pyarg(positional, default)]
-        release_gil: bool,
+        release_gil: ArgIntoBool,
     }
 
     #[pyfunction]
