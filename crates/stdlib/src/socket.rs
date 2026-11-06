@@ -1370,13 +1370,11 @@ mod _socket {
             )))]
             let timeout = DEFAULT_TIMEOUT.load();
             self.timeout.store(timeout);
-            let result = if timeout >= 0.0 {
+            if timeout >= 0.0 {
                 sock.set_nonblocking(true)
             } else {
                 Ok(())
-            };
-            drop(s);
-            result
+            }
         }
 
         /// returns Err(blocking)

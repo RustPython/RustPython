@@ -1703,7 +1703,6 @@ pub mod array {
             let desc = Self::buffer_desc(&array).projected(flags);
             zelf.export_len.store(array.len(), atomic::Ordering::SeqCst);
             let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
-            drop(array);
             Ok(buffer)
         }
 
@@ -1712,7 +1711,6 @@ pub mod array {
             let desc = Self::buffer_desc(&array);
             zelf.export_len.store(array.len(), atomic::Ordering::SeqCst);
             let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
-            drop(array);
             Ok(buffer)
         }
     }

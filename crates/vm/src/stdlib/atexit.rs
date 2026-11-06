@@ -19,9 +19,7 @@ mod atexit {
     fn _clear(vm: &VirtualMachine) {
         let funcs = core::mem::take(&mut *vm.state.atexit_funcs.lock());
         // Like clearing the callback list, release entries backwards and unlocked.
-        for entry in funcs.into_iter().rev() {
-            drop(entry);
-        }
+        for _entry in funcs.into_iter().rev() {}
     }
 
     #[pyfunction]
@@ -87,9 +85,7 @@ mod atexit {
         }
         // Keep the whole snapshot alive through every callback, then release it
         // before clearing the live registry, as atexit_callfuncs does.
-        for entry in funcs.into_iter().rev() {
-            drop(entry);
-        }
+        for _entry in funcs.into_iter().rev() {}
         _clear(vm);
     }
 

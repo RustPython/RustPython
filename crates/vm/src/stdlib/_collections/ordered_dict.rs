@@ -375,7 +375,6 @@ pub(crate) mod ordered_dict {
                     break;
                 };
                 current = node.next;
-                drop(node);
             }
             drop(detached);
             let mut links = self.links.lock();
@@ -788,10 +787,7 @@ pub(crate) mod ordered_dict {
                 .try_for_each(|(key, value)| zelf.set_item(&**key, value.clone(), vm));
             // The snapshot is a list of tuples in CPython: release entries
             // backwards, and each value before its key, after all callbacks.
-            for (key, value) in items.into_iter().rev() {
-                drop(value);
-                drop(key);
-            }
+            for (_key, _value) in items.into_iter().rev() {}
             return result;
         }
         if let Some(keys_fn) = vm.get_attribute_opt(&arg, "keys")? {
@@ -814,7 +810,7 @@ pub(crate) mod ordered_dict {
     fn odict_add_pairs(zelf: &PyObject, pairs: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // An iterator need not retain its iterable. Keep the container alive
         // until all pair callbacks and the outer iterator have finished.
-        let result = (|| {
+        (|| {
             let iter = PyIter::try_from_object(vm, pairs.clone())?;
             for pair in iter.iter::<PyObjectRef>(vm)? {
                 let pair = pair?;
@@ -848,13 +844,10 @@ pub(crate) mod ordered_dict {
                 drop(pair);
                 drop(pair_iter);
                 drop(key);
-                drop(value);
                 result?;
             }
             Ok(())
-        })();
-        drop(pairs);
-        result
+        })()
     }
 
     #[pyattr]

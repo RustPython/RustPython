@@ -38,13 +38,10 @@ impl Constructor for PyFilter {
         Self::Args { function, iterable }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let result = iterable.get_iter(vm).map(|iterator| Self {
+        iterable.get_iter(vm).map(|iterator| Self {
             predicate: function.clone(),
             iterator,
-        });
-        drop(iterable);
-        drop(function);
-        result
+        })
     }
 }
 

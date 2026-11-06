@@ -174,7 +174,6 @@ mod _bisect {
             };
             // Comparison results have already been released after conversion
             // to bool. Dispose of the midpoint before starting another probe.
-            drop(comp);
             if less == LEFT {
                 lo = mid + 1;
             } else {
@@ -224,8 +223,7 @@ mod _bisect {
         );
         drop(needle);
         let index = index?;
-        let result = vm.call_method(&a, "insert", (index, &*x))?;
-        drop(result);
+        let _result = vm.call_method(&a, "insert", (index, &*x))?;
         Ok(vm.ctx.none())
     }
 
@@ -247,8 +245,7 @@ mod _bisect {
         );
         drop(needle);
         let index = index?;
-        let result = vm.call_method(&a, "insert", (index, &*x))?;
-        drop(result);
+        let _result = vm.call_method(&a, "insert", (index, &*x))?;
         Ok(vm.ctx.none())
     }
 }

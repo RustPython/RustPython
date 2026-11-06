@@ -188,9 +188,7 @@ impl Representable for PyNamespace {
             })();
             // The key list releases its elements backwards, on success and
             // failure, while recursive calls from finalizers still see the guard.
-            for key in keys.into_iter().rev() {
-                drop(key);
-            }
+            for _key in keys.into_iter().rev() {}
             result?
         } else {
             Wtf8Buf::from(format!("{name}(...)"))

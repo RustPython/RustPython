@@ -203,10 +203,7 @@ impl PyByteArray {
         // the same decision, without borrowing the payload a second time.
         let exported_len = { self.exports.lock().snapshot() };
         match exported_len {
-            Some(len) => {
-                drop(inner);
-                ResizeAccess::Exported { len }
-            }
+            Some(len) => ResizeAccess::Exported { len },
             None => ResizeAccess::Exclusive(inner),
         }
     }
@@ -248,7 +245,6 @@ impl PyByteArray {
                 None => ByteInnerSub::try_from_object(vm, sub.to_owned())?.into_vec(vm)?,
             };
             let result = search(&self.borrow_buf(), &needle, range);
-            drop(buffer);
             Ok(result)
         })
     }
@@ -287,7 +283,6 @@ impl PyByteArray {
                         }
                     })
                 };
-                drop(buffer);
                 Ok(result)
             };
             if let Some(tuple) = affix.downcast_ref::<PyTuple>() {
@@ -759,7 +754,7 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let old = match self.resize_access() {
+        let _old = match self.resize_access() {
             ResizeAccess::Exported { len: 0 } => return Ok(()),
             ResizeAccess::Exported { .. } => {
                 return Err(
@@ -773,7 +768,6 @@ impl Py<PyByteArray> {
                 core::mem::take(&mut inner.elements)
             }
         };
-        drop(old);
         Ok(())
     }
 
@@ -832,7 +826,6 @@ impl Py<PyByteArray> {
             inner.elements.drain(..to_take);
             result
         };
-        drop(inner);
         Ok(PyBytes::from(result))
     }
 
@@ -1135,7 +1128,6 @@ impl Py<PyByteArray> {
         };
         let delete = PyByteArray::buffer_snapshot(buffers.second.as_ref().unwrap(), vm)?;
         let result = self.inner().translate_with(&table, &delete).into();
-        drop(buffers);
         Ok(result)
     }
 
@@ -1266,9 +1258,8 @@ impl Py<PyByteArray> {
             return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
         };
         if size == 0 {
-            let old = core::mem::take(&mut inner.elements);
+            let _old = core::mem::take(&mut inner.elements);
             drop(inner);
-            drop(old);
             return Ok(());
         }
         let elements = &mut inner.elements;
@@ -1368,7 +1359,6 @@ impl Comparable for PyByteArray {
             op.eval_eq(|| left == right)
                 .unwrap_or_else(|| op.eval_ord(left.cmp(&right)))
         };
-        drop(buffers);
         Ok(result.into())
     }
 }
@@ -1472,7 +1462,6 @@ impl AsSequence for PyByteArray {
                     Ok(buffer) => buffer,
                     Err(_) => {
                         let error = concat_error();
-                        drop(left);
                         return Err(error);
                     }
                 };
@@ -1492,7 +1481,6 @@ impl AsSequence for PyByteArray {
                 })();
                 // Buffer release can run Python too; all slice guards are gone.
                 drop(left);
-                drop(right);
                 result
             }),
             repeat: atomic_func!(|seq, n, vm| {

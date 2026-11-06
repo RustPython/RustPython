@@ -2022,8 +2022,7 @@ impl Py<PyCFuncPtr> {
                 // to observe and re-enter the current state, as in CPython.
                 let old_restype = self.restype.write().take();
                 drop(old_restype);
-                let old_checker = self.checker.write().take();
-                drop(old_checker);
+                let _old_checker = self.checker.write().take();
                 return Ok(());
             };
             // Must be type, callable, or None
@@ -2039,8 +2038,7 @@ impl Py<PyCFuncPtr> {
             // can still observe the old restype and can re-enter this setter.
             let old_checker = core::mem::replace(&mut *self.checker.write(), checker);
             drop(old_checker);
-            let old_restype = self.restype.write().replace(value);
-            drop(old_restype);
+            let _old_restype = self.restype.write().replace(value);
             Ok(())
         })
     }
@@ -2064,9 +2062,8 @@ impl Py<PyCFuncPtr> {
             // Store the argtypes object directly as it is
             Some(value)
         };
-        let old = core::mem::replace(&mut *self.argtypes.write(), value);
+        let _old = core::mem::replace(&mut *self.argtypes.write(), value);
         // Finalizers on the previous value can re-enter this setter.
-        drop(old);
     }
 
     // errcheck getter/setter
@@ -2084,9 +2081,8 @@ impl Py<PyCFuncPtr> {
         } else {
             return Err(vm.new_type_error("errcheck must be a callable or None"));
         };
-        let old = core::mem::replace(&mut *self.errcheck.write(), value);
+        let _old = core::mem::replace(&mut *self.errcheck.write(), value);
         // Finalizers on the previous callable can re-enter this setter.
-        drop(old);
         Ok(())
     }
 

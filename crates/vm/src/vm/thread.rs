@@ -213,12 +213,11 @@ impl core::ops::Deref for GilStateVm {
 #[cfg(feature = "threading")]
 impl Drop for GilStateVm {
     fn drop(&mut self) {
-        if let Some(owner) = self.0.get_mut().take() {
+        if let Some(_owner) = self.0.get_mut().take() {
             // Matched release takes the owner before this TLS destructor runs.
             // This is only defensive cleanup for an unmatched attachment:
             // arbitrary callback TLS may already have been destroyed.
             PYTHON_CALLBACKS_DISABLED.with(|disabled| disabled.set(true));
-            drop(owner);
         }
     }
 }
@@ -1233,11 +1232,10 @@ pub fn update_thread_exception(exc: Option<PyBaseExceptionRef>) {
     // Release the TLS borrow before dropping either exception: traceback
     // locals can finalize another interpreter and re-enter this thread slot.
     let slot = current_thread_slot();
-    let old = slot.and_then(|s| {
+    let _old = slot.and_then(|s| {
         // SAFETY: Called only from the owning thread.
         unsafe { s.exception.swap(exc) }
     });
-    drop(old);
 }
 
 /// Collect all threads' current exceptions for sys._current_exceptions().

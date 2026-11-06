@@ -163,7 +163,6 @@ impl PyReverseSequenceIterator {
                 return Err(Self::not_reversible(sequence, vm));
             }
             let result = method.call((), vm);
-            drop(method);
             return result;
         }
 

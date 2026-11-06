@@ -810,7 +810,6 @@ impl Comparable for PyList {
             // Equality and finalizers may replace, remove, or append elements.
             // Release both roots before observing the lists again, left first.
             drop(a);
-            drop(b);
             if !equal? {
                 break;
             }
@@ -835,7 +834,6 @@ impl Comparable for PyList {
         };
         let result = PyObject::rich_compare(&a, &b, op, vm);
         drop(a);
-        drop(b);
         result.map(Either::A)
     }
 

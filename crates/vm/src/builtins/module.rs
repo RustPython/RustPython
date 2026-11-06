@@ -454,7 +454,6 @@ impl PyModule {
                     ))
                 });
                 drop(annotate);
-                drop(result);
                 return Err(error?);
             }
             result

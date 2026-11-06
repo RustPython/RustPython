@@ -252,7 +252,7 @@ impl Constructor for PyFloat {
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here. Extra keywords are
         // accepted only when a subclass has replaced tp_init.
-        let (args, retained_args) = if cls.is(float_type) || uses_float_init {
+        let (args, _retained_args) = if cls.is(float_type) || uses_float_init {
             (args, None)
         } else {
             (FuncArgs::from(args.args.clone()), Some(args))
@@ -269,9 +269,7 @@ impl Constructor for PyFloat {
         }
 
         let payload = Self::py_new(&cls, arg, vm)?;
-        let result = payload.into_ref_with_type(vm, cls).map(Into::into);
-        drop(retained_args);
-        result
+        payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {

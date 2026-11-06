@@ -1193,10 +1193,7 @@ mod _sqlite3 {
             // FSConverter releases Unicode after encoding, but retains bytes
             // through opening the database. Either owner can have a finalizer.
             let database = match database {
-                FsPath::Str(owner) => {
-                    drop(owner);
-                    None
-                }
+                FsPath::Str(_owner) => None,
                 FsPath::Bytes(owner) => Some(owner),
             };
             loop {

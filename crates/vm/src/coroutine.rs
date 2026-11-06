@@ -331,7 +331,7 @@ impl Coro {
     }
 
     pub(crate) fn yield_from_target(&self) -> Option<PyObjectRef> {
-        let claim = loop {
+        let _claim = loop {
             match self
                 .access
                 .compare_exchange(FrameAccess::Idle, FrameAccess::Inspecting)
@@ -344,7 +344,7 @@ impl Coro {
         };
         // clear_frame releases its execution claim before clearing the frame.
         // Its closed flag prevents inspectors from touching that retired frame.
-        let result = if self.closed.load() {
+        if self.closed.load() {
             None
         } else {
             self.frame.deref().and_then(|frame| {
@@ -352,9 +352,7 @@ impl Coro {
                 // This only reads the suspended stack and increments its target.
                 unsafe { frame.yield_from_target() }
             })
-        };
-        drop(claim);
-        result
+        }
     }
 
     fn run_claimed<F>(
@@ -639,8 +637,7 @@ impl Coro {
 
     pub fn set_name(&self, name: PyStrRef) {
         // A string subclass can run a finalizer that reenters this object.
-        let old = core::mem::replace(&mut *self.name.lock(), name);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.name.lock(), name);
     }
 
     pub fn qualname(&self) -> PyStrRef {
@@ -648,8 +645,7 @@ impl Coro {
     }
 
     pub fn set_qualname(&self, qualname: PyStrRef) {
-        let old = core::mem::replace(&mut *self.qualname.lock(), qualname);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.qualname.lock(), qualname);
     }
 
     pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {

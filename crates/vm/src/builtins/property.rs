@@ -109,8 +109,7 @@ impl GetDescriptor for PyProperty {
 impl PyProperty {
     fn set_property_name(&self, name: Option<PyObjectRef>) {
         // The replaced name can run a finalizer that accesses this property.
-        let old = core::mem::replace(&mut *self.name.write(), name);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.name.write(), name);
     }
 
     // Helper method to get property name

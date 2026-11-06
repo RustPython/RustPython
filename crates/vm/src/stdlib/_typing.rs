@@ -387,8 +387,7 @@ pub(crate) mod decl {
 
         #[pygetset(setter)]
         fn set___module__(&self, value: PySetterValue) {
-            let previous = core::mem::replace(&mut *self.module.lock(), value.into_option());
-            drop(previous);
+            let _previous = core::mem::replace(&mut *self.module.lock(), value.into_option());
         }
 
         #[pymethod]
@@ -417,14 +416,12 @@ pub(crate) mod decl {
             let args: Self::Args = args.bind_for(vm, "typealias")?;
             // Empty tuple subclasses are normalized away, but their finalizers
             // must not run before the alias object has been allocated.
-            let original_type_params = match &args.type_params {
+            let _original_type_params = match &args.type_params {
                 OptionalArg::Present(tp) => Some(tp.clone()),
                 OptionalArg::Missing => None,
             };
-            let result = Self::py_new(&cls, args, vm)
-                .and_then(|payload| payload.into_ref_with_type(vm, cls).map(Into::into));
-            drop(original_type_params);
-            result
+            Self::py_new(&cls, args, vm)
+                .and_then(|payload| payload.into_ref_with_type(vm, cls).map(Into::into))
         }
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {

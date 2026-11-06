@@ -285,9 +285,8 @@ mod _collections {
                     idx.wrapped_at(deque.len())
                         .map(|i| core::mem::replace(&mut deque[i], value.take().unwrap()))
                 };
-                let removed =
+                let _removed =
                     removed.ok_or_else(|| vm.new_index_error("deque index out of range"))?;
-                drop(removed);
                 Ok(())
             })
         }
@@ -302,9 +301,8 @@ mod _collections {
                         removed
                     })
                 };
-                let removed =
+                let _removed =
                     removed.ok_or_else(|| vm.new_index_error("deque index out of range"))?;
-                drop(removed);
                 Ok(())
             })
         }
@@ -495,7 +493,7 @@ mod _collections {
         #[pymethod]
         fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.operation.with(vm, || {
-                let removed = {
+                let _removed = {
                     let mut deque = self.borrow_deque_mut();
                     if deque.is_empty() {
                         return Ok(());
@@ -504,7 +502,6 @@ mod _collections {
                     core::mem::take(&mut *deque)
                 };
                 // Finalizers may read or repopulate the now-empty deque.
-                drop(removed);
                 Ok(())
             })
         }
@@ -684,9 +681,8 @@ mod _collections {
                                 removed
                             }
                         };
-                        let removed = removed
+                        let _removed = removed
                             .ok_or_else(|| vm.new_index_error("deque mutated during iteration"))?;
-                        drop(removed);
                         return Ok(());
                     }
                 }
@@ -1113,8 +1109,7 @@ mod _collections {
 
     impl IterNext for PyDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let (step, released) = deque_step(&zelf.internal, zelf.state, &zelf.counter, false);
-            drop(released);
+            let (step, _released) = deque_step(&zelf.internal, zelf.state, &zelf.counter, false);
             step.into_result(vm)
         }
     }
@@ -1183,8 +1178,7 @@ mod _collections {
 
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let (step, released) = deque_step(&zelf.internal, zelf.state, &zelf.counter, true);
-            drop(released);
+            let (step, _released) = deque_step(&zelf.internal, zelf.state, &zelf.counter, true);
             step.into_result(vm)
         }
     }

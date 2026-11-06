@@ -94,8 +94,7 @@ impl Py<PyTraceback> {
         }
         // Dropping the old chain can finalize a frame whose locals reenter
         // this traceback. Publish the replacement before releasing the lock.
-        let old = core::mem::replace(&mut *zelf.next.lock(), value);
-        drop(old);
+        let _old = core::mem::replace(&mut *zelf.next.lock(), value);
         Ok(())
     }
 }

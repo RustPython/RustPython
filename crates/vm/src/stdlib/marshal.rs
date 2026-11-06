@@ -913,7 +913,7 @@ mod decl {
             // Keep our own export even if readinto releases its memoryview.
             // The returned object's __index__ can run Python too; neither
             // callback may resize the scratch buffer before it is copied.
-            let export = memoryview.clone_buffer();
+            let _export = memoryview.clone_buffer();
             let nread_obj = self.vm.call_method(&self.file, "readinto", (memoryview,))?;
             let index = nread_obj.try_index(self.vm)?;
             let nread = index.as_bigint().to_isize().ok_or_else(|| {
@@ -937,7 +937,6 @@ mod decl {
                 return Err(self.vm.new_eof_error("EOF read where not expected"));
             }
             self.buf.extend_from_slice(&bytearray.borrow_buf());
-            drop(export);
             Ok(())
         }
     }

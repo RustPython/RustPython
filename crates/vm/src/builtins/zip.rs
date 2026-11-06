@@ -117,9 +117,7 @@ pub(super) fn get_iterators<'a>(
         match obj.get_iter(vm) {
             Ok(iterator) => iterators.push(iterator),
             Err(error) => {
-                while let Some(iterator) = iterators.pop() {
-                    drop(iterator);
-                }
+                while let Some(_iterator) = iterators.pop() {}
                 return Err(error);
             }
         }
@@ -176,11 +174,10 @@ fn strict_exhausted(
     } else {
         let mut longer = None;
         for (index, iterator) in iterators.iter().enumerate().skip(1) {
-            if let PyIterReturn::Return(item) = iterator
+            if let PyIterReturn::Return(_item) = iterator
                 .next(vm)
                 .or_else(|error| PyIterReturn::from_pyresult(Err(error), vm))?
             {
-                drop(item);
                 longer = Some(index);
                 break;
             }

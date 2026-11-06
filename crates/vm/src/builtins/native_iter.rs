@@ -63,7 +63,7 @@ impl<T> NativeSequenceIter<T> {
         let index = state.index as usize;
         let sequence = state.sequence.as_mut()?;
         let item = read(sequence, index);
-        let released = if item.is_some() {
+        let _released = if item.is_some() {
             state.index += if matches!(self.kind, NativeIterKind::ListReverse) {
                 -1
             } else {
@@ -75,7 +75,6 @@ impl<T> NativeSequenceIter<T> {
             state.sequence.take()
         };
         drop(state);
-        drop(released);
         item
     }
 

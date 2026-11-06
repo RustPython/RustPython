@@ -212,13 +212,9 @@ impl Drop for UnionBuilder {
     fn drop(&mut self) {
         // Match list cleanup order, keeping the cached set alive until all
         // ordered args have been released and unhashable args alive until last.
-        for arg in self.args.drain(..).rev() {
-            drop(arg);
-        }
+        for _arg in self.args.drain(..).rev() {}
         drop(core::mem::take(&mut self.hashable_args));
-        for arg in self.unhashable_args.drain(..).rev() {
-            drop(arg);
-        }
+        for _arg in self.unhashable_args.drain(..).rev() {}
     }
 }
 

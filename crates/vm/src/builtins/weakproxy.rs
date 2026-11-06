@@ -278,7 +278,6 @@ fn proxy_binary_op(
     let result = op(vm, a_ref, b_ref);
     // CPython releases unwrapped operands in argument order after the callback.
     drop(a_up);
-    drop(b_up);
     result
 }
 
@@ -304,7 +303,6 @@ fn proxy_ternary_op(
     let result = op(vm, a_ref, b_ref, c_ref);
     drop(a_up);
     drop(b_up);
-    drop(c_up);
     result
 }
 
