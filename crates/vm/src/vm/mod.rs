@@ -118,9 +118,9 @@ pub struct VirtualMachine {
     startup_error: Option<PyBaseExceptionRef>,
     recursion_depth: Cell<usize>,
     /// Depth of native recursion that pushes no Python frame, counted only
-    /// where the stack pointer cannot be read. Everywhere else the native
-    /// stack itself answers, and nothing needs counting.
-    #[cfg(any(miri, target_env = "musl"))]
+    /// where the stack pointer cannot measure every stack in use. Wasm has
+    /// a separate engine call stack in addition to its linear-memory stack.
+    #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
     native_recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
@@ -1399,7 +1399,7 @@ impl VirtualMachine {
             import_bootstrap_complete: false,
             startup_error: None,
             recursion_depth: Cell::new(0),
-            #[cfg(any(miri, target_env = "musl"))]
+            #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
             native_recursion_depth: Cell::new(0),
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
@@ -2766,9 +2766,16 @@ impl VirtualMachine {
     /// (`Py_C_RECURSION_LIMIT`). A native step costs far more stack than a
     /// Python one and debug builds cost more again, so this sits well under
     /// what a default stack holds rather than at what it would just fit.
-    #[cfg(any(miri, target_env = "musl"))]
-    const NATIVE_RECURSION_LIMIT_UNMEASURED: usize =
-        if cfg!(debug_assertions) { 500 } else { 1500 };
+    #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
+    const NATIVE_RECURSION_LIMIT_UNMEASURED: usize = if cfg!(target_arch = "wasm32") {
+        // The engine call stack cannot be measured by psm's linear-memory
+        // stack pointer. Keep headroom for calls between successive guards.
+        if cfg!(debug_assertions) { 64 } else { 128 }
+    } else if cfg!(debug_assertions) {
+        500
+    } else {
+        1500
+    };
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -2870,17 +2877,17 @@ impl VirtualMachine {
 
     /// Enter a native-recursion section equivalent to `Py_EnterRecursiveCall`.
     pub fn enter_recursive_call(&self, _where: &str) -> PyResult<()> {
-        #[cfg(any(miri, target_env = "musl"))]
+        #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
         let counted_too_deep =
             self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
-        #[cfg(not(any(miri, target_env = "musl")))]
+        #[cfg(not(any(miri, target_env = "musl", target_arch = "wasm32")))]
         let counted_too_deep = false;
 
         if counted_too_deep || self.check_c_stack_overflow() {
             return Err(self.new_recursion_depth_error(_where));
         }
 
-        #[cfg(any(miri, target_env = "musl"))]
+        #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
         self.native_recursion_depth.update(|d| d + 1);
 
         Ok(())
@@ -2889,7 +2896,7 @@ impl VirtualMachine {
     /// Leave a native-recursion section equivalent to
     /// `Py_LeaveRecursiveCall`.
     pub fn leave_recursive_call(&self) {
-        #[cfg(any(miri, target_env = "musl"))]
+        #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
         self.native_recursion_depth.update(|d| d.saturating_sub(1));
     }
 
@@ -2901,20 +2908,20 @@ impl VirtualMachine {
     /// frame limit `sys.setrecursionlimit()` sets, so nesting counted here does
     /// not come out of what Python code has left to call with.
     pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
-        // `check_c_stack_overflow()` answers no unconditionally where the stack
-        // pointer cannot be read, which would leave this guard with nothing to
-        // stop. A count of the nesting stands in for the measurement there.
-        #[cfg(any(miri, target_env = "musl"))]
+        // Count nesting where the stack pointer is unavailable or cannot
+        // measure the engine call stack, as on Wasm. Keep the linear-memory
+        // stack probe enabled there as an independent guard.
+        #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
         let counted_too_deep =
             self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
-        #[cfg(not(any(miri, target_env = "musl")))]
+        #[cfg(not(any(miri, target_env = "musl", target_arch = "wasm32")))]
         let counted_too_deep = false;
 
         if counted_too_deep || self.check_c_stack_overflow() {
             return Err(self.new_recursion_depth_error(_where));
         }
 
-        #[cfg(any(miri, target_env = "musl"))]
+        #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
         let _native_depth_guard = {
             self.native_recursion_depth.update(|d| d + 1);
             scopeguard::guard((), |()| {

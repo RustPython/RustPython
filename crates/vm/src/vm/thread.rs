@@ -1653,7 +1653,7 @@ impl VirtualMachine {
             import_bootstrap_complete: self.import_bootstrap_complete,
             startup_error: self.startup_error.clone(),
             recursion_depth: Cell::new(0),
-            #[cfg(any(miri, target_env = "musl"))]
+            #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
             native_recursion_depth: Cell::new(0),
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
