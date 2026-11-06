@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyModule,
-    PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, object,
+    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyModule, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
