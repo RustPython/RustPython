@@ -861,8 +861,8 @@ impl Py<PyBaseException> {
         }
     }
 
-    #[pymethod(name = "add_note")]
-    fn add_note_object(&self, note: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn add_note(&self, note: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let note = note.downcast::<PyStr>().map_err(|note| {
             let name = if vm.is_none(&note) {
                 "None".to_owned()
@@ -871,10 +871,10 @@ impl Py<PyBaseException> {
             };
             vm.new_type_error(format!("add_note() argument must be str, not {name}"))
         })?;
-        self.add_note(note, vm)
+        self.add_note_str(note, vm)
     }
 
-    pub fn add_note(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn add_note_str(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let notes = match vm.get_attribute_opt(self.as_object(), "__notes__")? {
             Some(notes) => notes
                 .downcast::<PyList>()

@@ -523,7 +523,7 @@ fn add_declaration_context(
             {
                 return Ok(());
             }
-            exc.add_note(note, vm)
+            exc.add_note_str(note, vm)
         })();
         return;
     }

@@ -136,7 +136,7 @@ impl VirtualMachine {
                 ));
                 // A failed attempt to append the note must not replace the
                 // exception raised by the class constructor.
-                let _ = error.add_note(note, self);
+                let _ = error.add_note_str(note, self);
                 error
             }
         };
