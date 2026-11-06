@@ -4015,18 +4015,12 @@ fn solid_base(typ: &Py<PyType>) -> &Py<PyType> {
     if shape_differs(typ, base) { typ } else { base }
 }
 
+// Low-level type construction selects a layout without Python subclassability checks.
 fn select_best_base(bases: &[PyTypeRef]) -> Result<usize, String> {
     let mut base_index: Option<usize> = None;
     let mut winner: Option<&Py<PyType>> = None;
 
     for (i, base_i) in bases.iter().enumerate() {
-        if !base_i.slots.flags.has_feature(PyTypeFlags::BASETYPE) {
-            return Err(format!(
-                "type '{}' is not an acceptable base type",
-                base_i.slot_name()
-            ));
-        }
-
         let candidate = solid_base(base_i);
         let Some(current) = winner else {
             winner = Some(candidate);
@@ -4048,6 +4042,14 @@ fn select_best_base(bases: &[PyTypeRef]) -> Result<usize, String> {
 }
 
 fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {
+    for base in bases {
+        if !base.slots.flags.has_feature(PyTypeFlags::BASETYPE) {
+            return Err(vm.new_type_error(format!(
+                "type '{}' is not an acceptable base type",
+                base.slot_name()
+            )));
+        }
+    }
     match select_best_base(bases) {
         Ok(index) => Ok(&bases[index]),
         Err(msg) => Err(vm.new_type_error(msg)),
