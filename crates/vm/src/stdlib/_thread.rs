@@ -1800,6 +1800,12 @@ pub(crate) mod _thread {
             Self { inner, done_event }
         }
 
+        fn join_wait_slice(timeout: Duration, elapsed: Duration) -> Duration {
+            timeout.saturating_sub(elapsed).min(Duration::from_micros(
+                pytime::THREAD_TIMEOUT_MAX_MICROSECONDS as u64,
+            ))
+        }
+
         fn join_internal(
             inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
             done_event: &Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
@@ -1808,8 +1814,7 @@ pub(crate) mod _thread {
         ) -> PyResult<()> {
             Self::check_started(inner, vm)?;
 
-            let deadline =
-                timeout_duration.and_then(|timeout| std::time::Instant::now().checked_add(timeout));
+            let started = std::time::Instant::now();
 
             // Wait for thread completion using Condvar (supports timeout)
             // Loop to handle spurious wakeups
@@ -1842,17 +1847,13 @@ pub(crate) mod _thread {
 
             while !*done {
                 if let Some(timeout) = timeout_duration {
-                    let remaining = deadline.map_or(timeout, |deadline| {
-                        deadline.saturating_duration_since(std::time::Instant::now())
-                    });
-                    if remaining.is_zero() {
+                    let wait = Self::join_wait_slice(timeout, started.elapsed());
+                    if wait.is_zero() {
                         return Ok(());
                     }
-                    let result = vm.allow_threads(|| cvar.wait_for(&mut done, remaining));
-                    if result.timed_out() && !*done {
-                        // Timeout occurred and done is still false
-                        return Ok(());
-                    }
+                    // Keep each Windows wait below INFINITE and retain the
+                    // original timeout budget after a slice or spurious wakeup.
+                    vm.allow_threads(|| cvar.wait_for(&mut done, wait));
                 } else {
                     // Infinite wait
                     vm.allow_threads(|| cvar.wait(&mut done));
@@ -2363,6 +2364,28 @@ pub(crate) mod _thread {
     mod tests {
         use super::*;
         use crate::{Interpreter, class::PyClassImpl, protocol::PyNumberMethods, types::AsNumber};
+
+        #[test]
+        fn join_wait_slices_preserve_the_timeout_budget() {
+            let limit = Duration::from_micros(pytime::THREAD_TIMEOUT_MAX_MICROSECONDS as u64);
+            let tail = Duration::from_nanos(1);
+            let timeout = limit + tail;
+            assert_eq!(
+                ThreadHandle::join_wait_slice(timeout, Duration::ZERO),
+                limit
+            );
+            assert_eq!(ThreadHandle::join_wait_slice(timeout, limit), tail);
+            assert_eq!(
+                ThreadHandle::join_wait_slice(timeout, timeout),
+                Duration::ZERO
+            );
+            assert_eq!(
+                ThreadHandle::join_wait_slice(timeout, timeout + tail),
+                Duration::ZERO
+            );
+            #[cfg(windows)]
+            assert!(limit.as_millis() < u128::from(u32::MAX));
+        }
 
         #[pyclass(name = "AcquireConversion", module = false)]
         #[derive(Debug, PyPayload)]
