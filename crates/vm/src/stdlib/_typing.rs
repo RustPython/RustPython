@@ -1,7 +1,10 @@
 // spell-checker:ignore typevarobject funcobj typevartuples
 use crate::{
-    Context, PyResult, VirtualMachine, builtins::pystr::AsPyStr, class::PyClassImpl,
-    function::IntoFuncArgs,
+    AsObject, Context, PyObject, PyResult, VirtualMachine,
+    builtins::{PyStr, pystr::AsPyStr},
+    class::PyClassImpl,
+    common::wtf8::Wtf8Buf,
+    function::{Either, IntoFuncArgs},
 };
 
 pub use crate::stdlib::typevar::{
@@ -26,8 +29,65 @@ pub fn call_typing_func_object<'a>(
     func.call(args, vm)
 }
 
+/// Write the shared type representation used by aliases, unions and annotations.
+/// Equivalent of _Py_typing_type_repr.
+pub(crate) fn typing_type_repr(
+    writer: &mut Wtf8Buf,
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if obj.is(&vm.ctx.ellipsis) {
+        writer.push_str("...");
+        return Ok(());
+    }
+    if obj.is(vm.ctx.types.none_type) {
+        writer.push_str("None");
+        return Ok(());
+    }
+
+    // has_attr releases each temporary value before the next lookup or repr.
+    if obj.has_attr(identifier!(vm, __origin__), vm)?
+        && obj.has_attr(identifier!(vm, __args__), vm)?
+    {
+        writer.push_wtf8(obj.repr(vm)?.as_object().str(vm)?.as_wtf8());
+        return Ok(());
+    }
+
+    let Some(qualname) = vm.get_attribute_opt(obj, identifier!(vm, __qualname__))? else {
+        writer.push_wtf8(obj.repr(vm)?.as_object().str(vm)?.as_wtf8());
+        return Ok(());
+    };
+    let module = vm.get_attribute_opt(obj, identifier!(vm, __module__))?;
+    let result = (|| {
+        let Some(module) = module.as_ref().filter(|module| !vm.is_none(module)) else {
+            return obj.repr(vm).map(Either::A);
+        };
+        if module
+            .downcast_ref::<PyStr>()
+            .is_some_and(|module| module.as_wtf8() == "builtins")
+        {
+            return qualname.str(vm).map(Either::A);
+        }
+        let mut repr = module.str(vm)?.as_wtf8().to_owned();
+        repr.push_str(".");
+        repr.push_wtf8(qualname.str(vm)?.as_wtf8());
+        Ok(Either::B(repr))
+    })();
+    // Attribute values can own finalizers; release them in lookup order,
+    // before releasing the string returned by __str__ or __repr__.
+    drop(qualname);
+    drop(module);
+    match result? {
+        // PyUnicodeWriter_WriteStr applies str() to a returned str subclass.
+        Either::A(repr) => writer.push_wtf8(repr.as_object().str(vm)?.as_wtf8()),
+        Either::B(repr) => writer.push_wtf8(&repr),
+    }
+    Ok(())
+}
+
 #[pymodule(name = "_typing", with(super::typevar::typevar))]
 pub(crate) mod decl {
+    use super::typing_type_repr;
     use crate::class::PyClassDef;
     use crate::common::lock::LazyLock;
     use crate::{
@@ -127,65 +187,31 @@ pub(crate) mod decl {
         }
     }
 
-    /// String representation of a type for annotation purposes.
-    /// Equivalent of _Py_typing_type_repr.
-    fn typing_type_repr(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
-        // Ellipsis
-        if obj.is(&vm.ctx.ellipsis) {
-            return Ok("...".to_owned());
-        }
-        // NoneType -> "None"
-        if obj.is(&vm.ctx.types.none_type.as_object()) {
-            return Ok("None".to_owned());
-        }
-        // Generic aliases (has __origin__ and __args__) -> repr
-        let has_origin = obj.get_attr("__origin__", vm).is_ok();
-        let has_args = obj.get_attr("__args__", vm).is_ok();
-        if has_origin && has_args {
-            return Ok(obj.repr(vm)?.to_string());
-        }
-        // Has __qualname__ and __module__
-        if let Ok(qualname) = obj.get_attr("__qualname__", vm)
-            && let Ok(module) = obj.get_attr("__module__", vm)
-            && !vm.is_none(&module)
-            && let Some(module_str) = module.downcast_ref::<crate::builtins::PyStr>()
-        {
-            if module_str.as_bytes() == b"builtins" {
-                return Ok(qualname.str_utf8(vm)?.as_str().to_owned());
-            }
-            return Ok(format!(
-                "{}.{}",
-                module_str.as_wtf8(),
-                qualname.str_utf8(vm)?.as_str()
-            ));
-        }
-        // Fallback to repr
-        Ok(obj.repr(vm)?.to_string())
-    }
-
     /// Format a value as a string for ANNOTATE_FORMAT_STRING.
     /// Handles tuples specially by wrapping in parentheses.
     fn typing_type_repr_value(value: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if let Ok(tuple) = value.try_to_ref::<PyTuple>(vm) {
-            let mut parts = Vec::with_capacity(tuple.as_slice().len());
-            for item in tuple {
-                parts.push(typing_type_repr(item, vm)?);
+        let mut repr = Wtf8Buf::new();
+        if let Some(tuple) = value.downcast_ref::<PyTuple>() {
+            repr.push_str("(");
+            for (i, item) in tuple.as_slice().iter().enumerate() {
+                if i > 0 {
+                    repr.push_str(", ");
+                }
+                typing_type_repr(&mut repr, item, vm)?;
             }
-            let inner = if parts.len() == 1 {
-                format!("{},", parts[0])
-            } else {
-                parts.join(", ")
-            };
-            Ok(vm.ctx.new_str(format!("({inner})")).into())
+            repr.push_str(")");
         } else {
-            Ok(vm.ctx.new_str(typing_type_repr(value, vm)?).into())
+            typing_type_repr(&mut repr, value, vm)?;
         }
+        Ok(vm.ctx.new_str(repr).into())
     }
 
     impl Representable for ConstEvaluator {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let value_repr = zelf.value.repr(vm)?;
-            Ok(format!("<constevaluator {value_repr}>"))
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let mut repr = Wtf8Buf::from("<constevaluator ");
+            repr.push_wtf8(zelf.value.repr(vm)?.as_wtf8());
+            repr.push_str(">");
+            Ok(repr)
         }
     }
 

@@ -5,11 +5,11 @@ use crate::{
     atomic_func,
     builtins::{PyFrozenSet, PySet, PyStr, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
-    common::hash,
+    common::{hash, wtf8::Wtf8Buf},
     convert::ToPyObject,
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
-    stdlib::_typing::{TypeAliasType, call_typing_func_object},
+    stdlib::_typing::{TypeAliasType, call_typing_func_object, typing_type_repr},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
@@ -48,44 +48,15 @@ impl PyUnion {
         &self.args
     }
 
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        fn repr_item(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
-            if obj.is(vm.ctx.types.none_type) {
-                return Ok("None".to_string());
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let mut repr = Wtf8Buf::new();
+        for (i, arg) in self.args.as_slice().iter().enumerate() {
+            if i > 0 {
+                repr.push_str(" | ");
             }
-
-            if vm
-                .get_attribute_opt(obj, identifier!(vm, __origin__))?
-                .is_some()
-                && vm
-                    .get_attribute_opt(obj, identifier!(vm, __args__))?
-                    .is_some()
-            {
-                return Ok(obj.repr(vm)?.to_string());
-            }
-
-            match (
-                vm.get_attribute_opt(obj, identifier!(vm, __qualname__))?
-                    .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
-                vm.get_attribute_opt(obj, identifier!(vm, __module__))?
-                    .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
-            ) {
-                (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),
-                (Some(qualname), Some(module)) => Ok(if module == "builtins" {
-                    qualname
-                } else {
-                    format!("{module}.{qualname}")
-                }),
-            }
+            typing_type_repr(&mut repr, arg, vm)?;
         }
-
-        Ok(self
-            .args
-            .as_slice()
-            .iter()
-            .map(|o| repr_item(o, vm))
-            .collect::<PyResult<Vec<_>>>()?
-            .join(" | "))
+        Ok(repr)
     }
 }
 
@@ -165,7 +136,9 @@ impl Py<PyUnion> {
         _object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Err(vm.new_type_error(format!("Cannot subclass {}", zelf.repr(vm)?)))
+        let mut message = Wtf8Buf::from("Cannot subclass ");
+        message.push_wtf8(&zelf.repr(vm)?);
+        Err(vm.new_type_error(message))
     }
 
     #[pyclassmethod]
@@ -456,7 +429,7 @@ impl GetAttr for PyUnion {
 
 impl Representable for PyUnion {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         zelf.repr(vm)
     }
 }
