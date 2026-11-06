@@ -7,10 +7,11 @@ mod _queue {
     use std::time::Instant;
 
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::{ArgIntoFloat, OptionalArg},
+        function::OptionalArg,
         protocol::PyNumberMethods,
+        stdlib::time::pytime,
         types::{AsNumber, Constructor, Representable},
     };
 
@@ -287,28 +288,9 @@ mod _queue {
                 Some(value) => {
                     let overflow =
                         || vm.new_overflow_error("timestamp out of range for C PyTime_t");
-                    let nanos = if let Some(index) = value.try_index_opt(vm) {
-                        let index = index.map_err(|error| {
-                            if error.fast_isinstance(vm.ctx.exceptions.overflow_error) {
-                                overflow()
-                            } else {
-                                error
-                            }
-                        })?;
-                        let seconds: i64 = index.try_to_primitive(vm).map_err(|_| overflow())?;
-                        seconds.checked_mul(1_000_000_000).ok_or_else(overflow)?
-                    } else {
-                        let seconds =
-                            ArgIntoFloat::try_from_object(vm, value.clone())?.into_float();
-                        if seconds.is_nan() {
-                            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                        }
-                        let nanos = (seconds * 1_000_000_000.0).ceil();
-                        if !(i64::MIN as f64..-(i64::MIN as f64)).contains(&nanos) {
-                            return Err(overflow());
-                        }
-                        nanos as i64
-                    };
+                    // SimpleQueue uses ceiling, unlike the away-from-zero
+                    // rounding used by thread locks and select timeouts.
+                    let nanos = pytime::from_seconds_object(value, pytime::Round::Ceiling, vm)?;
                     if nanos < 0 {
                         return Err(vm.new_value_error("'timeout' must be a non-negative number"));
                     }
