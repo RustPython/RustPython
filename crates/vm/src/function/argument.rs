@@ -103,6 +103,7 @@ impl<Name: ArgName> From<KwArgs<PyObjectRef, Name>> for FuncArgs {
 impl FromArgs for FuncArgs {
     const PARAMS: Option<&'static [Param]> =
         Some(&[Param::var_positional("args"), Param::var_keyword("kwargs")]);
+    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(core::mem::take(args))
@@ -560,6 +561,253 @@ pub(crate) fn given_by_name_and_position_message(
     format!("argument for {name}() given by name ('{keyword}') and position ({pos})")
 }
 
+/// Compile-time counts for a binding whose entire parameter tree is known.
+struct BindingShape {
+    fixed: usize,
+    positional: usize,
+    required_positional: usize,
+    required_positional_only: usize,
+    has_keywords: bool,
+    var_positional: bool,
+    var_keyword: bool,
+    required_keyword_only: bool,
+    anonymous_positional: bool,
+}
+
+impl BindingShape {
+    const fn from_params(params: Option<&[Param]>, mut skip: usize) -> Option<Self> {
+        let Some(params) = params else {
+            return None;
+        };
+        let mut shape = Self {
+            fixed: 0,
+            positional: 0,
+            required_positional: 0,
+            required_positional_only: 0,
+            has_keywords: false,
+            var_positional: false,
+            var_keyword: false,
+            required_keyword_only: false,
+            anonymous_positional: false,
+        };
+        if shape.count(params, &mut skip) && skip == 0 {
+            Some(shape)
+        } else {
+            None
+        }
+    }
+
+    const fn count(&mut self, params: &[Param], skip: &mut usize) -> bool {
+        let mut i = 0;
+        while i < params.len() {
+            let param = &params[i];
+            if self.var_keyword && !matches!(param.kind, ParamKind::Flatten(_)) {
+                return false;
+            }
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => {
+                    if !self.count(inner, skip) {
+                        return false;
+                    }
+                }
+                ParamKind::Flatten(None) => return false,
+                ParamKind::PositionalOnly if *skip > 0 => *skip -= 1,
+                ParamKind::PositionalOnly | ParamKind::PositionalOrKeyword => {
+                    // Other tuple compositions are valid Rust binders, but do
+                    // not describe the ordered layout of one Clinic parser.
+                    if self.var_positional
+                        || self.fixed > self.positional
+                        || (matches!(param.kind, ParamKind::PositionalOnly) && self.has_keywords)
+                    {
+                        return false;
+                    }
+                    self.fixed += 1;
+                    self.positional += 1;
+                    if param.default.is_none() {
+                        self.required_positional = self.positional;
+                    }
+                    if matches!(param.kind, ParamKind::PositionalOnly) {
+                        self.anonymous_positional |= param.name.is_empty();
+                        if param.default.is_none() {
+                            self.required_positional_only = self.positional;
+                        }
+                    } else {
+                        self.has_keywords = true;
+                    }
+                }
+                ParamKind::KeywordOnly => {
+                    self.fixed += 1;
+                    self.has_keywords = true;
+                    self.required_keyword_only |= param.default.is_none();
+                }
+                ParamKind::VarPositional => {
+                    if self.var_positional || self.fixed > self.positional {
+                        return false;
+                    }
+                    self.var_positional = true;
+                }
+                ParamKind::VarKeyword => {
+                    self.has_keywords = true;
+                    self.var_keyword = true;
+                }
+            }
+            i += 1;
+        }
+        true
+    }
+
+    fn check(
+        &self,
+        params: &[Param],
+        args: &FuncArgs,
+        arity: &RangeInclusive<usize>,
+        instance: usize,
+        callee: Callee,
+        vm: &VirtualMachine,
+    ) -> Option<PyBaseExceptionRef> {
+        let nargs = args.args.len().saturating_sub(instance);
+        let nkwargs = args.kwargs.len();
+        if !self.has_keywords {
+            if nkwargs > 0 {
+                return Some(callee.no_keywords(vm));
+            }
+            return Some(callee.wrong_arity(arity, nargs < *arity.start(), nargs, vm));
+        }
+
+        // Bare positional Rust arguments use _PyArg_CheckPositional, including
+        // an outer argument followed by a separately bound options struct.
+        if self.anonymous_positional
+            && (nargs > *arity.end() || nargs < self.required_positional_only)
+        {
+            return Some(callee.wrong_arity(arity, nargs < *arity.start(), nargs, vm));
+        }
+        let (name, parens) = call_form(callee.name, "function");
+        if !self.anonymous_positional
+            && !self.var_positional
+            && !self.var_keyword
+            && nargs + nkwargs > self.fixed
+        {
+            return Some(vm.new_type_error(format!(
+                "{name}{parens} takes at most {} {}argument{} ({} given)",
+                self.fixed,
+                if nargs == 0 { "keyword " } else { "" },
+                if self.fixed == 1 { "" } else { "s" },
+                nargs + nkwargs,
+            )));
+        }
+        if !self.var_positional && nargs > self.positional {
+            return Some(vm.new_type_error(if self.positional == 0 {
+                format!("{name}{parens} takes no positional arguments")
+            } else {
+                format!(
+                    "{name}{parens} takes {} {} positional argument{} ({nargs} given)",
+                    if self.required_positional == self.positional {
+                        "exactly"
+                    } else {
+                        "at most"
+                    },
+                    self.positional,
+                    if self.positional == 1 { "" } else { "s" },
+                )
+            }));
+        }
+        if nargs < self.required_positional_only {
+            return Some(vm.new_type_error(format!(
+                "{name}{parens} takes {} {} positional argument{} ({nargs} given)",
+                if self.var_positional || self.required_positional_only < self.positional {
+                    "at least"
+                } else {
+                    "exactly"
+                },
+                self.required_positional_only,
+                if self.required_positional_only == 1 {
+                    ""
+                } else {
+                    "s"
+                },
+            )));
+        }
+
+        let mut matched = BindingMatch {
+            positional: 0,
+            position: 0,
+            skip: instance,
+            duplicate: None,
+        };
+        if let Err(missing) = matched.walk(params, nargs, &args.kwargs) {
+            return Some(missing.into_exception(arity, nargs, 0, callee, vm));
+        }
+        if let Some((name, pos)) = matched.duplicate {
+            return Some(callee.given_by_name_and_position(name, pos, vm));
+        }
+        if !self.var_keyword {
+            for name in args.kwargs.keys() {
+                if !binding_accepts_keyword(params, name) {
+                    return Some(callee.unexpected_keyword(&name.to_string(), vm));
+                }
+            }
+        }
+        None
+    }
+}
+
+struct BindingMatch<'a> {
+    positional: usize,
+    position: usize,
+    skip: usize,
+    duplicate: Option<(&'a str, usize)>,
+}
+
+impl<'a> BindingMatch<'a> {
+    fn walk(
+        &mut self,
+        params: &'a [Param],
+        nargs: usize,
+        kwargs: &KwArgs,
+    ) -> Result<(), ArgumentError> {
+        for param in params {
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => self.walk(inner, nargs, kwargs)?,
+                ParamKind::PositionalOnly if self.skip > 0 => self.skip -= 1,
+                ParamKind::PositionalOnly => {
+                    self.positional += 1;
+                    self.position += 1;
+                }
+                ParamKind::PositionalOrKeyword | ParamKind::KeywordOnly => {
+                    self.position += 1;
+                    let positional = matches!(param.kind, ParamKind::PositionalOrKeyword);
+                    if positional {
+                        self.positional += 1;
+                    }
+                    let by_position = positional && self.positional <= nargs;
+                    if by_position {
+                        if self.duplicate.is_none() && kwargs.contains_key(param.name) {
+                            self.duplicate = Some((param.name, self.position));
+                        }
+                    } else if param.default.is_none() && !kwargs.contains_key(param.name) {
+                        return Err(ArgumentError::MissingRequiredArgument {
+                            name: param.name.to_owned(),
+                            pos: self.position,
+                        });
+                    }
+                }
+                ParamKind::VarPositional | ParamKind::VarKeyword => {}
+                ParamKind::Flatten(None) => unreachable!("binding shape was checked"),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn binding_accepts_keyword(params: &[Param], name: &Wtf8) -> bool {
+    params.iter().any(|param| match param.kind {
+        ParamKind::Flatten(Some(inner)) => binding_accepts_keyword(inner, name),
+        ParamKind::PositionalOrKeyword | ParamKind::KeywordOnly => Wtf8::new(param.name) == name,
+        ParamKind::VarKeyword => true,
+        _ => false,
+    })
+}
+
 /// First positional-or-keyword parameter that was also passed by keyword.
 fn duplicate_name_and_position<'a>(
     params: &'a [Param],
@@ -792,6 +1040,13 @@ pub trait FromArgs: Sized {
     /// is ignored.
     const PARAMS: Option<&'static [Param]> = None;
 
+    /// Parameters whose binding shape is known before conversion. Unlike
+    /// `PARAMS`, an unnamed scalar is represented by one positional-only slot.
+    /// `None` leaves validation to a parser whose shape is not known here.
+    /// Manual parsers opt in explicitly: text signatures alone do not promise
+    /// that a parser follows Clinic validation rules.
+    const BINDING_PARAMS: Option<&'static [Param]> = None;
+
     /// True when every parameter is positional-only or `*args`.
     const TAKES_NO_KEYWORDS: bool = match Self::PARAMS {
         Some(params) => params_take_no_keywords(params),
@@ -837,12 +1092,13 @@ pub trait FromArgs: Sized {
         }
     }
 
-    /// Surplus positional arguments, a keyword that fills a parameter already
-    /// given by position, and a missing required argument, reported before any
-    /// argument is converted.
+    /// Validate a known binding shape before converting any argument, following
+    /// `_PyArg_UnpackKeywords` error ordering. Opaque parsers keep the conservative
+    /// positional-count, duplicate, and missing-argument checks.
     ///
     /// The missing-argument walk is skipped when every required positional
     /// argument is present and the type has no required keyword-only parameter.
+    #[inline]
     fn check_before_convert(
         args: &FuncArgs,
         arity: &RangeInclusive<usize>,
@@ -851,6 +1107,29 @@ pub trait FromArgs: Sized {
         callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
+        let shape = if instance == 0 {
+            const { BindingShape::from_params(Self::BINDING_PARAMS, 0) }
+        } else {
+            const { BindingShape::from_params(Self::BINDING_PARAMS, 1) }
+        };
+        if let Some(shape) = shape {
+            if args.kwargs.is_empty()
+                && num_given >= shape.required_positional
+                && (shape.var_positional || num_given <= shape.positional)
+                && !shape.required_keyword_only
+            {
+                return None;
+            }
+            return shape.check(
+                Self::BINDING_PARAMS.unwrap(),
+                args,
+                arity,
+                instance,
+                callee,
+                vm,
+            );
+        }
+
         // A function that takes no keywords refuses them before counting its
         // arguments.
         if Self::TAKES_NO_KEYWORDS && !args.kwargs.is_empty() {
@@ -1089,6 +1368,7 @@ where
     T: TryFromObject,
 {
     const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword(Name::NAME)]);
+    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn arity() -> RangeInclusive<usize> {
         0..=0
@@ -1179,6 +1459,7 @@ where
     T: TryFromObject,
 {
     const PARAMS: Option<&'static [Param]> = Some(&[Param::var_positional(Name::NAME)]);
+    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
@@ -1202,6 +1483,8 @@ impl<T> FromArgs for T
 where
     T: TryFromObject,
 {
+    const BINDING_PARAMS: Option<&'static [Param]> = Some(&[Param::positional_only("")]);
+
     fn arity() -> RangeInclusive<usize> {
         1..=1
     }
@@ -1264,6 +1547,7 @@ where
         kind: super::signature::ParamKind::PositionalOnly,
         default: Some(super::signature::DefaultRepr::Unrepresentable),
     }]);
+    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn arity() -> RangeInclusive<usize> {
         0..=1
@@ -1283,6 +1567,7 @@ where
 // macro below to avoid unused warnings.
 impl FromArgs for () {
     const PARAMS: Option<&'static [Param]> = Some(&[]);
+    const BINDING_PARAMS: Option<&'static [Param]> = Self::PARAMS;
 
     fn arity() -> RangeInclusive<usize> {
         0..=0
@@ -1328,6 +1613,14 @@ macro_rules! tuple_from_py_func_args {
             const PARAMS: Option<&'static [Param]> = {
                 if true $(&& $T::PARAMS.is_some())* {
                     Some(&[$(Param::flatten($T::PARAMS)),*])
+                } else {
+                    None
+                }
+            };
+
+            const BINDING_PARAMS: Option<&'static [Param]> = {
+                if true $(&& $T::BINDING_PARAMS.is_some())* {
+                    Some(&[$(Param::flatten($T::BINDING_PARAMS)),*])
                 } else {
                     None
                 }
@@ -1474,6 +1767,8 @@ mod arity_composition_tests {
 #[cfg(test)]
 mod tests {
     use super::{ArgumentError, FromArgs, KwArgs};
+    use super::{BindingShape, Callee, FuncArgs, PosArgs};
+    use crate::{PyObjectRef, VirtualMachine};
 
     #[allow(dead_code)]
     #[derive(FromArgs)]
@@ -1482,6 +1777,204 @@ mod tests {
         first: i32,
         #[pyarg(named)]
         second: i32,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct ClinicNamed {
+        #[pyarg(any)]
+        first: i32,
+        #[pyarg(any)]
+        second: i32,
+        #[pyarg(named, default)]
+        optional: i32,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct FlattenedClinic {
+        #[pyarg(flatten)]
+        args: (PyObjectRef, ClinicNamed),
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct VariadicNamed {
+        #[pyarg(flatten)]
+        args: PosArgs,
+        #[pyarg(named)]
+        required: i32,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct ExtraKeywords {
+        #[pyarg(any)]
+        first: i32,
+        #[pyarg(flatten)]
+        rest: KwArgs,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "example")]
+    struct LegacyNamed {
+        #[pyarg(any)]
+        first: i32,
+        #[pyarg(any)]
+        second: i32,
+    }
+
+    struct DisplayOnly(FuncArgs);
+
+    impl FromArgs for DisplayOnly {
+        const PARAMS: Option<&'static [super::Param]> =
+            Some(&[super::Param::positional_or_keyword("display")]);
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            FuncArgs::from_args(vm, args).map(Self)
+        }
+    }
+
+    fn binding_error<T: FromArgs>(
+        nargs: usize,
+        names: &[&str],
+        receiver: bool,
+        vm: &VirtualMachine,
+    ) -> String {
+        let args = FuncArgs::new(
+            vec![vm.ctx.none(); nargs],
+            names
+                .iter()
+                .map(|&name| (name, vm.ctx.none()))
+                .collect::<KwArgs>(),
+        );
+        let callee = Callee::named("example").with_instance_arg(receiver);
+        match args.bind_for::<T>(vm, callee) {
+            Err(error) => error.args().as_slice()[0].try_to_value(vm).unwrap(),
+            Ok(_) => panic!("binding unexpectedly succeeded"),
+        }
+    }
+
+    #[test]
+    fn clinic_checks_shape_before_converting_and_missing_before_duplicates() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(
+                binding_error::<ClinicNamed>(1, &["first"], false, vm),
+                "example() missing required argument 'second' (pos 2)",
+            );
+            assert_eq!(
+                binding_error::<ClinicNamed>(2, &["unknown"], false, vm),
+                "example() got an unexpected keyword argument 'unknown'",
+            );
+            assert_eq!(
+                binding_error::<ClinicNamed>(3, &[], false, vm),
+                "example() takes exactly 2 positional arguments (3 given)",
+            );
+            assert_eq!(
+                binding_error::<ClinicNamed>(2, &["optional", "unknown"], false, vm),
+                "example() takes at most 3 arguments (4 given)",
+            );
+            assert_eq!(
+                binding_error::<ClinicNamed>(
+                    0,
+                    &["first", "second", "optional", "unknown"],
+                    false,
+                    vm
+                ),
+                "example() takes at most 3 keyword arguments (4 given)",
+            );
+        });
+    }
+
+    #[test]
+    fn clinic_tuple_and_flatten_validation_skip_the_receiver() {
+        const { assert!(<(PyObjectRef, ClinicNamed)>::PARAMS.is_none()) };
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(
+                binding_error::<(PyObjectRef, ClinicNamed)>(2, &["first"], true, vm),
+                "example() missing required argument 'second' (pos 2)",
+            );
+            assert_eq!(
+                binding_error::<FlattenedClinic>(3, &["first"], true, vm),
+                "argument for example() given by name ('first') and position (1)",
+            );
+        });
+    }
+
+    #[test]
+    fn clinic_variadic_arguments_keep_named_validation() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(
+                binding_error::<VariadicNamed>(5, &[], false, vm),
+                "example() missing required argument 'required' (pos 1)",
+            );
+            assert_eq!(
+                binding_error::<ExtraKeywords>(1, &["first", "extra"], false, vm),
+                "argument for example() given by name ('first') and position (1)",
+            );
+        });
+    }
+
+    #[test]
+    fn clinic_validation_preserves_successful_keyword_bindings() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let args = FuncArgs::new(
+                vec![vm.ctx.none()],
+                [("first", 1), ("second", 2), ("optional", 3)]
+                    .into_iter()
+                    .map(|(name, value)| (name, vm.ctx.new_int(value).into()))
+                    .collect::<KwArgs>(),
+            );
+            let bound = args
+                .bind_for::<FlattenedClinic>(vm, Callee::named("example").with_instance_arg(true))
+                .unwrap_or_else(|_| panic!("known keywords should bind"));
+            assert_eq!(
+                (
+                    bound.args.1.first,
+                    bound.args.1.second,
+                    bound.args.1.optional
+                ),
+                (1, 2, 3),
+            );
+
+            let args = FuncArgs::new(
+                vec![vm.ctx.new_int(42).into()],
+                core::iter::once(("extra", vm.ctx.none())).collect::<KwArgs>(),
+            );
+            let bound = args
+                .bind_for::<ExtraKeywords>(vm, "example")
+                .unwrap_or_else(|_| panic!("extra keywords should be retained"));
+            assert_eq!(bound.first, 42);
+            assert!(bound.rest.contains_key("extra"));
+        });
+    }
+
+    #[test]
+    fn legacy_binding_remains_opaque_and_converts_first() {
+        const { assert!(LegacyNamed::BINDING_PARAMS.is_none()) };
+        const { assert!(<(PyObjectRef, LegacyNamed)>::BINDING_PARAMS.is_none()) };
+        assert!(BindingShape::from_params(Some(&[super::Param::flatten(None)]), 0).is_none());
+        assert!(BindingShape::from_params(<(PosArgs, i32)>::BINDING_PARAMS, 0).is_none());
+        assert!(BindingShape::from_params(<(KwArgs, ClinicNamed)>::BINDING_PARAMS, 0).is_none());
+        assert!(BindingShape::from_params(<(ClinicNamed, i32)>::BINDING_PARAMS, 0).is_none());
+        assert!(BindingShape::from_params(<(ClinicNamed, PosArgs)>::BINDING_PARAMS, 0).is_none());
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let message = binding_error::<(LegacyNamed,)>(1, &[], false, vm);
+            assert!(message.contains("NoneType"), "{message}");
+            assert!(!message.contains("missing required"), "{message}");
+        });
+    }
+
+    #[test]
+    fn manual_signatures_do_not_opt_in_to_clinic_validation() {
+        const { assert!(DisplayOnly::BINDING_PARAMS.is_none()) };
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let bound = FuncArgs::default()
+                .bind_for::<DisplayOnly>(vm, "example")
+                .unwrap_or_else(|_| panic!("a display signature must not require arguments"));
+            assert!(bound.0.args.is_empty());
+        });
     }
 
     fn missing<T: FromArgs>(nargs: usize, skip: usize) -> Result<(), Option<ArgumentError>> {

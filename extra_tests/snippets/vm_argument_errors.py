@@ -287,6 +287,43 @@ def test_required_keyword_only_is_reported_before_conversion():
     )
 
 
+def test_clinic_checks_all_arguments_before_conversion():
+    class FailingFloat:
+        def __float__(self):
+            raise RuntimeError
+
+    check(
+        TypeError,
+        "isclose() missing required argument 'b' (pos 2)",
+        math.isclose,
+        FailingFloat(),
+        a=1,
+    )
+    check(
+        TypeError,
+        "isclose() got an unexpected keyword argument 'unexpected'",
+        math.isclose,
+        FailingFloat(),
+        1,
+        unexpected=1,
+    )
+    check(
+        TypeError,
+        "compress() takes at most 2 arguments (3 given)",
+        itertools.compress,
+        TestFailingIter(),
+        [],
+        unexpected=1,
+    )
+    check(
+        TypeError,
+        "sort() got an unexpected keyword argument 'unexpected'",
+        [].sort,
+        reverse=FailingBool(),
+        unexpected=1,
+    )
+
+
 def test_legacy_parsers_convert_before_a_missing_argument():
     def f():
         pass
@@ -352,4 +389,5 @@ test_bad_argument_type()
 test_too_many_arguments_are_counted_before_any_is_converted()
 test_a_missing_argument_is_reported_before_any_is_converted()
 test_required_keyword_only_is_reported_before_conversion()
+test_clinic_checks_all_arguments_before_conversion()
 test_legacy_parsers_convert_before_a_missing_argument()

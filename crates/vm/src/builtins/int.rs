@@ -296,6 +296,11 @@ impl Constructor for PyInt {
             return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()"));
         }
 
+        // Preserve the keyword-free long_vectorcall arity diagnostic.
+        if args.kwargs.is_empty() && args.args.len() > 2 {
+            return Err(vm.new_arity_type_error(Self::NAME, 0..=2, args.args.len()));
+        }
+
         // Optimization: return exact int as-is (only for exact int type, not subclasses)
         if cls.is(vm.ctx.types.int_type)
             && args.args.len() == 1

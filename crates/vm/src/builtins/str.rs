@@ -421,20 +421,9 @@ impl Constructor for PyStr {
     type Args = StrArgs;
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // A call with keyword arguments is parsed by unicode_new, which counts
-        // every argument.
-        if !func_args.kwargs.is_empty() {
-            let total = func_args.args.len() + func_args.kwargs.len();
-            if total > 3 {
-                let keyword = if func_args.args.is_empty() {
-                    "keyword "
-                } else {
-                    ""
-                };
-                return Err(vm.new_type_error(format!(
-                    "str() takes at most 3 {keyword}arguments ({total} given)"
-                )));
-            }
+        // Preserve the keyword-free str_vectorcall arity diagnostic.
+        if func_args.kwargs.is_empty() && func_args.args.len() > 3 {
+            return Err(vm.new_arity_type_error(Self::NAME, 0..=3, func_args.args.len()));
         }
 
         // Optimization: return exact str as-is (only when no encoding/errors provided)
