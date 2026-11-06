@@ -90,6 +90,15 @@ pub struct InitArgs {
 impl Initializer for PySuper {
     type Args = InitArgs;
 
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf = zelf.try_to_ref::<Self>(vm)?;
+        // Reject keywords before either positional arity or type conversion.
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("super() takes no keyword arguments"));
+        }
+        Self::init(zelf, args.bind_for(vm, "super")?, vm)
+    }
+
     fn init(
         zelf: &Py<Self>,
         Self::Args { py_type, object }: Self::Args,
@@ -171,15 +180,13 @@ fn super_init_without_args(vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyObject
             typ = Some(class.downcast().map_err(|o| {
                 vm.new_runtime_error(format!(
                     "super(): __class__ is not a type ({})",
-                    o.class().name()
+                    o.class().slot_name()
                 ))
             })?);
             break;
         }
     }
-    let typ = typ.ok_or_else(|| {
-        vm.new_type_error("super must be called with 1 argument or from inside class method")
-    })?;
+    let typ = typ.ok_or_else(|| vm.new_runtime_error("super(): __class__ cell not found"))?;
 
     Ok((typ, obj))
 }
@@ -206,37 +213,39 @@ impl GetAttr for PySuper {
             return skip(zelf, name);
         }
 
-        if let Some(name) = vm.ctx.interned_str(name) {
-            // Walk start_type's MRO by reference (no Vec allocation, no
-            // per-class clone) up to and including zelf.typ, then look for
-            // the first class past it that declares `name` directly.
-            // Both locks are dropped before any arbitrary Python code
-            // (the descriptor call below) runs, so they can't be held
-            // across a call that might re-enter and want them again.
-            let Some(su_type) = zelf.typ.load_owned() else {
-                return skip(zelf, name);
-            };
-            let descr = {
-                let mro = start_type.mro.read();
-                mro.iter()
-                    .skip_while(|cls| !cls.is(&su_type))
-                    .skip(1) // skip su->type (if any)
-                    .find_map(|cls| cls.get_direct_attr(name))
-            };
-            if let Some(descr) = descr {
-                return vm
-                    .call_get_descriptor_specific(
-                        &descr,
-                        // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
-                        if obj.is(&start_type) {
-                            None
-                        } else {
-                            Some(&obj)
-                        },
-                        Some(start_type.as_object()),
-                    )
-                    .unwrap_or(Ok(descr));
+        let Some(su_type) = zelf.typ.load_owned() else {
+            return skip(zelf, name);
+        };
+        let descr = {
+            // Dictionary key callbacks can replace the MRO. Keep its original
+            // members alive without holding the MRO lock while callbacks run.
+            let mro = start_type.mro.read().clone();
+            let mut descr = None;
+            for cls in mro.iter().skip_while(|cls| !cls.is(&su_type)).skip(1) {
+                // Keep the original query object so str-subclass hash/equality
+                // overrides run, and fresh names reach live class dictionaries.
+                // Raw lookup must propagate failures rather than try super's
+                // own attributes or a dictionary subclass's __missing__.
+                descr = cls.attributes.get_item_opt(name.as_object(), vm)?;
+                if descr.is_some() {
+                    break;
+                }
             }
+            descr
+        };
+        if let Some(descr) = descr {
+            return vm
+                .call_get_descriptor_specific(
+                    &descr,
+                    // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
+                    if obj.is(&start_type) {
+                        None
+                    } else {
+                        Some(&obj)
+                    },
+                    Some(start_type.as_object()),
+                )
+                .unwrap_or(Ok(descr));
         }
         skip(zelf, name)
     }
@@ -275,11 +284,15 @@ impl Representable for PySuper {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let type_name = match zelf.typ.load_owned() {
-            Some(ty) => ty.name().to_owned(),
+            Some(ty) => ty.slot_name().to_owned(),
             None => "NULL".to_owned(),
         };
         let repr = match zelf.obj_type.load_owned() {
-            Some(ty) => format!("<super: <class '{}'>, <{} object>>", type_name, ty.name()),
+            Some(ty) => format!(
+                "<super: <class '{}'>, <{} object>>",
+                type_name,
+                ty.slot_name()
+            ),
             None => format!("<super: <class '{type_name}'>, NULL>"),
         };
         Ok(repr)
@@ -297,8 +310,8 @@ fn super_check(ty: &Py<PyType>, obj: &PyObject, vm: &VirtualMachine) -> PyResult
         return Ok(obj.class().to_owned());
     }
 
-    let class_attr = obj.get_attr("__class__", vm)?;
-    if let Ok(cls) = class_attr.downcast::<PyType>()
+    if let Some(class_attr) = vm.get_attribute_opt(obj, identifier!(vm, __class__))?
+        && let Ok(cls) = class_attr.downcast::<PyType>()
         && !cls.is(obj.class())
         && cls.fast_issubclass(ty)
     {
@@ -306,16 +319,20 @@ fn super_check(ty: &Py<PyType>, obj: &PyObject, vm: &VirtualMachine) -> PyResult
     }
 
     let (type_or_instance, obj_str) = match typ {
-        Some(t) => ("type", t.name().to_owned()),
-        None => ("instance of", obj.class().name().to_owned()),
+        Some(t) => ("type", t.slot_name().to_owned()),
+        None => ("instance of", obj.class().slot_name().to_owned()),
     };
 
-    Err(vm.new_type_error(format!(
-        "super(type, obj): obj ({} {}) is not an instance or subtype of type ({}).",
-        type_or_instance,
-        obj_str,
-        ty.name(),
-    )))
+    let message = {
+        let type_name = ty.slot_name();
+        format!(
+            "super(type, obj): obj ({} {}) is not an instance or subtype of type ({}).",
+            type_or_instance,
+            &obj_str[..obj_str.floor_char_boundary(200)],
+            &type_name[..type_name.floor_char_boundary(200)],
+        )
+    };
+    Err(vm.new_type_error(message))
 }
 
 pub(crate) fn init(context: &'static Context) {

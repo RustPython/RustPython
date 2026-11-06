@@ -1,7 +1,6 @@
 use super::{
-    IterStatus, PositionIterInternal, PyBaseExceptionRef, PyFrozenSet, PyGenericAlias,
-    PyMappingProxy, PySet, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set,
-    set::PySetInner,
+    PyBaseExceptionRef, PyFrozenSet, PyGenericAlias, PyMappingProxy, PySet, PyStr, PyStrRef,
+    PyTupleRef, PyType, PyTypeRef, set, set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
@@ -1254,7 +1253,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<(PyObjectRef, Option<u16>)>> {
         if self.exact_dict(vm) {
-            if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
+            if let Some(value) = self.entries.get_hint(key, usize::from(hint)) {
                 return Ok(Some((value, None)));
             }
             let hash = PyDict::hash_or_unhashable(key, vm)?;
@@ -1825,6 +1824,176 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     fn __reversed__(zelf: &Py<Self>) -> Self::ReverseIter;
 }
 
+#[derive(Debug, Clone)]
+struct DictIterState {
+    dict: Option<PyRef<PyAnyDict>>,
+    size: dict_inner::DictSize,
+    position: usize,
+    remaining: usize,
+    changed: bool,
+    reversed: bool,
+}
+
+// SAFETY: the optional dictionary is the sole owned Python reference and is
+// visited once. The remaining fields contain only scalar iterator state.
+unsafe impl Traverse for DictIterState {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.dict.traverse(tracer_fn)
+    }
+}
+
+enum DictIterError {
+    SizeChanged,
+    KeysChanged,
+}
+
+type DictIterStep<T> = (Result<Option<T>, DictIterError>, Option<PyRef<PyAnyDict>>);
+
+impl DictIterState {
+    fn new(dict: PyRef<PyAnyDict>, reversed: bool) -> Self {
+        let size = dict.size();
+        // usize::MAX represents the position before the first reverse entry.
+        let position = if reversed {
+            size.entries_size.wrapping_sub(1)
+        } else {
+            0
+        };
+        Self {
+            dict: Some(dict),
+            position,
+            remaining: size.used,
+            size,
+            changed: false,
+            reversed,
+        }
+    }
+
+    fn length_hint(&self) -> usize {
+        match &self.dict {
+            Some(dict)
+                if !self.changed && dict.size().has_same_used_and_relocations(&self.size) =>
+            {
+                self.remaining
+            }
+            _ => 0,
+        }
+    }
+
+    // Only clone the projected references while the table and iterator are
+    // locked. Allocation and the final release of the dictionary happen later.
+    fn step<T>(&mut self, project: impl FnOnce(&PyObject, &PyObjectRef) -> T) -> DictIterStep<T> {
+        let Some(dict) = &self.dict else {
+            return (Ok(None), None);
+        };
+        if self.changed {
+            return (Err(DictIterError::SizeChanged), None);
+        }
+        let remaining = self.remaining;
+        let project =
+            |key: &PyObject, value: &PyObjectRef| (remaining != 0).then(|| project(key, value));
+        let entries = &dict.as_dict().entries;
+        let entry = if self.reversed {
+            entries.prev_entry_checked(self.position, &self.size, project)
+        } else {
+            entries.next_dict_entry_checked(self.position, &self.size, project)
+        };
+        match entry {
+            Err(dict_inner::DictChanged) => {
+                // Size failure is sticky and retains the dictionary owner.
+                self.changed = true;
+                (Err(DictIterError::SizeChanged), None)
+            }
+            Ok(Some((_, None))) => {
+                // Excess keys exhaust the iterator rather than latching a
+                // size failure. Its detached dictionary must be dropped unlocked.
+                (Err(DictIterError::KeysChanged), self.dict.take())
+            }
+            Ok(Some((position, Some(item)))) => {
+                self.position = if self.reversed {
+                    position.wrapping_sub(1)
+                } else {
+                    position
+                };
+                self.remaining -= 1;
+                (Ok(Some(item)), None)
+            }
+            Ok(None) => (Ok(None), self.dict.take()),
+        }
+    }
+}
+
+fn finish_dict_iter_step<T>(step: DictIterStep<T>, vm: &VirtualMachine) -> PyResult<Option<T>> {
+    let (result, released) = step;
+    let result = result.map_err(|error| {
+        let message = match error {
+            DictIterError::SizeChanged => "dictionary changed size during iteration",
+            DictIterError::KeysChanged => "dictionary keys changed during iteration",
+        };
+        vm.new_runtime_error(message)
+    });
+    drop(released);
+    result
+}
+
+macro_rules! dict_iterator {
+    ($name:ident, $class:ident, $class_name:literal, $reversed:literal, $project:expr, $result:expr) => {
+        #[pyclass(module = false, name = $class_name, traverse)]
+        #[derive(Debug)]
+        pub(crate) struct $name {
+            internal: PyMutex<DictIterState>,
+        }
+
+        impl PyPayload for $name {
+            #[inline]
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$class
+            }
+        }
+
+        impl $name {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
+                Self {
+                    internal: PyMutex::new(DictIterState::new(dict, $reversed)),
+                }
+            }
+        }
+
+        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
+        impl Py<$name> {
+            #[pymethod]
+            fn __length_hint__(&self) -> usize {
+                self.internal.lock().length_hint()
+            }
+
+            #[pymethod]
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                // Walk a copy through the same checks as next(), without
+                // advancing or invalidating the original iterator on failure.
+                let mut state = self.internal.lock().clone();
+                let mut entries = Vec::new();
+                while let Some(item) = finish_dict_iter_step(state.step($project), vm)? {
+                    entries.push(($result)(vm, item));
+                }
+                let list = vm.ctx.new_list(entries);
+                let iter = builtins_iter(vm)?;
+                Ok(vm.new_tuple((iter, (list,))))
+            }
+        }
+
+        impl SelfIter for $name {}
+
+        impl IterNext for $name {
+            fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+                let step = zelf.internal.lock().step($project);
+                match finish_dict_iter_step(step, vm)? {
+                    Some(item) => Ok(PyIterReturn::Return(($result)(vm, item))),
+                    None => Ok(PyIterReturn::StopIteration(None)),
+                }
+            }
+        }
+    };
+}
+
 macro_rules! dict_view {
     (
         $name: ident,
@@ -1905,232 +2074,13 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(module = false, name = $iter_class_name, traverse)]
-        #[derive(Debug)]
-        pub(crate) struct $iter_name {
-            #[pytraverse(skip)]
-            pub(crate) size: dict_inner::DictSize,
-            /// Whether the dict was found to have changed, which
-            /// `dictiter_iternextkey()` records by writing a size no dict can
-            /// have. Sticky: what it makes the iterator answer, it answers
-            /// from then on.
-            #[pytraverse(skip)]
-            changed: PyAtomic<bool>,
-            pub(crate) internal: PyMutex<PositionIterInternal<PyRef<PyAnyDict>>>,
+        dict_iterator! {
+            $iter_name, $iter_class, $iter_class_name, false, $project_fn, $result_fn
         }
 
-        impl PyPayload for $iter_name {
-            #[inline]
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$iter_class
-            }
-        }
-
-        impl $iter_name {
-            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
-                $iter_name {
-                    size: dict.size(),
-                    changed: Radium::new(false),
-                    internal: PyMutex::new(PositionIterInternal::new(dict, 0)),
-                }
-            }
-        }
-
-        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-        impl Py<$iter_name> {
-            #[pymethod]
-            fn __length_hint__(&self) -> usize {
-                // `dictiter_len()` answers for a dict it can no longer walk
-                // with nothing, comparing the size it captured against the
-                // dict's own every time it is asked.
-                if self.changed.load(Ordering::Relaxed) {
-                    return 0;
-                }
-                self.internal.lock().length_hint(|dict| {
-                    if dict.size() == self.size {
-                        self.size.entries_size
-                    } else {
-                        0
-                    }
-                })
-            }
-
-            #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-                let iter = builtins_iter(vm)?;
-                let internal = self.internal.lock();
-                let entries = match &internal.status {
-                    IterStatus::Active(dict) => {
-                        let mut position = internal.position;
-                        let mut entries = Vec::new();
-                        while let Some((next_position, key, value)) =
-                            dict.as_dict().entries.next_entry(position)
-                        {
-                            entries.push(($result_fn)(vm, ($project_fn)(&key, &value)));
-                            position = next_position;
-                        }
-                        entries
-                    }
-                    IterStatus::Exhausted => vec![],
-                };
-                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
-            }
-        }
-
-        impl SelfIter for $iter_name {}
-
-        impl IterNext for $iter_name {
-            fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                locked_step(&zelf.internal, |internal| {
-                    let IterStatus::Active(dict) = &internal.status else {
-                        return (Ok(PyIterReturn::StopIteration(None)), None);
-                    };
-                    let mutated =
-                        || vm.new_runtime_error("dictionary changed size during iteration");
-                    if zelf.changed.load(Ordering::Relaxed) {
-                        // The dict is not looked at again once it has been
-                        // found to change: an iterator that has raised keeps
-                        // raising.
-                        return (Err(mutated()), None);
-                    }
-                    let entry = dict.as_dict().entries.next_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        $project_fn,
-                    );
-                    match entry {
-                        Err(dict_inner::DictChanged) => {
-                            zelf.changed.store(true, Ordering::Relaxed);
-                            (Err(mutated()), None)
-                        }
-                        Ok(Some((position, item))) => {
-                            internal.position = position;
-                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
-                        }
-                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                    }
-                })
-            }
-        }
-
-        #[pyclass(module = false, name = $reverse_iter_class_name, traverse)]
-        #[derive(Debug)]
-        pub(crate) struct $reverse_iter_name {
-            #[pytraverse(skip)]
-            pub(crate) size: dict_inner::DictSize,
-            /// As in `$iter_name`.
-            #[pytraverse(skip)]
-            changed: PyAtomic<bool>,
-            #[pytraverse(skip)]
-            remaining: PyAtomic<usize>,
-            internal: PyMutex<PositionIterInternal<PyRef<PyAnyDict>>>,
-        }
-
-        impl PyPayload for $reverse_iter_name {
-            #[inline]
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$reverse_iter_class
-            }
-        }
-
-        impl $reverse_iter_name {
-            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
-                let size = dict.size();
-                // usize::MAX represents the position before the first entry.
-                let position = size.entries_size.wrapping_sub(1);
-                $reverse_iter_name {
-                    remaining: Radium::new(size.used),
-                    size,
-                    changed: Radium::new(false),
-                    internal: PyMutex::new(PositionIterInternal::new(dict, position)),
-                }
-            }
-        }
-
-        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-        impl Py<$reverse_iter_name> {
-            #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-                let iter = builtins_iter(vm)?;
-                let internal = self.internal.lock();
-                let entries = match &internal.status {
-                    IterStatus::Active(dict) => {
-                        let mut position = internal.position;
-                        let mut entries = Vec::new();
-                        while let Some((found_index, key, value)) =
-                            dict.as_dict().entries.prev_entry(position)
-                        {
-                            entries.push(($result_fn)(vm, ($project_fn)(&key, &value)));
-                            if found_index == 0 {
-                                break;
-                            }
-                            position = found_index - 1;
-                        }
-                        entries
-                    }
-                    IterStatus::Exhausted => vec![],
-                };
-                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
-            }
-
-            #[pymethod]
-            fn __length_hint__(&self) -> usize {
-                // As in `$iter_name`.
-                if self.changed.load(Ordering::Relaxed) {
-                    return 0;
-                }
-                let internal = self.internal.lock();
-                match &internal.status {
-                    IterStatus::Active(dict)
-                        if dict.size().has_same_used_and_relocations(&self.size) =>
-                    {
-                        self.remaining.load(Ordering::Relaxed)
-                    }
-                    _ => 0,
-                }
-            }
-        }
-
-        impl SelfIter for $reverse_iter_name {}
-
-        impl IterNext for $reverse_iter_name {
-            fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                locked_step(&zelf.internal, |internal| {
-                    let IterStatus::Active(dict) = &internal.status else {
-                        return (Ok(PyIterReturn::StopIteration(None)), None);
-                    };
-                    let mutated =
-                        || vm.new_runtime_error("dictionary changed size during iteration");
-                    if zelf.changed.load(Ordering::Relaxed) {
-                        // The dict is not looked at again once it has been
-                        // found to change: an iterator that has raised keeps
-                        // raising.
-                        return (Err(mutated()), None);
-                    }
-                    let remaining = zelf.remaining.load(Ordering::Relaxed);
-                    let entry = dict.as_dict().entries.prev_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        |key, value| (remaining != 0).then(|| ($project_fn)(key, value)),
-                    );
-                    match entry {
-                        Err(dict_inner::DictChanged) => {
-                            zelf.changed.store(true, Ordering::Relaxed);
-                            (Err(mutated()), None)
-                        }
-                        Ok(Some((_, None))) => (
-                            Err(vm.new_runtime_error("dictionary keys changed during iteration")),
-                            internal.exhaust(),
-                        ),
-                        Ok(Some((found_index, Some(item)))) => {
-                            zelf.remaining.store(remaining - 1, Ordering::Relaxed);
-                            internal.position = found_index.wrapping_sub(1);
-                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
-                        }
-                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                    }
-                })
-            }
+        dict_iterator! {
+            $reverse_iter_name, $reverse_iter_class, $reverse_iter_class_name,
+            true, $project_fn, $result_fn
         }
     };
 }

@@ -515,6 +515,35 @@ impl TypeNamespace {
         }
     }
 
+    /// Return the live dictionary, or materialize a native namespace snapshot.
+    pub(crate) fn to_dict(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        if let Some(dict) = self.as_dict() {
+            // Views, iterators, and callbacks must use the actual namespace.
+            return Ok(dict.to_owned());
+        }
+        // Native namespaces without a backing Python dictionary still need a
+        // snapshot, but must not bypass dict key callbacks.
+        Ok(PyDict::from_attributes(self.attributes(&vm.ctx), vm)?.into_ref(&vm.ctx))
+    }
+
+    /// Look up the original key without suppressing hash or equality errors.
+    pub(crate) fn get_item_opt(
+        &self,
+        key: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if matches!(self, Self::Attributes(_))
+            && let Some(name) = key.downcast_ref_if_exact::<PyStr>(vm)
+        {
+            // Native map keys are exact interned strings, so this combination
+            // cannot invoke Python callbacks and does not need a dict snapshot.
+            return Ok(vm.ctx.interned_str(name).and_then(|name| self.get(name)));
+        }
+        // Heap dictionaries can contain arbitrary keys and non-interned names.
+        // Preserve the original object even when it has a string payload.
+        self.to_dict(vm)?.inner_getitem_opt(key, vm)
+    }
+
     /// Build a dict-backed namespace holding `attrs`, or fall back to an
     /// interned-key map when no VM is running to hash the keys with.
     fn new(attrs: PyAttributes, ctx: &Context) -> Self {
