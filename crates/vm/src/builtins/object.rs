@@ -253,9 +253,9 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
                     })?;
                     if let Some(value) = vm.get_attribute_opt(obj, &name)? {
                         // Keep the original key and both owners through insertion.
-                        let inserted = slots.set_item(name.as_object(), value.clone(), vm);
+                        let (_value, name) = (value.clone(), name);
+                        let inserted = slots.set_item(name.as_object(), value, vm);
                         drop(name);
-                        drop(value);
                         inserted?;
                     } else {
                         drop(name);
@@ -273,7 +273,6 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
             if let Err(exc) = outcome {
                 drop(slot_names);
                 drop(slots);
-                drop(state);
                 return Err(exc);
             }
 
@@ -650,8 +649,6 @@ fn get_new_arguments(
                     "first item of the tuple returned by __getnewargs_ex__ must be a tuple, not '{}'",
                     args.class().name()
                 ));
-                drop(args);
-                drop(kwargs);
                 return Err(exc);
             }
         };
@@ -664,7 +661,6 @@ fn get_new_arguments(
                     kwargs.class().name()
                 ));
                 drop(args_tuple);
-                drop(kwargs);
                 return Err(exc);
             }
         };
@@ -718,7 +714,6 @@ fn object_getstate(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyRes
     } else {
         getstate.call((), vm)
     };
-    drop(getstate);
     state
 }
 
@@ -753,7 +748,6 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
         Ok(copyreg) => copyreg,
         Err(exc) => {
             drop(args);
-            drop(kwargs);
             return Err(exc);
         }
     };
@@ -774,8 +768,6 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
             let newobj = match newobj {
                 Ok(newobj) => newobj,
                 Err(exc) => {
-                    drop(args);
-                    drop(kwargs);
                     return Err(exc);
                 }
             };
@@ -794,7 +786,6 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
             let newobj = match newobj {
                 Ok(newobj) => newobj,
                 Err(exc) => {
-                    drop(args);
                     return Err(exc);
                 }
             };
@@ -819,7 +810,6 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
         Ok(state) => state,
         Err(exc) => {
             drop(newobj);
-            drop(newargs);
             return Err(exc);
         }
     };
@@ -829,7 +819,6 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
         Err(exc) => {
             drop(newobj);
             drop(newargs);
-            drop(state);
             return Err(exc);
         }
     };
