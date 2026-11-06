@@ -514,7 +514,7 @@ fn isolated_main(mainfile: &str, vm: &VirtualMachine) -> PyResult {
     let namespace = run_path.call((mainfile, vm.ctx.none(), "<fake __main__>"), vm)?;
     loaded.dict().merge_object(namespace, vm)?;
     // The native module owns this cache so normal module teardown releases it.
-    state.setdefault(vm.ctx.new_str("_cached_main").into(), loaded.into(), vm)
+    state.setdefault_value(vm.ctx.new_str("_cached_main").into(), loaded.into(), vm)
 }
 
 fn not_shareable_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {

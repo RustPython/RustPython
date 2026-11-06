@@ -531,8 +531,8 @@ mod math {
         pymath::math::ulp(x.into_float())
     }
 
-    #[pyfunction(name = "fmod")]
-    fn py_fmod(x: ArgIntoFloat, y: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    #[pyfunction]
+    fn fmod(x: ArgIntoFloat, y: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         pymath::math::fmod(x.into_float(), y.into_float()).map_err(|err| pymath_exception(err, vm))
     }
 

@@ -617,8 +617,8 @@ mod _multibytecodec {
     // `__create_codec`, which turns the capsule `getcodec` hands it into a
     // codec object. Nothing here carries a codec in a capsule, so the argument
     // check rejects everything a caller can pass.
-    #[pyfunction(name = "__create_codec")]
-    fn create_codec(_arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pyfunction]
+    fn __create_codec(_arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_value_error("argument type invalid"))
     }
 
@@ -679,8 +679,8 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: PyObjectRef,
         // Any object is accepted by truthiness.
-        #[pyarg(any, name = "final", default = false)]
-        final_input: PyObjectRef,
+        #[pyarg(any, default = false)]
+        r#final: PyObjectRef,
     }
 
     #[derive(FromArgs)]
@@ -688,8 +688,8 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: ArgBytesLike,
         // Any object is accepted by truthiness.
-        #[pyarg(any, name = "final", default = false)]
-        final_input: PyObjectRef,
+        #[pyarg(any, default = false)]
+        r#final: PyObjectRef,
     }
 
     /// The `bool(accept={int})` conversion the `final` arguments share, which
@@ -753,7 +753,7 @@ mod _multibytecodec {
             args: IncrementalEncodeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let final_input = final_arg(args.final_input, vm)?;
+            let final_input = final_arg(args.r#final, vm)?;
             // Driven on a detached copy: an error handler can re-enter this object.
             let mut local = zelf.inner.lock().clone();
             let result = zelf
@@ -884,7 +884,7 @@ mod _multibytecodec {
             args: IncrementalDecodeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyStrRef> {
-            let final_input = final_arg(args.final_input, vm)?;
+            let final_input = final_arg(args.r#final, vm)?;
             // Driven on a detached copy: an error handler can re-enter this object.
             let mut local = zelf.inner.lock().clone();
             let original_pending = core::mem::take(&mut local.pending);

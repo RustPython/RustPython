@@ -62,8 +62,8 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct AddDoneCallbackArgs {
-        #[pyarg(positional, name = "fn")]
-        func: PyObjectRef,
+        #[pyarg(positional)]
+        r#fn: PyObjectRef,
         #[pyarg(named, optional)]
         context: Option<PyObjectRef>,
     }
@@ -76,8 +76,8 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct LoopArg {
-        #[pyarg(any, name = "loop", optional)]
-        loop_: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        r#loop: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -146,15 +146,15 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct FutureInitArgs {
-        #[pyarg(named, name = "loop", optional)]
-        loop_: Option<PyObjectRef>,
+        #[pyarg(named, optional)]
+        r#loop: Option<PyObjectRef>,
     }
 
     impl Initializer for PyFuture {
         type Args = FutureInitArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::py_init(zelf, args.loop_, vm)
+            Self::py_init(zelf, args.r#loop, vm)
         }
     }
 
@@ -369,16 +369,16 @@ pub(crate) mod _asyncio {
             };
 
             if self.fut_state.load() != FutureState::Pending {
-                self.call_soon_with_context(owner, args.func, Some(ctx), vm)?;
+                self.call_soon_with_context(owner, args.r#fn, Some(ctx), vm)?;
             } else {
                 let callbacks = self.fut_callbacks.read().clone();
                 // Once a list exists, append to it even if callback0 was removed.
                 // Refilling callback0 would move the new callback ahead of the list.
                 if callbacks.is_none() && self.fut_callback0.read().is_none() {
-                    *self.fut_callback0.write() = Some(args.func);
+                    *self.fut_callback0.write() = Some(args.r#fn);
                     *self.fut_context0.write() = Some(ctx);
                 } else {
-                    let tuple = vm.ctx.new_tuple(vec![args.func, ctx]);
+                    let tuple = vm.ctx.new_tuple(vec![args.r#fn, ctx]);
                     if let Some(callbacks) = callbacks {
                         callbacks
                             .downcast_ref::<PyList>()
@@ -397,7 +397,7 @@ pub(crate) mod _asyncio {
         #[pymethod]
         fn remove_done_callback(
             zelf: &Py<Self>,
-            RemoveDoneCallbackArgs { func }: RemoveDoneCallbackArgs,
+            RemoveDoneCallbackArgs { r#fn: func }: RemoveDoneCallbackArgs,
             vm: &VirtualMachine,
         ) -> PyResult<isize> {
             zelf.remove_done_callback_impl(&func, vm)
@@ -1184,8 +1184,8 @@ pub(crate) mod _asyncio {
     struct TaskInitArgs {
         #[pyarg(any)]
         coro: PyObjectRef,
-        #[pyarg(named, name = "loop", optional)]
-        loop_: Option<PyObjectRef>,
+        #[pyarg(named, optional)]
+        r#loop: Option<PyObjectRef>,
         #[pyarg(named, optional)]
         name: Option<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -1244,7 +1244,7 @@ pub(crate) mod _asyncio {
             }
 
             // Get the event loop
-            let loop_obj = match args.loop_ {
+            let loop_obj = match args.r#loop {
                 Some(l) => l,
                 None => get_running_loop(vm)
                     .map_err(|_| vm.new_runtime_error("no current event loop"))?,
@@ -1428,7 +1428,7 @@ pub(crate) mod _asyncio {
         #[pymethod]
         fn remove_done_callback(
             zelf: &Py<Self>,
-            RemoveDoneCallbackArgs { func }: RemoveDoneCallbackArgs,
+            RemoveDoneCallbackArgs { r#fn: func }: RemoveDoneCallbackArgs,
             vm: &VirtualMachine,
         ) -> PyResult<isize> {
             zelf.base.remove_done_callback_impl(&func, vm)
@@ -1909,7 +1909,7 @@ pub(crate) mod _asyncio {
         // Swap current task - save previous task
         let prev_task = _swap_current_task(
             LoopTaskArgs {
-                loop_: loop_obj.clone(),
+                r#loop: loop_obj.clone(),
                 task: task_obj.clone(),
             },
             vm,
@@ -1938,7 +1938,7 @@ pub(crate) mod _asyncio {
                                     .store(false, Ordering::Relaxed);
                                 let _ = _swap_current_task(
                                     LoopTaskArgs {
-                                        loop_: loop_obj,
+                                        r#loop: loop_obj,
                                         task: prev_task,
                                     },
                                     vm,
@@ -1970,7 +1970,7 @@ pub(crate) mod _asyncio {
             None => {
                 let _ = _swap_current_task(
                     LoopTaskArgs {
-                        loop_: loop_obj,
+                        r#loop: loop_obj,
                         task: prev_task,
                     },
                     vm,
@@ -1983,7 +1983,7 @@ pub(crate) mod _asyncio {
         // Restore previous task
         let _ = _swap_current_task(
             LoopTaskArgs {
-                loop_: loop_obj,
+                r#loop: loop_obj,
                 task: prev_task,
             },
             vm,
@@ -2052,7 +2052,7 @@ pub(crate) mod _asyncio {
         // Enter task - register as current task
         _enter_task(
             LoopTaskArgs {
-                loop_: loop_obj.clone(),
+                r#loop: loop_obj.clone(),
                 task: task.to_owned(),
             },
             vm,
@@ -2097,7 +2097,7 @@ pub(crate) mod _asyncio {
         // Leave task - unregister as current task (must happen even on error)
         let _ = _leave_task(
             LoopTaskArgs {
-                loop_: loop_obj,
+                r#loop: loop_obj,
                 task: task.to_owned(),
             },
             vm,
@@ -2473,13 +2473,13 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct SetRunningLoopArgs {
-        #[pyarg(positional, name = "loop")]
-        loop_: Option<PyObjectRef>,
+        #[pyarg(positional)]
+        r#loop: Option<PyObjectRef>,
     }
 
     #[pyfunction]
     fn _set_running_loop(args: SetRunningLoopArgs, vm: &VirtualMachine) {
-        *vm.asyncio_running_loop.borrow_mut() = args.loop_;
+        *vm.asyncio_running_loop.borrow_mut() = args.r#loop;
     }
 
     #[pyfunction]
@@ -2509,7 +2509,7 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn current_task(args: LoopArg, vm: &VirtualMachine) -> PyResult {
-        let loop_obj = match args.loop_ {
+        let loop_obj = match args.r#loop {
             Some(l) if !vm.is_none(&l) => l,
             _ => {
                 // When loop is None or not provided, use the running loop
@@ -2552,7 +2552,7 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn all_tasks(args: LoopArg, vm: &VirtualMachine) -> PyResult {
-        let loop_obj = match args.loop_ {
+        let loop_obj = match args.r#loop {
             Some(l) if !vm.is_none(&l) => l,
             _ => get_running_loop(vm)?,
         };
@@ -2593,8 +2593,8 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct RemoveDoneCallbackArgs {
-        #[pyarg(positional, name = "fn")]
-        func: PyObjectRef,
+        #[pyarg(positional)]
+        r#fn: PyObjectRef,
     }
 
     #[derive(FromArgs)]
@@ -2605,8 +2605,8 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct LoopTaskArgs {
-        #[pyarg(any, name = "loop")]
-        loop_: PyObjectRef,
+        #[pyarg(any)]
+        r#loop: PyObjectRef,
         #[pyarg(any)]
         task: PyObjectRef,
     }
@@ -2643,7 +2643,10 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn _enter_task(
-        LoopTaskArgs { loop_, task }: LoopTaskArgs,
+        LoopTaskArgs {
+            r#loop: loop_,
+            task,
+        }: LoopTaskArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Per-thread check, matching CPython's ts->asyncio_running_task
@@ -2671,7 +2674,10 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn _leave_task(
-        LoopTaskArgs { loop_, task }: LoopTaskArgs,
+        LoopTaskArgs {
+            r#loop: loop_,
+            task,
+        }: LoopTaskArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Per-thread check, matching CPython's ts->asyncio_running_task
@@ -2699,7 +2705,10 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn _swap_current_task(
-        LoopTaskArgs { loop_, task }: LoopTaskArgs,
+        LoopTaskArgs {
+            r#loop: loop_,
+            task,
+        }: LoopTaskArgs,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         // Per-thread swap, matching CPython's swap_current_task

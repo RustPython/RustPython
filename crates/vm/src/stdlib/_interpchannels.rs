@@ -728,13 +728,13 @@ pub(crate) mod _interpchannels {
             }
         }
 
-        #[pygetset(name = "send")]
-        fn send_end(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn send(&self, vm: &VirtualMachine) -> PyResult {
             channel_id_from_parts(self.cid, ChannelEnd::Send.as_i32(), true, self.resolve, vm)
         }
 
-        #[pygetset(name = "recv")]
-        fn recv_end(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn recv(&self, vm: &VirtualMachine) -> PyResult {
             channel_id_from_parts(self.cid, ChannelEnd::Recv.as_i32(), true, self.resolve, vm)
         }
 

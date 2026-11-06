@@ -1367,13 +1367,13 @@ pub(super) mod sys_monitoring {
     #[pyclass]
     impl MonitoringSentinel {}
 
-    #[pyattr(name = "DEBUGGER_ID")]
+    #[pyattr]
     const DEBUGGER_ID: u8 = 0;
-    #[pyattr(name = "COVERAGE_ID")]
+    #[pyattr]
     const COVERAGE_ID: u8 = 1;
-    #[pyattr(name = "PROFILER_ID")]
+    #[pyattr]
     const PROFILER_ID: u8 = 2;
-    #[pyattr(name = "OPTIMIZER_ID")]
+    #[pyattr]
     const OPTIMIZER_ID: u8 = 5;
 
     #[pyattr(once, name = "DISABLE")]

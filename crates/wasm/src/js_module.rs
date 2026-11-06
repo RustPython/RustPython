@@ -581,8 +581,8 @@ mod _js {
             )
         }
 
-        #[pymethod(name = "__await__")]
-        fn r#await(zelf: PyRef<Self>) -> AwaitPromise {
+        #[pymethod]
+        fn __await__(zelf: PyRef<Self>) -> AwaitPromise {
             AwaitPromise {
                 obj: Some(zelf.into()).into(),
             }

@@ -105,8 +105,8 @@ mod _bz2 {
             result.map_err(|error| map_bz2_error(error, vm))
         }
 
-        #[pymethod(name = "__reduce__")]
-        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __reduce__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot pickle '_bz2.BZ2Decompressor' object"))
         }
     }
@@ -167,8 +167,8 @@ mod _bz2 {
             compressor.flush().map_err(|error| map_bz2_error(error, vm))
         }
 
-        #[pymethod(name = "__reduce__")]
-        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __reduce__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot pickle '_bz2.BZ2Compressor' object"))
         }
     }

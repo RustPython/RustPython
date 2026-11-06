@@ -1242,7 +1242,7 @@ mod _collections {
 
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
-                self.dict.setdefault(object, value, vm)
+                self.dict.setdefault_value(object, value, vm)
             } else {
                 Err(vm.new_key_error(object))
             }

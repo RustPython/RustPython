@@ -1,16 +1,16 @@
 #[pymodule]
 mod _sha512 {
-    use crate::hashlib::_hashlib::{HashArgs, local_sha384, local_sha512};
+    use crate::hashlib::_hashlib::{HashArgs, openssl_sha384, openssl_sha512};
     use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
     #[pyfunction]
     fn sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha384(args, vm)?.into_pyobject(vm))
+        Ok(openssl_sha384(args, vm)?.into_pyobject(vm))
     }
 
     #[pyfunction]
     fn sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(local_sha512(args, vm)?.into_pyobject(vm))
+        Ok(openssl_sha512(args, vm)?.into_pyobject(vm))
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]

@@ -1245,7 +1245,7 @@ mod _io {
 
             // Restore internal buffer if we borrowed it
             if let Some(wb) = write_buf {
-                mem_obj.release();
+                mem_obj.release_buffer();
                 self.buffer = wb.take();
             }
 
@@ -1541,7 +1541,7 @@ mod _io {
                         }
                     };
 
-                    mem_obj.release();
+                    mem_obj.release_buffer();
                     // Always restore the buffer, even if an error occurred
                     *v = read_buf.take();
 
@@ -1930,13 +1930,13 @@ mod _io {
         }
 
         // Payload helper. BufferedRWPair calls this on its embedded writer.
-        fn closed(&self, vm: &VirtualMachine) -> PyResult {
+        fn closed_impl(&self, vm: &VirtualMachine) -> PyResult {
             self.get_raw_unlocked(vm)?.get_attr("closed", vm)
         }
 
-        #[pygetset(name = "closed")]
-        fn py_closed(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.closed(vm)
+        #[pygetset]
+        fn closed(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.closed_impl(vm)
         }
 
         #[pygetset]
@@ -1956,14 +1956,14 @@ mod _io {
         }
 
         // Payload helper. BufferedRWPair calls this on its embedded reader and writer.
-        fn isatty(&self, vm: &VirtualMachine) -> PyResult {
+        fn isatty_impl(&self, vm: &VirtualMachine) -> PyResult {
             let data = self.lock(vm)?;
             vm.call_method(data.check_init(self.raw_cell(), vm)?, "isatty", ())
         }
 
-        #[pymethod(name = "isatty")]
-        fn py_isatty(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.isatty(vm)
+        #[pymethod]
+        fn isatty(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.isatty_impl(vm)
         }
 
         #[pyslot]
@@ -2311,7 +2311,7 @@ mod _io {
         }
 
         // Payload helper. BufferedRWPair calls this on its embedded writer.
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn flush_impl(&self, vm: &VirtualMachine) -> PyResult<()> {
             let mut data = self.writer().lock(vm)?;
             let raw_cell = self.writer().raw_cell();
             let raw = data.check_init(raw_cell, vm)?;
@@ -2319,9 +2319,9 @@ mod _io {
             data.flush_rewind(raw_cell, vm)
         }
 
-        #[pymethod(name = "flush")]
-        fn py_flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.flush(vm)
+        #[pymethod]
+        fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.flush_impl(vm)
         }
     }
 
@@ -2582,7 +2582,7 @@ mod _io {
     impl Py<BufferedRWPair> {
         #[pymethod]
         fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.write.flush(vm)
+            self.write.flush_impl(vm)
         }
 
         #[pymethod]
@@ -2596,17 +2596,17 @@ mod _io {
 
         #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
-            self.write.closed(vm)
+            self.write.closed_impl(vm)
         }
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
             // read.isatty() or write.isatty()
-            let res = self.read.isatty(vm)?;
+            let res = self.read.isatty_impl(vm)?;
             if res.try_to_bool(vm)? {
                 Ok(res)
             } else {
-                self.write.isatty(vm)
+                self.write.isatty_impl(vm)
             }
         }
 
@@ -6360,8 +6360,8 @@ mod fileio {
             self.closefd.load()
         }
 
-        #[pygetset(name = "_blksize")]
-        fn blksize(&self) -> i64 {
+        #[pygetset]
+        fn _blksize(&self) -> i64 {
             self.blksize.load()
         }
 
@@ -6592,7 +6592,7 @@ mod fileio {
                 Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
-            os::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
+            os::ftruncate_borrowed(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
         }
 
@@ -6608,8 +6608,8 @@ mod fileio {
         }
 
         // fileio_dealloc_warn in Modules/_io/fileio.c
-        #[pymethod(name = "_dealloc_warn")]
-        fn _dealloc_warn_method(zelf: &Self, object: PyObjectRef, vm: &VirtualMachine) {
+        #[pymethod]
+        fn _dealloc_warn(zelf: &Self, object: PyObjectRef, vm: &VirtualMachine) {
             FileIO::dealloc_warn(zelf, &object, vm);
         }
     }
@@ -6993,8 +6993,8 @@ mod winconsoleio {
             self.closefd.load()
         }
 
-        #[pygetset(name = "_blksize")]
-        fn blksize(&self) -> i64 {
+        #[pygetset]
+        fn _blksize(&self) -> i64 {
             self.blksize.load()
         }
 
@@ -7178,8 +7178,8 @@ mod winconsoleio {
                 .map_err(|err| err.into_pyexception(vm))
         }
 
-        #[pymethod(name = "__reduce__")]
-        fn reduce(_zelf: &Self, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(_zelf: &Self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances"))
         }
     }

@@ -266,8 +266,8 @@ mod _multiprocessing {
             Ok(())
         }
 
-        #[pymethod(name = "__enter__")]
-        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
+        #[pymethod]
+        fn __enter__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
             Self::acquire(
                 zelf,
                 AcquireArgs {
@@ -283,8 +283,8 @@ mod _multiprocessing {
             Self::release(zelf, vm)
         }
 
-        #[pyclassmethod(name = "_rebuild")]
-        fn rebuild(
+        #[pyclassmethod]
+        fn _rebuild(
             cls: PyTypeRef,
             handle: isize,
             kind: i32,
@@ -725,8 +725,8 @@ mod _multiprocessing {
         }
 
         // _multiprocessing_SemLock___enter___impl
-        #[pymethod(name = "__enter__")]
-        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
+        #[pymethod]
+        fn __enter__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
             // return _multiprocessing_SemLock_acquire_impl(self, 1, Py_None);
             Self::acquire(
                 zelf,
@@ -746,8 +746,8 @@ mod _multiprocessing {
 
         // Rebuild a SemLock from pickled state.
         // _multiprocessing_SemLock__rebuild_impl
-        #[pyclassmethod(name = "_rebuild")]
-        fn rebuild(
+        #[pyclassmethod]
+        fn _rebuild(
             cls: PyTypeRef,
             _handle: isize,
             kind: i32,

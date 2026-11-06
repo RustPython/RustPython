@@ -75,7 +75,7 @@ impl CommonTypeDescriptors {
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
-    // tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    // tp_base. Written under the type lock (see `set___bases__`); read lock-free.
     #[pymember(name = "__base__", doc = false)]
     pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<PyTypeTupleRef>,
@@ -2808,8 +2808,8 @@ impl Py<PyType> {
     fn __bases__(&self, vm: &VirtualMachine) -> PyTupleRef {
         PyType::with_type_lock(vm, || self.bases.read().clone().into_untyped())
     }
-    #[pygetset(setter, name = "__bases__")]
-    fn set_bases(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___bases__(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
         let value = zelf.check_set_special_type_attr(identifier!(vm, __bases__), value, vm)?;
