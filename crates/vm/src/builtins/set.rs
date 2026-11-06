@@ -18,7 +18,10 @@ use crate::{
     },
     convert::{ToPyResult, TransmuteFromObject},
     dict_inner::{self, DictSize},
-    function::{FuncArgs, NameOthers, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgIterable, FuncArgs, NameOthers, OptionalArg, PosArgs, PyArithmeticValue,
+        PyComparisonValue,
+    },
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -455,8 +458,8 @@ impl PySetInner {
         Ok(result)
     }
 
-    fn issuperset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(other_set) = extract_set(other.as_object()) {
+    fn issuperset(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(other_set) = extract_set(other) {
             return self.compare(other_set, PyComparisonOp::Ge, vm);
         }
         for item in other.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
@@ -469,19 +472,21 @@ impl PySetInner {
         Ok(true)
     }
 
-    fn issubset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(other_set) = extract_set(other.as_object()) {
+    fn issubset(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(other_set) = extract_set(other) {
             return self.compare(other_set, PyComparisonOp::Le, vm);
         }
-        Ok(self.intersection(other, vm)?.len() == self.len())
+        // The binding owns the source until after the size comparison. Its
+        // finalizer must not mutate self between intersection and comparison.
+        Ok(self.intersection(other.to_owned(), vm)?.len() == self.len())
     }
 
-    pub(super) fn isdisjoint(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(other_set) = extract_set(other.as_object()) {
+    pub(super) fn isdisjoint(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(other_set) = extract_set(other) {
             if core::ptr::eq(self, other_set) {
                 return Ok(self.len() == 0);
             }
-            let other_type = other.as_object().class();
+            let other_type = other.class();
             if other_type.is(vm.ctx.types.set_type) || other_type.is(vm.ctx.types.frozenset_type) {
                 let (target, source) = if self.len() < other_set.len() {
                     (other_set, self)
@@ -976,18 +981,18 @@ impl Py<PySet> {
     }
 
     #[pymethod]
-    fn issubset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issubset(other, vm)
+    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issubset(other.as_object(), vm)
     }
 
     #[pymethod]
-    fn issuperset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issuperset(other, vm)
+    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issuperset(other.as_object(), vm)
     }
 
     #[pymethod]
-    fn isdisjoint(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.isdisjoint(other, vm)
+    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.isdisjoint(other.as_object(), vm)
     }
 
     #[pymethod]
@@ -1496,18 +1501,18 @@ impl Py<PyFrozenSet> {
     }
 
     #[pymethod]
-    fn issubset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issubset(other, vm)
+    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issubset(other.as_object(), vm)
     }
 
     #[pymethod]
-    fn issuperset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issuperset(other, vm)
+    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issuperset(other.as_object(), vm)
     }
 
     #[pymethod]
-    fn isdisjoint(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.isdisjoint(other, vm)
+    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.isdisjoint(other.as_object(), vm)
     }
 
     #[pymethod]
