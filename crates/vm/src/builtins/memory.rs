@@ -1807,7 +1807,7 @@ impl Py<PyMemoryViewIterator> {
 impl SelfIter for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let (item, released) = {
+        let (item, _released) = {
             let mut internal = zelf.internal.lock();
             if let IterStatus::Active(mv) = &internal.status
                 && internal.position < zelf.length
@@ -1826,7 +1826,6 @@ impl IterNext for PyMemoryViewIterator {
                 (None, internal.exhaust())
             }
         };
-        drop(released);
         match item {
             Some((mv, index)) => {
                 mv.try_not_released(vm)?;
