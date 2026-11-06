@@ -15,7 +15,7 @@ pub(crate) mod ordered_dict {
         common::{hash::PyHash, lock::PyMutex},
         convert::ToPyObject,
         dict_inner::DictKey,
-        function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+        function::{KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
@@ -359,11 +359,27 @@ pub(crate) mod ordered_dict {
         #[pymethod]
         fn clear(&self) {
             self.dict.clear();
-            let mut links = self.links.lock();
-            *links = ODictLinks {
-                state: links.state.wrapping_add(1),
-                ..ODictLinks::default()
+            let mut detached = {
+                let mut links = self.links.lock();
+                let replacement = ODictLinks {
+                    state: links.state,
+                    ..ODictLinks::default()
+                };
+                core::mem::replace(&mut *links, replacement)
             };
+            // Publish empty links before finalizers run, then release keys in
+            // linked order, which may differ from allocation/recycled slots.
+            let mut current = detached.first;
+            while let Some(idx) = current {
+                let Some(node) = detached.nodes.get_mut(idx).and_then(Option::take) else {
+                    break;
+                };
+                current = node.next;
+                drop(node);
+            }
+            drop(detached);
+            let mut links = self.links.lock();
+            links.state = links.state.wrapping_add(1);
         }
 
         #[pymethod]
@@ -403,17 +419,16 @@ pub(crate) mod ordered_dict {
         }
 
         #[pymethod]
-        fn update(zelf: PyRef<PyOrderedDict>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            if args.args.len() > 1 {
-                return Err(vm.new_type_error(format!(
-                    "update expected at most 1 argument, got {}",
-                    args.args.len()
-                )));
+        fn update(
+            zelf: PyRef<PyOrderedDict>,
+            other: OptionalArg<PyObjectRef>,
+            kwargs: KwArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if let OptionalArg::Present(other) = other {
+                odict_update_arg(zelf.as_object(), other, vm)?;
             }
-            if let Some(arg) = args.args.first() {
-                odict_update_arg(zelf.as_object(), arg.clone(), vm)?;
-            }
-            for (key, value) in args.kwargs {
+            for (key, value) in kwargs {
                 zelf.as_object().set_item(&key, value, vm)?;
             }
             Ok(())
@@ -485,6 +500,17 @@ pub(crate) mod ordered_dict {
         fn move_to_end(&self, args: ODictMoveToEndArgs, vm: &VirtualMachine) -> PyResult<()> {
             let key = args.key;
             let last = args.last;
+            {
+                let links = self.links.lock();
+                let endpoint = if last { links.last } else { links.first };
+                let Some(node) = endpoint.and_then(|idx| links.nodes.get(idx)?.as_ref()) else {
+                    drop(links);
+                    return Err(vm.new_key_error(key));
+                };
+                if node.key.is(&key) {
+                    return Ok(());
+                }
+            }
             let hash = key.key_hash(vm)?;
             let Some(idx) = self.find_node(&key, hash, vm)? else {
                 return Err(vm.new_key_error(key));
@@ -547,13 +573,11 @@ pub(crate) mod ordered_dict {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyOrderedDict>, vm: &VirtualMachine) -> PyResult {
+            // State hooks run before items(), and their result is preserved even
+            // when a subclass deliberately returns an empty dictionary.
+            let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
             let items = zelf.as_object().get_attr("items", vm)?.call((), vm)?;
             let items_iter = PyIter::try_from_object(vm, items)?;
-            let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
-            let state = match state.downcast_ref::<PyDict>() {
-                Some(d) if d.__len__() == 0 => vm.ctx.none(),
-                _ => state,
-            };
             Ok(vm
                 .ctx
                 .new_tuple(vec![
@@ -597,16 +621,10 @@ pub(crate) mod ordered_dict {
     impl DefaultConstructor for PyOrderedDict {}
 
     impl Initializer for PyOrderedDict {
-        type Args = FuncArgs;
+        type Args = (OptionalArg<PyObjectRef>, KwArgs);
 
-        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            if args.args.len() > 1 {
-                return Err(vm.new_type_error(format!(
-                    "OrderedDict expected at most 1 argument, got {}",
-                    args.args.len()
-                )));
-            }
-            Py::<Self>::update(zelf.to_owned(), args, vm)
+        fn init(zelf: &Py<Self>, (other, kwargs): Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            Py::<Self>::update(zelf.to_owned(), other, kwargs, vm)
         }
     }
 
@@ -759,32 +777,84 @@ pub(crate) mod ordered_dict {
     }
 
     fn odict_update_arg(zelf: &PyObject, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(dict) = arg.downcast_ref_if_exact::<PyDict>(vm) {
-            for (key, value) in dict {
+        if (arg.class().is(vm.ctx.types.dict_type) || arg.class().is(vm.ctx.types.frozendict_type))
+            && let Some(dict) = PyAnyDict::from_object(&arg)
+        {
+            // A destination's __setitem__ can mutate the source. CPython takes
+            // an items snapshot before calling any of those overrides.
+            let items = dict.items_vec();
+            let result = items
+                .iter()
+                .try_for_each(|(key, value)| zelf.set_item(&**key, value.clone(), vm));
+            // The snapshot is a list of tuples in CPython: release entries
+            // backwards, and each value before its key, after all callbacks.
+            for (key, value) in items.into_iter().rev() {
+                drop(value);
+                drop(key);
+            }
+            return result;
+        }
+        if let Some(keys_fn) = vm.get_attribute_opt(&arg, "keys")? {
+            let keys = keys_fn.call((), vm)?;
+            let iter = PyIter::try_from_object(vm, keys)?;
+            for key in iter.iter::<PyObjectRef>(vm)? {
+                let key = key?;
+                let value = arg.get_item(&*key, vm)?;
                 zelf.set_item(&*key, value, vm)?;
             }
             return Ok(());
         }
-        match arg.get_attr("keys", vm) {
-            Ok(keys_fn) => {
-                let keys = keys_fn.call((), vm)?;
-                let iter = PyIter::try_from_object(vm, keys)?;
-                for key in iter.iter::<PyObjectRef>(vm)? {
-                    let key = key?;
-                    let value = arg.get_item(&*key, vm)?;
-                    zelf.set_item(&*key, value, vm)?;
-                }
-                return Ok(());
+        let pairs = match vm.get_attribute_opt(&arg, "items")? {
+            Some(items_fn) => items_fn.call((), vm)?,
+            None => arg,
+        };
+        odict_add_pairs(zelf, pairs, vm)
+    }
+
+    fn odict_add_pairs(zelf: &PyObject, pairs: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // An iterator need not retain its iterable. Keep the container alive
+        // until all pair callbacks and the outer iterator have finished.
+        let result = (|| {
+            let iter = PyIter::try_from_object(vm, pairs.clone())?;
+            for pair in iter.iter::<PyObjectRef>(vm)? {
+                let pair = pair?;
+                let mut pair_iter = None;
+                let mut key = None;
+                let mut value = None;
+                let result = (|| {
+                    let iterator = pair_iter.insert(PyIter::try_from_object(vm, pair.clone())?);
+                    // Unlike dict.update(), OrderedDict unpacks at most three
+                    // values and never consults a pair's length hint.
+                    let key = key.insert(match iterator.next(vm)? {
+                        PyIterReturn::Return(key) => key,
+                        PyIterReturn::StopIteration(_) => {
+                            return Err(vm.new_value_error("need more than 0 values to unpack"));
+                        }
+                    });
+                    let value = value.insert(match iterator.next(vm)? {
+                        PyIterReturn::Return(value) => value,
+                        PyIterReturn::StopIteration(_) => {
+                            return Err(vm.new_value_error("need more than 1 value to unpack"));
+                        }
+                    });
+                    if let PyIterReturn::Return(unexpected) = iterator.next(vm)? {
+                        drop(unexpected);
+                        return Err(vm.new_value_error("too many values to unpack (expected 2)"));
+                    }
+                    zelf.set_item(&**key, value.clone(), vm)
+                })();
+                // Finalizers may call back into the destination. Match the pair,
+                // iterator, key, value release order on both success and failure.
+                drop(pair);
+                drop(pair_iter);
+                drop(key);
+                drop(value);
+                result?;
             }
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
-            Err(e) => return Err(e),
-        }
-        let iter = PyIter::try_from_object(vm, arg)?;
-        for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
-            let (key, value) = PyDict::update_sequence_pair(element?, index, vm)?;
-            zelf.set_item(&*key, value, vm)?;
-        }
-        Ok(())
+            Ok(())
+        })();
+        drop(pairs);
+        result
     }
 
     #[pyattr]
@@ -881,15 +951,20 @@ pub(crate) mod ordered_dict {
 
     impl PyODictIter {
         fn collect_remaining(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let Some(od) = self.od() else {
-                return Ok(Vec::new());
-            };
+            // Reduction consumes a copy through the normal iterator path so
+            // mutation checks and value lookup callbacks match next(). The
+            // original iterator must retain its position, including on error.
+            let copy = Self {
+                od: self.od.clone(),
+                kind: self.kind,
+                size: self.size,
+                state: self.state,
+                current: PyMutex::new(self.current.lock().clone()),
+            }
+            .into_ref(&vm.ctx);
             let mut out = Vec::new();
-            let mut current = self.current.lock().clone();
-            let reversed = self.kind & ODICT_ITER_REVERSED != 0;
-            while let Some(key) = current {
-                out.push(self.project(key.clone(), vm)?);
-                current = od.links.lock().next_after(&key, reversed);
+            while let PyIterReturn::Return(value) = Self::next(&copy, vm)? {
+                out.push(value);
             }
             Ok(out)
         }
