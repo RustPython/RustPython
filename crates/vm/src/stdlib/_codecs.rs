@@ -9,16 +9,17 @@ mod _codecs {
     use core::hint::cold_path;
 
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
-    use crate::common::encodings;
-    use crate::common::wtf8::Wtf8Buf;
+    use crate::common::encodings::{self, DecodeContext};
+    use crate::common::wtf8::{CodePoint, Wtf8Buf};
     use crate::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyStrRef, PyUtf8StrRef},
+        builtins::{PyBytesRef, PyInt, PyStr, PyStrRef, PyUtf8StrRef},
         codecs,
         convert::TryFromObject,
         exceptions::nul_char_error,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, OptionalOption},
     };
+    use num_traits::ToPrimitive;
 
     #[derive(FromArgs)]
     struct NormalizeEncodingArgs {
@@ -680,9 +681,9 @@ mod _codecs {
     #[derive(FromArgs)]
     struct CharmapDecodeArgs {
         #[pyarg(positional)]
-        data: PyObjectRef,
+        data: ArgBytesLike,
         #[pyarg(positional, optional)]
-        errors: Option<PyObjectRef>,
+        errors: OptionalOption<PyUtf8StrRef>,
         #[pyarg(positional, optional)]
         mapping: Option<PyObjectRef>,
     }
@@ -711,15 +712,103 @@ mod _codecs {
         delegate_pycodecs!(charmap_encode, forwarded, vm)
     }
     #[pyfunction]
-    fn charmap_decode(args: CharmapDecodeArgs, vm: &VirtualMachine) -> PyResult {
-        let mut forwarded = vec![args.data];
-        if args.mapping.is_some() && args.errors.is_none() {
-            forwarded.push(vm.ctx.new_str("strict").into());
-        } else {
-            push_optional(&mut forwarded, args.errors);
+    fn charmap_decode(args: CharmapDecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let errors = args.errors.flatten();
+        if errors
+            .as_ref()
+            .is_some_and(|s| s.as_pystr().contains_nuls())
+        {
+            return Err(nul_char_error(vm));
         }
-        push_optional(&mut forwarded, args.mapping);
-        delegate_pycodecs!(charmap_decode, forwarded, vm)
+        // Charmap honors registry overrides even for standard error names.
+        let errors = ErrorsHandler::new_registered(errors.as_deref(), vm);
+        let Some(mapping) = args.mapping.filter(|mapping| !vm.is_none(mapping)) else {
+            let ctx = PyDecodeContext::new(encodings::latin_1::ENCODING_NAME, &args.data, vm);
+            return encodings::latin_1::decode(ctx, &errors);
+        };
+        let consumed = args.data.borrow_buf().len();
+        let mut ctx: Option<PyDecodeContext<'_>> = None;
+        let mut pos = 0;
+        let mut decoded = Wtf8Buf::with_capacity(consumed);
+        // Only exact strings bypass __getitem__; subclasses can override it.
+        let string_map = mapping
+            .downcast_ref_if_exact::<PyStr>(vm)
+            .map(|s| s.as_wtf8().code_points().take(256).collect::<Vec<_>>());
+        loop {
+            // Do not hold a buffer read guard across mapping callbacks: they
+            // may change the original bytearray without resizing it.
+            let byte = match &ctx {
+                Some(ctx) => ctx.full_data().get(pos).copied(),
+                None => args.data.borrow_buf().get(pos).copied(),
+            };
+            let Some(byte) = byte else { break };
+            let defined = if let Some(string_map) = &string_map {
+                if let Some(&cp) = string_map
+                    .get(usize::from(byte))
+                    .filter(|cp| cp.to_u32() != 0xfffe)
+                {
+                    decoded.push(cp);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                charmap_decode_mapping(&mapping, byte, &mut decoded, vm)?
+            };
+            if defined {
+                pos += 1;
+            } else {
+                // At the first error CPython switches to the exception's
+                // immutable bytes, including mutations made by this lookup.
+                let ctx = ctx.get_or_insert_with(|| {
+                    let data = vm.ctx.new_bytes(args.data.borrow_buf().to_vec());
+                    PyDecodeContext::new_owned("charmap", data, vm)
+                });
+                ctx.restart_from(pos)?;
+                let replacement =
+                    ctx.handle_error(&errors, pos..pos + 1, Some("character maps to <undefined>"))?;
+                decoded.push_wtf8(replacement.as_wtf8());
+                pos = ctx.position();
+            }
+        }
+        // The callback can replace its exception's input, but the codec reports
+        // the size of the original buffer, as PyUnicode_DecodeCharmap does.
+        Ok((decoded, consumed))
+    }
+
+    fn charmap_decode_mapping(
+        mapping: &PyObjectRef,
+        byte: u8,
+        decoded: &mut Wtf8Buf,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let value = match mapping.get_item(vm.ctx.new_int(byte).as_object(), vm) {
+            Ok(value) => value,
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.lookup_error) => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        if vm.is_none(&value) {
+            return Ok(false);
+        }
+        if let Some(integer) = value.downcast_ref::<PyInt>() {
+            let cp = integer
+                .as_bigint()
+                .to_u32()
+                .and_then(CodePoint::from_u32)
+                .ok_or_else(|| vm.new_type_error("character mapping must be in range(0x110000)"))?;
+            if cp.to_u32() == 0xfffe {
+                return Ok(false);
+            }
+            decoded.push(cp);
+        } else if let Some(text) = value.downcast_ref::<PyStr>() {
+            if text.as_wtf8() == "\u{fffe}" {
+                return Ok(false);
+            }
+            decoded.push_wtf8(text.as_wtf8());
+        } else {
+            return Err(vm.new_type_error("character mapping must return integer, None or str"));
+        }
+        Ok(true)
     }
     #[pyfunction]
     fn charmap_build(args: CharmapBuildArgs, vm: &VirtualMachine) -> PyResult {
