@@ -35,12 +35,7 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
             // lookup failure is replaced, not just KeyError.
             builtins
                 .get_item(identifier!(vm, __import__), vm)
-                .map_err(|err| {
-                    let replacement =
-                        vm.new_key_error(identifier!(vm, __import__).to_owned().into());
-                    drop(err);
-                    replacement
-                })?
+                .map_err(|_err| vm.new_key_error(identifier!(vm, __import__).to_owned().into()))?
         } else {
             builtins.get_attr(identifier!(vm, __import__), vm)?
         });
@@ -61,10 +56,7 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
         let modules = vm.sys_module.dict().get_item("modules", vm)?;
         let selected = match modules.get_item(module_name, vm) {
             Ok(module) => Ok(Some(module)),
-            Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                drop(err);
-                Ok(None)
-            }
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
             Err(err) => Err(err),
         };
         drop(modules);
@@ -74,8 +66,6 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
     // every path, including lookup and invocation failures.
     drop(globals);
     drop(builtins);
-    drop(importer);
-    drop(from_list);
     result
 }
 
