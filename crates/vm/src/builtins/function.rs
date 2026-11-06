@@ -1055,14 +1055,14 @@ impl Py<PyFunction> {
         Ok(())
     }
 
-    pub(crate) fn __defaults__(&self) -> Option<PyTupleRef> {
+    pub(crate) fn defaults(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
 
-    #[pygetset(name = "__defaults__")]
-    fn get_defaults(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
+    #[pygetset]
+    fn __defaults__(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
         vm.audit("object.__getattr__", || (self.to_owned(), "__defaults__"))?;
-        Ok(self.__defaults__())
+        Ok(self.defaults())
     }
 
     #[pygetset(setter)]
@@ -1091,14 +1091,14 @@ impl Py<PyFunction> {
         Ok(())
     }
 
-    pub(crate) fn __kwdefaults__(&self) -> Option<PyDictRef> {
+    pub(crate) fn kwdefaults(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
 
-    #[pygetset(name = "__kwdefaults__")]
-    fn get_kwdefaults(&self, vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
+    #[pygetset]
+    fn __kwdefaults__(&self, vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
         vm.audit("object.__getattr__", || (self.to_owned(), "__kwdefaults__"))?;
-        Ok(self.__kwdefaults__())
+        Ok(self.kwdefaults())
     }
 
     #[pygetset(setter)]
