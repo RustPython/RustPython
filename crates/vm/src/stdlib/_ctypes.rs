@@ -109,6 +109,8 @@ pub(crate) mod _ctypes {
     use crate::convert::ToPyObject;
     use crate::function::{ArgStrictInt, Either, OptionalArg};
     use crate::types::Representable;
+    #[cfg(windows)]
+    use crate::types::{Constructor, Initializer};
     use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use num_traits::ToPrimitive;
 
@@ -294,20 +296,29 @@ pub(crate) mod _ctypes {
         )
     }
 
-    #[cfg(target_os = "windows")]
-    #[pyattr(name = "COMError", once)]
-    fn com_error(vm: &VirtualMachine) -> PyTypeRef {
-        use crate::PyObject;
-        use crate::builtins::type_::PyAttributes;
-        use crate::function::FuncArgs;
-        use crate::types::{PyTypeFlags, PyTypeSlots};
+    /// Raised when a COM method call failed.
+    #[cfg(windows)]
+    #[pyattr]
+    #[pyexception(name = "COMError", module = "_ctypes", base = crate::builtins::PyException)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    struct PyComError(crate::builtins::PyException);
 
-        // Sets hresult, text, details as instance attributes in __init__
-        // This function has InitFunc signature for direct slots.init use
-        fn comerror_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(windows)]
+    #[pyexception(with(Initializer), flags(HEAPTYPE))]
+    impl PyComError {}
+
+    #[cfg(windows)]
+    impl Initializer for PyComError {
+        type Args = crate::function::FuncArgs;
+
+        fn slot_init(
+            zelf: &crate::PyObject,
+            args: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let (hresult, text, details): (PyObjectRef, PyObjectRef, PyObjectRef) =
                 args.bind(vm)?;
-            use crate::types::Initializer;
             let full_args = vec![hresult.clone(), text.clone(), details.clone()];
             // Match the observable attribute assignments before restoring the
             // base payload directly, without invoking an overriding descriptor.
@@ -317,48 +328,17 @@ pub(crate) mod _ctypes {
             zelf.set_attr("hresult", hresult, vm)?;
             zelf.set_attr("text", text, vm)?;
             zelf.set_attr("details", details, vm)?;
-            crate::builtins::PyBaseException::slot_init(zelf, FuncArgs::from(full_args), vm)?;
-
+            crate::builtins::PyBaseException::slot_init(
+                zelf,
+                crate::function::FuncArgs::from(full_args),
+                vm,
+            )?;
             Ok(())
         }
 
-        // Create exception type with IMMUTABLETYPE flag
-        let mut attrs = PyAttributes::default();
-        attrs.insert(
-            vm.ctx.intern_str("__module__"),
-            vm.ctx.new_str("_ctypes").into(),
-        );
-        attrs.insert(
-            vm.ctx.intern_str("__doc__"),
-            vm.ctx
-                .new_str("Raised when a COM method call failed.")
-                .into(),
-        );
-
-        // Create slots with IMMUTABLETYPE flag
-        let slots = PyTypeSlots {
-            name: "COMError",
-            flags: crate::types::AtomicPyTypeFlags::from_plain(
-                PyTypeFlags::HEAP_TYPE_DICT_IMMUTABLE,
-            ),
-            ..PyTypeSlots::default()
-        };
-
-        let exc_type = PyType::new_heap(
-            "COMError",
-            vec![vm.ctx.exceptions.exception_type.to_owned()],
-            attrs,
-            slots,
-            vm.ctx.types.type_type.to_owned(),
-            &vm.ctx,
-        )
-        .unwrap();
-
-        // Set our custom init after new_heap, which runs init_slots that would
-        // otherwise overwrite slots.init with init_wrapper (due to __init__ in MRO).
-        exc_type.slots.init.store(Some(comerror_init));
-
-        exc_type
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
     }
 
     #[pyfunction]
