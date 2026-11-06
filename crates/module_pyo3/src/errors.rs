@@ -112,7 +112,7 @@ pub(crate) fn cpython_exc_to_rustpython(
     );
     if !exact {
         let note = format!("raised in CPython as {}", cpython_type_name(&cpython_type));
-        let _ = exc.add_note(vm.ctx.new_str(note), vm);
+        let _ = exc.add_note_str(vm.ctx.new_str(note), vm);
     }
     exc
 }
