@@ -73,13 +73,11 @@ mod builtins {
             match next(&iter, vm)? {
                 PyIterReturn::Return(item) => {
                     let truth = item.try_to_bool(vm);
-                    drop(item);
                     if truth? == short_circuit {
                         return Ok(short_circuit);
                     }
                 }
-                PyIterReturn::StopIteration(value) => {
-                    drop(value);
+                PyIterReturn::StopIteration(_value) => {
                     return Ok(!short_circuit);
                 }
             }
@@ -1078,15 +1076,11 @@ mod builtins {
             } else {
                 // Rejected candidates have the opposite release order.
                 drop(item);
-                drop(key);
             }
         }
 
         match best {
-            Some(MinMaxBest { key, item }) => {
-                drop(key);
-                Ok(item)
-            }
+            Some(MinMaxBest { key: _key, item }) => Ok(item),
             None => default.cloned().ok_or_else(|| {
                 vm.new_value_error(format!("{func_name}() iterable argument is empty"))
             }),
@@ -1320,10 +1314,10 @@ mod builtins {
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Acquire and validate the iterator before rejecting a start type.
-        let mut items = iterable.get_iter(vm)?.into_iter::<PyObjectRef>(vm);
+        let items = iterable.get_iter(vm)?.into_iter::<PyObjectRef>(vm);
         // Keep the original argument alive independently of the accumulator.
         // Declaring the accumulator last also releases it before the iterator.
-        let mut sum = start.clone();
+        let (_start, mut items, mut sum) = (start.clone(), items, start);
 
         match_class!(match sum {
             PyStr =>
@@ -1419,11 +1413,8 @@ mod builtins {
             // On both success and failure, release the old total before the
             // item, and only then propagate an addition error to the iterator.
             drop(sum);
-            drop(item);
             sum = result?;
         }
-        drop(items);
-        drop(start);
         Ok(sum)
     }
 
