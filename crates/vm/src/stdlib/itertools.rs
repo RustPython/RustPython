@@ -1957,8 +1957,7 @@ mod decl {
             let Some(iterator) = self.iterator.lock().clone() else {
                 return Ok(PyIterReturn::StopIteration(None));
             };
-            let next = iterator.next(vm);
-            next
+            iterator.next(vm)
         }
 
         fn clear_iterator(&self) {
