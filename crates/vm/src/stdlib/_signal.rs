@@ -205,11 +205,10 @@ pub(crate) mod _signal {
                 let signum = unsafe { SignalNum::new_unchecked(signum) };
 
                 let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
-                let old_handler =
+                let _old_handler =
                     core::mem::replace(&mut signal_handlers.borrow_mut()[signum], py_handler);
                 // Replacing a handler can run its destructor, which may install
                 // another handler. Release the table borrow before dropping it.
-                drop(old_handler);
             }
 
             let default_sigint = vm
