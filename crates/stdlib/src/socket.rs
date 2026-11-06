@@ -2805,21 +2805,7 @@ mod _socket {
             ) = args.bind(vm)?;
             let optlen = match optlen {
                 OptionalArg::Present(index) => {
-                    let index = index.as_ref();
-                    // CPython's unsigned-int bitfield conversion masks the value,
-                    // warning only when it fits neither a signed nor unsigned int.
-                    if !index.as_bigint().to_i64().is_some_and(|value| {
-                        (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value)
-                    }) {
-                        crate::vm::warn::warn(
-                            vm.ctx.new_str("integer value out of range").into(),
-                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                            1,
-                            None,
-                            vm,
-                        )?;
-                    }
-                    OptionalArg::Present(index.as_u32_mask())
+                    OptionalArg::Present(index.as_unsigned_bitfield::<32>(vm)? as u32)
                 }
                 OptionalArg::Missing => OptionalArg::Missing,
             };
