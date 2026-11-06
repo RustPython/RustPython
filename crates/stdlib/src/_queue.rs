@@ -254,11 +254,10 @@ mod _queue {
             let PutArgs {
                 item,
                 block,
-                timeout,
+                timeout: _timeout,
             } = args;
             is_blocking(&block, vm)?;
             zelf.push(item, vm);
-            drop(timeout);
             Ok(())
         }
 
