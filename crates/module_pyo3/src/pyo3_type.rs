@@ -19,8 +19,8 @@
 //! of the RustPython wrapper, and their attributes are copied into the CPython
 //! class.
 //!
-//! CPython's built-in classes are not wrapped: CPython's `int` is RustPython's
-//! `int`, and so on.
+//! Built-in classes are not wrapped: `int` is the same class on both sides,
+//! and so on.
 
 pub(crate) use pyo3_type::{
     install_class_creation, instance_to_rustpython, is_cpython_backed, type_to_cpython,
@@ -424,7 +424,7 @@ pub(crate) mod pyo3_type {
         if let Some(builtin) = builtin_to_cpython(py, ty, vm) {
             return Ok(builtin);
         }
-        Ok(RustPythonObject::wrap(py, ty.to_owned().into(), vm))
+        RustPythonObject::wrap(py, ty.to_owned().into(), vm).to_pyresult(vm)
     }
 
     /// The RustPython class standing for the CPython class `ty`.
@@ -790,7 +790,7 @@ pub(crate) mod pyo3_type {
         Ok(Pyo3Ref::wrap(obj, vm))
     }
 
-    /// CPython's `None`, `int`, `ValueError`... are RustPython's.
+    /// `None`, `int`, `ValueError`... are this interpreter's.
     fn builtin_to_rustpython(
         ty: &Bound<'_, CPythonType>,
         vm: &VirtualMachine,

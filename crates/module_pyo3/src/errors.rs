@@ -164,10 +164,9 @@ pub(crate) fn rustpython_exc_to_cpython(
     }
 
     let origin: PyObjectRef = exc.clone().into();
-    let _ = instance.setattr(
-        pyo3::intern!(py, RUSTPYTHON_ORIGIN_ATTR),
-        RustPythonObject::wrap(py, origin, vm),
-    );
+    if let Ok(origin) = RustPythonObject::wrap(py, origin, vm) {
+        let _ = instance.setattr(pyo3::intern!(py, RUSTPYTHON_ORIGIN_ATTR), origin);
+    }
     if !exact && let Ok(name) = rustpython_type.fully_qualified_name(vm) {
         let _ = instance.call_method1(
             pyo3::intern!(py, "add_note"),
