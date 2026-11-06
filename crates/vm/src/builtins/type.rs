@@ -27,8 +27,7 @@ use crate::{
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
         AsNumber, CSlots, Callable, Constructor, GetAttr, Initializer, OwnedCSlots, PyTypeFlags,
-        PyTypeSlots, Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
-        VectorCallFunc,
+        PyTypeSlots, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot, VectorCallFunc,
     },
 };
 use core::{
@@ -1955,12 +1954,33 @@ impl Py<PyType> {
         GetAttr,
         SetAttr,
         Callable,
-        AsNumber,
-        Representable
+        AsNumber
     ),
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF, TYPE_SUBCLASS)
 )]
-impl PyType {}
+impl PyType {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> String {
+        // A missing `__module__` is not an error here.
+        let module = zelf.__module__(vm).ok();
+        let module = module
+            .as_ref()
+            .and_then(|m| m.downcast_ref::<PyStr>())
+            .map(|m| m.as_wtf8());
+
+        match module {
+            Some(module) if module != "builtins" => {
+                let qualname = zelf.__qualname__(vm);
+                let qualname = qualname.downcast_ref::<PyStr>().map(|n| n.as_wtf8());
+                let name = zelf.name();
+                let qualname = qualname.unwrap_or_else(|| name.as_ref());
+                format!("<class '{module}.{qualname}'>")
+            }
+            _ => format!("<class '{}'>", zelf.slot_name()),
+        }
+    }
+}
 
 /// Accepts and ignores any arguments.
 struct PrepareArgs;
@@ -3515,30 +3535,6 @@ impl AsNumber for PyType {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
-    }
-}
-
-impl Representable for PyType {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        // A missing `__module__` is not an error here.
-        let module = zelf.__module__(vm).ok();
-        let module = module
-            .as_ref()
-            .and_then(|m| m.downcast_ref::<PyStr>())
-            .map(|m| m.as_wtf8());
-
-        let repr = match module {
-            Some(module) if module != "builtins" => {
-                let qualname = zelf.__qualname__(vm);
-                let qualname = qualname.downcast_ref::<PyStr>().map(|n| n.as_wtf8());
-                let name = zelf.name();
-                let qualname = qualname.unwrap_or_else(|| name.as_ref());
-                format!("<class '{module}.{qualname}'>")
-            }
-            _ => format!("<class '{}'>", zelf.slot_name()),
-        };
-        Ok(repr)
     }
 }
 

@@ -9,10 +9,7 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::PyOrderedDict,
-    types::{
-        AsMapping, AsNumber, AsSequence, Constructor, Hashable, Iterable, PyComparisonOp,
-        Representable,
-    },
+    types::{AsMapping, AsNumber, AsSequence, Constructor, Hashable, Iterable, PyComparisonOp},
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
@@ -177,15 +174,7 @@ impl PyMappingProxy {
     }
 }
 
-#[pyclass(with(
-    AsMapping,
-    Iterable,
-    Constructor,
-    AsSequence,
-    Hashable,
-    AsNumber,
-    Representable
-))]
+#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Hashable, AsNumber))]
 impl Py<PyMappingProxy> {
     #[pyslot]
     fn slot_richcompare(
@@ -279,6 +268,13 @@ impl Py<PyMappingProxy> {
             (),
         )
     }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let obj = zelf.to_object(vm)?;
+        Ok(wtf8_concat!("mappingproxy(", obj.repr(vm)?.as_wtf8(), ')'))
+    }
 }
 
 impl Hashable for PyMappingProxy {
@@ -354,14 +350,6 @@ impl Iterable for PyMappingProxy {
         let obj = zelf.to_object(vm)?;
         let iter = obj.get_iter(vm)?;
         Ok(iter.into())
-    }
-}
-
-impl Representable for PyMappingProxy {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let obj = zelf.to_object(vm)?;
-        Ok(wtf8_concat!("mappingproxy(", obj.repr(vm)?.as_wtf8(), ')'))
     }
 }
 

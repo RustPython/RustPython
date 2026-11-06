@@ -17,7 +17,7 @@ mod _pickle {
         function::{ArgIntoBool, FuncArgs, OptionalArg, PySetterValue},
         object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIter, PyIterReturn},
-        types::{AsBuffer, Constructor, Initializer, Representable},
+        types::{AsBuffer, Constructor, Initializer},
         utils::ToCString,
     };
     use alloc::collections::TryReserveError;
@@ -89,11 +89,13 @@ mod _pickle {
         }
     }
 
-    #[pyclass(
-        with(Constructor, AsBuffer, Representable),
-        flags(BASETYPE, HAS_WEAKREF)
-    )]
+    #[pyclass(with(Constructor, AsBuffer), flags(BASETYPE, HAS_WEAKREF))]
     impl PyPickleBuffer {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("<PickleBuffer object at {:#x}>", zelf.get_id())
+        }
+
         fn get(&self, vm: &VirtualMachine) -> PyResult<PyBuffer> {
             self.buffer.read().clone().ok_or_else(|| {
                 vm.new_value_error("operation forbidden on released PickleBuffer object")
@@ -126,12 +128,6 @@ mod _pickle {
     impl AsBuffer for PyPickleBuffer {
         fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
             zelf.get(vm)
-        }
-    }
-
-    impl Representable for PyPickleBuffer {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("<PickleBuffer object at {:#x}>", zelf.get_id()))
         }
     }
 

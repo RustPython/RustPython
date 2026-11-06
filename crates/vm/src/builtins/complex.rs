@@ -9,7 +9,7 @@ use crate::{
     function::{ArgIntoComplex, ArgIntoFloat, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::_warnings,
-    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp},
 };
 use core::cell::Cell;
 use core::num::Wrapping;
@@ -624,7 +624,7 @@ impl PyComplex {
 
 #[pyclass(
     flags(BASETYPE),
-    with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
+    with(PyRef, Comparable, Hashable, Constructor, AsNumber)
 )]
 impl Py<PyComplex> {
     #[pymethod]
@@ -674,6 +674,15 @@ impl Py<PyComplex> {
         };
         drop(number);
         result
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        // TODO: when you fix this, move it to rustpython_common::complex::repr and update
+        //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
+        let Complex64 { re, im } = zelf.as_complex();
+        rustpython_literal::complex::to_string(re, im)
     }
 }
 
@@ -819,16 +828,6 @@ impl AsNumber for PyComplex {
 
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.new_complex(zelf.as_complex())
-    }
-}
-
-impl Representable for PyComplex {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        // TODO: when you fix this, move it to rustpython_common::complex::repr and update
-        //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
-        let Complex64 { re, im } = zelf.as_complex();
-        Ok(rustpython_literal::complex::to_string(re, im))
     }
 }
 

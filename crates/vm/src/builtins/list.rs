@@ -21,7 +21,7 @@ use crate::{
     sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, RichCompareFunc, SelfIter,
+        PyComparisonOp, RichCompareFunc, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -408,15 +408,7 @@ impl PyList {
 }
 
 #[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsMapping,
-        Iterable,
-        Comparable,
-        AsSequence,
-        Representable
-    ),
+    with(Constructor, Initializer, AsMapping, Iterable, Comparable, AsSequence),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, LIST_SUBCLASS)
 )]
 impl Py<PyList> {
@@ -598,6 +590,46 @@ impl Py<PyList> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        if zelf.__len__() == 0 {
+            return Ok(vm.ctx.intern_str("[]").to_owned());
+        }
+
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            // Clone each element before calling repr to release the read lock.
+            // Element repr may mutate the list (e.g., list.clear()), which
+            // needs a write lock and would deadlock if read lock is held.
+            let mut writer = Wtf8Buf::new();
+            writer.push_char('[');
+
+            let mut first = true;
+            let mut i = 0;
+            loop {
+                let item = zelf.borrow_vec().get(i).cloned();
+                let Some(item) = item else {
+                    break;
+                };
+
+                if first {
+                    first = false;
+                } else {
+                    writer.push_str(", ");
+                }
+
+                writer.push_wtf8(item.repr(vm)?.as_wtf8());
+
+                i += 1;
+            }
+
+            writer.push_char(']');
+            Ok(vm.ctx.new_str(writer))
+        } else {
+            Ok(vm.ctx.intern_str("[...]").to_owned())
+        }
     }
 }
 
@@ -799,51 +831,6 @@ impl Comparable for PyList {
             vm,
         )
         .map(PyComparisonValue::Implemented)
-    }
-}
-
-impl Representable for PyList {
-    #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        if zelf.__len__() == 0 {
-            return Ok(vm.ctx.intern_str("[]").to_owned());
-        }
-
-        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            // Clone each element before calling repr to release the read lock.
-            // Element repr may mutate the list (e.g., list.clear()), which
-            // needs a write lock and would deadlock if read lock is held.
-            let mut writer = Wtf8Buf::new();
-            writer.push_char('[');
-
-            let mut first = true;
-            let mut i = 0;
-            loop {
-                let item = zelf.borrow_vec().get(i).cloned();
-                let Some(item) = item else {
-                    break;
-                };
-
-                if first {
-                    first = false;
-                } else {
-                    writer.push_str(", ");
-                }
-
-                writer.push_wtf8(item.repr(vm)?.as_wtf8());
-
-                i += 1;
-            }
-
-            writer.push_char(']');
-            Ok(vm.ctx.new_str(writer))
-        } else {
-            Ok(vm.ctx.intern_str("[...]").to_owned())
-        }
-    }
-
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("repr() is overridden directly")
     }
 }
 

@@ -35,8 +35,7 @@ use crate::{
     },
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
-        DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
-        SelfIter,
+        DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
     },
 };
 use bstr::ByteSlice;
@@ -612,11 +611,18 @@ impl PyByteArray {
         AsMapping,
         AsSequence,
         AsNumber,
-        Iterable,
-        Representable
+        Iterable
     )
 )]
-impl PyByteArray {}
+impl PyByteArray {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = zelf.class();
+        let class_name = class.name();
+        zelf.inner().repr_with_name(&class_name, vm)
+    }
+}
 
 #[derive(FromArgs)]
 struct ByteArrayReduceExArgs {
@@ -1550,15 +1556,6 @@ impl Iterable for PyByteArray {
             internal: NativeSequenceIter::new(zelf, NativeIterKind::ByteArray, 0),
         }
         .into_pyobject(vm))
-    }
-}
-
-impl Representable for PyByteArray {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = zelf.class();
-        let class_name = class.name();
-        zelf.inner().repr_with_name(&class_name, vm)
     }
 }
 

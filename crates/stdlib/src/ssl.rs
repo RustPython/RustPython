@@ -68,7 +68,7 @@ mod _ssl {
                 PyComparisonValue, PySetterValue,
             },
             stdlib::_warnings,
-            types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+            types::{Comparable, Constructor, Hashable, PyComparisonOp},
         },
     };
 
@@ -474,8 +474,14 @@ mod _ssl {
         binary_form: bool,
     }
 
-    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySSLContext {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("<SSLContext(protocol={})>", zelf.protocol)
+        }
+
         fn invalidate_policy(&self) {
             // Old SSLSession configurations must never override later policy.
             // Replace the identity after mutation so concurrent snapshots also
@@ -2061,13 +2067,6 @@ mod _ssl {
         }
     }
 
-    impl Representable for PySSLContext {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("<SSLContext(protocol={})>", zelf.protocol))
-        }
-    }
-
     impl Constructor for PySSLContext {
         type Args = (i32,);
 
@@ -2321,8 +2320,14 @@ mod _ssl {
         deferred_cert_error: Arc<ParkingRwLock<Option<String>>>,
     }
 
-    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySSLSocket {
+        #[inline]
+        #[pymethod]
+        fn __repr__(_zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            "<SSLSocket>".to_owned()
+        }
+
         // Call only for transport/protocol failures. User message callbacks
         // may raise SSLEOFError without closing the connection.
         fn remember_eof(
@@ -4168,13 +4173,6 @@ mod _ssl {
         }
     }
 
-    impl Representable for PySSLSocket {
-        #[inline]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("<SSLSocket>".to_owned())
-        }
-    }
-
     impl Constructor for PySSLSocket {
         type Args = ();
 
@@ -4266,13 +4264,6 @@ mod _ssl {
         }
     }
 
-    impl Representable for PyMemoryBIO {
-        #[inline]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("<MemoryBIO>".to_owned())
-        }
-    }
-
     impl Constructor for PyMemoryBIO {
         type Args = ();
 
@@ -4353,13 +4344,6 @@ mod _ssl {
                     Ok(PyComparisonValue::NotImplemented)
                 }
             })
-        }
-    }
-
-    impl Representable for PySSLSession {
-        #[inline]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("<SSLSession>".to_owned())
         }
     }
 
@@ -4699,9 +4683,28 @@ mod _ssl {
 
     #[pyclass(
         flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
-        with(Comparable, Hashable, Representable)
+        with(Comparable, Hashable)
     )]
     impl PySSLCertificate {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            // Try to parse and show subject
+            match zelf.parse() {
+                Ok(cert) => {
+                    let subject = cert.subject();
+                    // Get CN if available
+                    let cn = subject
+                        .iter_common_name()
+                        .next()
+                        .and_then(|attr| attr.as_str().ok())
+                        .unwrap_or("Unknown");
+                    format!("<Certificate(subject=CN={cn})>")
+                }
+                Err(_) => "<Certificate(invalid)>".to_owned(),
+            }
+        }
+
         #[pymethod]
         fn public_bytes(
             zelf: &Py<Self>,
@@ -4755,27 +4758,6 @@ mod _ssl {
             let mut hasher = DefaultHasher::new();
             zelf.der_bytes.hash(&mut hasher);
             Ok(hasher.finish() as PyHash)
-        }
-    }
-
-    // Implement Representable trait for PySSLCertificate
-    impl Representable for PySSLCertificate {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            // Try to parse and show subject
-            match zelf.parse() {
-                Ok(cert) => {
-                    let subject = cert.subject();
-                    // Get CN if available
-                    let cn = subject
-                        .iter_common_name()
-                        .next()
-                        .and_then(|attr| attr.as_str().ok())
-                        .unwrap_or("Unknown");
-                    Ok(format!("<Certificate(subject=CN={cn})>"))
-                }
-                Err(_) => Ok("<Certificate(invalid)>".to_owned()),
-            }
         }
     }
 }

@@ -39,7 +39,7 @@ pub mod array {
             stdlib::_warnings,
             types::{
                 AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable,
-                PyComparisonOp, Representable, SelfIter,
+                PyComparisonOp, SelfIter,
             },
         },
     };
@@ -959,17 +959,26 @@ pub mod array {
 
     #[pyclass(
         flags(BASETYPE, HAS_WEAKREF),
-        with(
-            Comparable,
-            AsBuffer,
-            AsMapping,
-            AsSequence,
-            Iterable,
-            Constructor,
-            Representable
-        )
+        with(Comparable, AsBuffer, AsMapping, AsSequence, Iterable, Constructor)
     )]
     impl PyArray {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let class = zelf.class();
+            let class_name = class.name();
+            let typecode = zelf.read().typecode();
+            if matches!(typecode, "u" | "w") {
+                if zelf.__len__() == 0 {
+                    return Ok(format!("{class_name}('{typecode}')"));
+                }
+                let to_unicode = Self::tounicode(zelf, vm)?;
+                let escape = crate::vm::literal::escape::UnicodeEscape::new_repr(&to_unicode);
+                return Ok(format!("{class_name}('{typecode}', {})", escape.str_repr()));
+            }
+            zelf.read().repr(&class_name, vm)
+        }
+
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
             self.array.read()
         }
@@ -1714,24 +1723,6 @@ pub mod array {
             let buffer = PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS);
             drop(array);
             Ok(buffer)
-        }
-    }
-
-    impl Representable for PyArray {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let class = zelf.class();
-            let class_name = class.name();
-            let typecode = zelf.read().typecode();
-            if matches!(typecode, "u" | "w") {
-                if zelf.__len__() == 0 {
-                    return Ok(format!("{class_name}('{typecode}')"));
-                }
-                let to_unicode = Self::tounicode(zelf, vm)?;
-                let escape = crate::vm::literal::escape::UnicodeEscape::new_repr(&to_unicode);
-                return Ok(format!("{class_name}('{typecode}', {})", escape.str_repr()));
-            }
-            zelf.read().repr(&class_name, vm)
         }
     }
 

@@ -9,7 +9,7 @@ use crate::{
         plain_doc,
     },
     object::{Traverse, TraverseFn},
-    types::{GetDescriptor, Representable},
+    types::GetDescriptor,
 };
 
 #[pyclass(module = false, name = "getset_descriptor", traverse = "manual")]
@@ -119,7 +119,7 @@ impl PyGetSet {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor, Representable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor))]
 impl Py<PyGetSet> {
     // Descriptor methods
 
@@ -151,21 +151,20 @@ impl Py<PyGetSet> {
     fn __doc__(&self) -> Option<&'static str> {
         plain_doc(self.doc)
     }
-}
 
-impl Representable for PyGetSet {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> String {
         let class = &zelf.class;
         // Special case for object type
         if class.is(vm.ctx.types.object_type) {
-            Ok(format!("<attribute '{}'>", zelf.name.as_str()))
+            format!("<attribute '{}'>", zelf.name.as_str())
         } else {
-            Ok(format!(
+            format!(
                 "<attribute '{}' of '{}' objects>",
                 zelf.name.as_str(),
                 class.name()
-            ))
+            )
         }
     }
 }

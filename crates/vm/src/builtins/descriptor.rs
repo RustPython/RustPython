@@ -12,9 +12,9 @@ use crate::{
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
         GetattroFunc, HashFunc, Hashable, InitFunc, IterFunc, IterNextFunc, MapAssSubscriptFunc,
-        MapLenFunc, MapSubscriptFunc, PyComparisonOp, Representable, RichCompareFunc,
-        SeqAssItemFunc, SeqConcatFunc, SeqContainsFunc, SeqItemFunc, SeqLenFunc, SeqRepeatFunc,
-        SetattroFunc, StringifyFunc,
+        MapLenFunc, MapSubscriptFunc, PyComparisonOp, RichCompareFunc, SeqAssItemFunc,
+        SeqConcatFunc, SeqContainsFunc, SeqItemFunc, SeqLenFunc, SeqRepeatFunc, SetattroFunc,
+        StringifyFunc,
     },
 };
 use core::mem::{align_of, size_of};
@@ -133,7 +133,7 @@ impl PyMethodDescriptor {
 }
 
 #[pyclass(
-    with(GetDescriptor, Callable, Representable),
+    with(GetDescriptor, Callable),
     flags(METHOD_DESCRIPTOR, DISALLOW_INSTANTIATION)
 )]
 impl Py<PyMethodDescriptor> {
@@ -164,16 +164,15 @@ impl Py<PyMethodDescriptor> {
             (self.common.typ.to_owned(), self.method.name),
         ))
     }
-}
 
-impl Representable for PyMethodDescriptor {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        format!(
             "<method '{}' of '{}' objects>",
             zelf.method.name,
             zelf.common.typ.name()
-        ))
+        )
     }
 }
 
@@ -283,10 +282,7 @@ impl Callable for PyClassMethodDescriptor {
     }
 }
 
-#[pyclass(
-    with(GetDescriptor, Callable, Representable),
-    flags(DISALLOW_INSTANTIATION)
-)]
+#[pyclass(with(GetDescriptor, Callable), flags(DISALLOW_INSTANTIATION))]
 impl Py<PyClassMethodDescriptor> {
     #[pygetset]
     fn __qualname__(&self) -> String {
@@ -303,16 +299,15 @@ impl Py<PyClassMethodDescriptor> {
         let doc = self.method.doc?;
         type_::get_text_signature_from_internal_doc(self.method.name, doc)
     }
-}
 
-impl Representable for PyClassMethodDescriptor {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        format!(
             "<method '{}' of '{}' objects>",
             zelf.method.name,
             zelf.common.typ.name()
-        ))
+        )
     }
 }
 
@@ -828,7 +823,7 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
     }
 }
 
-#[pyclass(with(GetDescriptor, Representable), flags(DISALLOW_INSTANTIATION))]
+#[pyclass(with(GetDescriptor), flags(DISALLOW_INSTANTIATION))]
 impl Py<PyMemberDescriptor> {
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
@@ -884,6 +879,16 @@ impl Py<PyMemberDescriptor> {
         }
 
         zelf.set(obj, value, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        format!(
+            "<member '{}' of '{}' objects>",
+            zelf.common.name,
+            zelf.common.typ.slot_name(),
+        )
     }
 }
 
@@ -1503,17 +1508,6 @@ fn member_ulonglong_value(
     Ok((stored, None))
 }
 
-impl Representable for PyMemberDescriptor {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
-            "<member '{}' of '{}' objects>",
-            zelf.common.name,
-            zelf.common.typ.slot_name(),
-        ))
-    }
-}
-
 impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
         zelf: &PyObject,
@@ -2069,7 +2063,7 @@ impl Callable for PyWrapper {
 }
 
 #[pyclass(
-    with(GetDescriptor, Callable, Representable),
+    with(GetDescriptor, Callable),
     flags(DISALLOW_INSTANTIATION, METHOD_DESCRIPTOR)
 )]
 impl Py<PyWrapper> {
@@ -2104,16 +2098,15 @@ impl Py<PyWrapper> {
                 .map(|signature| signature.to_string())
         })
     }
-}
 
-impl Representable for PyWrapper {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        format!(
             "<slot wrapper '{}' of '{}' objects>",
             zelf.name.as_str(),
             zelf.typ.name()
-        ))
+        )
     }
 }
 
@@ -2153,10 +2146,7 @@ impl Callable for PyMethodWrapper {
     }
 }
 
-#[pyclass(
-    with(Callable, Representable, Hashable, Comparable),
-    flags(DISALLOW_INSTANTIATION)
-)]
+#[pyclass(with(Callable, Hashable, Comparable), flags(DISALLOW_INSTANTIATION))]
 impl Py<PyMethodWrapper> {
     #[pygetset]
     fn __name__(&self) -> &'static PyStrInterned {
@@ -2206,17 +2196,16 @@ impl Py<PyMethodWrapper> {
             ])
             .into())
     }
-}
 
-impl Representable for PyMethodWrapper {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(format!(
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        format!(
             "<method-wrapper '{}' of {} object at {:#x}>",
             zelf.wrapper.name.as_str(),
             zelf.obj.class().name(),
             zelf.obj.get_id()
-        ))
+        )
     }
 }
 

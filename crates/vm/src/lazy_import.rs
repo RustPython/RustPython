@@ -11,7 +11,7 @@ use crate::{
         wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
     },
     frame,
-    types::{Constructor, GetAttr, Representable},
+    types::{Constructor, GetAttr},
 };
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
@@ -192,12 +192,17 @@ impl PyLazyImport {
     }
 }
 
-#[pyclass(with(Constructor, GetAttr, Representable))]
+#[pyclass(with(Constructor, GetAttr))]
 impl Py<PyLazyImport> {
     /// Resolve this import and return its value without changing a containing dictionary.
     #[pymethod]
     fn resolve(&self, vm: &VirtualMachine) -> PyResult {
         resolve(self, vm)
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> Wtf8Buf {
+        wtf8_concat!("<lazy_import '", zelf.display_name(), "'>")
     }
 }
 
@@ -219,12 +224,6 @@ impl GetAttr for PyLazyImport {
             " on unresolved lazy import ",
             vm.ctx.new_str(zelf.display_name()).repr(vm)?,
         )))
-    }
-}
-
-impl Representable for PyLazyImport {
-    fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        Ok(wtf8_concat!("<lazy_import '", zelf.display_name(), "'>"))
     }
 }
 

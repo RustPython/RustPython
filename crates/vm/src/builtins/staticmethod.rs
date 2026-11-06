@@ -10,7 +10,7 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     function::{FuncArgs, PySetterValue},
     object::PyAtomicRef,
-    types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
+    types::{Callable, Constructor, GetDescriptor, Initializer},
 };
 
 #[pyclass(module = false, name = "staticmethod", traverse)]
@@ -95,7 +95,7 @@ impl Initializer for PyStaticMethod {
 }
 
 #[pyclass(
-    with(Callable, GetDescriptor, Constructor, Initializer, Representable),
+    with(Callable, GetDescriptor, Constructor, Initializer),
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl Py<PyStaticMethod> {
@@ -156,21 +156,11 @@ impl Py<PyStaticMethod> {
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
     }
-}
 
-impl Callable for PyStaticMethod {
-    type Args = FuncArgs;
-    #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.load_owned();
-        callable.call(args, vm)
-    }
-}
-
-impl Representable for PyStaticMethod {
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
         let callable = zelf.callable.load_owned().repr(vm)?;
-        let class = Self::class(&vm.ctx);
+        let class = PyStaticMethod::class(&vm.ctx);
 
         let module = class.__module__(vm)?;
         match (
@@ -186,6 +176,15 @@ impl Representable for PyStaticMethod {
             }
             _ => Ok(format!("<{}({})>", class.slot_name(), callable)),
         }
+    }
+}
+
+impl Callable for PyStaticMethod {
+    type Args = FuncArgs;
+    #[inline]
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let callable = zelf.callable.load_owned();
+        callable.call(args, vm)
     }
 }
 

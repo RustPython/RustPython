@@ -5,7 +5,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
     protocol::PyNumberMethods,
-    types::{AsNumber, Constructor, Representable},
+    types::{AsNumber, Constructor},
 };
 use core::fmt::{Debug, Formatter};
 use num_traits::Zero;
@@ -114,7 +114,7 @@ impl Constructor for PyBool {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Representable), flags(_MATCH_SELF))]
+#[pyclass(with(Constructor, AsNumber), flags(_MATCH_SELF))]
 impl Py<PyBool> {
     #[pymethod]
     fn __format__(
@@ -128,6 +128,17 @@ impl Py<PyBool> {
             .map_err(|err| {
                 crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
             })
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyStrRef {
+        let name = if get_value(zelf.as_object()) {
+            vm.ctx.names.True
+        } else {
+            vm.ctx.names.False
+        };
+        name.to_owned()
     }
 }
 
@@ -184,23 +195,6 @@ impl AsNumber for PyBool {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
-    }
-}
-
-impl Representable for PyBool {
-    #[inline]
-    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let name = if get_value(zelf.as_object()) {
-            vm.ctx.names.True
-        } else {
-            vm.ctx.names.False
-        };
-        Ok(name.to_owned())
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use slot_repr instead")
     }
 }
 

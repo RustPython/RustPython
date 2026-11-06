@@ -13,7 +13,7 @@ use crate::{
         PyComparisonValue,
     },
     protocol::PyNumberMethods,
-    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp},
 };
 
 use core::cell::Cell;
@@ -334,7 +334,7 @@ struct RoundArgs {
 
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
-    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+    with(Comparable, Hashable, Constructor, AsNumber)
 )]
 impl Py<PyFloat> {
     #[pymethod]
@@ -494,6 +494,12 @@ impl Py<PyFloat> {
     fn __getnewargs__(&self, vm: &VirtualMachine) -> PyObjectRef {
         (self.value,).to_pyobject(vm)
     }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        crate::literal::float::to_string(zelf.to_f64())
+    }
 }
 
 impl Comparable for PyFloat {
@@ -586,13 +592,6 @@ impl AsNumber for PyFloat {
     #[inline]
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.new_float(zelf.to_f64())
-    }
-}
-
-impl Representable for PyFloat {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(crate::literal::float::to_string(zelf.to_f64()))
     }
 }
 

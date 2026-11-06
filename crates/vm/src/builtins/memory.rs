@@ -25,7 +25,7 @@ use crate::{
     sliceable::SequenceIndexOp,
     types::{
         AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter,
+        PyComparisonOp, SelfIter,
     },
 };
 use core::{cmp::Ordering, fmt::Debug, ops::Range};
@@ -801,12 +801,21 @@ impl PyMemoryView {
         AsMapping,
         AsSequence,
         Constructor,
-        Iterable,
-        Representable
+        Iterable
     ),
     flags(SEQUENCE, HAS_WEAKREF)
 )]
-impl PyMemoryView {}
+impl PyMemoryView {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+        if zelf.released.load() {
+            format!("<released memory at {:#x}>", zelf.get_id())
+        } else {
+            format!("<memory at {:#x}>", zelf.get_id())
+        }
+    }
+}
 
 #[pyclass]
 impl Py<PyMemoryView> {
@@ -1439,18 +1448,6 @@ impl PyPayload for PyMemoryView {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.memoryview_type
-    }
-}
-
-impl Representable for PyMemoryView {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let repr = if zelf.released.load() {
-            format!("<released memory at {:#x}>", zelf.get_id())
-        } else {
-            format!("<memory at {:#x}>", zelf.get_id())
-        };
-        Ok(repr)
     }
 }
 

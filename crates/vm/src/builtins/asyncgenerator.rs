@@ -12,7 +12,7 @@ use crate::{
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
-    types::{Destructor, IterNext, Iterable, Representable, SelfIter},
+    types::{Destructor, IterNext, Iterable, SelfIter},
 };
 
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -125,7 +125,7 @@ impl PyAsyncGen {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(PyRef, Representable, Destructor)
+    with(PyRef, Destructor)
 )]
 impl Py<PyAsyncGen> {
     #[pygetset]
@@ -185,6 +185,12 @@ impl Py<PyAsyncGen> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> String {
+        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
     }
 }
 
@@ -250,13 +256,6 @@ impl PyRef<PyAsyncGen> {
                 vm.ctx.none(),
             ),
         })
-    }
-}
-
-impl Representable for PyAsyncGen {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
     }
 }
 

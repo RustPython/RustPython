@@ -15,7 +15,7 @@ mod _js {
         convert::{IntoObject, ToPyObject},
         function::{ArgCallable, OptionalArg, PosArgs},
         protocol::PyIterReturn,
-        types::{IterNext, Representable, SelfIter},
+        types::{IterNext, SelfIter},
     };
     use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
     use wasm_bindgen_futures::{JsFuture, future_to_promise};
@@ -97,8 +97,14 @@ mod _js {
         }
     }
 
-    #[pyclass(with(Representable))]
+    #[pyclass]
     impl PyJsValue {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("{:?}", zelf.value)
+        }
+
         #[inline]
         pub(crate) fn new(value: impl Into<JsValue>) -> Self {
             let value = value.into();
@@ -281,13 +287,6 @@ mod _js {
         #[pymethod]
         fn instanceof(zelf: &Py<Self>, rhs: PyJsValueRef, vm: &VirtualMachine) -> PyResult<bool> {
             instance_of(&zelf.value, &rhs.value).map_err(|err| new_js_error(vm, err))
-        }
-    }
-
-    impl Representable for PyJsValue {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("{:?}", zelf.value))
         }
     }
 

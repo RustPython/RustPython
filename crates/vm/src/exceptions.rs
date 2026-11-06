@@ -15,7 +15,7 @@ use crate::{
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
-    types::{Callable, Constructor, Initializer, Representable},
+    types::{Callable, Constructor, Initializer},
 };
 use core::fmt::{self, Display, Formatter};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -810,10 +810,18 @@ impl PyBaseException {
 }
 
 #[pyclass(
-    with(Py, PyRef, Constructor, Initializer, Representable),
+    with(Py, PyRef, Constructor, Initializer),
     flags(BASETYPE, HAS_DICT, BASE_EXC_SUBCLASS)
 )]
-impl PyBaseException {}
+impl PyBaseException {
+    #[inline]
+    #[pymethod]
+    pub(crate) fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> String {
+        let repr_args = vm.exception_args_as_string(&zelf.args(), false);
+        let cls = zelf.class();
+        format!("{}({})", cls.name(), repr_args.iter().format(", "))
+    }
+}
 
 #[pyclass]
 impl Py<PyBaseException> {
@@ -1015,15 +1023,6 @@ impl Initializer for PyBaseException {
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.set_args_tuple(PyTuple::new_ref(args.args, &vm.ctx));
         Ok(())
-    }
-}
-
-impl Representable for PyBaseException {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let repr_args = vm.exception_args_as_string(&zelf.args(), false);
-        let cls = zelf.class();
-        Ok(format!("{}({})", cls.name(), repr_args.iter().format(", ")))
     }
 }
 
@@ -1841,7 +1840,7 @@ pub(super) mod types {
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
-        types::{Constructor, Initializer, Representable},
+        types::{Constructor, Initializer},
     };
     use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
@@ -2230,35 +2229,7 @@ pub(super) mod types {
         }
     }
 
-    impl Representable for PyImportError {
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let base: &Py<PyBaseException> = zelf
-                .as_object()
-                .downcast_ref()
-                .expect("ImportError is a BaseException");
-            let mut has_args = !base.args().is_empty();
-            if zelf.name.load_owned().is_none() && zelf.path.load_owned().is_none() {
-                return PyBaseException::repr_wtf8(base, vm);
-            }
-            let mut result = PyBaseException::repr_wtf8(base, vm)?;
-            result.pop();
-            for (name, field) in [("name", &zelf.name), ("path", &zelf.path)] {
-                if let Some(value) = field.load_owned() {
-                    if has_args {
-                        result.push_str(", ");
-                    }
-                    result.push_str(name);
-                    result.push_char('=');
-                    result.push_wtf8(value.repr(vm)?.as_wtf8());
-                    has_args = true;
-                }
-            }
-            result.push_char(')');
-            Ok(result)
-        }
-    }
-
-    #[pyexception(with(Constructor, Initializer, Representable))]
+    #[pyexception(with(Constructor, Initializer))]
     impl PyImportError {
         #[pyslot]
         fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -2306,6 +2277,33 @@ pub(super) mod types {
                 result.push(state.into());
             }
             Ok(result.into_pytuple(vm))
+        }
+
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let base: &Py<PyBaseException> = zelf
+                .as_object()
+                .downcast_ref()
+                .expect("ImportError is a BaseException");
+            let mut has_args = !base.args().is_empty();
+            if zelf.name.load_owned().is_none() && zelf.path.load_owned().is_none() {
+                return Ok(PyBaseException::__repr__(base, vm).into());
+            }
+            let mut result = Wtf8Buf::from(PyBaseException::__repr__(base, vm));
+            result.pop();
+            for (name, field) in [("name", &zelf.name), ("path", &zelf.path)] {
+                if let Some(value) = field.load_owned() {
+                    if has_args {
+                        result.push_str(", ");
+                    }
+                    result.push_str(name);
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
+                    has_args = true;
+                }
+            }
+            result.push_char(')');
+            Ok(result)
         }
     }
 

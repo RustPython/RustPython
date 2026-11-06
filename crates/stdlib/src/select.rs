@@ -759,7 +759,7 @@ mod decl {
             common::lock::PyRwLock,
             convert::{IntoPyException, ToPyObject},
             function::PyComparisonValue,
-            types::{Comparable, Constructor, Destructor, PyComparisonOp, Representable},
+            types::{Comparable, Constructor, Destructor, PyComparisonOp},
         };
         use alloc::sync::Arc;
         use core::sync::atomic::{
@@ -836,8 +836,17 @@ mod decl {
             }
         }
 
-        #[pyclass(with(Constructor, Comparable, Representable))]
+        #[pyclass(with(Constructor, Comparable))]
         impl PyKevent {
+            #[pymethod]
+            fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+                let e = zelf.event();
+                format!(
+                    "<select.kevent ident={} filter={} flags=0x{:x} fflags=0x{:x} data=0x{:x} udata={:p}>",
+                    e.ident, e.filter, e.flags, e.fflags, e.data, e.udata as *const (),
+                )
+            }
+
             pub(super) fn event(&self) -> host_select::kqueue::Event {
                 host_select::kqueue::Event {
                     ident: self.ident.load(Ordering::Relaxed) as usize,
@@ -880,16 +889,6 @@ mod decl {
                     .then_with(|| a.data.cmp(&b.data))
                     .then_with(|| a.udata.cmp(&b.udata));
                 Ok(PyComparisonValue::Implemented(op.eval_ord(ord)))
-            }
-        }
-
-        impl Representable for PyKevent {
-            fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-                let e = zelf.event();
-                Ok(format!(
-                    "<select.kevent ident={} filter={} flags=0x{:x} fflags=0x{:x} data=0x{:x} udata={:p}>",
-                    e.ident, e.filter, e.flags, e.fflags, e.data, e.udata as *const (),
-                ))
             }
         }
 

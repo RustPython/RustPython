@@ -15,7 +15,7 @@ use crate::{
     class::StaticType,
     function::FuncArgs,
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
-    types::{AsBuffer, AsNumber, AsSequence, Callable, Constructor, Initializer, Representable},
+    types::{AsBuffer, AsNumber, AsSequence, Callable, Constructor, Initializer},
     vm::thread::with_current_vm,
 };
 use alloc::borrow::Cow;
@@ -1822,14 +1822,6 @@ impl Callable for PyCFuncPtr {
 }
 
 // PyCFuncPtr_repr
-impl Representable for PyCFuncPtr {
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let type_name = zelf.class().name();
-        // Use object id, not function pointer address
-        let addr = zelf.get_id();
-        Ok(format!("<{type_name} object at {addr:#x}>"))
-    }
-}
 
 // PyCData_NewGetBuffer
 impl AsBuffer for PyCFuncPtr {
@@ -1853,10 +1845,7 @@ impl AsBuffer for PyCFuncPtr {
     }
 }
 
-#[pyclass(
-    flags(BASETYPE),
-    with(Callable, Constructor, AsNumber, Representable, AsBuffer)
-)]
+#[pyclass(flags(BASETYPE), with(Callable, Constructor, AsNumber, AsBuffer))]
 impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
@@ -1942,6 +1931,14 @@ impl Py<PyCFuncPtr> {
         zelf.class()
             .stg_info_opt()
             .map_or(StgInfoFlags::empty().bits(), |stg| stg.flags.bits())
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> String {
+        let type_name = zelf.class().name();
+        // Use object id, not function pointer address
+        let addr = zelf.get_id();
+        format!("<{type_name} object at {addr:#x}>")
     }
 }
 

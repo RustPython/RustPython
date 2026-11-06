@@ -5,7 +5,7 @@ use crate::{
     common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{Callee, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
-    types::{Callable, Comparable, PyComparisonOp, Representable},
+    types::{Callable, Comparable, PyComparisonOp},
 };
 use alloc::fmt;
 
@@ -134,30 +134,8 @@ impl Comparable for PyNativeFunction {
 }
 
 // meth_repr in CPython
-impl Representable for PyNativeFunction {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        if let Some(bound) = zelf
-            .zelf
-            .as_ref()
-            .filter(|b| !b.class().is_subtype(vm.ctx.types.module_type))
-        {
-            Ok(format!(
-                "<built-in method {} of {} object at {:#x}>",
-                zelf.value.name,
-                bound.class().name(),
-                bound.get_id()
-            ))
-        } else {
-            Ok(format!("<built-in function {}>", zelf.value.name))
-        }
-    }
-}
 
-#[pyclass(
-    with(Callable, Comparable, Representable),
-    flags(HAS_WEAKREF, DISALLOW_INSTANTIATION)
-)]
+#[pyclass(with(Callable, Comparable), flags(HAS_WEAKREF, DISALLOW_INSTANTIATION))]
 impl PyNativeFunction {
     #[pygetset]
     fn __name__(zelf: NativeFunctionOrMethod) -> &'static str {
@@ -229,6 +207,25 @@ impl PyNativeFunction {
     fn __text_signature__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
         let doc = zelf.0.value.doc?;
         type_::get_text_signature_from_internal_doc(zelf.0.value.name, doc)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> String {
+        if let Some(bound) = zelf
+            .zelf
+            .as_ref()
+            .filter(|b| !b.class().is_subtype(vm.ctx.types.module_type))
+        {
+            format!(
+                "<built-in method {} of {} object at {:#x}>",
+                zelf.value.name,
+                bound.class().name(),
+                bound.get_id()
+            )
+        } else {
+            format!("<built-in function {}>", zelf.value.name)
+        }
     }
 }
 

@@ -39,7 +39,7 @@ pub(crate) mod decl {
         common::wtf8::Wtf8Buf,
         function::{FuncArgs, OptionalArg, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods},
-        types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
+        types::{AsMapping, AsNumber, Callable, Constructor, Iterable},
     };
 
     #[pyfunction]
@@ -61,11 +61,17 @@ pub(crate) mod decl {
     #[derive(Debug, PyPayload)]
     pub struct NoDefault;
 
-    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl Py<NoDefault> {
         #[pymethod]
         fn __reduce__(&self, _vm: &VirtualMachine) -> String {
             "NoDefault".to_owned()
+        }
+
+        #[inline(always)]
+        #[pymethod]
+        fn __repr__(_zelf: &Self, _vm: &VirtualMachine) -> String {
+            "typing.NoDefault".to_owned()
         }
     }
 
@@ -82,13 +88,6 @@ pub(crate) mod decl {
         }
     }
 
-    impl Representable for NoDefault {
-        #[inline(always)]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("typing.NoDefault".to_owned())
-        }
-    }
-
     #[pyattr]
     #[pyclass(name = "_ConstEvaluator", module = "_typing")]
     #[derive(Debug, PyPayload)]
@@ -96,8 +95,14 @@ pub(crate) mod decl {
         value: PyObjectRef,
     }
 
-    #[pyclass(with(Constructor, Callable, Representable), flags(IMMUTABLETYPE))]
-    impl ConstEvaluator {}
+    #[pyclass(with(Constructor, Callable), flags(IMMUTABLETYPE))]
+    impl ConstEvaluator {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let value_repr = zelf.value.repr(vm)?;
+            Ok(format!("<constevaluator {value_repr}>"))
+        }
+    }
 
     impl Constructor for ConstEvaluator {
         type Args = FuncArgs;
@@ -179,13 +184,6 @@ pub(crate) mod decl {
             Ok(vm.ctx.new_str(format!("({inner})")).into())
         } else {
             Ok(vm.ctx.new_str(typing_type_repr(value, vm)?).into())
-        }
-    }
-
-    impl Representable for ConstEvaluator {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let value_repr = zelf.value.repr(vm)?;
-            Ok(format!("<constevaluator {value_repr}>"))
         }
     }
 
@@ -316,10 +314,7 @@ pub(crate) mod decl {
         }
     }
 
-    #[pyclass(
-        with(Constructor, Representable, AsMapping, AsNumber, Iterable),
-        flags(IMMUTABLETYPE)
-    )]
+    #[pyclass(with(Constructor, AsMapping, AsNumber, Iterable), flags(IMMUTABLETYPE))]
     impl Py<TypeAliasType> {
         #[pygetset]
         fn __value__(&self, vm: &VirtualMachine) -> PyResult {
@@ -381,6 +376,11 @@ pub(crate) mod decl {
                 return self.compute_value.clone();
             }
             const_evaluator_alloc(self.compute_value.clone(), vm)
+        }
+
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> Wtf8Buf {
+            zelf.qualname.as_wtf8().to_owned()
         }
     }
 
@@ -448,12 +448,6 @@ pub(crate) mod decl {
                 value,
                 module,
             ))
-        }
-    }
-
-    impl Representable for TypeAliasType {
-        fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            Ok(zelf.qualname.as_wtf8().to_owned())
         }
     }
 

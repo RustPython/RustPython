@@ -32,7 +32,7 @@ pub(crate) mod _elementtree {
         sliceable::{NameElement, SequenceIndex, SliceableSequenceOp},
         types::{
             AsMapping, AsNumber, AsSequence, Constructor, DefaultConstructor, Initializer,
-            IterNext, Iterable, Representable, SelfIter,
+            IterNext, Iterable, SelfIter,
         },
     };
     use rustpython_common::{lock::PyRwLock, wtf8::Wtf8Buf};
@@ -490,17 +490,20 @@ pub(crate) mod _elementtree {
     }
 
     #[pyclass(
-        with(
-            Constructor,
-            Initializer,
-            AsMapping,
-            AsSequence,
-            AsNumber,
-            Representable
-        ),
+        with(Constructor, Initializer, AsMapping, AsSequence, AsNumber),
         flags(BASETYPE, HAS_WEAKREF)
     )]
     impl PyElement {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let tag = zelf.tag_obj();
+            Ok(format!(
+                "<Element {} at {:#x}>",
+                tag.repr(vm)?,
+                zelf.get_id()
+            ))
+        }
+
         #[pygetset]
         fn tag(zelf: &Py<Self>) -> PyObjectRef {
             zelf.inner.read().tag.clone()
@@ -1308,17 +1311,6 @@ pub(crate) mod _elementtree {
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
-        }
-    }
-
-    impl Representable for PyElement {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let tag = zelf.tag_obj();
-            Ok(format!(
-                "<Element {} at {:#x}>",
-                tag.repr(vm)?,
-                zelf.get_id()
-            ))
         }
     }
 

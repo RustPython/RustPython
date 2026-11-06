@@ -16,7 +16,7 @@ use crate::{
     frozen,
     function::OptionalArg,
     object::{Traverse, TraverseFn},
-    types::{Comparable, Constructor, Hashable, Representable},
+    types::{Comparable, Constructor, Hashable},
 };
 use alloc::fmt;
 use core::{
@@ -918,24 +918,6 @@ impl PyPayload for PyCode {
     }
 }
 
-impl Representable for PyCode {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let code = &zelf.code;
-        let mut repr = Wtf8Buf::from(format!(
-            "<code object {} at {:#x}, file \"",
-            code.obj_name,
-            zelf.get_id(),
-        ));
-        repr.push_wtf8(zelf.source_path().as_wtf8());
-        repr.push_str(&format!(
-            "\", line {}>",
-            code.first_line_number.map_or(-1, |n| n.get() as i32)
-        ));
-        Ok(repr)
-    }
-}
-
 /// `_PyCode_ConstantKey`
 pub(crate) fn constant_key(op: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     use super::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PySlice, PyStr, PyTuple};
@@ -1242,7 +1224,7 @@ impl PyCode {
 
 #[pyclass(
     itemsize = core::mem::size_of::<u16>(),
-    with(Representable, Constructor, Comparable, Hashable),
+    with(Constructor, Comparable, Hashable),
     flags(HAS_WEAKREF)
 )]
 impl Py<PyCode> {
@@ -1846,6 +1828,23 @@ impl Py<PyCode> {
                 .ok_or_else(|| idx_err(vm))?
         };
         Ok(name.to_object())
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> Wtf8Buf {
+        let code = &zelf.code;
+        let mut repr = Wtf8Buf::from(format!(
+            "<code object {} at {:#x}, file \"",
+            code.obj_name,
+            zelf.get_id(),
+        ));
+        repr.push_wtf8(zelf.source_path().as_wtf8());
+        repr.push_str(&format!(
+            "\", line {}>",
+            code.first_line_number.map_or(-1, |n| n.get() as i32)
+        ));
+        repr
     }
 }
 

@@ -9,9 +9,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
-    types::{
-        Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
-    },
+    types::{Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp},
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
@@ -126,14 +124,7 @@ impl Comparable for PyWeak {
 }
 
 #[pyclass(
-    with(
-        Callable,
-        Comparable,
-        Hashable,
-        Constructor,
-        Initializer,
-        Representable
-    ),
+    with(Callable, Comparable, Hashable, Constructor, Initializer,),
     flags(BASETYPE)
 )]
 impl Py<PyWeak> {
@@ -149,6 +140,28 @@ impl Py<PyWeak> {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let id = zelf.get_id();
+        let Some(obj) = zelf.upgrade() else {
+            return Ok(format!("<weakref at {id:#x}; dead>").into());
+        };
+        let type_name = obj.class().fully_qualified_name(vm)?;
+        let obj_id = obj.get_id();
+        let suffix = match instance_name(&obj, vm)? {
+            Some(name) => wtf8_concat!(" (", name, ")"),
+            None => Wtf8Buf::new(),
+        };
+        Ok(wtf8_concat!(
+            format!("<weakref at {id:#x}; to '"),
+            type_name,
+            format!("' at {obj_id:#x}"),
+            suffix,
+            ">"
+        ))
     }
 }
 
@@ -184,29 +197,6 @@ fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Wtf8Buf
     Ok(attr
         .downcast_ref::<crate::builtins::PyStr>()
         .map(|name| name.as_wtf8().to_owned()))
-}
-
-impl Representable for PyWeak {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let id = zelf.get_id();
-        let Some(obj) = zelf.upgrade() else {
-            return Ok(format!("<weakref at {id:#x}; dead>").into());
-        };
-        let type_name = obj.class().fully_qualified_name(vm)?;
-        let obj_id = obj.get_id();
-        let suffix = match instance_name(&obj, vm)? {
-            Some(name) => wtf8_concat!(" (", name, ")"),
-            None => Wtf8Buf::new(),
-        };
-        Ok(wtf8_concat!(
-            format!("<weakref at {id:#x}; to '"),
-            type_name,
-            format!("' at {obj_id:#x}"),
-            suffix,
-            ">"
-        ))
-    }
 }
 
 pub(crate) fn init(context: &'static Context) {

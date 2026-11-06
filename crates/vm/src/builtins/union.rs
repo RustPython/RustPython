@@ -10,7 +10,7 @@ use crate::{
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
     stdlib::_typing::{TypeAliasType, call_typing_func_object},
-    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
+    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp},
 };
 use alloc::fmt;
 
@@ -100,7 +100,7 @@ impl PyUnion {
 
 #[pyclass(
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(Hashable, Comparable, AsMapping, AsNumber, Representable)
+    with(Hashable, Comparable, AsMapping, AsNumber)
 )]
 impl Py<PyUnion> {
     #[pygetset]
@@ -181,6 +181,12 @@ impl Py<PyUnion> {
             builder.add(&object, vm)?;
         }
         builder.finish(vm)
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
     }
 }
 
@@ -451,13 +457,6 @@ impl GetAttr for PyUnion {
             }
         }
         zelf.as_object().get_attr(attr, vm)
-    }
-}
-
-impl Representable for PyUnion {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.repr(vm)
     }
 }
 

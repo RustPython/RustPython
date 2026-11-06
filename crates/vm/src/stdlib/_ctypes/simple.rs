@@ -11,7 +11,7 @@ use crate::class::StaticType;
 use crate::convert::{ToPyObject, TryFromObject};
 use crate::function::{ArgIntoFloat, Either, FuncArgs, KwArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods};
-use crate::types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer, Representable};
+use crate::types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, set_attrs,
 };
@@ -746,36 +746,8 @@ impl Initializer for PyCSimple {
 }
 
 // Simple_repr
-impl Representable for PyCSimple {
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let cls = zelf.class();
-        let type_name = cls.name();
 
-        // Check if base is _SimpleCData (direct simple type like c_int, c_char)
-        // vs subclass of simple type (like class X(c_int): pass)
-        let bases = cls.bases.read();
-        let is_direct_simple = bases
-            .as_slice()
-            .iter()
-            .any(|base| base.name().to_string() == "_SimpleCData");
-
-        if is_direct_simple {
-            // Direct SimpleCData: "typename(repr(value))"
-            let value = Py::<Self>::value(zelf.to_owned().into(), vm)?;
-            let value_repr = value.repr(vm)?.to_string();
-            Ok(format!("{type_name}({value_repr})"))
-        } else {
-            // Subclass: "<typename object at addr>"
-            let addr = zelf.get_id();
-            Ok(format!("<{type_name} object at {addr:#x}>"))
-        }
-    }
-}
-
-#[pyclass(
-    flags(BASETYPE),
-    with(Constructor, Initializer, AsBuffer, AsNumber, Representable)
-)]
+#[pyclass(flags(BASETYPE), with(Constructor, Initializer, AsBuffer, AsNumber))]
 impl Py<PyCSimple> {
     #[pygetset]
     fn _b0_(&self) -> Option<PyObjectRef> {
@@ -911,6 +883,31 @@ impl Py<PyCSimple> {
         } else {
             // Direct simple type (e.g., c_int): return value
             Self::value(zelf.into(), vm)
+        }
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+        let cls = zelf.class();
+        let type_name = cls.name();
+
+        // Check if base is _SimpleCData (direct simple type like c_int, c_char)
+        // vs subclass of simple type (like class X(c_int): pass)
+        let bases = cls.bases.read();
+        let is_direct_simple = bases
+            .as_slice()
+            .iter()
+            .any(|base| base.name().to_string() == "_SimpleCData");
+
+        if is_direct_simple {
+            // Direct SimpleCData: "typename(repr(value))"
+            let value = Self::value(zelf.to_owned().into(), vm)?;
+            let value_repr = value.repr(vm)?.to_string();
+            Ok(format!("{type_name}({value_repr})"))
+        } else {
+            // Subclass: "<typename object at addr>"
+            let addr = zelf.get_id();
+            Ok(format!("<{type_name} object at {addr:#x}>"))
         }
     }
 }

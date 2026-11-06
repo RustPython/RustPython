@@ -9,7 +9,7 @@ use crate::{
     common::lock::LazyLock,
     function::FuncArgs,
     protocol::{PyIterReturn, PySequenceMethods},
-    types::{AsSequence, Constructor, IterNext, Iterable, Representable, SelfIter},
+    types::{AsSequence, Constructor, IterNext, Iterable, SelfIter},
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
@@ -163,7 +163,7 @@ impl PyTemplate {
     }
 }
 
-#[pyclass(with(Constructor, Iterable, Representable, AsSequence))]
+#[pyclass(with(Constructor, Iterable, AsSequence))]
 impl Py<PyTemplate> {
     #[pygetset]
     fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
@@ -205,6 +205,20 @@ impl Py<PyTemplate> {
         ]);
         Ok(vm.ctx.new_tuple(vec![unpickle_func, args.into()]))
     }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let strings_repr = zelf.strings.as_object().repr(vm)?;
+        let interp_repr = zelf.interpolations.as_object().repr(vm)?;
+        Ok(wtf8_concat!(
+            "Template(strings=",
+            strings_repr.as_wtf8(),
+            ", interpolations=",
+            interp_repr.as_wtf8(),
+            ')',
+        ))
+    }
 }
 
 impl AsSequence for PyTemplate {
@@ -223,21 +237,6 @@ impl AsSequence for PyTemplate {
 impl Iterable for PyTemplate {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyTemplateIter::new(zelf).into_pyobject(vm))
-    }
-}
-
-impl Representable for PyTemplate {
-    #[inline]
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        let strings_repr = zelf.strings.as_object().repr(vm)?;
-        let interp_repr = zelf.interpolations.as_object().repr(vm)?;
-        Ok(wtf8_concat!(
-            "Template(strings=",
-            strings_repr.as_wtf8(),
-            ", interpolations=",
-            interp_repr.as_wtf8(),
-            ')',
-        ))
     }
 }
 

@@ -16,7 +16,7 @@ use crate::{
         PyComparisonValue, PySsize,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
 };
 use alloc::fmt;
 use core::cell::Cell;
@@ -533,7 +533,7 @@ struct RoundArgs {
 #[pyclass(
     itemsize = 4,
     flags(BASETYPE, _MATCH_SELF, LONG_SUBCLASS),
-    with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
+    with(PyRef, Comparable, Hashable, Constructor, AsNumber)
 )]
 impl Py<PyInt> {
     #[pymethod]
@@ -763,6 +763,13 @@ impl Py<PyInt> {
     fn __getnewargs__(&self, vm: &VirtualMachine) -> PyObjectRef {
         (self.value.clone(),).to_pyobject(vm)
     }
+
+    #[inline]
+    #[pymethod]
+    pub fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+        check_int_to_str_digits(zelf.as_bigint(), vm)?;
+        Ok(zelf.to_str_radix_10())
+    }
 }
 
 #[pyclass]
@@ -814,14 +821,6 @@ pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> Py
         )));
     }
     Ok(())
-}
-
-impl Representable for PyInt {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        check_int_to_str_digits(zelf.as_bigint(), vm)?;
-        Ok(zelf.to_str_radix_10())
-    }
 }
 
 impl Hashable for PyInt {

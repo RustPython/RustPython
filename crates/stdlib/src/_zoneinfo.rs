@@ -25,7 +25,7 @@ mod _zoneinfo {
         function::{ArgIndex, FuncArgs, IntoFuncArgs, KwArgs},
         object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn},
-        types::{Constructor, Representable},
+        types::Constructor,
     };
 
     const EPOCHORDINAL: i64 = 719_163;
@@ -1227,8 +1227,13 @@ mod _zoneinfo {
         }
     }
 
-    impl Representable for ZoneInfo {
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    #[pyclass(
+        with(Constructor),
+        flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE, HEAPTYPE)
+    )]
+    impl ZoneInfo {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let name = zelf.class().fully_qualified_name(vm)?;
             if vm.is_none(&zelf.key) {
                 let file = zelf
@@ -1240,13 +1245,7 @@ mod _zoneinfo {
             let key = zelf.key.repr(vm)?.as_wtf8().to_owned();
             Ok(wtf8_concat!(name, "(key=", key, ")"))
         }
-    }
 
-    #[pyclass(
-        with(Constructor, Representable),
-        flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE, HEAPTYPE)
-    )]
-    impl ZoneInfo {
         #[pyclassmethod]
         fn clear_cache(cls: PyTypeRef, args: ClearCacheArgs, vm: &VirtualMachine) -> PyResult<()> {
             let weak = get_weak_cache(&cls, vm)?;
@@ -1433,7 +1432,7 @@ mod _zoneinfo {
                     zelf.key.class().slot_name()
                 )));
             }
-            Self::repr(zelf, vm)
+            Self::__repr__(zelf, vm).map(|repr| vm.ctx.new_str(repr))
         }
     }
 

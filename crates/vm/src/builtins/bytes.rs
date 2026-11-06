@@ -26,7 +26,7 @@ use crate::{
     sliceable::{NameByte, SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+        IterNext, Iterable, PyComparisonOp, SelfIter,
     },
 };
 use bstr::ByteSlice;
@@ -248,10 +248,15 @@ impl PyBytes {
         Iterable,
         Constructor,
         AsNumber,
-        Representable,
     )
 )]
-impl PyBytes {}
+impl PyBytes {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.payload.inner.repr_bytes(vm)
+    }
+}
 
 #[pyclass]
 impl Py<PyBytes> {
@@ -762,13 +767,6 @@ impl Iterable for PyBytes {
             internal: NativeSequenceIter::new(zelf, NativeIterKind::Sequence, 0),
         }
         .into_pyobject(vm))
-    }
-}
-
-impl Representable for PyBytes {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.payload.inner.repr_bytes(vm)
     }
 }
 

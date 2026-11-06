@@ -22,7 +22,7 @@ mod _datetime {
         },
         function::{ArgumentError, FromArgs, FuncArgs, OptionalArg, Param, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
-        types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+        types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::{BigInt, ToBigInt};
@@ -864,8 +864,10 @@ mod _datetime {
         }
     }
 
-    impl Representable for PyDelta {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+    #[pyclass(with(Constructor, AsNumber, Comparable, Hashable), flags(BASETYPE))]
+    impl PyDelta {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
             let mut args = Vec::new();
             if zelf.days != 0 {
                 args.push(format!("days={}", zelf.days));
@@ -881,15 +883,9 @@ mod _datetime {
             } else {
                 args.join(", ")
             };
-            Ok(format!("{}({args})", type_name(zelf.as_object())))
+            format!("{}({args})", type_name(zelf.as_object()))
         }
-    }
 
-    #[pyclass(
-        with(Constructor, AsNumber, Comparable, Hashable, Representable),
-        flags(BASETYPE)
-    )]
-    impl PyDelta {
         #[pymethod]
         fn total_seconds(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             let us = vm.ctx.new_bigint(&zelf.to_microseconds_big());
@@ -1950,11 +1946,19 @@ mod _datetime {
         Ok(if fold { u1.min(u2) } else { u1.max(u2) })
     }
 
-    #[pyclass(
-        with(Constructor, AsNumber, Comparable, Hashable, Representable),
-        flags(BASETYPE)
-    )]
+    #[pyclass(with(Constructor, AsNumber, Comparable, Hashable), flags(BASETYPE))]
     impl PyDate {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!(
+                "{}({}, {}, {})",
+                type_name(zelf.as_object()),
+                zelf.year,
+                zelf.month,
+                zelf.day
+            )
+        }
+
         #[pyclassmethod]
         fn fromtimestamp(cls: PyTypeRef, timestamp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let t = object_to_time_t(&timestamp, vm)?;
@@ -2272,18 +2276,6 @@ mod _datetime {
         }
     }
 
-    impl Representable for PyDate {
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "{}({}, {}, {})",
-                type_name(zelf.as_object()),
-                zelf.year,
-                zelf.month,
-                zelf.day
-            ))
-        }
-    }
-
     // IsoCalendarDate
 
     #[pyclass(module = "datetime", name = "IsoCalendarDate", base = PyTuple, no_attr)]
@@ -2320,8 +2312,10 @@ mod _datetime {
         }
     }
 
-    impl Representable for PyIsoCalendarDate {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
+    impl PyIsoCalendarDate {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             Ok(format!(
                 "{}(year={}, week={}, weekday={})",
                 type_name(zelf.as_object()),
@@ -2330,10 +2324,7 @@ mod _datetime {
                 zelf.item(2).str(vm)?
             ))
         }
-    }
 
-    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
-    impl PyIsoCalendarDate {
         #[pygetset]
         fn year(zelf: &Py<Self>) -> PyObjectRef {
             zelf.item(0)
@@ -2565,8 +2556,10 @@ mod _datetime {
         }
     }
 
-    impl Representable for PyTimeZone {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pyclass(with(Constructor, Comparable, Hashable))]
+    impl PyTimeZone {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let type_name = type_name(zelf.as_object());
             if zelf.is(utc()) {
                 return Ok(format!("{type_name}.utc"));
@@ -2577,10 +2570,7 @@ mod _datetime {
                 Some(name) => format!("{type_name}({offset}, {})", name.as_object().repr(vm)?),
             })
         }
-    }
 
-    #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
-    impl PyTimeZone {
         #[pymethod]
         fn tzname(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let dt = object;
@@ -2916,11 +2906,23 @@ mod _datetime {
         })
     }
 
-    #[pyclass(
-        with(Constructor, Comparable, Hashable, Representable),
-        flags(BASETYPE)
-    )]
+    #[pyclass(with(Constructor, Comparable, Hashable), flags(BASETYPE))]
     impl PyTime {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = type_name(zelf.as_object());
+            let (h, m, s, us) = (zelf.hour, zelf.minute, zelf.second, zelf.microsecond);
+            let repr = if us != 0 {
+                format!("{type_name}({h}, {m}, {s}, {us})")
+            } else if s != 0 {
+                format!("{type_name}({h}, {m}, {s})")
+            } else {
+                format!("{type_name}({h}, {m})")
+            };
+            let repr = append_keyword_tzinfo(repr, zelf.tzinfo.as_ref(), vm)?;
+            Ok(append_keyword_fold(repr, zelf.fold))
+        }
+
         #[pyclassmethod]
         fn strptime(
             cls: PyTypeRef,
@@ -3184,22 +3186,6 @@ mod _datetime {
             };
             zelf.hashcode.store(hash);
             Ok(hash)
-        }
-    }
-
-    impl Representable for PyTime {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let type_name = type_name(zelf.as_object());
-            let (h, m, s, us) = (zelf.hour, zelf.minute, zelf.second, zelf.microsecond);
-            let repr = if us != 0 {
-                format!("{type_name}({h}, {m}, {s}, {us})")
-            } else if s != 0 {
-                format!("{type_name}({h}, {m}, {s})")
-            } else {
-                format!("{type_name}({h}, {m})")
-            };
-            let repr = append_keyword_tzinfo(repr, zelf.tzinfo.as_ref(), vm)?;
-            Ok(append_keyword_fold(repr, zelf.fold))
         }
     }
 
@@ -3758,11 +3744,23 @@ mod _datetime {
         8
     }
 
-    #[pyclass(
-        with(Constructor, AsNumber, Comparable, Hashable, Representable),
-        flags(BASETYPE)
-    )]
+    #[pyclass(with(Constructor, AsNumber, Comparable, Hashable), flags(BASETYPE))]
     impl PyDateTime {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = type_name(zelf.as_object());
+            let (y, mo, d, h, mi, s, us) = zelf.fields();
+            let repr = if us != 0 {
+                format!("{type_name}({y}, {mo}, {d}, {h}, {mi}, {s}, {us})")
+            } else if s != 0 {
+                format!("{type_name}({y}, {mo}, {d}, {h}, {mi}, {s})")
+            } else {
+                format!("{type_name}({y}, {mo}, {d}, {h}, {mi})")
+            };
+            let repr = append_keyword_fold(repr, zelf.fold);
+            append_keyword_tzinfo(repr, zelf.tzinfo.load_owned().as_ref(), vm)
+        }
+
         #[pyclassmethod]
         fn now(cls: PyTypeRef, args: NowArgs, vm: &VirtualMachine) -> PyResult {
             let tz = args.tz.unwrap_or_else(|| vm.ctx.none());
@@ -4391,22 +4389,6 @@ mod _datetime {
             };
             zelf.date.hashcode.store(hash);
             Ok(hash)
-        }
-    }
-
-    impl Representable for PyDateTime {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let type_name = type_name(zelf.as_object());
-            let (y, mo, d, h, mi, s, us) = zelf.fields();
-            let repr = if us != 0 {
-                format!("{type_name}({y}, {mo}, {d}, {h}, {mi}, {s}, {us})")
-            } else if s != 0 {
-                format!("{type_name}({y}, {mo}, {d}, {h}, {mi}, {s})")
-            } else {
-                format!("{type_name}({y}, {mo}, {d}, {h}, {mi})")
-            };
-            let repr = append_keyword_fold(repr, zelf.fold);
-            append_keyword_tzinfo(repr, zelf.tzinfo.load_owned().as_ref(), vm)
         }
     }
 

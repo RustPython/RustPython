@@ -7,7 +7,6 @@ mod _symtable {
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyStrRef, PyUtf8StrRef},
         compiler,
         function::{ArgStrOrBytesLike, FsPath},
-        types::Representable,
         vm::VmCompileError,
     };
     use alloc::fmt;
@@ -255,7 +254,7 @@ mod _symtable {
         }
     }
 
-    #[pyclass(with(Representable))]
+    #[pyclass(with())]
     impl Py<PySymbolTable> {
         #[pygetset]
         fn name(&self) -> String {
@@ -313,18 +312,17 @@ mod _symtable {
         fn nested(&self) -> bool {
             self.symtable.is_nested
         }
-    }
 
-    impl Representable for PySymbolTable {
         #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> String {
+            format!(
                 "<{} {}({}), line {}>",
-                Self::class(&vm.ctx).name(),
+                PySymbolTable::class(&vm.ctx).name(),
                 zelf.symtable.name,
                 zelf.id(),
                 zelf.symtable.line_number
-            ))
+            )
         }
     }
 }

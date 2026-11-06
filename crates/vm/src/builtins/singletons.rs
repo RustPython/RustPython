@@ -6,7 +6,7 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::PyNumberMethods,
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
 };
 
 #[pyclass(module = false, name = "NoneType")]
@@ -50,18 +50,12 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Comparable, Hashable, Representable))]
-impl PyNone {}
-
-impl Representable for PyNone {
+#[pyclass(with(Constructor, AsNumber, Comparable, Hashable))]
+impl PyNone {
     #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(vm.ctx.names.None.to_owned())
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
+    #[pymethod]
+    fn __repr__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+        vm.ctx.names.None.to_owned()
     }
 }
 
@@ -119,10 +113,16 @@ impl Constructor for PyNotImplemented {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Representable), flags(IMMUTABLETYPE))]
+#[pyclass(with(Constructor, AsNumber), flags(IMMUTABLETYPE))]
 impl Py<PyNotImplemented> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
+        vm.ctx.names.NotImplemented.to_owned()
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(_zelf: &Self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.NotImplemented.to_owned()
     }
 }
@@ -136,18 +136,6 @@ impl AsNumber for PyNotImplemented {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
-    }
-}
-
-impl Representable for PyNotImplemented {
-    #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(vm.ctx.names.NotImplemented.to_owned())
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
     }
 }
 

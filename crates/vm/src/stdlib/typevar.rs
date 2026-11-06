@@ -11,7 +11,7 @@ pub(crate) mod typevar {
         function::{FuncArgs, OptionalArg, PosArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
-        types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
+        types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp},
     };
 
     // Bind raw objects first: Clinic rejects the complete argument layout before
@@ -160,10 +160,7 @@ pub(crate) mod typevar {
         infer_variance: bool,
     }
 
-    #[pyclass(
-        flags(HAS_DICT, HAS_WEAKREF),
-        with(AsNumber, Constructor, Representable)
-    )]
+    #[pyclass(flags(HAS_DICT, HAS_WEAKREF), with(AsNumber, Constructor))]
     impl Py<TypeVar> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -334,11 +331,10 @@ pub(crate) mod typevar {
             // No changes needed
             Ok(args)
         }
-    }
 
-    impl Representable for TypeVar {
         #[inline(always)]
-        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.name.str_utf8(vm)?;
             Ok(variance_repr(
                 name.as_str(),
@@ -460,10 +456,7 @@ pub(crate) mod typevar {
         infer_variance: bool,
     }
 
-    #[pyclass(
-        flags(HAS_DICT, HAS_WEAKREF),
-        with(AsNumber, Constructor, Representable)
-    )]
+    #[pyclass(flags(HAS_DICT, HAS_WEAKREF), with(AsNumber, Constructor))]
     impl Py<ParamSpec> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -554,6 +547,18 @@ pub(crate) mod typevar {
             let self_obj: PyObjectRef = zelf.into();
             call_typing_func_object(vm, "_paramspec_prepare_subst", (self_obj, alias, args))
         }
+
+        #[inline(always)]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+            let name = zelf.name.str_utf8(vm)?;
+            Ok(variance_repr(
+                name.as_str(),
+                zelf.infer_variance,
+                zelf.covariant,
+                zelf.contravariant,
+            ))
+        }
     }
 
     impl AsNumber for ParamSpec {
@@ -604,19 +609,6 @@ pub(crate) mod typevar {
         }
     }
 
-    impl Representable for ParamSpec {
-        #[inline(always)]
-        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.name.str_utf8(vm)?;
-            Ok(variance_repr(
-                name.as_str(),
-                zelf.infer_variance,
-                zelf.covariant,
-                zelf.contravariant,
-            ))
-        }
-    }
-
     impl ParamSpec {
         pub fn new(name: PyObjectRef, vm: &VirtualMachine) -> Self {
             Self {
@@ -649,10 +641,7 @@ pub(crate) mod typevar {
         infer_variance: bool,
     }
 
-    #[pyclass(
-        flags(HAS_DICT, HAS_WEAKREF),
-        with(Constructor, Representable, Iterable)
-    )]
+    #[pyclass(flags(HAS_DICT, HAS_WEAKREF), with(Constructor, Iterable))]
     impl Py<TypeVarTuple> {
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
@@ -721,6 +710,27 @@ pub(crate) mod typevar {
             let self_obj: PyObjectRef = zelf.into();
             call_typing_func_object(vm, "_typevartuple_prepare_subst", (self_obj, alias, args))
         }
+
+        #[inline(always)]
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> Wtf8Buf {
+            let name = zelf
+                .name
+                .downcast_ref::<crate::builtins::PyStr>()
+                .expect("TypeVarTuple name must be a string");
+            let prefix = if zelf.infer_variance {
+                ""
+            } else if zelf.covariant {
+                "+"
+            } else if zelf.contravariant {
+                "-"
+            } else {
+                "~"
+            };
+            let mut result = Wtf8Buf::from(prefix);
+            result.push_wtf8(name.as_wtf8());
+            result
+        }
     }
 
     impl Iterable for TypeVarTuple {
@@ -772,28 +782,6 @@ pub(crate) mod typevar {
         }
     }
 
-    impl Representable for TypeVarTuple {
-        #[inline(always)]
-        fn repr_wtf8(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let name = zelf
-                .name
-                .downcast_ref::<crate::builtins::PyStr>()
-                .expect("TypeVarTuple name must be a string");
-            let prefix = if zelf.infer_variance {
-                ""
-            } else if zelf.covariant {
-                "+"
-            } else if zelf.contravariant {
-                "-"
-            } else {
-                "~"
-            };
-            let mut result = Wtf8Buf::from(prefix);
-            result.push_wtf8(name.as_wtf8());
-            Ok(result)
-        }
-    }
-
     impl TypeVarTuple {
         pub fn new(name: PyObjectRef, vm: &VirtualMachine) -> Self {
             Self {
@@ -816,11 +804,22 @@ pub(crate) mod typevar {
         __origin__: PyObjectRef,
     }
 
-    #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
+    #[pyclass(with(Constructor, Comparable), flags(HAS_WEAKREF))]
     impl Py<ParamSpecArgs> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
+        }
+
+        #[inline(always)]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+            // A ParamSpec origin is named; anything else is shown by its repr,
+            // which carries the recursion guard a Rust `{:?}` walk does not.
+            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
+                return Ok(format!("{}.args", param_spec.name.str_utf8(vm)?));
+            }
+            Ok(format!("{}.args", zelf.__origin__.repr(vm)?))
         }
     }
 
@@ -830,18 +829,6 @@ pub(crate) mod typevar {
         fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let origin = args.0;
             Ok(Self { __origin__: origin })
-        }
-    }
-
-    impl Representable for ParamSpecArgs {
-        #[inline(always)]
-        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // A ParamSpec origin is named; anything else is shown by its repr,
-            // which carries the recursion guard a Rust `{:?}` walk does not.
-            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
-                return Ok(format!("{}.args", param_spec.name.str_utf8(vm)?));
-            }
-            Ok(format!("{}.args", zelf.__origin__.repr(vm)?))
         }
     }
 
@@ -876,11 +863,22 @@ pub(crate) mod typevar {
         __origin__: PyObjectRef,
     }
 
-    #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
+    #[pyclass(with(Constructor, Comparable), flags(HAS_WEAKREF))]
     impl Py<ParamSpecKwargs> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
+        }
+
+        #[inline(always)]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+            // A ParamSpec origin is named; anything else is shown by its repr,
+            // which carries the recursion guard a Rust `{:?}` walk does not.
+            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
+                return Ok(format!("{}.kwargs", param_spec.name.str_utf8(vm)?));
+            }
+            Ok(format!("{}.kwargs", zelf.__origin__.repr(vm)?))
         }
     }
 
@@ -890,18 +888,6 @@ pub(crate) mod typevar {
         fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let origin = args.0;
             Ok(Self { __origin__: origin })
-        }
-    }
-
-    impl Representable for ParamSpecKwargs {
-        #[inline(always)]
-        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // A ParamSpec origin is named; anything else is shown by its repr,
-            // which carries the recursion guard a Rust `{:?}` walk does not.
-            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
-                return Ok(format!("{}.kwargs", param_spec.name.str_utf8(vm)?));
-            }
-            Ok(format!("{}.kwargs", zelf.__origin__.repr(vm)?))
         }
     }
 

@@ -11,7 +11,7 @@ use crate::{
     class::PyClassImpl,
     function::{FuncArgs, IntoFuncArgs, OptionalArg},
     object::PyAtomicRef,
-    types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer, Representable},
+    types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer},
 };
 
 #[pyclass(module = false, name = "super", traverse)]
@@ -185,10 +185,23 @@ fn super_init_without_args(vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyObject
 }
 
 #[pyclass(
-    with(GetAttr, GetDescriptor, Constructor, Initializer, Representable),
+    with(GetAttr, GetDescriptor, Constructor, Initializer),
     flags(BASETYPE)
 )]
-impl PySuper {}
+impl PySuper {
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+        let type_name = match zelf.typ.load_owned() {
+            Some(ty) => ty.name().to_owned(),
+            None => "NULL".to_owned(),
+        };
+        match zelf.obj_type.load_owned() {
+            Some(ty) => format!("<super: <class '{}'>, <{} object>>", type_name, ty.name()),
+            None => format!("<super: <class '{type_name}'>, NULL>"),
+        }
+    }
+}
 
 impl GetAttr for PySuper {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
@@ -268,21 +281,6 @@ impl GetDescriptor for PySuper {
             };
             PyType::call(zelf.class(), args, vm)
         }
-    }
-}
-
-impl Representable for PySuper {
-    #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let type_name = match zelf.typ.load_owned() {
-            Some(ty) => ty.name().to_owned(),
-            None => "NULL".to_owned(),
-        };
-        let repr = match zelf.obj_type.load_owned() {
-            Some(ty) => format!("<super: <class '{}'>, <{} object>>", type_name, ty.name()),
-            None => format!("<super: <class '{type_name}'>, NULL>"),
-        };
-        Ok(repr)
     }
 }
 

@@ -174,7 +174,6 @@ mod _io {
         recursion::ReprGuard,
         types::{
             Callable, Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable,
-            Representable,
         },
         vm::VirtualMachine,
     };
@@ -1989,9 +1988,9 @@ mod _io {
             zelf.isatty(vm)
         }
 
-        #[pyslot]
-        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            let name_repr = repr_file_obj_name(zelf, vm)?;
+        #[pymethod]
+        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+            let name_repr = repr_file_obj_name(&zelf, vm)?;
             let cls = zelf.class();
             let slot_name = cls.slot_name();
             let repr = if let Some(name_repr) = name_repr {
@@ -2000,11 +1999,6 @@ mod _io {
                 format!("<{slot_name}>")
             };
             Ok(vm.ctx.new_str(repr))
-        }
-
-        #[pymethod]
-        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            Self::slot_repr(&zelf, vm)
         }
 
         fn close_strict(&self, vm: &VirtualMachine) -> PyResult {
@@ -3445,14 +3439,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(
-            Constructor,
-            Initializer,
-            Destructor,
-            Iterable,
-            IterNext,
-            Representable
-        ),
+        with(Constructor, Initializer, Destructor, Iterable, IterNext),
         flags(BASETYPE, HAS_WEAKREF)
     )]
     impl Py<TextIOWrapper> {
@@ -4299,6 +4286,64 @@ mod _io {
             let _ = proto;
             reduce_ex_for_subclass(&zelf, vm)
         }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+            let type_name = zelf.class().slot_name();
+            let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) else {
+                return Err(
+                    vm.new_runtime_error(format!("reentrant call inside {type_name}.__repr__"))
+                );
+            };
+            // Detach while blocked, like `lock_opt`: another thread can be
+            // stopped holding this mutex, and blocking on it while attached
+            // would leave no safepoint for that stop to complete at.
+            let Some(data) = zelf.data.lock_wrapped(|do_lock| vm.allow_threads(do_lock)) else {
+                // Reentrant call
+                return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
+            };
+            if data.is_none() {
+                return Err(vm.new_value_error("I/O operation on uninitialized object"));
+            }
+
+            let mut result = Wtf8Buf::from(format!("<{type_name}"));
+            let buffer = zelf.buffer.load_owned();
+
+            // Add name if present
+            if let Some(buffer) = &buffer
+                && let Ok(Some(name)) = vm.get_attribute_opt(buffer, "name")
+            {
+                let name_repr = name.repr(vm)?;
+                result.push_wtf8(" name=".as_ref());
+                result.push_wtf8(name_repr.as_wtf8());
+            }
+
+            // Add mode if present (prefer the wrapper's attribute)
+            let mode_obj = match vm.get_attribute_opt(zelf.as_object(), "mode") {
+                Ok(Some(mode)) => Some(mode),
+                Ok(None) | Err(_) => match buffer.as_ref() {
+                    Some(buffer) => match vm.get_attribute_opt(buffer, "mode") {
+                        Ok(Some(mode)) => Some(mode),
+                        _ => None,
+                    },
+                    None => None,
+                },
+            };
+            if let Some(mode) = mode_obj {
+                let mode_repr = mode.repr(vm)?;
+                result.push_wtf8(" mode=".as_ref());
+                result.push_wtf8(mode_repr.as_wtf8());
+            }
+
+            // Add encoding (always valid UTF-8)
+            let encoding = textio_encoding(&zelf.encoding, vm)?;
+            result.push_wtf8(" encoding='".as_ref());
+            result.push_wtf8(encoding.as_str().as_ref());
+            result.push_wtf8("'>".as_ref());
+
+            Ok(vm.ctx.new_str(result))
+        }
     }
 
     fn parse_decoder_state(state: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyBytesRef, i32)> {
@@ -4471,69 +4516,6 @@ mod _io {
         #[cold]
         fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_del is implemented")
-        }
-    }
-
-    impl Representable for TextIOWrapper {
-        #[inline]
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            let type_name = zelf.class().slot_name();
-            let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) else {
-                return Err(
-                    vm.new_runtime_error(format!("reentrant call inside {type_name}.__repr__"))
-                );
-            };
-            // Detach while blocked, like `lock_opt`: another thread can be
-            // stopped holding this mutex, and blocking on it while attached
-            // would leave no safepoint for that stop to complete at.
-            let Some(data) = zelf.data.lock_wrapped(|do_lock| vm.allow_threads(do_lock)) else {
-                // Reentrant call
-                return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
-            };
-            if data.is_none() {
-                return Err(vm.new_value_error("I/O operation on uninitialized object"));
-            }
-
-            let mut result = Wtf8Buf::from(format!("<{type_name}"));
-            let buffer = zelf.buffer.load_owned();
-
-            // Add name if present
-            if let Some(buffer) = &buffer
-                && let Ok(Some(name)) = vm.get_attribute_opt(buffer, "name")
-            {
-                let name_repr = name.repr(vm)?;
-                result.push_wtf8(" name=".as_ref());
-                result.push_wtf8(name_repr.as_wtf8());
-            }
-
-            // Add mode if present (prefer the wrapper's attribute)
-            let mode_obj = match vm.get_attribute_opt(zelf.as_object(), "mode") {
-                Ok(Some(mode)) => Some(mode),
-                Ok(None) | Err(_) => match buffer.as_ref() {
-                    Some(buffer) => match vm.get_attribute_opt(buffer, "mode") {
-                        Ok(Some(mode)) => Some(mode),
-                        _ => None,
-                    },
-                    None => None,
-                },
-            };
-            if let Some(mode) = mode_obj {
-                let mode_repr = mode.repr(vm)?;
-                result.push_wtf8(" mode=".as_ref());
-                result.push_wtf8(mode_repr.as_wtf8());
-            }
-
-            // Add encoding (always valid UTF-8)
-            let encoding = textio_encoding(&zelf.encoding, vm)?;
-            result.push_wtf8(" encoding='".as_ref());
-            result.push_wtf8(encoding.as_str().as_ref());
-            result.push_wtf8("'>".as_ref());
-
-            Ok(vm.ctx.new_str(result))
-        }
-
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            unreachable!("repr() is overridden directly")
         }
     }
 
@@ -6126,7 +6108,7 @@ mod fileio {
         function::{ArgBytesLike, ArgMemoryBuffer},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os,
-        types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
@@ -6280,26 +6262,6 @@ mod fileio {
         }
     }
 
-    impl Representable for FileIO {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let type_name = zelf.class().slot_name();
-            let fd = zelf.fd.load();
-            if fd < 0 {
-                return Ok(format!("<{type_name} [closed]>"));
-            }
-            let name_repr = repr_file_obj_name(zelf.as_object(), vm)?;
-            let mode = zelf.mode();
-            let closefd = if zelf.closefd.load() { "True" } else { "False" };
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<{type_name} name={name_repr} mode='{mode}' closefd={closefd}>")
-            } else {
-                format!("<{type_name} fd={fd} mode='{mode}' closefd={closefd}>")
-            };
-            Ok(repr)
-        }
-    }
-
     impl FileIO {
         fn io_error(
             zelf: &Py<Self>,
@@ -6351,7 +6313,7 @@ mod fileio {
     }
 
     #[pyclass(
-        with(Constructor, Initializer, Representable, Destructor),
+        with(Constructor, Initializer, Destructor),
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl Py<FileIO> {
@@ -6609,6 +6571,25 @@ mod fileio {
         fn _dealloc_warn_method(zelf: &Self, object: PyObjectRef, vm: &VirtualMachine) {
             FileIO::dealloc_warn(zelf, &object, vm);
         }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = zelf.class().slot_name();
+            let fd = zelf.fd.load();
+            if fd < 0 {
+                return Ok(format!("<{type_name} [closed]>"));
+            }
+            let name_repr = repr_file_obj_name(zelf.as_object(), vm)?;
+            let mode = zelf.mode();
+            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<{type_name} name={name_repr} mode='{mode}' closefd={closefd}>")
+            } else {
+                format!("<{type_name} fd={fd} mode='{mode}' closefd={closefd}>")
+            };
+            Ok(repr)
+        }
     }
 
     impl FileIO {
@@ -6658,7 +6639,7 @@ mod winconsoleio {
         convert::{IntoPyException, ToPyException},
         exceptions::nul_char_error,
         function::{ArgBytesLike, ArgMemoryBuffer, FsPath, OptionalArg},
-        types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
@@ -6901,20 +6882,6 @@ mod winconsoleio {
         }
     }
 
-    impl Representable for WindowsConsoleIO {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            let type_name = zelf.class().slot_name();
-            let fd = zelf.fd.load();
-            if fd < 0 {
-                return Ok(format!("<{type_name} [closed]>"));
-            }
-            let mode = if zelf.readable.load() { "rb" } else { "wb" };
-            let closefd = if zelf.closefd.load() { "True" } else { "False" };
-            Ok(format!("<{type_name} mode='{mode}' closefd={closefd}>"))
-        }
-    }
-
     impl WindowsConsoleIO {
         #[allow(dead_code)]
         fn io_error(
@@ -6976,7 +6943,7 @@ mod winconsoleio {
     }
 
     #[pyclass(
-        with(Constructor, Initializer, Representable, Destructor),
+        with(Constructor, Initializer, Destructor),
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl Py<WindowsConsoleIO> {
@@ -7178,6 +7145,19 @@ mod winconsoleio {
         #[pymethod(name = "__reduce__")]
         fn reduce(_zelf: &Self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances"))
+        }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Self, _vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = zelf.class().slot_name();
+            let fd = zelf.fd.load();
+            if fd < 0 {
+                return Ok(format!("<{type_name} [closed]>"));
+            }
+            let mode = if zelf.readable.load() { "rb" } else { "wb" };
+            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            Ok(format!("<{type_name} mode='{mode}' closefd={closefd}>"))
         }
     }
 

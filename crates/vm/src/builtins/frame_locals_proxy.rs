@@ -13,10 +13,7 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
-    types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
-        Representable,
-    },
+    types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
 };
 use rustpython_common::lock::LazyLock;
 use rustpython_common::wtf8::Wtf8Buf;
@@ -172,15 +169,7 @@ impl FrameLocalsProxy {
     }
 }
 
-#[pyclass(with(
-    Constructor,
-    AsMapping,
-    AsSequence,
-    AsNumber,
-    Iterable,
-    Comparable,
-    Representable
-))]
+#[pyclass(with(Constructor, AsMapping, AsSequence, AsNumber, Iterable, Comparable))]
 impl Py<FrameLocalsProxy> {
     #[pymethod]
     fn keys(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -264,6 +253,16 @@ impl Py<FrameLocalsProxy> {
     #[pymethod]
     fn __reduce_ex__(&self, _protocol: OptionalArg, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot pickle 'FrameLocalsProxy' object"))
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let dict = zelf.snapshot(vm)?;
+            Ok(dict.as_object().repr(vm)?.as_wtf8().to_owned())
+        } else {
+            Ok(Wtf8Buf::from("{...}"))
+        }
     }
 }
 
@@ -352,17 +351,6 @@ impl Comparable for FrameLocalsProxy {
                 .map(|o| o.try_to_bool(vm))
                 .transpose()
         })
-    }
-}
-
-impl Representable for FrameLocalsProxy {
-    fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let dict = zelf.snapshot(vm)?;
-            Ok(dict.as_object().repr(vm)?.as_wtf8().to_owned())
-        } else {
-            Ok(Wtf8Buf::from("{...}"))
-        }
     }
 }
 

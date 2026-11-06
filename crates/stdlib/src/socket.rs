@@ -31,7 +31,7 @@ mod _socket {
             ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, FsPath,
             FuncArgs, OptionalArg,
         },
-        types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer},
         utils::ToCString,
     };
     use rustpython_common::wtf8::wtf8_concat;
@@ -1911,19 +1911,6 @@ mod _socket {
         }
     }
 
-    impl Representable for PySocket {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!(
-                "<socket object, fd={}, family={}, type={}, proto={}>",
-                Self::fileno(zelf),
-                zelf.family.load(Ordering::Relaxed),
-                zelf.kind.load(Ordering::Relaxed),
-                zelf.proto.load(Ordering::Relaxed),
-            ))
-        }
-    }
-
     impl Destructor for PySocket {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if socket is still open
@@ -1946,11 +1933,20 @@ mod _socket {
         }
     }
 
-    #[pyclass(
-        with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE, HEAPTYPE)
-    )]
+    #[pyclass(with(Constructor, Initializer, Destructor), flags(BASETYPE, HEAPTYPE))]
     impl PySocket {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!(
+                "<socket object, fd={}, family={}, type={}, proto={}>",
+                Self::fileno(zelf),
+                zelf.family.load(Ordering::Relaxed),
+                zelf.kind.load(Ordering::Relaxed),
+                zelf.proto.load(Ordering::Relaxed),
+            )
+        }
+
         fn _init(
             zelf: &Py<Self>,
             args: <Self as Initializer>::Args,
@@ -3590,7 +3586,7 @@ mod _socket {
             .and_then(|port| port.try_index_opt(vm))
             .transpose()?;
         let port_encoded: Option<String> = match (port_index, opts.port.as_ref()) {
-            (Some(index), _) => Some(crate::vm::builtins::PyInt::repr_str(&index, vm)?),
+            (Some(index), _) => Some(Py::<crate::vm::builtins::PyInt>::__repr__(&index, vm)?),
             (None, Some(port)) => {
                 if !port.fast_isinstance(vm.ctx.types.str_type)
                     && !port.fast_isinstance(vm.ctx.types.bytes_type)
@@ -4155,7 +4151,7 @@ mod _socket {
                     assert_eq!(PySocket::detach(&socket), -1);
                 }
                 assert_eq!(
-                    PySocket::repr_str(&socket, vm).unwrap(),
+                    PySocket::__repr__(&socket, vm),
                     "<socket object, fd=-1, family=0, type=0, proto=0>",
                 );
             });

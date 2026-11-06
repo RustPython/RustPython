@@ -20,7 +20,7 @@ use crate::{
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
-        Hashable, Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+        Hashable, Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -829,12 +829,34 @@ impl PyDict {
         Iterable,
         AsSequence,
         AsNumber,
-        AsMapping,
-        Representable
+        AsMapping
     ),
     flags(BASETYPE, MAPPING, _MATCH_SELF, DICT_SUBCLASS)
 )]
-impl PyDict {}
+impl PyDict {
+    #[inline]
+    #[pymethod]
+    pub(crate) fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let mut result = Wtf8Buf::from("{");
+            let mut first = true;
+            for (key, value) in zelf {
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                result.push_wtf8(key.repr(vm)?.as_wtf8());
+                result.push_str(": ");
+                result.push_wtf8(value.repr(vm)?.as_wtf8());
+            }
+            result.push_char('}');
+            vm.ctx.new_str(result)
+        } else {
+            vm.ctx.intern_str("{...}").to_owned()
+        };
+        Ok(s)
+    }
+}
 
 #[pyclass]
 impl Py<PyDict> {
@@ -1045,35 +1067,6 @@ impl Comparable for PyDict {
 impl Iterable for PyDict {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyDictKeyIterator::new(zelf.into()).into_pyobject(vm))
-    }
-}
-
-impl Representable for PyDict {
-    #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut result = Wtf8Buf::from("{");
-            let mut first = true;
-            for (key, value) in zelf {
-                if !first {
-                    result.push_str(", ");
-                }
-                first = false;
-                result.push_wtf8(key.repr(vm)?.as_wtf8());
-                result.push_str(": ");
-                result.push_wtf8(value.repr(vm)?.as_wtf8());
-            }
-            result.push_char('}');
-            vm.ctx.new_str(result)
-        } else {
-            vm.ctx.intern_str("{...}").to_owned()
-        };
-        Ok(s)
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
     }
 }
 
@@ -1500,8 +1493,7 @@ impl Constructor for PyFrozenDict {
         Iterable,
         AsMapping,
         AsSequence,
-        AsNumber,
-        Representable
+        AsNumber
     ),
     flags(BASETYPE, MAPPING, _MATCH_SELF)
 )]
@@ -1542,6 +1534,31 @@ impl PyFrozenDict {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let name = zelf.class().name();
+        if zelf.dict.is_empty() {
+            return Ok(vm.ctx.new_str(format!("{name}()")));
+        }
+        let mut result = Wtf8Buf::from(format!("{name}("));
+        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            result.push_str("{");
+            for (index, (key, value)) in DictIter::new(&zelf.dict).enumerate() {
+                if index != 0 {
+                    result.push_str(", ");
+                }
+                result.push_wtf8(key.repr(vm)?.as_wtf8());
+                result.push_str(": ");
+                result.push_wtf8(value.repr(vm)?.as_wtf8());
+            }
+            result.push_str("}");
+        } else {
+            result.push_str("{...}");
+        }
+        result.push_str(")");
+        Ok(vm.ctx.new_str(result))
     }
 }
 
@@ -1679,34 +1696,6 @@ impl Hashable for PyFrozenDict {
         Ok(result)
     }
 }
-impl Representable for PyFrozenDict {
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let name = zelf.class().name();
-        if zelf.dict.is_empty() {
-            return Ok(vm.ctx.new_str(format!("{name}()")));
-        }
-        let mut result = Wtf8Buf::from(format!("{name}("));
-        if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            result.push_str("{");
-            for (index, (key, value)) in DictIter::new(&zelf.dict).enumerate() {
-                if index != 0 {
-                    result.push_str(", ");
-                }
-                result.push_wtf8(key.repr(vm)?.as_wtf8());
-                result.push_str(": ");
-                result.push_wtf8(value.repr(vm)?.as_wtf8());
-            }
-            result.push_str("}");
-        } else {
-            result.push_str("{...}");
-        }
-        result.push_str(")");
-        Ok(vm.ctx.new_str(result))
-    }
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
-    }
-}
 
 // Implement IntoIterator so that we can easily iterate dictionaries from rust code.
 impl IntoIterator for PyDictRef {
@@ -1801,7 +1790,7 @@ impl ExactSizeIterator for DictIter<'_> {
 }
 
 #[pyclass]
-trait DictView: PyPayload + PyClassDef + Iterable + Representable {
+trait DictView: PyPayload + PyClassDef + Iterable {
     type ReverseIter: PyPayload + core::fmt::Debug;
 
     fn dict(&self) -> &PyAnyDict;
@@ -1812,6 +1801,27 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
 
     #[pymethod]
     fn __reversed__(zelf: &Py<Self>) -> Self::ReverseIter;
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            // CPython snapshots through the view's actual iterator before
+            // calling element representations, including for OrderedDict subclasses.
+            let items =
+                ArgIterable::<PyObjectRef>::try_from_object(vm, zelf.as_object().to_owned())?
+                    .iter(vm)?
+                    .collect::<PyResult<Vec<_>>>()?;
+            let list_repr = vm.ctx.new_list(items).as_object().repr(vm)?;
+            let mut result = Wtf8Buf::from(format!("{}(", zelf.class().slot_name()));
+            result.push_wtf8(list_repr.as_wtf8());
+            result.push_str(")");
+            vm.ctx.new_str(result)
+        } else {
+            vm.ctx.intern_str("...").to_owned()
+        };
+        Ok(s)
+    }
 }
 
 macro_rules! dict_view {
@@ -1862,35 +1872,6 @@ macro_rules! dict_view {
         impl PyPayload for $name {
             fn class(ctx: &Context) -> &'static Py<PyType> {
                 ctx.types.$class
-            }
-        }
-
-        impl Representable for $name {
-            #[inline]
-            fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-                let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                    // CPython snapshots through the view's actual iterator before
-                    // calling element representations, including for OrderedDict subclasses.
-                    let items = ArgIterable::<PyObjectRef>::try_from_object(
-                        vm,
-                        zelf.as_object().to_owned(),
-                    )?
-                    .iter(vm)?
-                    .collect::<PyResult<Vec<_>>>()?;
-                    let list_repr = vm.ctx.new_list(items).as_object().repr(vm)?;
-                    let mut result = Wtf8Buf::from(format!("{}(", zelf.class().slot_name()));
-                    result.push_wtf8(list_repr.as_wtf8());
-                    result.push_str(")");
-                    vm.ctx.new_str(result)
-                } else {
-                    vm.ctx.intern_str("...").to_owned()
-                };
-                Ok(s)
-            }
-
-            #[cold]
-            fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-                unreachable!("use repr instead")
             }
         }
 
@@ -2243,15 +2224,7 @@ impl ViewSetOps for PyDictKeys {}
 
 #[pyclass(
     flags(DISALLOW_INSTANTIATION),
-    with(
-        DictView,
-        Comparable,
-        Iterable,
-        ViewSetOps,
-        AsSequence,
-        AsNumber,
-        Representable
-    )
+    with(DictView, Comparable, Iterable, ViewSetOps, AsSequence, AsNumber)
 )]
 impl PyDictKeys {
     fn __contains__(zelf: &PyObject, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -2307,15 +2280,7 @@ impl AsNumber for PyDictKeys {
 impl ViewSetOps for PyDictItems {}
 #[pyclass(
     flags(DISALLOW_INSTANTIATION),
-    with(
-        DictView,
-        Comparable,
-        Iterable,
-        ViewSetOps,
-        AsSequence,
-        AsNumber,
-        Representable
-    )
+    with(DictView, Comparable, Iterable, ViewSetOps, AsSequence, AsNumber)
 )]
 impl PyDictItems {
     fn __contains__(zelf: &PyObject, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -2378,10 +2343,7 @@ impl AsNumber for PyDictItems {
     }
 }
 
-#[pyclass(
-    flags(DISALLOW_INSTANTIATION),
-    with(DictView, Iterable, AsSequence, Representable)
-)]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(DictView, Iterable, AsSequence))]
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {

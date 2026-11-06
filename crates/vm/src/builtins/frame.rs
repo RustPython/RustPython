@@ -8,7 +8,6 @@ use crate::{
     class::PyClassImpl,
     frame::{FrameObject, FrameOwner},
     function::PySetterValue,
-    types::Representable,
 };
 use core::sync::atomic::Ordering::Relaxed;
 use num_traits::Zero;
@@ -445,20 +444,6 @@ pub(crate) fn init(context: &'static Context) {
     FrameObject::extend_class(context, context.types.frame_type);
 }
 
-impl Representable for FrameObject {
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let code = zelf.iframe().code();
-        let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
-        let lineno = zelf.lineno();
-        let name = code.code.obj_name.as_wtf8();
-        let ptr = zelf as *const Py<Self> as usize;
-        Ok(format!(
-            "<frame at {ptr:#x}, file {}, line {lineno}, code {name}>",
-            file_repr.as_wtf8(),
-        ))
-    }
-}
-
 impl FrameObject {
     /// Find the live source InterpreterFrame on the TLS chain for a
     /// materialized FrameObject. Returns the raw pointer if found, or null
@@ -504,9 +489,22 @@ impl FrameObject {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(DISALLOW_INSTANTIATION),
-    with(Py, Representable)
+    with(Py)
 )]
-impl FrameObject {}
+impl FrameObject {
+    #[pymethod]
+    fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let code = zelf.iframe().code();
+        let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
+        let lineno = zelf.lineno();
+        let name = code.code.obj_name.as_wtf8();
+        let ptr = zelf as *const Py<Self> as usize;
+        Ok(format!(
+            "<frame at {ptr:#x}, file {}, line {lineno}, code {name}>",
+            file_repr.as_wtf8(),
+        ))
+    }
+}
 
 #[pyclass]
 impl Py<FrameObject> {

@@ -38,7 +38,7 @@ mod unicodedata {
         common::lock::PyMutex,
         function::OptionalArg,
         protocol::PyIterReturn,
-        types::{IterNext, Iterable, Representable, SelfIter},
+        types::{IterNext, Iterable, SelfIter},
     };
     use itertools::Itertools;
     use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
@@ -129,8 +129,14 @@ mod unicodedata {
         bytes: core::ops::Range<usize>,
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
+    #[pyclass(flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
     impl Segment {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            format!("<Segment {}:{}>", zelf.start, zelf.end)
+        }
+
         #[pygetset]
         fn start(zelf: &Py<Self>) -> usize {
             zelf.start
@@ -144,13 +150,6 @@ mod unicodedata {
         #[pymethod]
         fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
             vm.ctx.new_str(&zelf.string.as_wtf8()[zelf.bytes.clone()])
-        }
-    }
-
-    impl Representable for Segment {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("<Segment {}:{}>", zelf.start, zelf.end))
         }
     }
 

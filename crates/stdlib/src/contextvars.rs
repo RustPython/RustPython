@@ -18,7 +18,6 @@ mod _contextvars {
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{
             AsMapping, AsSequence, Comparable, Constructor, Hashable, Iterable, PyComparisonOp,
-            Representable,
         },
     };
     use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
@@ -439,8 +438,23 @@ mod _contextvars {
         }
     }
 
-    #[pyclass(with(Constructor, Hashable, Representable))]
+    #[pyclass(with(Constructor, Hashable))]
     impl ContextVar {
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let name = zelf.name.as_object().repr(vm)?;
+            let id = zelf.get_id();
+            let mut result = Wtf8Buf::from("<ContextVar name=");
+            result.push_wtf8(name.as_wtf8());
+            if let Some(arg) = zelf.default.as_ref() {
+                let default = arg.repr(vm)?;
+                result.push_str(" default=");
+                result.push_wtf8(default.as_wtf8());
+            }
+            result.push_str(&format!(" at {id:#x}>"));
+            Ok(result)
+        }
+
         #[pymethod]
         fn get(
             zelf: &Py<Self>,
@@ -607,22 +621,6 @@ mod _contextvars {
         }
     }
 
-    impl Representable for ContextVar {
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let name = zelf.name.as_object().repr(vm)?;
-            let id = zelf.get_id();
-            let mut result = Wtf8Buf::from("<ContextVar name=");
-            result.push_wtf8(name.as_wtf8());
-            if let Some(arg) = zelf.default.as_ref() {
-                let default = arg.repr(vm)?;
-                result.push_str(" default=");
-                result.push_wtf8(default.as_wtf8());
-            }
-            result.push_str(&format!(" at {id:#x}>"));
-            Ok(result)
-        }
-    }
-
     #[pyattr]
     #[pyclass(name = "Token")]
     #[derive(Debug, PyPayload)]
@@ -633,8 +631,24 @@ mod _contextvars {
         used: AtomicBool,
     }
 
-    #[pyclass(with(Constructor, Representable))]
+    #[pyclass(with(Constructor))]
     impl ContextToken {
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let used = if zelf.used.load(Ordering::Acquire) {
+                " used"
+            } else {
+                ""
+            };
+            let var = ContextVar::__repr__(&zelf.var, vm)?;
+            let ptr = zelf.as_object().get_id() as *const u8;
+            let mut result = Wtf8Buf::from(format!("<Token{used} var="));
+            result.push_wtf8(&var);
+            result.push_str(&format!(" at {ptr:p}>"));
+            Ok(result)
+        }
+
         #[pygetset]
         fn var(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyRef<ContextVar> {
             zelf.var.clone()
@@ -686,33 +700,15 @@ mod _contextvars {
         }
     }
 
-    impl Representable for ContextToken {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let used = if zelf.used.load(Ordering::Acquire) {
-                " used"
-            } else {
-                ""
-            };
-            let var = Representable::repr_wtf8(&zelf.var, vm)?;
-            let ptr = zelf.as_object().get_id() as *const u8;
-            let mut result = Wtf8Buf::from(format!("<Token{used} var="));
-            result.push_wtf8(&var);
-            result.push_str(&format!(" at {ptr:p}>"));
-            Ok(result)
-        }
-    }
-
     #[pyclass(no_attr, name = "Token.MISSING")]
     #[derive(Debug, PyPayload)]
     pub(super) struct ContextTokenMissing {}
 
-    #[pyclass(with(Representable))]
-    impl ContextTokenMissing {}
-
-    impl Representable for ContextTokenMissing {
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("<Token.MISSING>".to_owned())
+    #[pyclass]
+    impl ContextTokenMissing {
+        #[pymethod]
+        fn __repr__(_zelf: &Py<Self>, _vm: &VirtualMachine) -> String {
+            "<Token.MISSING>".to_owned()
         }
     }
 

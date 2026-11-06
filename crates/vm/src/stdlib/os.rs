@@ -243,10 +243,7 @@ pub(super) mod _os {
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{
-            Destructor, IterNext, Iterable, PyStructSequence, PyStructSequenceData, Representable,
-            SelfIter,
-        },
+        types::{Destructor, IterNext, Iterable, PyStructSequence, PyStructSequenceData, SelfIter},
         vm::VirtualMachine,
     };
     use core::hint::cold_path;
@@ -910,7 +907,7 @@ pub(super) mod _os {
         }
     }
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Py<DirEntry> {
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
@@ -1067,11 +1064,10 @@ pub(super) mod _os {
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'DirEntry' object"))
         }
-    }
 
-    impl Representable for DirEntry {
         #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        #[pymethod]
+        fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let name = match zelf.as_object().get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
@@ -1100,6 +1096,7 @@ pub(super) mod _os {
             }
         }
     }
+
     #[pyattr]
     #[pyclass(name = "ScandirIter")]
     #[derive(Debug, PyPayload)]

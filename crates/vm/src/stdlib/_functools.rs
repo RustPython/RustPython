@@ -17,7 +17,7 @@ mod _functools {
         protocol::PyIter,
         pyclass,
         recursion::ReprGuard,
-        types::{Callable, Constructor, GetDescriptor, PyComparisonOp, Representable},
+        types::{Callable, Constructor, GetDescriptor, PyComparisonOp},
     };
     use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use parking_lot::lock_api::RawReentrantMutex as GenericRawReentrantMutex;
@@ -216,7 +216,7 @@ mod _functools {
         }
     }
 
-    #[pyclass(with(Constructor, Representable))]
+    #[pyclass(with(Constructor))]
     impl Py<PyPlaceholderType> {
         #[pymethod]
         fn __reduce__(&self) -> &'static str {
@@ -227,12 +227,11 @@ mod _functools {
         fn __init_subclass__(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot subclass '_PlaceholderType'"))
         }
-    }
 
-    impl Representable for PyPlaceholderType {
         #[inline]
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok("Placeholder".to_owned())
+        #[pymethod]
+        fn __repr__(_zelf: &Self, _vm: &VirtualMachine) -> String {
+            "Placeholder".to_owned()
         }
     }
 
@@ -273,7 +272,7 @@ mod _functools {
     }
 
     #[pyclass(
-        with(Constructor, Callable, GetDescriptor, Representable),
+        with(Constructor, Callable, GetDescriptor),
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
@@ -498,6 +497,62 @@ mod _functools {
         ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, object, vm)
         }
+
+        #[inline]
+        #[pymethod]
+        fn __repr__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            // Check for recursive repr
+            let obj = zelf.as_object();
+            if let Some(_guard) = ReprGuard::enter(vm, obj) {
+                // Clone and release lock before calling Python code to prevent deadlock
+                let func = zelf.func.load_owned();
+                let args = zelf.args.load_owned();
+                let keywords = zelf.keywords.load_owned();
+
+                let qualname = zelf.class().__qualname__(vm);
+                let qualname_wtf8 = qualname
+                    .downcast_ref::<crate::builtins::PyStr>()
+                    .map_or_else(
+                        || Wtf8Buf::from(zelf.class().name().to_owned()),
+                        |s| s.as_wtf8().to_owned(),
+                    );
+                let module = zelf.class().__module__(vm)?;
+
+                let mut result = Wtf8Buf::new();
+                if let Ok(module_str) = module.downcast::<crate::builtins::PyStr>() {
+                    let module_name = module_str.as_wtf8();
+                    if module_name != "builtins" && !module_name.is_empty() {
+                        result.push_wtf8(module_name);
+                        result.push_char('.');
+                    }
+                }
+                result.push_wtf8(&qualname_wtf8);
+                result.push_char('(');
+                result.push_wtf8(func.repr(vm)?.as_wtf8());
+
+                for arg in args.as_slice() {
+                    result.push_str(", ");
+                    result.push_wtf8(arg.repr(vm)?.as_wtf8());
+                }
+
+                for (key, value) in &*keywords {
+                    result.push_str(", ");
+                    let key_str = if let Ok(s) = key.clone().downcast::<crate::builtins::PyStr>() {
+                        s
+                    } else {
+                        key.str(vm)?
+                    };
+                    result.push_wtf8(key_str.as_wtf8());
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
+                }
+
+                result.push_char(')');
+                Ok(result)
+            } else {
+                Ok(Wtf8Buf::from("..."))
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -635,63 +690,6 @@ mod _functools {
             Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
                 .into_ref(&vm.ctx)
                 .into())
-        }
-    }
-
-    impl Representable for PyPartial {
-        #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            // Check for recursive repr
-            let obj = zelf.as_object();
-            if let Some(_guard) = ReprGuard::enter(vm, obj) {
-                // Clone and release lock before calling Python code to prevent deadlock
-                let func = zelf.func.load_owned();
-                let args = zelf.args.load_owned();
-                let keywords = zelf.keywords.load_owned();
-
-                let qualname = zelf.class().__qualname__(vm);
-                let qualname_wtf8 = qualname
-                    .downcast_ref::<crate::builtins::PyStr>()
-                    .map_or_else(
-                        || Wtf8Buf::from(zelf.class().name().to_owned()),
-                        |s| s.as_wtf8().to_owned(),
-                    );
-                let module = zelf.class().__module__(vm)?;
-
-                let mut result = Wtf8Buf::new();
-                if let Ok(module_str) = module.downcast::<crate::builtins::PyStr>() {
-                    let module_name = module_str.as_wtf8();
-                    if module_name != "builtins" && !module_name.is_empty() {
-                        result.push_wtf8(module_name);
-                        result.push_char('.');
-                    }
-                }
-                result.push_wtf8(&qualname_wtf8);
-                result.push_char('(');
-                result.push_wtf8(func.repr(vm)?.as_wtf8());
-
-                for arg in args.as_slice() {
-                    result.push_str(", ");
-                    result.push_wtf8(arg.repr(vm)?.as_wtf8());
-                }
-
-                for (key, value) in &*keywords {
-                    result.push_str(", ");
-                    let key_str = if let Ok(s) = key.clone().downcast::<crate::builtins::PyStr>() {
-                        s
-                    } else {
-                        key.str(vm)?
-                    };
-                    result.push_wtf8(key_str.as_wtf8());
-                    result.push_char('=');
-                    result.push_wtf8(value.repr(vm)?.as_wtf8());
-                }
-
-                result.push_char(')');
-                Ok(result)
-            } else {
-                Ok(Wtf8Buf::from("..."))
-            }
         }
     }
 

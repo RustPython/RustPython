@@ -6,7 +6,7 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     function::{FuncArgs, PySetterValue},
     object::PyAtomicRef,
-    types::{Constructor, GetDescriptor, Initializer, Representable},
+    types::{Constructor, GetDescriptor, Initializer},
 };
 
 #[pyclass(module = false, name = "classmethod", traverse)]
@@ -89,7 +89,7 @@ impl PyClassMethod {
 }
 
 #[pyclass(
-    with(GetDescriptor, Constructor, Initializer, Representable),
+    with(GetDescriptor, Constructor, Initializer),
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl Py<PyClassMethod> {
@@ -150,13 +150,12 @@ impl Py<PyClassMethod> {
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, object, vm)
     }
-}
 
-impl Representable for PyClassMethod {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __repr__(zelf: &Self, vm: &VirtualMachine) -> PyResult<String> {
         let callable = zelf.callable.load_owned().repr(vm)?;
-        let class = Self::class(&vm.ctx);
+        let class = PyClassMethod::class(&vm.ctx);
 
         let module = class.__module__(vm)?;
         let repr = match (
