@@ -214,7 +214,6 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(actual, expected)
 
 
-    @unittest.expectedFailureIf(sys.platform != "linux", "TODO: RUSTPYTHON")
     def test_threading(self):
         returncode, events, stderr = self.run_python("test_threading")
         if returncode:
