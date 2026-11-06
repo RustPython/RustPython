@@ -91,6 +91,16 @@ impl PathConverter {
             Err(obj) => obj,
         };
 
+        self.try_pathlike(obj, allow_fd, vm)
+    }
+
+    /// Convert an object already known not to be a str or bytes.
+    pub(crate) fn try_pathlike(
+        &self,
+        obj: PyObjectRef,
+        allow_fd: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<OsPath> {
         // Call __fspath__
         let type_error_msg = || self.type_error_msg(&obj.class().name(), allow_fd);
         let method =
@@ -112,7 +122,7 @@ impl PathConverter {
     }
 
     /// Try to match str or bytes, returns Err(obj) if neither
-    fn try_match_str_bytes(
+    pub(crate) fn try_match_str_bytes(
         &self,
         obj: PyObjectRef,
         vm: &VirtualMachine,

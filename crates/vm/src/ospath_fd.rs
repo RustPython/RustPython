@@ -9,14 +9,32 @@ use crate::{
 use rustpython_host_env::crt_fd;
 
 impl PathConverter {
-    /// Convert to a path or a file descriptor. Integers are treated as fds
-    /// before `__fspath__` is considered.
+    /// Convert str and bytes to paths first, then treat indexable objects as
+    /// file descriptors before considering `__fspath__`.
     pub(crate) fn try_path_or_fd<'fd>(
         &self,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<OsPathOrFd<'fd>> {
-        if let Some(int) = obj.try_index_opt(vm) {
+        let obj = match self.try_match_str_bytes(obj, vm)? {
+            Ok(path) => return Ok(OsPathOrFd::Path(path)),
+            Err(obj) => obj,
+        };
+
+        if let Some(fd) = self.try_index_as_fd(&obj, vm) {
+            return fd;
+        }
+
+        self.try_pathlike(obj, true, vm).map(OsPathOrFd::Path)
+    }
+
+    fn try_index_as_fd<'fd>(
+        &self,
+        obj: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<OsPathOrFd<'fd>>> {
+        let int = obj.try_index_opt(vm)?;
+        Some((|| {
             if obj
                 .class()
                 .is(crate::builtins::bool_::PyBool::static_type())
@@ -29,12 +47,10 @@ impl PathConverter {
                 )?;
             }
             let fd = int?.try_to_primitive(vm)?;
-            return unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+            unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
                 .map(OsPathOrFd::Fd)
-                .map_err(|e| e.into_pyexception(vm));
-        }
-
-        self.try_path_inner(obj, true, vm).map(OsPathOrFd::Path)
+                .map_err(|e| e.into_pyexception(vm))
+        })())
     }
 }
 
