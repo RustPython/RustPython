@@ -185,12 +185,17 @@ for fn in (_bisect.bisect_left, _bisect.bisect_right):
     old_class = weakref.ref(Original, lambda ref: events.append("collected"))
     del Original
 
+    def replace_class():
+        # RustPython retains a reassigned class until the assigning frame exits.
+        # Isolate that lifetime from the search's cached type ownership.
+        needle.__class__ = Replacement
+
     class Sequence:
         def __len__(self):
             return 1
 
         def __getitem__(self, index):
-            needle.__class__ = Replacement
+            replace_class()
             gc.collect()
             events.append("getitem")
             return Replacement()
