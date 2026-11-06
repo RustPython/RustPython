@@ -302,11 +302,10 @@ impl Py<PyBytes> {
         size_of::<PyBytes>() + self.len() * size_of::<u8>()
     }
 
-    #[pyslot]
-    fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let zelf = zelf.downcast_ref::<PyBytes>().expect("expected bytes");
+    #[pymethod]
+    fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         PyBytesInner::warn_on_str("str() on a bytes instance", vm)?;
-        Ok(vm.ctx.new_str(zelf.payload.inner.repr_bytes(vm)?))
+        Ok(vm.ctx.new_str(self.payload.inner.repr_bytes(vm)?))
     }
 
     #[pystaticmethod]
