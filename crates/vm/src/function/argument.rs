@@ -556,8 +556,8 @@ pub(crate) fn given_by_name_and_position_message(
     keyword: &str,
     pos: usize,
 ) -> String {
-    let name = name.map_or("function", short_name);
-    format!("argument for {name}() given by name ('{keyword}') and position ({pos})")
+    let (name, parens) = call_form(name, "function");
+    format!("argument for {name}{parens} given by name ('{keyword}') and position ({pos})")
 }
 
 /// Compile-time counts for a binding whose entire parameter tree is known.
@@ -1773,6 +1773,18 @@ mod tests {
     use super::{ArgumentError, FromArgs, KwArgs};
     use super::{BindingShape, Callee, FuncArgs, PosArgs};
     use crate::{PyObjectRef, VirtualMachine};
+
+    #[test]
+    fn duplicate_argument_messages_distinguish_unnamed_callees() {
+        assert_eq!(
+            super::given_by_name_and_position_message(None, "dialect", 1),
+            "argument for function given by name ('dialect') and position (1)",
+        );
+        assert_eq!(
+            super::given_by_name_and_position_message(Some("example"), "dialect", 1),
+            "argument for example() given by name ('dialect') and position (1)",
+        );
+    }
 
     #[allow(dead_code)]
     #[derive(FromArgs)]
