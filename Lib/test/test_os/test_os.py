@@ -2727,7 +2727,6 @@ class ExecTests(unittest.TestCase):
 
     # See https://github.com/python/cpython/issues/137934 and the other
     # related issues for the reason why we cannot test this on Windows.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: MyEnv.__getitem__() takes 1 positional argument but 2 were given
     @unittest.skipIf(os.name == "nt", "POSIX-specific test")
     @unittest.skipUnless(unix_shell and os.path.exists(unix_shell),
                         "requires a shell")
@@ -3520,7 +3519,6 @@ class SpawnTests(unittest.TestCase):
         self.assertRaises(ValueError, os.spawnve, os.P_NOWAIT, program, ('',), {})
         self.assertRaises(ValueError, os.spawnve, os.P_NOWAIT, program, [''], {})
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: \"must contain only strings\" does not match \"expected str, bytes or os.PathLike object, not int\"")
     @requires_native_spawnv
     def test_spawnv_arg_conversion_errors(self):
         # A non-path argv item gets a TypeError naming the argument...
@@ -5078,7 +5076,6 @@ class TestScandir(unittest.TestCase):
         finally:
             os.chdir(old_dir)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; FileNotFoundError")
     @unittest.skipIf(sys.platform != 'win32', "Win32 specific test")
     def test_windows_trailing_space_path(self):
         import pathlib

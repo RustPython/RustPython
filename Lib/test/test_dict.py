@@ -1424,7 +1424,6 @@ class DictTest(unittest.TestCase):
         for it in iterators:
             self.assertEqual(list(it), [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_reversed_dict_keys_changed_during_iteration(self):
         d = dict.fromkeys(range(10))
         for i in range(7):

@@ -2,12 +2,12 @@
     "name": "rustpython-wasm-example",
     "version": "1.0.0",
     "dependencies": {
-        "rustpython_wasm": "0.1.0-pre-alpha.1"
+        "rustpython_wasm": "0.1.0-pre-alpha.2"
     },
     "devDependencies": {
-        "raw-loader": "1.0.0",
-        "webpack": "5.104.1",
-        "webpack-cli": "^3.1.2"
+        "raw-loader": "4.0.2",
+        "webpack": "5.112.2",
+        "webpack-cli": "^7.2.3"
     },
     "scripts": {
         "build": "webpack",

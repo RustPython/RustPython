@@ -395,18 +395,33 @@ pub fn wakeup_fd_is_socket(fd: libc::SOCKET) -> io::Result<bool> {
     Ok(false)
 }
 
-#[cfg(windows)]
-pub struct WakeupSendError(pub i32);
+#[cfg(any(unix, windows))]
+pub enum WakeupError {
+    Write(i32),
+    #[cfg(windows)]
+    Send(i32),
+}
 
-#[cfg(windows)]
-impl WakeupSendError {
+#[cfg(any(unix, windows))]
+impl WakeupError {
     pub fn is_would_block(&self) -> bool {
-        self.0 == windows_sys::Win32::Networking::WinSock::WSAEWOULDBLOCK
+        match *self {
+            Self::Write(errno) => errno == libc::EAGAIN || errno == libc::EWOULDBLOCK,
+            #[cfg(windows)]
+            Self::Send(error) => error == windows_sys::Win32::Networking::WinSock::WSAEWOULDBLOCK,
+        }
     }
 
     // Only convert to an allocating error outside the OS signal handler.
     pub fn into_io_error(self) -> io::Error {
-        io::Error::from_raw_os_error(self.0)
+        match self {
+            #[cfg(unix)]
+            Self::Write(errno) => io::Error::from_raw_os_error(errno),
+            #[cfg(windows)]
+            Self::Write(errno) => crate::os::io_error_from_errno(errno),
+            #[cfg(windows)]
+            Self::Send(error) => io::Error::from_raw_os_error(error),
+        }
     }
 }
 
@@ -416,7 +431,7 @@ pub fn notify_signal(
     wakeup_fd: libc::SOCKET,
     wakeup_is_socket: bool,
     sigint_event: Option<isize>,
-) -> Option<WakeupSendError> {
+) -> Option<WakeupError> {
     if signum == libc::SIGINT
         && let Some(handle) = sigint_event
     {
@@ -440,21 +455,30 @@ pub fn notify_signal(
             )
         };
         if result < 0 {
-            Some(WakeupSendError(unsafe {
+            Some(WakeupError::Send(unsafe {
                 windows_sys::Win32::Networking::WinSock::WSAGetLastError()
             }))
         } else {
             None
         }
     } else {
-        unsafe {
-            let _ = libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1);
-        }
-        None
+        crate::crt_fd::write_noraise(wakeup_fd as _, &[sigbyte])
+            .err()
+            .map(WakeupError::Write)
     }
 }
 
-#[cfg(any(unix, target_os = "wasi"))]
+#[cfg(unix)]
+pub fn notify_signal(signum: i32, wakeup_fd: i32) -> Option<WakeupError> {
+    if wakeup_fd == -1 {
+        return None;
+    }
+    crate::crt_fd::write_noraise(wakeup_fd, &[signum as u8])
+        .err()
+        .map(WakeupError::Write)
+}
+
+#[cfg(target_os = "wasi")]
 pub fn notify_signal(signum: i32, wakeup_fd: i32) {
     if wakeup_fd == -1 {
         return;

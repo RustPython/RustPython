@@ -91,6 +91,16 @@ impl PathConverter {
             Err(obj) => obj,
         };
 
+        self.try_pathlike(obj, allow_fd, vm)
+    }
+
+    /// Convert an object already known not to be a str or bytes.
+    pub(crate) fn try_pathlike(
+        &self,
+        obj: PyObjectRef,
+        allow_fd: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<OsPath> {
         // Call __fspath__
         let type_error_msg = || self.type_error_msg(&obj.class().name(), allow_fd);
         let method =
@@ -112,7 +122,7 @@ impl PathConverter {
     }
 
     /// Try to match str or bytes, returns Err(obj) if neither
-    fn try_match_str_bytes(
+    pub(crate) fn try_match_str_bytes(
         &self,
         obj: PyObjectRef,
         vm: &VirtualMachine,
@@ -172,14 +182,14 @@ pub enum OutputMode {
 }
 
 impl OutputMode {
-    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyObjectRef {
-        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyObjectRef {
+    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyResult {
+        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyResult {
             match mode {
-                OutputMode::String => vm.fsdecode(path).into(),
-                OutputMode::Bytes => vm
+                OutputMode::String => vm.fsdecode(path).map(Into::into),
+                OutputMode::Bytes => Ok(vm
                     .ctx
                     .new_bytes(path.into_os_string().into_encoded_bytes())
-                    .into(),
+                    .into()),
             }
         }
         inner(self, path.into(), vm)
@@ -216,9 +226,9 @@ impl OsPath {
         widestring::WideCString::from_os_str(&self.path).map_err(|err| err.to_pyexception(vm))
     }
 
-    pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn filename(&self, vm: &VirtualMachine) -> PyResult {
         if let Some(ref origin) = self.origin {
-            origin.clone()
+            Ok(origin.clone())
         } else {
             // Default to string when no origin (e.g., from new_str)
             OutputMode::String.process_path(self.path.clone(), vm)

@@ -1,15 +1,16 @@
 pub(crate) use _warnings::module_def;
 
 use crate::{Py, PyResult, VirtualMachine, builtins::PyType};
+use rustpython_common::wtf8::Wtf8Buf;
 
 pub fn warn(
     category: &Py<PyType>,
-    message: String,
+    message: impl Into<Wtf8Buf>,
     stack_level: usize,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     crate::warn::warn(
-        vm.new_pyobj(message),
+        vm.ctx.new_str(message.into()).into(),
         Some(category.to_owned()),
         isize::try_from(stack_level).unwrap_or(isize::MAX),
         None,
@@ -21,10 +22,11 @@ pub fn warn(
 mod _warnings {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyAnyDict, PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::TryFromObject,
         function::OptionalArg,
     };
+    use rustpython_common::wtf8::wtf8_concat;
 
     #[pyattr]
     fn filters(vm: &VirtualMachine) -> PyListRef {
@@ -84,13 +86,13 @@ mod _warnings {
     struct WarnArgs {
         #[pyarg(any)]
         message: PyObjectRef,
-        #[pyarg(any, optional)]
-        category: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        category: Option<PyObjectRef>,
         #[pyarg(any, default = 1)]
-        stacklevel: i32,
-        #[pyarg(any, optional)]
-        source: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        stacklevel: isize,
+        #[pyarg(any, default = None)]
+        source: Option<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "()")]
         skip_file_prefixes: OptionalArg<PyTupleRef>,
     }
 
@@ -116,9 +118,10 @@ mod _warnings {
         })?;
 
         if !cat.fast_issubclass(vm.ctx.exceptions.warning) {
-            return Err(vm.new_type_error(format!(
-                "category must be a Warning subclass, not class '{}'",
-                cat.fully_qualified_name(vm)?
+            return Err(vm.new_type_error(wtf8_concat!(
+                "category must be a Warning subclass, not class '",
+                cat.fully_qualified_name(vm)?,
+                "'"
             )));
         }
 
@@ -127,9 +130,9 @@ mod _warnings {
 
     #[pyfunction]
     fn warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let level = args.stacklevel as isize;
+        let level = args.stacklevel;
 
-        let category = get_category(&args.message, args.category.into_option(), vm)?;
+        let category = get_category(&args.message, args.category, vm)?;
 
         // Validate skip_file_prefixes: each element must be a str
         let skip_prefixes = args.skip_file_prefixes.into_option();
@@ -145,7 +148,7 @@ mod _warnings {
             args.message,
             category,
             level,
-            args.source.into_option(),
+            args.source,
             skip_prefixes.as_deref(),
             vm,
         )
@@ -180,10 +183,10 @@ mod _warnings {
         let source_line = if let Some(mg) = args.module_globals.into_option() {
             if vm.is_none(&mg) {
                 None
-            } else if mg.downcast_ref::<PyDict>().is_none() {
-                return Err(vm.new_type_error(format!(
-                    "module_globals must be a dict, not '{}'",
-                    mg.class().name()
+            } else if PyAnyDict::from_object(&mg).is_none() {
+                return Err(vm.new_type_error(wtf8_concat!(
+                    "module_globals must be a dict or a frozendict, not ",
+                    mg.class().fully_qualified_name(vm)?
                 )));
             } else {
                 crate::warn::get_source_line(&mg, args.lineno, vm)?

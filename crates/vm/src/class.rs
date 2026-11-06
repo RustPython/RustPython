@@ -367,8 +367,14 @@ pub trait PyClassImpl: PyClassDef {
 
         // Don't add __new__ attribute if slot_new is inherited from object
         // (Python doesn't add __new__ to __dict__ for inherited slots)
-        // Exception: object itself should have __new__ in its dict
-        if let Some(slot_new) = class.slots().new.load() {
+        // Exception: object itself should have __new__ in its dict.
+        // DISALLOW_INSTANTIATION types must not expose an inherited __new__.
+        if !class
+            .slots()
+            .flags
+            .has_feature(PyTypeFlags::DISALLOW_INSTANTIATION)
+            && let Some(slot_new) = class.slots().new.load()
+        {
             let object_new = ctx.types.object_type.slots().new.load();
             let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
             let is_inherited_from_object = !is_object_itself

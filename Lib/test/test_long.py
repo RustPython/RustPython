@@ -403,7 +403,6 @@ class LongTest(unittest.TestCase):
                "Got {}, expected {}.".format(n, actual, expected))
         self.assertEqual(actual, expected, msg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.requires_IEEE_754
     def test_float_conversion(self):
 
@@ -1399,7 +1398,6 @@ class LongTest(unittest.TestCase):
         self.assertEqual((0).to_bytes(1, SubStr('big')), b'\x00')
         self.assertEqual((0).to_bytes(0, SubStr('little')), b'')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_from_bytes(self):
         def check(tests, byteorder, signed=False):
             def equivalent_python(byte_array, byteorder, signed=False):

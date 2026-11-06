@@ -5,9 +5,13 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, PyMethodDef, PySetterValue},
-    import::{get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name},
+    import::{
+        get_spec_file_origin, is_possibly_shadowing_path, is_spec_initializing,
+        is_stdlib_module_name,
+    },
     types::{GetAttr, Initializer, Representable},
 };
+use rustpython_common::wtf8::wtf8_concat;
 
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
@@ -65,7 +69,7 @@ impl PyModuleDef {
         };
 
         // Initialize module dict and methods
-        PyModule::__init_dict_from_def(vm, &module);
+        PyModule::__init_dict_from_def(vm, &module)?;
         module.__init_methods(vm)?;
 
         Ok(module)
@@ -121,7 +125,7 @@ impl PyPayload for PyModule {
 pub struct ModuleInitArgs {
     name: PyStrRef,
     #[pyarg(any, default)]
-    doc: Option<PyStrRef>,
+    doc: Option<PyObjectRef>,
 }
 
 impl PyModule {
@@ -158,9 +162,9 @@ impl PyModule {
         drop(self.native_state.store(Some(state)));
     }
 
-    pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) {
-        let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
-        module.init_dict(module.name.unwrap(), doc, vm);
+    pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) -> PyResult<()> {
+        let doc = module.def.unwrap().doc.map(|doc| doc.as_object());
+        module.init_dict(module.name.unwrap(), doc, vm)
     }
 }
 
@@ -178,20 +182,68 @@ impl Py<PyModule> {
         Ok(())
     }
 
-    fn getattr_inner(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
+    pub(crate) fn getattr_inner(
+        &self,
+        name: &Py<PyStr>,
+        suppress_cycle: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let mut attr = match self.as_object().generic_getattr_opt(name, None, vm) {
+            Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => None,
+            result => result?,
+        };
+        if attr.is_none() {
+            if let Some(value) =
+                crate::lazy_import::try_load_submodule(self, name, suppress_cycle, vm)?
+            {
+                return Ok(value);
+            }
+            // A concurrent import may have bound a child and removed its pending entry.
+            if self.class().is(vm.ctx.types.module_type)
+                || self
+                    .class()
+                    .get_attr(vm.ctx.intern_str(name.as_wtf8()))
+                    .is_none_or(|descriptor| descriptor.class().slots().descr_get.load().is_none())
+            {
+                attr = self.dict().get_item_opt(name, vm)?;
+            }
+        }
+        if let Some(attr) = attr {
+            if let Some(deferred) =
+                attr.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+            {
+                if name.to_str() != Some("__getattr__")
+                    && let Some(getattr) = crate::lazy_import::resolved_dict_item(
+                        &self.dict(),
+                        identifier!(vm, __getattr__),
+                        vm,
+                    )?
+                {
+                    match getattr.call((name.to_owned(),), vm) {
+                        Ok(value) => return Ok(value),
+                        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+                        Err(exc) => return Err(exc),
+                    }
+                }
+                if suppress_cycle && crate::lazy_import::is_resolving(deferred, vm) {
+                    return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
+                }
+                return crate::lazy_import::reify(deferred, name, self.dict().as_object(), vm);
+            }
             return Ok(attr);
         }
-        if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
+        if let Some(getattr) =
+            crate::lazy_import::resolved_dict_item(&self.dict(), identifier!(vm, __getattr__), vm)?
+        {
             return getattr.call((name.to_owned(),), vm);
+        }
+        if suppress_cycle {
+            return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
         }
         let dict = self.dict();
 
         // Get the raw __name__ object (may be a str subclass)
-        let mod_name_obj = dict
-            .get_item_opt(identifier!(vm, __name__), vm)
-            .ok()
-            .flatten();
+        let mod_name_obj = dict.inner_getitem_opt(identifier!(vm, __name__), vm)?;
         let mod_name = mod_name_obj
             .as_ref()
             .and_then(|n| n.downcast_ref::<PyUtf8Str>());
@@ -201,13 +253,9 @@ impl Py<PyModule> {
             return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
         };
 
-        let spec = dict
-            .get_item_opt(vm.ctx.intern_str("__spec__"), vm)
-            .ok()
-            .flatten()
-            .filter(|s| !vm.is_none(s));
+        let spec = dict.inner_getitem_opt(vm.ctx.intern_str("__spec__"), vm)?;
 
-        let origin = get_spec_file_origin(spec.as_deref(), vm);
+        let origin = get_spec_file_origin(spec.as_deref(), vm)?;
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -233,7 +281,7 @@ impl Py<PyModule> {
                  and prevents importing that standard library module)"
             )))
         } else {
-            let is_initializing = PyModule::is_initializing(&dict, vm);
+            let is_initializing = is_spec_initializing(spec.as_deref(), vm)?;
             if is_initializing {
                 if is_possibly_shadowing {
                     let origin = origin.as_ref().unwrap();
@@ -257,7 +305,7 @@ impl Py<PyModule> {
                 }
             } else {
                 // Check for uninitialized submodule
-                let submodule_initializing = is_uninitialized_submodule(mod_name, name, vm);
+                let submodule_initializing = is_uninitialized_submodule(spec.as_deref(), name, vm)?;
                 if submodule_initializing {
                     Err(vm.new_attribute_error(format!(
                         "cannot access submodule '{name}' of module '{mod_display}' \
@@ -280,26 +328,21 @@ impl Py<PyModule> {
     // TODO: should be on PyModule, not Py<PyModule>
     pub(crate) fn init_dict(
         &self,
-        name: &'static PyStrInterned,
-        doc: Option<PyStrRef>,
+        name: &Py<PyStr>,
+        doc: Option<&PyObject>,
         vm: &VirtualMachine,
-    ) {
+    ) -> PyResult<()> {
         let dict = self.dict();
-        dict.set_item(identifier!(vm, __name__), name.to_object(), vm)
-            .expect("Failed to set __name__ on module");
-        dict.set_item(identifier!(vm, __doc__), doc.to_pyobject(vm), vm)
-            .expect("Failed to set __doc__ on module");
-        dict.set_item("__package__", vm.ctx.none(), vm)
-            .expect("Failed to set __package__ on module");
-        dict.set_item("__loader__", vm.ctx.none(), vm)
-            .expect("Failed to set __loader__ on module");
-        dict.set_item("__spec__", vm.ctx.none(), vm)
-            .expect("Failed to set __spec__ on module");
+        dict.inner_setitem(identifier!(vm, __name__), name.to_owned().into(), vm)?;
+        dict.inner_setitem(identifier!(vm, __doc__), doc.to_pyobject(vm), vm)?;
+        dict.inner_setitem(vm.ctx.intern_str("__package__"), vm.ctx.none(), vm)?;
+        dict.inner_setitem(vm.ctx.intern_str("__loader__"), vm.ctx.none(), vm)?;
+        dict.inner_setitem(vm.ctx.intern_str("__spec__"), vm.ctx.none(), vm)
     }
 
     pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
         let attr_name = attr_name.as_pystr(&vm.ctx);
-        self.getattr_inner(attr_name, vm)
+        self.getattr_inner(attr_name, false, vm)
     }
 
     pub fn set_attr<'a>(
@@ -317,36 +360,42 @@ impl Py<PyModule> {
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyModule {
+    fn load_dict(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        zelf.as_object()
+            .get_attr(identifier!(vm, __dict__), vm)?
+            .downcast::<PyDict>()
+            .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))
+    }
+
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::new().into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pymethod]
-    fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
         // First check if __dict__ attribute exists and is actually a dictionary
-        let dict_attr = zelf.as_object().get_attr(identifier!(vm, __dict__), vm)?;
-        let dict = dict_attr
-            .downcast::<PyDict>()
-            .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
+        let dict = Self::load_dict(zelf, vm)?;
         // PEP 562: honor a module-level __dir__ if one is defined
-        if let Some(dir_func) = dict.get_item_opt(identifier!(vm, __dir__), vm)? {
-            return dir_func.call((), vm)?.try_to_value(vm);
+        if let Some(dir_func) =
+            crate::lazy_import::resolved_dict_item(&dict, identifier!(vm, __dir__), vm)?
+        {
+            return dir_func.call((), vm);
         }
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
-        Ok(attrs)
+        Ok(vm.ctx.new_list(attrs).into())
     }
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let dict = zelf.dict();
+        let dict = Self::load_dict(zelf, vm)?;
         // Get __annotate__ from dict; if not present, insert None and return it
         // See: module_get_annotate()
-        if let Some(annotate) = dict.get_item_opt(identifier!(vm, __annotate__), vm)? {
+        if let Some(annotate) = dict.inner_getitem_opt(identifier!(vm, __annotate__), vm)? {
             Ok(annotate)
         } else {
             let none = vm.ctx.none();
-            dict.set_item(identifier!(vm, __annotate__), none.clone(), vm)?;
+            dict.inner_setitem(identifier!(vm, __annotate__), none.clone(), vm)?;
             Ok(none)
         }
     }
@@ -359,14 +408,14 @@ impl PyModule {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
+                let dict = Self::load_dict(zelf, vm)?;
                 if !vm.is_none(&value) && !value.is_callable() {
                     return Err(vm.new_type_error("__annotate__ must be callable or None"));
                 }
-                let dict = zelf.dict();
-                dict.set_item(identifier!(vm, __annotate__), value.clone(), vm)?;
+                dict.inner_setitem(identifier!(vm, __annotate__), value.clone(), vm)?;
                 // Clear __annotations__ if value is not None
                 if !vm.is_none(&value) {
-                    dict.del_item(identifier!(vm, __annotations__), vm).ok();
+                    dict.inner_pop_item(identifier!(vm, __annotations__), vm)?;
                 }
                 Ok(())
             }
@@ -376,28 +425,37 @@ impl PyModule {
 
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let dict = zelf.dict();
+        let dict = Self::load_dict(zelf, vm)?;
 
         // Check if __annotations__ is already in dict (explicitly set)
-        if let Some(annotations) = dict.get_item_opt(identifier!(vm, __annotations__), vm)? {
+        if let Some(annotations) = dict.inner_getitem_opt(identifier!(vm, __annotations__), vm)? {
             return Ok(annotations);
         }
 
         // Check if module is initializing
-        let is_initializing = Self::is_initializing(&dict, vm);
+        let spec = zelf
+            .dict()
+            .inner_getitem_opt(vm.ctx.intern_str("__spec__"), vm)?;
+        let is_initializing = is_spec_initializing(spec.as_deref(), vm)?;
+        drop(spec);
 
         // PEP 649: Get __annotate__ and call it if callable
         let annotations = if let Some(annotate) =
-            dict.get_item_opt(identifier!(vm, __annotate__), vm)?
+            dict.inner_getitem_opt(identifier!(vm, __annotate__), vm)?
             && annotate.is_callable()
         {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
             if !result.downcastable::<PyDict>() {
-                return Err(vm.new_type_error(format!(
-                    "__annotate__ returned non-dict of type '{}'",
-                    result.class().name()
-                )));
+                let error = result.class().fully_qualified_name(vm).map(|name| {
+                    vm.new_type_error(wtf8_concat!(
+                        "__annotate__() must return a dict, not ",
+                        name
+                    ))
+                });
+                drop(annotate);
+                drop(result);
+                return Err(error?);
             }
             result
         } else {
@@ -406,20 +464,10 @@ impl PyModule {
 
         // Cache result unless module is initializing
         if !is_initializing {
-            dict.set_item(identifier!(vm, __annotations__), annotations.clone(), vm)?;
+            dict.inner_setitem(identifier!(vm, __annotations__), annotations.clone(), vm)?;
         }
 
         Ok(annotations)
-    }
-
-    /// Check if module is initializing via __spec__._initializing
-    fn is_initializing(dict: &Py<PyDict>, vm: &VirtualMachine) -> bool {
-        if let Ok(Some(spec)) = dict.get_item_opt(vm.ctx.intern_str("__spec__"), vm)
-            && let Ok(initializing) = spec.get_attr(vm.ctx.intern_str("_initializing"), vm)
-        {
-            return initializing.try_to_bool(vm).unwrap_or(false);
-        }
-        false
     }
 
     #[pygetset(setter)]
@@ -428,23 +476,22 @@ impl PyModule {
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let dict = zelf.dict();
-        match value {
+        let dict = Self::load_dict(zelf, vm)?;
+        match &value {
             PySetterValue::Assign(value) => {
-                dict.set_item(identifier!(vm, __annotations__), value, vm)?;
-                // Clear __annotate__ from dict
-                dict.del_item(identifier!(vm, __annotate__), vm).ok();
-                Ok(())
+                dict.inner_setitem(identifier!(vm, __annotations__), value.clone(), vm)?;
             }
             PySetterValue::Delete => {
-                if dict.del_item(identifier!(vm, __annotations__), vm).is_err() {
+                if dict
+                    .inner_pop_item(identifier!(vm, __annotations__), vm)?
+                    .is_none()
+                {
                     return Err(vm.new_attribute_error("__annotations__"));
                 }
-                // Also clear __annotate__
-                dict.del_item(identifier!(vm, __annotate__), vm).ok();
-                Ok(())
             }
         }
+        dict.inner_pop_item(identifier!(vm, __annotate__), vm)?;
+        Ok(())
     }
 }
 
@@ -458,14 +505,14 @@ impl Initializer for PyModule {
                 .flags
                 .has_feature(crate::types::PyTypeFlags::HAS_DICT)
         );
-        zelf.init_dict(vm.ctx.intern_str(args.name.as_wtf8()), args.doc, vm);
-        Ok(())
+        let ModuleInitArgs { name, doc } = args;
+        zelf.init_dict(&name, doc.as_deref(), vm)
     }
 }
 
 impl GetAttr for PyModule {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        zelf.getattr_inner(name, vm)
+        zelf.getattr_inner(name, false, vm)
     }
 }
 
@@ -489,31 +536,19 @@ pub(crate) fn init(context: &'static Context) {
     PyModule::extend_class(context, context.types.module_type);
 }
 
-/// Check if {module_name}.{name} is an uninitialized submodule in sys.modules.
+/// Check the parent module's spec for an uninitialized submodule.
 fn is_uninitialized_submodule(
-    module_name: Option<&Py<PyUtf8Str>>,
+    spec: Option<&PyObject>,
     name: &Py<PyStr>,
     vm: &VirtualMachine,
-) -> bool {
-    let Some(mod_name) = module_name else {
-        return false;
+) -> PyResult<bool> {
+    let Some(spec) = spec else {
+        return Ok(false);
     };
-
-    let Ok(sys_modules) = vm.sys_module.get_attr("modules", vm) else {
-        return false;
-    };
-
-    let full_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
-    let Ok(sub_mod) = sys_modules.get_item(&*full_name, vm) else {
-        return false;
-    };
-
-    let spec = match sub_mod.get_attr("__spec__", vm) {
-        Ok(s) if !vm.is_none(&s) => s,
-        _ => return false,
-    };
-
-    spec.get_attr("_initializing", vm)
-        .and_then(|v| v.try_to_bool(vm))
-        .unwrap_or(false)
+    match vm.get_attribute_opt(spec, "_uninitialized_submodules")? {
+        Some(submodules) => submodules
+            .sequence_unchecked()
+            .contains(name.as_object(), vm),
+        None => Ok(false),
+    }
 }

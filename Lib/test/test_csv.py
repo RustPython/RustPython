@@ -672,7 +672,6 @@ class TestDialectRegistry(unittest.TestCase):
             fileobj.seek(0)
             self.assertEqual(fileobj.read(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dialect_apply(self):
         class testA(csv.excel):
             delimiter = "\t"

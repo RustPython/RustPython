@@ -9,11 +9,11 @@ pub(crate) mod module {
         AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytes, PyCapsule, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
-        exceptions::{self, OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::{self, OSErrorBuilder},
         function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
-        ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
+        ospath::{OsPath, OsPathOrFd, PathConverter},
+        stdlib::os::{_os, AccessArgs, DirFd, SupportFunc, SymlinkArgs},
     };
     use core::hint::cold_path;
     use libc::intptr_t;
@@ -76,9 +76,21 @@ pub(crate) mod module {
     };
 
     #[pyfunction]
-    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        let _ = path.to_wide_cstring(vm)?;
-        Ok(host_nt::access(path.as_ref(), mode))
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        if !args.follow_symlinks.0 {
+            return Err(vm.new_not_implemented_error(
+                "access: follow_symlinks unavailable on this platform",
+            ));
+        }
+        if args.effective_ids {
+            return Err(
+                vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
+            );
+        }
+        let wide = args.path.to_wide_cstring(vm)?;
+
+        Ok(host_nt::access(&wide, args.mode))
     }
 
     #[pyfunction]
@@ -109,11 +121,9 @@ pub(crate) mod module {
             &dst,
             args.target_is_directory.target_is_directory,
         ) {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder
-                .filename(args.src.filename(vm))
-                .filename2(args.dst.filename(vm));
-            return Err(builder.build(vm).upcast());
+            return Err(OSErrorBuilder::with_filenames(
+                &err, &args.src, &args.dst, vm,
+            ));
         }
 
         Ok(())
@@ -232,8 +242,11 @@ pub(crate) mod module {
     }
 
     impl PathArg {
-        fn to_path_or_fd(&self, vm: &VirtualMachine) -> Option<OsPathOrFd<'static>> {
-            OsPathOrFd::try_from_object(vm, self.path.clone()).ok()
+        fn to_path_or_fd(&self, vm: &VirtualMachine) -> PyResult<Option<OsPathOrFd<'static>>> {
+            match PathConverter::new().try_path_or_fd_allow_invalid(self.path.clone(), vm) {
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.value_error) => Ok(None),
+                result => result,
+            }
         }
     }
 
@@ -318,44 +331,50 @@ pub(crate) mod module {
 
     // return _testFileType(path, PY_IFDIR)
     #[pyfunction]
-    fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFDIR))
+    fn _path_isdir(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(PathArg { path }
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFDIR)))
     }
 
     // return _testFileType(path, PY_IFREG)
     #[pyfunction]
-    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFREG))
+    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFREG)))
     }
 
     // return _testFileType(path, PY_IFLNK)
     #[pyfunction]
-    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFLNK))
+    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFLNK)))
     }
 
     // return _testFileType(path, PY_IFMNT)
     #[pyfunction]
-    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_type(&p, PY_IFMNT))
+    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_type(&p, PY_IFMNT)))
     }
 
     // return _testFileExists(path, TRUE)
     #[pyfunction]
-    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_exists(&p, true))
+    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_exists(&p, true)))
     }
 
     // return _testFileExists(path, FALSE)
     #[pyfunction]
-    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path_or_fd(vm)
-            .is_some_and(|p| _test_file_exists(&p, false))
+    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(args
+            .to_path_or_fd(vm)?
+            .is_some_and(|p| _test_file_exists(&p, false)))
     }
 
     #[pyfunction]
@@ -366,8 +385,8 @@ pub(crate) mod module {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
-        let (pid, status) = host_nt::cwait(pid, opt).map_err(|_| vm.new_last_errno_error())?;
+    fn waitpid(pid: intptr_t, options: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
+        let (pid, status) = host_nt::cwait(pid, options).map_err(|_| vm.new_last_errno_error())?;
         // Cast to unsigned to handle large exit codes (like 0xC000013A)
         // then shift left by 8 to match POSIX waitpid format
         let ustatus = (status as u32) as u64;
@@ -381,8 +400,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_nt::kill(pid as u32, sig as u32).map_err(|err| err.to_pyexception(vm))
+    fn kill(pid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        host_nt::kill(pid as u32, signal as u32).map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -409,8 +428,15 @@ pub(crate) mod module {
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            let fspath = FsPath::try_from_path_like(obj, true, vm)?;
-            fspath.to_wide_cstring(vm)
+            FsPath::try_from_path_like(obj, true, vm)
+                .and_then(|fspath| fspath.to_wide_cstring(vm))
+                .map_err(|err| {
+                    if err.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error("spawnv() arg 2 must contain only strings")
+                    } else {
+                        err
+                    }
+                })
         })?;
 
         let first = argv
@@ -577,7 +603,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let final_path = host_nt::getfinalpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(final_path, vm))
+        path.mode().process_path(final_path, vm)
     }
 
     #[pyfunction]
@@ -585,7 +611,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let buffer = host_nt::getfullpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(buffer, vm))
+        path.mode().process_path(buffer, vm)
     }
 
     #[pyfunction]
@@ -597,7 +623,7 @@ pub(crate) mod module {
         }
         let buffer = host_nt::getvolumepathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        Ok(path.mode().process_path(buffer, vm))
+        path.mode().process_path(buffer, vm)
     }
 
     /// Implements _Py_skiproot logic for Windows paths
@@ -1047,7 +1073,7 @@ pub(crate) mod module {
         let mode = path.mode();
         let wide = path.to_wide_cstring(vm)?;
         match host_nt::readlink(&wide) {
-            Ok(result_path) => Ok(mode.process_path(std::path::PathBuf::from(result_path), vm)),
+            Ok(result_path) => mode.process_path(std::path::PathBuf::from(result_path), vm),
             Err(host_nt::ReadlinkError::Io(err)) => {
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             }
@@ -1149,5 +1175,38 @@ pub(crate) mod module {
             show_cmd,
         )
         .map_err(|err| OSErrorBuilder::with_filename(&err, args.filepath, vm))
+    }
+
+    #[cfg(test)]
+    #[cfg(target_env = "msvc")]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn spawnv_argument_errors_preserve_non_type_errors() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for (arg, expected_type) in [
+                    (vm.ctx.new_int(123).into(), vm.ctx.exceptions.type_error),
+                    (
+                        vm.ctx.new_str("embedded\0null").into(),
+                        vm.ctx.exceptions.value_error,
+                    ),
+                ] {
+                    let argv = vm.ctx.new_list(vec![vm.ctx.new_str("unused").into(), arg]);
+                    let err =
+                        spawnv(0, OsPath::new_str("unused"), Either::A(argv), vm).unwrap_err();
+                    assert!(err.fast_isinstance(expected_type));
+                    if expected_type.is(vm.ctx.exceptions.type_error) {
+                        assert_eq!(
+                            err.args().as_slice()[0]
+                                .downcast_ref::<PyStr>()
+                                .unwrap()
+                                .as_wtf8(),
+                            "spawnv() arg 2 must contain only strings",
+                        );
+                    }
+                }
+            });
+        }
     }
 }

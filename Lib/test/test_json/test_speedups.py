@@ -1,8 +1,6 @@
 from test.test_json import CTest
 from test.support import gc_collect
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 
 class BadBool:
     def __bool__(self):
@@ -84,7 +82,6 @@ class TestEncode(CTest):
         with self.assertRaises(TypeError):
             self.json.encoder.JSONEncoder(sort_keys=True).encode({'a': 1, 1: 'a'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: 'NoneType' object is not callable
     def test_current_indent_level(self):
         enc = self.json.encoder.c_make_encoder(
             markers=None,

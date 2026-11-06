@@ -91,6 +91,21 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// which is created untracked and tracked lazily only on escape.
     const NEW_REF_UNTRACKED: bool = false;
 
+    /// Whether this payload needs cyclic GC when first wrapped in an object.
+    /// Returning false promises that this instance cannot participate in a
+    /// reference cycle for its entire lifetime, not just at allocation time.
+    /// The check must not run Python. Instance dictionaries and heap types are
+    /// still tracked, unless NEW_REF_UNTRACKED opts out explicitly.
+    #[inline]
+    fn needs_gc(&self, _class: &Py<PyType>) -> bool {
+        true
+    }
+
+    /// Run tp_clear before ordinary reference-counted destruction. Payloads
+    /// whose Rust destructor releases their children directly may opt out.
+    /// Cyclic GC still calls tp_clear; freelists also require a cleared payload.
+    const CLEAR_ON_DEALLOC: bool = true;
+
     /// Whether this type has a freelist. Types with freelists require
     /// immediate (non-deferred) GC untracking during dealloc to prevent
     /// race conditions when the object is reused.

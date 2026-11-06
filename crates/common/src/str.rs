@@ -743,24 +743,31 @@ pub mod levenshtein {
 /// Replace all tabs in a string with spaces, using the given tab size.
 #[must_use]
 pub fn expandtabs(input: &Wtf8, tab_size: usize) -> Wtf8Buf {
+    let capacity = if tab_size == 0 { 0 } else { input.len() };
+    let mut expanded_str = Wtf8Buf::with_capacity(capacity);
+    expandtabs_into(input, tab_size, &mut expanded_str);
+    expanded_str
+}
+
+/// Append tab-expanded input to a buffer whose capacity the caller may reserve.
+pub fn expandtabs_into(input: &Wtf8, tab_stop: usize, expanded_str: &mut Wtf8Buf) {
     // A tab size of zero, which is also where a negative one lands, leaves no
     // column for a tab to advance to: the tabs come out and nothing else moves.
     // Going through the arithmetic anyway subtracts the current column from a
     // tab stop of zero and underflows on the first tab, so the width asked for
-    // next is `usize::MAX`. The bytes version of this already returns here.
-    if tab_size == 0 {
-        return input.code_points().filter(|ch| *ch != '\t').collect();
+    // next is `usize::MAX`.
+    if tab_stop == 0 {
+        expanded_str.extend(input.code_points().filter(|ch| *ch != '\t'));
+        return;
     }
 
-    let tab_stop = tab_size;
-    let mut expanded_str = Wtf8Buf::with_capacity(input.len());
     let mut tab_size = tab_stop;
     let mut col_count = 0usize;
     for ch in input.code_points() {
         if ch == '\t' {
             let num_spaces = tab_size - col_count;
             col_count += num_spaces;
-            expanded_str.push_str(&" ".repeat(num_spaces));
+            expanded_str.extend(core::iter::repeat_n(CodePoint::from(' '), num_spaces));
         } else {
             expanded_str.push(ch);
             if ch == '\r' || ch == '\n' {
@@ -774,7 +781,6 @@ pub fn expandtabs(input: &Wtf8, tab_size: usize) -> Wtf8Buf {
             tab_size += tab_stop;
         }
     }
-    expanded_str
 }
 
 /// Creates an [`AsciiStr`][ascii::AsciiStr] from a string literal, throwing a compile error if the

@@ -10,7 +10,7 @@ use crate::{
     cformat::cformat_bytes,
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
-    function::{ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
+    function::{ArgBytesOrStr, ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -420,17 +420,24 @@ impl ByteInnerTranslateOptions {
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
-fn bytearray_repr_char_len(ch: u8) -> usize {
+fn bytearray_repr_char_len(ch: u8, quote: u8) -> usize {
+    if ch == quote {
+        return 2;
+    }
     match ch {
-        b'\'' | b'\\' | b'\t' | b'\r' | b'\n' => 2,
+        b'\\' | b'\t' | b'\r' | b'\n' => 2,
         0x20..=0x7e => 1,
         _ => 4, // \xHH
     }
 }
 
-fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
+fn write_bytearray_repr_char(ch: u8, quote: u8, buf: &mut String) {
+    if ch == quote {
+        buf.push('\\');
+        buf.push(ch as char);
+        return;
+    }
     match ch {
-        b'\'' => buf.push_str(r#"\'"#),
         b'\\' => buf.push_str(r#"\\"#),
         b'\t' => buf.push_str(r#"\t"#),
         b'\n' => buf.push_str(r#"\n"#),
@@ -478,7 +485,7 @@ impl PyBytesInner {
             .elements
             .iter()
             .try_fold(0usize, |len, &ch| {
-                len.checked_add(bytearray_repr_char_len(ch))
+                len.checked_add(bytearray_repr_char_len(ch, quote as u8))
             })
             .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
         let len = class_name
@@ -492,7 +499,7 @@ impl PyBytesInner {
         buf.push('b');
         buf.push(quote);
         for &ch in &self.elements {
-            write_bytearray_repr_char(ch, &mut buf);
+            write_bytearray_repr_char(ch, quote as u8, &mut buf);
         }
         buf.push(quote);
         buf.push(')');
@@ -936,24 +943,31 @@ impl PyBytesInner {
         )
     }
 
-    pub fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Vec<u8> {
+    pub fn expandtabs(
+        &self,
+        options: anystr::ExpandTabsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let tabsize = options.tabsize();
         let mut counter: usize = 0;
-        let mut res = vec![];
-
-        if tabsize == 0 {
-            return self
-                .elements
-                .iter()
-                .copied()
-                .filter(|x| *x != b'\t')
-                .collect();
-        }
+        let capacity = anystr::checked_expandtabs_len(
+            self.len(),
+            self.elements.iter().copied().map(u32::from),
+            tabsize,
+        )
+        .ok_or_else(|| vm.new_overflow_error("result too long"))?;
+        let mut res = Vec::new();
+        res.try_reserve_exact(capacity)
+            .map_err(|_| vm.new_memory_error(""))?;
 
         for i in &self.elements {
             if *i == b'\t' {
-                let len = tabsize - counter % tabsize;
-                res.extend_from_slice(&vec![b' '; len]);
+                let len = if tabsize == 0 {
+                    0
+                } else {
+                    tabsize - counter % tabsize
+                };
+                res.resize(res.len() + len, b' ');
                 counter += len;
             } else {
                 res.push(*i);
@@ -965,7 +979,7 @@ impl PyBytesInner {
             }
         }
 
-        res
+        Ok(res)
     }
 
     pub fn splitlines<FW, W>(&self, options: anystr::SplitLinesArgs, into_wrapper: FW) -> Vec<W>
@@ -982,10 +996,17 @@ impl PyBytesInner {
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1
-    fn replace_interleave(&self, to: Self, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_interleave(
+        &self,
+        to: Self,
+        max_count: Option<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let place_count = self.elements.len() + 1;
-        let count = max_count.map_or(place_count, |v| core::cmp::min(v, place_count)) - 1;
-        let capacity = self.elements.len() + count * to.len();
+        let insertions = max_count.map_or(place_count, |v| core::cmp::min(v, place_count));
+        let capacity = anystr::checked_replace_len(self.len(), 0, to.len(), insertions)
+            .ok_or_else(|| vm.new_overflow_error("replace bytes is too long"))?;
+        let count = insertions - 1;
         let mut result = Vec::with_capacity(capacity);
         let to_slice = to.elements.as_slice();
         result.extend_from_slice(to_slice);
@@ -994,7 +1015,7 @@ impl PyBytesInner {
             result.extend_from_slice(to_slice);
         }
         result.extend_from_slice(&self.elements[count..]);
-        result
+        Ok(result)
     }
 
     fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Cow<'_, [u8]> {
@@ -1077,14 +1098,8 @@ impl PyBytesInner {
         // Check for overflow
         //    result_len = self_len + count * (to_len-from_len)
         debug_assert!(count > 0);
-        if to.len() as isize - from.len() as isize
-            > (isize::MAX - self.elements.len() as isize) / count as isize
-        {
-            return Err(vm.new_overflow_error("replace bytes is too long"));
-        }
-        let result_len = (self.elements.len() as isize
-            + count as isize * (to.len() as isize - from.len() as isize))
-            as usize;
+        let result_len = anystr::checked_replace_len(self.len(), from.len(), to.len(), count)
+            .ok_or_else(|| vm.new_overflow_error("replace bytes is too long"))?;
 
         let mut result = Vec::with_capacity(result_len);
         let mut last_end = 0;
@@ -1134,7 +1149,7 @@ impl PyBytesInner {
             // insert the 'to' bytes everywhere.
             //     >>> b"Python".replace(b"", b".")
             //     b'.P.y.t.h.o.n.'
-            return Ok(Cow::Owned(self.replace_interleave(to, max_count)));
+            return self.replace_interleave(to, max_count, vm).map(Cow::Owned);
         }
 
         // Except for b"".replace(b"", b"A") == b"A" there is no way beyond this
@@ -1354,7 +1369,7 @@ pub struct ByteInnerReplaceOptions {
     old: PyBytesInner,
     #[pyarg(positional)]
     new: PyBytesInner,
-    #[pyarg(positional, default = -1)]
+    #[pyarg(any, default = -1)]
     count: isize,
 }
 
@@ -1386,7 +1401,7 @@ pub(crate) fn bytes_decode(
 #[derive(FromArgs)]
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
-    pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    pub sep: OptionalArg<ArgBytesOrStr>,
     #[pyarg(any, default = 1)]
     pub bytes_per_sep: isize,
 }
@@ -1402,24 +1417,12 @@ impl ByteInnerHexOptions {
             return Ok((None, bytes_per_sep));
         };
 
-        let s_guard;
-        let b_guard;
-        let (obj, bytes) = match &sep {
-            Either::A(s) => {
-                s_guard = s.as_wtf8();
-                (s.as_object(), s_guard.as_bytes())
-            }
-            Either::B(b) => {
-                b_guard = b.as_bytes();
-                (b.as_object(), b_guard)
-            }
-        };
-        if obj.length(vm)? != 1 {
+        if sep.as_object().length(vm)? != 1 {
             return Err(vm.new_value_error("sep must be length 1."));
         }
         // An object that claims a length it does not have separates with NUL,
         // which is what reading past the end of its data gives.
-        let sep = bytes.first().copied().unwrap_or(0);
+        let sep = sep.with_ref(|bytes| bytes.first().copied().unwrap_or(0));
         if sep > 127 {
             return Err(vm.new_value_error("sep must be ASCII."));
         }
@@ -1437,7 +1440,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     let len = bytes.len();
 
     let buf = if bytes_per_sep < 0 {
-        let bytes_per_sep = core::cmp::min(len, (-bytes_per_sep) as usize);
+        let bytes_per_sep = core::cmp::min(len, bytes_per_sep.unsigned_abs());
         let chunks = (len - 1) / bytes_per_sep;
         let chunked = chunks * bytes_per_sep;
         let unchunked = len - chunked;

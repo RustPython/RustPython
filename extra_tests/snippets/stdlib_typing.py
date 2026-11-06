@@ -1,7 +1,7 @@
+import _typing
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-import _typing
 from testutils import assert_raises
 
 T = TypeVar("T")

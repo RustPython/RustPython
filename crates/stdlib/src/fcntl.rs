@@ -82,6 +82,71 @@ mod fcntl {
     #[pyattr]
     use host_fcntl::F_GETPATH;
 
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use host_fcntl::{FICLONE, FICLONERANGE};
+
+    const BUFFER_SIZE: usize = 1024;
+    const BUFFER_GUARD: [u8; 8] = [0, 0xfa, 0x69, 0xc4, 0x67, 0xa3, 0x6c, 0x58];
+
+    struct SyscallBuffer {
+        stack: [u8; BUFFER_SIZE + BUFFER_GUARD.len()],
+        heap: Option<Vec<u8>>,
+        len: usize,
+    }
+
+    impl SyscallBuffer {
+        fn new(bytes: &[u8], vm: &VirtualMachine) -> PyResult<Self> {
+            let len = bytes.len();
+            let mut buffer = Self {
+                stack: [0; BUFFER_SIZE + BUFFER_GUARD.len()],
+                heap: None,
+                len,
+            };
+            if len > BUFFER_SIZE {
+                let size = len.checked_add(1).ok_or_else(|| vm.no_memory_error())?;
+                let mut heap = vm.new_zeroed_bytes(size)?;
+                heap[..len].copy_from_slice(bytes);
+                buffer.heap = Some(heap);
+            } else {
+                buffer.stack[..len].copy_from_slice(bytes);
+                buffer.stack[len..len + BUFFER_GUARD.len()].copy_from_slice(&BUFFER_GUARD);
+            }
+            Ok(buffer)
+        }
+
+        fn as_mut_slice(&mut self) -> &mut [u8] {
+            self.heap.as_deref_mut().unwrap_or(&mut self.stack)
+        }
+
+        fn into_bytes(self, operation: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            // Like CPython, detect writes into the trailing guard. This cannot
+            // make a buffer safe for an operation requiring an arbitrary size.
+            let valid = match &self.heap {
+                Some(heap) => heap[self.len] == 0,
+                None => self.stack[self.len..self.len + BUFFER_GUARD.len()] == BUFFER_GUARD,
+            };
+            if !valid {
+                let corruption = if self.heap.is_some() {
+                    "Memory corruption"
+                } else {
+                    "Possible stack corruption"
+                };
+                return Err(vm.new_system_error(format!(
+                    "{corruption} in {operation}() due to buffer overflow. \
+                     Provide an argument of sufficient size as determined by the operation."
+                )));
+            }
+            match self.heap {
+                Some(mut heap) => {
+                    heap.truncate(self.len);
+                    Ok(heap)
+                }
+                None => Ok(self.stack[..self.len].to_vec()),
+            }
+        }
+    }
+
     #[derive(FromArgs)]
     struct FcntlArg {
         #[pyarg(positional, default = 0)]
@@ -97,21 +162,13 @@ mod fcntl {
     ) -> PyResult {
         let int = match arg {
             Either::A(arg) => {
-                let mut buf = [0u8; 1024];
-                let arg_len;
-                {
-                    let s = arg.borrow_bytes();
-                    arg_len = s.len();
-                    buf.get_mut(..arg_len)
-                        .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
-                        .copy_from_slice(&s)
-                }
+                let mut buf = SyscallBuffer::new(&arg.borrow_bytes(), vm)?;
                 retry_on_eintr(
                     vm,
-                    || host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]),
+                    || host_fcntl::fcntl_with_bytes(fd, cmd, buf.as_mut_slice()),
                     is_interrupted_error,
                 )?;
-                return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
+                return Ok(vm.ctx.new_bytes(buf.into_bytes("fcntl", vm)?).into());
             }
             Either::B(i) => i.as_ref().as_u32_mask(),
         };
@@ -142,16 +199,7 @@ mod fcntl {
         let request = host_fcntl::normalize_ioctl_request(request);
         match arg {
             Either::A(buf_kind) => {
-                const BUF_SIZE: usize = 1024;
-                let mut buf = [0u8; BUF_SIZE + 1]; // nul byte
-                let mut fill_buf = |b: &[u8]| {
-                    if b.len() > BUF_SIZE {
-                        return Err(vm.new_value_error("fcntl string arg too long"));
-                    }
-                    buf[..b.len()].copy_from_slice(b);
-                    Ok(b.len())
-                };
-                let buf_len = match buf_kind {
+                let mut buf = match buf_kind {
                     Either::A(rw_arg) => {
                         let mutate_flag = mutate_flag.unwrap_or(true);
                         if mutate_flag {
@@ -173,16 +221,18 @@ mod fcntl {
                             return Ok(vm.ctx.new_int(ret).into());
                         }
                         // treat like an immutable buffer
-                        fill_buf(&rw_arg.borrow_buf_mut())?
+                        SyscallBuffer::new(&rw_arg.borrow_buf_mut(), vm)?
                     }
-                    Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
+                    Either::B(ro_buf) => SyscallBuffer::new(&ro_buf.borrow_bytes(), vm)?,
                 };
                 retry_on_eintr(
                     vm,
-                    || unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) },
+                    || unsafe {
+                        host_fcntl::ioctl_ptr(fd, request, buf.as_mut_slice().as_mut_ptr().cast())
+                    },
                     is_interrupted_error,
                 )?;
-                Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
+                Ok(vm.ctx.new_bytes(buf.into_bytes("ioctl", vm)?).into())
             }
             Either::B(i) => {
                 let ret = retry_on_eintr(

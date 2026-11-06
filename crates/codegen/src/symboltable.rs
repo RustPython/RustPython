@@ -740,6 +740,9 @@ impl SymbolTableAnalyzer {
 
         // Analyze symbols in current scope
         let function_like_scope = SymbolTableBuilder::is_function_like_scope(symbol_table.typ);
+        // Class implicit cells satisfy child requests, not this scope's own
+        // closure. Keep its free names out of drop_class_free().
+        let mut scope_free = IndexSet::default();
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(
                 symbol,
@@ -760,7 +763,7 @@ impl SymbolTableAnalyzer {
             if symbol.scope == SymbolScope::Free
                 || symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
             {
-                newfree.insert(symbol.name.clone());
+                scope_free.insert(symbol.name.clone());
             }
         }
 
@@ -797,6 +800,7 @@ impl SymbolTableAnalyzer {
             }
         }
 
+        newfree.extend(scope_free);
         Ok(newfree)
     }
 
@@ -1081,6 +1085,7 @@ struct SymbolTableBuilder {
     comprehension_yield_context: Option<&'static str>,
     // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)
     in_conditional_block: bool,
+    lazy_prohibited_scopes: Vec<usize>,
     // Mirrors symtable ENTER_RECURSIVE guards during compilation.
     recursion_depth: usize,
     recursion_limit: usize,
@@ -1122,6 +1127,7 @@ impl SymbolTableBuilder {
             in_iter_def_exp: false,
             comprehension_yield_context: None,
             in_conditional_block: false,
+            lazy_prohibited_scopes: Vec::new(),
             recursion_depth: 0,
             recursion_limit: DEFAULT_RECURSION_LIMIT,
             next_block_index: 0,
@@ -1453,7 +1459,7 @@ impl SymbolTableBuilder {
         if table.symbols.contains_key(parameter.name.as_str()) {
             return Err(self.error_ranged(
                 format!(
-                    "duplicate argument '{}' in function definition",
+                    "duplicate parameter '{}' in function definition",
                     parameter.name
                 ),
                 parameter.name.range,
@@ -1630,6 +1636,36 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    fn validate_lazy_import(&self, statement: &ast::Stmt) -> SymbolTableResult {
+        let (kind, star) = match statement {
+            ast::Stmt::Import(node) if node.is_lazy => ("import", false),
+            ast::Stmt::ImportFrom(node) if node.is_lazy => (
+                "from ... import",
+                node.names
+                    .first()
+                    .is_some_and(|name| name.name.as_str() == "*"),
+            ),
+            _ => return Ok(()),
+        };
+        let reason = if self.lazy_prohibited_scopes.contains(&self.tables.len()) {
+            Some(format!("lazy {kind} not allowed inside try/except blocks"))
+        } else {
+            match self.tables.last().unwrap().typ {
+                CompilerScope::Function | CompilerScope::AsyncFunction => {
+                    Some(format!("lazy {kind} not allowed inside functions"))
+                }
+                CompilerScope::Class => Some(format!("lazy {kind} not allowed inside classes")),
+                _ if star => Some("lazy from ... import * is not allowed".to_owned()),
+                _ => None,
+            }
+        };
+        if let Some(reason) = reason {
+            Err(self.error_ranged(reason, statement.range()))
+        } else {
+            Ok(())
+        }
+    }
+
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
         if self.recursion_depth >= self.recursion_limit {
             return Err(SymbolTableError {
@@ -1641,6 +1677,7 @@ impl SymbolTableBuilder {
         self.recursion_depth += 1;
         let result = (|| {
             use ast::*;
+            self.validate_lazy_import(statement)?;
             self.track_future_statement(statement)?;
             match &statement {
                 Stmt::Global(StmtGlobal { names, .. }) => {
@@ -2005,6 +2042,7 @@ impl SymbolTableBuilder {
                     // PEP 649: Track conditional block for annotations
                     let saved_in_conditional_block = self.in_conditional_block;
                     self.in_conditional_block = true;
+                    self.lazy_prohibited_scopes.push(self.tables.len());
                     self.scan_statements(body)?;
                     for handler in handlers {
                         let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -2023,6 +2061,7 @@ impl SymbolTableBuilder {
                     }
                     self.scan_statements(orelse)?;
                     self.scan_statements(finalbody)?;
+                    self.lazy_prohibited_scopes.pop();
                     self.in_conditional_block = saved_in_conditional_block;
                 }
                 Stmt::Match(StmtMatch { subject, cases, .. }) => {
@@ -2384,16 +2423,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Dict comprehension - is_generator = false (can be inlined)
-                    let Some(key) = key.as_deref() else {
-                        return Err(self.error_ranged(
-                            "dict unpacking cannot be used in dict comprehension".to_owned(),
-                            *range,
-                        ));
+                    let (element, value) = match key.as_deref() {
+                        Some(key) => (key, Some(value.as_ref())),
+                        None => (value.as_ref(), None),
                     };
                     self.scan_comprehension(
                         &"<dictcomp>".into(),
-                        key,
-                        Some(value),
+                        element,
+                        value,
                         generators,
                         *range,
                         false,
@@ -3169,7 +3206,7 @@ impl SymbolTableBuilder {
 
             if matches!(role, SymbolUsage::Parameter) && flags.contains(SymbolFlags::DEF_PARAM) {
                 return Err(SymbolTableError {
-                    error: format!("duplicate argument '{original_name}' in function definition"),
+                    error: format!("duplicate parameter '{original_name}' in function definition"),
                     location,
                     end_location,
                 });
@@ -3450,11 +3487,11 @@ mod tests {
     #[test]
     fn duplicate_parameter_check_uses_mangled_name_like_cpython() {
         let err = scan_source_result("class C:\n    def f(__x, _C__x):\n        pass\n")
-            .expect_err("expected duplicate argument after class-private mangling");
+            .expect_err("expected duplicate parameter after class-private mangling");
 
         assert_eq!(
             err.error,
-            "duplicate argument '_C__x' in function definition"
+            "duplicate parameter '_C__x' in function definition"
         );
     }
 

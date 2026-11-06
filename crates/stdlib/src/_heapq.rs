@@ -19,32 +19,40 @@ mod _heapq {
     ) -> PyResult<()> {
         let size = heap.__len__();
 
-        let newitem = match heap.borrow_vec().get(pos) {
-            Some(v) => v.clone(),
-            None => return Err(vm.new_index_error("index out of range")),
-        };
+        if pos >= size {
+            return Err(vm.new_index_error("index out of range"));
+        }
 
-        // Follow the path to the root, moving parents down until finding
-        // a place newitem fits.
+        // Re-read both entries after each comparison: user code can replace
+        // elements without changing the list's size.
         while pos > startpos {
             let parentpos = (pos - 1) >> 1;
-            let parent = {
+            let (newitem, parent) = {
                 let vec = heap.borrow_vec();
-                vec[parentpos].clone()
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
+                (vec[pos].clone(), vec[parentpos].clone())
             };
 
-            let cmp = newitem.rich_compare_bool(&parent, PyComparisonOp::Lt, vm)?;
-
-            if size != heap.__len__() {
-                return Err(vm.new_runtime_error("list changed size during iteration"));
-            }
+            let cmp = newitem.rich_compare_bool(&parent, PyComparisonOp::Lt, vm);
+            drop(parent);
+            drop(newitem);
+            let cmp = cmp?;
 
             if !cmp {
+                if heap.__len__() != size {
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 break;
             }
-
             {
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, parentpos);
             }
 
@@ -73,23 +81,29 @@ mod _heapq {
             if childpos + 1 < endpos {
                 let (a, b) = {
                     let vec = heap.borrow_vec();
+                    if vec.len() != endpos {
+                        drop(vec);
+                        return Err(vm.new_runtime_error("list changed size during iteration"));
+                    }
                     (vec[childpos].clone(), vec[childpos + 1].clone())
                 };
 
-                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
-
-                if endpos != heap.__len__() {
-                    return Err(vm.new_runtime_error("list changed size during iteration"));
-                }
-
+                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm);
+                drop(a);
+                drop(b);
+                let cmp = cmp?;
                 if !cmp {
                     childpos += 1;
                 }
             }
 
             {
-                // Move the smaller child up
+                // Move the smaller child up.
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != endpos {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, childpos);
             }
 
@@ -114,14 +128,15 @@ mod _heapq {
     where
         F: Fn(&Py<PyList>, usize, usize, &VirtualMachine) -> PyResult<()>,
     {
-        {
+        let pos = {
             let mut vec = heap.borrow_vec_mut();
-            vec.push(item);
-        }
+            vec.push(item.clone());
+            vec.len() - 1
+        };
 
-        let size = heap.__len__();
-
-        siftdown_func(heap, 0, size - 1, vm)
+        let result = siftdown_func(heap, 0, pos, vm);
+        drop(item);
+        result
     }
 
     #[pyfunction]
@@ -138,22 +153,23 @@ mod _heapq {
     where
         F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
-        let Some(lastelt) = heap.borrow_vec_mut().pop() else {
+        let popped = {
+            let mut vec = heap.borrow_vec_mut();
+            vec.pop().map(|lastelt| {
+                if vec.is_empty() {
+                    (lastelt, false)
+                } else {
+                    (core::mem::replace(&mut vec[0], lastelt), true)
+                }
+            })
+        };
+        let Some((returnitem, needs_sift)) = popped else {
             return Err(vm.new_index_error("index out of range"));
         };
 
-        if heap.borrow_vec().is_empty() {
-            return Ok(lastelt);
-        };
-
-        let returnitem = {
-            let mut vec = heap.borrow_vec_mut();
-            let root = vec[0].clone();
-            vec[0] = lastelt;
-            root
-        };
-
-        siftup_func(heap, 0, vm)?;
+        if needs_sift {
+            siftup_func(heap, 0, vm)?;
+        }
         Ok(returnitem)
     }
 
@@ -176,14 +192,18 @@ mod _heapq {
             let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
+                None => {
+                    drop(vec);
+                    return Err(vm.new_index_error("index out of range"));
+                }
             };
 
-            vec[0] = item;
+            vec[0] = item.clone();
             root
         };
 
         siftup_func(heap, 0, vm)?;
+        drop(item);
         Ok(returnitem)
     }
 
@@ -210,7 +230,9 @@ mod _heapq {
             }
         };
 
-        let cmp = top.rich_compare_bool(&item, PyComparisonOp::Lt, vm)?;
+        let cmp = top.rich_compare_bool(&item, PyComparisonOp::Lt, vm);
+        drop(top);
+        let cmp = cmp?;
         if !cmp {
             return Ok(item);
         }
@@ -219,14 +241,18 @@ mod _heapq {
             let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
+                None => {
+                    drop(vec);
+                    return Err(vm.new_index_error("index out of range"));
+                }
             };
 
-            vec[0] = item;
+            vec[0] = item.clone();
             root
         };
 
         siftup(&heap, 0, vm)?;
+        drop(item);
         Ok(returnitem)
     }
 
@@ -318,32 +344,40 @@ mod _heapq {
     ) -> PyResult<()> {
         let size = heap.__len__();
 
-        let newitem = match heap.borrow_vec().get(pos) {
-            Some(v) => v.clone(),
-            None => return Err(vm.new_index_error("index out of range")),
-        };
+        if pos >= size {
+            return Err(vm.new_index_error("index out of range"));
+        }
 
-        // Follow the path to the root, moving parents down until finding
-        // a place newitem fits.
+        // Re-read both entries after each comparison: user code can replace
+        // elements without changing the list's size.
         while pos > startpos {
             let parentpos = (pos - 1) >> 1;
-            let parent = {
+            let (newitem, parent) = {
                 let vec = heap.borrow_vec();
-                vec[parentpos].clone()
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
+                (vec[pos].clone(), vec[parentpos].clone())
             };
 
-            let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm)?;
-
-            if size != heap.__len__() {
-                return Err(vm.new_runtime_error("list changed size during iteration"));
-            }
+            let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm);
+            drop(parent);
+            drop(newitem);
+            let cmp = cmp?;
 
             if !cmp {
+                if heap.__len__() != size {
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 break;
             }
-
             {
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != size {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, parentpos);
             }
 
@@ -372,23 +406,29 @@ mod _heapq {
             if childpos + 1 < endpos {
                 let (a, b) = {
                     let vec = heap.borrow_vec();
+                    if vec.len() != endpos {
+                        drop(vec);
+                        return Err(vm.new_runtime_error("list changed size during iteration"));
+                    }
                     (vec[childpos + 1].clone(), vec[childpos].clone())
                 };
 
-                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
-
-                if endpos != heap.__len__() {
-                    return Err(vm.new_runtime_error("list changed size during iteration"));
-                }
-
+                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm);
+                drop(a);
+                drop(b);
+                let cmp = cmp?;
                 if !cmp {
                     childpos += 1;
                 }
             }
 
             {
-                // Move the larger child up
+                // Move the larger child up.
                 let mut vec = heap.borrow_vec_mut();
+                if vec.len() != endpos {
+                    drop(vec);
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
                 vec.swap(pos, childpos);
             }
 
@@ -437,7 +477,9 @@ mod _heapq {
             }
         };
 
-        let cmp = item.rich_compare_bool(&top, PyComparisonOp::Lt, vm)?;
+        let cmp = item.rich_compare_bool(&top, PyComparisonOp::Lt, vm);
+        drop(top);
+        let cmp = cmp?;
         if !cmp {
             return Ok(item);
         }
@@ -446,14 +488,18 @@ mod _heapq {
             let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
+                None => {
+                    drop(vec);
+                    return Err(vm.new_index_error("index out of range"));
+                }
             };
 
-            vec[0] = item;
+            vec[0] = item.clone();
             root
         };
 
         siftup_max(&heap, 0, vm)?;
+        drop(item);
         Ok(returnitem)
     }
 }

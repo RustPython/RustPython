@@ -2,7 +2,7 @@
 
 /// Return the platform `strerror(errno)` message as an owned `String`.
 /// Returns `None` when the runtime gives no description for `errno`.
-#[cfg(any(unix, windows))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 #[must_use]
 pub fn strerror_string(errno: i32) -> Option<String> {
     let ptr = unsafe { libc::strerror(errno) };

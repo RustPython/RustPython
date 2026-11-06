@@ -684,9 +684,7 @@ pub(crate) mod ordered_dict {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 or: Some(|a, b, vm| {
-                    if !a.fast_isinstance(vm.ctx.types.dict_type)
-                        || !b.fast_isinstance(vm.ctx.types.dict_type)
-                    {
+                    if PyAnyDict::from_object(a).is_none() || PyAnyDict::from_object(b).is_none() {
                         return Ok(vm.ctx.not_implemented());
                     }
                     let cls = if let Some(od) = a.downcast_ref::<PyOrderedDict>() {

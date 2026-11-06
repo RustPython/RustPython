@@ -272,3 +272,46 @@ if sys.platform.startswith("linux"):
     tcp_truncation_preserves_buffer()
     if hasattr(socket, "IPPROTO_MPTCP"):
         tcp_truncation_preserves_buffer(socket.IPPROTO_MPTCP)
+
+
+if hasattr(socket, "NETLINK_USERSOCK"):
+    with (
+        socket.socket(
+            socket.AF_NETLINK, socket.SOCK_DGRAM, socket.NETLINK_USERSOCK
+        ) as sender,
+        socket.socket(
+            socket.AF_NETLINK, socket.SOCK_DGRAM, socket.NETLINK_USERSOCK
+        ) as receiver,
+    ):
+        sender.settimeout(2)
+        receiver.settimeout(2)
+        # AF_NETLINK parses unsigned 32-bit pid/group values, including masking.
+        sender.bind((2**32, 0))
+        receiver.bind((0, 0))
+        with assert_raises(TypeError):
+            sender.sendto(b"message", (0,))
+        with assert_raises(TypeError):
+            sender.sendto(b"message", ("pid", 0))
+        sender.sendto(b"message", receiver.getsockname())
+        assert receiver.recvfrom(32) == (b"message", sender.getsockname())
+        sender.connect(receiver.getsockname())
+        assert sender.getpeername() == receiver.getsockname()
+
+
+# Exhaust the iterable before exporting its writable buffers.
+if hasattr(socket.socket, "recvmsg_into"):
+    first, second = bytearray(2), bytearray(2)
+
+    def receive_buffers():
+        yield first
+        first.extend(b"xx")
+        yield second
+
+    reader, writer = socket.socketpair()
+    try:
+        writer.sendall(b"abcdef")
+        assert reader.recvmsg_into(receive_buffers())[0] == 6
+        assert (first, second) == (b"abcd", b"ef")
+    finally:
+        reader.close()
+        writer.close()

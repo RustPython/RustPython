@@ -1,4 +1,4 @@
-use super::signature::{Param, ParamKind};
+use super::signature::{Param, ParamKind, params_take_no_keywords};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyType},
@@ -6,6 +6,7 @@ use crate::{
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
 };
+use alloc::borrow::Cow;
 use core::ops::{Deref, DerefMut, RangeInclusive};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -305,22 +306,27 @@ impl FuncArgs {
         let instance = callee.instance_args();
         let arity = T::arity();
         let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
-        let num_given = self.args.len().saturating_sub(instance);
+        let nargs = self.args.len();
+        let num_given = nargs.saturating_sub(instance);
 
-        // A keyword that fills a parameter already given by position is
-        // reported before leftover-keyword and conversion errors.
-        if let Some(params) = T::PARAMS
-            && !self.kwargs.is_empty()
-            && let Some((name, pos)) = duplicate_name_and_position(params, num_given, &self.kwargs)
-        {
-            return Err(callee.given_by_name_and_position(name, pos, vm));
+        if let Some(err) = T::check_before_convert(&self, &arity, num_given, instance, callee, vm) {
+            return Err(err);
         }
 
-        let bound = T::from_args(vm, &mut self)
-            .map_err(|e| e.into_exception(&arity, num_given, callee, vm))?;
+        let bound = match T::from_args(vm, &mut self) {
+            Ok(bound) => bound,
+            Err(e) => {
+                // take_positional has just removed the failed argument, so N is
+                // nargs - remaining, minus the instance.
+                let pos = nargs
+                    .saturating_sub(self.args.len())
+                    .saturating_sub(instance);
+                return Err(e.into_exception(&arity, num_given, pos, callee, vm));
+            }
+        };
 
         if !self.args.is_empty() {
-            Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, callee, vm))
+            Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, 0, callee, vm))
         } else if let Some(err) = self.check_kwargs_empty_for(vm, callee) {
             Err(err)
         } else {
@@ -435,6 +441,41 @@ impl Callee {
     ) -> PyBaseExceptionRef {
         vm.new_type_error(missing_argument_message(self.name, keyword, pos))
     }
+
+    /// _PyArg_NoKeywords
+    fn no_keywords(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_type_error(no_keywords_message(self.name))
+    }
+
+    /// _PyArg_BadArgument
+    fn bad_argument(
+        self,
+        displayname: &str,
+        expected: &'static Py<PyType>,
+        or_none: bool,
+        found: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let expected_ty = expected.slot_name();
+        let expected = if or_none {
+            Cow::Owned(format!("{expected_ty} or None"))
+        } else {
+            Cow::Borrowed(&*expected_ty)
+        };
+        let class = found.class();
+        let found_ty = class.slot_name();
+        let found_name = if vm.is_none(found) {
+            "None"
+        } else {
+            &*found_ty
+        };
+        vm.new_type_error(bad_argument_message(
+            self.name,
+            displayname,
+            &expected,
+            found_name,
+        ))
+    }
 }
 
 /// The name a message uses. `tp_name` carries the module along with the type,
@@ -480,6 +521,34 @@ pub(crate) fn arity_message(
 pub(crate) fn unexpected_keyword_message(name: Option<&str>, keyword: &str) -> String {
     let (name, parens) = call_form(name, "this function");
     format!("{name}{parens} got an unexpected keyword argument '{keyword}'")
+}
+
+/// _PyArg_NoKeywords
+pub(crate) fn no_keywords_message(name: Option<&str>) -> String {
+    let (name, parens) = call_form(name, "this function");
+    format!("{name}{parens} takes no keyword arguments")
+}
+
+/// get_displayname
+fn get_displayname(name: Option<&str>, pos: usize, meth_o: bool) -> Cow<'static, str> {
+    if let Some(name) = name {
+        Cow::Owned(format!("argument '{name}'"))
+    } else if meth_o {
+        Cow::Borrowed("argument")
+    } else {
+        Cow::Owned(format!("argument {pos}"))
+    }
+}
+
+/// _PyArg_BadArgument
+pub(crate) fn bad_argument_message(
+    name: Option<&str>,
+    displayname: &str,
+    expected: &str,
+    found: &str,
+) -> String {
+    let (name, parens) = call_form(name, "this function");
+    format!("{name}{parens} {displayname} must be {expected}, not {found}")
 }
 
 pub(crate) fn given_by_name_and_position_message(
@@ -528,6 +597,72 @@ fn duplicate_name_and_position<'a>(
     walk(params, nargs, kwargs, &mut 0)
 }
 
+/// Walk `params` in declaration order looking for the first required argument
+/// that is missing. `Err(None)` ends the walk without a result.
+fn missing_from_params(
+    params: &[Param],
+    nargs: usize,
+    kwargs: &KwArgs,
+    pos: &mut usize,
+) -> Result<(), Option<ArgumentError>> {
+    for param in params {
+        match param.kind {
+            ParamKind::Flatten(Some(inner)) => {
+                missing_from_params(inner, nargs, kwargs, pos)?;
+            }
+            ParamKind::Flatten(None) => *pos += 1,
+            ParamKind::PositionalOnly => {
+                *pos += 1;
+                if *pos > nargs && param.default.is_none() {
+                    return Err(Some(ArgumentError::TooFewArgs));
+                }
+            }
+            ParamKind::PositionalOrKeyword => {
+                *pos += 1;
+                if *pos > nargs && param.default.is_none() && !kwargs.contains_key(param.name) {
+                    return Err(Some(ArgumentError::MissingRequiredArgument {
+                        name: param.name.to_owned(),
+                        pos: *pos,
+                    }));
+                }
+            }
+            ParamKind::VarPositional => {}
+            ParamKind::KeywordOnly => {
+                *pos += 1;
+                if param.default.is_none() && !kwargs.contains_key(param.name) {
+                    return Err(Some(ArgumentError::MissingRequiredArgument {
+                        name: param.name.to_owned(),
+                        pos: *pos,
+                    }));
+                }
+            }
+            ParamKind::VarKeyword => {}
+        }
+    }
+    Ok(())
+}
+
+/// Whether `params` includes a required keyword-only parameter, including
+/// nested `Flatten(Some(_))` lists.
+#[must_use]
+pub const fn params_have_required_keyword_only(params: Option<&'static [Param]>) -> bool {
+    let Some(params) = params else {
+        return false;
+    };
+    let mut i = 0;
+    while i < params.len() {
+        match params[i].kind {
+            ParamKind::KeywordOnly if params[i].default.is_none() => return true,
+            ParamKind::Flatten(inner) if params_have_required_keyword_only(inner) => {
+                return true;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
 pub(crate) fn missing_argument_message(name: Option<&str>, keyword: &str, pos: usize) -> String {
     let (name, parens) = call_form(name, "function");
@@ -546,6 +681,14 @@ pub enum ArgumentError {
     /// The function requires an argument for the named parameter, at the given
     /// 1-based position, but the call didn't pass one.
     MissingRequiredArgument { name: String, pos: usize },
+    /// The argument is not the expected type. `_PyArg_BadArgument`.
+    /// `name` is `None` for a positional-only parameter.
+    BadArgument {
+        expected: &'static Py<PyType>,
+        or_none: bool,
+        found: PyObjectRef,
+        name: Option<&'static str>,
+    },
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyBaseExceptionRef),
@@ -558,10 +701,49 @@ impl From<PyBaseExceptionRef> for ArgumentError {
 }
 
 impl ArgumentError {
+    /// Attach the parameter name for get_displayname (`argument 'name'`).
+    #[must_use]
+    pub fn with_argument_name(self, name: &'static str) -> Self {
+        match self {
+            Self::BadArgument {
+                expected,
+                or_none,
+                found,
+                ..
+            } => Self::BadArgument {
+                expected,
+                or_none,
+                found,
+                name: Some(name),
+            },
+            other => other,
+        }
+    }
+
+    /// Mark `{expected}` as `X or None`.
+    #[must_use]
+    pub(crate) fn with_or_none(self) -> Self {
+        match self {
+            Self::BadArgument {
+                expected,
+                found,
+                name,
+                ..
+            } => Self::BadArgument {
+                expected,
+                or_none: true,
+                found,
+                name,
+            },
+            other => other,
+        }
+    }
+
     fn into_exception(
         self,
         arity: &RangeInclusive<usize>,
         num_given: usize,
+        pos: usize,
         callee: Callee,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
@@ -570,6 +752,20 @@ impl ArgumentError {
             Self::TooManyArgs => callee.wrong_arity(arity, false, num_given, vm),
             Self::InvalidKeywordArgument(name) => callee.unexpected_keyword(&name, vm),
             Self::MissingRequiredArgument { name, pos } => callee.missing_argument(&name, pos, vm),
+            Self::BadArgument {
+                expected,
+                or_none,
+                found,
+                name,
+            } => {
+                if callee.name.is_none() || (name.is_none() && pos == 0) {
+                    vm.new_downcast_type_error(expected, &found)
+                } else {
+                    let meth_o = *arity.start() == 1 && *arity.end() == 1;
+                    let displayname = get_displayname(name, pos, meth_o);
+                    callee.bad_argument(&displayname, expected, or_none, &found, vm)
+                }
+            }
             Self::Exception(ex) => ex,
         }
     }
@@ -581,10 +777,11 @@ impl ArgumentError {
 pub trait FromArgs: Sized {
     /// The range of positional arguments permitted by the function signature.
     ///
-    /// Returns an empty range if not applicable.
+    /// The default has no upper bound, so a type that takes positional
+    /// arguments itself is never rejected before `from_args` runs.
     #[must_use]
     fn arity() -> RangeInclusive<usize> {
-        0..=0
+        0..=usize::MAX
     }
 
     /// Parameters this type contributes to a text signature.
@@ -594,6 +791,98 @@ pub trait FromArgs: Sized {
     /// `Some(params)`: the type supplies those parameters and the argument name
     /// is ignored.
     const PARAMS: Option<&'static [Param]> = None;
+
+    /// True when every parameter is positional-only or `*args`.
+    const TAKES_NO_KEYWORDS: bool = match Self::PARAMS {
+        Some(params) => params_take_no_keywords(params),
+        None => false,
+    };
+
+    /// True when a required keyword-only parameter can be missing even after
+    /// every required positional argument is given. Evaluated from [`PARAMS`]
+    /// unless an implementor overrides it.
+    const HAS_REQUIRED_KEYWORD_ONLY: bool = params_have_required_keyword_only(Self::PARAMS);
+
+    /// Walk this binding looking for the first required argument that is
+    /// missing. `Ok` continues; `Err(Some(_))` is that error; `Err(None)`
+    /// ends the walk without a result (unknown shape).
+    ///
+    /// `skip` leading positional-only slots are the method instance: they do
+    /// not consume a caller-supplied argument or advance `pos`.
+    fn missing_from(
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+        skip: &mut usize,
+    ) -> Result<(), Option<ArgumentError>> {
+        if let Some(params) = Self::PARAMS {
+            missing_from_params(params, nargs, kwargs, pos)
+        } else {
+            let arity = Self::arity();
+            if *arity.start() == 1 && *arity.end() == 1 {
+                if *skip > 0 {
+                    *skip -= 1;
+                    Ok(())
+                } else {
+                    *pos += 1;
+                    if *pos > nargs {
+                        Err(Some(ArgumentError::TooFewArgs))
+                    } else {
+                        Ok(())
+                    }
+                }
+            } else {
+                Err(None)
+            }
+        }
+    }
+
+    /// Surplus positional arguments, a keyword that fills a parameter already
+    /// given by position, and a missing required argument, reported before any
+    /// argument is converted.
+    ///
+    /// The missing-argument walk is skipped when every required positional
+    /// argument is present and the type has no required keyword-only parameter.
+    fn check_before_convert(
+        args: &FuncArgs,
+        arity: &RangeInclusive<usize>,
+        num_given: usize,
+        instance: usize,
+        callee: Callee,
+        vm: &VirtualMachine,
+    ) -> Option<PyBaseExceptionRef> {
+        // A function that takes no keywords refuses them before counting its
+        // arguments.
+        if Self::TAKES_NO_KEYWORDS && !args.kwargs.is_empty() {
+            return Some(callee.no_keywords(vm));
+        }
+        if num_given > *arity.end() {
+            return Some(
+                ArgumentError::TooManyArgs.into_exception(arity, num_given, 0, callee, vm),
+            );
+        }
+        // No keyword can fill a missing parameter of such a function, so too few
+        // arguments are also reported before any is converted.
+        if Self::TAKES_NO_KEYWORDS && num_given < *arity.start() {
+            return Some(ArgumentError::TooFewArgs.into_exception(arity, num_given, 0, callee, vm));
+        }
+        if let Some(params) = Self::PARAMS
+            && !args.kwargs.is_empty()
+            && let Some((name, pos)) = duplicate_name_and_position(params, num_given, &args.kwargs)
+        {
+            return Some(callee.given_by_name_and_position(name, pos, vm));
+        }
+        if num_given < *arity.start() || const { Self::HAS_REQUIRED_KEYWORD_ONLY } {
+            let mut pos = 0;
+            let mut skip = instance;
+            if let Err(Some(missing)) =
+                Self::missing_from(num_given, &args.kwargs, &mut pos, &mut skip)
+            {
+                return Some(missing.into_exception(arity, num_given, 0, callee, vm));
+            }
+        }
+        None
+    }
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
@@ -677,9 +966,11 @@ arg_name! {
     NameKwds = "kwds",
     NameKws = "kws",
     NameObjs = "objs",
+    NameObjects = "objects",
     NameIterables = "iterables",
     NameKeywords = "keywords",
     NameFields = "fields",
+    NameValues = "values",
 }
 
 #[derive(Clone, Debug)]
@@ -799,6 +1090,10 @@ where
 {
     const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword(Name::NAME)]);
 
+    fn arity() -> RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = KwArgsMap::default();
         for (name, value) in args.remaining_keywords() {
@@ -913,7 +1208,7 @@ where
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let value = args.take_positional().ok_or(ArgumentError::TooFewArgs)?;
-        Ok(value.try_into_value(vm)?)
+        T::try_from_argument(vm, value)
     }
 }
 
@@ -976,7 +1271,7 @@ where
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let r = if let Some(value) = args.take_positional() {
-            Self::Present(value.try_into_value(vm)?)
+            Self::Present(T::try_from_argument(vm, value)?)
         } else {
             Self::Missing
         };
@@ -989,6 +1284,10 @@ where
 impl FromArgs for () {
     const PARAMS: Option<&'static [Param]> = Some(&[]);
 
+    fn arity() -> RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
@@ -1000,6 +1299,26 @@ impl FromArgs for () {
 // Technically, a tuple can contain tuples, which can contain tuples, and so on,
 // so this actually represents a tree of values to be bound from arguments, but
 // in practice this is only used for the top-level parameters.
+//
+// A pyfunction with one FromArgs struct is bound as `(T,)`. Use T's own
+// checks so a `legacy` struct's no-op is not wrapped in the combined
+// missing-argument walk. Longer tuples use the default checks.
+macro_rules! tuple_check_before_convert {
+    ($T:ident) => {
+        fn check_before_convert(
+            args: &FuncArgs,
+            arity: &RangeInclusive<usize>,
+            num_given: usize,
+            instance: usize,
+            callee: Callee,
+            vm: &VirtualMachine,
+        ) -> Option<PyBaseExceptionRef> {
+            $T::check_before_convert(args, arity, num_given, instance, callee, vm)
+        }
+    };
+    ($($T:ident),+) => {};
+}
+
 macro_rules! tuple_from_py_func_args {
     ($($T:ident),+) => {
         impl<$($T),+> FromArgs for ($($T,)+)
@@ -1014,16 +1333,32 @@ macro_rules! tuple_from_py_func_args {
                 }
             };
 
+            const HAS_REQUIRED_KEYWORD_ONLY: bool = false $(|| $T::HAS_REQUIRED_KEYWORD_ONLY)*;
+
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
                 let mut max = 0;
                 $(
                     let (start, end) = $T::arity().into_inner();
-                    min += start;
-                    max += end;
+                    // Both custom required bounds and unbounded upper bounds
+                    // can reach `usize::MAX`; neither composition may overflow.
+                    min = usize::saturating_add(min, start);
+                    max = usize::saturating_add(max, end);
                 )+
                 min..=max
             }
+
+            fn missing_from(
+                nargs: usize,
+                kwargs: &KwArgs,
+                pos: &mut usize,
+                skip: &mut usize,
+            ) -> Result<(), Option<ArgumentError>> {
+                $($T::missing_from(nargs, kwargs, pos, skip)?;)+
+                Ok(())
+            }
+
+            tuple_check_before_convert!($($T),+);
 
             fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
                 Ok(($($T::from_args(vm, args)?,)+))
@@ -1043,3 +1378,148 @@ tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 tuple_from_py_func_args!(A, B, C, D, E, F, G);
 tuple_from_py_func_args!(A, B, C, D, E, F, G, H);
+
+#[cfg(test)]
+mod arity_composition_tests {
+    use super::*;
+
+    struct Bounds<const MIN: usize, const MAX: usize>;
+
+    impl<const MIN: usize, const MAX: usize> FromArgs for Bounds<MIN, MAX> {
+        fn arity() -> RangeInclusive<usize> {
+            MIN..=MAX
+        }
+
+        fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            unreachable!("metadata-only fixture; no interpreter is constructed")
+        }
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Mixed {
+        #[pyarg(flatten)]
+        prefix: Bounds<2, 3>,
+        #[pyarg(positional)]
+        required: usize,
+        #[pyarg(positional, optional)]
+        optional: OptionalArg<usize>,
+        #[pyarg(positional, default = 0)]
+        defaulted: usize,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Nested(#[pyarg(flatten)] (Bounds<1, 2>, Bounds<0, 1>));
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct OptionalOnly {
+        #[pyarg(flatten)]
+        prefix: Bounds<0, 2>,
+        #[pyarg(positional, optional)]
+        optional: OptionalArg<usize>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Phantoms {
+        _phantom: core::marker::PhantomData<()>,
+        #[pyarg(flatten)]
+        _phantom_flattened: core::marker::PhantomData<()>,
+        #[pyarg(positional)]
+        required: usize,
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct Saturated {
+        #[pyarg(flatten)]
+        prefix: Bounds<{ usize::MAX }, { usize::MAX }>,
+        #[pyarg(positional)]
+        required: usize,
+    }
+
+    #[test]
+    fn derived_bounds_include_required_flattened_arguments() {
+        assert_eq!(Mixed::arity(), 3..=6);
+        assert_eq!(Nested::arity(), 1..=3);
+        assert_eq!(Phantoms::arity(), 1..=1);
+    }
+
+    #[test]
+    fn optional_only_flattening_preserves_zero_minimum() {
+        assert_eq!(OptionalOnly::arity(), 0..=3);
+        assert_eq!(<(Bounds<0, 2>, Bounds<0, 3>)>::arity(), 0..=5);
+        assert_eq!(
+            <(Bounds<2, 3>, (Bounds<1, 2>, Bounds<0, 1>))>::arity(),
+            3..=6
+        );
+    }
+
+    #[test]
+    fn both_tuple_and_derived_bounds_saturate() {
+        assert_eq!(
+            <(Bounds<1, 1>, Bounds<0, { usize::MAX }>)>::arity(),
+            1..=usize::MAX
+        );
+        assert_eq!(Saturated::arity(), usize::MAX..=usize::MAX);
+        assert_eq!(
+            <(Bounds<{ usize::MAX }, { usize::MAX }>, Bounds<1, 1>)>::arity(),
+            usize::MAX..=usize::MAX,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ArgumentError, FromArgs, KwArgs};
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct NamedRequired {
+        #[pyarg(any)]
+        first: i32,
+        #[pyarg(named)]
+        second: i32,
+    }
+
+    fn missing<T: FromArgs>(nargs: usize, skip: usize) -> Result<(), Option<ArgumentError>> {
+        let kwargs = KwArgs::default();
+        let mut pos = 0;
+        let mut skip = skip;
+        T::missing_from(nargs, &kwargs, &mut pos, &mut skip)
+    }
+
+    #[test]
+    fn tuple_of_required_positionals_reports_too_few_args() {
+        assert!(matches!(
+            missing::<(i32, i32)>(1, 0),
+            Err(Some(ArgumentError::TooFewArgs))
+        ));
+        assert!(matches!(missing::<(i32, i32)>(2, 0), Ok(())));
+    }
+
+    #[test]
+    fn method_instance_is_skipped_without_advancing_pos() {
+        assert!(matches!(
+            missing::<(i32, i32, i32)>(1, 1),
+            Err(Some(ArgumentError::TooFewArgs))
+        ));
+        assert!(matches!(missing::<(i32, i32, i32)>(2, 1), Ok(())));
+    }
+
+    #[test]
+    fn required_keyword_only_is_visible_at_compile_time() {
+        const { assert!(NamedRequired::HAS_REQUIRED_KEYWORD_ONLY) };
+        const { assert!(<(i32, NamedRequired)>::HAS_REQUIRED_KEYWORD_ONLY) };
+        const { assert!(!<(i32, i32)>::HAS_REQUIRED_KEYWORD_ONLY) };
+        match missing::<NamedRequired>(1, 0) {
+            Err(Some(ArgumentError::MissingRequiredArgument { name, pos })) => {
+                assert_eq!(name, "second");
+                assert_eq!(pos, 2);
+            }
+            _ => panic!("expected a missing required keyword-only argument"),
+        }
+    }
+}

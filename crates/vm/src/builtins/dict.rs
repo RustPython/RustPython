@@ -31,6 +31,7 @@ use core::ptr::NonNull;
 use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_common::wtf8::wtf8_concat;
 
 pub(crate) type DictContentType = dict_inner::Dict;
 
@@ -39,24 +40,46 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
     mapping_name: &str,
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {
-    match key.key_hash(vm) {
-        // Exact TypeError only: exception subclasses retain their identity.
-        Err(exc) if exc.class().is(vm.ctx.exceptions.type_error) => {
-            let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
-            // Match BaseException_str without the diagnostic formatter's
-            // fallback: argument __str__/__repr__ failures must propagate.
-            let args = exc.args();
-            let message = match args.as_slice() {
-                [] => vm.ctx.empty_str.to_owned(),
-                [arg] => arg.str(vm)?,
-                _ => args.as_object().str(vm)?,
-            };
-            Err(vm.new_type_error(format!(
-                "cannot use '{name}' as a {mapping_name} key ({message})"
-            )))
+    key.key_hash(vm)
+        .map_err(|exc| contextualize_hash_error(key, mapping_name, "key", exc, vm))
+}
+
+pub(crate) fn contextualize_hash_error<K: DictKey + ?Sized>(
+    key: &K,
+    container: &str,
+    role: &str,
+    exc: PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    let format_error = || -> PyResult<PyBaseExceptionRef> {
+        match exc {
+            // Exact TypeError only: exception subclasses retain their identity.
+            exc if exc.class().is(vm.ctx.exceptions.type_error) => {
+                let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
+                // Match BaseException_str without the diagnostic formatter's
+                // fallback: argument __str__/__repr__ failures must propagate.
+                let args = exc.args();
+                let message = match args.as_slice() {
+                    [] => vm.ctx.empty_str.to_owned(),
+                    [arg] => arg.str(vm)?,
+                    _ => args.as_object().str(vm)?,
+                };
+                Ok(vm.new_type_error(wtf8_concat!(
+                    "cannot use '",
+                    name,
+                    "' as a ",
+                    container,
+                    " ",
+                    role,
+                    " (",
+                    message.as_wtf8(),
+                    ")"
+                )))
+            }
+            exc => Ok(exc),
         }
-        result => result,
-    }
+    };
+    format_error().unwrap_or_else(|exc| exc)
 }
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse = "manual")]
@@ -205,7 +228,11 @@ impl PyAnyDict {
         self.as_dict().is_empty()
     }
     pub fn copy_as_dict(&self, vm: &VirtualMachine) -> PyResult<PyDict> {
-        if self.is_empty() || self.uses_builtin_iter(vm) {
+        let size = self.size();
+        // Sparse copies go through merge, where equality between colliding
+        // keys remains observable. Dense native tables can be cloned directly.
+        if size.used == 0 || (self.uses_builtin_iter(vm) && size.used >= size.entries_size * 2 / 3)
+        {
             return Ok(self.as_dict().copy());
         }
         let copied = PyDict::default();
@@ -424,7 +451,12 @@ impl PyDict {
             }
             Err(e) => return Err(e),
         };
-        let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
+        let keys = other.mapping_unchecked().collect_method_output(
+            vm.ctx.intern_str("keys"),
+            keys_method.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             if !override_existing {
                 let hash = key_hash(&*key, mapping_name, vm)?;
@@ -557,18 +589,25 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let dict = &self.entries;
-        let dict_size = &dict_other.size();
+        let source_len = dict_other.__len__();
         let mut position = 0;
         while let Some((next, key, value, hash)) = dict_other.entries.next_entry_with_hash(position)
         {
             position = next;
-            if !override_existing && dict.contains(vm, &*key, hash)? {
-                continue;
+            let outcome: PyResult<()> = (|| {
+                if override_existing || !dict.contains(vm, &*key, hash)? {
+                    dict.insert(vm, &*key, hash, value.clone())?;
+                }
+                Ok(())
+            })();
+            // Release current references before checking mutations from
+            // comparisons or finalizers, including a skipped existing key.
+            drop(value);
+            drop(key);
+            outcome?;
+            if dict_other.__len__() != source_len {
+                return Err(vm.new_runtime_error("dict mutated during update"));
             }
-            dict.insert(vm, &*key, hash, value)?;
-        }
-        if dict_other.entries.has_changed_size(dict_size) {
-            return Err(vm.new_runtime_error("dict mutated during update"));
         }
         Ok(())
     }
@@ -604,17 +643,22 @@ impl PyDict {
         self.entries.insert(vm, key, hash, value)
     }
 
-    pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
-        &self,
-        key: &K,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn inner_delitem<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult<()> {
         let hash = Self::hash_or_unhashable(key, vm)?;
         if self.entries.delete_if_exists(vm, key, hash)? {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
         }
+    }
+
+    pub(crate) fn inner_pop_item<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.remove_if_exists(vm, key, hash)
     }
 
     pub fn get_or_insert(
@@ -799,7 +843,7 @@ impl PyDict {
         AsMapping,
         Representable
     ),
-    flags(BASETYPE, MAPPING, _MATCH_SELF)
+    flags(BASETYPE, MAPPING, _MATCH_SELF, DICT_SUBCLASS)
 )]
 impl PyDict {}
 
@@ -1220,6 +1264,18 @@ impl Py<PyDict> {
         }
     }
 
+    pub(crate) fn replace_if_identity(
+        &self,
+        name: &Py<PyStr>,
+        expected: &PyObject,
+        replacement: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let hash = PyDict::hash_or_unhashable(name, vm)?;
+        self.entries
+            .replace_if(vm, name, hash, replacement, |current| current.is(expected))
+    }
+
     /// Store using a cached entry index hint for the value-replace fast path.
     ///
     /// On a hint miss, returns a refreshed hint for the key (`None` when the
@@ -1323,8 +1379,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            let hash = PyDict::hash_or_unhashable(key, vm)?;
-            self.entries.remove_if_exists(vm, key, hash)
+            self.inner_pop_item(key, vm)
         } else {
             let value = self.as_object().get_item(key, vm)?;
             self.as_object().del_item(key, vm)?;
@@ -1469,8 +1524,7 @@ impl PyFrozenDict {
     #[pymethod]
     fn get(
         zelf: &Py<Self>,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
+        DictGetArgs { key, default }: DictGetArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         Ok(zelf
@@ -1486,8 +1540,7 @@ impl PyFrozenDict {
     #[pyclassmethod]
     fn fromkeys(
         cls: PyTypeRef,
-        iterable: PyObjectRef,
-        value: OptionalArg<PyObjectRef>,
+        FromKeysArgs { iterable, value }: FromKeysArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         dict_fromkeys(cls, iterable, value.unwrap_or_else(|| vm.ctx.none()), vm)
@@ -2054,22 +2107,23 @@ macro_rules! dict_view {
                         // raising.
                         return (Err(mutated()), None);
                     }
+                    let remaining = zelf.remaining.load(Ordering::Relaxed);
                     let entry = dict.as_dict().entries.prev_entry_checked(
                         internal.position,
                         &zelf.size,
-                        $project_fn,
+                        |key, value| (remaining != 0).then(|| ($project_fn)(key, value)),
                     );
                     match entry {
                         Err(dict_inner::DictChanged) => {
                             zelf.changed.store(true, Ordering::Relaxed);
                             (Err(mutated()), None)
                         }
-                        Ok(Some((found_index, item))) => {
-                            // CPython 3.14 exposes the remaining count as size_t,
-                            // even after same-size key replacement yields extra entries.
-                            let remaining = zelf.remaining.load(Ordering::Relaxed);
-                            zelf.remaining
-                                .store(remaining.wrapping_sub(1), Ordering::Relaxed);
+                        Ok(Some((_, None))) => (
+                            Err(vm.new_runtime_error("dictionary keys changed during iteration")),
+                            internal.exhaust(),
+                        ),
+                        Ok(Some((found_index, Some(item)))) => {
+                            zelf.remaining.store(remaining - 1, Ordering::Relaxed);
                             internal.position = found_index.wrapping_sub(1);
                             (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
@@ -2128,11 +2182,16 @@ dict_view! {
         vm.new_tuple((key, value)).into()
 }
 
+fn set_view_dict(obj: &PyObject) -> Option<&PyAnyDict> {
+    obj.downcast_ref::<PyDictKeys>()
+        .map(|view| view.dict())
+        .or_else(|| obj.downcast_ref::<PyDictItems>().map(|view| view.dict()))
+}
+
 fn is_set_or_dict_view(obj: &PyObject) -> bool {
     obj.downcast_ref::<PySet>().is_some()
         || obj.downcast_ref::<PyFrozenSet>().is_some()
-        || obj.downcast_ref::<PyDictKeys>().is_some()
-        || obj.downcast_ref::<PyDictItems>().is_some()
+        || set_view_dict(obj).is_some()
 }
 
 // Set operations defined on set-like views of the dictionary.
@@ -2356,16 +2415,32 @@ impl AsSequence for PyDictValues {
     }
 }
 
+fn dict_view_to_set(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    let mut source = obj;
+    if let Some(keys) = obj.downcast_ref::<PyDictKeys>() {
+        let dict = keys.dict();
+        if dict.as_object().class().is(vm.ctx.types.dict_type)
+            || dict.as_object().class().is(vm.ctx.types.frozendict_type)
+        {
+            // Exact dictionary keys are already hashed. Subclasses instead
+            // go through the view iterator, including OrderedDict views.
+            source = dict.as_object();
+        }
+    }
+    // Reflected operations can put a set on the left. Reuse the set
+    // constructor's native paths rather than calling an overridden iterator.
+    PySetInner::from_object(source.to_owned(), vm)
+}
+
 fn set_inner_number_op<F>(a: &PyObject, b: &PyObject, f: F, vm: &VirtualMachine) -> PyResult
 where
-    F: FnOnce(PySetInner, ArgIterable) -> PyResult<PySetInner>,
+    F: FnOnce(PySetInner, PyObjectRef) -> PyResult<PySetInner>,
 {
-    let a = PySetInner::from_iter(
-        ArgIterable::try_from_object(vm, a.to_owned())?.iter(vm)?,
-        vm,
-    )?;
-    let b = ArgIterable::try_from_object(vm, b.to_owned())?;
-    Ok(PySet { inner: f(a, b)? }.into_pyobject(vm))
+    let a = dict_view_to_set(a, vm)?;
+    Ok(PySet {
+        inner: f(a, b.to_owned())?,
+    }
+    .into_pyobject(vm))
 }
 
 pub(crate) fn set_inner_number_subtract(
@@ -2377,9 +2452,11 @@ pub(crate) fn set_inner_number_subtract(
 }
 
 pub(crate) fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    let a_is_view =
-        a.downcast_ref::<PyDictKeys>().is_some() || a.downcast_ref::<PyDictItems>().is_some();
-    let (view, other) = if a_is_view { (a, b) } else { (b, a) };
+    let (view, other) = if set_view_dict(a).is_some() {
+        (a, b)
+    } else {
+        (b, a)
+    };
     set_view_number_and(view, other, vm)
 }
 
@@ -2388,51 +2465,120 @@ pub(crate) fn set_view_number_and(
     other: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult {
+    let view_len = set_view_dict(view).unwrap().__len__();
+    if other.class().is(vm.ctx.types.set_type) && view_len <= other.length(vm)? {
+        // The set path hashes each candidate once and can stop when the
+        // result has reached the set's size. It also preserves the key from
+        // the view, rather than the equal key resident in the set.
+        return vm.call_method(other, "intersection", (view.to_owned(),));
+    }
+    let (view, other) = if set_view_dict(other).is_some_and(|dict| dict.__len__() > view_len) {
+        (other, view)
+    } else {
+        (view, other)
+    };
     let other = ArgIterable::<PyObjectRef>::try_from_object(vm, other.to_owned())?;
     let result = PySet::default();
-    for item in other.iter(vm)? {
-        let item = item?;
-        if view.sequence_unchecked().contains(&item, vm)? {
-            result.add(item, vm)?;
+    let mut iterator = other.iter(vm)?;
+    let mut current = None;
+    let outcome = (|| -> PyResult<()> {
+        for item in iterator.by_ref() {
+            current = Some(item?);
+            let item = current.as_ref().unwrap();
+            if view.sequence_unchecked().contains(item, vm)? {
+                result.add(item.clone(), vm)?;
+            }
+            drop(current.take());
         }
+        Ok(())
+    })();
+    // On failure, release the iterator and partial result before the current
+    // item. Retain its owner through both membership and result insertion.
+    drop(iterator);
+    if let Err(exc) = outcome {
+        drop(result);
+        drop(current);
+        return Err(exc);
     }
     Ok(result.into_pyobject(vm))
 }
 
 pub(crate) fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    set_inner_number_op(a, b, |a, b| a.symmetric_difference(b, vm), vm)
+    set_inner_number_op(
+        a,
+        b,
+        |a, b| {
+            a.symmetric_difference_update(core::iter::once(b), vm)?;
+            Ok(a)
+        },
+        vm,
+    )
 }
 
-pub(crate) fn set_item_view_number_xor(
-    a: &PyObject,
-    b: &PyObject,
-    both_are_item_views: bool,
-    vm: &VirtualMachine,
-) -> PyResult {
-    if !both_are_item_views {
-        return set_inner_number_xor(a, b, vm);
-    }
+fn set_item_view_number_xor(a: &PyDictItems, b: &PyDictItems, vm: &VirtualMachine) -> PyResult {
+    // Membership comparisons may mutate either original dictionary. Keep
+    // unmatched left entries in a private copy, as in dictitems_xor.
+    let remaining = a.dict().copy_as_dict(vm)?;
     let result = PySet::default();
-    let a_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, a.to_owned())?;
-    for item in a_iterable.iter(vm)? {
-        let item = item?;
-        if !b.sequence_unchecked().contains(&item, vm)? {
-            result.add(item, vm)?;
+    let mut current_key = None;
+    let mut current_value = None;
+    let outcome = (|| -> PyResult<()> {
+        // Read the right dictionary live, without a public iterator's size
+        // check. Release each table guard before calling value comparisons.
+        let mut position = 0;
+        while let Some((next_position, key, value, hash)) =
+            b.dict().as_dict().entries.next_entry_with_hash(position)
+        {
+            position = next_position;
+            current_key = Some(key);
+            current_value = Some(value);
+            let key = current_key.as_ref().unwrap().as_object();
+            // Only unmatched pairs need to be hashable, and stored key hashes
+            // must not invoke __hash__ again during lookup or deletion.
+            let remove = match remaining.entries.get(vm, key, hash)? {
+                Some(left_value) => {
+                    vm.identical_or_equal(&left_value, current_value.as_ref().unwrap())?
+                }
+                None => false,
+            };
+            if remove {
+                drop(current_value.take());
+                remaining.entries.delete(vm, key, hash)?;
+                drop(current_key.take());
+            } else {
+                let pair =
+                    vm.new_tuple((current_key.take().unwrap(), current_value.take().unwrap()));
+                result.add(pair.into(), vm)?;
+            }
         }
-    }
-    let b_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, b.to_owned())?;
-    for item in b_iterable.iter(vm)? {
-        let item = item?;
-        if !a.sequence_unchecked().contains(&item, vm)? {
-            result.add(item, vm)?;
+        // Append the entries still present in the private copy.
+        let mut position = 0;
+        while let Some((next_position, key, value)) = remaining.entries.next_entry(position) {
+            position = next_position;
+            result.add(vm.new_tuple((key, value)).into(), vm)?;
         }
+        Ok(())
+    })();
+    // On failure, CPython releases the private dictionary and result before
+    // the current right item. Their finalizers may observe the distinction.
+    drop(remaining);
+    if let Err(exc) = outcome {
+        drop(result);
+        drop(current_key);
+        drop(current_value);
+        return Err(exc);
     }
     Ok(result.into_pyobject(vm))
 }
 
 fn dict_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    let is_native_item_view = |obj: &PyObject| obj.downcast_ref::<PyDictItems>().is_some();
-    set_item_view_number_xor(a, b, is_native_item_view(a) && is_native_item_view(b), vm)
+    match (
+        a.downcast_ref::<PyDictItems>(),
+        b.downcast_ref::<PyDictItems>(),
+    ) {
+        (Some(a), Some(b)) => set_item_view_number_xor(a, b, vm),
+        _ => set_inner_number_xor(a, b, vm),
+    }
 }
 
 pub(crate) fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -2582,7 +2728,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .dict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_dict));
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);
@@ -2598,7 +2744,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .frozendict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_frozendict));
 }
 

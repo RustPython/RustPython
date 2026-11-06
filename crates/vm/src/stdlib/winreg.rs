@@ -9,11 +9,11 @@ mod winreg {
     use crate::common::hash::PyHash;
     use crate::convert::{ToPyException, TryFromObject};
     use crate::exceptions::nul_char_error;
-    use crate::function::FuncArgs;
+    use crate::function::{FuncArgs, PyComparisonValue};
     use crate::object::AsObject;
     use crate::protocol::PyNumberMethods;
-    use crate::types::{AsNumber, Hashable};
-    use crate::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+    use crate::types::{AsNumber, Comparable, Hashable, PyComparisonOp};
+    use crate::{Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
     use core::ptr;
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::Sign;
@@ -36,14 +36,50 @@ mod winreg {
     /// Wrapper type for HKEY that can be created from PyHkey or int
     struct HKEYArg(host_winreg::HKEY);
 
+    // Keep the object alive while snapshotting its handle before later
+    // arguments can invoke Python code.
+    struct SnapshotHkey {
+        _key: PyRef<PyHkey>,
+        handle: host_winreg::HKEY,
+    }
+
+    impl TryFromObject for SnapshotHkey {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let key = PyRef::<PyHkey>::try_from_object(vm, obj)?;
+            let handle = key.hkey.load();
+            Ok(Self { _key: key, handle })
+        }
+    }
+
     impl TryFromObject for HKEYArg {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             // Try PyHkey first
             if let Some(hkey_obj) = obj.downcast_ref::<PyHkey>() {
                 return Ok(Self(hkey_obj.hkey.load()));
             }
-            // Then try int
-            let handle = usize::try_from_object(vm, obj)?;
+            if vm.is_none(&obj) {
+                return Err(vm.new_type_error("None is not a valid HKEY in this context"));
+            }
+            let Some(value) = obj.downcast_ref::<PyInt>() else {
+                return Err(vm.new_type_error("The object is not a PyHKEY object"));
+            };
+            let value = value.as_bigint();
+            let negative = value.sign() == Sign::Minus;
+            let handle = if negative {
+                value.to_isize().map(|v| v as usize)
+            } else {
+                value.to_usize()
+            }
+            .ok_or_else(|| {
+                let message = if cfg!(target_pointer_width = "64") {
+                    "int too big to convert"
+                } else if negative {
+                    "Python int too large to convert to C long"
+                } else {
+                    "Python int too large to convert to C unsigned long"
+                };
+                vm.new_overflow_error(message)
+            })?;
             Ok(Self(handle as host_winreg::HKEY))
         }
     }
@@ -153,7 +189,7 @@ mod winreg {
         }
     }
 
-    #[pyclass(with(AsNumber, Hashable))]
+    #[pyclass(with(AsNumber, Comparable, Hashable))]
     impl Py<PyHkey> {
         #[pygetset]
         fn handle(&self) -> usize {
@@ -205,6 +241,26 @@ mod winreg {
             if !hkey.is_null() {
                 host_winreg::close_key(hkey);
             }
+        }
+    }
+
+    impl Comparable for PyHkey {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            _vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            op.eq_only(|| {
+                if other.class().is(zelf.class())
+                    && let Some(other) = other.downcast_ref::<Self>()
+                {
+                    return Ok(PyComparisonValue::Implemented(
+                        zelf.hkey.load() == other.hkey.load(),
+                    ));
+                }
+                Ok(PyComparisonValue::NotImplemented)
+            })
         }
     }
 
@@ -343,6 +399,33 @@ mod winreg {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DeleteTreeSubKey {
+        #[pyarg(positional, optional)]
+        sub_key: Option<PyRef<PyStr>>,
+    }
+
+    #[pyfunction]
+    fn DeleteTree(
+        key: HKEYArg,
+        DeleteTreeSubKey { sub_key }: DeleteTreeSubKey,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let wide_sub_key = sub_key
+            .as_ref()
+            .map(|s| WideCString::from_vec(s.as_wtf8().encode_wide().collect::<Vec<_>>()))
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        vm.audit("winreg.DeleteTree", || (key.0 as isize, sub_key))?;
+        let res = vm
+            .allow_threads(|| unsafe { host_winreg::delete_tree(key.0, wide_sub_key.as_deref()) });
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(os_error_from_windows_code(vm, res as i32))
+        }
+    }
+
     #[pyfunction]
     fn DeleteValue(key: PyRef<PyHkey>, value: Option<String>, vm: &VirtualMachine) -> PyResult<()> {
         let wide_value = value
@@ -388,7 +471,9 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn EnumKey(key: PyRef<PyHkey>, index: i32, vm: &VirtualMachine) -> PyResult<String> {
+    fn EnumKey(key: SnapshotHkey, index: i32, vm: &VirtualMachine) -> PyResult<String> {
+        let hkey = key.handle;
+        vm.audit("winreg.EnumKey", || (hkey as isize, index))?;
         // The Windows docs claim that the max key name length is 255
         // characters, plus a terminating nul character.  However,
         // empirical testing demonstrates that it is possible to
@@ -397,9 +482,8 @@ mod winreg {
         // retrieve such a key name.
         let mut tmpbuf = [0u16; 257];
         let mut len = tmpbuf.len() as u32;
-        let res = unsafe {
-            host_winreg::enum_key_ex(key.hkey.load(), index as u32, tmpbuf.as_mut_ptr(), &mut len)
-        };
+        let res =
+            unsafe { host_winreg::enum_key_ex(hkey, index as u32, tmpbuf.as_mut_ptr(), &mut len) };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
@@ -408,11 +492,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn EnumValue(hkey: PyRef<PyHkey>, index: u32, vm: &VirtualMachine) -> PyResult {
+    fn EnumValue(key: PyRef<PyHkey>, index: u32, vm: &VirtualMachine) -> PyResult {
         // Query registry for the required buffer sizes.
         let mut ret_value_size: u32 = 0;
         let mut ret_data_size: u32 = 0;
-        let hkey: host_winreg::HKEY = hkey.hkey.load();
+        let hkey: host_winreg::HKEY = key.hkey.load();
         let rc = unsafe {
             host_winreg::query_info_key(
                 hkey,
@@ -477,7 +561,7 @@ mod winreg {
 
             // Slice the data buffer to the actual size returned.
             let data_slice = &ret_data_buf[..current_data_size as usize];
-            let py_data = reg_to_py(vm, data_slice, reg_type)?;
+            let py_data = reg_to_py(vm, data_slice, reg_type);
 
             // Return tuple (value_name, data, type)
             return Ok(vm
@@ -527,7 +611,7 @@ mod winreg {
         #[pyarg(any)]
         key: PyRef<PyHkey>,
         #[pyarg(any)]
-        sub_key: String,
+        sub_key: Option<PyRef<PyStr>>,
         #[pyarg(any, default)]
         reserved: u32,
         #[pyarg(any, default = host_winreg::KEY_READ, py_default = "winreg.KEY_READ")]
@@ -537,17 +621,30 @@ mod winreg {
     #[pyfunction]
     #[pyfunction(name = "OpenKeyEx")]
     fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let sub_key = WideCString::from_str(args.sub_key).map_err(|e| e.to_pyexception(vm))?;
+        let sub_key = args
+            .sub_key
+            .as_ref()
+            .map(|s| WideCString::from_vec(s.as_wtf8().encode_wide().collect::<Vec<_>>()))
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        let key = args.key.hkey.load();
+        vm.audit("winreg.OpenKey", || {
+            (key as isize, args.sub_key, args.access as isize)
+        })?;
         let mut res: host_winreg::HKEY = core::ptr::null_mut();
-        let err = unsafe {
-            let key = args.key.hkey.load();
-            host_winreg::open_key_ex(key, &sub_key, args.reserved, args.access, &mut res)
-        };
+        let err = vm.allow_threads(|| unsafe {
+            host_winreg::open_key_ex(
+                key,
+                sub_key.as_deref(),
+                args.reserved,
+                args.access,
+                &mut res,
+            )
+        });
         if err == 0 {
-            Ok(PyHkey {
-                #[allow(clippy::arc_with_non_send_sync)]
-                hkey: AtomicHKEY::new(res),
-            })
+            let result = PyHkey::new(res);
+            vm.audit("winreg.OpenKey/result", || (res as isize,))?;
+            Ok(result)
         } else {
             Err(os_error_from_windows_code(vm, err as i32))
         }
@@ -556,6 +653,7 @@ mod winreg {
     #[pyfunction]
     fn QueryInfoKey(key: HKEYArg, vm: &VirtualMachine) -> PyResult<PyRef<PyTuple>> {
         let key = key.0;
+        vm.audit("winreg.QueryInfoKey", || (key as isize,))?;
         let info = host_winreg::query_info_key_full(key)
             .map_err(|err| vm.new_os_error(format!("error code: {err}")))?;
         let tup: Vec<PyObjectRef> = vec![
@@ -567,8 +665,24 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryValue(key: HKEYArg, sub_key: Option<String>, vm: &VirtualMachine) -> PyResult<String> {
+    fn QueryValue(
+        key: HKEYArg,
+        sub_key: Option<Wtf8Buf>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
         let hkey = key.0;
+
+        let sub_key = sub_key
+            .as_ref()
+            .map(|s| s.to_wide_cstring().map_err(|_| nul_char_error(vm)))
+            .transpose()?;
+        vm.audit("winreg.QueryValue", || {
+            let sub_key: PyObjectRef = sub_key.as_ref().map_or_else(
+                || vm.ctx.none(),
+                |s| vm.ctx.new_str(Wtf8Buf::from_wide(s.as_slice())).into(),
+            );
+            (hkey as isize, sub_key, vm.ctx.none())
+        })?;
 
         if hkey == host_winreg::HKEY_PERFORMANCE_DATA {
             return Err(os_error_from_windows_code(
@@ -577,21 +691,36 @@ mod winreg {
             ));
         }
 
-        let sub_key = sub_key
-            .map(WideCString::from_str)
-            .transpose()
-            .map_err(|e| e.to_pyexception(vm))?;
-        host_winreg::query_default_value(hkey, sub_key.as_deref())
+        host_winreg::query_default_value_wtf8(hkey, sub_key.as_deref())
+            .map(|value| vm.ctx.new_str(value))
             .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
-    fn QueryValueEx(key: HKEYArg, name: String, vm: &VirtualMachine) -> PyResult<PyRef<PyTuple>> {
+    fn QueryValueEx(
+        key: HKEYArg,
+        name: Option<PyRef<PyStr>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyTuple>> {
         let hkey = key.0;
-        let wide_name = WideCString::from_str(name).map_err(|e| e.to_pyexception(vm))?;
-        let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, &wide_name)
+        let wide_name = name
+            .as_ref()
+            .map(|name| {
+                name.as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|_| nul_char_error(vm))
+            })
+            .transpose()?;
+        vm.audit("winreg.QueryValue", || {
+            let name: PyObjectRef = wide_name.as_ref().map_or_else(
+                || vm.ctx.none(),
+                |name| vm.ctx.new_str(Wtf8Buf::from_wide(name.as_slice())).into(),
+            );
+            (hkey as isize, vm.ctx.none(), name)
+        })?;
+        let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, wide_name.as_deref())
             .map_err(|err| os_error_from_windows_code(vm, err as i32))?;
-        let obj = reg_to_py(vm, &ret_buf, typ)?;
+        let obj = reg_to_py(vm, &ret_buf, typ);
         // Return tuple (value, type)
         Ok(vm.ctx.new_tuple(vec![obj, vm.ctx.new_int(typ).into()]))
     }
@@ -611,11 +740,11 @@ mod winreg {
     fn SetValue(
         key: PyRef<PyHkey>,
         sub_key: String,
-        typ: u32,
+        r#type: u32,
         value: String,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if typ != host_winreg::REG_SZ {
+        if r#type != host_winreg::REG_SZ {
             return Err(vm.new_type_error("type must be winreg.REG_SZ"));
         }
 
@@ -632,7 +761,7 @@ mod winreg {
         let mut wide_value = WideString::with_capacity(value.len() + 1);
         wide_value.push_str(&value);
         wide_value.push_str("\0");
-        let res = host_winreg::set_default_value(hkey, &sub_key, typ, &wide_value);
+        let res = host_winreg::set_default_value(hkey, &sub_key, r#type, &wide_value);
 
         if res == 0 {
             Ok(())
@@ -641,7 +770,7 @@ mod winreg {
         }
     }
 
-    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyResult {
+    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyObjectRef {
         match typ {
             REG_DWORD => {
                 // If there isn’t enough data, return 0.
@@ -649,31 +778,30 @@ mod winreg {
                     .first_chunk::<4>()
                     .copied()
                     .map_or(0, u32::from_ne_bytes);
-                Ok(vm.ctx.new_int(val).into())
+                vm.ctx.new_int(val).into()
             }
             REG_QWORD => {
                 let val = ret_data
                     .first_chunk::<8>()
                     .copied()
                     .map_or(0, u64::from_ne_bytes);
-                Ok(vm.ctx.new_int(val).into())
+                vm.ctx.new_int(val).into()
             }
             REG_SZ | REG_EXPAND_SZ => {
-                let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
+                let u16_slice = host_winreg::registry_wide_units(ret_data);
                 // Only use characters up to the first NUL.
                 let len = u16_slice
                     .iter()
                     .position(|&c| c == 0)
                     .unwrap_or(u16_slice.len());
-                let s = String::from_utf16(&u16_slice[..len])
-                    .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
-                Ok(vm.ctx.new_str(s).into())
+                let s = Wtf8Buf::from_wide(&u16_slice[..len]);
+                vm.ctx.new_str(s).into()
             }
             REG_MULTI_SZ => {
                 if ret_data.is_empty() {
-                    Ok(vm.ctx.new_list(vec![]).into())
+                    vm.ctx.new_list(vec![]).into()
                 } else {
-                    let u16_slice = host_winreg::bytes_as_wide_slice(ret_data);
+                    let u16_slice = host_winreg::registry_wide_units(ret_data);
                     let u16_count = u16_slice.len();
 
                     // Remove trailing null if present (like countStrings)
@@ -687,27 +815,25 @@ mod winreg {
                     let mut start = 0;
                     for i in 0..len {
                         if u16_slice[i] == 0 {
-                            let s = String::from_utf16(&u16_slice[start..i])
-                                .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                            let s = Wtf8Buf::from_wide(&u16_slice[start..i]);
                             strings.push(vm.ctx.new_str(s).into());
                             start = i + 1;
                         }
                     }
                     // Handle last string if not null-terminated
                     if start < len {
-                        let s = String::from_utf16(&u16_slice[start..len])
-                            .map_err(|e| vm.new_value_error(format!("UTF16 error: {e}")))?;
+                        let s = Wtf8Buf::from_wide(&u16_slice[start..len]);
                         strings.push(vm.ctx.new_str(s).into());
                     }
-                    Ok(vm.ctx.new_list(strings).into())
+                    vm.ctx.new_list(strings).into()
                 }
             }
             // For REG_BINARY and any other unknown types, return a bytes object if data exists.
             _ => {
                 if ret_data.is_empty() {
-                    Ok(vm.ctx.none())
+                    vm.ctx.none()
                 } else {
-                    Ok(vm.ctx.new_bytes(ret_data.to_vec()).into())
+                    vm.ctx.new_bytes(ret_data.to_vec()).into()
                 }
             }
         }
@@ -767,48 +893,50 @@ mod winreg {
             }
             REG_MULTI_SZ => {
                 if vm.is_none(&value) {
-                    // Empty list = double null terminator
-                    return Ok(Some(vec![0u8, 0u8, 0u8, 0u8]));
+                    return Ok(Some(vec![0u8, 0u8]));
                 }
                 let list = value
                     .downcast::<crate::builtins::PyList>()
                     .map_err(|_| vm.new_type_error("value must be a list of strings"))?;
 
-                let mut encoded = Vec::new();
-                for item in list.borrow_vec().iter() {
-                    // The final vector is a list of NUL terminated strings. The list itself is
-                    // NUL terminated as well. Unlike REG_SZ, interior NULs are forbidden because
-                    // it would truncate the list.
-                    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
+                let items = list.borrow_vec();
+                for item in items.iter() {
+                    if !item.downcastable::<PyStr>() {
+                        return Err(vm.new_type_error("list items must be strings"));
+                    }
+                }
+                let mut encoded = Vec::<u8>::new();
+                for item in items.iter() {
                     let s = item
                         .downcast_ref::<PyStr>()
-                        .ok_or_else(|| vm.new_type_error("list items must be strings"))?
-                        .as_wtf8()
-                        .to_wide_cstring()
-                        .map(WideCString::into_vec_with_nul)
-                        .map_err(|e| e.to_pyexception(vm))?;
-                    encoded.extend(s);
+                        .expect("all list items were checked above");
+                    for unit in s.as_wtf8().encode_wide().chain([0u16]) {
+                        encoded.extend_from_slice(&unit.to_le_bytes());
+                    }
                 }
-                let bytes = encoded
-                    .into_iter()
-                    .flat_map(u16::to_le_bytes)
-                    .chain(0u16.to_le_bytes())
-                    .collect();
-                Ok(Some(bytes))
+                encoded.extend_from_slice(&0u16.to_le_bytes());
+                Ok(Some(encoded))
             }
             // REG_BINARY and other types
             _ => {
                 if vm.is_none(&value) {
                     return Ok(None);
                 }
-                // Try to get bytes
-                if let Some(bytes) = value.downcast_ref::<crate::builtins::PyBytes>() {
+                // Exact bytes need no buffer acquisition; subclasses and other
+                // exporters must use their buffer protocol implementation.
+                if value.class().is(vm.ctx.types.bytes_type) {
+                    let bytes = value
+                        .downcast_ref::<crate::builtins::PyBytes>()
+                        .expect("the exact bytes type has a bytes payload");
                     return Ok(Some(bytes.as_bytes().to_vec()));
                 }
-                Err(vm.new_type_error(format!(
-                    "Objects of type '{}' can not be used as binary registry values",
-                    value.class().name()
-                )))
+                if !value.check_buffer() {
+                    return Err(vm.new_type_error(format!(
+                        "Objects of type '{}' can not be used as binary registry values",
+                        value.class().name()
+                    )));
+                }
+                value.try_bytes_like(vm, |bytes| Some(bytes.to_vec()))
             }
         }
     }
@@ -818,22 +946,22 @@ mod winreg {
         key: PyRef<PyHkey>,
         value_name: Option<String>,
         _reserved: PyObjectRef,
-        typ: u32,
+        r#type: u32,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let hkey = key.hkey.load();
         let value_name = value_name
             .map(WideCString::from_str)
             .transpose()
             .map_err(|e| e.to_pyexception(vm))?;
-        let reg_value = py2reg(value, typ, vm)?;
+        let reg_value = py2reg(value, r#type, vm)?;
         let (ptr, len) = match &reg_value {
             Some(v) => (v.as_ptr(), v.len() as u32),
             None => (core::ptr::null(), 0),
         };
-        let res = unsafe {
-            host_winreg::set_value_ex(key.hkey.load(), value_name.as_deref(), typ, ptr, len)
-        };
+        let res =
+            unsafe { host_winreg::set_value_ex(hkey, value_name.as_deref(), r#type, ptr, len) };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
@@ -872,10 +1000,13 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn ExpandEnvironmentStrings(i: PyRef<PyStr>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let i = WideCString::from_vec(i.as_wtf8().encode_wide().collect::<Vec<_>>())
+    fn ExpandEnvironmentStrings(
+        string: PyRef<PyStr>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyStr>> {
+        let string = WideCString::from_vec(string.as_wtf8().encode_wide().collect::<Vec<_>>())
             .map_err(|_| nul_char_error(vm))?;
-        let expanded = host_winreg::expand_environment_strings_wide(&i)
+        let expanded = host_winreg::expand_environment_strings_wide(&string)
             .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&expanded)))
     }

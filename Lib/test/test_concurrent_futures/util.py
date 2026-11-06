@@ -10,7 +10,7 @@ from concurrent.futures._base import (
 from concurrent.futures.process import _check_system_limits
 
 from test import support
-from test.support import threading_helper
+from test.support import threading_helper, warnings_helper
 
 
 def create_future(state=PENDING, exception=None, result=None):
@@ -51,7 +51,8 @@ class ExecutorMixin:
                 max_workers=self.worker_count,
                 mp_context=self.get_context(),
                 **self.executor_kwargs)
-            self.manager = self.get_context().Manager()
+            with warnings_helper.ignore_fork_in_thread_deprecation_warnings():
+                self.manager = self.get_context().Manager()
         else:
             self.executor = self.executor_type(
                 max_workers=self.worker_count,
@@ -138,6 +139,8 @@ class ProcessPoolForkserverMixin(ExecutorMixin):
             self.skipTest("require unix system")
         if support.check_sanitizer(thread=True):
             self.skipTest("TSAN doesn't support threads after fork")
+        if "forkserver" not in multiprocessing.get_all_start_methods():
+            self.skipTest("forkserver start method is not available")
         return super().get_context()
 
     def create_event(self):
@@ -146,6 +149,7 @@ class ProcessPoolForkserverMixin(ExecutorMixin):
 
 def create_executor_tests(remote_globals, mixin, bases=(BaseTestCase,),
                           executor_mixins=(ThreadPoolMixin,
+                                           InterpreterPoolMixin,
                                            ProcessPoolForkMixin,
                                            ProcessPoolForkserverMixin,
                                            ProcessPoolSpawnMixin)):

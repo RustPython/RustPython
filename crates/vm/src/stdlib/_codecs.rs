@@ -241,7 +241,7 @@ mod _codecs {
                 .as_ref()
                 .is_some_and(|s| s.is(identifier!(vm, surrogatepass)))
         {
-            return Ok((args.str.as_bytes().to_vec(), args.str.byte_len()));
+            return Ok((args.str.as_bytes().to_vec(), args.str.char_len()));
         }
         do_codec!(utf8::encode, args, vm)
     }
@@ -772,7 +772,7 @@ mod _codecs_windows {
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
         #[pyarg(positional)]
-        s: PyStrRef,
+        str: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
@@ -780,14 +780,20 @@ mod _codecs_windows {
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let s = match args.s.to_str() {
+        let s = match args.str.to_str() {
             Some(s) => s,
             None => {
                 // String contains surrogates - not encodable with mbcs
-                return encode_code_page_errors(host_windows::CP_ACP, &args.s, errors, "mbcs", vm);
+                return encode_code_page_errors(
+                    host_windows::CP_ACP,
+                    &args.str,
+                    errors,
+                    "mbcs",
+                    vm,
+                );
             }
         };
-        let char_len = args.s.char_len();
+        let char_len = args.str.char_len();
 
         if s.is_empty() {
             return Ok((Vec::new(), char_len));
@@ -816,7 +822,7 @@ mod _codecs_windows {
         .map_err(|err| vm.new_os_error(format!("mbcs_encode failed: {err}")))?;
 
         if errors == "strict" && used_default_char {
-            return encode_code_page_errors(host_windows::CP_ACP, &args.s, errors, "mbcs", vm);
+            return encode_code_page_errors(host_windows::CP_ACP, &args.str, errors, "mbcs", vm);
         }
 
         buffer.truncate(result);
@@ -888,7 +894,7 @@ mod _codecs_windows {
     #[derive(FromArgs)]
     struct OemEncodeArgs {
         #[pyarg(positional)]
-        s: PyStrRef,
+        str: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
@@ -896,14 +902,20 @@ mod _codecs_windows {
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let s = match args.s.to_str() {
+        let s = match args.str.to_str() {
             Some(s) => s,
             None => {
                 // String contains surrogates - not encodable with oem
-                return encode_code_page_errors(host_windows::CP_OEMCP, &args.s, errors, "oem", vm);
+                return encode_code_page_errors(
+                    host_windows::CP_OEMCP,
+                    &args.str,
+                    errors,
+                    "oem",
+                    vm,
+                );
             }
         };
-        let char_len = args.s.char_len();
+        let char_len = args.str.char_len();
 
         if s.is_empty() {
             return Ok((Vec::new(), char_len));
@@ -932,7 +944,7 @@ mod _codecs_windows {
         .map_err(|err| vm.new_os_error(format!("oem_encode failed: {err}")))?;
 
         if errors == "strict" && used_default_char {
-            return encode_code_page_errors(host_windows::CP_OEMCP, &args.s, errors, "oem", vm);
+            return encode_code_page_errors(host_windows::CP_OEMCP, &args.str, errors, "oem", vm);
         }
 
         buffer.truncate(result);
@@ -1007,7 +1019,7 @@ mod _codecs_windows {
         #[pyarg(positional)]
         code_page: i32,
         #[pyarg(positional)]
-        s: PyStrRef,
+        str: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
@@ -1259,7 +1271,7 @@ mod _codecs_windows {
 
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let code_page = args.code_page as u32;
-        let char_len = args.s.char_len();
+        let char_len = args.str.char_len();
 
         if char_len == 0 {
             return Ok((Vec::new(), 0));
@@ -1268,7 +1280,7 @@ mod _codecs_windows {
         let encoding_name = code_page_encoding_name(code_page);
 
         // Fast path: try encoding the whole string at once (only if no surrogates)
-        if let Some(str_data) = args.s.to_str() {
+        if let Some(str_data) = args.str.to_str() {
             let wide: Vec<_> = OsStr::new(str_data).encode_wide().collect();
             if let Some(result) = try_encode_code_page_strict(code_page, &wide, vm)? {
                 return Ok((result, char_len));
@@ -1276,13 +1288,13 @@ mod _codecs_windows {
         }
 
         // Slow path: character by character with error handling
-        encode_code_page_errors(code_page, &args.s, errors, &encoding_name, vm)
+        encode_code_page_errors(code_page, &args.str, errors, &encoding_name, vm)
     }
 
     #[derive(FromArgs)]
     struct CodePageDecodeArgs {
         #[pyarg(positional)]
-        code_page: i32,
+        codepage: i32,
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
@@ -1560,12 +1572,12 @@ mod _codecs_windows {
     ) -> PyResult<(PyStrRef, usize)> {
         use crate::common::wtf8::Wtf8Buf;
 
-        if args.code_page < 0 {
+        if args.codepage < 0 {
             return Err(vm.new_value_error("invalid code page number"));
         }
 
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let code_page = args.code_page as u32;
+        let code_page = args.codepage as u32;
         let data = args.data.borrow_buf();
         let is_final = args.r#final;
 

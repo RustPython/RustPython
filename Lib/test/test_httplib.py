@@ -431,6 +431,81 @@ class HeaderTests(TestCase):
         self.assertEqual(lines[2], "header: Second: val1")
         self.assertEqual(lines[3], "header: Second: val2")
 
+    def test_max_response_headers(self):
+        max_headers = client._MAXHEADERS + 20
+        headers = [f"Name{i}: Value{i}".encode() for i in range(max_headers)]
+        body = b"HTTP/1.1 200 OK\r\n" + b"\r\n".join(headers)
+
+        with self.subTest(max_headers=None):
+            sock = FakeSocket(body)
+            resp = client.HTTPResponse(sock)
+            with self.assertRaisesRegex(
+                client.HTTPException, f"got more than 100 headers"
+            ):
+                resp.begin()
+
+        with self.subTest(max_headers=max_headers):
+            sock = FakeSocket(body)
+            resp = client.HTTPResponse(sock)
+            resp.begin(_max_headers=max_headers)
+
+    def test_max_connection_headers(self):
+        max_headers = client._MAXHEADERS + 20
+        headers = (
+            f"Name{i}: Value{i}".encode() for i in range(max_headers - 1)
+        )
+        body = (
+            b"HTTP/1.1 200 OK\r\n"
+            + b"\r\n".join(headers)
+            + b"\r\nContent-Length: 12\r\n\r\nDummy body\r\n"
+        )
+
+        with self.subTest(max_headers=None):
+            conn = client.HTTPConnection("example.com")
+            conn.sock = FakeSocket(body)
+            conn.request("GET", "/")
+            with self.assertRaisesRegex(
+                client.HTTPException, f"got more than {client._MAXHEADERS} headers"
+            ):
+                response = conn.getresponse()
+
+        with self.subTest(max_headers=None):
+            conn = client.HTTPConnection(
+                "example.com", max_response_headers=max_headers
+            )
+            conn.sock = FakeSocket(body)
+            conn.request("GET", "/")
+            response = conn.getresponse()
+            response.read()
+
+    def test_max_connection_trailers(self):
+        # max_response_headers also limits trailer lines of a chunked
+        # response, which are read and discarded by read().
+        max_trailers = client._MAXHEADERS + 20
+        trailer_lines = "".join(
+            f"X-Trailer{i}: {i}\r\n" for i in range(max_trailers - 1)
+        )
+        body = chunked_start + last_chunk + trailer_lines + chunked_end
+
+        with self.subTest(max_response_headers=None):
+            conn = client.HTTPConnection("example.com")
+            conn.sock = FakeSocket(body)
+            conn.request("GET", "/")
+            response = conn.getresponse()
+            with self.assertRaisesRegex(
+                client.HTTPException,
+                f"got more than {client._MAXHEADERS} trailers",
+            ):
+                response.read()
+
+        with self.subTest(max_response_headers=max_trailers):
+            conn = client.HTTPConnection(
+                "example.com", max_response_headers=max_trailers
+            )
+            conn.sock = FakeSocket(body)
+            conn.request("GET", "/")
+            response = conn.getresponse()
+            self.assertEqual(response.read(), chunked_expected)
 
 class HttpMethodTests(TestCase):
     def test_invalid_method_names(self):
@@ -1332,6 +1407,35 @@ class BasicTest(TestCase):
         self.assertIn('got more than ', str(cm.exception))
         self.assertIn('headers', str(cm.exception))
 
+    def test_too_many_interim_responses(self):
+        # A server streaming "100 Continue" responses forever must not
+        # hang getresponse().
+        body = (
+            'HTTP/1.1 100 Continue\r\n\r\n'
+            * (client._MAXINTERIMRESPONSES + 1)
+        )
+        resp = client.HTTPResponse(FakeSocket(body))
+        with self.assertRaises(client.HTTPException) as cm:
+            resp.begin()
+        self.assertIn('got more than ', str(cm.exception))
+        self.assertIn('interim responses', str(cm.exception))
+
+    def test_multiple_interim_responses(self):
+        # A reasonable number of interim responses before the final
+        # response is skipped as before.
+        body = (
+            'HTTP/1.1 100 Continue\r\n\r\n' * 3 +
+            'HTTP/1.1 200 OK\r\n'
+            'Content-Length: 5\r\n'
+            '\r\n'
+            'hello'
+        )
+        resp = client.HTTPResponse(FakeSocket(body), method="GET")
+        resp.begin()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.read(), b'hello')
+        resp.close()
+
     def test_overflowing_chunked_line(self):
         body = (
             'HTTP/1.1 200 OK\r\n'
@@ -1401,6 +1505,35 @@ class BasicTest(TestCase):
         self.assertEqual(resp.read(), expected)
         # we should have reached the end of the file
         self.assertEqual(sock.file.read(), b"") #we read to the end
+        resp.close()
+
+    def test_chunked_too_many_trailers(self):
+        """A response streaming endless trailer lines must raise, not hang"""
+        too_many_trailers = "".join(
+            f"X-Trailer{i}: {i}\r\n" for i in range(client._MAXHEADERS + 1)
+        )
+        # An unbounded read() reaches the trailers via the final 0 chunk.
+        sock = FakeSocket(
+            chunked_start + last_chunk + too_many_trailers + chunked_end)
+        resp = client.HTTPResponse(sock, method="GET")
+        resp.begin()
+        with self.assertRaisesRegex(
+            client.HTTPException,
+            f"got more than {client._MAXHEADERS} trailers",
+        ):
+            resp.read()
+        resp.close()
+
+        # A bounded read(amt) larger than the body hits the same limit.
+        sock = FakeSocket(
+            chunked_start + last_chunk + too_many_trailers + chunked_end)
+        resp = client.HTTPResponse(sock, method="GET")
+        resp.begin()
+        with self.assertRaisesRegex(
+            client.HTTPException,
+            f"got more than {client._MAXHEADERS} trailers",
+        ):
+            resp.read(len(chunked_expected) + 1)
         resp.close()
 
     def test_chunked_sync(self):

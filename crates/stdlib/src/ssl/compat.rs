@@ -140,6 +140,7 @@ impl SslError {
         match self {
             Self::Rustls(error) => TlsError::from_rustls(error.clone()).is_eof(),
             Self::Eof => true,
+            Self::Io(error) => error.kind() == std::io::ErrorKind::UnexpectedEof,
             _ => false,
         }
     }

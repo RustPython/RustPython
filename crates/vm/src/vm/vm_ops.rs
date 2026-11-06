@@ -163,13 +163,14 @@ impl VirtualMachine {
 
     /// Checks that the multiplication is able to be performed. On Ok returns the
     /// index as a usize for sequences to be able to use immediately.
+    /// Overflow raises MemoryError, matching CPython's allocation checks.
     pub fn check_repeat_or_overflow_error(&self, length: usize, n: isize) -> PyResult<usize> {
         if n <= 0 {
             Ok(0)
         } else {
             let n = n as usize;
             if length > crate::stdlib::sys::MAXSIZE as usize / n {
-                Err(self.new_overflow_error("repeated value are too long"))
+                Err(self.no_memory_error())
             } else {
                 Ok(n)
             }
@@ -628,5 +629,26 @@ impl VirtualMachine {
     pub fn _contains(&self, haystack: &PyObject, needle: &PyObject) -> PyResult<bool> {
         let seq = haystack.sequence_unchecked();
         seq.contains(needle, self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::AsObject;
+
+    #[test]
+    fn overflowing_sequence_repetition_raises_memory_error() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(vm.check_repeat_or_overflow_error(3, -1).unwrap(), 0);
+            assert_eq!(vm.check_repeat_or_overflow_error(3, 2).unwrap(), 2);
+            assert_eq!(
+                vm.check_repeat_or_overflow_error(0, isize::MAX).unwrap(),
+                isize::MAX as usize,
+            );
+            let err = vm
+                .check_repeat_or_overflow_error(isize::MAX as usize, 2)
+                .unwrap_err();
+            assert!(err.fast_isinstance(vm.ctx.exceptions.memory_error));
+        });
     }
 }

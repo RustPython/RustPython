@@ -1,15 +1,13 @@
+use crate::metadata::{NestedMeta, PunctuatedNestedMeta, nested_meta};
 use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
+use syn::Meta;
 use syn::visit::Visit;
 use syn::visit_mut::VisitMut;
 use syn::{
     Attribute, FnArg, Ident, Result, Signature, Type, UseTree, ext::IdentExt, spanned::Spanned,
-};
-use syn_ext::{
-    ext::{AttributeExt as SynAttributeExt, *},
-    types::*,
 };
 
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
@@ -133,24 +131,32 @@ impl ItemMetaInner {
     where
         I: core::iter::Iterator<Item = NestedMeta>,
     {
-        let (meta_map, lits) = nested.into_unique_map_and_lits(|path| {
-            if let Some(ident) = path.get_ident() {
-                let name = ident.to_string();
-                if allowed_names.contains(&name.as_str()) {
-                    Ok(Some(name))
-                } else {
-                    Err(err_span!(
-                        ident,
-                        "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
-                        allowed_names.iter().format(", ")
-                    ))
-                }
-            } else {
-                Ok(None)
+        let mut meta_map = HashMap::new();
+        let mut has_literal = false;
+        for (index, nested) in nested.enumerate() {
+            let NestedMeta::Meta(meta) = nested else {
+                has_literal = true;
+                continue;
+            };
+            let Some(ident) = meta.path().get_ident() else {
+                continue;
+            };
+            let name = ident.to_string();
+            if !allowed_names.contains(&name.as_str()) {
+                bail_span!(
+                    ident,
+                    "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
+                    allowed_names.iter().format(", ")
+                );
             }
-        })?;
-
-        if !lits.is_empty() {
+            if let Some((_, previous)) = meta_map.insert(name, (index, meta)) {
+                return Err(syn::Error::new_spanned(
+                    previous,
+                    "this attribute path must be unique in the attribute",
+                ));
+            }
+        }
+        if has_literal {
             bail_span!(meta_ident, "#[{meta_ident}(..)] cannot contain literal")
         }
 
@@ -247,22 +253,16 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub(crate) fn _optional_list(
-        &self,
-        key: &str,
-    ) -> Result<Option<impl core::iter::Iterator<Item = &'_ NestedMeta>>> {
-        let value = if let Some((_, meta)) = self.meta_map.get(key) {
-            let Meta::List(MetaList {
-                path: _, nested, ..
-            }) = meta
-            else {
-                bail_span!(meta, "#[{}({}(...))] must be a list", self.meta_name(), key)
-            };
-            Some(nested.into_iter())
-        } else {
-            None
-        };
-        Ok(value)
+    pub(crate) fn _optional_list(&self, key: &str) -> Result<Option<PunctuatedNestedMeta>> {
+        self.meta_map
+            .get(key)
+            .map(|(_, meta)| {
+                let Meta::List(list) = meta else {
+                    bail_span!(meta, "#[{}({}(...))] must be a list", self.meta_name(), key)
+                };
+                nested_meta(list)
+            })
+            .transpose()
     }
 }
 
@@ -553,7 +553,7 @@ impl core::ops::Deref for ExceptionItemMeta {
     }
 }
 
-pub(crate) trait AttributeExt: SynAttributeExt {
+pub(crate) trait AttributeExt {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta>;
 
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)>;
@@ -567,70 +567,85 @@ pub(crate) trait AttributeExt: SynAttributeExt {
 
 impl AttributeExt for Attribute {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta> {
-        let list = self.promoted_list().map_err(|mut e| {
-            let name = self.get_ident().unwrap().to_string();
-            e.combine(err_span!(
-                self,
-                r##"#[{name} = "..."] cannot be a name/value, you probably meant \
-                 #[{name}(name = "...")]"##,
-            ));
-            e
-        })?;
-        Ok(list.nested)
+        match &self.meta {
+            Meta::Path(_) => Ok(PunctuatedNestedMeta::new()),
+            Meta::List(list) => nested_meta(list),
+            meta => {
+                let mut error = syn::Error::new_spanned(
+                    meta,
+                    "Only Path can be promoted and List is accepted as non-promoted",
+                );
+                let name = self.path().get_ident().unwrap();
+                error.combine(err_span!(
+                    self,
+                    r##"#[{name} = "..."] cannot be a name/value, you probably meant \
+                     #[{name}(name = "...")]"##
+                ));
+                Err(error)
+            }
+        }
     }
 
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)> {
-        Ok((self.get_ident().unwrap(), self.promoted_nested()?))
+        Ok((self.path().get_ident().unwrap(), self.promoted_nested()?))
     }
 
     fn try_remove_name(&mut self, item_name: &str) -> Result<Option<NestedMeta>> {
-        self.try_meta_mut(|meta| {
-            let nested = match meta {
-                Meta::List(MetaList { nested, .. }) => Ok(nested),
-                other => Err(syn::Error::new(
-                    other.span(),
-                    format!(
-                        "#[{name}(...)] doesn't contain '{item}' to remove",
-                        name = other.get_ident().unwrap(),
-                        item = item_name
-                    ),
-                )),
-            }?;
-
-            let mut found = None;
-            for (i, item) in nested.iter().enumerate() {
-                if item.get_ident().is_none_or(|ident| ident != item_name) {
-                    continue;
+        let Meta::List(list) = &mut self.meta else {
+            bail_span!(
+                self.meta,
+                "#[{name}(...)] doesn't contain '{item}' to remove",
+                name = self.path().get_ident().unwrap(),
+                item = item_name
+            );
+        };
+        let nested = nested_meta(list)?;
+        let mut retained = PunctuatedNestedMeta::new();
+        let mut removed = None;
+        for pair in nested.into_pairs() {
+            if pair
+                .value()
+                .get_ident()
+                .is_some_and(|ident| ident == item_name)
+            {
+                if removed.is_some() {
+                    bail_span!(
+                        pair.value(),
+                        "#[py..({item_name}...)] must be unique but found multiple times"
+                    );
                 }
-
-                if found.is_some() {
-                    return Err(syn::Error::new(
-                        item.span(),
-                        format!("#[py..({item_name}...)] must be unique but found multiple times"),
-                    ));
-                }
-                found = Some(i);
+                removed = Some(pair.into_value());
+            } else {
+                retained.extend([pair]);
             }
-
-            Ok(found.map(|idx| nested.remove(idx).into_value()))
-        })
+        }
+        list.tokens = retained.into_token_stream();
+        Ok(removed)
     }
 
     fn fill_nested_meta<F>(&mut self, name: &str, new_item: F) -> Result<()>
     where
         F: Fn() -> NestedMeta,
     {
-        self.try_meta_mut(|meta| {
-            let list = meta.promote_to_list(Default::default())?;
-            let has_name = list
-                .nested
-                .iter()
-                .any(|nested_meta| nested_meta.get_path().is_some_and(|p| p.is_ident(name)));
-            if !has_name {
-                list.nested.push(new_item())
+        let mut nested = self.promoted_nested()?;
+        if !nested.iter().any(|item| {
+            matches!(item,
+            NestedMeta::Meta(meta) if meta.path().is_ident(name))
+        }) {
+            nested.push(new_item());
+        }
+        match &mut self.meta {
+            Meta::List(list) => list.tokens = nested.into_token_stream(),
+            Meta::Path(path) => {
+                self.meta = Meta::List(syn::MetaList {
+                    path: path.clone(),
+                    delimiter: syn::MacroDelimiter::Paren(Default::default()),
+                    tokens: nested.into_token_stream(),
+                })
             }
-            Ok(())
-        })
+            Meta::NameValue(_) => unreachable!("promoted_nested rejects name-value attributes"),
+        }
+        Ok(())
     }
 }
 
@@ -934,5 +949,74 @@ pub(crate) fn internal_doc_tokens(
                 ::rustpython_vm::function::ItemDoc::static_text(FULL)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    use syn::{parse::Parser, parse_quote};
+
+    fn parse_options(source: &str) -> Result<ItemMetaInner> {
+        let args = PunctuatedNestedMeta::parse_terminated.parse_str(source)?;
+        ItemMetaInner::from_nested(
+            parse_quote!(Example),
+            parse_quote!(pyclass),
+            args.into_iter(),
+            &["name", "impl"],
+        )
+    }
+
+    #[test]
+    fn option_validation_keeps_contextual_diagnostics() {
+        assert_eq!(
+            parse_options("name, name").err().unwrap().to_string(),
+            "this attribute path must be unique in the attribute"
+        );
+        assert_eq!(
+            parse_options("7").err().unwrap().to_string(),
+            "#[pyclass(..)] cannot contain literal"
+        );
+        assert_eq!(
+            parse_options("unknown").err().unwrap().to_string(),
+            "#[pyclass(unknown)] is not one of allowed attributes [name, impl]"
+        );
+        let options = parse_options("impl, name = \"Example\"").unwrap();
+        assert!(options._bool("impl").unwrap());
+        assert_eq!(
+            options._optional_str("name").unwrap().as_deref(),
+            Some("Example")
+        );
+    }
+
+    #[test]
+    fn attribute_edits_preserve_other_options_and_delimiters() {
+        let mut attr: Attribute = parse_quote!(#[pyclass(name, no_attr, module = false,)]);
+        assert!(attr.try_remove_name("no_attr").unwrap().is_some());
+        attr.fill_nested_meta("module", || parse_quote!(module = "replacement"))
+            .unwrap();
+        assert_eq!(
+            quote!(#attr).to_string(),
+            quote!(#[pyclass(name, module = false,)]).to_string()
+        );
+        assert!(attr.try_remove_name("missing").unwrap().is_none());
+        let mut bare: Attribute = parse_quote!(#[pyclass]);
+        bare.fill_nested_meta("name", || parse_quote!(name = "Example"))
+            .unwrap();
+        assert_eq!(
+            quote!(#bare).to_string(),
+            quote!(#[pyclass(name = "Example")]).to_string()
+        );
+    }
+
+    #[test]
+    fn failed_duplicate_removal_does_not_mutate_attribute() {
+        let mut attr: Attribute = parse_quote!(#[pyclass(no_attr, no_attr)]);
+        let original = quote!(#attr).to_string();
+        assert_eq!(
+            attr.try_remove_name("no_attr").err().unwrap().to_string(),
+            "#[py..(no_attr...)] must be unique but found multiple times"
+        );
+        assert_eq!(quote!(#attr).to_string(), original);
     }
 }

@@ -645,8 +645,7 @@ fn call_show_warning(
     module: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
-    else {
+    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), true)? else {
         show_warning(&filename, lineno, text, &category, source_line, vm);
         return Ok(());
     };
@@ -745,20 +744,16 @@ fn setup_context(
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.
     if stack_level <= 0 || f.as_ref().is_some_and(|frame| frame.is_internal_frame()) {
-        while {
+        while stack_level > 1 {
             stack_level -= 1;
-            stack_level > 0
-        } {
             match f {
                 Some(tmp) => f = tmp.f_back(vm),
                 None => break,
             }
         }
     } else {
-        while {
+        while stack_level > 1 {
             stack_level -= 1;
-            stack_level > 0
-        } {
             match f {
                 Some(tmp) => f = next_external_frame_with_skip(&tmp, skip_file_prefixes, vm),
                 None => break,

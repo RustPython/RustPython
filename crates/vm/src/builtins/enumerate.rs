@@ -54,8 +54,9 @@ impl PyPayload for PyEnumerate {
 
 #[derive(FromArgs)]
 pub struct EnumerateArgs {
+    // Bound as an object so the other arguments are checked before `iter()` runs, as in CPython.
     #[pyarg(any)]
-    iterable: PyIter,
+    iterable: PyObjectRef,
     #[pyarg(any, default = 0)]
     start: ArgIndex,
 }
@@ -66,8 +67,9 @@ impl Constructor for PyEnumerate {
     fn py_new(
         _cls: &Py<PyType>,
         Self::Args { iterable, start }: Self::Args,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        let iterable = iterable.get_iter(vm)?;
         let start = start.into_int_ref();
         let counter = match start.as_bigint().to_usize() {
             Some(n) => Counter::Small(n),

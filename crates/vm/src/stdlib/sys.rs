@@ -46,7 +46,7 @@ pub mod sys {
         convert::ToPyObject,
         frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
-        stdlib::{_warnings::warn, builtins},
+        stdlib::_warnings::warn,
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
@@ -56,7 +56,7 @@ pub mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env,
-        io::{IsTerminal, Read, Write},
+        io::{IsTerminal, Write},
     };
 
     // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
@@ -260,11 +260,19 @@ pub mod sys {
 
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
-    const VPATH: Option<&'static str> = None; // TODO: actual VPATH value
+    fn vpath(vm: &VirtualMachine) -> String {
+        crate::getpath::source_directory(&vm.state.config.paths)
+            .and_then(|source| std::path::absolute(source).ok())
+            .map(|source| source.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
 
     #[cfg(windows)]
-    #[pyattr(name = "dllhandle")]
-    const DLLHANDLE: usize = 0;
+    #[pyattr]
+    fn dllhandle(_vm: &VirtualMachine) -> usize {
+        crate::host_env::windows::runtime_module_handle()
+            .expect("the running RustPython image must have a module handle")
+    }
 
     #[pyattr]
     fn prefix(vm: &VirtualMachine) -> String {
@@ -291,16 +299,20 @@ pub mod sys {
         vm.state.config.paths.stdlib_dir.clone().to_pyobject(vm)
     }
 
+    #[pyattr]
+    fn _is_python_build(vm: &VirtualMachine) -> bool {
+        crate::getpath::source_directory(&vm.state.config.paths).is_some()
+    }
+
     // alphabetical order with segments of pyattr and others
 
-    #[pyattr]
-    fn argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    pub(super) fn argv(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         vm.state
             .config
             .settings
             .argv
             .iter()
-            .map(|arg| vm.ctx.new_str(arg.clone()).into())
+            .map(|arg| vm.fsdecode(arg.clone()).map(Into::into))
             .collect()
     }
 
@@ -559,9 +571,6 @@ pub mod sys {
         "socket",
         "socketserver",
         "sqlite3",
-        "sre_compile",
-        "sre_constants",
-        "sre_parse",
         "ssl",
         "stat",
         "statistics",
@@ -640,6 +649,16 @@ pub mod sys {
     }
 
     #[pyattr]
+    fn abi_info(vm: &VirtualMachine) -> PyRef<PyNamespace> {
+        py_namespace!(vm, {
+            "pointer_bits" => vm.ctx.new_int(usize::BITS),
+            "free_threaded" => vm.ctx.new_bool(true),
+            "debug" => vm.ctx.new_bool(false),
+            "byteorder" => byteorder(vm),
+        })
+    }
+
+    #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> String {
         vm.state.config.paths.base_executable.clone()
     }
@@ -686,9 +705,10 @@ pub mod sys {
         Vec::new()
     }
 
-    #[pyattr]
-    fn orig_argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        env::args().map(|arg| vm.ctx.new_str(arg).into()).collect()
+    pub(super) fn orig_argv(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        env::args_os()
+            .map(|arg| vm.fsdecode(arg).map(Into::into))
+            .collect()
     }
 
     #[pyattr]
@@ -712,9 +732,14 @@ pub mod sys {
         vm.ctx.new_dict()
     }
 
-    #[pyattr]
-    fn pycache_prefix(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.none()
+    pub(super) fn pycache_prefix(vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+        vm.state
+            .config
+            .settings
+            .pycache_prefix
+            .clone()
+            .map(|value| vm.fsdecode(value))
+            .transpose()
     }
 
     #[pyattr(name = "version")]
@@ -752,17 +777,11 @@ pub mod sys {
 
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
-    fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
-        // read stdin to end
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-        let mut source = String::new();
-        handle
-            .read_to_string(&mut source)
-            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
-            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
-        Ok(())
+    fn _baserepl(vm: &VirtualMachine) {
+        // PyRun_AnyFileExFlags(stdin, "<stdin>", 0, &cf)
+        if let Err(exc) = vm.run_any_stdin() {
+            vm.print_uncaught_exception(&exc);
+        }
     }
 
     #[pyfunction]
@@ -835,6 +854,40 @@ pub mod sys {
         vm.topmost_exception()
     }
 
+    fn displayhook_encoding_fallback(
+        stdout: &PyObject,
+        object: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let encoding = stdout
+            .get_attr("encoding", vm)?
+            .downcast::<PyStr>()
+            .map_err(|_| vm.new_type_error("bad argument type for built-in operation"))?;
+        let encoding = encoding.try_as_utf8(vm)?.as_str();
+        // CPython passes the validated UTF-8 encoding name as a C string.
+        let encoding = encoding.split('\0').next().unwrap();
+        let repr = object.repr(vm)?;
+        let encoded = vm.state.codec_registry.encode_text(
+            repr,
+            encoding,
+            Some(vm.ctx.new_utf8_str("backslashreplace")),
+            vm,
+        )?;
+        if let Some(buffer) = vm.get_attribute_opt(stdout, "buffer")? {
+            vm.call_method(&buffer, "write", (encoded,))?;
+        } else {
+            let escaped = vm.state.codec_registry.decode_text_object(
+                encoded.into(),
+                encoding,
+                Some(vm.ctx.new_utf8_str("strict")),
+                vm,
+            )?;
+            let write = stdout.get_attr("write", vm)?;
+            write.call((escaped.as_object().str(vm)?,), vm)?;
+        }
+        Ok(())
+    }
+
     #[pyfunction(name = "__displayhook__")]
     #[pyfunction]
     fn displayhook(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -844,9 +897,27 @@ pub mod sys {
         }
         // set to none to avoid recursion while printing
         vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
-        // TODO: catch encoding errors
-        let repr = object.repr(vm)?.into();
-        builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
+        let stdout = vm
+            .sys_module
+            .dict()
+            .get_item_opt("stdout", vm)?
+            .filter(|stdout| !vm.is_none(stdout))
+            .ok_or_else(|| vm.new_runtime_error("lost sys.stdout"))?;
+        let result = (|| {
+            // PyFile_WriteObject obtains the writer before calling repr.
+            let write = stdout.get_attr("write", vm)?;
+            let repr = object.repr(vm)?;
+            write.call((repr,), vm)
+        })();
+        if let Err(exc) = result {
+            if !exc.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
+                return Err(exc);
+            }
+            drop(exc);
+            displayhook_encoding_fallback(&stdout, &object, vm)?;
+        }
+        vm.call_method(&stdout, "write", (vm.ctx.new_str("\n"),))?;
+        drop(stdout);
         vm.builtins.set_attr("_", object, vm)?;
         Ok(())
     }
@@ -859,7 +930,6 @@ pub mod sys {
         traceback: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let stderr = super::get_stderr(vm)?;
         // Keep runtime SyntaxErrors on the normal traceback path.
         let has_traceback = !vm.is_none(&traceback);
         match vm.normalize_exception(exctype, value.clone(), traceback) {
@@ -879,19 +949,11 @@ pub mod sys {
                         .and_then(|text| text.downcast::<PyStr>().ok())
                         .is_some_and(|text| text.to_string_lossy().trim_end() == "\\");
                 if native_syntax_error_display {
+                    let stderr = super::get_stderr(vm)?;
                     return vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc);
                 }
-                // PyErr_Display: try traceback._print_exception_bltin first
-                if let Ok(tb_mod) = vm.import("traceback", 0)
-                    && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
-                    && print_exc_builtin
-                        .call((exc.as_object().to_owned(),), vm)
-                        .is_ok()
-                {
-                    return Ok(());
-                }
-                // Fallback to Rust-level exception printing
-                vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+                vm.display_exception(&exc);
+                Ok(())
             }
             Err(_) => {
                 let type_name = value.class().name();
@@ -899,6 +961,7 @@ pub mod sys {
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
                 use crate::py_io::Write;
+                let stderr = super::get_stderr(vm)?;
                 write!(&mut crate::py_io::PyWriter(stderr, vm), "{msg}")?;
                 Ok(())
             }
@@ -961,6 +1024,81 @@ pub mod sys {
     }
 
     #[pyfunction]
+    fn get_lazy_imports(vm: &VirtualMachine) -> &'static str {
+        if vm
+            .state
+            .lazy_imports
+            .all
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            "all"
+        } else {
+            "normal"
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct SetLazyImportsArgs {
+        #[pyarg(any)]
+        mode: PyObjectRef,
+    }
+
+    #[pyfunction]
+    fn set_lazy_imports(args: SetLazyImportsArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let mode = args.mode;
+        let mode = mode
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("mode must be a string: 'normal' or 'all'"))?;
+        let all = match mode.to_str() {
+            Some("normal") => false,
+            Some("all") => true,
+            _ => return Err(vm.new_value_error("mode must be 'normal' or 'all'")),
+        };
+        vm.state
+            .lazy_imports
+            .all
+            .store(all, core::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn get_lazy_imports_filter(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state
+            .lazy_imports
+            .filter()
+            .unwrap_or_else(|| vm.ctx.none())
+    }
+
+    #[derive(FromArgs)]
+    struct SetLazyImportsFilterArgs {
+        #[pyarg(any)]
+        filter: PyObjectRef,
+    }
+
+    #[pyfunction]
+    fn set_lazy_imports_filter(
+        args: SetLazyImportsFilterArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let filter = args.filter;
+        let filter = if vm.is_none(&filter) {
+            None
+        } else {
+            if !filter.is_callable() {
+                return Err(vm.new_value_error("filter provided but is not callable"));
+            }
+            Some(filter)
+        };
+        vm.state.lazy_imports.set_filter(filter);
+        Ok(())
+    }
+
+    #[pyattr]
+    fn lazy_modules(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state.lazy_imports.modules.clone().into()
+    }
+
+    #[pyfunction]
     fn exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         match vm.topmost_exception() {
             Some(exception) => vm.split_exception(exception),
@@ -971,6 +1109,36 @@ pub mod sys {
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
         PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
+    }
+
+    /// _PySys_SetFlagObj
+    pub(crate) fn set_flag_obj(
+        vm: &VirtualMachine,
+        name: &str,
+        value: PyObjectRef,
+    ) -> PyResult<()> {
+        use crate::{class::StaticType, types::PyStructSequenceData};
+
+        let old_flags = vm
+            .sys_module
+            .get_attr("flags", vm)
+            .map_err(|_| vm.new_runtime_error("lost sys.flags"))?;
+        let old_flags = old_flags
+            .downcast_ref::<PyTuple>()
+            .filter(|flags| {
+                flags.len()
+                    == FlagsData::REQUIRED_FIELD_NAMES.len() + FlagsData::OPTIONAL_FIELD_NAMES.len()
+            })
+            .ok_or_else(|| vm.new_type_error("sys.flags must be a sys.flags instance"))?;
+        let pos = FlagsData::REQUIRED_FIELD_NAMES
+            .iter()
+            .position(|field| *field == name)
+            .expect("unknown sys.flags field");
+        let mut values = old_flags.as_slice().to_vec();
+        values[pos] = value;
+        let new_flags = PyTuple::new_unchecked(values.into_boxed_slice())
+            .into_ref_with_type(vm, PyFlags::static_type().to_owned())?;
+        vm.sys_module.set_attr("flags", new_flags, vm)
     }
 
     #[pyattr]
@@ -1262,6 +1430,11 @@ pub mod sys {
         vm.ctx.intern_str(string).to_owned()
     }
 
+    #[pyfunction]
+    fn _is_interned(string: PyRef<PyStr>) -> bool {
+        string.as_object().is_interned()
+    }
+
     #[pyattr]
     fn int_info(vm: &VirtualMachine) -> PyTupleRef {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
@@ -1550,12 +1723,12 @@ pub mod sys {
         dev_mode: bool,
         /// -X utf8
         utf8_mode: u8,
-        /// -X int_max_str_digits=number
-        int_max_str_digits: i64,
-        /// -P, `PYTHONSAFEPATH`
-        safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
+        /// -P, `PYTHONSAFEPATH`
+        safe_path: bool,
+        /// -X int_max_str_digits=number
+        int_max_str_digits: i64,
     }
 
     impl FlagsData {
@@ -1598,13 +1771,23 @@ pub mod sys {
         }
 
         #[pygetset]
-        fn context_aware_warnings(&self, vm: &VirtualMachine) -> bool {
-            vm.state.config.settings.context_aware_warnings
+        const fn gil(&self) -> u8 {
+            0
         }
 
         #[pygetset]
-        fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
-            vm.state.config.settings.thread_inherit_context
+        fn context_aware_warnings(&self, vm: &VirtualMachine) -> u8 {
+            vm.state.config.settings.context_aware_warnings as u8
+        }
+
+        #[pygetset]
+        fn thread_inherit_context(&self, vm: &VirtualMachine) -> u8 {
+            vm.state.config.settings.thread_inherit_context as u8
+        }
+
+        #[pygetset]
+        fn lazy_imports(&self, vm: &VirtualMachine) -> i8 {
+            vm.state.config.settings.lazy_imports
         }
     }
 
@@ -1620,9 +1803,9 @@ pub mod sys {
     impl ThreadInfoData {
         const INFO: Self = Self {
             name: crate::stdlib::_thread::_thread::PYTHREAD_NAME,
-            // As I know, there's only way to use lock as "Mutex" in Rust
-            // with satisfying python document spec.
-            lock: Some("mutex+cond"),
+            // RustPython uses parking_lot rather than CPython's PyMutex.
+            // None denotes a lock implementation without a Python ABI name.
+            lock: None,
             version: None,
         };
     }
@@ -1951,9 +2134,22 @@ fn sys_module_doc() -> Option<&'static str> {
     }
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
-    module.__init_methods(vm).unwrap();
-    sys::module_exec(vm, module).unwrap();
+pub(crate) fn init_module(
+    vm: &VirtualMachine,
+    module: &Py<PyModule>,
+    builtins: &Py<PyModule>,
+) -> PyResult<()> {
+    module.__init_methods(vm)?;
+    sys::module_exec(vm, module)?;
+    // These values decode OS bytes and can fail before the codec registry is ready.
+    // Initialize them outside infallible #[pyattr] functions so startup can report errors.
+    module.set_attr("argv", vm.ctx.new_list(sys::argv(vm)?), vm)?;
+    module.set_attr("orig_argv", vm.ctx.new_list(sys::orig_argv(vm)?), vm)?;
+    module.set_attr(
+        "pycache_prefix",
+        sys::pycache_prefix(vm)?.to_pyobject(vm),
+        vm,
+    )?;
 
     let modules = vm.ctx.new_dict();
     modules
@@ -1972,6 +2168,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         "modules" => modules,
         "_jit" => jit_module,
     });
+    Ok(())
 }
 
 pub(crate) fn set_bootstrap_stderr(vm: &VirtualMachine) -> PyResult<()> {

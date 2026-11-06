@@ -283,7 +283,7 @@ fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>, vm: &VirtualMachine) ->
                 let errno = e.raw_os_error().unwrap_or(0);
                 let _ = write!(pipe, "OSError:{errno:x}:{}", ctx.as_msg());
             }
-            rustpython_host_env::os::exit(255)
+            rustpython_host_env::os::exit_immediately(255)
         }
     }
 }

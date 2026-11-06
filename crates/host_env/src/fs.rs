@@ -11,6 +11,10 @@ pub fn open(path: impl AsRef<Path>) -> io::Result<File> {
     File::open(path)
 }
 
+pub fn create(path: impl AsRef<Path>) -> io::Result<File> {
+    File::create(path)
+}
+
 pub fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     fs::read(path)
 }

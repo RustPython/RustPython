@@ -2,7 +2,6 @@ import dataclasses
 import pathlib
 import re
 import sys
-
 import tomllib
 
 ROOT = pathlib.Path(__file__).parents[2].resolve()

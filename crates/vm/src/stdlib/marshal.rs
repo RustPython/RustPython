@@ -15,12 +15,12 @@ mod decl {
             PySet, PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, ArgIntoBool},
         object::{AsObject, PyPayload},
     };
     use core::cell::RefCell;
     use malachite_bigint::BigInt;
-    use num_traits::Zero;
+    use num_traits::{ToPrimitive, Zero};
     use rustpython_compiler_core::marshal::{self, DumpableValue};
 
     #[pyattr(name = "version")]
@@ -102,8 +102,8 @@ mod decl {
         value: PyObjectRef,
         #[pyarg(positional, default = 6)]
         version: i32,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -113,6 +113,7 @@ mod decl {
             allow_code,
             version,
         } = args;
+        let allow_code = allow_code.into();
 
         vm.audit("marshal.dumps", || (value.clone(), version))?;
 
@@ -344,7 +345,9 @@ mod decl {
                 write_float_str(buf, cv.re);
                 write_float_str(buf, cv.im);
             }
-        } else if let Some(s) = obj.downcast_ref::<PyStr>() {
+        } else if let Some(s) = obj.downcast_ref::<PyStr>()
+            && obj.class().is(PyStr::static_type())
+        {
             let bytes = s.as_wtf8().as_bytes();
             // Only the formats that carry back-references tell an interned
             // string apart, and only those from 4 on have the ascii-only forms.
@@ -428,6 +431,7 @@ mod decl {
                 buf.write_u32(value);
             }
             let co_code = co.get_code(vm);
+            let co_qualname = co.co_qualname();
             let mut write_field = |buf: &mut Vec<u8>, field: &PyObject| {
                 write_object_depth(buf, field, refs, version, allow_code, vm, depth - 1)
             };
@@ -439,7 +443,7 @@ mod decl {
                 co.co_localspluskinds.as_object(),
                 co.source_path().as_object(),
                 co.co_name.as_object(),
-                code.qualname.as_object(),
+                co_qualname.as_object(),
             ] {
                 write_field(buf, field)?;
             }
@@ -523,12 +527,12 @@ mod decl {
         file: PyObjectRef,
         #[pyarg(positional, default = 6)]
         version: i32,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
-    fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let dumped = dumps(
             DumpsArgs {
                 value: args.value,
@@ -537,8 +541,7 @@ mod decl {
             },
             vm,
         )?;
-        vm.call_method(&args.file, "write", (dumped,))?;
-        Ok(())
+        vm.call_method(&args.file, "write", (dumped,))
     }
 
     #[derive(Copy, Clone)]
@@ -652,7 +655,8 @@ mod decl {
                         .new_value_error("unmarshalling code objects is disallowed"),
                 ));
             }
-            let code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            let mut code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            code.apply_debug_ranges(self.vm);
             Ok(code.into_ref(&self.vm.ctx).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
@@ -796,27 +800,35 @@ mod decl {
 
     fn deserialize_value(
         rdr: &mut impl marshal::Read,
+        pending_error: &RefCell<Option<PyBaseExceptionRef>>,
         allow_code: bool,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let pending_error = RefCell::new(None);
-        match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error, allow_code)) {
-            Ok(value) => Ok(value),
-            Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
-                marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
-                marshal::MarshalError::EofObject => {
-                    vm.new_eof_error("EOF read where object expected")
-                }
-                marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
-                error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
-                error @ (marshal::MarshalError::BadSize(_)
-                | marshal::MarshalError::UnknownType
-                | marshal::MarshalError::InvalidRef) => {
-                    vm.new_value_error(format!("bad marshal data ({error})"))
-                }
-                _ => vm.new_value_error("bad marshal data"),
-            })),
+        let result =
+            marshal::deserialize_value(rdr, PyMarshalBag::new(vm, pending_error, allow_code));
+        let pending = pending_error.borrow_mut().take();
+        if let Some(error) = pending {
+            // r_object replaces an EOFError while reading a type marker,
+            // but preserves other exceptions from the stream or __index__.
+            if matches!(result, Err(marshal::MarshalError::EofObject))
+                && error.fast_isinstance(vm.ctx.exceptions.eof_error)
+            {
+                return Err(vm.new_eof_error("EOF read where object expected"));
+            }
+            return Err(error);
         }
+        result.map_err(|error| match error {
+            marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
+            marshal::MarshalError::EofObject => vm.new_eof_error("EOF read where object expected"),
+            marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
+            error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
+            error @ (marshal::MarshalError::BadSize(_)
+            | marshal::MarshalError::UnknownType
+            | marshal::MarshalError::InvalidRef) => {
+                vm.new_value_error(format!("bad marshal data ({error})"))
+            }
+            _ => vm.new_value_error("bad marshal data"),
+        })
     }
 
     #[derive(FromArgs)]
@@ -824,59 +836,49 @@ mod decl {
         #[pyarg(positional)]
         // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
         bytes: ArgBytesLike,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let LoadsArgs { bytes, allow_code } = args;
+        let allow_code = allow_code.into();
+        vm.audit("marshal.loads", || {
+            (vm.ctx.new_bytes(bytes.borrow_buf().to_vec()),)
+        })?;
         let buf = bytes.borrow_buf();
 
-        deserialize_value(&mut &buf[..], allow_code, vm)
+        deserialize_value(&mut &buf[..], &RefCell::new(None), allow_code, vm)
     }
 
     #[derive(FromArgs)]
     struct LoadArgs {
         #[pyarg(positional)]
         file: PyObjectRef,
-        #[pyarg(named, default = true)]
-        allow_code: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        allow_code: ArgIntoBool,
     }
 
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let data = vm.call_method(&args.file, "read", (0,))?;
+        if data.downcast_ref::<PyBytes>().is_none() {
+            let name = data.class().slot_name();
+            return Err(vm.new_type_error(format!(
+                "file.read() returned not bytes but {}",
+                &name[..name.floor_char_boundary(100.min(name.len()))]
+            )));
+        }
+        vm.audit("marshal.load", || ())?;
+        let pending_error = RefCell::new(None);
         let mut rdr = ReadableFile {
             file: args.file,
             vm,
             buf: Vec::new(),
-            error: None,
+            pending_error: &pending_error,
         };
-        let pending_error = RefCell::new(None);
-        let result = marshal::deserialize_value(
-            &mut rdr,
-            PyMarshalBag::new(vm, &pending_error, args.allow_code),
-        );
-        if let Some(err) = rdr.error.take() {
-            return Err(err);
-        }
-        match result {
-            Ok(value) => Ok(value),
-            Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
-                marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
-                marshal::MarshalError::EofObject => {
-                    vm.new_eof_error("EOF read where object expected")
-                }
-                marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
-                error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
-                error @ (marshal::MarshalError::BadSize(_)
-                | marshal::MarshalError::UnknownType
-                | marshal::MarshalError::InvalidRef) => {
-                    vm.new_value_error(format!("bad marshal data ({error})"))
-                }
-                _ => vm.new_value_error("bad marshal data"),
-            })),
-        }
+        deserialize_value(&mut rdr, &pending_error, args.allow_code.into(), vm)
     }
 
     /// File-backed marshal reader. `r_string` fills a scratch buffer via
@@ -885,23 +887,46 @@ mod decl {
         file: PyObjectRef,
         vm: &'a VirtualMachine,
         buf: Vec<u8>,
-        error: Option<PyBaseExceptionRef>,
+        pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
     }
 
     impl ReadableFile<'_> {
         fn r_string(&mut self, n: usize) -> PyResult<()> {
             self.buf.clear();
-            let bytearray = PyByteArray::from(vec![0u8; n]).into_ref(&self.vm.ctx);
+            // Both allocations depend on the stream's length, so allocation
+            // failure must become MemoryError rather than aborting the process.
+            self.buf
+                .try_reserve_exact(n)
+                .map_err(|_| self.vm.no_memory_error())?;
+            let mut scratch = Vec::new();
+            scratch
+                .try_reserve_exact(n)
+                .map_err(|_| self.vm.no_memory_error())?;
+            scratch.resize(n, 0);
+            let bytearray = PyByteArray::from(scratch).into_ref(&self.vm.ctx);
             let memoryview = PyMemoryView::from_object_with_flags(
                 bytearray.as_object(),
                 crate::protocol::BufferFlags::CONTIG,
                 self.vm,
             )?
             .into_ref(&self.vm.ctx);
+            // Keep our own export even if readinto releases its memoryview.
+            // The returned object's __index__ can run Python too; neither
+            // callback may resize the scratch buffer before it is copied.
+            let export = memoryview.clone_buffer();
             let nread_obj = self.vm.call_method(&self.file, "readinto", (memoryview,))?;
-            let nread = nread_obj
-                .try_index(self.vm)?
-                .try_to_primitive::<isize>(self.vm)?;
+            let index = nread_obj.try_index(self.vm)?;
+            let nread = index.as_bigint().to_isize().ok_or_else(|| {
+                let name = nread_obj.class().slot_name();
+                self.vm.new_value_error(format!(
+                    "cannot fit '{}' into an index-sized integer",
+                    &name[..name.floor_char_boundary(200.min(name.len()))]
+                ))
+            })?;
+            // r_string decrefs the result before inspecting the count or
+            // copying bytes; its finalizer may still write through the view.
+            drop(index);
+            drop(nread_obj);
             let n_isize = isize::try_from(n).unwrap_or(isize::MAX);
             if nread != n_isize {
                 if nread > n_isize {
@@ -912,17 +937,18 @@ mod decl {
                 return Err(self.vm.new_eof_error("EOF read where not expected"));
             }
             self.buf.extend_from_slice(&bytearray.borrow_buf());
+            drop(export);
             Ok(())
         }
     }
 
     impl marshal::Read for ReadableFile<'_> {
         fn read_slice(&mut self, n: u32) -> Result<&[u8], marshal::MarshalError> {
-            if self.error.is_some() {
+            if self.pending_error.borrow().is_some() {
                 return Err(marshal::MarshalError::Eof);
             }
             if let Err(e) = self.r_string(n as usize) {
-                self.error = Some(e);
+                *self.pending_error.borrow_mut() = Some(e);
                 return Err(marshal::MarshalError::Eof);
             }
             Ok(&self.buf)

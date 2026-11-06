@@ -2,6 +2,7 @@
 
 import multiprocessing
 import threading
+from _multiprocessing import SemLock
 
 
 def wait_on_condition(cond, started, woken):
@@ -80,6 +81,17 @@ def notify_one_then_the_other(ctx):
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    # Low-level callers can supply every constructor parameter by name.
+    name = f"/rustpython_kw_{multiprocessing.current_process().pid}"
+    for args, kwargs in (
+        ((1, 1, 1), {"name": name, "unlink": True}),
+        ((), {"kind": 1, "value": 1, "maxvalue": 1, "name": name, "unlink": True}),
+    ):
+        sem = SemLock(*args, **kwargs)
+        assert sem.acquire(False)
+        assert not sem.acquire(False)
+        sem.release()
+        del sem
     methods = ["spawn"]
     if "forkserver" in multiprocessing.get_all_start_methods():
         methods.append("forkserver")

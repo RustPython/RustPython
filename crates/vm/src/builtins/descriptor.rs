@@ -19,6 +19,7 @@ use crate::{
 };
 use core::mem::{align_of, size_of};
 use rustpython_common::lock::PyRwLock;
+use rustpython_common::wtf8::wtf8_concat;
 
 #[derive(Debug)]
 pub struct PyDescriptor {
@@ -1134,10 +1135,12 @@ fn member_get_one(
         MemberKind::ObjectEx => match obj.get_slot(offset) {
             Some(value) => value,
             None => {
-                return Err(vm.new_attribute_error(format!(
-                    "'{}' object has no attribute '{}'",
+                return Err(vm.new_attribute_error(wtf8_concat!(
+                    "'",
                     obj.class().fully_qualified_name(vm)?,
-                    member.name
+                    "' object has no attribute '",
+                    member.name,
+                    "'"
                 )));
             }
         },
@@ -1658,6 +1661,11 @@ pub(crate) fn init(ctx: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_method_descriptor));
+    ctx.types
+        .method_descriptor_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyClassMethodDescriptor::extend_class(ctx, ctx.types.classmethod_descriptor_type);
     PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
     ctx.types
@@ -1665,6 +1673,11 @@ pub(crate) fn init(ctx: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_wrapper));
+    ctx.types
+        .wrapper_descriptor_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyMethodWrapper::extend_class(ctx, ctx.types.method_wrapper_type);
 }
 
@@ -2057,7 +2070,7 @@ impl Callable for PyWrapper {
 
 #[pyclass(
     with(GetDescriptor, Callable, Representable),
-    flags(DISALLOW_INSTANTIATION)
+    flags(DISALLOW_INSTANTIATION, METHOD_DESCRIPTOR)
 )]
 impl Py<PyWrapper> {
     #[pymethod]

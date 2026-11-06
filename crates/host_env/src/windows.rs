@@ -16,7 +16,11 @@ use windows_sys::{
                 FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
                 FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
             },
-            LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
+            LibraryLoader::{
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
+                GetModuleHandleExW, GetModuleHandleW,
+            },
             SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
             Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
         },
@@ -47,6 +51,23 @@ pub fn init_winsock() {
         let mut wsa_data = core::mem::MaybeUninit::uninit();
         let _ = WSAStartup(0x0101, wsa_data.as_mut_ptr());
     })
+}
+
+/// Handle of the already-loaded image containing this RustPython runtime.
+/// The handle is borrowed and must not be passed to `FreeLibrary`.
+pub fn runtime_module_handle() -> io::Result<usize> {
+    let mut module = core::ptr::null_mut();
+    // FROM_ADDRESS treats this pointer as an address inside the image, not a
+    // string. UNCHANGED_REFCOUNT avoids loading a second copy or owning a ref.
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            runtime_module_handle as *const () as *const u16,
+            &mut module,
+        )
+    }
+    .check_win32_bool()?;
+    Ok(module as usize)
 }
 
 /// Win32 BOOL convention: 0 = failure, nonzero = success.
@@ -258,7 +279,14 @@ pub fn get_last_error() -> u32 {
 
 pub fn format_error_message(code: Option<u32>) -> Option<String> {
     let error_code = code.unwrap_or_else(get_last_error);
+    format_error_message_with_language(error_code, 0).map(|message| message.trim_end().to_owned())
+}
+
+/// Return the system message without applying a caller's trimming policy.
+pub(crate) fn format_error_message_with_language(error_code: u32, language: u32) -> Option<String> {
     let mut buffer: *mut u16 = core::ptr::null_mut();
+    // SAFETY: ALLOCATE_BUFFER makes FormatMessageW write an allocated buffer
+    // pointer into `buffer`. No message arguments are read with IGNORE_INSERTS.
     let len = unsafe {
         FormatMessageW(
             FORMAT_MESSAGE_ALLOCATE_BUFFER
@@ -266,7 +294,7 @@ pub fn format_error_message(code: Option<u32>) -> Option<String> {
                 | FORMAT_MESSAGE_IGNORE_INSERTS,
             core::ptr::null(),
             error_code,
-            0,
+            language,
             &mut buffer as *mut *mut u16 as *mut u16,
             0,
             core::ptr::null(),
@@ -274,12 +302,19 @@ pub fn format_error_message(code: Option<u32>) -> Option<String> {
     };
 
     if len == 0 || buffer.is_null() {
+        if !buffer.is_null() {
+            // SAFETY: Any buffer supplied by FormatMessageW with
+            // ALLOCATE_BUFFER is owned by this call and released with LocalFree.
+            unsafe { windows_sys::Win32::Foundation::LocalFree(buffer as *mut _) };
+        }
         return None;
     }
 
+    // SAFETY: On success, FormatMessageW returns the initialized UTF-16 length
+    // (excluding the terminator). Copy it before releasing the owned buffer.
     let message = unsafe {
         let slice = core::slice::from_raw_parts(buffer, len as usize);
-        let msg = String::from_utf16_lossy(slice).trim_end().to_string();
+        let msg = String::from_utf16_lossy(slice);
         windows_sys::Win32::Foundation::LocalFree(buffer as *mut _);
         msg
     };

@@ -15,7 +15,7 @@ pub(crate) mod _struct {
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::{lock::PyRwLock, rc::PyRc},
-        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, PosArgs},
+        function::{ArgBytesLike, ArgBytesOrStr, ArgMemoryBuffer, FuncArgs, NameValues, PosArgs},
         match_class,
         protocol::PyIterReturn,
         stdlib::_warnings,
@@ -77,13 +77,13 @@ pub(crate) mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let offset_from_start = if offset < 0 {
-            if (-offset) as usize > buffer_len {
+            if offset.unsigned_abs() > buffer_len {
                 return Err(new_struct_error(
                     vm,
                     format!("offset {offset} out of range for {buffer_len}-byte buffer"),
                 ));
             }
-            buffer_len - (-offset as usize)
+            buffer_len - offset.unsigned_abs()
         } else {
             let offset = offset as usize;
             let (op, op_action) = if is_pack {
@@ -91,13 +91,13 @@ pub(crate) mod _struct {
             } else {
                 ("unpack_from", "unpacking")
             };
-            if offset + needed > buffer_len {
+            if offset > buffer_len || needed > buffer_len - offset {
                 let msg = format!(
                     "{op} requires a buffer of at least {required} bytes for {op_action} {needed} \
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
                     op = op,
                     op_action = op_action,
-                    required = needed + offset,
+                    required = (needed as u128) + (offset as u128),
                     needed = needed,
                     offset = offset,
                     buffer_len = buffer_len
@@ -122,21 +122,25 @@ pub(crate) mod _struct {
     }
 
     #[pyfunction]
-    fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        fmt.cached_format_spec(vm)?.pack(args.into_vec(), vm)
+    fn pack(
+        format: IntoStructFormatBytes,
+        values: PosArgs<PyObjectRef, NameValues>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        format.cached_format_spec(vm)?.pack(values.into_vec(), vm)
     }
 
     #[pyfunction]
     fn pack_into(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgMemoryBuffer,
         offset: isize,
-        args: PosArgs,
+        values: PosArgs<PyObjectRef, NameValues>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = fmt.cached_format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
-        buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
+        format_spec.pack_into_buffer(&buffer, offset, values.into_vec(), vm)
     }
 
     #[pyfunction]
@@ -305,12 +309,8 @@ pub(crate) mod _struct {
         }
 
         fn same_format(format: &PyStr, candidate: &PyObject) -> bool {
-            candidate
-                .downcast_ref::<PyStr>()
-                .is_some_and(|candidate| candidate.as_bytes() == format.as_bytes())
-                || candidate
-                    .downcast_ref::<PyBytes>()
-                    .is_some_and(|candidate| candidate.as_bytes() == format.as_bytes())
+            ArgBytesOrStr::with_object_ref(candidate, |bytes| bytes == format.as_bytes())
+                .unwrap_or(false)
         }
     }
 
@@ -381,19 +381,24 @@ pub(crate) mod _struct {
     }
 
     impl Initializer for PyStruct {
-        type Args = FuncArgs;
+        type Args = StructArgs;
 
-        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf = zelf.try_to_ref::<Self>(vm)?;
             if !zelf.init_called.load()
                 && Self::uses_struct_init(zelf.class(), vm)
-                && format.is_some()
+                && zelf.inner.read().is_some()
             {
                 // The implicit __init__ must not reinterpret a custom __new__'s arguments.
                 zelf.init_called.store(true);
                 return Ok(());
             }
             let args = StructArgs::bind(args, vm)?;
+            Self::init(zelf, args, vm)
+        }
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
             if let Some(format) = format {
                 if Self::same_format(&format, &args.format) {
                     zelf.init_called.store(true);
@@ -445,8 +450,12 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn pack(zelf: &Py<Self>, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            zelf.ready(vm)?.spec.pack(args.into_vec(), vm)
+        fn pack(
+            zelf: &Py<Self>,
+            values: PosArgs<PyObjectRef, NameValues>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
+            zelf.ready(vm)?.spec.pack(values.into_vec(), vm)
         }
 
         #[pymethod]
@@ -454,16 +463,14 @@ pub(crate) mod _struct {
             zelf: &Py<Self>,
             buffer: ArgMemoryBuffer,
             offset: isize,
-            args: PosArgs,
+            values: PosArgs<PyObjectRef, NameValues>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let inner = zelf.ready(vm)?;
             let offset = get_buffer_offset(buffer.len(), offset, inner.spec.size, true, vm)?;
-            buffer.with_ref(|data| {
-                inner
-                    .spec
-                    .pack_into(&mut data[offset..], args.into_vec(), vm)
-            })
+            inner
+                .spec
+                .pack_into_buffer(&buffer, offset, values.into_vec(), vm)
         }
 
         #[pymethod]

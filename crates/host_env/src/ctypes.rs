@@ -221,6 +221,36 @@ const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 )))]
 const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 
+/// Return the loader's current shared-object names, including its empty main entry.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn dllist() -> Vec<std::ffi::OsString> {
+    use std::os::unix::ffi::OsStringExt;
+
+    unsafe extern "C" fn collect(
+        info: *mut libc::dl_phdr_info,
+        _size: libc::size_t,
+        data: *mut c_void,
+    ) -> c_int {
+        // dl_iterate_phdr supplies a valid record and calls synchronously while
+        // the loader keeps the object and its NUL-terminated name alive.
+        let name = unsafe { (*info).dlpi_name };
+        let names = unsafe { &mut *data.cast::<Vec<std::ffi::OsString>>() };
+        if !name.is_null() {
+            let bytes = unsafe { CStr::from_ptr(name) }.to_bytes().to_vec();
+            names.push(std::ffi::OsString::from_vec(bytes));
+        }
+        0
+    }
+
+    let mut names = Vec::new();
+    // The callback only copies loader-owned bytes into this live, exclusive
+    // vector. It never invokes Python or mutates the loader's object list.
+    unsafe {
+        libc::dl_iterate_phdr(Some(collect), core::ptr::from_mut(&mut names).cast());
+    }
+    names
+}
+
 pub fn simple_type_size(ty: &str) -> Option<usize> {
     match ty {
         "c" | "b" => Some(core::mem::size_of::<c_schar>()),
@@ -578,6 +608,65 @@ pub enum SimpleStorageValue {
     Zero,
 }
 
+// An allocation is owned only until published into ctypes storage. Like CPython,
+// committed BSTRs are freed by replacement, not by CData destruction: callers
+// can transfer them to COM or copy their pointers into other ctypes objects.
+#[cfg(windows)]
+pub struct BStr {
+    bytes: [u8; core::mem::size_of::<usize>()],
+    committed: bool,
+}
+
+#[cfg(windows)]
+impl BStr {
+    pub fn new(units: Option<&[u16]>) -> Option<Self> {
+        let address = match units {
+            Some(units) => crate::windows::sys_alloc_string_len(units)? as usize,
+            None => 0,
+        };
+        Some(Self {
+            bytes: address.to_ne_bytes(),
+            committed: false,
+        })
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn commit(&mut self) {
+        self.committed = true;
+    }
+
+    /// # Safety
+    /// The old slot must contain NULL or a valid, live COM BSTR.
+    pub unsafe fn replace(&mut self, previous: &[u8]) {
+        let address = read_pointer_from_buffer(previous);
+        crate::windows::sys_free_string(address as *const u16);
+        self.commit();
+    }
+}
+
+#[cfg(windows)]
+impl Drop for BStr {
+    fn drop(&mut self) {
+        if !self.committed {
+            crate::windows::sys_free_string(read_pointer_from_buffer(&self.bytes) as *const u16);
+        }
+    }
+}
+
+#[cfg(windows)]
+unsafe fn decode_bstr(address: usize) -> DecodedValue {
+    if address == 0 {
+        return DecodedValue::None;
+    }
+    let pointer = address as *const u16;
+    let len = crate::windows::sys_string_len(pointer);
+    let units = unsafe { core::slice::from_raw_parts(pointer, len) };
+    DecodedValue::WideString(Wtf8Buf::from_wide(units))
+}
+
 pub enum DecodedValue {
     Bytes(Vec<u8>),
     Signed(i64),
@@ -586,6 +675,8 @@ pub enum DecodedValue {
     Bool(bool),
     Pointer(usize),
     String(String),
+    #[cfg(windows)]
+    WideString(Wtf8Buf),
     None,
 }
 
@@ -813,6 +904,8 @@ pub fn read_array_element(
                 }
             }
         }
+        #[cfg(windows)]
+        Some("X") => unsafe { decode_bstr(read_pointer_from_buffer(rest)) },
         Some("f") => DecodedValue::Float(
             rest.first_chunk::<4>()
                 .copied()
@@ -1083,7 +1176,7 @@ pub fn simple_storage_value_to_bytes_endian(
             }
             _ => vec![0; 2],
         },
-        "P" | "z" | "Z" => match value {
+        "P" | "z" | "Z" | "X" => match value {
             SimpleStorageValue::Pointer(value) => {
                 uint_to_sized_bytes_endian(value as u64, pointer_size(), swapped)
             }
@@ -1246,6 +1339,8 @@ pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
                 None => DecodedValue::None,
             }
         },
+        #[cfg(windows)]
+        "X" => unsafe { decode_bstr(read_pointer_from_buffer(bytes)) },
         "P" => DecodedValue::Pointer(read_pointer_from_buffer(bytes)),
         "u" => {
             let val = if bytes.len() >= core::mem::size_of::<WChar>() {
@@ -1270,6 +1365,8 @@ pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
 /// `type_code`.
 pub unsafe fn callback_arg_value(type_code: Option<&str>, ptr: *const c_void) -> DecodedValue {
     match type_code {
+        #[cfg(windows)]
+        Some("X") => unsafe { decode_bstr(core::ptr::read_unaligned(ptr.cast::<usize>())) },
         Some("b") => DecodedValue::Signed(unsafe { *(ptr as *const i8) as i64 }),
         Some("B") => DecodedValue::Unsigned(unsafe { *(ptr as *const u8) as u64 }),
         Some("c") => DecodedValue::Bytes(vec![unsafe { *(ptr as *const u8) }]),
@@ -1368,7 +1465,7 @@ pub unsafe fn write_callback_result(
         (Some("Q"), CallbackResultValue::Unsigned(v)) => unsafe { *(result as *mut u64) = v },
         (Some("f"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f32) = v as f32 },
         (Some("d"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f64) = v },
-        (Some("P" | "z" | "Z"), CallbackResultValue::Pointer(v)) => unsafe {
+        (Some("P" | "z" | "Z" | "X"), CallbackResultValue::Pointer(v)) => unsafe {
             *(result as *mut usize) = v
         },
         (Some("?"), CallbackResultValue::Bool(v)) => unsafe { *(result as *mut u8) = u8::from(v) },
@@ -1419,7 +1516,7 @@ pub fn ffi_value_from_type_code(type_code: &str, buffer: &[u8]) -> FfiValue {
                 .copied()
                 .map_or(0.0, f64::from_ne_bytes),
         ),
-        "z" | "Z" | "P" | "O" => FfiValue::Pointer(read_pointer_from_buffer(buffer)),
+        "z" | "Z" | "P" | "X" | "O" => FfiValue::Pointer(read_pointer_from_buffer(buffer)),
         "?" => FfiValue::U8(u8::from(buffer.first().is_some_and(|&b| b != 0))),
         "u" => FfiValue::U32(buffer.first_chunk().copied().map_or(0, u32::from_ne_bytes)),
         _ => FfiValue::Pointer(0),
@@ -1830,6 +1927,12 @@ impl<U: 'static> CallbackThunk<U> {
         }
     }
 
+    /// Borrow the userdata owned by this callback closure.
+    pub fn userdata(&self) -> &U {
+        // SAFETY: new stores Box::into_raw here; Drop owns its only reclamation.
+        unsafe { &*self.userdata_ptr }
+    }
+
     pub fn code_ptr(&self) -> CodePtr {
         self.code_ptr
     }
@@ -2011,7 +2114,7 @@ pub enum CallRet<'a> {
     Aggregate(&'a CTypeLayout),
 }
 
-/// Per-call error-swapping options.
+/// Per-call ABI and error-swapping options.
 #[cfg(all(
     any(
         target_os = "linux",
@@ -2023,6 +2126,10 @@ pub enum CallRet<'a> {
 ))]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallOptions {
+    /// Declared argument count for a variadic call. Values must already have
+    /// their promoted C types; libffi rejects explicit narrow ctypes values.
+    /// `None` uses a fixed-arity CIF.
+    pub fixed_arg_count: Option<usize>,
     /// Swap the ctypes-local errno around the raw call (unix; ignored on windows).
     pub use_errno: bool,
     /// Swap the ctypes-local last error around the raw call (windows; ignored
@@ -2066,6 +2173,9 @@ pub enum CallValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallError {
     NullFunctionPointer,
+    InvalidCallInterface {
+        variadic: bool,
+    },
     UnknownTypeCode(String),
     /// An aggregate argument's buffer was shorter than its layout size.
     BufferTooSmall {
@@ -2156,7 +2266,13 @@ pub fn call(
         })
         .collect();
 
-    let cif = Cif::new(ffi_arg_types, ffi_return_type);
+    let cif = match options.fixed_arg_count {
+        Some(fixed) => Cif::try_new_variadic(ffi_arg_types, fixed, ffi_return_type),
+        None => Cif::try_new(ffi_arg_types, ffi_return_type),
+    }
+    .map_err(|_| CallError::InvalidCallInterface {
+        variadic: options.fixed_arg_count.is_some(),
+    })?;
 
     // Allocate the aggregate return buffer outside the error-swap window so no
     // allocation runs between the raw call and the errno/last-error capture.
@@ -2480,7 +2596,7 @@ pub unsafe fn read_value_at_address(
         Some("d" | "g") => {
             AddressValue::Float(unsafe { core::ptr::read_unaligned(ptr as *const f64) })
         }
-        Some("P" | "z" | "Z") => {
+        Some("P" | "z" | "Z" | "X") => {
             AddressValue::Pointer(unsafe { core::ptr::read_unaligned(ptr as *const usize) })
         }
         _ => AddressValue::Bytes(unsafe { bytes_at(ptr, size) }),
@@ -2993,6 +3109,73 @@ pub fn dlsym_checked(_handle: usize, symbol_name: &CStr) -> Result<*mut c_void, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    #[test]
+    fn bstr_foreign_argument_preserves_pointer() {
+        let address = usize::MAX;
+        assert!(matches!(
+            ffi_value_from_type_code("X", &address.to_ne_bytes()),
+            FfiValue::Pointer(value) if value == address
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bstr_roundtrip_and_replacement() {
+        // Embedded NUL, a surrogate pair, and an unpaired surrogate must survive.
+        let units = [0x61, 0, 0xd83d, 0xde00, 0xd800];
+        let mut slot = 0usize.to_ne_bytes();
+        let mut value = BStr::new(Some(&units)).expect("SysAllocStringLen");
+        unsafe {
+            value.replace(&slot);
+        }
+        slot.copy_from_slice(value.bytes());
+        drop(value);
+        match decode_type_code("X", &slot) {
+            DecodedValue::WideString(value) => {
+                assert_eq!(value.encode_wide().collect::<Vec<_>>(), units)
+            }
+            _ => panic!("expected BSTR string"),
+        }
+        let mut empty = BStr::new(Some(&[])).expect("empty BSTR");
+        unsafe {
+            empty.replace(&slot);
+        }
+        slot.copy_from_slice(empty.bytes());
+        drop(empty);
+        assert!(
+            matches!(decode_type_code("X", &slot), DecodedValue::WideString(value) if value.is_empty())
+        );
+        let mut null = BStr::new(None).unwrap();
+        unsafe {
+            null.replace(&slot);
+        }
+        slot.copy_from_slice(null.bytes());
+        assert!(matches!(decode_type_code("X", &slot), DecodedValue::None));
+    }
+
+    #[test]
+    fn bstr_storage_preserves_pointer_width() {
+        for address in [0, usize::MAX] {
+            assert_eq!(
+                simple_storage_value_to_bytes_endian(
+                    "X",
+                    SimpleStorageValue::Pointer(address),
+                    false,
+                ),
+                address.to_ne_bytes(),
+            );
+        }
+    }
 
     #[test]
     fn simple_type_is_pointer_classifies_codes() {
@@ -3659,6 +3842,7 @@ mod tests {
                 CallOptions {
                     use_errno: true,
                     use_last_error: false,
+                    ..CallOptions::default()
                 },
             )
             .unwrap();

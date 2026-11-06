@@ -155,9 +155,24 @@ pub(crate) mod stack_analysis {
     }
 
     /// Analyze bytecode and compute the stack state at each instruction index.
-    pub(crate) fn mark_stacks<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i64> {
+    pub(crate) fn mark_stacks(code: &PyCode) -> Vec<i64> {
         let instructions = &*code.instructions;
         let len = instructions.len();
+        let monitoring_data = code.monitoring_data.lock();
+        let base_opcode = |i| {
+            let mut op = code.instructions.read_op(i);
+            if let Some(data) = monitoring_data.as_ref() {
+                if matches!(op, Instruction::InstrumentedLine) {
+                    op = Instruction::try_from(data.line_opcodes[i])
+                        .expect("INSTRUMENTED_LINE without original opcode");
+                }
+                if matches!(op, Instruction::InstrumentedInstruction) {
+                    op = Instruction::try_from(data.per_instruction_opcodes[i])
+                        .expect("INSTRUMENTED_INSTRUCTION without original opcode");
+                }
+            }
+            op.to_base().unwrap_or(op).deoptimize()
+        };
 
         let mut stacks = vec![UNINITIALIZED; len + 1];
         stacks[0] = EMPTY_STACK;
@@ -169,7 +184,7 @@ pub(crate) mod stack_analysis {
             let mut i = 0;
             while i < len {
                 let mut next_stack = stacks[i];
-                let mut opcode = instructions[i].op;
+                let mut opcode = base_opcode(i);
                 let mut oparg: u32 = 0;
 
                 // Accumulate EXTENDED_ARG prefixes
@@ -180,15 +195,12 @@ pub(crate) mod stack_analysis {
                         break;
                     }
                     stacks[i] = next_stack;
-                    opcode = instructions[i].op;
+                    opcode = base_opcode(i);
                 }
                 if i >= len {
                     break;
                 }
                 oparg = (oparg << 8) | u32::from(u8::from(instructions[i].arg));
-
-                // De-instrument and de-specialize: get the underlying base instruction
-                let opcode = opcode.to_base().unwrap_or(opcode).deoptimize();
 
                 let caches = opcode.cache_entries();
                 let next_i = i + 1 + caches;
@@ -784,7 +796,7 @@ impl Py<FrameObject> {
             )));
         }
 
-        let stacks = mark_stacks(code);
+        let stacks = mark_stacks(py_code);
         let len = self.iframe().code().instructions.len();
 
         // lasti points past the current instruction (already incremented).
@@ -955,17 +967,22 @@ impl Py<FrameObject> {
         let was_unset = canonical.cold().trace.lock().is_none();
 
         // Set on the materialized FrameObject.
-        (*self.iframe().cold().trace.lock()).clone_from(&trace);
+        // Keep replaced traces alive until both copies are updated and no
+        // trace lock is held: their finalizers can access this frame again.
+        let previous = core::mem::replace(&mut *self.iframe().cold().trace.lock(), trace.clone());
         // Also propagate to the live source iframe if this is a
         // materialized copy of a stack-allocated frame, so pdb's
         // f_trace assignment takes effect on the executing frame.
-        if !live.is_null() {
-            *unsafe { &*live }.cold().trace.lock() = trace;
-        }
+        let previous_live = if !live.is_null() {
+            core::mem::replace(&mut *unsafe { &*live }.cold().trace.lock(), trace)
+        } else {
+            None
+        };
 
         if was_unset && trace_is_some {
             canonical.sync_prev_line_from_lasti();
         }
+        drop((previous, previous_live));
     }
 
     #[pygetset]

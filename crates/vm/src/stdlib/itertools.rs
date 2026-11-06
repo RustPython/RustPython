@@ -7,7 +7,7 @@ mod decl {
         VirtualMachine,
         builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int},
         class::PyClassDef,
-        common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
+        common::lock::{PyMutex, PyRwLock},
         convert::ToPyObject,
         function::{ArgIndex, FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
@@ -81,8 +81,8 @@ mod decl {
     impl Constructor for PyItertoolsChain {
         type Args = PosArgs<PyObjectRef, NameIterables>;
 
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Err(vm.new_type_error("use slot_new"))
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
         }
     }
 
@@ -101,17 +101,19 @@ mod decl {
                             break Ok(PyIterReturn::Return(ok));
                         }
                         Ok(PyIterReturn::StopIteration(_)) => {
-                            *zelf.active.write() = None;
+                            let previous = zelf.active.write().take();
+                            drop(previous);
                         }
                         Err(err) => {
-                            break Err(err);
+                            return Err(err);
                         }
                     }
                 } else {
                     match source.next(vm) {
                         Ok(PyIterReturn::Return(ok)) => match PyIter::try_from_object(vm, ok) {
                             Ok(iter) => {
-                                *zelf.active.write() = Some(iter);
+                                let previous = zelf.active.write().replace(iter);
+                                drop(previous);
                             }
                             Err(err) => {
                                 break Err(err);
@@ -181,7 +183,9 @@ mod decl {
                 // and stop as soon as either input is exhausted.
                 let data_obj = raise_if_stop!(zelf.data.next(vm)?);
                 let sel_obj = raise_if_stop!(zelf.selectors.next(vm)?);
-                if sel_obj.try_to_bool(vm)? {
+                let selected = sel_obj.try_to_bool(vm)?;
+                drop(sel_obj);
+                if selected {
                     return Ok(PyIterReturn::Return(data_obj));
                 }
             }
@@ -224,7 +228,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor, Representable))]
+    #[pyclass(with(IterNext, Iterable, Constructor, Representable), flags(BASETYPE))]
     impl PyItertoolsCount {}
 
     impl SelfIter for PyItertoolsCount {}
@@ -262,6 +266,8 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCycle {
         iter: PyIter,
+        #[pytraverse(skip)]
+        exhausted: AtomicBool,
         saved: PyRwLock<Vec<PyObjectRef>>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
@@ -275,6 +281,7 @@ mod decl {
             let iter = args.iterable;
             Ok(Self {
                 iter,
+                exhausted: AtomicBool::new(false),
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             })
@@ -288,27 +295,34 @@ mod decl {
 
     impl IterNext for PyItertoolsCycle {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let item = if let PyIterReturn::Return(item) = zelf.iter.next(vm)? {
-                zelf.saved.write().push(item.clone());
-                item
-            } else {
-                let saved = zelf.saved.read();
-                if saved.is_empty() {
-                    return Ok(PyIterReturn::StopIteration(None));
+            if !zelf.exhausted.load(Ordering::Acquire) {
+                match zelf.iter.next(vm)? {
+                    PyIterReturn::Return(item) => {
+                        zelf.saved.write().push(item.clone());
+                        return Ok(PyIterReturn::Return(item));
+                    }
+                    PyIterReturn::StopIteration(value) => {
+                        drop(value);
+                        zelf.exhausted.store(true, Ordering::Release);
+                    }
                 }
+            }
 
-                // Advance and wrap in a single atomic step. A separate
-                // fetch_add followed by a reset lets a second thread observe
-                // an index past the end of `saved`.
-                let last_index = match zelf.index.fetch_update(|index| {
-                    let next = index + 1;
-                    Some(if next < saved.len() { next } else { 0 })
-                }) {
-                    Ok(index) | Err(index) => index,
-                };
+            let saved = zelf.saved.read();
+            if saved.is_empty() {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
 
-                saved[last_index].clone()
+            // Advance and wrap in a single atomic step. A separate
+            // fetch_add followed by a reset lets a second thread observe
+            // an index past the end of `saved`.
+            let last_index = match zelf.index.fetch_update(|index| {
+                let next = index + 1;
+                Some(if next < saved.len() { next } else { 0 })
+            }) {
+                Ok(index) | Err(index) => index,
             };
+            let item = saved[last_index].clone();
 
             Ok(PyIterReturn::Return(item))
         }
@@ -494,11 +508,13 @@ mod decl {
             let obj = raise_if_stop!(zelf.iterable.next(vm)?);
             let predicate = &zelf.predicate;
 
-            let verdict = predicate.call((obj.clone(),), vm)?;
-            let verdict = verdict.try_to_bool(vm)?;
+            let pred_value = predicate.call((obj.clone(),), vm)?;
+            let verdict = pred_value.try_to_bool(vm)?;
+            drop(pred_value);
             if verdict {
                 Ok(PyIterReturn::Return(obj))
             } else {
+                drop(obj);
                 zelf.stop_flag.store(true);
                 Ok(PyIterReturn::StopIteration(None))
             }
@@ -553,17 +569,19 @@ mod decl {
             let predicate = &zelf.predicate;
             let iterable = &zelf.iterable;
 
-            if !zelf.start_flag.load() {
-                loop {
-                    let obj = raise_if_stop!(iterable.next(vm)?);
-                    let pred_value = predicate.call((obj.clone(),), vm)?;
-                    if !pred_value.try_to_bool(vm)? {
-                        zelf.start_flag.store(true);
-                        return Ok(PyIterReturn::Return(obj));
-                    }
+            loop {
+                let obj = raise_if_stop!(iterable.next(vm)?);
+                if zelf.start_flag.load() {
+                    return Ok(PyIterReturn::Return(obj));
+                }
+                let pred_value = predicate.call((obj.clone(),), vm)?;
+                let verdict = pred_value.try_to_bool(vm)?;
+                drop(pred_value);
+                if !verdict {
+                    zelf.start_flag.store(true);
+                    return Ok(PyIterReturn::Return(obj));
                 }
             }
-            iterable.next(vm)
         }
     }
 
@@ -587,11 +605,8 @@ mod decl {
     }
 
     impl GroupByState {
-        fn is_current(&self, grouper: &Py<PyItertoolsGrouper>) -> bool {
-            self.grouper
-                .as_ref()
-                .and_then(|g| g.upgrade())
-                .is_some_and(|current_grouper| grouper.is(&current_grouper))
+        fn current_grouper(&self) -> Option<PyRef<PyItertoolsGrouper>> {
+            self.grouper.as_ref().and_then(|g| g.upgrade())
         }
     }
 
@@ -638,7 +653,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsGroupBy {
         pub(super) fn advance(
             &self,
@@ -678,18 +693,37 @@ mod decl {
                     }
                 }
                 let (value, key) = raise_if_stop!(zelf.advance(vm)?);
-                let mut state = zelf.state.lock();
-                state.current_value = Some(value);
-                state.current_key = Some(key);
+                let (old_value, old_key) = {
+                    let mut state = zelf.state.lock();
+                    (
+                        state.current_value.replace(value),
+                        state.current_key.replace(key),
+                    )
+                };
+                drop(old_key);
+                drop(old_value);
             }
 
-            let mut state = zelf.state.lock();
-            let currkey = state.current_key.clone().unwrap();
-            state.tgtkey = Some(currkey.clone());
+            let old_tgtkey = {
+                let mut state = zelf.state.lock();
+                let Some(currkey) = state.current_key.clone() else {
+                    return Ok(PyIterReturn::StopIteration(None));
+                };
+                state.tgtkey.replace(currkey)
+            };
+            drop(old_tgtkey);
 
+            let mut state = zelf.state.lock();
+            // A target-key finalizer may have reentered and consumed the current item.
+            let Some(currkey) = state.current_key.clone() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let Some(tgtkey) = state.tgtkey.clone() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
             let grouper = PyItertoolsGrouper {
                 groupby: zelf.to_owned(),
-                tgtkey: currkey.clone(),
+                tgtkey,
             }
             .into_ref(&vm.ctx);
 
@@ -706,42 +740,92 @@ mod decl {
         tgtkey: PyObjectRef,
     }
 
-    #[pyclass(with(IterNext, Iterable), flags(HAS_WEAKREF))]
+    #[derive(FromArgs)]
+    struct GrouperArgs {
+        #[pyarg(positional)]
+        parent: PyRef<PyItertoolsGroupBy>,
+        #[pyarg(positional)]
+        tgtkey: PyObjectRef,
+    }
+
+    impl Constructor for PyItertoolsGrouper {
+        type Args = GrouperArgs;
+
+        // The new grouper becomes the parent's current grouper.
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
+            let grouper = Self::py_new(&cls, args, vm)?.into_ref_with_type(vm, cls)?;
+            grouper.groupby.state.lock().grouper = Some(grouper.downgrade(None, vm)?);
+            Ok(grouper.into())
+        }
+
+        fn py_new(
+            _cls: &Py<PyType>,
+            Self::Args { parent, tgtkey }: Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
+                groupby: parent,
+                tgtkey,
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor, IterNext, Iterable), flags(HAS_WEAKREF))]
     impl PyItertoolsGrouper {}
 
     impl SelfIter for PyItertoolsGrouper {}
 
     impl IterNext for PyItertoolsGrouper {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            if !zelf.groupby.state.lock().is_current(zelf) {
+            let current = zelf.groupby.state.lock().current_grouper();
+            if !current.as_ref().is_some_and(|g| zelf.is(g)) {
                 return Ok(PyIterReturn::StopIteration(None));
             }
+            drop(current);
 
             if zelf.groupby.state.lock().current_value.is_none() {
                 let (value, key) = raise_if_stop!(zelf.groupby.advance(vm)?);
-                let mut state = zelf.groupby.state.lock();
-                state.current_value = Some(value);
-                state.current_key = Some(key);
+                let (old_value, old_key) = {
+                    let mut state = zelf.groupby.state.lock();
+                    (
+                        state.current_value.replace(value),
+                        state.current_key.replace(key),
+                    )
+                };
+                drop(old_key);
+                drop(old_value);
             }
 
+            let current;
             let currkey = {
                 let state = zelf.groupby.state.lock();
-                if !state.is_current(zelf) {
+                current = state.current_grouper();
+                if !current.as_ref().is_some_and(|g| zelf.is(g)) {
                     return Ok(PyIterReturn::StopIteration(None));
                 }
-                state.current_key.clone().unwrap()
+                let Some(currkey) = state.current_key.clone() else {
+                    return Ok(PyIterReturn::StopIteration(None));
+                };
+                currkey
             };
+            drop(current);
             let tgtkey = zelf.tgtkey.clone();
             if !vm.bool_eq(&tgtkey, &currkey)? {
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
-            let mut state = zelf.groupby.state.lock();
-            if !state.is_current(zelf) {
-                return Ok(PyIterReturn::StopIteration(None));
-            }
-            let value = state.current_value.take();
-            state.current_key = None;
+            let current;
+            let (value, old_key) = {
+                let mut state = zelf.groupby.state.lock();
+                current = state.current_grouper();
+                if !current.as_ref().is_some_and(|g| zelf.is(g)) {
+                    return Ok(PyIterReturn::StopIteration(None));
+                }
+                (state.current_value.take(), state.current_key.take())
+            };
+            drop(current);
+            drop(old_key);
             match value {
                 Some(v) => Ok(PyIterReturn::Return(v)),
                 None => Ok(PyIterReturn::StopIteration(None)),
@@ -859,6 +943,21 @@ mod decl {
         }
     }
 
+    impl PyItertoolsIslice {
+        fn clear_iterable(&self) {
+            let previous = self.iterable.lock().take();
+            drop(previous);
+        }
+
+        fn next_source(&self, iterable: &PyIter, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let result = iterable.next(vm);
+            if !matches!(&result, Ok(PyIterReturn::Return(_))) {
+                self.clear_iterable();
+            }
+            result
+        }
+    }
+
     impl SelfIter for PyItertoolsIslice {}
 
     impl IterNext for PyItertoolsIslice {
@@ -869,27 +968,15 @@ mod decl {
             let stop = zelf.stop.unwrap_or(usize::MAX);
 
             while zelf.cur.load() < zelf.next.load() {
-                raise_if_stop!({
-                    let result = iterable.next(vm)?;
-                    if matches!(result, PyIterReturn::StopIteration(_)) {
-                        *zelf.iterable.lock() = None;
-                    }
-                    result
-                });
+                raise_if_stop!(zelf.next_source(&iterable, vm)?);
                 zelf.cur.fetch_add(1);
             }
             if zelf.cur.load() >= stop {
-                *zelf.iterable.lock() = None;
+                zelf.clear_iterable();
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
-            let obj = raise_if_stop!({
-                let result = iterable.next(vm)?;
-                if matches!(result, PyIterReturn::StopIteration(_)) {
-                    *zelf.iterable.lock() = None;
-                }
-                result
-            });
+            let obj = raise_if_stop!(zelf.next_source(&iterable, vm)?);
             zelf.cur.fetch_add(1);
             let oldnext = zelf.next.load();
             let (newnext, ovf) = oldnext.overflowing_add(zelf.step);
@@ -949,7 +1036,9 @@ mod decl {
                     predicate.call((obj.clone(),), vm)?
                 };
 
-                if !pred_value.try_to_bool(vm)? {
+                let verdict = pred_value.try_to_bool(vm)?;
+                drop(pred_value);
+                if !verdict {
                     return Ok(PyIterReturn::Return(obj));
                 }
             }
@@ -962,7 +1051,9 @@ mod decl {
     struct PyItertoolsAccumulate {
         iterable: PyIter,
         bin_op: Option<PyObjectRef>,
-        initial: Option<PyObjectRef>,
+        initial: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        has_initial: bool,
         acc_value: PyRwLock<Option<PyObjectRef>>,
     }
 
@@ -983,13 +1074,14 @@ mod decl {
             Ok(Self {
                 iterable: args.iterable,
                 bin_op: args.func,
-                initial: args.initial,
+                has_initial: args.initial.is_some(),
+                initial: PyRwLock::new(args.initial),
                 acc_value: PyRwLock::new(None),
             })
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsAccumulate {}
 
     impl SelfIter for PyItertoolsAccumulate {}
@@ -999,12 +1091,22 @@ mod decl {
             let iterable = &zelf.iterable;
 
             let acc_value = zelf.acc_value.read().clone();
+            let acc_value = if acc_value.is_none() && zelf.has_initial {
+                let mut acc = zelf.acc_value.write();
+                if acc.is_none() {
+                    let initial = zelf.initial.write().take();
+                    if let Some(initial) = initial {
+                        *acc = Some(initial.clone());
+                        return Ok(PyIterReturn::Return(initial));
+                    }
+                }
+                acc.clone()
+            } else {
+                acc_value
+            };
 
             let next_acc_value = match acc_value {
-                None => match &zelf.initial {
-                    None => raise_if_stop!(iterable.next(vm)?),
-                    Some(obj) => obj.clone(),
-                },
+                None => raise_if_stop!(iterable.next(vm)?),
                 Some(value) => {
                     let obj = raise_if_stop!(iterable.next(vm)?);
                     match &zelf.bin_op {
@@ -1013,7 +1115,8 @@ mod decl {
                     }
                 }
             };
-            *zelf.acc_value.write() = Some(next_acc_value.clone());
+            let previous = zelf.acc_value.write().replace(next_acc_value.clone());
+            drop(previous);
 
             Ok(PyIterReturn::Return(next_acc_value))
         }
@@ -1025,47 +1128,30 @@ mod decl {
     struct PyItertoolsTeeData {
         iterable: PyIter,
         values: PyMutex<Vec<PyObjectRef>>,
+        next: PyMutex<Option<PyRef<Self>>>,
         #[pytraverse(skip)]
         running: AtomicBool,
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyItertoolsTeeData {
+        const BLOCK_SIZE: usize = 64;
+
         fn new(iterable: PyIter, vm: &VirtualMachine) -> PyRef<Self> {
             Self {
                 iterable,
-                values: PyMutex::new(vec![]),
+                values: PyMutex::new(Vec::with_capacity(Self::BLOCK_SIZE)),
+                next: PyMutex::new(None),
                 running: AtomicBool::new(false),
             }
             .into_ref(&vm.ctx)
         }
 
-        fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
-            // Return cached value if available
-            {
-                let Some(values) = self.values.try_lock() else {
-                    return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
-                };
-                if index < values.len() {
-                    return Ok(PyIterReturn::Return(values[index].clone()));
-                }
-            }
-            // Prevent concurrent/reentrant calls to iterable.next(). The claim
-            // covers caching the value as well: released any earlier, a second
-            // tee at the same index fetches a value of its own and one of the
-            // two is dropped without ever reaching a caller.
-            if self.running.swap(true, Ordering::Acquire) {
-                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
-            }
-            scopeguard::defer! { self.running.store(false, Ordering::Release) }
-            let obj = raise_if_stop!(self.iterable.next(vm)?);
-            let Some(mut values) = self.values.try_lock() else {
-                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
-            };
-            if values.len() == index {
-                values.push(obj);
-            }
-            Ok(PyIterReturn::Return(values[index].clone()))
+        fn next_block(&self, vm: &VirtualMachine) -> PyRef<Self> {
+            self.next
+                .lock()
+                .get_or_insert_with(|| Self::new(self.iterable.clone(), vm))
+                .clone()
         }
     }
 
@@ -1073,7 +1159,7 @@ mod decl {
     #[pyclass(name = "_tee", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsTee {
-        tee_data: PyRef<PyItertoolsTeeData>,
+        tee_data: PyMutex<PyRef<PyItertoolsTeeData>>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
         #[pytraverse(skip)]
@@ -1091,7 +1177,7 @@ mod decl {
                 return Ok(tee.__copy__());
             }
             Ok(Self {
-                tee_data: PyItertoolsTeeData::new(iterator, vm),
+                tee_data: PyMutex::new(PyItertoolsTeeData::new(iterator, vm)),
                 index: AtomicCell::new(0),
                 advancing: AtomicBool::new(false),
             })
@@ -1100,12 +1186,14 @@ mod decl {
 
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
+            // An iterator is asked for its iterator again, which validates its __iter__.
+            let iterator = iterator.get_iter(vm)?;
             let class = Self::class(&vm.ctx);
             if iterator.class().is(class) {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {
-                tee_data: PyItertoolsTeeData::new(iterator, vm),
+                tee_data: PyMutex::new(PyItertoolsTeeData::new(iterator, vm)),
                 index: AtomicCell::new(0),
                 advancing: AtomicBool::new(false),
             }
@@ -1118,8 +1206,11 @@ mod decl {
     impl Py<PyItertoolsTee> {
         #[pymethod]
         fn __copy__(&self) -> PyItertoolsTee {
+            // A block transition resets the index under this lock, so the pair
+            // is a consistent snapshot even while another thread advances us.
+            let data = self.tee_data.lock();
             PyItertoolsTee {
-                tee_data: self.tee_data.clone(),
+                tee_data: PyMutex::new(data.clone()),
                 index: AtomicCell::new(self.index.load()),
                 advancing: AtomicBool::new(false),
             }
@@ -1129,7 +1220,7 @@ mod decl {
     #[derive(FromArgs)]
     struct TeeArgs {
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
         #[pyarg(positional, default = 2)]
         n: isize,
     }
@@ -1142,17 +1233,15 @@ mod decl {
         }
         let n = n as usize;
 
-        // Only an iterator that cannot copy itself needs a tee to buffer it.
-        let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
-            iterable.into()
-        } else {
-            PyItertoolsTee::from_iter(iterable, vm)?
-        };
-
         let mut tee_vec: Vec<PyObjectRef> = Vec::new();
         tee_vec
             .try_reserve_exact(n)
             .map_err(|_| vm.no_memory_error())?;
+        if n == 0 {
+            return Ok(vm.ctx.empty_tuple.clone());
+        }
+
+        let copyable = PyItertoolsTee::from_iter(iterable.get_iter(vm)?, vm)?;
         for _ in 0..n {
             tee_vec.push(vm.call_special_method(&copyable, identifier!(vm, __copy__), ())?);
         }
@@ -1162,15 +1251,65 @@ mod decl {
     impl SelfIter for PyItertoolsTee {}
     impl IterNext for PyItertoolsTee {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let mut current = zelf.tee_data.lock();
             // Reading the index and moving it on is one step: two callers that
             // read the same index hand out the same value twice and leave the
             // buffer to be filled out of order.
-            if zelf.advancing.swap(true, Ordering::Acquire) {
+            // The block lock serializes claims; an atomic exchange is not needed.
+            if zelf.advancing.load(Ordering::Acquire) {
+                drop(current);
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             }
+            zelf.advancing.store(true, Ordering::Relaxed);
             scopeguard::defer! { zelf.advancing.store(false, Ordering::Release) }
+            if zelf.index.load() == PyItertoolsTeeData::BLOCK_SIZE {
+                let data = current.clone();
+                drop(current);
+                let next = data.next_block(vm);
+                current = zelf.tee_data.lock();
+                let previous = core::mem::replace(&mut *current, next);
+                zelf.index.store(0);
+                drop(current);
+                // Releasing a consumed block may run item finalizers. No cursor
+                // or buffer lock may be held when the last owner lets it go.
+                drop(data);
+                drop(previous);
+                current = zelf.tee_data.lock();
+            }
+
+            // Cached reads neither call Python nor release the block, so they
+            // can update the cursor without cloning its data reference.
             let index = zelf.index.load();
-            let value = raise_if_stop!(zelf.tee_data.get_item(vm, index)?);
+            let cached = {
+                let values = current.values.lock();
+                if let Some(value) = values.get(index) {
+                    Some(value.clone())
+                } else {
+                    // Claim the source while the cache is locked: another tee
+                    // cannot fill this slot between the check and the claim.
+                    if current.running.load(Ordering::Acquire) {
+                        drop(values);
+                        drop(current);
+                        return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+                    }
+                    current.running.store(true, Ordering::Relaxed);
+                    None
+                }
+            };
+            if let Some(value) = cached {
+                zelf.index.store(index + 1);
+                return Ok(PyIterReturn::Return(value));
+            }
+
+            let data = current.clone();
+            drop(current);
+            // Prevent concurrent/reentrant calls to iterable.next(). The claim
+            // covers caching the value as well: released any earlier, a second
+            // tee at the same index fetches a value of its own and one of the
+            // two is dropped without ever reaching a caller.
+            scopeguard::defer! { data.running.store(false, Ordering::Release) }
+            let value = raise_if_stop!(data.iterable.next(vm)?);
+            data.values.lock().push(value.clone());
             zelf.index.store(index + 1);
             Ok(PyIterReturn::Return(value))
         }
@@ -1180,11 +1319,9 @@ mod decl {
     #[pyclass(name = "product", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsProduct {
-        pools: Vec<Vec<PyObjectRef>>,
+        pools: Vec<PyTupleRef>,
         #[pytraverse(skip)]
         idxs: PyRwLock<Vec<usize>>,
-        #[pytraverse(skip)]
-        cur: AtomicCell<usize>,
         #[pytraverse(skip)]
         stop: AtomicCell<bool>,
     }
@@ -1220,12 +1357,19 @@ mod decl {
                 .filter(|n| *n <= isize::MAX as usize / size_of::<usize>())
                 .ok_or_else(|| vm.new_overflow_error("repeat argument too large"))?;
 
-            let mut single: Vec<Vec<PyObjectRef>> = Vec::new();
-            for arg in iterables.iter() {
-                single.push(arg.try_to_value(vm)?);
+            let mut single = Vec::new();
+            if repeat != 0 {
+                for arg in iterables.iter() {
+                    let pool = if let Some(tuple) = arg.downcast_ref_if_exact::<PyTuple>(vm) {
+                        tuple.to_owned()
+                    } else {
+                        PyTuple::new_ref(arg.try_to_value(vm)?, &vm.ctx)
+                    };
+                    single.push(pool);
+                }
             }
 
-            let mut pools: Vec<Vec<PyObjectRef>> = Vec::new();
+            let mut pools: Vec<PyTupleRef> = Vec::new();
             pools
                 .try_reserve_exact(npools)
                 .map_err(|_| vm.no_memory_error())?;
@@ -1240,46 +1384,34 @@ mod decl {
                 .map_err(|_| vm.no_memory_error())?;
             idxs.resize(npools, 0);
 
-            let l = pools.len();
+            let empty = pools.iter().any(|pool| pool.is_empty());
 
             Ok(Self {
                 pools,
                 idxs: PyRwLock::new(idxs),
-                cur: AtomicCell::new(l.wrapping_sub(1)),
-                stop: AtomicCell::new(false),
+                stop: AtomicCell::new(empty),
             })
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsProduct {
-        fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
-            if idxs.is_empty() {
-                self.stop.store(true);
-                return;
-            }
-
-            let cur = self.cur.load();
-            let lst_idx = &self.pools[cur].len() - 1;
-
-            if idxs[cur] == lst_idx {
-                if cur == 0 {
-                    self.stop.store(true);
+        fn update_idxs(&self, idxs: &mut [usize]) {
+            for (index, pool) in idxs.iter_mut().zip(&self.pools).rev() {
+                *index += 1;
+                if *index < pool.len() {
                     return;
                 }
-                idxs[cur] = 0;
-                self.cur.fetch_sub(1);
-                self.update_idxs(idxs);
-            } else {
-                idxs[cur] += 1;
-                self.cur.store(idxs.len() - 1);
+                *index = 0;
             }
+            self.stop.store(true);
         }
     }
 
     impl SelfIter for PyItertoolsProduct {}
     impl IterNext for PyItertoolsProduct {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let mut idxs = zelf.idxs.write();
             // stop signal
             if zelf.stop.load() {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -1287,13 +1419,6 @@ mod decl {
 
             let pools = &zelf.pools;
 
-            for p in pools {
-                if p.is_empty() {
-                    return Ok(PyIterReturn::StopIteration(None));
-                }
-            }
-
-            let idxs = zelf.idxs.write();
             let res = vm.ctx.new_tuple(
                 pools
                     .iter()
@@ -1302,7 +1427,7 @@ mod decl {
                     .collect(),
             );
 
-            zelf.update_idxs(idxs);
+            zelf.update_idxs(&mut idxs);
 
             Ok(PyIterReturn::Return(res.into()))
         }
@@ -1367,7 +1492,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsCombinations {}
 
     impl SelfIter for PyItertoolsCombinations {}
@@ -1479,7 +1604,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsCombinationsWithReplacement {}
 
     impl SelfIter for PyItertoolsCombinationsWithReplacement {}
@@ -1595,7 +1720,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsPermutations {}
 
     impl SelfIter for PyItertoolsPermutations {}
@@ -1687,7 +1812,14 @@ mod decl {
         ) -> PyResult<Self> {
             let fillvalue = args.fillvalue.unwrap_or_else(|| vm.ctx.none());
             let iterators = iterators.into_vec();
+            let mut exhausted = Vec::new();
+            exhausted
+                .try_reserve_exact(iterators.len())
+                .map_err(|_| vm.no_memory_error())?;
+            exhausted.extend((0..iterators.len()).map(|_| AtomicBool::new(false)));
             Ok(Self {
+                exhausted,
+                terminal: AtomicBool::new(false),
                 iterators,
                 fillvalue: PyRwLock::new(fillvalue),
             })
@@ -1700,33 +1832,57 @@ mod decl {
     struct PyItertoolsZipLongest {
         iterators: Vec<PyIter>,
         fillvalue: PyRwLock<PyObjectRef>,
+        #[pytraverse(skip)]
+        exhausted: Vec<AtomicBool>,
+        #[pytraverse(skip)]
+        terminal: AtomicBool,
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsZipLongest {}
 
     impl SelfIter for PyItertoolsZipLongest {}
 
     impl IterNext for PyItertoolsZipLongest {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            if zelf.iterators.is_empty() {
+            if zelf.terminal.load(Ordering::Acquire) {
                 return Ok(PyIterReturn::StopIteration(None));
             }
             let mut result: Vec<PyObjectRef> = Vec::new();
-            let mut num_active = zelf.iterators.len();
-
-            for idx in 0..zelf.iterators.len() {
-                let next_obj = match zelf.iterators[idx].next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => {
-                        num_active -= 1;
-                        if num_active == 0 {
-                            return Ok(PyIterReturn::StopIteration(v));
+            let mut saw_item = false;
+            for (idx, iter) in zelf.iterators.iter().enumerate() {
+                let next_obj = if !zelf.exhausted[idx].load(Ordering::Acquire) {
+                    match iter.next(vm) {
+                        Ok(PyIterReturn::Return(obj)) => {
+                            saw_item = true;
+                            obj
                         }
-                        zelf.fillvalue.read().clone()
+                        Ok(PyIterReturn::StopIteration(value)) => {
+                            drop(value);
+                            zelf.exhausted[idx].store(true, Ordering::Release);
+                            if !saw_item
+                                && zelf.exhausted[idx + 1..]
+                                    .iter()
+                                    .all(|flag| flag.load(Ordering::Acquire))
+                            {
+                                zelf.terminal.store(true, Ordering::Release);
+                                return Ok(PyIterReturn::StopIteration(None));
+                            }
+                            zelf.fillvalue.read().clone()
+                        }
+                        Err(err) => {
+                            zelf.terminal.store(true, Ordering::Release);
+                            return Err(err);
+                        }
                     }
+                } else {
+                    zelf.fillvalue.read().clone()
                 };
                 result.push(next_obj);
+            }
+            if !saw_item {
+                zelf.terminal.store(true, Ordering::Release);
+                return Ok(PyIterReturn::StopIteration(None));
             }
             Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
         }
@@ -1738,36 +1894,64 @@ mod decl {
     struct PyItertoolsPairwise {
         iterator: PyIter,
         old: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        terminal: AtomicBool,
     }
 
     impl Constructor for PyItertoolsPairwise {
         type Args = IterablePosArg;
+
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let iterator = args.iterable;
             Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),
+                terminal: AtomicBool::new(false),
             })
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsPairwise {}
 
     impl SelfIter for PyItertoolsPairwise {}
 
+    impl PyItertoolsPairwise {
+        fn next_item(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            match self.iterator.next(vm) {
+                Ok(PyIterReturn::Return(obj)) => Ok(PyIterReturn::Return(obj)),
+                Ok(PyIterReturn::StopIteration(value)) => {
+                    self.terminal.store(true, Ordering::Release);
+                    Ok(PyIterReturn::StopIteration(value))
+                }
+                Err(err) => {
+                    self.terminal.store(true, Ordering::Release);
+                    Err(err)
+                }
+            }
+        }
+    }
+
     impl IterNext for PyItertoolsPairwise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            if zelf.terminal.load(Ordering::Acquire) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
             let old_clone = {
                 let guard = zelf.old.read();
                 guard.clone()
             };
             let old = match old_clone {
-                None => match zelf.iterator.next(vm)? {
+                None => match zelf.next_item(vm)? {
                     PyIterReturn::Return(obj) => {
                         // Needed for when we reenter
-                        *zelf.old.write() = Some(obj.clone());
+                        let previous = zelf.old.write().replace(obj.clone());
+                        drop(previous);
+                        if zelf.terminal.load(Ordering::Acquire) {
+                            return Ok(PyIterReturn::StopIteration(None));
+                        }
                         obj
                     }
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -1775,8 +1959,9 @@ mod decl {
                 Some(obj) => obj,
             };
 
-            let new = raise_if_stop!(zelf.iterator.next(vm)?);
-            *zelf.old.write() = Some(new.clone());
+            let new = raise_if_stop!(zelf.next_item(vm)?);
+            let previous = zelf.old.write().replace(new.clone());
+            drop(previous);
 
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }

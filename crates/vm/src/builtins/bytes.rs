@@ -1,6 +1,7 @@
+use super::native_iter::{NativeIterKind, NativeSequenceIter};
 use super::{
-    PositionIterInternal, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType,
-    PyTypeRef, iter::builtins_iter, locked_next,
+    PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
         ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::{PyClassDef, PyClassImpl},
-    common::{hash::PyHash, lock::PyMutex},
+    common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
     function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
@@ -235,7 +236,7 @@ impl PyBytes {
 
 #[pyclass(
     itemsize = 1,
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, BYTES_SUBCLASS),
     with(
         Py,
         PyRef,
@@ -541,8 +542,12 @@ impl Py<PyBytes> {
     }
 
     #[pymethod]
-    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> PyBytes {
-        self.inner.expandtabs(options).into()
+    fn expandtabs(
+        &self,
+        options: anystr::ExpandTabsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
+        self.inner.expandtabs(options, vm).map(Into::into)
     }
 
     #[pymethod]
@@ -560,12 +565,6 @@ impl Py<PyBytes> {
     fn title(&self) -> PyBytes {
         self.inner.title().into()
     }
-
-    #[pymethod]
-    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
-        PyTuple::new_ref(param, &vm.ctx)
-    }
 }
 
 #[pyclass]
@@ -577,6 +576,11 @@ impl PyRef<PyBytes> {
         } else {
             vm.ctx.new_bytes(result.to_vec())
         }
+    }
+
+    #[pymethod]
+    fn __getnewargs__(self, vm: &VirtualMachine) -> PyTupleRef {
+        vm.new_tuple((self.result_from_slice(self.as_bytes(), vm),))
     }
 
     #[pymethod]
@@ -756,7 +760,7 @@ impl Comparable for PyBytes {
 impl Iterable for PyBytes {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyBytesIterator {
-            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
+            internal: NativeSequenceIter::new(zelf, NativeIterKind::Sequence, 0),
         }
         .into_pyobject(vm))
     }
@@ -769,10 +773,10 @@ impl Representable for PyBytes {
     }
 }
 
-#[pyclass(module = false, name = "bytes_iterator")]
+#[pyclass(module = false, name = "bytes_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyBytesIterator {
-    internal: PyMutex<PositionIterInternal<PyBytesRef>>,
+    internal: NativeSequenceIter<PyBytesRef>,
 }
 
 impl PyPayload for PyBytesIterator {
@@ -786,15 +790,15 @@ impl PyPayload for PyBytesIterator {
 impl Py<PyBytesIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.as_bytes().len())
+        self.internal.length_hint(|obj| obj.as_bytes().len())
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        Ok(self.internal.lock().reduce(
+        Ok(self.internal.reduce(
             func,
-            |x| x.clone().into(),
+            |x| x.into(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
         ))
@@ -803,23 +807,19 @@ impl Py<PyBytesIterator> {
     #[pymethod]
     fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
-            .lock()
-            .set_state(&object, |obj, pos| pos.min(obj.as_bytes().len()), vm)
+            .set_state(&object, |obj| obj.as_bytes().len(), vm)
     }
 }
 
 impl SelfIter for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_next(&zelf.internal, |bytes, pos| {
-            Ok(PyIterReturn::from_result(
-                bytes
-                    .as_bytes()
-                    .get(pos)
-                    .map(|&x| vm.new_pyobj(x))
-                    .ok_or(None),
-            ))
-        })
+        let byte = zelf
+            .internal
+            .next(|bytes, pos| bytes.as_bytes().get(pos).copied());
+        Ok(PyIterReturn::from_result(
+            byte.map(|byte| vm.new_pyobj(byte)).ok_or(None),
+        ))
     }
 }
 

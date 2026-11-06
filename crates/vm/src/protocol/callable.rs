@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBoundMethod, PyFunction},
     function::{FuncArgs, IntoFuncArgs},
-    types::{GenericMethod, VectorCallFunc},
+    types::{GenericMethod, PyTypeFlags, VectorCallFunc},
     {PyObject, PyObjectRef, PyResult, VirtualMachine},
 };
 
@@ -55,6 +55,78 @@ impl PyObject {
         };
         callable.invoke_vectorcall(args, nargs, kwnames, vm)
     }
+
+    /// PyVectorcall_Call: invoke retained raw support without automatic eligibility
+    /// or a tp_call fallback.
+    pub fn vectorcall_call(
+        &self,
+        args: Vec<PyObjectRef>,
+        nargs: usize,
+        kwnames: Option<&[PyObjectRef]>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let vc = self.raw_vectorcall_func().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object does not support vectorcall",
+                self.class().slot_name()
+            ))
+        })?;
+        self.invoke_vectorcall_func(vc, args, nargs, kwnames, vm)
+    }
+
+    #[inline]
+    pub(crate) fn vectorcall_func(&self) -> Option<VectorCallFunc> {
+        if self
+            .class()
+            .slots()
+            .flags
+            .has_feature(PyTypeFlags::HAVE_VECTORCALL)
+        {
+            self.raw_vectorcall_func()
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn raw_vectorcall_func(&self) -> Option<VectorCallFunc> {
+        let slots = self.class().slots();
+        slots.vectorcall.load().or_else(|| {
+            slots
+                .vectorcall_resolver
+                .load()
+                .and_then(|resolve| resolve(self))
+        })
+    }
+
+    #[inline]
+    fn invoke_vectorcall_func(
+        &self,
+        vc: VectorCallFunc,
+        args: Vec<PyObjectRef>,
+        nargs: usize,
+        kwnames: Option<&[PyObjectRef]>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if !vm.use_tracing.get() {
+            return vc(self, args, nargs, kwnames, vm);
+        }
+        let is_python_callable = self.downcast_ref::<PyFunction>().is_some()
+            || self.downcast_ref::<PyBoundMethod>().is_some();
+        if is_python_callable {
+            vc(self, args, nargs, kwnames, vm)
+        } else {
+            let callable = self.to_owned();
+            vm.trace_event(TraceEvent::CCall, Some(callable.clone()))?;
+            let result = vc(self, args, nargs, kwnames, vm);
+            if result.is_ok() {
+                vm.trace_event(TraceEvent::CReturn, Some(callable))?;
+            } else {
+                let _ = vm.trace_event(TraceEvent::CException, Some(callable));
+            }
+            result
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -68,7 +140,7 @@ impl<'a> PyCallable<'a> {
     pub fn new(obj: &'a PyObject) -> Option<Self> {
         let slots = obj.class().slots();
         let call = slots.call.load()?;
-        let vectorcall = slots.vectorcall.load();
+        let vectorcall = obj.vectorcall_func();
         Some(PyCallable {
             obj,
             call,
@@ -78,10 +150,17 @@ impl<'a> PyCallable<'a> {
 
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.into_args(vm);
-        // _PyVectorcall_Call
-        if self.vectorcall.is_some() && args.kwargs.is_empty() {
+        if self.vectorcall_revoked() {
+            // A retained wrapper must use current tp_call, not its cached snapshot.
+            return self.obj.call_with_args(args, vm);
+        }
+        if let Some(vc) = self.vectorcall
+            && args.kwargs.is_empty()
+        {
             let nargs = args.args.len();
-            return self.invoke_vectorcall(args.args, nargs, None, vm);
+            return self
+                .obj
+                .invoke_vectorcall_func(vc, args.args, nargs, None, vm);
         }
         if !vm.use_tracing.get() {
             return (self.call)(self.obj, args, vm);
@@ -106,7 +185,7 @@ impl<'a> PyCallable<'a> {
         }
     }
 
-    /// Vectorcall dispatch: use vectorcall slot if available, else fall back to FuncArgs.
+    /// Use automatic vectorcall if available, else fall back to FuncArgs.
     #[inline]
     pub fn invoke_vectorcall(
         &self,
@@ -115,30 +194,28 @@ impl<'a> PyCallable<'a> {
         kwnames: Option<&[PyObjectRef]>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        if self.vectorcall_revoked() {
+            return self.obj.vectorcall(args, nargs, kwnames, vm);
+        }
         if let Some(vc) = self.vectorcall {
-            if !vm.use_tracing.get() {
-                return vc(self.obj, args, nargs, kwnames, vm);
-            }
-            let is_python_callable = self.obj.downcast_ref::<PyFunction>().is_some()
-                || self.obj.downcast_ref::<PyBoundMethod>().is_some();
-            if is_python_callable {
-                vc(self.obj, args, nargs, kwnames, vm)
-            } else {
-                let callable = self.obj.to_owned();
-                vm.trace_event(TraceEvent::CCall, Some(callable.clone()))?;
-                let result = vc(self.obj, args, nargs, kwnames, vm);
-                if result.is_ok() {
-                    vm.trace_event(TraceEvent::CReturn, Some(callable))?;
-                } else {
-                    let _ = vm.trace_event(TraceEvent::CException, Some(callable));
-                }
-                result
-            }
+            self.obj
+                .invoke_vectorcall_func(vc, args, nargs, kwnames, vm)
         } else {
             // Fallback: convert owned Vec to FuncArgs (move, no clone)
             let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
             self.invoke(func_args, vm)
         }
+    }
+
+    #[inline]
+    fn vectorcall_revoked(&self) -> bool {
+        self.vectorcall.is_some()
+            && !self
+                .obj
+                .class()
+                .slots()
+                .flags
+                .has_feature(PyTypeFlags::HAVE_VECTORCALL)
     }
 }
 

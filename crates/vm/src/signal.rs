@@ -58,6 +58,37 @@ pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
 
+/// `_PyRuntime.signals.unhandled_keyboard_interrupt`
+static UNHANDLED_KEYBOARD_INTERRUPT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn clear_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(false, Ordering::Relaxed);
+}
+
+pub(crate) fn unhandled_keyboard_interrupt() -> bool {
+    UNHANDLED_KEYBOARD_INTERRUPT.load(Ordering::Relaxed)
+}
+
+/// exit_sigint: exit through the default SIGINT handler so that the parent
+/// process sees that a KeyboardInterrupt went unhandled.
+pub(crate) fn exit_sigint() -> u32 {
+    cfg_select! {
+        unix => {
+            if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
+                let _ = crate::host_env::signal::send_sigint_to_self();
+            }
+            libc::SIGINT as u32 + 128
+        }
+        // STATUS_CONTROL_C_EXIT
+        windows => 0xC000013A,
+        _ => 2 + 128,
+    }
+}
+
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
     /// handler is running, new signals are deferred until it completes.
@@ -103,46 +134,66 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
-    #[cfg(all(feature = "host_env", windows))]
-    if vm.is_main_thread() && vm.state.is_main_interpreter() {
-        // Report before a Python signal handler can raise out of the current
-        // error-reporting scope.
-        crate::stdlib::_signal::_signal::report_wakeup_send_errors(vm);
-    } else if crate::stdlib::_signal::_signal::wakeup_send_errors_pending() {
-        // A different interpreter/thread must leave the report for the main one.
-        set_triggered();
-    }
+    let can_handle_signals = vm.is_main_thread() && vm.state.is_main_interpreter();
+    if can_handle_signals {
+        let signal_handlers = vm
+            .signal_handlers
+            .get()
+            .expect("should never fail since we check above");
 
-    let signal_handlers = vm
-        .signal_handlers
-        .get()
-        .expect("should never fail since we check above");
+        for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
+            let triggered = trigger.swap(false, Ordering::Relaxed);
+            if !triggered {
+                continue;
+            }
 
-    for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-        let triggered = trigger.swap(false, Ordering::Relaxed);
-        if !triggered {
-            continue;
+            // SAFETY: TRIGGERS has the same length as the signal_handlers
+            let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
+
+            // Read the handler out and drop the borrow before running it. A
+            // handler is free to call signal.signal(), which takes the same cell
+            // mutably, and a live read borrow turns that into a panic.
+            let handler = signal_handlers.borrow()[signum].clone();
+
+            if let Some(handler) = handler
+                && let Some(callable) = handler.to_callable()
+                && let Err(exc) = callable.invoke((signum.as_i32(), vm.ctx.none()), vm)
+            {
+                // On error, re-schedule a call to trigger_signals() for the
+                // remaining signals and the pending wakeup errors.
+                set_triggered();
+                return Err(exc);
+            }
         }
-
-        // SAFETY: TRIGGERS has the same length as the signal_handlers
-        let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
-
-        // Read the handler out and drop the borrow before running it. A
-        // handler is free to call signal.signal(), which takes the same cell
-        // mutably, and a live read borrow turns that into a panic.
-        let handler = signal_handlers.borrow()[signum].clone();
-
-        if let Some(handler) = handler
-            && let Some(callable) = handler.to_callable()
-        {
-            callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
+    } else {
+        let os_signals_pending = TRIGGERS
+            .iter()
+            .skip(1)
+            .any(|trigger| trigger.load(Ordering::Relaxed));
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        let os_signals_pending =
+            os_signals_pending || crate::stdlib::_signal::_signal::wakeup_errors_pending();
+        if os_signals_pending {
+            // Leave OS signals for the main interpreter's main thread. Re-arm
+            // before running VM-local callbacks, which may raise.
+            set_triggered();
         }
     }
 
     if let Some(signal_rx) = &vm.signal_rx {
         for f in signal_rx.rx.try_iter() {
-            f(vm)?;
+            if let Err(exc) = f(vm) {
+                set_triggered();
+                return Err(exc);
+            }
         }
+    }
+
+    // Wakeup fd errors are pending calls that only the main interpreter's
+    // main thread runs.
+    #[cfg(all(feature = "host_env", any(unix, windows)))]
+    if can_handle_signals {
+        crate::stdlib::_signal::_signal::report_wakeup_errors(vm);
     }
 
     Ok(())

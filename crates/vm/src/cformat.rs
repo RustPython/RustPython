@@ -19,7 +19,7 @@ use crate::{
             FormatChar, consume_length, parse_flags, parse_format_type, parse_precision,
             parse_quantity, parse_spec_mapping_key,
         },
-        wtf8::{CodePoint, Wtf8, Wtf8Buf},
+        wtf8::{CodePoint, Wtf8, Wtf8Buf, wtf8_concat},
     },
     function::ArgIntoFloat,
     protocol::{BufferFlags, PyBuffer},
@@ -34,24 +34,24 @@ enum FormatArg<'a> {
 }
 
 impl FormatArg<'_> {
-    fn message(self, vm: &VirtualMachine, message: String) -> PyResult<String> {
+    fn message(self, vm: &VirtualMachine, message: Wtf8Buf) -> PyResult<Wtf8Buf> {
         let context = match self {
-            Self::Single => "format argument".to_owned(),
-            Self::Tuple(index) => format!("format argument {index}"),
-            Self::Mapping(key) => format!("format argument {}", key.repr(vm)?),
+            Self::Single => Wtf8Buf::from("format argument"),
+            Self::Tuple(index) => wtf8_concat!("format argument ", index),
+            Self::Mapping(key) => wtf8_concat!("format argument ", key.repr(vm)?.as_wtf8()),
         };
-        Ok(format!("{context}: {message}"))
+        Ok(wtf8_concat!(context, ": ", message))
     }
 
-    fn type_error(self, vm: &VirtualMachine, message: String) -> PyBaseExceptionRef {
-        match self.message(vm, message) {
+    fn type_error(self, vm: &VirtualMachine, message: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
+        match self.message(vm, message.into()) {
             Ok(message) => vm.new_type_error(message),
             Err(error) => error,
         }
     }
 
     fn overflow_error(self, vm: &VirtualMachine, message: String) -> PyBaseExceptionRef {
-        match self.message(vm, message) {
+        match self.message(vm, message.into()) {
             Ok(message) => vm.new_overflow_error(message),
             Err(error) => error,
         }
@@ -76,9 +76,13 @@ fn format_number_error(
     };
     arg.type_error(
         vm,
-        format!(
-            "%{} requires {required}, not {type_name}",
-            spec.format_type.to_char()
+        wtf8_concat!(
+            "%",
+            spec.format_type.to_char(),
+            " requires ",
+            required,
+            ", not ",
+            type_name
         ),
     )
 }
@@ -161,7 +165,10 @@ fn format_character_error(
                     .map(|b| format!("a bytearray object of length {}", b.borrow_buf().len()))
             }),
     };
-    let what = match what.map_or_else(|| obj.class().fully_qualified_name(vm), Ok) {
+    let what = match what.map_or_else(
+        || obj.class().fully_qualified_name(vm),
+        |what| Ok(what.into()),
+    ) {
         Ok(what) => what,
         Err(error) => return error,
     };
@@ -169,7 +176,7 @@ fn format_character_error(
         CFormatContext::Str => "an integer or a unicode character",
         CFormatContext::Bytes => "an integer in range(256) or a single byte",
     };
-    arg.type_error(vm, format!("%c requires {required}, not {what}"))
+    arg.type_error(vm, wtf8_concat!("%c requires ", required, ", not ", what))
 }
 
 fn spec_format_bytes(
@@ -203,8 +210,10 @@ fn spec_format_bytes(
                         obj.class().fully_qualified_name(vm),
                         bytes.class().fully_qualified_name(vm),
                     ) {
-                        (Ok(source), Ok(result)) => vm.new_type_error(format!(
-                            "{source}.__bytes__() must return a bytes, not {result}"
+                        (Ok(source), Ok(result)) => vm.new_type_error(wtf8_concat!(
+                            source,
+                            ".__bytes__() must return a bytes, not ",
+                            result
                         )),
                         (Err(error), _) | (_, Err(error)) => error,
                     }
@@ -215,9 +224,8 @@ fn spec_format_bytes(
                 let buffer = PyBuffer::from_object(vm, &obj, BufferFlags::FULL_RO)?;
                 return Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)));
             }
-            let msg = format!(
-                "%b requires a bytes-like object, or an object that \
-                    implements __bytes__, not {}",
+            let msg = wtf8_concat!(
+                "%b requires a bytes-like object, or an object that implements __bytes__, not ",
                 obj.class().fully_qualified_name(vm)?
             );
             Err(arg.type_error(vm, msg))
@@ -410,8 +418,8 @@ impl<'a> FormatValues<'a> {
         let Some(value_int) = value.downcast_ref::<PyInt>() else {
             return Err(arg.type_error(
                 vm,
-                format!(
-                    "* requires int, not {}",
+                wtf8_concat!(
+                    "* requires int, not ",
                     value.class().fully_qualified_name(vm)?
                 ),
             ));
@@ -602,8 +610,8 @@ fn cformat<S: FormatOutput>(
             .peek()
             .is_some_and(|(_, character)| character.eq_char('('));
         if keyed && !is_mapping {
-            return Err(vm.new_type_error(format!(
-                "format requires a mapping, not {}",
+            return Err(vm.new_type_error(wtf8_concat!(
+                "format requires a mapping, not ",
                 values_obj.class().fully_qualified_name(vm)?
             )));
         }

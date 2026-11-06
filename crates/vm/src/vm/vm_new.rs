@@ -63,19 +63,36 @@ impl VirtualMachine {
         value.into_pytuple(self)
     }
 
+    /// Create a native module from a dictionary that cannot invoke failing callbacks.
+    /// Use `try_new_module` for dictionaries exposed to Python code.
     pub fn new_module(
         &self,
         name: &str,
         dict: PyDictRef,
         doc: Option<PyStrRef>,
     ) -> PyRef<PyModule> {
+        self.try_new_module(name, dict, doc)
+            .expect("Failed to initialize a native module dictionary")
+    }
+
+    /// Create a module, propagating errors from its initial dictionary writes.
+    pub fn try_new_module(
+        &self,
+        name: &str,
+        dict: PyDictRef,
+        doc: Option<PyStrRef>,
+    ) -> PyResult<PyRef<PyModule>> {
         let module = PyRef::new_ref(
             PyModule::new(),
             self.ctx.types.module_type.to_owned(),
             Some(dict),
         );
-        module.init_dict(self.ctx.intern_str(name), doc, self);
-        module
+        module.init_dict(
+            self.ctx.intern_str(name),
+            doc.as_ref().map(|doc| doc.as_object()),
+            self,
+        )?;
+        Ok(module)
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
@@ -111,6 +128,19 @@ impl VirtualMachine {
             main_module
         };
         self.set_main_builtin_importer(&module.dict())?;
+        Ok(module)
+    }
+
+    /// PyImport_AddModuleRef("__main__")
+    pub fn add_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        if let Ok(module) = modules.get_item(identifier!(self, __main__), self)
+            && let Ok(module) = module.downcast::<PyModule>()
+        {
+            return Ok(module);
+        }
+        let module = self.new_module("__main__", self.ctx.new_dict(), None);
+        modules.set_item(identifier!(self, __main__), module.clone().into(), self)?;
         Ok(module)
     }
 
@@ -459,6 +489,17 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        self.new_syntax_error_with_filename(error, source, allow_incomplete, None)
+    }
+
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub(super) fn new_syntax_error_with_filename(
+        &self,
+        error: &crate::compiler::CompileError,
+        source: Option<&str>,
+        allow_incomplete: bool,
+        filename: Option<&Py<crate::builtins::PyStr>>,
+    ) -> PyBaseExceptionRef {
         if matches!(
             error,
             crate::compiler::CompileError::Codegen(crate::compiler::codegen::error::CodegenError {
@@ -547,6 +588,19 @@ impl VirtualMachine {
                     self.ctx.exceptions.indentation_error
                 }
             }
+            // _is_end_of_source: the parser failed at the end of the input,
+            // where more input can still follow.
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error,
+                raw_location,
+                ..
+            }) if !matches!(error, ParseErrorType::Lexical(_))
+                && source
+                    .is_some_and(|source| raw_location.start().to_usize() >= source.len()) =>
+            {
+                incomplete_or_syntax(allow_incomplete)
+            }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
@@ -588,8 +642,23 @@ impl VirtualMachine {
         // Tokenizer/parser errors attach the current source line. Compiler
         // errors load that line with ProgramText, which is None when the
         // filename cannot be opened (compile of a string).
-        let mut statement = if matches!(error, crate::compiler::CompileError::Codegen(_)) {
-            self.program_text(error.source_path(), error.python_location().0)
+        let eof_token = match error {
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                eof_token: Some(eof_token),
+                ..
+            }) => Some(eof_token),
+            _ => None,
+        };
+        let mut statement = if let Some(eof_token) = eof_token {
+            Some(eof_token.line.clone())
+        } else if matches!(error, crate::compiler::CompileError::Codegen(_)) {
+            match filename {
+                Some(filename) => self
+                    .fsencode(filename)
+                    .ok()
+                    .and_then(|path| self.program_text(path, error.python_location().0)),
+                None => self.program_text(error.source_path(), error.python_location().0),
+            }
         } else {
             source.and_then(|src| get_statement(src, error.location()))
         };
@@ -701,7 +770,9 @@ impl VirtualMachine {
                         .as_deref()
                         .and_then(|line| line.chars().next())
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
-            let (end_lineno, end_offset) = if no_end_offset {
+            let (end_lineno, end_offset) = if let Some(eof_token) = eof_token {
+                (eof_token.lineno, eof_token.end_offset())
+            } else if no_end_offset {
                 (end_lineno, -1)
             } else if let Some(end_offset) = tokenizer_end_offset {
                 (end_lineno, end_offset)
@@ -726,7 +797,9 @@ impl VirtualMachine {
         set_attrs!(
             syntax_error.as_object(), self, unwrap,
             "text" => statement.to_pyobject(self),
-            "filename" => self.ctx.new_str(error.source_path())
+            "filename" => filename.map_or_else(
+                || self.ctx.new_str(error.source_path()), ToOwned::to_owned,
+            )
         );
 
         // Set _metadata for keyword typo suggestions in traceback module.

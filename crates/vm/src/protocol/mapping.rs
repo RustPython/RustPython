@@ -1,4 +1,5 @@
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::wtf8::wtf8_concat;
 
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
@@ -212,21 +213,36 @@ impl PyMapping<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         let meth_output = vm.call_method(self.obj, method_name.as_str(), ())?;
-        if meth_output.is(vm.ctx.types.list_type) {
+        self.collect_method_output(method_name, meth_output, vm)
+    }
+
+    pub(crate) fn collect_method_output(
+        self,
+        method_name: &'static PyStrInterned,
+        meth_output: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if meth_output.class().is(vm.ctx.types.list_type) {
             return Ok(meth_output);
         }
 
-        let iter = meth_output.get_iter(vm).map_err(|_| {
-            vm.new_type_error(format!(
-                "{}.{}() returned a non-iterable (type {})",
-                self.obj.class().slot_name(),
-                method_name.as_str(),
-                meth_output.class().slot_name()
-            ))
-        })?;
+        let iter = match meth_output.get_iter(vm) {
+            Ok(iter) => iter,
+            Err(error) if error.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                return Err(vm.new_type_error(wtf8_concat!(
+                    self.obj.class().fully_qualified_name(vm)?,
+                    ".",
+                    method_name.as_str(),
+                    "() must return an iterable, not ",
+                    meth_output.class().fully_qualified_name(vm)?
+                )));
+            }
+            Err(error) => return Err(error),
+        };
 
-        // TODO
-        // PySequence::from(&iter).list(vm).map(|x| x.into())
-        vm.ctx.new_list(iter.try_to_value(vm)?).to_pyresult(vm)
+        drop(meth_output);
+        let result = vm.ctx.new_list(Vec::new());
+        result.extend(iter.into(), vm)?;
+        Ok(result.into())
     }
 }

@@ -1779,7 +1779,6 @@ class TestSpecial(unittest.TestCase):
         self.assertIs(ThreePart((3, 3.0, 'three')), ThreePart.THREE)
         self.assertIs(ThreePart(3, 3.0, 'three'), ThreePart.THREE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
     @reraise_if_not_enum(IntStooges)
     def test_intenum_from_bytes(self):
         self.assertIs(IntStooges.from_bytes(b'\x00\x03', 'big'), IntStooges.MOE)

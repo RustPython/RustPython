@@ -22,6 +22,7 @@ pub struct ProtocolSettings {
     pub versions: &'static [&'static rustls::SupportedProtocolVersion],
     pub kx_groups: Option<Vec<&'static dyn rustls::crypto::SupportedKxGroup>>,
     pub cipher_suites: Option<Vec<rustls::SupportedCipherSuite>>,
+    pub server_sigalgs: Option<Vec<rustls::SignatureScheme>>,
     pub alpn_protocols: Vec<Vec<u8>>,
 }
 
@@ -176,12 +177,27 @@ pub fn create_server_config(options: ServerConfigOptions) -> Result<chain::Serve
     // Add certificate
     let mut config = if let Some(resolver) = options.cert_resolver {
         // Use custom cert resolver (e.g., for SNI)
+        let resolver = if let Some(schemes) = options.protocol_settings.server_sigalgs.clone() {
+            Arc::new(super::sigalg::ServerResolver {
+                inner: resolver,
+                schemes,
+            }) as Arc<dyn ResolvesServerCert>
+        } else {
+            resolver
+        };
         builder.with_cert_resolver(resolver)
     } else {
         // Use single certificate
-        builder
-            .with_single_cert(options.cert_chain, options.private_key)
-            .map_err(|e| format!("Failed to set server certificate: {e}"))?
+        let key = CertifiedKey::from_der(
+            options.cert_chain,
+            options.private_key,
+            CryptoExt::get_provider(),
+        )
+        .map_err(|e| format!("Failed to set server certificate: {e}"))?;
+        builder.with_cert_resolver(Arc::new(MultiCertResolver::new(
+            vec![Arc::new(key)],
+            options.protocol_settings.server_sigalgs.as_deref(),
+        )))
     };
 
     // Set ALPN protocols with fallback
@@ -432,6 +448,15 @@ pub fn create_client_config(options: ClientConfigOptions) -> Result<chain::Clien
         Arc::new(NoVerifier)
     };
 
+    let verifier = if let Some(schemes) = options.protocol_settings.server_sigalgs {
+        Arc::new(super::sigalg::ServerVerifier {
+            inner: verifier,
+            schemes,
+        }) as Arc<dyn rustls::client::danger::ServerCertVerifier>
+    } else {
+        verifier
+    };
+
     // Step 2: Create ClientConfig builder once with the selected verifier
     let builder = ClientConfig::builder_with_provider(custom_provider)
         .with_protocol_versions(options.protocol_settings.versions)
@@ -481,7 +506,15 @@ pub struct MultiCertResolver {
 
 impl MultiCertResolver {
     /// Create a new multi-certificate resolver
-    pub fn new(cert_keys: Vec<Arc<CertifiedKey>>) -> Self {
+    pub fn new(
+        mut cert_keys: Vec<Arc<CertifiedKey>>,
+        schemes: Option<&[rustls::SignatureScheme]>,
+    ) -> Self {
+        if let Some(schemes) = schemes {
+            for key in &mut cert_keys {
+                *key = super::sigalg::restrict_key(key, schemes);
+            }
+        }
         Self { cert_keys }
     }
 }

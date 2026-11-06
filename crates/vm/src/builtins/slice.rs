@@ -187,20 +187,18 @@ impl PySlice {
 
         Ok((start, stop, step))
     }
-
-    // TODO: Uncomment when Python adds __class_getitem__ to slice
-    // #[pyclassmethod]
-    fn __class_getitem__(
-        cls: PyTypeRef,
-        args: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
 }
 
 #[pyclass(with(Comparable, Representable, Hashable))]
 impl Py<PySlice> {
+    #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
+    }
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: PySlice = match args.args.len() {

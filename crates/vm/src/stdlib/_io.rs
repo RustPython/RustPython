@@ -26,6 +26,32 @@ use crate::{
 pub use _io::{OpenArgs, io_open as open};
 use rustpython_host_env::io as host_io;
 
+/// Mirror the file descriptor conversion used by FileIO and WindowsConsoleIO.
+#[cfg(feature = "host_env")]
+fn open_file_descriptor(name: &PyObject, vm: &VirtualMachine) -> PyResult<Option<i32>> {
+    if name.class().is(vm.ctx.types.bool_type) {
+        crate::stdlib::_warnings::warn(
+            vm.ctx.exceptions.runtime_warning,
+            "bool is used as a file descriptor".to_owned(),
+            1,
+            vm,
+        )?;
+    }
+    // CPython clears failed integer conversions and then tries a path. Do not
+    // turn a failed conversion into a negative descriptor error.
+    let fd = if let Some(i) = name.downcast_ref::<crate::builtins::PyInt>() {
+        i.try_to_primitive::<i32>(vm).ok()
+    } else {
+        name.try_index_opt(vm)
+            .and_then(Result::ok)
+            .and_then(|i| i.try_to_primitive::<i32>(vm).ok())
+    };
+    if fd.is_some_and(|fd| fd < 0) {
+        return Err(vm.new_value_error("negative file descriptor"));
+    }
+    Ok(fd)
+}
+
 fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
 }
@@ -68,6 +94,14 @@ pub struct Fildes(pub i32);
 impl TryFromObject for Fildes {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         use crate::builtins::int;
+        if obj.class().is(vm.ctx.types.bool_type) {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                "bool is used as a file descriptor".to_owned(),
+                1,
+                vm,
+            )?;
+        }
         let int = match obj.downcast::<int::PyInt>() {
             Ok(i) => i,
             Err(obj) => {
@@ -520,7 +554,7 @@ mod _io {
 
     #[pyclass(
         with(IterNext, Iterable, Destructor),
-        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF, HEAPTYPE)
     )]
     impl _IOBase {
         #[pymethod]
@@ -3906,6 +3940,15 @@ mod _io {
                 }
             } else {
                 let bytes = vm.call_method(&buffer, "read", ())?;
+                if vm.is_none(&bytes) {
+                    return Err(vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            None,
+                            "Read returned None.",
+                        )
+                        .upcast());
+                }
                 let decoded = vm.call_method(&decoder, "decode", (bytes, true))?;
                 let decoded = check_decoded(decoded, vm)?;
                 let ret = textio.take_decoded_chars(Some(decoded), vm);
@@ -4855,7 +4898,7 @@ mod _io {
     struct StringIONewArgs {
         // None means an empty buffer.
         #[pyarg(any, optional, py_default = "''")]
-        initial_value: Option<PyStrRef>,
+        initial_value: Option<PyObjectRef>,
 
         // Omitted newline is \n. None selects universal newlines.
         #[pyarg(any, default, py_default = "'\\n'")]
@@ -4885,31 +4928,46 @@ mod _io {
                 initial_value,
                 newline,
             }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<()> {
             let newline = match newline {
                 OptionalArg::Missing => Newlines::Lf,
                 OptionalArg::Present(None) => Newlines::Universal,
                 OptionalArg::Present(Some(newline)) => newline,
             };
+            // Checked here rather than while binding, so a bad newline is reported first.
+            let initial_value = initial_value
+                .map(|value| {
+                    value.downcast::<PyStr>().map_err(|value| {
+                        vm.new_type_error(format!(
+                            "initial_value must be str or None, not {}",
+                            value.class().slot_name()
+                        ))
+                    })
+                })
+                .transpose()?;
             let raw_bytes = initial_value.as_ref().map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
-            *zelf.buffer.write() = StringIOBuffer::new(raw_bytes);
+            let mut buffer = zelf.buffer.write();
+            *buffer = StringIOBuffer::new(raw_bytes);
             zelf.newline.store(newline);
             zelf.seennl.store(SeenNewline::empty());
-            if let Some(initial_value) = initial_value {
+            if let Some(initial_value) = initial_value.as_ref() {
                 zelf.observe_newlines(initial_value.as_wtf8(), newline);
             }
+            zelf.closed.store(false);
             Ok(())
         }
     }
 
     impl StringIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, StringIOBuffer>> {
+            let buffer = self.buffer.write();
             if !self.closed.load() {
-                Ok(self.buffer.write())
+                Ok(buffer)
             } else {
+                drop(buffer);
                 Err(io_closed_error(vm))
             }
         }
@@ -4953,18 +5011,22 @@ mod _io {
     #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF), with(Constructor, Initializer))]
     impl Py<StringIO> {
         #[pymethod]
-        const fn readable(&self) -> bool {
-            true
+        fn readable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.closed.load() {
+                Err(io_closed_error(vm))
+            } else {
+                Ok(true)
+            }
         }
 
         #[pymethod]
-        const fn writable(&self) -> bool {
-            true
+        fn writable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pymethod]
-        const fn seekable(&self) -> bool {
-            true
+        fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pygetset]
@@ -4983,7 +5045,9 @@ mod _io {
 
         #[pymethod]
         fn close(&self) {
+            let mut buffer = self.buffer.write();
             self.closed.store(true);
+            *buffer = StringIOBuffer::new(Vec::new());
         }
 
         // Replace characters in the underlying vector, regardless of their byte widths.
@@ -5141,7 +5205,7 @@ mod _io {
 
             // Set content and position
             let raw_bytes = content.as_bytes().to_vec();
-            let mut buffer = zelf.buffer.write();
+            let mut buffer = zelf.buffer(vm)?;
             *buffer = StringIOBuffer::new(raw_bytes);
             buffer.seek(pos as usize);
             drop(buffer);
@@ -5209,17 +5273,30 @@ mod _io {
 
             let raw_bytes = args
                 .initial_bytes
+                .as_ref()
                 .map_or_else(Vec::new, |input| input.borrow_buf().to_vec());
-            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
+            let mut buffer = zelf.try_resizable(vm)?;
+            *buffer = BufferedIO::new(Cursor::new(raw_bytes));
+            zelf.closed.store(false);
             Ok(())
         }
     }
 
     impl BytesIO {
-        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
-            if !self.closed.load() {
-                Ok(self.buffer.write())
+        fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.closed.load() {
+                Err(vm.new_value_error("I/O operation on closed file."))
             } else {
+                Ok(())
+            }
+        }
+
+        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+            let buffer = self.buffer.write();
+            if !self.closed.load() {
+                Ok(buffer)
+            } else {
+                drop(buffer);
                 Err(io_closed_error(vm))
             }
         }
@@ -5231,18 +5308,19 @@ mod _io {
     )]
     impl Py<BytesIO> {
         #[pymethod]
-        const fn readable(&self) -> bool {
-            true
+        fn readable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.check_closed(vm)?;
+            Ok(true)
         }
 
         #[pymethod]
-        const fn writable(&self) -> bool {
-            true
+        fn writable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pymethod]
-        const fn seekable(&self) -> bool {
-            true
+        fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.readable(vm)
         }
 
         #[pymethod]
@@ -5259,7 +5337,8 @@ mod _io {
             let mut buffer = self.try_resizable(vm)?;
             // Acquiring the buffer can run `__buffer__`, which may have closed us.
             if self.closed.load() {
-                return Err(io_closed_error(vm));
+                drop(buffer);
+                return Err(vm.new_value_error("I/O operation on closed file."));
             }
             b.with_ref(|bytes| buffer.write(bytes))
                 .ok_or_else(|| vm.new_type_error("Error Writing Bytes"))
@@ -5340,6 +5419,10 @@ mod _io {
                 return Err(io_closed_error(vm));
             }
             let mut buffer = self.try_resizable(vm)?;
+            if self.closed.load() {
+                drop(buffer);
+                return Err(io_closed_error(vm));
+            }
             let pos = pos.try_usize(vm)?;
             Ok(buffer.truncate(pos))
         }
@@ -5356,7 +5439,15 @@ mod _io {
                     vm.new_buffer_error("Existing exports of data: object cannot be closed")
                 );
             }
+            let mut buffer = self.buffer.write();
+            if self.exports.load() > 0 {
+                drop(buffer);
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be closed")
+                );
+            }
             self.closed.store(true);
+            *buffer = BufferedIO::new(Cursor::new(Vec::new()));
             Ok(())
         }
 
@@ -5384,42 +5475,63 @@ mod _io {
         #[pymethod]
         fn __setstate__(
             zelf: PyRef<BytesIO>,
-            object: PyTupleRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if zelf.closed.load() {
-                return Err(vm.new_value_error("__setstate__ on closed file"));
+            let type_name = |object: &PyObject| {
+                let name = object.class().slot_name().to_string();
+                name[..name.floor_char_boundary(200.min(name.len()))].to_owned()
+            };
+            let state = object
+                .downcast_ref::<PyTuple>()
+                .filter(|state| state.len() >= 3)
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "{}.__setstate__ argument should be 3-tuple, got {}",
+                        type_name(zelf.as_object()),
+                        type_name(&object),
+                    ))
+                })?;
+
+            // CPython resets the stream before writing the new buffer, even if
+            // validating the content or position subsequently fails.
+            *zelf.try_resizable(vm)? = BufferedIO::new(Cursor::new(Vec::new()));
+            let content = ArgContiguousBytesLike::try_from_object(vm, state.as_slice()[0].clone())?;
+            zelf.write(content, vm)?;
+
+            let position = &state.as_slice()[1];
+            let position = position
+                .downcast_ref::<crate::builtins::PyInt>()
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "second item of state must be an integer, not {}",
+                        type_name(position),
+                    ))
+                })?;
+            let position = position.as_bigint().to_isize().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+            if position < 0 {
+                return Err(vm.new_value_error("position value cannot be negative"));
             }
-            if object.as_slice().len() != 3 {
-                return Err(vm.new_type_error(format!(
-                    "__setstate__ argument should be 3-tuple, got {}",
-                    object.as_slice().len()
-                )));
-            }
+            zelf.buffer.write().cursor.set_position(position as u64);
 
-            let content: PyBytesRef = object.as_slice()[0].clone().try_into_value(vm)?;
-            let pos: u64 = object.as_slice()[1].clone().try_into_value(vm)?;
-            let dict = &object.as_slice()[2];
-
-            // Check exports and set content (like CHECK_EXPORTS)
-            let mut buffer = zelf.try_resizable(vm)?;
-            *buffer = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
-            buffer
-                .seek(SeekFrom::Start(pos))
-                .map_err(|err| os_err(vm, err))?;
-            drop(buffer);
-
-            // Set __dict__ if provided
+            let dict = &state.as_slice()[2];
             if !vm.is_none(dict) {
-                let dict_ref: PyRef<PyDict> = dict.clone().try_into_value(vm)?;
+                let dict = dict.downcast_ref::<PyDict>().ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "third item of state should be a dict, got a {}",
+                        type_name(dict),
+                    ))
+                })?;
                 if let Some(obj_dict) = zelf.as_object().dict() {
-                    obj_dict.clear();
-                    for (key, value) in dict_ref {
-                        obj_dict.set_item(&*key, value, vm)?;
-                    }
+                    obj_dict.merge_object(dict.to_owned().into(), vm)?;
+                } else {
+                    zelf.as_object()
+                        .set_dict(Some(dict.to_owned()))
+                        .map_err(|_| vm.new_attribute_error("This object has no __dict__"))?;
                 }
             }
-
             Ok(())
         }
 
@@ -5437,15 +5549,18 @@ mod _io {
     impl PyRef<BytesIO> {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
+            let storage = self.buffer.read();
             if self.closed.load() {
+                drop(storage);
                 return Err(vm.new_value_error("I/O operation on closed file."));
             }
-            let len = self.buffer.read().cursor.get_ref().len();
+            let len = storage.cursor.get_ref().len();
             let buffer = PyBuffer::new(
-                self.into(),
+                self.clone().into(),
                 BufferDescriptor::simple(len, false),
                 &BYTES_IO_BUFFER_METHODS,
             );
+            drop(storage);
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }
@@ -5700,6 +5815,15 @@ mod _io {
         opts: OpenArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        // Match _io.open: numeric objects go to FileIO unchanged; other
+        // arguments are resolved through the path protocol before mode parsing.
+        let file = if crate::protocol::PyNumber::check(&file) {
+            file
+        } else {
+            // Keep the original argument alive through opening and wrapper setup.
+            FsPath::try_from_path_like(file.as_object().to_owned(), false, vm)?.to_pyobject(vm)
+        };
+
         // mode is optional: 'rt' is the default mode (open from reading text)
         let mode_string = mode.unwrap_or("r");
         let mode = mode_string
@@ -5719,22 +5843,6 @@ mod _io {
             if let Some(msg) = msg {
                 return Err(vm.new_value_error(msg));
             }
-        }
-
-        // Match CPython's _pyio.open (Lib/_pyio.py): resolve PathLike here so
-        // _io.FileIO still receives (and preserves on .name) the raw argument
-        // when called directly.
-        let file = if file.fast_isinstance(vm.ctx.types.int_type) {
-            file
-        } else {
-            FsPath::try_from_path_like(file, true, vm)?.to_pyobject(vm)
-        };
-
-        // check file descriptor validity
-        #[cfg(all(unix, feature = "host_env"))]
-        if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
-            rustpython_host_env::fcntl::validate_fd(fd.as_raw())
-                .map_err(|_| vm.new_last_errno_error())?;
         }
 
         // Construct a RawIO (subclass of RawIOBase)
@@ -5897,8 +6005,8 @@ mod _io {
                     && let Some(code) = crate::frame::current_code()
                     && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
                 {
-                    let path = code.source_path().as_str();
-                    if !path.starts_with(stdlib_dir) {
+                    let path = code.source_path().as_bytes();
+                    if !path.starts_with(stdlib_dir.as_bytes()) {
                         stacklevel = stacklevel.saturating_sub(1);
                     }
                 }
@@ -5918,6 +6026,32 @@ mod _io {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn closed_memory_streams_release_storage() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let text = StringIO {
+                    _base: Default::default(),
+                    buffer: PyRwLock::new(StringIOBuffer::new(vec![b'x'; 1024])),
+                    newline: AtomicCell::new(Newlines::Lf),
+                    seennl: AtomicCell::new(SeenNewline::empty()),
+                    closed: AtomicCell::new(false),
+                };
+                let text = text.into_ref(&vm.ctx);
+                text.close();
+                assert_eq!(text.buffer.read().bytes.cursor.get_ref().capacity(), 0);
+
+                let bytes = BytesIO {
+                    _base: Default::default(),
+                    buffer: PyRwLock::new(BufferedIO::new(Cursor::new(vec![0; 1024]))),
+                    closed: AtomicCell::new(false),
+                    exports: AtomicCell::new(0),
+                };
+                let bytes = bytes.into_ref(&vm.ctx);
+                bytes.close(vm).unwrap();
+                assert_eq!(bytes.buffer.read().cursor.get_ref().capacity(), 0);
+            });
+        }
 
         #[test]
         fn buffered_read() {
@@ -5988,7 +6122,7 @@ mod fileio {
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
-        exceptions::OSErrorBuilder,
+        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgBytesLike, ArgMemoryBuffer},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os,
@@ -6045,21 +6179,10 @@ mod fileio {
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: let atomic_flag_works
             let name = args.file;
-            // Check if bool is used as file descriptor
-            if name.class().is(vm.ctx.types.bool_type) {
-                crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.runtime_warning,
-                    "bool is used as a file descriptor".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
-            let arg_fd = if let Some(i) = name.downcast_ref::<crate::builtins::PyInt>() {
-                let fd = i.try_to_primitive(vm)?;
-                if fd < 0 {
-                    return Err(vm.new_value_error("negative file descriptor"));
-                }
-                Some(fd)
+            let arg_fd = super::open_file_descriptor(&name, vm)?;
+            // Resolve the path before mode validation, even with a custom opener.
+            let mut path = if arg_fd.is_none() {
+                Some(OsPath::try_from_fspath(name.clone(), vm)?)
             } else {
                 None
             };
@@ -6074,7 +6197,7 @@ mod fileio {
             let flags = parsed.flags;
             zelf.mode.store(mode);
 
-            let (fd, filename) = if let Some(fd) = arg_fd {
+            let (fd, _filename) = if let Some(fd) = arg_fd {
                 zelf.closefd.store(args.closefd);
                 (fd, None)
             } else {
@@ -6094,7 +6217,7 @@ mod fileio {
                     }
                     (fd, None)
                 } else {
-                    let path = OsPath::try_from_fspath(name.clone(), vm)?;
+                    let path = path.take().expect("a filename was resolved above");
                     #[cfg(any(unix, target_os = "wasi"))]
                     let raw_path = path.clone().into_cstring(vm)?;
                     #[cfg(windows)]
@@ -6116,8 +6239,6 @@ mod fileio {
             let fd_is_own = arg_fd.is_none();
             zelf.fd.store(fd);
             let fd = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
-            let filename = filename.unwrap_or(OsPathOrFd::Fd(fd));
-
             // TODO: _Py_set_inheritable
 
             match host_io::inspect_file_target(fd) {
@@ -6130,7 +6251,14 @@ mod fileio {
                     if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {
                         zelf.fd.store(-1);
                     }
-                    return Err(OSErrorBuilder::with_filename(&err, filename, vm));
+                    if err.posix_errno() == libc::EBADF {
+                        return Err(err.to_pyexception(vm));
+                    }
+                    // Keep the original name alive through error construction and local cleanup.
+                    return Err(err
+                        .to_os_error_builder(vm)
+                        .filename(name.as_object().to_owned())
+                        .into_pyexception(vm));
                 }
             }
 
@@ -6302,25 +6430,33 @@ mod fileio {
                 bytes.shrink_to_fit();
                 bytes
             } else {
-                let mut bytes = vec![];
-                // Loop on EINTR (PEP 475)
+                let mut bytes = Vec::new();
+                let mut used = 0;
+                // Read one syscall at a time so EINTR reaches the Python
+                // signal handler instead of being retried inside read_to_end.
                 loop {
-                    match vm.allow_threads(|| host_io::read_all(handle, &mut bytes)) {
-                        Ok(()) => break,
-                        Err(e) if host_io::is_interrupted_error(&e) => {
-                            vm.check_signals()?;
-                            continue;
-                        }
-                        // Non-blocking mode: return None if EAGAIN (only if no data read yet)
-                        Err(e) if host_io::is_would_block_error(&e) => {
-                            if bytes.is_empty() {
-                                return Ok(None);
-                            }
-                            break;
-                        }
-                        Err(e) => return Err(FileIO::io_error(zelf, e, vm)),
+                    if used == bytes.len() {
+                        // Match FileIO's amortized growth while leaving at least
+                        // one byte for the read that detects EOF.
+                        let growth = if used > 65_536 { used >> 3 } else { used + 256 }.max(8192);
+                        let size = used.checked_add(growth).filter(|&n| isize::try_from(n).is_ok())
+                            .ok_or_else(|| vm.new_overflow_error(
+                                "unbounded read returned more bytes than a Python bytes object can hold"
+                            ))?;
+                        bytes
+                            .try_reserve_exact(growth)
+                            .map_err(|_| vm.no_memory_error())?;
+                        bytes.resize(size, 0);
+                    }
+                    match FileIO::read_once_into(zelf, handle, &mut bytes[used..], vm)? {
+                        Some(0) => break,
+                        Some(n) => used += n,
+                        None if used == 0 => return Ok(None),
+                        None => break,
                     }
                 }
+                bytes.truncate(used);
+                bytes.shrink_to_fit();
                 bytes
             };
 
@@ -6528,7 +6664,8 @@ mod winconsoleio {
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
-        function::{ArgBytesLike, ArgMemoryBuffer},
+        exceptions::nul_char_error,
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, OptionalArg},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6552,13 +6689,27 @@ mod winconsoleio {
     /// Returns 'r' (input), 'w' (output), 'x' (generic CON), or '\0' (not a console).
     pub(super) fn pyio_get_console_type(path_or_fd: &PyObject, vm: &VirtualMachine) -> char {
         // Try as integer fd first
-        if let Ok(fd) = i32::try_from_object(vm, path_or_fd.to_owned()) {
+        if let Ok(fd) = i32::try_from_object(vm, path_or_fd.to_owned())
+            && fd >= 0
+        {
             return host_nt::console_type_from_fd(fd);
         }
 
         // Try as string path
-        let Ok(name) = path_or_fd.str(vm) else {
+        let Ok(path) = FsPath::try_from_path_like(path_or_fd.to_owned(), true, vm) else {
             return '\0';
+        };
+        let name = match &path {
+            FsPath::Str(name) => name.to_owned(),
+            FsPath::Bytes(_) => {
+                let Ok(path) = path.as_os_str(vm) else {
+                    return '\0';
+                };
+                let Ok(name) = vm.fsdecode(path.into_owned()) else {
+                    return '\0';
+                };
+                name
+            }
         };
         let Some(name_str) = name.to_str() else {
             // Surrogate strings can't be console device names
@@ -6602,8 +6753,8 @@ mod winconsoleio {
     pub(super) struct WindowsConsoleIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
-        #[pyarg(any, default)]
-        mode: Option<PyUtf8StrRef>,
+        #[pyarg(any, optional, py_default = "'r'")]
+        mode: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(any, default = true)]
         closefd: bool,
         #[allow(dead_code)]
@@ -6615,6 +6766,19 @@ mod winconsoleio {
         type Args = WindowsConsoleIOArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let mode_str = match &args.mode {
+                OptionalArg::Present(Some(mode)) => mode.as_str(),
+                OptionalArg::Present(None) => {
+                    return Err(vm.new_type_error(
+                        "_WindowsConsoleIO() argument 'mode' must be str, not None",
+                    ));
+                }
+                OptionalArg::Missing => "r",
+            };
+            if mode_str.contains('\0') {
+                return Err(nul_char_error(vm));
+            }
+
             let nameobj = args.name;
 
             if zelf.fd.load() >= 0 {
@@ -6625,28 +6789,24 @@ mod winconsoleio {
                 }
             }
 
-            // Warn if bool is used as file descriptor
-            if nameobj.class().is(vm.ctx.types.bool_type) {
-                crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.runtime_warning,
-                    "bool is used as a file descriptor".to_owned(),
-                    1,
-                    vm,
-                )?;
-            }
-
-            // Try to get fd from integer
-            let mut fd: i32 = -1;
-            if let Some(i) = nameobj.downcast_ref::<crate::builtins::PyInt>() {
-                fd = i.try_to_primitive::<i32>(vm).unwrap_or(-1);
-                if fd < 0 {
-                    return Err(vm.new_value_error("negative file descriptor"));
-                }
-            }
+            let mut fd = super::open_file_descriptor(&nameobj, vm)?.unwrap_or(-1);
+            let path = if fd < 0 {
+                let path = FsPath::try_from_path_like(nameobj.clone(), true, vm)?;
+                let decoded = match &path {
+                    FsPath::Str(s) => s.to_owned(),
+                    FsPath::Bytes(_) => vm.fsdecode(path.as_os_str(vm)?.into_owned())?,
+                };
+                let wide = decoded
+                    .as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|e| e.to_pyexception(vm))?;
+                let console_type = pyio_get_console_type(decoded.as_object(), vm);
+                Some((wide, console_type))
+            } else {
+                None
+            };
 
             // Parse mode
-            let mode_str: &str = args.mode.as_deref().map_or("r", |s| s.as_str());
-
             let mut rwa = false;
             let mut readable = false;
             let mut writable = false;
@@ -6685,8 +6845,9 @@ mod winconsoleio {
             zelf.writable.store(writable);
 
             if fd < 0 {
-                // Get console type from name
-                console_type = pyio_get_console_type(&nameobj, vm);
+                // The decoded name was resolved before mode validation.
+                let (wide, detected_type) = path.expect("a filename was resolved above");
+                console_type = detected_type;
                 if console_type == 'x' {
                     if writable {
                         console_type = 'w';
@@ -6700,12 +6861,6 @@ mod winconsoleio {
                 if !args.closefd {
                     return Err(vm.new_value_error("Cannot use closefd=False with file name"));
                 }
-
-                let name_str = nameobj.str(vm)?;
-                let wide = name_str
-                    .as_wtf8()
-                    .to_wide_cstring()
-                    .map_err(|e| e.to_pyexception(vm))?;
 
                 fd = host_nt::open_console_path_fd(&wide, writable)
                     .map_err(|err| err.to_pyexception(vm))?;

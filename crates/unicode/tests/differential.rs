@@ -11,7 +11,7 @@
 //! Both data files use the same run-length format: one `predicate` line per
 //! str method, followed by comma-separated hex `start:end` inclusive ranges.
 
-// spell-checker:ignore recategorized recategorizations
+// spell-checker:ignore recategorized recategorizations incb
 
 #[cfg(test)]
 mod tests {
@@ -420,5 +420,86 @@ mod tests {
             }
             panic!("{msg}");
         }
+    }
+
+    #[test]
+    fn unicode17_grapheme_properties_exact_final() {
+        use rustpython_unicode::grapheme;
+        use rustpython_wtf8::CodePoint;
+
+        const MAX: u32 = 0x110000;
+        const REFERENCE: &str = include_str!("data/cpython3.15_graphemes.txt");
+        const GCB: [&str; 14] = [
+            "Other",
+            "Prepend",
+            "CR",
+            "LF",
+            "Control",
+            "Extend",
+            "Regional_Indicator",
+            "SpacingMark",
+            "L",
+            "V",
+            "T",
+            "LV",
+            "LVT",
+            "ZWJ",
+        ];
+        const INCB: [&str; 4] = ["None", "Linker", "Consonant", "Extend"];
+        assert!(REFERENCE.len() <= 1024 * 1024, "oracle size bound");
+        assert_eq!(
+            REFERENCE.lines().next(),
+            Some("# CPython d220409a13b77de7a6c30abe16ea90db01528edc; Unicode 17.0.0"),
+            "wrong reference provenance"
+        );
+        let mut next = 0;
+        let mut rows = 0;
+        let mut mismatches = 0usize;
+        let mut first = Vec::new();
+        for line in REFERENCE.lines().filter(|line| !line.starts_with('#')) {
+            rows += 1;
+            assert!(rows <= 100000, "oracle range count bound");
+            let fields: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(fields.len(), 4, "invalid oracle row");
+            let (start, end) = fields[0].split_once(':').expect("start:end");
+            let start = u32::from_str_radix(start, 16).expect("hex start");
+            let end = u32::from_str_radix(end, 16).expect("hex end");
+            assert_eq!(start, next, "gap, overlap, or unordered oracle range");
+            assert!(start <= end && end < MAX, "invalid oracle range");
+            assert!(
+                GCB.contains(&fields[1]) && INCB.contains(&fields[2]),
+                "invalid property name"
+            );
+            let pictographic = match fields[3] {
+                "0" => false,
+                "1" => true,
+                _ => panic!("invalid Extended_Pictographic value"),
+            };
+            for cp in start..=end {
+                // Includes surrogates; converting through char would lose coverage.
+                let point = CodePoint::from_u32(cp).expect("valid code point");
+                let actual = (
+                    grapheme::grapheme_cluster_break(point),
+                    grapheme::indic_conjunct_break(point),
+                    grapheme::extended_pictographic(point),
+                );
+                let expected = (fields[1], fields[2], pictographic);
+                if actual != expected {
+                    mismatches += 1;
+                    if first.len() < 20 {
+                        first.push(format!("U+{cp:06X}: expected {expected:?}, got {actual:?}"));
+                    }
+                }
+            }
+            next = end + 1;
+        }
+        assert_eq!(next, MAX, "oracle does not cover every code point");
+        assert_eq!(
+            mismatches,
+            0,
+            "first {} mismatches: {}",
+            first.len(),
+            first.join("; ")
+        );
     }
 }

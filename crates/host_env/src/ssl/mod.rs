@@ -33,6 +33,8 @@ pub mod providers;
 #[cfg(feature = "rustls")]
 pub mod session;
 #[cfg(feature = "rustls")]
+pub mod sigalg;
+#[cfg(feature = "rustls")]
 pub mod verify;
 #[cfg(feature = "rustls")]
 pub mod x509;

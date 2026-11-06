@@ -519,8 +519,24 @@ pub fn device_encoding(_fd: i32) -> Option<String> {
     }
 }
 
+/// Terminate the process through the C `exit()`, which runs the C atexit
+/// handlers and flushes C stdio.
 pub fn exit(code: i32) -> ! {
-    // These callers require immediate termination without C exit handlers.
+    cfg_select! {
+        // std::process::exit ends in ExitProcess here, which skips the CRT
+        // atexit handlers and the stdio flush.
+        windows => {
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            unsafe { libc::exit(code) }
+        }
+        _ => std::process::exit(code),
+    }
+}
+
+/// Terminate the process through `_exit()`, without running the C atexit
+/// handlers or flushing C stdio.
+pub fn exit_immediately(code: i32) -> ! {
     cfg_select! {
         any(unix, windows, target_os = "wasi") => unsafe { libc::_exit(code) },
         _ => std::process::exit(code),
@@ -924,7 +940,7 @@ pub fn errno_to_winerror(errno: i32) -> i32 {
 // errno: https://learn.microsoft.com/cpp/c-runtime-library/errno-constants?view=msvc-170
 #[cfg(windows)]
 #[must_use]
-pub fn winerror_to_errno(winerror: i32) -> i32 {
+pub fn winerror_to_errno(mut winerror: i32) -> i32 {
     use libc::*;
     use windows_sys::Win32::{
         Foundation::*,
@@ -934,9 +950,9 @@ pub fn winerror_to_errno(winerror: i32) -> i32 {
         },
     };
     // Unwrap FACILITY_WIN32 HRESULT errors.
-    // if ((winerror & 0xFFFF0000) == 0x80070000) {
-    //     winerror &= 0x0000FFFF;
-    // }
+    if winerror as u32 & 0xffff_0000 == 0x8007_0000 {
+        winerror &= 0xffff;
+    }
 
     // Winsock error codes (10000-11999) are errno values.
     if (10000..12000).contains(&winerror) {

@@ -12,6 +12,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
 pub use super::posix_unix_like::*;
+pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 pub use libc::{c_char, pid_t};
 
@@ -947,6 +948,7 @@ pub fn get_number_of_os_threads() -> isize {
     0
 }
 
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Permissions {
     pub is_readable: bool,
@@ -954,21 +956,8 @@ pub struct Permissions {
     pub is_executable: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AccessError {
-    InvalidMode,
-    Os(i32),
-}
-
-impl From<std::io::Error> for AccessError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Os(value.raw_os_error().unwrap_or(0))
-    }
-}
-
-pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
-
-fn get_permissions(mode: u32) -> Permissions {
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
+const fn get_permissions(mode: u32) -> Permissions {
     Permissions {
         is_readable: mode & 4 != 0,
         is_writable: mode & 2 != 0,
@@ -976,6 +965,7 @@ fn get_permissions(mode: u32) -> Permissions {
     }
 }
 
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
 pub fn get_right_permission(
     mode: u32,
     file_owner: u32,
@@ -1031,29 +1021,37 @@ pub fn getgroups() -> std::io::Result<Vec<u32>> {
     Err(std::io::Error::from_raw_os_error(libc::EOPNOTSUPP))
 }
 
-pub fn check_access(path: &Path, mode: u8) -> Result<bool, AccessError> {
+#[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
+pub fn check_access(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: &Path,
+    mode: u8,
+    effective_ids: bool,
+    follow_symlinks: bool,
+) -> bool {
     use std::os::unix::fs::MetadataExt;
 
     let Some(mode) = AccessMode::from_bits(mode) else {
-        return Err(AccessError::InvalidMode);
+        return false;
     };
 
-    let metadata = match crate::fs::metadata(path) {
-        Ok(m) => m,
-        Err(_) => return Ok(false),
+    let Ok(metadata) = crate::fs::metadata(path) else {
+        return false;
     };
 
     if mode.is_empty() {
-        return Ok(true);
+        return true;
     }
 
-    let perm = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid())?;
+    let Ok(perm) = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid()) else {
+        return false;
+    };
 
     let r_ok = !mode.contains(&crate::os::AccessFlag::R) || perm.is_readable;
     let w_ok = !mode.contains(&crate::os::AccessFlag::W) || perm.is_writable;
     let x_ok = !mode.contains(&crate::os::AccessFlag::X) || perm.is_executable;
 
-    Ok(r_ok && w_ok && x_ok)
+    r_ok && w_ok && x_ok
 }
 
 pub fn close_fds(above: i32, keep: &[BorrowedFd<'_>]) {

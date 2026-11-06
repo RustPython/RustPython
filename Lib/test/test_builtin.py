@@ -1171,7 +1171,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             three_freevars.__globals__,
             closure=my_closure)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: invalid decimal literal
     def test_exec_filter_syntax_warnings_by_module(self):
         filename = support.findfile('test_import/data/syntax_warnings.py')
         with open(filename, 'rb') as f:

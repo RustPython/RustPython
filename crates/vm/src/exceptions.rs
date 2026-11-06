@@ -101,26 +101,115 @@ impl VirtualMachine {
     /// Print exception chain by calling sys.excepthook
     pub fn print_exception(&self, exc: &Py<PyBaseException>) {
         let vm = self;
-        let write_fallback = |exc, errstr| {
-            if let Ok(stderr) = sys::get_stderr(vm) {
-                let mut stderr = py_io::PyWriter(stderr, vm);
-                // if this fails stderr might be closed -- ignore it
-                let _ = writeln!(stderr, "{errstr}");
-                let _ = self.write_exception(&mut stderr, exc);
-            } else {
-                eprintln!("{errstr}\nlost sys.stderr");
-                let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
-            }
-        };
         if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.to_owned());
             if let Err(eh_exc) = excepthook.call((exc_type, exc_val, exc_tb), vm) {
-                write_fallback(&eh_exc, "Error in sys.excepthook:");
-                write_fallback(exc, "Original exception was:");
+                writeln!(sys::PyStderr(vm), "Error in sys.excepthook:");
+                vm.display_exception(&eh_exc);
+                writeln!(sys::PyStderr(vm), "Original exception was:");
+                vm.display_exception(exc);
             }
         } else {
-            write_fallback(exc, "missing sys.excepthook");
+            writeln!(sys::PyStderr(vm), "missing sys.excepthook");
+            vm.display_exception(exc);
         }
+    }
+
+    /// PyErr_Print
+    ///
+    /// Record the exception as `sys.last_exc` and display it through
+    /// `sys.excepthook`. A `SystemExit` exits the process unless inspect mode
+    /// is enabled.
+    pub fn print_uncaught_exception(&self, exc: &Py<PyBaseException>) {
+        self.handle_system_exit(exc);
+        let (exc_type, exc_val, exc_tb) = self.split_exception(exc.to_owned());
+        for (name, value) in [
+            ("last_exc", &exc_val),
+            ("last_type", &exc_type),
+            ("last_value", &exc_val),
+            ("last_traceback", &exc_tb),
+        ] {
+            let _ = self.sys_module.set_attr(name, value.clone(), self);
+        }
+        let hook = self.sys_module.get_attr("excepthook", self).ok();
+        if let Err(audit_exc) = self.audit("sys.excepthook", || {
+            (
+                hook.clone().unwrap_or_else(|| self.ctx.none()),
+                exc_type.clone(),
+                exc_val.clone(),
+                exc_tb.clone(),
+            )
+        }) {
+            if audit_exc.fast_isinstance(self.ctx.exceptions.runtime_error) {
+                return;
+            }
+            self.run_unraisable(
+                audit_exc,
+                Some("Exception ignored in audit hook".to_owned()),
+                self.ctx.none(),
+            );
+        }
+        if let Some(hook) = hook {
+            if let Err(hook_exc) = hook.call((exc_type, exc_val, exc_tb), self) {
+                self.handle_system_exit(&hook_exc);
+                let _ = io::Write::flush(&mut io::stdout());
+                writeln!(sys::PyStderr(self), "Error in sys.excepthook:");
+                self.display_exception(&hook_exc);
+                writeln!(sys::PyStderr(self), "\nOriginal exception was:");
+                self.display_exception(exc);
+            }
+        } else {
+            writeln!(sys::PyStderr(self), "sys.excepthook is missing");
+            self.display_exception(exc);
+        }
+    }
+
+    /// handle_system_exit
+    fn handle_system_exit(&self, exc: &Py<PyBaseException>) {
+        if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(exc) {
+            self.exit_process(exit_code);
+        }
+    }
+
+    /// PyErr_Display
+    ///
+    /// Display `exc` on `sys.stderr`; nothing is written when it is `None`.
+    pub fn display_exception(&self, exc: &Py<PyBaseException>) {
+        let file = self.sys_module.dict().get_item_opt("stderr", self);
+        if let Ok(Some(file)) = &file {
+            if !self.is_none(file) {
+                self.display_exception_to(file, exc);
+            }
+            return;
+        }
+        self.dump_object(exc.as_object());
+        eprintln!("lost sys.stderr");
+        if let Err(err) = file {
+            self.dump_object(err.as_object());
+        }
+    }
+
+    /// _PyErr_Display
+    ///
+    /// Display `exc` through `traceback._print_exception_bltin`, falling back
+    /// to the native printer writing to `file`.
+    pub(crate) fn display_exception_to(&self, file: &PyObject, exc: &Py<PyBaseException>) {
+        if let Ok(print_exception) = self
+            .import("traceback", 0)
+            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
+            && print_exception.is_callable()
+            && print_exception.call((exc.to_owned(),), self).is_ok()
+        {
+            return;
+        }
+        if self
+            .write_exception(&mut py_io::PyWriter(file.to_owned(), self), exc)
+            .is_err()
+        {
+            self.dump_object(exc.as_object());
+            eprintln!("lost sys.stderr");
+        }
+        let _ = self.call_method(file, "flush", ());
     }
 
     pub fn write_exception<W: Write>(
@@ -185,10 +274,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            writeln!(output, "Traceback (most recent call last):")?;
-            for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
-            }
+            write_traceback(output, &tb, vm)?;
         }
 
         let varargs = exc.args();
@@ -424,7 +510,7 @@ impl VirtualMachine {
 #[cfg(feature = "host_env")]
 fn print_source_line<W: Write>(
     output: &mut W,
-    filename: &str,
+    filename: &std::path::Path,
     lineno: usize,
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
@@ -448,22 +534,50 @@ fn print_source_line<W: Write>(
     Ok(())
 }
 
+pub(crate) fn write_traceback<W: Write>(
+    output: &mut W,
+    traceback: &PyTracebackRef,
+    vm: &VirtualMachine,
+) -> Result<(), W::Error> {
+    writeln!(output, "Traceback (most recent call last):")?;
+    for entry in traceback.iter() {
+        write_traceback_entry(output, &entry, vm)?;
+    }
+    Ok(())
+}
+
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
+    vm: &VirtualMachine,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.iframe().code().source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path();
+    // This fallback writer accepts UTF-8, unlike Python's traceback formatter.
+    // Escape lone surrogates as stderr's backslashreplace handler does, rather
+    // than replacing them or letting the interned-string UTF-8 accessor panic.
+    let mut display_filename = String::new();
+    for point in filename.as_wtf8().code_points() {
+        if let Some(ch) = point.to_char() {
+            display_filename.push(ch);
+        } else {
+            display_filename.push_str(&format!("\\u{:04x}", point.to_u32()));
+        }
+    }
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
-        filename.trim_start_matches(r"\\?\"),
+        display_filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
         tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]
-    print_source_line(output, filename, tb_entry.lineno.get())?;
+    if let Ok(path) = vm.fsencode(filename) {
+        print_source_line(output, path.as_ref(), tb_entry.lineno.get())?;
+    }
+    #[cfg(not(feature = "host_env"))]
+    let _ = vm;
 
     Ok(())
 }
@@ -549,6 +663,7 @@ pub struct ExceptionZoo {
     pub attribute_error: &'static Py<PyType>,
     pub buffer_error: &'static Py<PyType>,
     pub eof_error: &'static Py<PyType>,
+    pub import_cycle_error: &'static Py<PyType>,
     pub import_error: &'static Py<PyType>,
     pub module_not_found_error: &'static Py<PyType>,
     pub lookup_error: &'static Py<PyType>,
@@ -645,18 +760,30 @@ impl PyBaseException {
 }
 
 impl PyBaseException {
+    // Replaced references may run Python finalizers. Release their locks
+    // before dropping the old values so those finalizers can reenter safely.
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        *self.traceback.write() = traceback;
+        let old = core::mem::replace(&mut *self.traceback.write(), traceback);
+        drop(old);
     }
 
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
-        let mut c = self.cause.write();
-        self.set_suppress_context(true);
-        *c = cause;
+        let old = {
+            let mut current = self.cause.write();
+            self.set_suppress_context(true);
+            core::mem::replace(&mut *current, cause)
+        };
+        drop(old);
     }
 
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
-        *self.context.write() = context;
+        let old = core::mem::replace(&mut *self.context.write(), context);
+        drop(old);
+    }
+
+    fn set_args_tuple(&self, args: PyTupleRef) {
+        let old = core::mem::replace(&mut *self.args.write(), args);
+        drop(old);
     }
 
     pub(super) fn __suppress_context__(&self) -> bool {
@@ -684,7 +811,7 @@ impl PyBaseException {
 
 #[pyclass(
     with(Py, PyRef, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT)
+    flags(BASETYPE, HAS_DICT, BASE_EXC_SUBCLASS)
 )]
 impl PyBaseException {}
 
@@ -775,7 +902,7 @@ impl Py<PyBaseException> {
         };
         let args: ArgIterable = value.try_into_value(vm)?;
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
+        self.set_args_tuple(PyTuple::new_ref(args, &vm.ctx));
         Ok(())
     }
 
@@ -860,7 +987,7 @@ impl Py<PyBaseException> {
 impl PyRef<PyBaseException> {
     #[pymethod]
     fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
-        *self.traceback.write() = tb;
+        self.set_traceback(tb);
         self
     }
 }
@@ -886,7 +1013,7 @@ impl Initializer for PyBaseException {
     type Args = FuncArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
+        zelf.set_args_tuple(PyTuple::new_ref(args.args, &vm.ctx));
         Ok(())
     }
 }
@@ -926,6 +1053,7 @@ impl ExceptionZoo {
         let eof_error = PyEOFError::init_builtin_type();
 
         let import_error = PyImportError::init_builtin_type();
+        let import_cycle_error = PyImportCycleError::init_builtin_type();
         let module_not_found_error = PyModuleNotFoundError::init_builtin_type();
 
         let lookup_error = PyLookupError::init_builtin_type();
@@ -1010,6 +1138,7 @@ impl ExceptionZoo {
             attribute_error,
             buffer_error,
             eof_error,
+            import_cycle_error,
             import_error,
             module_not_found_error,
             lookup_error,
@@ -1104,6 +1233,7 @@ impl ExceptionZoo {
         extend_exception!(PyEOFError, ctx, excs.eof_error);
 
         extend_exception!(PyImportError, ctx, excs.import_error);
+        extend_exception!(PyImportCycleError, ctx, excs.import_cycle_error);
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
         extend_exception!(PyLookupError, ctx, excs.lookup_error);
@@ -1551,18 +1681,6 @@ impl ToPyException for rustpython_host_env::fcntl::LockfError {
     }
 }
 
-#[cfg(unix)]
-impl ToPyException for rustpython_host_env::posix::AccessError {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        match self {
-            Self::InvalidMode => vm.new_value_error(
-                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
-            ),
-            Self::Os(errno) => std::io::Error::from_raw_os_error(*errno).to_pyexception(vm),
-        }
-    }
-}
-
 #[cfg(all(unix, not(target_os = "redox")))]
 impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -1723,7 +1841,7 @@ pub(super) mod types {
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
-        types::{Constructor, Initializer},
+        types::{Constructor, Initializer, Representable},
     };
     use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
@@ -2112,7 +2230,35 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(with(Constructor, Initializer))]
+    impl Representable for PyImportError {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let base: &Py<PyBaseException> = zelf
+                .as_object()
+                .downcast_ref()
+                .expect("ImportError is a BaseException");
+            let mut has_args = !base.args().is_empty();
+            if zelf.name.load_owned().is_none() && zelf.path.load_owned().is_none() {
+                return PyBaseException::repr_wtf8(base, vm);
+            }
+            let mut result = PyBaseException::repr_wtf8(base, vm)?;
+            result.pop();
+            for (name, field) in [("name", &zelf.name), ("path", &zelf.path)] {
+                if let Some(value) = field.load_owned() {
+                    if has_args {
+                        result.push_str(", ");
+                    }
+                    result.push_str(name);
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
+                    has_args = true;
+                }
+            }
+            result.push_char(')');
+            Ok(result)
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer, Representable))]
     impl PyImportError {
         #[pyslot]
         fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -2202,6 +2348,11 @@ pub(super) mod types {
             unreachable!("slot_init is defined")
         }
     }
+
+    #[pyexception(name, base = PyImportError, ctx = "import_cycle_error", impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyImportCycleError(PyImportError);
 
     #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]
@@ -3636,6 +3787,8 @@ fn check_except_star_type_valid(match_type: &PyObject, vm: &VirtualMachine) -> P
 
 /// Match exception against except* handler type.
 /// Returns (rest, match) tuple.
+/// A caller matching a naked exception must attach the handler-frame
+/// traceback to the resulting wrapper before exposing it.
 pub fn exception_group_match(
     exc_value: &PyObject,
     match_type: &PyObject,
@@ -3658,18 +3811,10 @@ pub fn exception_group_match(
         let matched = if is_eg {
             exc_value.to_owned()
         } else {
-            // Naked exception - wrap it in ExceptionGroup
+            // Naked exception: let BaseExceptionGroup choose the group type.
             let excs = vm.ctx.new_tuple(vec![exc_value.to_owned()]);
-            let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
-            let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
-            // Copy traceback from original exception
-            if let Ok(exc) = exc_value.to_owned().downcast::<types::PyBaseException>()
-                && let Some(tb) = exc.traceback()
-                && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
-            {
-                wrapped_exc.set_traceback(Some(tb));
-            }
-            wrapped
+            let eg_type: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
+            eg_type.call((vm.ctx.new_str(""), excs), vm)?
         };
         return Ok((vm.ctx.none(), matched));
     }
@@ -3764,9 +3909,9 @@ pub fn prep_reraise_star(orig: &PyObject, excs: &PyObject, vm: &VirtualMachine) 
         return Ok(raised.into_iter().next().unwrap());
     }
 
-    // Create new ExceptionGroup for multiple exceptions
+    // Let BaseExceptionGroup select ExceptionGroup when all children permit it.
     let excs_tuple = vm.ctx.new_tuple(raised);
-    let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+    let eg_type: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
     eg_type.call((vm.ctx.new_str(""), excs_tuple), vm)
 }
 

@@ -10,7 +10,8 @@ mod _functools {
         },
         common::{hash::PyHash, lock::PyRwLock},
         function::{
-            Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue, PySetterValue,
+            ArgIntoBool, Callee, Either, FuncArgs, KwArgs, OptionalOption, PosArgs,
+            PyComparisonValue, PySetterValue,
         },
         object::{AsObject, PyAtomicRef, TraverseFn},
         protocol::PyIter,
@@ -34,7 +35,7 @@ mod _functools {
         function: PyObjectRef,
         #[pyarg(positional)]
         iterable: PyIter,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "functools._initial_missing")]
         initial: OptionalOption<PyObjectRef>,
     }
 
@@ -179,16 +180,19 @@ mod _functools {
         }
     }
 
-    // Placeholder singleton for partial arguments
-    // The singleton is stored as _instance on the type class
+    // Keep identity in interpreter state, not on the shared static type.
     #[pyattr]
     #[allow(non_snake_case)]
     fn Placeholder(vm: &VirtualMachine) -> PyObjectRef {
+        let cell = &vm.state.functools_placeholder;
+        if let Some(placeholder) = cell.get() {
+            return placeholder.clone();
+        }
+        // Allocate outside the cell initializer: allocation may trigger GC.
+        // Another thread can publish first; always return the published winner.
         let placeholder = PyPlaceholderType.into_pyobject(vm);
-        // Store the singleton on the type class for slot_new to find
-        let typ = placeholder.class();
-        typ.set_attr(vm.ctx.intern_str("_instance"), placeholder.clone());
-        placeholder
+        let _ = cell.set(placeholder);
+        cell.get().expect("Placeholder was initialized").clone()
     }
 
     #[pyattr]
@@ -199,16 +203,11 @@ mod _functools {
     impl Constructor for PyPlaceholderType {
         type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             if !args.args.is_empty() || !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("_PlaceholderType takes no arguments"));
             }
-            // Return the singleton stored on the type class
-            if let Some(instance) = cls.get_attr(vm.ctx.intern_str("_instance")) {
-                return Ok(instance);
-            }
-            // Fallback: create a new instance (shouldn't happen for base type after module init)
-            Ok(Self.into_pyobject(vm))
+            Ok(Placeholder(vm))
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
@@ -238,7 +237,7 @@ mod _functools {
     }
 
     fn is_placeholder(obj: &PyObject) -> bool {
-        &*obj.class().name() == "_PlaceholderType"
+        obj.downcast_ref::<PyPlaceholderType>().is_some()
     }
 
     fn count_placeholders(args: &[PyObjectRef]) -> usize {
@@ -323,7 +322,7 @@ mod _functools {
             let combined_nargs = combined_args.len();
 
             let kwnames = kwnames.unwrap_or_default();
-            if func.class().slots.vectorcall.load().is_none() {
+            if func.vectorcall_func().is_none() {
                 // FuncArgs callables retain their existing keyword binding path.
                 // In particular, do not introduce vectorcall's hash callbacks
                 // when the wrapped callable does not support vectorcall.
@@ -401,9 +400,9 @@ mod _functools {
             let keywords = zelf.keywords.load_owned();
             let partial_type = zelf.class();
 
-            // Get __dict__ if it exists and is not empty
+            // Preserve the difference between an absent and an allocated empty dict.
             let dict_obj = match zelf.as_object().dict() {
-                Some(dict) if !dict.is_empty() => dict.into(),
+                Some(dict) => dict.into(),
                 _ => vm.ctx.none(),
             };
 
@@ -421,94 +420,71 @@ mod _functools {
 
         #[pymethod]
         fn __setstate__(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let state = object;
-            let state_tuple = state
-                .downcast::<PyTuple>()
-                .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
-
-            if state_tuple.as_slice().len() != 4 {
-                return Err(vm.new_type_error(format!(
-                    "expected 4 items in state, got {}",
-                    state_tuple.as_slice().len()
-                )));
-            }
-
-            let func = &state_tuple.as_slice()[0];
-            let args = &state_tuple.as_slice()[1];
-            let kwds = &state_tuple.as_slice()[2];
-            let dict = &state_tuple.as_slice()[3];
-
+            let invalid_state = || vm.new_type_error("invalid partial state");
+            let state = object.downcast::<PyTuple>().map_err(|_| invalid_state())?;
+            let [func, args, keywords, dict] = state.as_slice() else {
+                return Err(invalid_state());
+            };
             if !func.is_callable() {
-                return Err(vm.new_type_error("invalid partial state"));
+                return Err(invalid_state());
             }
-
-            // Validate that args is a tuple (or subclass)
-            if !args.fast_isinstance(vm.ctx.types.tuple_type) {
-                return Err(vm.new_type_error("invalid partial state"));
-            }
-            // Always convert to base tuple, even if it's a subclass
-            let args_tuple = match args.clone().downcast::<PyTuple>() {
-                Ok(tuple) if tuple.class().is(vm.ctx.types.tuple_type) => tuple,
-                _ => {
-                    // It's a tuple subclass, convert to base tuple
-                    let elements: Vec<PyObjectRef> = args.try_to_value(vm)?;
-                    vm.ctx.new_tuple(elements)
-                }
-            };
-
-            let keywords_dict = if kwds.is(&vm.ctx.none) {
-                vm.ctx.new_dict()
+            let args = args
+                .clone()
+                .downcast::<PyTuple>()
+                .map_err(|_| invalid_state())?;
+            let keywords = if vm.is_none(keywords) {
+                None
             } else {
-                // Always convert to base dict, even if it's a subclass
-                let dict = kwds
-                    .clone()
-                    .downcast::<PyDict>()
-                    .map_err(|_| vm.new_type_error("invalid partial state"))?;
-                if dict.class().is(vm.ctx.types.dict_type) {
-                    // It's already a base dict
-                    dict
-                } else {
-                    // It's a dict subclass, convert to base dict
-                    let new_dict = vm.ctx.new_dict();
-                    for (key, value) in dict {
-                        new_dict.set_item(&*key, value, vm)?;
-                    }
-                    new_dict
-                }
+                Some(
+                    keywords
+                        .clone()
+                        .downcast::<PyDict>()
+                        .map_err(|_| invalid_state())?,
+                )
+            };
+            let dict = if vm.is_none(dict) {
+                None
+            } else {
+                Some(
+                    dict.clone()
+                        .downcast::<PyDict>()
+                        .map_err(|_| invalid_state())?,
+                )
             };
 
-            // Validate no trailing placeholders
-            let args_slice = args_tuple.as_slice();
-            if !args_slice.is_empty() && is_placeholder(args_slice.last().unwrap()) {
+            // Reject invalid state before tuple conversion can execute Python code
+            // or any of the partial's existing fields are replaced.
+            if args
+                .as_slice()
+                .last()
+                .is_some_and(|arg| is_placeholder(arg))
+            {
                 return Err(vm.new_type_error("trailing Placeholders are not allowed"));
             }
-            let phcount = count_placeholders(args_slice);
-
-            zelf.func.store(func.clone());
-            zelf.args.store(args_tuple);
-            zelf.keywords.store(keywords_dict);
-            zelf.phcount.store(phcount, Ordering::Relaxed);
-
-            // Update __dict__ if provided
-            let Some(instance_dict) = zelf.as_object().dict() else {
-                return Ok(());
+            let phcount = count_placeholders(args.as_slice());
+            let args = if args.class().is(vm.ctx.types.tuple_type) {
+                args
+            } else {
+                let elements: Vec<PyObjectRef> = args.as_object().try_to_value(vm)?;
+                vm.ctx.new_tuple(elements)
+            };
+            let keywords = match keywords {
+                None => vm.ctx.new_dict(),
+                Some(dict) if dict.class().is(vm.ctx.types.dict_type) => dict,
+                // Copy the stored entries, including their hashes, without invoking
+                // a dict subclass's protocol or rehashing its keys.
+                Some(dict) => dict.copy().into_ref(&vm.ctx),
             };
 
-            if dict.is(&vm.ctx.none) {
-                // If dict is None, clear the instance dict
-                instance_dict.clear();
-                return Ok(());
-            }
-
-            let dict_obj = dict
-                .clone()
-                .downcast::<PyDict>()
-                .map_err(|_| vm.new_type_error("invalid partial state"))?;
-
-            // Clear existing dict and update with new values
-            instance_dict.clear();
-            for (key, value) in dict_obj {
-                instance_dict.set_item(&*key, value, vm)?;
+            zelf.func.store(func.clone());
+            zelf.args.store(args);
+            zelf.keywords.store(keywords);
+            zelf.phcount.store(phcount, Ordering::Relaxed);
+            // The supplied instance dictionary is installed by identity. Clearing
+            // and updating the old dictionary would mutate external references,
+            // lose an absent dictionary, and erase a state dictionary aliased to it.
+            if let Some(instance_dict) = zelf.as_object().instance_dict() {
+                instance_dict.set(dict);
             }
 
             Ok(())
@@ -538,87 +514,86 @@ mod _functools {
         type Args = PartialSig;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let zelf = Self::py_new_funcargs(args, vm)?;
-            zelf.into_ref_with_type(vm, cls).map(Into::into)
+            let args = args.bind_for(vm, Callee::of::<Self>(vm))?;
+            let payload = Self::py_new(&cls, args, vm)?;
+            // An absent instance dictionary permits nested partial flattening;
+            // allocating even an empty dictionary changes that behavior.
+            payload
+                .into_ref_with_type_lazy_dict(vm, cls)
+                .map(Into::into)
         }
 
-        fn py_new(
-            _cls: &crate::Py<crate::builtins::PyType>,
-            _args: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
-            let Self::Args {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let PartialSig {
                 func,
                 args,
                 keywords,
-            } = _args;
-            let _ = (func, args, keywords);
-            Err(vm.new_type_error("use slot_new"))
-        }
-    }
-
-    impl PyPartial {
-        fn py_new_funcargs(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
-            let (func, args_slice) = args
-                .args
-                .split_first()
-                .ok_or_else(|| vm.new_type_error("partial expected at least 1 argument, got 0"))?;
+            } = args;
+            let args_slice = args.as_ref();
 
             if !func.is_callable() {
                 return Err(vm.new_type_error("the first argument must be callable"));
             }
 
-            // Check for placeholders in kwargs
-            for (key, value) in &args.kwargs {
+            // Check the arguments supplied to this constructor before flattening:
+            // a trailing placeholder is invalid even if the inner partial would
+            // supply a later non-placeholder argument.
+            if args_slice.last().is_some_and(|arg| is_placeholder(arg)) {
+                return Err(vm.new_type_error("trailing Placeholders are not allowed"));
+            }
+            for value in keywords.values() {
                 if is_placeholder(value) {
-                    return Err(vm.new_type_error(format!(
-                        "Placeholder cannot be passed as a keyword argument to partial(). \
-                         Did you mean partial(..., {key}=Placeholder, ...)(value)?"
-                    )));
+                    return Err(
+                        vm.new_type_error("Placeholder cannot be passed as a keyword argument")
+                    );
                 }
             }
 
             // Handle nested partial objects
-            let (final_func, final_args, final_keywords) =
-                if let Some(partial) = func.downcast_ref::<Self>() {
-                    let stored_args_obj = partial.args.load_owned();
-                    let stored_func = partial.func.load_owned();
-                    let stored_keywords = partial.keywords.load_owned();
-                    let stored_args = stored_args_obj.as_slice();
+            let (final_func, final_args, final_keywords) = if let Some(partial) = func
+                .downcast_ref::<Self>()
+                .filter(|_| !func.has_instance_dict())
+            {
+                let stored_args_obj = partial.args.load_owned();
+                let stored_func = partial.func.load_owned();
+                let stored_keywords = partial.keywords.load_owned();
+                let stored_args = stored_args_obj.as_slice();
 
-                    // Merge placeholders: replace placeholders in stored_args with new args
-                    let mut merged_args = Vec::with_capacity(stored_args.len() + args_slice.len());
-                    let mut new_args_iter = args_slice.iter();
+                // Merge placeholders: replace placeholders in stored_args with new args
+                let mut merged_args = Vec::with_capacity(stored_args.len() + args_slice.len());
+                let mut new_args_iter = args_slice.iter();
 
-                    for stored_arg in stored_args {
-                        if is_placeholder(stored_arg) {
-                            // Replace placeholder with next new arg, or keep placeholder
-                            if let Some(new_arg) = new_args_iter.next() {
-                                merged_args.push(new_arg.clone());
-                            } else {
-                                merged_args.push(stored_arg.clone());
-                            }
+                for stored_arg in stored_args {
+                    if is_placeholder(stored_arg) {
+                        // Replace placeholder with next new arg, or keep placeholder
+                        if let Some(new_arg) = new_args_iter.next() {
+                            merged_args.push(new_arg.clone());
                         } else {
                             merged_args.push(stored_arg.clone());
                         }
+                    } else {
+                        merged_args.push(stored_arg.clone());
                     }
-                    // Append remaining new args
-                    merged_args.extend(new_args_iter.cloned());
+                }
+                // Append remaining new args
+                merged_args.extend(new_args_iter.cloned());
 
-                    (stored_func, merged_args, stored_keywords)
-                } else {
-                    (func.clone(), args_slice.to_vec(), vm.ctx.new_dict())
-                };
-
-            // Trailing placeholders are not allowed
-            if !final_args.is_empty() && is_placeholder(final_args.last().unwrap()) {
-                return Err(vm.new_type_error("trailing Placeholders are not allowed"));
-            }
+                // Each partial owns its keyword mapping. Sharing the inner
+                // mapping would make both construction and later mutation of
+                // the outer partial change the inner partial's calls.
+                (
+                    stored_func,
+                    merged_args,
+                    stored_keywords.copy().into_ref(&vm.ctx),
+                )
+            } else {
+                (func, args_slice.to_vec(), vm.ctx.new_dict())
+            };
 
             let phcount = count_placeholders(&final_args);
 
             // Add new keywords
-            for (key, value) in args.kwargs {
+            for (key, value) in keywords {
                 final_keywords.set_item(vm.ctx.intern_str(key), value, vm)?;
             }
 
@@ -802,14 +777,15 @@ mod _functools {
     }
 
     #[derive(FromArgs)]
+    #[from_args(legacy, fname = "lru_cache")]
     pub(super) struct LruCacheWrapperArgs {
-        #[pyarg(positional)]
-        function: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
+        user_function: PyObjectRef,
+        #[pyarg(any)]
         maxsize: Option<isize>,
-        #[pyarg(positional)]
-        typed: bool,
-        #[pyarg(positional)]
+        #[pyarg(any)]
+        typed: ArgIntoBool,
+        #[pyarg(any)]
         cache_info_type: PyObjectRef,
     }
 
@@ -817,16 +793,16 @@ mod _functools {
         type Args = LruCacheWrapperArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            if !args.function.is_callable() {
+            if !args.user_function.is_callable() {
                 return Err(vm.new_type_error("the first argument must be callable"));
             }
             // Negative maxsize is normalized to 0 by `functools.lru_cache` before
             // reaching here, but clamp defensively to match that behavior exactly.
             let maxsize = args.maxsize.map(|n| n.max(0) as usize);
             Ok(Self {
-                func: args.function,
+                func: args.user_function,
                 maxsize,
-                typed: args.typed,
+                typed: args.typed.into_bool(),
                 keyword_marker: vm
                     .ctx
                     .new_base_object(vm.ctx.types.object_type.to_owned(), None),

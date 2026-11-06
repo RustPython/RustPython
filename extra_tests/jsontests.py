@@ -3,14 +3,12 @@ import unittest
 
 from custom_text_test_runner import CustomTextTestRunner as Runner
 from test.libregrtest.findtests import findtests
-
-testnames = findtests()
-# idk why this fixes the hanging, if it does
-testnames.remove("test_importlib")
-testnames.insert(0, "test_importlib")
+from test.libregrtest.setup import setup_process
 
 
 def loadTestsOrSkip(loader, name):
+    if not name.startswith("test."):
+        name = "test." + name
     try:
         return loader.loadTestsFromName(name)
     except unittest.SkipTest as exc:
@@ -24,16 +22,25 @@ def loadTestsOrSkip(loader, name):
         return loader.suiteClass((TestClass(name),))
 
 
-loader = unittest.defaultTestLoader
-suite = loader.suiteClass(
-    [loadTestsOrSkip(loader, "test." + name) for name in testnames]
-)
+def main():
+    setup_process()
+    testnames = findtests()
+    # idk why this fixes the hanging, if it does
+    testnames.remove("test_importlib")
+    testnames.insert(0, "test_importlib")
 
-resultsfile = os.path.join(os.path.dirname(__file__), "cpython_tests_results.json")
-if os.path.exists(resultsfile):
-    os.remove(resultsfile)
+    loader = unittest.defaultTestLoader
+    suite = loader.suiteClass([loadTestsOrSkip(loader, name) for name in testnames])
 
-runner = Runner(results_file_path=resultsfile, verbosity=2)
-runner.run(suite)
+    resultsfile = os.path.join(os.path.dirname(__file__), "cpython_tests_results.json")
+    if os.path.exists(resultsfile):
+        os.remove(resultsfile)
 
-print("Done! results are available in", resultsfile)
+    runner = Runner(results_file_path=resultsfile, verbosity=2)
+    runner.run(suite)
+
+    print("Done! results are available in", resultsfile)
+
+
+if __name__ == "__main__":
+    main()

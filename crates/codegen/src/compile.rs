@@ -3683,6 +3683,19 @@ impl<'warnings> Compiler<'warnings> {
         })
     }
 
+    fn import_policy(&mut self, explicit: bool, star: bool) -> u32 {
+        if explicit {
+            1
+        } else if star
+            || self.current_symbol_table().typ != CompilerScope::Module
+            || self.in_exception_handler()
+        {
+            2
+        } else {
+            0
+        }
+    }
+
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {statement:?}");
         let prev_source_range = self.current_source_span;
@@ -3703,7 +3716,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         match &statement {
-            ast::Stmt::Import(ast::StmtImport { names, .. }) => {
+            ast::Stmt::Import(ast::StmtImport { names, is_lazy, .. }) => {
                 // import a, b, c as d
                 for name in names {
                     let name = &name;
@@ -3711,15 +3724,7 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    // force eager import in try/except block
-                    let low = if self.in_exception_handler()
-                        || self.current_symbol_table().typ != CompilerScope::Module
-                    {
-                        2
-                    } else {
-                        0
-                    };
-                    let namei = (self.name(&name.name) << 2) | low;
+                    let namei = (self.name(&name.name) << 2) | self.import_policy(*is_lazy, false);
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3744,6 +3749,7 @@ impl<'warnings> Compiler<'warnings> {
                 level,
                 module,
                 names,
+                is_lazy,
                 ..
             }) => {
                 let import_star = names.first().is_some_and(|n| &n.name == "*");
@@ -3764,16 +3770,8 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                // forced non-lazy import due to try/except or import *
-                let low = if self.in_exception_handler()
-                    || self.current_symbol_table().typ != CompilerScope::Module
-                    || import_star
-                {
-                    2
-                } else {
-                    0
-                };
-                let module_idx = (self.name(module_name) << 2) | low;
+                let module_idx =
+                    (self.name(module_name) << 2) | self.import_policy(*is_lazy, import_star);
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -6148,6 +6146,7 @@ impl<'warnings> Compiler<'warnings> {
         body: &[ast::Stmt],
         type_params: Option<&ast::TypeParams>,
         firstlineno: u32,
+        firstlineno_source_line: u32,
         class_span: CompilerSourceSpan,
     ) -> CompileResult<CodeObject> {
         // 1. Enter class scope
@@ -6164,7 +6163,8 @@ impl<'warnings> Compiler<'warnings> {
         // 2. Set up class namespace
         let doc_span = self.docstring_span(body);
         let (doc_str, body) = split_doc_with_range(body, &self.opts);
-        let class_body_prefix_range = self.source_line_start_range(firstlineno);
+        // The range indexes the source text; firstlineno may come from the location table.
+        let class_body_prefix_range = self.source_line_start_range(firstlineno_source_line);
         let class_body_prefix_span = CompilerSourceSpan {
             range: class_body_prefix_range,
             location: class_span.location.map(|_| SourceLocationRange {
@@ -6341,6 +6341,12 @@ impl<'warnings> Compiler<'warnings> {
                     .get()
                     .to_u32()
             });
+        let firstlineno_source_line = self
+            .source_file
+            .to_source_code()
+            .line_index(firstlineno_span.range.start())
+            .get()
+            .to_u32();
 
         // Save context before entering any scopes
         let saved_ctx = self.ctx;
@@ -6382,8 +6388,14 @@ impl<'warnings> Compiler<'warnings> {
             in_async_scope: false,
         };
         let pre_class_body_symbol_table_cursors = self.current_symbol_table_cursors();
-        let class_code =
-            self.compile_class_body(name, body, type_params, firstlineno, class_source_span)?;
+        let class_code = self.compile_class_body(
+            name,
+            body,
+            type_params,
+            firstlineno,
+            firstlineno_source_line,
+            class_source_span,
+        )?;
         let post_class_body_symbol_table_cursors = self.current_symbol_table_cursors();
         self.set_symbol_table_cursors(pre_class_body_symbol_table_cursors);
         self.ctx = prev_ctx;
@@ -9409,14 +9421,14 @@ impl<'warnings> Compiler<'warnings> {
                     ),
                     generators,
                     &|compiler, collection_add_i| {
-                        compiler.compile_comprehension_element(elt)?;
+                        let unpack = compiler.compile_comprehension_element(elt)?;
                         compiler.set_source_node(elt.range(), elt.node_index());
-                        emit!(
-                            compiler,
-                            Instruction::ListAppend {
-                                i: collection_add_i.to_u32(),
-                            }
-                        );
+                        let i = collection_add_i.to_u32();
+                        if unpack {
+                            emit!(compiler, Instruction::ListExtend { i });
+                        } else {
+                            emit!(compiler, Instruction::ListAppend { i });
+                        }
                         Ok(())
                     },
                     ComprehensionType::List,
@@ -9439,14 +9451,14 @@ impl<'warnings> Compiler<'warnings> {
                     ),
                     generators,
                     &|compiler, collection_add_i| {
-                        compiler.compile_comprehension_element(elt)?;
+                        let unpack = compiler.compile_comprehension_element(elt)?;
                         compiler.set_source_node(elt.range(), elt.node_index());
-                        emit!(
-                            compiler,
-                            Instruction::SetAdd {
-                                i: collection_add_i.to_u32(),
-                            }
-                        );
+                        let i = collection_add_i.to_u32();
+                        if unpack {
+                            emit!(compiler, Instruction::SetUpdate { i });
+                        } else {
+                            emit!(compiler, Instruction::SetAdd { i });
+                        }
                         Ok(())
                     },
                     ComprehensionType::Set,
@@ -9462,11 +9474,9 @@ impl<'warnings> Compiler<'warnings> {
                 generators,
                 ..
             }) => {
-                let Some(key) = key.as_deref() else {
-                    self.restore_source_span(expression_span);
-                    return Err(self.error(CodegenErrorType::SyntaxError(
-                        "dict unpacking cannot be used in dict comprehension".to_owned(),
-                    )));
+                let element_span = match key.as_deref() {
+                    Some(key) => self.dict_comprehension_element_span(key, value)?,
+                    None => self.node_span(value.as_ref()),
                 };
                 self.compile_comprehension(
                     "<dictcomp>",
@@ -9478,29 +9488,30 @@ impl<'warnings> Compiler<'warnings> {
                     ),
                     generators,
                     &|compiler, collection_add_i| {
-                        // changed evaluation order for Py38 named expression PEP 572
-                        compiler.compile_expression(key)?;
+                        // Keys precede values; a missing Ruff key denotes **value.
+                        if let Some(key) = key {
+                            // Changed evaluation order for Py38 named expression PEP 572.
+                            compiler.compile_expression(key)?;
+                        }
                         compiler.compile_expression(value)?;
 
-                        compiler.restore_source_span(
-                            compiler.dict_comprehension_element_span(key, value)?,
-                        );
-                        emit!(
-                            compiler,
-                            Instruction::MapAdd {
-                                i: collection_add_i.to_u32(),
-                            }
-                        );
+                        compiler.restore_source_span(element_span);
+                        let i = collection_add_i.to_u32();
+                        if key.is_some() {
+                            emit!(compiler, Instruction::MapAdd { i });
+                        } else {
+                            emit!(compiler, Instruction::DictUpdate { i });
+                        }
 
                         Ok(())
                     },
                     ComprehensionType::Dict,
-                    Self::contains_await(key)
+                    key.as_deref().is_some_and(Self::contains_await)
                         || Self::contains_await(value)
                         || Self::generators_contain_await(generators),
                     expression_span,
-                    self.dict_comprehension_element_span(key, value)?,
-                    self.node_span(key),
+                    element_span,
+                    self.node_span(key.as_deref().unwrap_or(value)),
                 )?;
             }
             ast::Expr::Generator(ast::ExprGenerator {
@@ -10243,16 +10254,13 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
-        self.compile_expression(element).map_err(|e| {
-            if let CodegenErrorType::InvalidStarExpr = e.error {
-                self.error(CodegenErrorType::SyntaxError(
-                    "iterable unpacking cannot be used in comprehension".to_owned(),
-                ))
-            } else {
-                e
-            }
-        })
+    fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<bool> {
+        let (value, unpack) = match element {
+            ast::Expr::Starred(starred) => (&*starred.value, true),
+            _ => (element, false),
+        };
+        self.compile_expression(value)?;
+        Ok(unpack)
     }
 
     fn compile_generator_expression(
@@ -10273,7 +10281,15 @@ impl<'warnings> Compiler<'warnings> {
                 // Compile the element expression
                 // Note: if element is an async comprehension, compile_expression
                 // already handles awaiting it, so we don't need to await again here
-                compiler.compile_comprehension_element(elt)?;
+                let unpack = compiler.compile_comprehension_element(elt)?;
+                let unpack_loop = unpack.then(|| (compiler.new_block(), compiler.new_block()));
+                if let Some((start, end)) = unpack_loop {
+                    // Unpacking forwards values, not send()/throw() as yield-from would.
+                    compiler.set_source_node(elt.range(), elt.node_index());
+                    emit!(compiler, Instruction::GetIter { mode: 0 });
+                    compiler.use_cpython_label_block(start);
+                    emit!(compiler, Instruction::ForIter { delta: end });
+                }
 
                 compiler.mark_generator();
                 if compiler.ctx.func == FunctionContext::AsyncFunction {
@@ -10295,6 +10311,12 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 );
                 emit!(compiler, Instruction::PopTop);
+                if let Some((start, end)) = unpack_loop {
+                    emit!(compiler, PseudoInstruction::Jump { delta: start });
+                    compiler.set_no_location();
+                    compiler.use_cpython_label_block(end);
+                    compiler.emit_sync_comprehension_end_for();
+                }
 
                 Ok(())
             },
@@ -12290,12 +12312,12 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        // CPython 3.14 ast_preprocess.c::fold_const_match_patterns()
+        // CPython ast_preprocess.c::fold_const_match_patterns()
         // folds only the constant forms needed by match patterns before
         // codegen_pattern_value()/codegen_pattern_mapping_key() visit them.
         Ok(match expr {
             ast::Expr::UnaryOp(ast::ExprUnaryOp {
-                op: ast::UnaryOp::USub,
+                op: op @ (ast::UnaryOp::UAdd | ast::UnaryOp::USub),
                 operand,
                 ..
             }) => {
@@ -12303,7 +12325,11 @@ impl<'warnings> Compiler<'warnings> {
                 else {
                     return Ok(None);
                 };
-                Self::try_negate_match_pattern_constant(constant)
+                if *op == ast::UnaryOp::USub {
+                    Self::try_negate_match_pattern_constant(constant)
+                } else {
+                    Some(constant)
+                }
             }
             ast::Expr::BinOp(ast::ExprBinOp {
                 left, op, right, ..
@@ -12328,7 +12354,7 @@ impl<'warnings> Compiler<'warnings> {
             return Ok(Some(constant));
         }
         let ast::Expr::UnaryOp(ast::ExprUnaryOp {
-            op: ast::UnaryOp::USub,
+            op: op @ (ast::UnaryOp::UAdd | ast::UnaryOp::USub),
             operand,
             ..
         }) = expr
@@ -12338,7 +12364,11 @@ impl<'warnings> Compiler<'warnings> {
         let Some(constant) = self.try_compile_match_pattern_real_constant(operand)? else {
             return Ok(None);
         };
-        Ok(Self::try_negate_match_pattern_constant(constant))
+        Ok(if *op == ast::UnaryOp::USub {
+            Self::try_negate_match_pattern_constant(constant)
+        } else {
+            Some(constant)
+        })
     }
 
     fn try_compile_match_pattern_real_constant(
@@ -13821,18 +13851,13 @@ impl<'warnings> Compiler<'warnings> {
 
             self.compile_expression(&interp.expression)?;
 
-            let expr_range = interp.expression.range();
-            let expr_source = if interp.range.start() < expr_range.start()
-                && interp.range.end() >= expr_range.end()
-            {
-                let after_brace = interp.range.start() + TextSize::new(1);
-                self.source_file
-                    .source_text()
-                    .slice(TextRange::new(after_brace, expr_range.end()))
-            } else {
-                self.source_file.source_text().slice(expr_range)
-            }
-            .to_string();
+            let expr_source = crate::interpolation_expression_text(&self.source_file, interp)
+                .unwrap_or_else(|| {
+                    self.source_file
+                        .source_text()
+                        .slice(interp.expression.range())
+                        .to_owned()
+                });
             self.set_source_node(interp.range, &interp.node_index);
             self.emit_load_const(ConstantData::Str {
                 value: expr_source.into(),
@@ -17289,6 +17314,81 @@ def continues(xs):
     }
 
     #[test]
+    fn class_body_with_table_lines_past_source_text() {
+        let source = "class C:\n    pass\n";
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap();
+        let ast = parsed.into_syntax();
+        let mut locations = AstLocations::default();
+        {
+            let ast::Mod::Module(module) = &ast else {
+                panic!("expected module");
+            };
+            let ast::Stmt::ClassDef(class_def) = &module.body[0] else {
+                panic!("expected ClassDef");
+            };
+            let ast::Stmt::Pass(pass) = &class_def.body[0] else {
+                panic!("expected Pass");
+            };
+
+            let module_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1000,
+                    end_line: 1001,
+                    col: 0,
+                    end_col: 8,
+                }))
+                .unwrap();
+            module.node_index.set(ast::NodeIndex::from(module_id));
+            let class_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1000,
+                    end_line: 1001,
+                    col: 0,
+                    end_col: 8,
+                }))
+                .unwrap();
+            class_def.node_index.set(ast::NodeIndex::from(class_id));
+            let name_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1000,
+                    end_line: 1000,
+                    col: 6,
+                    end_col: 7,
+                }))
+                .unwrap();
+            class_def.name.node_index.set(ast::NodeIndex::from(name_id));
+            let pass_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1001,
+                    end_line: 1001,
+                    col: 4,
+                    end_col: 8,
+                }))
+                .unwrap();
+            pass.node_index.set(ast::NodeIndex::from(pass_id));
+        }
+
+        let code = compile_ast_with_syntax_warning_handler(
+            AstInput {
+                ast,
+                source_file,
+                locations: Some(locations),
+            },
+            Mode::Exec,
+            CompileOpts::default(),
+            None,
+        )
+        .expect("class body with table lines past the source text should compile");
+        let class_code = find_code(&code, "C").expect("missing class code");
+        assert_eq!(class_code.first_line_number.unwrap().get(), 1000);
+    }
+
+    #[test]
     fn decorated_generic_function_type_params_use_decorator_firstlineno_like_cpython() {
         let code = compile_exec(
             "\
@@ -17530,10 +17630,6 @@ class C[T]: pass
     }
 
     #[test]
-    #[expect(
-        clippy::literal_string_with_formatting_args,
-        reason = "the literal is the expected t-string annotation"
-    )]
     fn future_tstring_annotation_preserves_interpolation_source_like_cpython() {
         let code = compile_exec(
             "from __future__ import annotations\nx: t'{a    +  b}'\ny: t'{ a + b }'\nz: f'{a    + b =}'\nu: t'{a    + b =}'\nv: t'{a    + b =:>10}'\np: t'{(a)}'\nq: t'{((a))!r}'\nr: t'{ ((a)) = !r:>10}'\ns: t'{(a)=}'\nt: t'{a == b = }'\na1: t'''{a= # x=y\n}'''\na2: t'''{a # x=y\n}'''\na3: t'''{(a # x=y\n)}'''\na4: t'''{a # x=y\n!r}'''\na5: t'''{a # x=y\n:>10}'''\na6: t'''{'#'}'''\na7: t'''{('#', a) # c=d\n}'''\n",
@@ -17556,22 +17652,22 @@ class C[T]: pass
             annotation_strings,
             [
                 "t'{a    +  b}'",
-                "t'{ a + b}'",
+                "t'{ a + b }'",
                 "f'a    + b ={a + b!r}'",
-                "t'a    + b ={a    + b!r}'",
-                "t'a    + b ={a    + b:>10}'",
+                "t'a    + b ={a    + b !r}'",
+                "t'a    + b ={a    + b :>10}'",
                 "t'{(a)}'",
                 "t'{((a))!r}'",
-                "t' ((a)) = { ((a))!r:>10}'",
+                "t' ((a)) = { ((a)) !r:>10}'",
                 "t'(a)={(a)!r}'",
-                "t'a == b = {a == b!r}'",
+                "t'a == b = {a == b !r}'",
                 "t'a= \\n{a!r}'",
-                "t'{a}'",
+                "t'{a \\n}'",
                 "t'{(a \\n)}'",
-                "t'{a!r}'",
-                "t'{a:>10}'",
+                "t'{a \\n!r}'",
+                "t'{a \\n:>10}'",
                 "t\"{'#'}\"",
-                "t\"{('#', a)}\"",
+                "t\"{('#', a) \\n}\"",
             ]
         );
     }

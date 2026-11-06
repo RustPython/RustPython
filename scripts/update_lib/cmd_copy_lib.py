@@ -8,6 +8,7 @@ Usage:
 
     # Directory
     python scripts/update_lib copy-lib cpython/Lib/json
+
 """
 
 import argparse
@@ -54,6 +55,14 @@ def _copy_single(
         shutil.copy2(src_path, lib_path)
 
 
+def _reject_python_tests(src_path: pathlib.Path, relative: pathlib.Path) -> None:
+    is_test_tree = len(relative.parts) >= 2 and relative.parts[1].casefold() == "test"
+    if is_test_tree and (src_path.is_dir() or src_path.suffix.casefold() == ".py"):
+        raise ValueError(
+            "Use migrate for Python tests; copy-lib would replace Lib/test"
+        )
+
+
 def copy_lib(
     src_path: pathlib.Path,
     verbose: bool = True,
@@ -74,6 +83,16 @@ def copy_lib(
     path_str = str(src_path).replace("\\", "/")
     if "/Lib/" not in path_str:
         raise ValueError(f"Path must contain '/Lib/' (got: {src_path})")
+    if not src_path.exists():
+        raise FileNotFoundError(f"Source path does not exist: {src_path}")
+    relative = parse_lib_path(src_path)
+    _reject_python_tests(src_path, relative)
+
+    # Data files name an exact asset, not the containing top-level module.
+    # Expanding Lib/test/data.txt as "test" would replace the entire test tree.
+    if src_path.is_file() and src_path.suffix != ".py":
+        _copy_single(src_path, relative, verbose)
+        return
 
     cpython_prefix, after_lib = path_str.split("/Lib/", 1)
     # Get module name (first component, without .py)
@@ -84,11 +103,12 @@ def copy_lib(
     # Get all paths to copy from DEPENDENCIES table
     all_src_paths = get_lib_paths(name, cpython_prefix)
 
-    # Copy each file
-    for src in all_src_paths:
-        if src.exists():
-            lib_path = parse_lib_path(src)
-            _copy_single(src, lib_path, verbose)
+    # Validate the entire expansion before removing any destination.
+    plan = [(src, parse_lib_path(src)) for src in all_src_paths if src.exists()]
+    for src, lib_path in plan:
+        _reject_python_tests(src, lib_path)
+    for src, lib_path in plan:
+        _copy_single(src, lib_path, verbose)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -101,7 +121,6 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="Source path containing /Lib/ (e.g., cpython/Lib/dataclasses.py)",
     )
-
     args = parser.parse_args(argv)
 
     try:

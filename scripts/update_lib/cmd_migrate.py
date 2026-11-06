@@ -1,18 +1,32 @@
 #!/usr/bin/env python
 """
-Migrate test file(s) from CPython, preserving RustPython markers.
+Migrate Python Lib files from CPython, preserving explicit local adaptations.
 
 Usage:
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py --patches remaining.json
+    python scripts/update_lib migrate cpython/Lib/example.py --new-file-adaptations new.json
 
 Remaining metadata names the exact repository-relative target and its existing
 decorator patches. An optional "doctests" object selects existing guarded inputs
 by exact source text, mapping each to a single-line reason. Guarded doctests need
 this explicit selection; an empty object retires all their guards. Canonical
-expected output is never copied from the old file.
+expected output is never copied from the old file. Optional "blocks" lists
+[canonical, local] source pairs to preserve exact existing changes.
+Both fragments must match uniquely; no module-specific defaults are inferred.
+Non-marker adaptations require reviewed blocks on each migration, for example
+{"target": "Lib/example.py", "patches": {}, "blocks": [["old = 1", "old = 2"]]}.
+Use a host Python that parses the source version (Python 3.15 for 3.15 syntax),
+as required by the existing marker extraction and application steps.
 
-This will:
+For a new destination only, --new-file-adaptations accepts exactly "target",
+"source_sha256" (the raw canonical file hash), and "blocks". Each canonical
+fragment must occur uniquely, and fragments must not overlap. Only top-level
+imports and existing binding values may change; all class/function bodies are
+preserved. These adaptations still require review: preserving their AST does
+not prove behavioral equivalence. Existing destinations are never overwritten.
+
+Ordinary migration will:
     1. Extract patches from Lib/test/test_foo.py (if exists)
     2. Apply them to cpython/Lib/test/test_foo.py
     3. Write result to Lib/test/test_foo.py
@@ -20,7 +34,6 @@ This will:
 
 import argparse
 import ast
-import builtins
 import collections
 import hashlib
 import json
@@ -32,398 +45,109 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.file_utils import parse_lib_path
 
-SYSCONFIG_UPSTREAM = "def _get_implementation():\n    return 'Python'\n"
-SYSCONFIG_LOCAL = (
-    "def _get_implementation():\n"
-    "    return 'RustPython'  # XXX: RUSTPYTHON; For site-packages\n"
-)
-JIT_ERROR = """# NOTE: RUSTPYTHON exceptions
-try:
-    JitError
-except NameError:
-    pass
-else:
-    PYTHON2_EXCEPTIONS += ("JitError",)
 
-"""
-EXCEPTION_LOOP = """for excname in PYTHON2_EXCEPTIONS:
-    NAME_MAPPING[("exceptions", excname)] = ("builtins", excname)
-"""
+def migrate_new_file(src_path: pathlib.Path, document: dict) -> None:
+    """Introduce reviewed import/binding adaptations into a new canonical file.
 
-
-def _unique_anchor(contents, root, predicate, *, direct=False, exact=None):
-    """Select one real AST anchor, optionally in the immediate owner body."""
-    matches = [node for node in ast.walk(root) if predicate(node)]
-    if (
-        len(matches) != 1
-        or (direct and matches[0] not in root.body)
-        or (exact is not None and ast.get_source_segment(contents, matches[0]) != exact)
-    ):
-        raise ValueError("Missing, changed, or ambiguous migration anchor")
-    return matches[0]
-
-
-def _unique_function(contents: str, expected: str) -> bool:
-    tree = ast.parse(contents)
-    target = ast.parse(expected).body[0]
-    node = _unique_anchor(
-        contents,
-        tree,
-        lambda node: (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == target.name
-        ),
-        direct=True,
-    )
-    return ast.dump(node) == ast.dump(target) and not any(
-        (
-            isinstance(node, ast.Name)
-            and node.id == target.name
-            and isinstance(node.ctx, (ast.Store, ast.Del))
-        )
-        or (isinstance(node, ast.ClassDef) and node.name == target.name)
-        or (
-            isinstance(node, ast.alias)
-            and (node.asname or node.name.split(".")[0]) == target.name
-        )
-        for node in ast.walk(tree)
-    )
-
-
-def _exception_loop(contents: str) -> bool:
-    _unique_anchor(
-        contents,
-        ast.parse(contents),
-        lambda node: (
-            isinstance(node, ast.For)
-            and isinstance(node.iter, ast.Name)
-            and node.iter.id == "PYTHON2_EXCEPTIONS"
-        ),
-        direct=True,
-        exact=EXCEPTION_LOOP.rstrip(),
-    )
-    return True
-
-
-def _jit_block(contents: str) -> bool:
-    tree = ast.parse(contents)
-    expected = ast.dump(ast.parse(JIT_ERROR).body[0])
-    _unique_anchor(contents, tree, lambda node: ast.dump(node) == expected, direct=True)
-    return (
-        sum(
-            isinstance(node, ast.Name) and node.id == "JitError"
-            for node in ast.walk(tree)
-        )
-        == 1
-    )
-
-
-def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) -> str:
-    """Fail closed if either known local patch or its canonical anchor changes."""
-    parts = path.parts
-    if path.is_absolute():
-        raise ValueError("Runtime patch target must be repository-relative")
-    if parts == ("Lib", "sysconfig", "__init__.py"):
-        if old.count(SYSCONFIG_LOCAL) != 1 or not _unique_function(
-            old, SYSCONFIG_LOCAL
-        ):
-            raise ValueError("Unrecognized sysconfig implementation identity")
-        if (
-            new.count(SYSCONFIG_UPSTREAM) != 1
-            or not _unique_function(new, SYSCONFIG_UPSTREAM)
-            or "RustPython" in new
-        ):
-            raise ValueError("Unrecognized canonical sysconfig implementation anchor")
-        return new.replace(SYSCONFIG_UPSTREAM, SYSCONFIG_LOCAL, 1)
-    if parts == ("Lib", "_compat_pickle.py"):
-        if (
-            old.count(JIT_ERROR + EXCEPTION_LOOP) != 1
-            or not _jit_block(old)
-            or not _exception_loop(old)
-        ):
-            raise ValueError("Unrecognized local JitError compatibility mapping")
-        if (
-            new.count(EXCEPTION_LOOP) != 1
-            or not _exception_loop(new)
-            or "JitError" in new
-        ):
-            raise ValueError("Unrecognized canonical exception mapping anchor")
-        return new.replace(EXCEPTION_LOOP, JIT_ERROR + EXCEPTION_LOOP, 1)
-    if parts == ("Lib", "test", "test_cmd_line.py"):
-        _verify_call(old, LOCAL_CALL)
-        _verify_call(new, CANONICAL_CALL)
-        return new.replace(CANONICAL_CALL, LOCAL_CALL, 1)
-    return new
-
-
-CANONICAL_CALL = """assert_python_ok('-c', code, PYTHONPATH="")"""
-LOCAL_CALL = """assert_python_ok('-c', code, PYTHONPATH="", RUSTPYTHONPATH="")"""
-
-
-def _verify_call(contents: str, expected: str) -> None:
-    tree = ast.parse(contents)
-    owner = _unique_anchor(
-        contents,
-        tree,
-        lambda node: isinstance(node, ast.ClassDef) and node.name == "CmdLineTest",
-        direct=True,
-    )
-    method = _unique_anchor(
-        contents,
-        owner,
-        lambda node: (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "test_empty_PYTHONPATH_issue16309"
-        ),
-        direct=True,
-    )
-    target = ast.dump(ast.parse(expected, mode="eval").body)
-    _unique_anchor(
-        contents,
-        method,
-        lambda node: isinstance(node, ast.Call) and ast.dump(node) == target,
-        exact=expected,
-    )
-    if contents.count(expected) != 1:
-        raise ValueError("Ambiguous environment-reset call text")
-
-
-def copy_support_assignments(source, destination, names, exports):
-    """Copy contiguous canonical assignments and export lines, failing closed.
-
-    Only additions are supported. Dependencies must already be imported with the
-    same bindings, or be builtins/earlier selected assignments. The next unchanged
-    top-level statement is the insertion anchor; unrelated bytes stay untouched.
+    This opt-in path never overwrites an existing destination or changes the
+    preservation rules of ordinary migrations. Metadata pins the raw source
+    hash and exact target; all fragments are validated before any write.
+    Import and binding values still require review: AST preservation alone does
+    not establish behavioral equivalence of the adapted module.
     """
-    if (
-        not names
-        or len(set(names)) != len(names)
-        or not all(name.isidentifier() for name in names)
-    ):
-        raise ValueError("Assignment names must be unique identifiers")
-    if len(set(exports)) != len(exports) or not set(exports) <= set(names):
-        raise ValueError("Exports must be unique selected assignment names")
-    src, dst = ast.parse(source), ast.parse(destination)
-
-    def assignment(tree, name):
-        matches = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Store)
-            and node.id == name
-        ]
-        nodes = [
-            node
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ]
-        rebound = any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node.name == name
-            or isinstance(node, ast.alias)
-            and (node.asname or node.name.split(".")[0]) == name
-            for node in ast.walk(tree)
-        )
-        if len(nodes) != 1 or matches != [nodes[0].targets[0]] or rebound:
-            raise ValueError(f"Expected one top-level assignment to {name}")
-        return nodes[0]
-
-    selected = [assignment(src, name) for name in names]
-    start = src.body.index(selected[0])
-    if src.body[start : start + len(names)] != selected or start + len(names) == len(
-        src.body
-    ):
-        raise ValueError("Assignments must be contiguous and followed by an anchor")
-    if (start and src.body[start - 1].end_lineno >= selected[0].lineno) or (
-        selected[-1].end_lineno >= src.body[start + len(names)].lineno
-    ):
-        raise ValueError("Selected assignments must occupy complete source lines")
-    for node in ast.walk(dst):
-        if (
-            isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Store)
-            and node.id in names
-            or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node.name in names
-            or isinstance(node, ast.alias)
-            and (node.asname or node.name.split(".")[0]) in names
-        ):
-            raise ValueError("A selected assignment already exists in the destination")
-
-    anchor = src.body[start + len(names)]
-    matches = [node for node in dst.body if ast.dump(node) == ast.dump(anchor)]
-    if len(matches) != 1:
-        raise ValueError("Expected one unchanged destination anchor")
-    for tree, node in ((src, anchor), (dst, matches[0])):
-        index = tree.body.index(node)
-        if (
-            getattr(node, "decorator_list", ())
-            or node.col_offset
-            or index
-            and tree.body[index - 1].end_lineno >= node.lineno
-            or index + 1 < len(tree.body)
-            and tree.body[index + 1].lineno <= node.end_lineno
-        ):
-            raise ValueError(
-                "Anchor must be undecorated and occupy complete source lines"
-            )
-    available = set(vars(builtins))
-    imports = (set(), set())
-    for node in src.body:
-        matching = [
-            other
-            for other in dst.body
-            if ast.dump(node) == ast.dump(other) and other.lineno < matches[0].lineno
-        ]
-        if (
-            isinstance(node, (ast.Import, ast.ImportFrom))
-            and node.lineno < selected[0].lineno
-            and len(matching) == 1
-        ):
-            imports[0].update(node.names)
-            imports[1].update(matching[0].names)
-            available.update(
-                alias.asname or alias.name.split(".")[0] for alias in node.names
-            )
-    dependencies = set()
-    for name, node in zip(names, selected):
-        used = {
-            child.id
-            for child in ast.walk(node.value)
-            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)
-        }
-        missing = used - available
-        if missing:
-            raise ValueError(f"Missing dependencies for {name}: {sorted(missing)}")
-        dependencies.update(used - set(names))
-        available.add(name)
-    for tree, boundary, allowed in (
-        (src, selected[0].lineno, imports[0]),
-        (dst, matches[0].lineno, imports[1]),
-    ):
-        if dependencies and any(
-            isinstance(node, ast.ImportFrom)
-            and node.lineno < boundary
-            and any(alias.name == "*" for alias in node.names)
-            for node in ast.walk(tree)
-        ):
-            raise ValueError("Wildcard import makes dependency bindings ambiguous")
-        for dependency in dependencies:
-            bindings = []
-            for node in ast.walk(tree):
-                if getattr(node, "lineno", boundary) >= boundary:
-                    continue
-                if isinstance(node, ast.Name) and isinstance(
-                    node.ctx, (ast.Store, ast.Del)
-                ):
-                    name = node.id
-                elif isinstance(node, ast.alias):
-                    name = node.asname or node.name.split(".")[0]
-                elif isinstance(
-                    node,
-                    (
-                        ast.FunctionDef,
-                        ast.AsyncFunctionDef,
-                        ast.ClassDef,
-                        ast.ExceptHandler,
-                        ast.MatchAs,
-                        ast.MatchStar,
-                    ),
-                ):
-                    name = node.name
-                elif isinstance(node, ast.arg):
-                    name = node.arg
-                elif isinstance(node, ast.MatchMapping):
-                    name = node.rest
-                else:
-                    continue
-                if name == dependency:
-                    bindings.append(node)
-            if len(bindings) > 1 or any(node not in allowed for node in bindings):
-                raise ValueError(f"Ambiguous dependency binding: {dependency}")
-
-    source_lines, lines = source.splitlines(True), destination.splitlines(True)
-    additions = [
-        (
-            matches[0].lineno - 1,
-            source_lines[selected[0].lineno - 1 : anchor.lineno - 1],
-        )
-    ]
-    if exports:
-        src_all, dst_all = assignment(src, "__all__"), assignment(dst, "__all__")
-        if not isinstance(src_all.value, ast.List) or not isinstance(
-            dst_all.value, ast.List
-        ):
-            raise ValueError("__all__ must be a literal list")
-        if any(
-            not isinstance(node, ast.Constant) or not isinstance(node.value, str)
-            for node in src_all.value.elts + dst_all.value.elts
-        ):
-            raise ValueError("__all__ entries must be literal strings")
-        src_values, dst_values = (
-            ast.literal_eval(src_all.value),
-            ast.literal_eval(dst_all.value),
-        )
-        if any(src_values.count(name) != 1 or name in dst_values for name in exports):
-            raise ValueError(
-                "Exports must occur once in canonical __all__ and be absent locally"
-            )
-        export_nodes = [node for node in src_all.value.elts if node.value in exports]
-        export_lines = sorted({node.lineno - 1 for node in export_nodes})
-        fragment = "".join(source_lines[line] for line in export_lines)
-        if ast.literal_eval("[\n" + fragment + "]") != exports:
-            raise ValueError(
-                "Canonical export lines include unselected entries or differ in order"
-            )
-        if lines[dst_all.lineno - 1].strip() != "__all__ = [":
-            raise ValueError("Expected a multiline destination __all__ list")
-        additions.append((dst_all.lineno, [fragment]))
-    for offset, fragment in sorted(additions, reverse=True):
-        lines[offset:offset] = fragment
-    result = "".join(lines)
-    ast.parse(result)
-    return result
-
-
-def migrate_support_assignments(path, names, exports, source_hash, destination_hash):
-    target = parse_lib_path(path)
-    if (
-        target.parts[:3] != ("Lib", "test", "support")
-        or ".." in target.parts
-        or target.suffix != ".py"
-    ):
+    if not isinstance(document, dict) or set(document) != {
+        "target",
+        "source_sha256",
+        "blocks",
+    }:
         raise ValueError(
-            "Selective assignments are restricted to Lib/test/support Python files"
+            "New-file adaptations require target, source_sha256 and blocks"
         )
-    source, destination = path.read_bytes(), target.read_bytes()
-    for label, contents, expected in (
-        ("source", source, source_hash),
-        ("destination", destination, destination_hash),
+    target_name = document["target"]
+    if not isinstance(target_name, str) or "\\" in target_name:
+        raise ValueError("Expected a repository-relative Lib Python file")
+    relative = pathlib.Path(target_name)
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or relative.parts[:1] != ("Lib",)
+        or relative.suffix != ".py"
+        or relative.as_posix() != target_name
+        or relative != parse_lib_path(src_path)
     ):
-        if hashlib.sha256(contents).hexdigest() != expected:
-            raise ValueError(f"{label} SHA256 does not match the pinned input")
-    result = copy_support_assignments(
-        source.decode("utf-8"), destination.decode("utf-8"), names, exports
-    ).encode("utf-8")
-    if target.read_bytes() != destination:
-        raise ValueError("Destination changed during assignment preparation")
-    target.write_bytes(result)
-    print(
-        json.dumps(
-            {
-                "assignments": names,
-                "exports": exports,
-                "source_sha256": source_hash,
-                "destination_before_sha256": destination_hash,
-                "destination_after_sha256": hashlib.sha256(result).hexdigest(),
-            },
-            sort_keys=True,
+        raise ValueError("New-file adaptation target does not match canonical Lib path")
+    repository = pathlib.Path(__file__).resolve().parents[2]
+    target = repository / relative
+    if any(
+        (repository / parent).is_symlink() for parent in (relative, *relative.parents)
+    ):
+        raise ValueError("New-file destination must not contain symlinks")
+    if target.exists():
+        raise ValueError("New-file adaptation destination already exists")
+    if not src_path.is_file() or src_path.is_symlink():
+        raise ValueError("New-file source must be a regular canonical file")
+    raw = src_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != document["source_sha256"]:
+        raise ValueError("New-file canonical source hash mismatch")
+    canonical = raw.decode("utf-8")
+    blocks = document["blocks"]
+    if (
+        not isinstance(blocks, list)
+        or not blocks
+        or any(
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or any(not isinstance(text, str) or not text.strip() for text in pair)
+            for pair in blocks
         )
-    )
+    ):
+        raise ValueError("New-file blocks must be nonempty canonical/local pairs")
+    edits = []
+    for old, new in blocks:
+        start = canonical.find(old)
+        if start < 0 or canonical.find(old, start + 1) >= 0:
+            raise ValueError("Missing or ambiguous new-file canonical fragment")
+        edits.append((start, start + len(old), new))
+    edits.sort()
+    if any(left[1] > right[0] for left, right in zip(edits, edits[1:])):
+        raise ValueError("Overlapping new-file adaptation fragments")
+    adapted = canonical
+    for start, end, new in reversed(edits):
+        adapted = adapted[:start] + new + adapted[end:]
+
+    def protected_structure(text):
+        tree = ast.parse(text)
+        protected = []
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                # Only the value of an existing top-level binding may change.
+                # Assignment targets, their order and annotations are retained.
+                node.value = ast.Constant(value=None)
+            protected.append(ast.dump(node, include_attributes=False))
+        return protected
+
+    try:
+        if protected_structure(canonical) != protected_structure(adapted):
+            raise ValueError(
+                "New-file adaptations may change only imports and bindings"
+            )
+    except SyntaxError as error:
+        raise ValueError("Invalid Python in new-file adaptation") from error
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with target.open("xb") as output:
+            output.write(adapted.encode("utf-8"))
+    except FileExistsError as error:
+        raise ValueError("New-file adaptation destination already exists") from error
+
+
+def _preserve_block(old, new, canonical, local):
+    """Preserve an explicit existing fragment; do not infer module adaptations."""
+    if old.count(local) != 1 or new.count(canonical) != 1:
+        raise ValueError("Changed or ambiguous preservation block")
+    return new.replace(canonical, local, 1)
 
 
 def patch_single_content(
@@ -460,14 +184,31 @@ def patch_single_content(
     if patches_document is not None:
         from update_lib.patch_spec import select_remaining_patches
 
-        patches = select_remaining_patches(patches, patches_document, relative_path)
+        patches = select_remaining_patches(
+            patches,
+            patches_document,
+            relative_path,
+            old_content=old_content if lib_path.exists() else None,
+        )
+
+    blocks = patches_document.get("blocks", []) if patches_document else []
+    if not isinstance(blocks, list) or any(
+        not isinstance(pair, list)
+        or len(pair) != 2
+        or any(not isinstance(text, str) or not text.strip() for text in pair)
+        for pair in blocks
+    ):
+        raise ValueError("Blocks must be canonical/local source pairs")
+    if blocks and not lib_path.exists():
+        raise ValueError("Blocks require an existing local file")
 
     # Apply patches to source content
     src_content = src_path.read_text(encoding="utf-8")
     if lib_path.exists():
-        src_content = preserve_migration_customizations(
-            relative_path, old_content, src_content
-        )
+        if any(src_content.count(canonical) != 1 for canonical, _ in blocks):
+            raise ValueError("Changed or ambiguous canonical preservation block")
+        for canonical, local in blocks:
+            src_content = _preserve_block(old_content, src_content, canonical, local)
         guards = extract_doctest_guards(old_content)
         selection = patches_document.get("doctests") if patches_document else None
         if guards and selection is None:
@@ -476,7 +217,15 @@ def patch_single_content(
             )
         if selection is not None:
             src_content = apply_doctest_metadata(old_content, src_content, selection)
-    return apply_patches(src_content, patches)
+    if not src_content and not patches:
+        return src_content
+    try:
+        result = apply_patches(src_content, patches)
+    except SyntaxError as error:
+        if blocks:
+            raise ValueError("Preserved blocks produced invalid Python") from error
+        raise
+    return result
 
 
 def patch_file(
@@ -556,6 +305,51 @@ def patch_directory(
             shutil.copy2(src_file, lib_file)
 
 
+def retire_legacy_paths(src_dir: pathlib.Path, mapping: dict) -> None:
+    """Retire explicit upstream-absent files after checking their replacements.
+
+    Flat legacy maps use repository-relative Lib paths and name an already
+    canonical replacement, or null for an upstream removal. They never rewrite
+    replacements or recursively prune directories.
+    """
+    from update_lib.file_utils import get_cpython_dir
+
+    canonical = get_cpython_dir(src_dir).resolve()
+    local = pathlib.Path.cwd().resolve()
+    if not (canonical / "Lib").is_dir() or not src_dir.is_dir():
+        raise ValueError("Canonical Lib or migration source directory does not exist")
+
+    def lib_file(root, name):
+        path = pathlib.Path(name)
+        if path.is_absolute() or ".." in path.parts or path.parts[:1] != ("Lib",):
+            raise ValueError(f"Expected a repository-relative Lib file: {name}")
+        result = root / path
+        if result.is_symlink() or not result.resolve().is_relative_to(root / "Lib"):
+            raise ValueError(f"Lib file escapes its source tree: {name}")
+        return result
+
+    legacy_files = []
+    for old, new in mapping.items():
+        legacy = lib_file(local, old)
+        upstream_old = lib_file(canonical, old)
+        if upstream_old.exists() or not legacy.is_file():
+            raise ValueError(f"Not an existing upstream-absent file: {old}")
+        if new is not None:
+            replacement = lib_file(local, new)
+            upstream_new = lib_file(canonical, new)
+            if (
+                not upstream_new.is_file()
+                or not replacement.is_file()
+                or replacement.read_bytes() != upstream_new.read_bytes()
+            ):
+                raise ValueError(f"Replacement is not canonical: {new}")
+        legacy_files.append(legacy)
+
+    # Check the whole map before retiring any file.
+    for legacy in legacy_files:
+        legacy.unlink()
+
+
 def migrate_package(
     src_dir: pathlib.Path, lib_dir: pathlib.Path, mapping_path: pathlib.Path
 ) -> None:
@@ -577,6 +371,9 @@ def migrate_package(
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     if not isinstance(mapping, dict) or not mapping:
         raise ValueError("Legacy mapping must be a nonempty object")
+    if all(value is None or isinstance(value, str) for value in mapping.values()):
+        retire_legacy_paths(src_dir, mapping)
+        return
     if lib_dir.exists():
         raise ValueError(f"Destination already exists: {lib_dir}")
     if (
@@ -717,43 +514,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--legacy-map",
         type=pathlib.Path,
-        help="Explicit legacy-file/class to package-file JSON mapping",
+        help="Legacy class mapping, or exact Lib path to canonical replacement/null map",
     )
-
     parser.add_argument(
         "--patches",
         type=pathlib.Path,
         help="Single-file target, remaining decorator patches, and optional doctests JSON",
     )
     parser.add_argument(
-        "--support-assignments",
-        nargs="+",
-        help="Add selected canonical test.support assignments",
+        "--new-file-adaptations",
+        type=pathlib.Path,
+        help="Opt-in exact source hash and import/binding blocks for a new Lib file",
     )
-    parser.add_argument("--support-exports", nargs="+", default=[])
-    parser.add_argument("--source-sha256")
-    parser.add_argument("--destination-sha256")
     args = parser.parse_args(argv)
 
     try:
-        if args.support_assignments:
-            if args.legacy_map is not None or args.patches is not None:
-                raise ValueError(
-                    "Selective support imports cannot combine with --legacy-map or --patches"
-                )
-            try:
-                migrate_support_assignments(
-                    args.path,
-                    args.support_assignments,
-                    args.support_exports,
-                    args.source_sha256,
-                    args.destination_sha256,
-                )
-            except (SyntaxError, UnicodeError) as exc:
-                raise ValueError(str(exc)) from exc
+        if args.new_file_adaptations is not None:
+            if (
+                args.path.is_dir()
+                or args.legacy_map is not None
+                or args.patches is not None
+            ):
+                raise ValueError("--new-file-adaptations requires a single new file")
+            migrate_new_file(
+                args.path,
+                json.loads(args.new_file_adaptations.read_text(encoding="utf-8")),
+            )
             return 0
-        if args.support_exports or args.source_sha256 or args.destination_sha256:
-            raise ValueError("Selective options require --support-assignments")
         if args.patches is not None and (
             args.path.is_dir() or args.legacy_map is not None
         ):

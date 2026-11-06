@@ -1,6 +1,6 @@
 use super::{
-    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
-    try_bigint_to_f64,
+    PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyType, PyTypeRef,
+    PyUtf8StrRef, try_bigint_to_f64,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -9,7 +9,8 @@ use crate::{
     common::{float_ops, hash, wtf8::Wtf8Buf},
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        ArgBytesLike, ArgIndex, ArgIntoFloat, FuncArgs, OptionalArg, PyArithmeticValue,
+        PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -164,19 +165,70 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 }
 
 pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
-    if v1.is_zero() && v2.is_sign_negative() {
-        Err(vm.new_zero_division_error("zero to a negative power"))
-    } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
-        let v1 = Complex64::new(v1, 0.);
-        let v2 = Complex64::new(v2, 0.);
-        Ok(super::complex::complex_pow(v1, v2, vm)?.to_pyobject(vm))
-    } else {
-        let ans = v1.powf(v2);
-        if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-            Err(vm.new_overflow_error("math range error"))
+    // Resolve special values before finite negative bases or platform pow.
+    if v2 == 0.0 {
+        return Ok(1.0.to_pyobject(vm));
+    }
+    if v1.is_nan() {
+        return Ok(v1.to_pyobject(vm));
+    }
+    if v2.is_nan() {
+        return Ok(if v1 == 1.0 { 1.0 } else { v2 }.to_pyobject(vm));
+    }
+    if v2.is_infinite() {
+        let magnitude = v1.abs();
+        let result = if magnitude == 1.0 {
+            1.0
+        } else if (v2 > 0.0) == (magnitude > 1.0) {
+            f64::INFINITY
         } else {
-            Ok(ans.to_pyobject(vm))
+            0.0
+        };
+        return Ok(result.to_pyobject(vm));
+    }
+
+    let exponent_is_odd = v2.abs() % 2.0 == 1.0;
+    if v1.is_infinite() {
+        let result = if v2 > 0.0 {
+            if exponent_is_odd { v1 } else { v1.abs() }
+        } else if exponent_is_odd {
+            0.0_f64.copysign(v1)
+        } else {
+            0.0
+        };
+        return Ok(result.to_pyobject(vm));
+    }
+    if v1 == 0.0 {
+        if v2 < 0.0 {
+            return Err(vm.new_zero_division_error("zero to a negative power"));
         }
+        return Ok(if exponent_is_odd { v1 } else { 0.0 }.to_pyobject(vm));
+    }
+
+    let mut magnitude = v1;
+    let negate_result = if v1 < 0.0 {
+        if v2 != v2.floor() {
+            let base = Complex64::new(v1, 0.0);
+            let exponent = Complex64::new(v2, 0.0);
+            return Ok(super::complex::complex_pow(base, exponent, vm)?.to_pyobject(vm));
+        }
+        magnitude = -v1;
+        exponent_is_odd
+    } else {
+        false
+    };
+    if magnitude == 1.0 {
+        return Ok(if negate_result { -1.0 } else { 1.0 }.to_pyobject(vm));
+    }
+
+    let mut result = magnitude.powf(v2);
+    if negate_result {
+        result = -result;
+    }
+    if result.is_infinite() {
+        Err(vm.new_overflow_error("math range error"))
+    } else {
+        Ok(result.to_pyobject(vm))
     }
 }
 
@@ -200,21 +252,12 @@ impl Constructor for PyFloat {
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here. Extra keywords are
         // accepted only when a subclass has replaced tp_init.
-        let arg: Self::Args = if cls.is(float_type) || uses_float_init {
-            args.bind_for(vm, Self::NAME)?
+        let (args, retained_args) = if cls.is(float_type) || uses_float_init {
+            (args, None)
         } else {
-            match args.args.as_slice() {
-                [] => Self::Args {
-                    x: OptionalArg::Missing,
-                },
-                [value] => Self::Args {
-                    x: OptionalArg::Present(value.clone()),
-                },
-                slice => {
-                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
-                }
-            }
+            (FuncArgs::from(args.args.clone()), Some(args))
         };
+        let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
         let arg_value = &arg.x;
 
         // Optimization: return exact float as-is
@@ -226,7 +269,9 @@ impl Constructor for PyFloat {
         }
 
         let payload = Self::py_new(&cls, arg, vm)?;
-        payload.into_ref_with_type(vm, cls).map(Into::into)
+        let result = payload.into_ref_with_type(vm, cls).map(Into::into);
+        drop(retained_args);
+        result
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
@@ -245,31 +290,40 @@ impl Constructor for PyFloat {
 }
 
 pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
-    let (bytearray, buffer, buffer_lock, mapped_string);
-    let b = if let Some(s) = val.downcast_ref::<PyStr>() {
-        mapped_string = crate::protocol::numeric_literal_from_str(s);
-        mapped_string.as_bytes()
-    } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
-        bytes.as_bytes()
-    } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
-        bytearray = buf.borrow_buf();
-        &*bytearray
-    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
-        buffer = b;
-        buffer_lock = buffer.borrow_buf();
-        &*buffer_lock
-    } else {
-        return Err(vm.new_type_error(format!(
-            "float() argument must be a string or a real number, not '{}'",
-            val.class().slot_name()
-        )));
+    // Keep the buffer export alive through repr, but release data guards first
+    // so repr can mutate the original object.
+    let buffer;
+    let parsed = {
+        let (bytearray, buffer_lock, mapped_string);
+        let b = if let Some(s) = val.downcast_ref::<PyStr>() {
+            mapped_string = crate::protocol::numeric_literal_from_str(s);
+            mapped_string.as_bytes()
+        } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
+            bytes.as_bytes()
+        } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
+            bytearray = buf.borrow_buf();
+            &*bytearray
+        } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
+            buffer = b;
+            buffer_lock = buffer.borrow_buf();
+            &*buffer_lock
+        } else {
+            return Err(vm.new_type_error(format!(
+                "float() argument must be a string or a real number, not '{}'",
+                val.class().slot_name()
+            )));
+        };
+        crate::literal::float::parse_bytes(b)
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| {
-        val.repr(vm).map_or_else(
-            |e| e,
-            |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
-        )
-    })
+    parsed.ok_or_else(|| invalid_float_literal_error(val, vm))
+}
+
+/// Build the existing float-conversion error after native parsing has failed.
+pub fn invalid_float_literal_error(val: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    val.repr(vm).map_or_else(
+        |e| e,
+        |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
+    )
 }
 
 #[derive(FromArgs)]
@@ -305,8 +359,12 @@ impl Py<PyFloat> {
         })
     }
 
-    #[pystaticmethod]
-    fn __getformat__(typestr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pyclassmethod]
+    fn __getformat__(
+        _cls: PyTypeRef,
+        typestr: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
         if !matches!(typestr.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
@@ -349,28 +407,18 @@ impl Py<PyFloat> {
                 None => i32::MIN,
             };
             let float = float_ops::round_float_digits(self.value, ndigits)
-                .ok_or_else(|| vm.new_overflow_error("overflow occurred during round"))?;
+                .ok_or_else(|| vm.new_overflow_error("rounded value too large to represent"))?;
             vm.ctx.new_float(float).into()
         } else {
-            let fract = self.value.fract();
-            let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
-                if self.value.trunc() % 2.0 == 0.0 {
-                    self.value - fract
-                } else {
-                    self.value + fract
-                }
-            } else {
-                self.value.round()
-            };
-            let int = try_to_bigint(value, vm)?;
+            let int = try_to_bigint(self.value.round_ties_even(), vm)?;
             vm.ctx.new_int(int).into()
         };
         Ok(value)
     }
 
     #[pygetset]
-    const fn real(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
-        zelf
+    fn real(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        PyFloat::number_downcast_exact(zelf.as_object().number(), vm)
     }
 
     #[pygetset]
@@ -379,8 +427,8 @@ impl Py<PyFloat> {
     }
 
     #[pymethod]
-    const fn conjugate(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
-        zelf
+    fn conjugate(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        PyFloat::number_downcast_exact(zelf.as_object().number(), vm)
     }
 
     #[pymethod]
@@ -411,13 +459,15 @@ impl Py<PyFloat> {
             return Ok(number);
         }
 
-        let value = number.try_float(vm)?.to_f64();
+        let value = ArgIntoFloat::try_from_object(vm, number.clone())?.into_float();
         let result = vm.ctx.new_float(value);
-        if cls.is(vm.ctx.types.float_type) {
+        let result = if cls.is(vm.ctx.types.float_type) {
             Ok(result.into())
         } else {
             PyType::call(&cls, vec![result.into()].into(), vm)
-        }
+        };
+        drop(number);
+        result
     }
 
     #[pyclassmethod]
@@ -581,5 +631,5 @@ fn vectorcall_float(
 #[rustfmt::skip] // to avoid line splitting
 pub(crate) fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
-    context.types.float_type.slots().vectorcall.store(Some(vectorcall_float));
+    context.types.float_type.slots().constructor_vectorcall.store(Some(vectorcall_float));
 }

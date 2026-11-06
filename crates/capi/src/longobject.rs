@@ -538,7 +538,7 @@ pub unsafe extern "C" fn PyLongWriter_Create(
     ndigits: isize,
     digits: *mut *mut c_void,
 ) -> *mut PyLongWriter {
-    with_vm::<PyResult<*mut c_void>, _>(|vm| {
+    with_vm(|vm| {
         unsafe {
             *digits = core::ptr::null_mut();
         }
@@ -577,9 +577,8 @@ pub unsafe extern "C" fn PyLongWriter_Create(
             *digits = writer.digits.as_mut_ptr().cast();
         }
 
-        Ok(Box::into_raw(writer).cast())
+        Ok(Box::into_raw(writer))
     })
-    .cast()
 }
 
 #[unsafe(no_mangle)]

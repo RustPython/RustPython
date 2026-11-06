@@ -10,6 +10,45 @@ use crate::{
     function::{ArgIndex, PySsize},
 };
 
+pub(crate) fn checked_replace_len(
+    original: usize,
+    old: usize,
+    new: usize,
+    count: usize,
+) -> Option<usize> {
+    let result = if new >= old {
+        original.checked_add(count.checked_mul(new - old)?)?
+    } else {
+        original.checked_sub(count.checked_mul(old - new)?)?
+    };
+    isize::try_from(result).ok().map(|_| result)
+}
+
+pub(crate) fn checked_expandtabs_len(
+    original: usize,
+    chars: impl Iterator<Item = u32>,
+    tabsize: usize,
+) -> Option<usize> {
+    let mut result = original;
+    let mut column = 0;
+    for ch in chars {
+        if ch == u32::from(b'\t') {
+            let spaces = if tabsize == 0 {
+                0
+            } else {
+                tabsize - column % tabsize
+            };
+            result = checked_replace_len(result, 1, spaces, 1)?;
+            column += spaces;
+        } else if ch == u32::from(b'\r') || ch == u32::from(b'\n') {
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+    Some(result)
+}
+
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, optional)]
@@ -514,4 +553,36 @@ where
         }
     })?;
     (predicate)(single)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{checked_expandtabs_len, checked_replace_len};
+
+    #[test]
+    fn replacement_length_checks_signed_and_unsigned_overflow() {
+        let max = isize::MAX as usize;
+        assert_eq!(checked_replace_len(4, 0, 1, 5), Some(9));
+        assert_eq!(checked_replace_len(6, 1, 0, 4), Some(2));
+        assert_eq!(checked_replace_len(max, 0, 1, 0), Some(max));
+        assert_eq!(checked_replace_len(max, 0, 1, 1), None);
+        assert_eq!(checked_replace_len(1, 0, 2, usize::MAX), None);
+    }
+
+    #[test]
+    fn expanded_tabs_check_the_complete_output_before_allocating() {
+        let max = isize::MAX as usize;
+        assert_eq!(
+            checked_expandtabs_len(1, "\t".chars().map(u32::from), max),
+            Some(max)
+        );
+        assert_eq!(
+            checked_expandtabs_len(3, "\t\n\t".chars().map(u32::from), max),
+            None
+        );
+        assert_eq!(
+            checked_expandtabs_len(3, "a\tb".chars().map(u32::from), 0),
+            Some(2)
+        );
+    }
 }

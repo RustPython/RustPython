@@ -14,7 +14,7 @@ pub(crate) mod _asyncio {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
                 PyBaseException, PyBaseExceptionRef, PyDict, PyGenericAlias, PyList, PyListRef,
-                PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef,
+                PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef, alloc_default,
             },
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
@@ -189,9 +189,9 @@ pub(crate) mod _asyncio {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if zelf.fut_loop.read().is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "{} object is already initialized",
-                    zelf.class().fully_qualified_name(vm)?
+                return Err(vm.new_runtime_error(wtf8_concat!(
+                    zelf.class().fully_qualified_name(vm)?,
+                    " object is already initialized"
                 )));
             }
 
@@ -300,8 +300,14 @@ pub(crate) mod _asyncio {
             }
 
             // Normalize the exception
-            let exc = if exception.fast_isinstance(vm.ctx.types.type_type) {
-                exception.call((), vm)?
+            let exc = if let Some(cls) = exception.downcast_ref::<PyType>()
+                && cls.fast_issubclass(vm.ctx.exceptions.base_exception_type)
+            {
+                let exc = exception.call((), vm)?;
+                if zelf.fut_state.load() != FutureState::Pending {
+                    return Err(new_invalid_state_error(vm, "invalid state"));
+                }
+                exc
             } else {
                 exception
             };
@@ -334,8 +340,8 @@ pub(crate) mod _asyncio {
 
             *zelf.fut_exception.write() = Some(exc);
             zelf.fut_state.store(FutureState::Finished);
-            zelf.fut_log_tb.store(true, Ordering::Relaxed);
             Self::schedule_callbacks(&zelf, vm)?;
+            zelf.fut_log_tb.store(true, Ordering::Relaxed);
             Ok(())
         }
 
@@ -345,7 +351,16 @@ pub(crate) mod _asyncio {
             args: AddDoneCallbackArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if zelf.fut_loop.read().is_none() {
+            zelf.add_done_callback_impl(zelf.as_object(), args, vm)
+        }
+
+        fn add_done_callback_impl(
+            &self,
+            owner: &PyObject,
+            args: AddDoneCallbackArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if self.fut_loop.read().is_none() {
                 return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             let ctx = match args.context {
@@ -353,19 +368,27 @@ pub(crate) mod _asyncio {
                 None => get_copy_context(vm)?,
             };
 
-            if zelf.fut_state.load() != FutureState::Pending {
-                Self::call_soon_with_context(&zelf, args.func, Some(ctx), vm)?;
-            } else if zelf.fut_callback0.read().is_none() {
-                *zelf.fut_callback0.write() = Some(args.func);
-                *zelf.fut_context0.write() = Some(ctx);
+            if self.fut_state.load() != FutureState::Pending {
+                self.call_soon_with_context(owner, args.func, Some(ctx), vm)?;
             } else {
-                let tuple = vm.ctx.new_tuple(vec![args.func, ctx]);
-                let mut callbacks = zelf.fut_callbacks.write();
-                if callbacks.is_none() {
-                    *callbacks = Some(vm.ctx.new_list(vec![tuple.into()]).into());
+                let callbacks = self.fut_callbacks.read().clone();
+                // Once a list exists, append to it even if callback0 was removed.
+                // Refilling callback0 would move the new callback ahead of the list.
+                if callbacks.is_none() && self.fut_callback0.read().is_none() {
+                    *self.fut_callback0.write() = Some(args.func);
+                    *self.fut_context0.write() = Some(ctx);
                 } else {
-                    let list = callbacks.as_ref().unwrap();
-                    vm.call_method(list, "append", (tuple,))?;
+                    let tuple = vm.ctx.new_tuple(vec![args.func, ctx]);
+                    if let Some(callbacks) = callbacks {
+                        callbacks
+                            .downcast_ref::<PyList>()
+                            .unwrap()
+                            .borrow_vec_mut()
+                            .push(tuple.into());
+                    } else {
+                        *self.fut_callbacks.write() =
+                            Some(vm.ctx.new_list(vec![tuple.into()]).into());
+                    }
                 }
             }
             Ok(())
@@ -376,100 +399,112 @@ pub(crate) mod _asyncio {
             zelf: &Py<Self>,
             RemoveDoneCallbackArgs { func }: RemoveDoneCallbackArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<usize> {
-            if zelf.fut_loop.read().is_none() {
+        ) -> PyResult<isize> {
+            zelf.remove_done_callback_impl(&func, vm)
+        }
+
+        fn remove_done_callback_impl(
+            &self,
+            func: &PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult<isize> {
+            if self.fut_loop.read().is_none() {
                 return Err(vm.new_runtime_error("Future object is not initialized."));
             }
-            let mut cleared_callback0 = 0usize;
-
-            // Check fut_callback0 first
-            // Clone to release lock before comparison (which may run Python code)
-            let cb0 = zelf.fut_callback0.read().clone();
+            let mut cleared_callback0 = 0;
+            let cb0 = self.fut_callback0.read().clone();
             if let Some(cb0) = cb0 {
-                let cmp = vm.identical_or_equal(&cb0, &func)?;
-                if cmp {
-                    *zelf.fut_callback0.write() = None;
-                    *zelf.fut_context0.write() = None;
+                let cmp = vm.identical_or_equal(&cb0, func);
+                drop(cb0);
+                if cmp? {
+                    // Dropping callbacks or contexts may run finalizers. Release
+                    // each field lock before dropping the previous reference.
+                    let callback = self.fut_callback0.write().take();
+                    drop(callback);
+                    let context = self.fut_context0.write().take();
+                    drop(context);
                     cleared_callback0 = 1;
                 }
             }
 
-            // Check if fut_callbacks exists
-            let callbacks = zelf.fut_callbacks.read().clone();
-            let callbacks = match callbacks {
-                Some(c) => c,
-                None => return Ok(cleared_callback0),
+            let len = {
+                let callbacks = self.fut_callbacks.read().clone();
+                let Some(callbacks) = callbacks else {
+                    return Ok(cleared_callback0);
+                };
+                callbacks
+                    .downcast_ref::<PyList>()
+                    .unwrap()
+                    .borrow_vec()
+                    .len()
             };
-
-            let list: PyListRef = callbacks.downcast().unwrap();
-            let len = list.borrow_vec().len();
-
             if len == 0 {
-                *zelf.fut_callbacks.write() = None;
+                let callbacks = self.fut_callbacks.write().take();
+                drop(callbacks);
                 return Ok(cleared_callback0);
             }
-
-            // Special case for single callback
             if len == 1 {
-                let item = list.borrow_vec().first().cloned();
-                if let Some(item) = item {
-                    let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                    let cb = tuple.as_slice().first().unwrap().clone();
-                    let cmp = vm.identical_or_equal(&cb, &func)?;
-                    if cmp {
-                        *zelf.fut_callbacks.write() = None;
-                        return Ok(1 + cleared_callback0);
-                    }
+                let item = {
+                    let callbacks = self.fut_callbacks.read().clone().unwrap();
+                    callbacks.downcast_ref::<PyList>().unwrap().borrow_vec()[0].clone()
+                };
+                let tuple = item.downcast_ref::<PyTuple>().unwrap();
+                let cmp = vm.identical_or_equal(&tuple.as_slice()[0], func);
+                drop(item);
+                if cmp? {
+                    let callbacks = self.fut_callbacks.write().take();
+                    drop(callbacks);
+                    return Ok(1 + cleared_callback0);
                 }
                 return Ok(cleared_callback0);
             }
 
-            // Multiple callbacks - iterate with index, checking validity each time
-            // to handle evil comparisons
             let mut new_callbacks = Vec::with_capacity(len);
-            let mut i = 0usize;
-            let mut removed = 0usize;
-
+            let mut i = 0;
             loop {
-                // Re-check fut_callbacks on each iteration (evil code may have cleared it)
-                let callbacks = zelf.fut_callbacks.read().clone();
-                let callbacks = match callbacks {
-                    Some(c) => c,
-                    None => break,
+                // Comparisons can remove, append, or schedule the callbacks.
+                let item = {
+                    let callbacks = self.fut_callbacks.read().clone();
+                    let Some(callbacks) = callbacks else { break };
+                    callbacks
+                        .downcast_ref::<PyList>()
+                        .unwrap()
+                        .borrow_vec()
+                        .get(i)
+                        .cloned()
                 };
-                let list: PyListRef = callbacks.downcast().unwrap();
-                let current_len = list.borrow_vec().len();
-                if i >= current_len {
-                    break;
-                }
-
-                // Get item and release lock before comparison
-                let item = list.borrow_vec().get(i).cloned();
-                let item = match item {
-                    Some(item) => item,
-                    None => break,
-                };
-
-                let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                let cb = tuple.as_slice().first().unwrap().clone();
-                let cmp = vm.identical_or_equal(&cb, &func)?;
-
-                if !cmp {
+                let Some(item) = item else { break };
+                let tuple = item.downcast_ref::<PyTuple>().unwrap();
+                if !vm.identical_or_equal(&tuple.as_slice()[0], func)? {
                     new_callbacks.push(item);
-                } else {
-                    removed += 1;
                 }
                 i += 1;
             }
 
-            // Update fut_callbacks with filtered list
-            if new_callbacks.is_empty() {
-                *zelf.fut_callbacks.write() = None;
-            } else {
-                *zelf.fut_callbacks.write() = Some(vm.ctx.new_list(new_callbacks).into());
+            let callbacks = self.fut_callbacks.read().clone();
+            if new_callbacks.is_empty() || callbacks.is_none() {
+                let callbacks = self.fut_callbacks.write().take();
+                drop(callbacks);
+                return Ok(len as isize + cleared_callback0);
             }
-
-            Ok(removed + cleared_callback0)
+            let callbacks = callbacks.unwrap();
+            let list = callbacks.downcast_ref::<PyList>().unwrap();
+            let current_len = list.borrow_vec().len();
+            let remaining = new_callbacks.len();
+            if remaining != current_len {
+                // Keep the filtered snapshot alive while removed callbacks run
+                // finalizers: they can recursively remove the surviving callbacks.
+                let previous =
+                    core::mem::replace(&mut *list.borrow_vec_mut(), new_callbacks.clone());
+                for item in previous.into_iter().rev() {
+                    drop(item);
+                }
+            }
+            drop(callbacks);
+            for item in new_callbacks.into_iter().rev() {
+                drop(item);
+            }
+            Ok(current_len as isize - remaining as isize + cleared_callback0)
         }
 
         #[pymethod]
@@ -530,53 +565,51 @@ pub(crate) mod _asyncio {
         }
 
         fn schedule_callbacks(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            // Collect all callbacks first to avoid holding locks during callback execution
-            // This prevents deadlock when callbacks access the future's properties
-            let mut callbacks_to_call: Vec<(PyObjectRef, Option<PyObjectRef>)> = Vec::new();
+            zelf.schedule_callbacks_impl(zelf.as_object(), vm)
+        }
 
-            // Take callback0 - release lock before collecting from list
-            let cb0 = zelf.fut_callback0.write().take();
-            let ctx0 = zelf.fut_context0.write().take();
-            if let Some(cb) = cb0 {
-                callbacks_to_call.push((cb, ctx0));
-            }
-
-            // Take callbacks list and collect items
-            let callbacks_list = zelf.fut_callbacks.write().take();
-            if let Some(callbacks) = callbacks_list
-                && let Ok(list) = callbacks.downcast::<PyList>()
-            {
-                // Clone the items while holding the list lock, then release
-                let items: Vec<_> = list.borrow_vec().iter().cloned().collect();
-                for item in items {
-                    if let Some(tuple) = item.downcast_ref::<PyTuple>()
-                        && let (Some(cb), Some(ctx)) =
-                            (tuple.as_slice().first(), tuple.as_slice().get(1))
-                    {
-                        callbacks_to_call.push((cb.clone(), Some(ctx.clone())));
-                    }
+        fn schedule_callbacks_impl(&self, owner: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let callback = self.fut_callback0.write().take();
+            let context = self.fut_context0.write().take();
+            if let Some(callback) = callback {
+                // Keep the list visible until the first call_soon returns: it
+                // may remove callbacks, and may also fail while scheduling.
+                if let Err(err) = self.call_soon_with_context(owner, callback, context, vm) {
+                    let callbacks = self.fut_callbacks.write().take();
+                    drop(callbacks);
+                    return Err(err);
                 }
             }
 
-            // Now call all callbacks without holding any locks
-            for (cb, ctx) in callbacks_to_call {
-                Self::call_soon_with_context(zelf, cb, ctx, vm)?;
+            let callbacks = self.fut_callbacks.write().take();
+            if let Some(callbacks) = callbacks {
+                let list = callbacks.downcast_ref::<PyList>().unwrap();
+                let items = list.borrow_vec().to_vec();
+                for item in &items {
+                    let tuple = item.downcast_ref::<PyTuple>().unwrap();
+                    self.call_soon_with_context(
+                        owner,
+                        tuple.as_slice()[0].clone(),
+                        Some(tuple.as_slice()[1].clone()),
+                        vm,
+                    )?;
+                }
             }
-
             Ok(())
         }
 
         fn call_soon_with_context(
-            zelf: &Py<Self>,
+            &self,
+            owner: &PyObject,
             callback: PyObjectRef,
             context: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let loop_obj = zelf.fut_loop.read().clone();
+            let loop_obj = self.fut_loop.read().clone();
             if let Some(loop_obj) = loop_obj {
                 // call_soon(callback, *args, context=context)
                 // callback receives the future as its argument
-                let future_arg: PyObjectRef = zelf.to_owned().into();
+                let future_arg: PyObjectRef = owner.to_owned();
                 let args = if let Some(ctx) = context {
                     FuncArgs::new(
                         vec![callback, future_arg],
@@ -960,13 +993,18 @@ pub(crate) mod _asyncio {
 
     #[pyattr]
     #[pyclass(name = "FutureIter", module = "_asyncio", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, Default, PyPayload)]
     struct PyFutureIter {
         future: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable), flags(HEAPTYPE))]
     impl PyFutureIter {
+        #[pyslot]
+        fn slot_alloc(cls: PyTypeRef, nitems: usize, vm: &VirtualMachine) -> PyResult {
+            alloc_default::<Self>(cls, nitems, vm)
+        }
+
         #[pymethod]
         fn send(zelf: &Py<Self>, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let future = zelf.future.read().clone();
@@ -1191,9 +1229,9 @@ pub(crate) mod _asyncio {
     impl PyTask {
         fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.base.fut_loop.read().is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "{} object is already initialized",
-                    zelf.class().fully_qualified_name(vm)?
+                return Err(vm.new_runtime_error(wtf8_concat!(
+                    zelf.class().fully_qualified_name(vm)?,
+                    " object is already initialized"
                 )));
             }
 
@@ -1235,8 +1273,8 @@ pub(crate) mod _asyncio {
                     if !c.class().is(PyContext::class(&vm.ctx)) {
                         zelf.task_log_destroy_pending
                             .store(false, Ordering::Relaxed);
-                        return Err(vm.new_type_error(format!(
-                            "a contextvars.Context was expected, got {}",
+                        return Err(vm.new_type_error(wtf8_concat!(
+                            "a contextvars.Context was expected, got ",
                             c.class().fully_qualified_name(vm)?
                         )));
                     }
@@ -1384,30 +1422,7 @@ pub(crate) mod _asyncio {
             args: AddDoneCallbackArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if zelf.base.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized."));
-            }
-            let ctx = match args.context {
-                Some(c) => c,
-                None => get_copy_context(vm)?,
-            };
-
-            if zelf.base.fut_state.load() != FutureState::Pending {
-                Self::call_soon_with_context(&zelf, args.func, Some(ctx), vm)?;
-            } else if zelf.base.fut_callback0.read().is_none() {
-                *zelf.base.fut_callback0.write() = Some(args.func);
-                *zelf.base.fut_context0.write() = Some(ctx);
-            } else {
-                let tuple = vm.ctx.new_tuple(vec![args.func, ctx]);
-                let mut callbacks = zelf.base.fut_callbacks.write();
-                if callbacks.is_none() {
-                    *callbacks = Some(vm.ctx.new_list(vec![tuple.into()]).into());
-                } else {
-                    let list = callbacks.as_ref().unwrap();
-                    vm.call_method(list, "append", (tuple,))?;
-                }
-            }
-            Ok(())
+            zelf.base.add_done_callback_impl(zelf.as_object(), args, vm)
         }
 
         #[pymethod]
@@ -1415,161 +1430,12 @@ pub(crate) mod _asyncio {
             zelf: &Py<Self>,
             RemoveDoneCallbackArgs { func }: RemoveDoneCallbackArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<usize> {
-            if zelf.base.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized."));
-            }
-            let mut cleared_callback0 = 0usize;
-
-            // Check fut_callback0 first
-            // Clone to release lock before comparison (which may run Python code)
-            let cb0 = zelf.base.fut_callback0.read().clone();
-            if let Some(cb0) = cb0 {
-                let cmp = vm.identical_or_equal(&cb0, &func)?;
-                if cmp {
-                    *zelf.base.fut_callback0.write() = None;
-                    *zelf.base.fut_context0.write() = None;
-                    cleared_callback0 = 1;
-                }
-            }
-
-            // Check if fut_callbacks exists
-            let callbacks = zelf.base.fut_callbacks.read().clone();
-            let callbacks = match callbacks {
-                Some(c) => c,
-                None => return Ok(cleared_callback0),
-            };
-
-            let list: PyListRef = callbacks.downcast().unwrap();
-            let len = list.borrow_vec().len();
-
-            if len == 0 {
-                *zelf.base.fut_callbacks.write() = None;
-                return Ok(cleared_callback0);
-            }
-
-            // Special case for single callback
-            if len == 1 {
-                let item = list.borrow_vec().first().cloned();
-                if let Some(item) = item {
-                    let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                    let cb = tuple.as_slice().first().unwrap().clone();
-                    let cmp = vm.identical_or_equal(&cb, &func)?;
-                    if cmp {
-                        *zelf.base.fut_callbacks.write() = None;
-                        return Ok(1 + cleared_callback0);
-                    }
-                }
-                return Ok(cleared_callback0);
-            }
-
-            // Multiple callbacks - iterate with index, checking validity each time
-            // to handle evil comparisons
-            let mut new_callbacks = Vec::with_capacity(len);
-            let mut i = 0usize;
-            let mut removed = 0usize;
-
-            loop {
-                // Re-check fut_callbacks on each iteration (evil code may have cleared it)
-                let callbacks = zelf.base.fut_callbacks.read().clone();
-                let callbacks = match callbacks {
-                    Some(c) => c,
-                    None => break,
-                };
-                let list: PyListRef = callbacks.downcast().unwrap();
-                let current_len = list.borrow_vec().len();
-                if i >= current_len {
-                    break;
-                }
-
-                // Get item and release lock before comparison
-                let item = list.borrow_vec().get(i).cloned();
-                let item = match item {
-                    Some(item) => item,
-                    None => break,
-                };
-
-                let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                let cb = tuple.as_slice().first().unwrap().clone();
-                let cmp = vm.identical_or_equal(&cb, &func)?;
-
-                if !cmp {
-                    new_callbacks.push(item);
-                } else {
-                    removed += 1;
-                }
-                i += 1;
-            }
-
-            // Update fut_callbacks with filtered list
-            if new_callbacks.is_empty() {
-                *zelf.base.fut_callbacks.write() = None;
-            } else {
-                *zelf.base.fut_callbacks.write() = Some(vm.ctx.new_list(new_callbacks).into());
-            }
-
-            Ok(removed + cleared_callback0)
+        ) -> PyResult<isize> {
+            zelf.base.remove_done_callback_impl(&func, vm)
         }
 
         fn schedule_callbacks(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            // Collect all callbacks first to avoid holding locks during callback execution
-            // This prevents deadlock when callbacks access the future's properties
-            let mut callbacks_to_call: Vec<(PyObjectRef, Option<PyObjectRef>)> = Vec::new();
-
-            // Take callback0 - release lock before collecting from list
-            let cb0 = zelf.base.fut_callback0.write().take();
-            let ctx0 = zelf.base.fut_context0.write().take();
-            if let Some(cb) = cb0 {
-                callbacks_to_call.push((cb, ctx0));
-            }
-
-            // Take callbacks list and collect items
-            let callbacks_list = zelf.base.fut_callbacks.write().take();
-            if let Some(callbacks) = callbacks_list
-                && let Ok(list) = callbacks.downcast::<PyList>()
-            {
-                // Clone the items while holding the list lock, then release
-                let items: Vec<_> = list.borrow_vec().iter().cloned().collect();
-                for item in items {
-                    if let Some(tuple) = item.downcast_ref::<PyTuple>()
-                        && let (Some(cb), Some(ctx)) =
-                            (tuple.as_slice().first(), tuple.as_slice().get(1))
-                    {
-                        callbacks_to_call.push((cb.clone(), Some(ctx.clone())));
-                    }
-                }
-            }
-
-            // Now call all callbacks without holding any locks
-            for (cb, ctx) in callbacks_to_call {
-                Self::call_soon_with_context(zelf, cb, ctx, vm)?;
-            }
-
-            Ok(())
-        }
-
-        fn call_soon_with_context(
-            zelf: &Py<Self>,
-            callback: PyObjectRef,
-            context: Option<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let loop_obj = zelf.base.fut_loop.read().clone();
-            if let Some(loop_obj) = loop_obj {
-                // call_soon(callback, *args, context=context)
-                // callback receives the task as its argument
-                let task_arg: PyObjectRef = zelf.to_owned().into();
-                let args = if let Some(ctx) = context {
-                    FuncArgs::new(
-                        vec![callback, task_arg],
-                        KwArgs::new(core::iter::once((Wtf8Buf::from("context"), ctx)).collect()),
-                    )
-                } else {
-                    FuncArgs::new(vec![callback, task_arg], KwArgs::default())
-                };
-                vm.call_method(&loop_obj, "call_soon", args)?;
-            }
-            Ok(())
+            zelf.base.schedule_callbacks_impl(zelf.as_object(), vm)
         }
 
         #[pymethod]
@@ -2921,13 +2787,18 @@ pub(crate) mod _asyncio {
 
     #[pyattr]
     #[pyclass(name, traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, Default, PyPayload)]
     struct TaskStepMethWrapper {
         task: PyRwLock<Option<PyObjectRef>>,
     }
 
-    #[pyclass(with(Callable, Representable))]
+    #[pyclass(with(Callable, Representable), flags(HEAPTYPE))]
     impl TaskStepMethWrapper {
+        #[pyslot]
+        fn slot_alloc(cls: PyTypeRef, nitems: usize, vm: &VirtualMachine) -> PyResult {
+            alloc_default::<Self>(cls, nitems, vm)
+        }
+
         fn new(task: PyObjectRef) -> Self {
             Self {
                 task: PyRwLock::new(Some(task)),

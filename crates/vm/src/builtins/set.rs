@@ -2,13 +2,13 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
-    PyTypeRef, builtins_iter, locked_step,
+    IterStatus, PositionIterInternal, PyAnyDict, PyBaseExceptionRef, PyDict, PyGenericAlias,
+    PyTupleRef, PyType, PyTypeRef, builtins_iter, locked_step,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
-    class::{PyClassDef, PyClassImpl},
+    class::{PyClassDef, PyClassImpl, StaticType},
     common::{
         ascii,
         hash::PyHash,
@@ -22,6 +22,7 @@ use crate::{
         ArgIterable, FuncArgs, NameOthers, OptionalArg, PosArgs, PyArithmeticValue,
         PyComparisonValue,
     },
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
@@ -40,16 +41,45 @@ use rustpython_common::{
 
 pub(crate) type SetContentType = dict_inner::Dict<()>;
 
-#[pyclass(module = false, name = "set", unhashable = true, traverse)]
+#[pyclass(module = false, name = "set", unhashable = true, traverse = "manual")]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
 }
 
+// SAFETY: the inner table visits each exclusively owned reference once.
+unsafe impl Traverse for PySet {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear(&mut self.inner, out);
+    }
+}
+
 impl PySet {
+    /// Freeze a working set without hashing or comparing its keys again.
+    pub(super) fn into_frozen(self) -> PyFrozenSet {
+        PyFrozenSet {
+            // Working set tables can have mutable aliases; copy the stored
+            // entries so the result remains immutable after those aliases run.
+            inner: self.inner.copy(),
+            ..Default::default()
+        }
+    }
+
     #[deprecated(note = "Use `PySet::default().into_ref(ctx)` instead")]
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         Self::default().into_ref(ctx)
+    }
+
+    #[must_use]
+    pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef)> {
+        self.inner
+            .content
+            .next_entry(position)
+            .map(|(next, item, ())| (next, item))
     }
 
     #[must_use]
@@ -57,35 +87,37 @@ impl PySet {
         self.inner.elements()
     }
 
-    fn fold_op(
+    fn union_multi(
         &self,
-        others: impl core::iter::Iterator<Item = ArgIterable>,
-        op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
+        others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         Ok(Self {
-            inner: self.inner.fold_op(others, op, vm)?,
-        })
-    }
-
-    fn op(
-        &self,
-        other: PyRef<PyAnySet>,
-        op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(Self {
-            inner: self
-                .inner
-                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
+            inner: self.inner.union_multi(others, vm)?,
         })
     }
 }
 
-#[pyclass(module = false, name = "frozenset", unhashable = true)]
+#[pyclass(
+    module = false,
+    name = "frozenset",
+    unhashable = true,
+    traverse = "manual"
+)]
 pub struct PyFrozenSet {
     inner: PySetInner,
     hash: PyAtomic<PyHash>,
+}
+
+// SAFETY: the inner table visits each exclusively owned reference once.
+unsafe impl Traverse for PyFrozenSet {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear(&mut self.inner, out);
+    }
 }
 
 impl Default for PyFrozenSet {
@@ -118,28 +150,13 @@ impl PyFrozenSet {
         self.inner.elements()
     }
 
-    fn fold_op(
+    fn union_multi(
         &self,
-        others: impl core::iter::Iterator<Item = ArgIterable>,
-        op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
+        others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         Ok(Self {
-            inner: self.inner.fold_op(others, op, vm)?,
-            ..Default::default()
-        })
-    }
-
-    fn op(
-        &self,
-        other: PyRef<PyAnySet>,
-        op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(Self {
-            inner: self
-                .inner
-                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
+            inner: self.inner.union_multi(others, vm)?,
             ..Default::default()
         })
     }
@@ -161,6 +178,9 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyPayload for PySet {
+    // Ordinary destruction can release the table directly after untracking.
+    const CLEAR_ON_DEALLOC: bool = false;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.set_type
@@ -168,6 +188,22 @@ impl PyPayload for PySet {
 }
 
 impl PyPayload for PyFrozenSet {
+    const CLEAR_ON_DEALLOC: bool = false;
+
+    fn needs_gc(&self, class: &Py<PyType>) -> bool {
+        // Subclasses can acquire instance state. Shared working tables may
+        // still be mutated by another owner, so keep those tracked as well.
+        if !class.is(Self::static_type()) || PyRc::strong_count(&self.inner.content) != 1 {
+            return true;
+        }
+        self.inner.content.any_key(|key| {
+            // Exact untracked frozensets are immutable and were checked at
+            // allocation. Other untracked objects may later acquire GC edges.
+            key.gc_may_have_edges()
+                && !(key.class().is(Self::static_type()) && !key.is_gc_tracked())
+        })
+    }
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frozenset_type
@@ -179,29 +215,34 @@ pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
 }
 
-unsafe impl crate::object::Traverse for PySetInner {
-    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
-        // FIXME(discord9): Rc means shared ref, so should it be traced?
-        self.content.traverse(tracer_fn)
+// SAFETY: a shared table owns only one reference per entry, regardless of its
+// number of owners. Only attribute those edges to an exclusive owner; otherwise
+// leave them as external roots rather than subtracting the same edges twice.
+unsafe impl Traverse for PySetInner {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        if PyRc::strong_count(&self.content) == 1 {
+            self.content.traverse(tracer);
+        }
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(content) = PyRc::get_mut(&mut self.content) {
+            // Detach before releasing keys: dropping them may re-enter Python.
+            out.reserve(content.len());
+            out.extend(content.drain_entries().map(|(key, ())| key));
+        }
     }
 }
 
 impl PySetInner {
-    pub(super) fn from_iter<T>(iter: T, vm: &VirtualMachine) -> PyResult<Self>
-    where
-        T: IntoIterator<Item = PyResult<PyObjectRef>>,
-    {
-        let set = Self::default();
-        for item in iter {
-            let item = item?;
-            set.add(&item, vm)?;
-        }
-        Ok(set)
-    }
-
     /// Build a set from an arbitrary object, reusing stored hashes when the
-    /// source is a set/frozenset/dict.
-    fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    /// source is a set/frozenset/dict/frozendict.
+    pub(super) fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        if let Some(source) = extract_set(&iterable) {
+            // A fresh table can copy resident entries without comparing
+            // colliding keys or invoking a subclass's iterator.
+            return Ok(source.copy());
+        }
         let set = Self::default();
         set.update_internal(iterable, vm)?;
         Ok(set)
@@ -209,32 +250,42 @@ impl PySetInner {
 
     /// Elements of `obj` with their stored hashes, or `None` if `obj` keeps
     /// none and must be iterated generically. Mirrors the `PyAnySet_Check` /
-    /// `PyDict_CheckExact` fast paths in CPython's `set_update_internal`.
+    /// `PyAnyDict_CheckExact` fast paths in CPython's `set_update_internal`.
     fn cached_hashes(obj: &PyObject, vm: &VirtualMachine) -> Option<Vec<(PyObjectRef, PyHash)>> {
         if let Some(set) = extract_set(obj) {
             Some(set.content.keys_with_hashes())
         } else {
-            obj.downcast_ref_if_exact::<PyDict>(vm)
-                .map(|dict| dict._as_dict_inner().keys_with_hashes())
+            Self::exact_dict(obj, vm).map(|dict| dict._as_dict_inner().keys_with_hashes())
         }
     }
 
-    fn fold_op<O>(
+    fn exact_dict<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyDict> {
+        if obj.class().is(vm.ctx.types.dict_type) || obj.class().is(vm.ctx.types.frozendict_type) {
+            PyAnyDict::from_object(obj).map(PyAnyDict::as_dict)
+        } else {
+            None
+        }
+    }
+
+    fn union_multi(
         &self,
-        others: impl core::iter::Iterator<Item = O>,
-        op: fn(&Self, O, &VirtualMachine) -> PyResult<Self>,
+        others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let mut res = self.copy();
+        let res = self.copy();
         for other in others {
-            res = op(&res, other, vm)?;
+            if extract_set(&other).is_some_and(|other| PyRc::ptr_eq(&self.content, &other.content))
+            {
+                continue;
+            }
+            res.update_internal(other, vm)?;
         }
         Ok(res)
     }
 
     fn intersection_multi(
         &self,
-        mut others: impl core::iter::Iterator<Item = ArgIterable>,
+        mut others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let Some(other) = others.next() else {
@@ -249,7 +300,7 @@ impl PySetInner {
 
     fn difference_multi(
         &self,
-        mut others: impl core::iter::Iterator<Item = ArgIterable>,
+        mut others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let Some(other) = others.next() else {
@@ -275,15 +326,14 @@ impl PySetInner {
     }
 
     fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let result = self.retry_op_with_frozenset(needle, vm, |needle, vm| {
-            let hash = needle.hash(vm)?;
-            self.content.contains(vm, needle, hash)
-        });
-        Self::wrap_unhashable_error(result, needle, vm)
+        let hash = needle.hash(vm).or_else(|exc| {
+            Self::mutable_set_hash(needle, exc, vm).map_err(|exc| Self::hash_error(needle, exc, vm))
+        })?;
+        self.content.contains(vm, needle, hash)
     }
 
     /// Look up a key whose hash is already known, without a frozenset retry.
-    fn contains_known_hash(
+    pub(super) fn contains_known_hash(
         &self,
         needle: &PyObject,
         hash: PyHash,
@@ -313,28 +363,17 @@ impl PySetInner {
         Ok(true)
     }
 
-    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        let set = self.clone();
-        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
-            for (item, hash) in elements {
-                set.add_known_hash(&item, hash, vm)?;
-            }
-            return Ok(set);
-        }
-        for item in other.iter(vm)? {
-            let item = item?;
-            set.add(&item, vm)?;
-        }
-
-        Ok(set)
+    pub(super) fn union(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        self.update_internal(other, vm)?;
+        Ok(self.clone())
     }
 
-    pub(super) fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+    pub(super) fn intersection(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if let Some(other_set) = extract_set(other.as_object()) {
             return self.intersection_set(other_set, vm);
         }
         let set = Self::default();
-        for item in other.iter(vm)? {
+        for item in other.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
             let obj = item?;
             let hash = obj.hash(vm)?;
             if self.contains_known_hash(&obj, hash, vm)? {
@@ -365,7 +404,7 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn difference_new(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+    fn difference_new(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // Scanning the left side avoids visiting and retaining a much larger
         // exclusion collection. Match CPython's comparison direction as well.
         if let Some(other_set) = extract_set(other.as_object()) {
@@ -373,7 +412,7 @@ impl PySetInner {
                 return self
                     .difference_by(|key, hash| other_set.contains_known_hash(key, hash, vm), vm);
             }
-        } else if let Some(dict) = other.as_object().downcast_ref_if_exact::<PyDict>(vm)
+        } else if let Some(dict) = Self::exact_dict(other.as_object(), vm)
             && self.len() >> 2 <= dict._as_dict_inner().len()
         {
             return self.difference_by(
@@ -385,7 +424,7 @@ impl PySetInner {
     }
 
     // The dict-view caller supplies a private working table.
-    pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+    pub(super) fn difference(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference_update(core::iter::once(other), vm)?;
         Ok(self.clone())
     }
@@ -406,54 +445,48 @@ impl PySetInner {
 
     pub(super) fn symmetric_difference(
         &self,
-        other: ArgIterable,
+        other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let new_inner = self.clone();
-
-        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
-            // the source is already duplicate-free
-            for (item, hash) in elements {
-                new_inner.content.delete_or_insert(vm, &item, hash, ())?;
-            }
-            return Ok(new_inner);
-        }
-
-        // We want to remove duplicates in other
-        let other_set = Self::from_iter(other.iter(vm)?, vm)?;
-
-        for (item, hash) in other_set.content.keys_with_hashes() {
-            new_inner.content.delete_or_insert(vm, &item, hash, ())?;
-        }
-
-        Ok(new_inner)
+        // Build the right operand first, so its resident keys receive equality
+        // comparisons and its iterator can mutate the left operand before use.
+        let result = match extract_set(&other) {
+            Some(other) => other.copy(),
+            None => Self::from_object(other.clone(), vm)?,
+        };
+        result.toggle_entries(self.content.keys_with_hashes(), vm)?;
+        Ok(result)
     }
 
-    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(other_set) = extract_set(other.as_object()) {
+    fn issuperset(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(other_set) = extract_set(other) {
             return self.compare(other_set, PyComparisonOp::Ge, vm);
         }
-        for item in other.iter(vm)? {
-            if !self.contains(&*item?, vm)? {
+        for item in other.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
+            let item = item?;
+            let hash = Self::key_hash(&item, vm)?;
+            if !self.contains_known_hash(&item, hash, vm)? {
                 return Ok(false);
             }
         }
         Ok(true)
     }
 
-    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(other_set) = extract_set(other.as_object()) {
+    fn issubset(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(other_set) = extract_set(other) {
             return self.compare(other_set, PyComparisonOp::Le, vm);
         }
-        Ok(self.intersection(other, vm)?.len() == self.len())
+        // The binding owns the source until after the size comparison. Its
+        // finalizer must not mutate self between intersection and comparison.
+        Ok(self.intersection(other.to_owned(), vm)?.len() == self.len())
     }
 
-    pub(super) fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(other_set) = extract_set(other.as_object()) {
+    pub(super) fn isdisjoint(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(other_set) = extract_set(other) {
             if core::ptr::eq(self, other_set) {
                 return Ok(self.len() == 0);
             }
-            let other_type = other.as_object().class();
+            let other_type = other.class();
             if other_type.is(vm.ctx.types.set_type) || other_type.is(vm.ctx.types.frozenset_type) {
                 let (target, source) = if self.len() < other_set.len() {
                     (other_set, self)
@@ -468,8 +501,10 @@ impl PySetInner {
                 return Ok(true);
             }
         }
-        for item in other.iter(vm)? {
-            if self.contains(&*item?, vm)? {
+        for item in other.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
+            let item = item?;
+            let hash = Self::key_hash(&item, vm)?;
+            if self.contains_known_hash(&item, hash, vm)? {
                 return Ok(false);
             }
         }
@@ -489,33 +524,43 @@ impl PySetInner {
     }
 
     fn add(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        let result = (|| {
-            let hash = item.hash(vm)?;
-            self.content.insert(vm, item, hash, ())
-        })();
-        Self::wrap_unhashable_error(result, item, vm)
+        let hash = Self::key_hash(item, vm)?;
+        self.add_known_hash(item, hash, vm)
     }
 
     /// [`Self::add`] with a known hash.
     fn add_known_hash(&self, item: &PyObject, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert(vm, item, hash, ());
-        Self::wrap_unhashable_error(result, item, vm)
+        self.insert_known_hash(item, hash, vm)
+    }
+
+    /// Insert a key without translating exceptions from its equality callback.
+    pub(super) fn insert_known_hash(
+        &self,
+        item: &PyObject,
+        hash: PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.content.insert(vm, item, hash, ())
     }
 
     fn remove(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.retry_op_with_frozenset(item, vm, |item, vm| {
-            let hash = item.hash(vm)?;
-            self.content.delete(vm, item, hash)
-        });
-        Self::wrap_unhashable_error(result, item, vm)
+        if self.discard(item, vm)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(item.to_owned()))
+        }
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let result = self.retry_op_with_frozenset(item, vm, |item, vm| {
-            let hash = item.hash(vm)?;
+        self.discard_key(item, vm).or_else(|exc| {
+            let hash = Self::mutable_set_hash(item, exc, vm)?;
             self.content.delete_if_exists(vm, item, hash)
-        });
-        Self::wrap_unhashable_error(result, item, vm)
+        })
+    }
+
+    fn discard_key(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        let hash = Self::key_hash(item, vm)?;
+        self.content.delete_if_exists(vm, item, hash)
     }
 
     fn clear(&self) {
@@ -540,12 +585,10 @@ impl PySetInner {
         // check set or frozenset
         if let Ok(any_set) = PyRef::<PyAnySet>::try_from_object(vm, iterable.to_owned()) {
             self.merge_set(any_set, vm)
-        // check Dict
-        } else if let Ok(dict) = iterable.to_owned().downcast_exact::<PyDict>(vm) {
-            self.merge_dict(&dict, vm)
+        } else if let Some(dict) = Self::exact_dict(&iterable, vm) {
+            self.merge_dict(dict, vm)
         } else {
-            // add iterable that is not a set, frozenset, or dict
-            for item in iterable.try_into_value::<ArgIterable>(vm)?.iter(vm)? {
+            for item in iterable.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
                 let item = item?;
                 self.add(&item, vm)?;
             }
@@ -554,14 +597,24 @@ impl PySetInner {
     }
 
     fn merge_set(&self, any_set: PyRef<PyAnySet>, vm: &VirtualMachine) -> PyResult<()> {
+        if PyRc::ptr_eq(&self.content, &any_set.as_inner().content) {
+            return Ok(());
+        }
         for (item, hash) in any_set.as_inner().content.keys_with_hashes() {
             self.add_known_hash(&item, hash, vm)?;
         }
         Ok(())
     }
 
-    fn merge_dict(&self, dict: &Py<PyDict>, vm: &VirtualMachine) -> PyResult<()> {
-        for (key, hash) in dict._as_dict_inner().keys_with_hashes() {
+    fn merge_dict(&self, dict: &PyDict, vm: &VirtualMachine) -> PyResult<()> {
+        // Equality between colliding keys can change the source dictionary.
+        // Match the live _PyDict_Next traversal used by set_update_dict.
+        let mut position = 0;
+        while let Some((next_position, key, value, hash)) =
+            dict._as_dict_inner().next_entry_with_hash(position)
+        {
+            position = next_position;
+            drop(value);
             self.add_known_hash(&key, hash, vm)?;
         }
         Ok(())
@@ -569,7 +622,7 @@ impl PySetInner {
 
     fn intersection_update(
         &self,
-        others: impl core::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let temp_inner = self.intersection_multi(others, vm)?;
@@ -580,7 +633,7 @@ impl PySetInner {
 
     fn difference_update(
         &self,
-        others: impl core::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -599,7 +652,7 @@ impl PySetInner {
                     other_set.content.keys_with_hashes()
                 })
             } else {
-                Self::cached_hashes(iterable.as_object(), vm)
+                None
             };
             if let Some(elements) = elements {
                 for (item, hash) in elements {
@@ -607,102 +660,89 @@ impl PySetInner {
                 }
                 continue;
             }
-            for item in iterable.iter(vm)? {
+            for item in iterable.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
                 let item = item?;
-                let hash = item.hash(vm)?;
-                self.content.delete_if_exists(vm, &*item, hash)?;
+                self.discard_key(&item, vm)?;
             }
         }
         Ok(())
     }
 
-    fn symmetric_difference_update(
+    pub(super) fn symmetric_difference_update(
         &self,
-        others: impl core::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
-            if let Some(elements) = Self::cached_hashes(iterable.as_object(), vm) {
-                // the source is already duplicate-free
-                for (item, hash) in elements {
-                    self.content.delete_or_insert(vm, &item, hash, ())?;
-                }
+            if extract_set(&iterable)
+                .is_some_and(|other| PyRc::ptr_eq(&self.content, &other.content))
+            {
+                self.clear();
                 continue;
             }
-            // We want to remove duplicates in iterable
-            let iterable_set = Self::from_iter(iterable.iter(vm)?, vm)?;
-            for (item, hash) in iterable_set.content.keys_with_hashes() {
-                self.content.delete_or_insert(vm, &item, hash, ())?;
-            }
+            let iterable_set;
+            let elements = if let Some(elements) = Self::cached_hashes(iterable.as_object(), vm) {
+                // the source is already duplicate-free
+                elements
+            } else {
+                // We want to remove duplicates in iterable
+                iterable_set = Self::from_object(iterable.clone(), vm)?;
+                iterable_set.content.keys_with_hashes()
+            };
+            self.toggle_entries(elements, vm)?;
+        }
+        Ok(())
+    }
+
+    fn toggle_entries(
+        &self,
+        elements: Vec<(PyObjectRef, PyHash)>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        for (item, hash) in elements {
+            self.content.delete_or_insert(vm, &item, hash, ())?;
         }
         Ok(())
     }
 
     fn hash(&self) -> PyHash {
-        let hasher = self.content.fold_hashes(
-            hash::FrozenSetHash::new(self.len()),
-            |mut hasher, element_hash| {
-                hasher.add(element_hash);
-                hasher
-            },
-        );
+        let hasher =
+            self.content
+                .fold_hashes(hash::FrozenSetHash::new, |mut hasher, element_hash| {
+                    hasher.add(element_hash);
+                    hasher
+                });
         hasher.finish()
     }
 
-    // Run operation, on failure, if item is a set/set subclass, convert it
-    // into a frozenset and try the operation again. Propagates original error
-    // on failure to convert and restores item in KeyError on failure (remove).
-    fn retry_op_with_frozenset<T, F>(
-        &self,
+    // Mutable-set lookup borrows the frozenset hash algorithm, not a converted
+    // key: comparisons must still receive the caller's original object.
+    fn mutable_set_hash(
         item: &PyObject,
+        exc: PyBaseExceptionRef,
         vm: &VirtualMachine,
-        op: F,
-    ) -> PyResult<T>
-    where
-        F: Fn(&PyObject, &VirtualMachine) -> PyResult<T>,
-    {
-        op(item, vm).or_else(|original_err| {
-            item.downcast_ref::<PySet>()
-                // Keep original error around.
-                .ok_or(original_err)
-                .and_then(|set| {
-                    op(
-                        &PyFrozenSet {
-                            inner: set.inner.copy(),
-                            ..Default::default()
-                        }
-                        .into_pyobject(vm),
-                        vm,
-                    )
-                    // If operation raised KeyError, report original set (set.remove)
-                    .map_err(|op_err| {
-                        if op_err.fast_isinstance(vm.ctx.exceptions.key_error) {
-                            vm.new_key_error(item.to_owned())
-                        } else {
-                            op_err
-                        }
-                    })
-                })
-        })
+    ) -> PyResult<PyHash> {
+        if exc.fast_isinstance(vm.ctx.exceptions.type_error)
+            && let Some(set) = item.downcast_ref::<PySet>()
+        {
+            // Clearing the swallowed exception can mutate the lookup key.
+            drop(exc);
+            Ok(set.inner.hash())
+        } else {
+            Err(exc)
+        }
     }
 
-    fn wrap_unhashable_error<T>(
-        result: PyResult<T>,
+    fn key_hash(item: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
+        item.hash(vm).map_err(|exc| Self::hash_error(item, exc, vm))
+    }
+
+    fn hash_error(
         item: &PyObject,
+        exc: PyBaseExceptionRef,
         vm: &VirtualMachine,
-    ) -> PyResult<T> {
-        match result {
-            Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
-                let message = cause.as_object().str(vm)?;
-                let err = vm.new_type_error(format!(
-                    "cannot use '{}' as a set element ({message})",
-                    item.class().name()
-                ));
-                err.set_cause(Some(cause));
-                Err(err)
-            }
-            result => result,
-        }
+    ) -> PyBaseExceptionRef {
+        super::dict::contextualize_hash_error(item, "set", "element", exc, vm)
     }
 }
 
@@ -731,15 +771,16 @@ pub(super) fn exact_set_keys_with_hashes(
     Some(inner.content.keys_with_hashes())
 }
 
-fn reduce_set(zelf: &PyObject, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-    (
-        zelf.class().to_owned(),
-        #[expect(clippy::or_fun_call, reason = "changing this won't compile")]
-        vm.new_tuple((extract_set(zelf)
-            .unwrap_or(&PySetInner::default())
-            .elements(),)),
-        zelf.dict(),
-    )
+fn reduce_set(
+    zelf: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
+    let keys = vm.ctx.new_list(vm.extract_elements_sized(zelf, &|| 0, Ok)?);
+    let args = vm.new_tuple((keys,));
+    let state = zelf
+        .get_attr(identifier!(vm, __getstate__), vm)?
+        .call((), vm)?;
+    Ok((zelf.class().to_owned(), args, state))
 }
 
 impl PySet {
@@ -753,11 +794,9 @@ impl PySet {
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
-            Ok(PyArithmeticValue::Implemented(self.op(
-                other,
-                PySetInner::union,
-                vm,
-            )?))
+            Ok(PyArithmeticValue::Implemented(
+                self.union_multi(core::iter::once(other.into_object()), vm)?,
+            ))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
@@ -770,7 +809,7 @@ impl PySet {
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(Self {
-                inner: self.inner.intersection(other.into_iterable(vm)?, vm)?,
+                inner: self.inner.intersection(other.into_object(), vm)?,
             }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
@@ -784,7 +823,7 @@ impl PySet {
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(Self {
-                inner: self.inner.difference_new(other.into_iterable(vm)?, vm)?,
+                inner: self.inner.difference_new(other.into_object(), vm)?,
             }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
@@ -798,9 +837,7 @@ impl PySet {
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(Self {
-                inner: other
-                    .as_inner()
-                    .difference_new(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+                inner: other.as_inner().difference_new(zelf.into(), vm)?,
             }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
@@ -813,11 +850,9 @@ impl PySet {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
-            Ok(PyArithmeticValue::Implemented(self.op(
-                other,
-                PySetInner::symmetric_difference,
-                vm,
-            )?))
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: self.inner.symmetric_difference(other.into_object(), vm)?,
+            }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
@@ -839,7 +874,7 @@ impl PySet {
     ) -> PyResult<PyRef<Self>> {
         if !set.is(zelf.as_object()) {
             zelf.inner
-                .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
+                .intersection_update(core::iter::once(set.into_object()), vm)?;
         }
         Ok(zelf)
     }
@@ -853,7 +888,7 @@ impl PySet {
             zelf.inner.clear();
         } else {
             zelf.inner
-                .difference_update(set.into_iterable_iter(vm)?, vm)?;
+                .difference_update(core::iter::once(set.into_object()), vm)?;
         }
         Ok(zelf)
     }
@@ -867,7 +902,7 @@ impl PySet {
             zelf.inner.clear();
         } else {
             zelf.inner
-                .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
+                .symmetric_difference_update(core::iter::once(set.into_object()), vm)?;
         }
         Ok(zelf)
     }
@@ -910,16 +945,16 @@ impl Py<PySet> {
     #[pymethod]
     fn union(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<PySet> {
-        self.fold_op(others.into_iter(), PySetInner::union, vm)
+        self.union_multi(others.into_iter(), vm)
     }
 
     #[pymethod]
     fn intersection(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<PySet> {
         Ok(PySet {
@@ -930,7 +965,7 @@ impl Py<PySet> {
     #[pymethod]
     fn difference(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<PySet> {
         Ok(PySet {
@@ -939,27 +974,25 @@ impl Py<PySet> {
     }
 
     #[pymethod]
-    fn symmetric_difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        self.fold_op(
-            core::iter::once(other),
-            PySetInner::symmetric_difference,
-            vm,
-        )
+    fn symmetric_difference(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PySet> {
+        Ok(PySet {
+            inner: self.inner.symmetric_difference(other, vm)?,
+        })
     }
 
     #[pymethod]
     fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issubset(other, vm)
+        self.inner.issubset(other.as_object(), vm)
     }
 
     #[pymethod]
     fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issuperset(other, vm)
+        self.inner.issuperset(other.as_object(), vm)
     }
 
     #[pymethod]
     fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.isdisjoint(other, vm)
+        self.inner.isdisjoint(other.as_object(), vm)
     }
 
     #[pymethod]
@@ -1002,7 +1035,7 @@ impl Py<PySet> {
     #[pymethod]
     fn intersection_update(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.inner.intersection_update(others.into_iter(), vm)?;
@@ -1012,14 +1045,14 @@ impl Py<PySet> {
     #[pymethod]
     fn difference_update(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.inner.difference_update(others.into_iter(), vm)
     }
 
     #[pymethod]
-    fn symmetric_difference_update(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn symmetric_difference_update(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner
             .symmetric_difference_update(core::iter::once(other), vm)
     }
@@ -1028,7 +1061,7 @@ impl Py<PySet> {
     fn __reduce__(
         zelf: PyRef<PySet>,
         vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -1151,7 +1184,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_subtract: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__isub__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1163,7 +1198,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_and: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__iand__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1175,7 +1212,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_xor: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__ixor__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1187,7 +1226,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_or: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__ior__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1309,11 +1350,9 @@ impl PyFrozenSet {
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(set) = PyRef::<PyAnySet>::try_from_object(vm, other) {
-            Ok(PyArithmeticValue::Implemented(self.op(
-                set,
-                PySetInner::union,
-                vm,
-            )?))
+            Ok(PyArithmeticValue::Implemented(
+                self.union_multi(core::iter::once(set.into_object()), vm)?,
+            ))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
@@ -1326,7 +1365,7 @@ impl PyFrozenSet {
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(Self {
-                inner: self.inner.intersection(other.into_iterable(vm)?, vm)?,
+                inner: self.inner.intersection(other.into_object(), vm)?,
                 ..Default::default()
             }))
         } else {
@@ -1341,7 +1380,7 @@ impl PyFrozenSet {
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(Self {
-                inner: self.inner.difference_new(other.into_iterable(vm)?, vm)?,
+                inner: self.inner.difference_new(other.into_object(), vm)?,
                 ..Default::default()
             }))
         } else {
@@ -1356,9 +1395,7 @@ impl PyFrozenSet {
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(Self {
-                inner: other
-                    .as_inner()
-                    .difference_new(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+                inner: other.as_inner().difference_new(zelf.into(), vm)?,
                 ..Default::default()
             }))
         } else {
@@ -1372,11 +1409,10 @@ impl PyFrozenSet {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = PyRef::<PyAnySet>::try_from_object(vm, other) {
-            Ok(PyArithmeticValue::Implemented(self.op(
-                other,
-                PySetInner::symmetric_difference,
-                vm,
-            )?))
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: self.inner.symmetric_difference(other.into_object(), vm)?,
+                ..Default::default()
+            }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
@@ -1422,16 +1458,16 @@ impl Py<PyFrozenSet> {
     #[pymethod]
     fn union(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSet> {
-        self.fold_op(others.into_iter(), PySetInner::union, vm)
+        self.union_multi(others.into_iter(), vm)
     }
 
     #[pymethod]
     fn intersection(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSet> {
         Ok(PyFrozenSet {
@@ -1443,7 +1479,7 @@ impl Py<PyFrozenSet> {
     #[pymethod]
     fn difference(
         &self,
-        others: PosArgs<ArgIterable, NameOthers>,
+        others: PosArgs<PyObjectRef, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSet> {
         Ok(PyFrozenSet {
@@ -1455,36 +1491,35 @@ impl Py<PyFrozenSet> {
     #[pymethod]
     fn symmetric_difference(
         &self,
-        other: ArgIterable,
+        other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSet> {
-        self.fold_op(
-            core::iter::once(other),
-            PySetInner::symmetric_difference,
-            vm,
-        )
+        Ok(PyFrozenSet {
+            inner: self.inner.symmetric_difference(other, vm)?,
+            ..Default::default()
+        })
     }
 
     #[pymethod]
     fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issubset(other, vm)
+        self.inner.issubset(other.as_object(), vm)
     }
 
     #[pymethod]
     fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issuperset(other, vm)
+        self.inner.issuperset(other.as_object(), vm)
     }
 
     #[pymethod]
     fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.isdisjoint(other, vm)
+        self.inner.isdisjoint(other.as_object(), vm)
     }
 
     #[pymethod]
     fn __reduce__(
         zelf: PyRef<PyFrozenSet>,
         vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, PyObjectRef)> {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -1640,6 +1675,13 @@ pub(crate) struct PyAnySet {
     object: PyObject,
 }
 
+// SAFETY: this owner contributes exactly one strong reference to the object.
+unsafe impl Traverse for PyRef<PyAnySet> {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        tracer(self.as_object());
+    }
+}
+
 impl Borrow<PyObject> for PyAnySet {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
@@ -1699,17 +1741,6 @@ impl PyRef<PyAnySet> {
     fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
         PyAnySet::check(obj, vm)
     }
-
-    fn into_iterable(self, vm: &VirtualMachine) -> PyResult<ArgIterable> {
-        self.into_object().try_into_value(vm)
-    }
-
-    fn into_iterable_iter(
-        self,
-        vm: &VirtualMachine,
-    ) -> PyResult<impl core::iter::Iterator<Item = ArgIterable>> {
-        Ok(core::iter::once(self.into_iterable(vm)?))
-    }
 }
 
 // SAFETY: PyRef<PyAnySet> is a transparent PyRef owner. A successful check proves
@@ -1735,12 +1766,14 @@ impl TryFromObject for PyRef<PyAnySet> {
     }
 }
 
-#[pyclass(module = false, name = "set_iterator")]
+#[pyclass(module = false, name = "set_iterator", traverse, clear = false)]
 pub(crate) struct PySetIterator {
+    #[pytraverse(skip)]
     size: DictSize,
     /// Whether the set was found to have changed, which `setiter_iternext()`
     /// records by writing a size no set can have. Sticky: what it makes the
     /// iterator answer, it answers from then on.
+    #[pytraverse(skip)]
     changed: PyAtomic<bool>,
     internal: PyMutex<PositionIterInternal<PyRef<PyAnySet>>>,
 }
@@ -1877,7 +1910,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .set_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_set));
 
     PyFrozenSet::extend_class(context, context.types.frozenset_type);
@@ -1885,7 +1918,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .frozenset_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_frozenset));
 
     PySetIterator::extend_class(context, context.types.set_iterator_type);
@@ -1894,6 +1927,115 @@ pub(crate) fn init(context: &'static Context) {
 #[cfg(test)]
 mod reference_tests {
     use super::*;
+
+    #[test]
+    fn set_gc_detaches_keys_for_deferred_release() {
+        use crate::object::MaybeTraverse;
+
+        fn check(mut set: impl MaybeTraverse, key: &PyObjectRef) {
+            let mut visits = 0;
+            set.try_traverse(&mut |child| {
+                assert!(core::ptr::eq(child, &**key));
+                visits += 1;
+            });
+            assert_eq!(visits, 1);
+            let mut edges = Vec::new();
+            set.try_clear(&mut edges);
+            set.try_traverse(&mut |_| panic!("cleared set retained a key"));
+            set.try_clear(&mut edges);
+            assert_eq!(edges.len(), 1);
+            assert!(core::ptr::eq(&*edges[0], &**key));
+            assert_eq!(key.strong_count(), 2);
+            drop(edges);
+            assert_eq!(key.strong_count(), 1);
+        }
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for frozen in [false, true] {
+                let key: PyObjectRef = vm.ctx.new_int(1000).into();
+                let inner = PySetInner::default();
+                inner.add(&key, vm).unwrap();
+                if frozen {
+                    check(
+                        PyFrozenSet {
+                            inner,
+                            ..Default::default()
+                        },
+                        &key,
+                    );
+                } else {
+                    check(PySet { inner }, &key);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn set_gc_preserves_shared_table_edges() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let key: PyObjectRef = vm.ctx.new_int(1000).into();
+            let mut inner = PySetInner::default();
+            inner.add(&key, vm).unwrap();
+            let alias = inner.clone();
+            inner.traverse(&mut |_| panic!("shared table edge counted"));
+            alias.traverse(&mut |_| panic!("shared table edge counted"));
+            let mut edges = Vec::new();
+            Traverse::clear(&mut inner, &mut edges);
+            assert!(edges.is_empty());
+            assert!(alias.contains(&key, vm).unwrap());
+            drop(alias);
+            Traverse::clear(&mut inner, &mut edges);
+            assert_eq!(inner.len(), 0);
+            assert_eq!(edges.len(), 1);
+        });
+    }
+
+    #[test]
+    fn frozenset_gc_tracking_covers_native_construction() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let key: PyObjectRef = vm.ctx.new_int(1000).into();
+            let atomic = PyRef::new_ref(
+                PyFrozenSet::from_iter(vm, [key.clone()]).unwrap(),
+                vm.ctx.types.frozenset_type.to_owned(),
+                None,
+            );
+            assert!(!atomic.as_object().is_gc_tracked());
+            let nested = PyFrozenSet::from_iter(vm, [atomic.into()])
+                .unwrap()
+                .into_ref(&vm.ctx);
+            assert!(!nested.as_object().is_gc_tracked());
+
+            // A traversable key must keep the frozen owner visible to GC.
+            let tuple: PyObjectRef = vm.ctx.new_tuple(vec![key.clone()]).into();
+            let owner = PyFrozenSet::from_iter(vm, [tuple])
+                .unwrap()
+                .into_ref(&vm.ctx);
+            assert!(owner.as_object().is_gc_tracked());
+
+            let subclass = vm.ctx.new_class(
+                None,
+                "FrozenSubclass",
+                vm.ctx.types.frozenset_type.to_owned(),
+                Default::default(),
+            );
+            let subclass = PyFrozenSet::default()
+                .into_ref_with_type(vm, subclass)
+                .unwrap();
+            assert!(subclass.as_object().is_gc_tracked());
+
+            // A temporary native alias can still add traversable keys.
+            let inner = PySetInner::default();
+            inner.add(&key, vm).unwrap();
+            let alias = inner.clone();
+            let owner = PyFrozenSet {
+                inner,
+                ..Default::default()
+            }
+            .into_ref(&vm.ctx);
+            assert!(owner.as_object().is_gc_tracked());
+            drop(alias);
+        });
+    }
 
     #[test]
     fn anyset_reference_layout_and_ownership() {

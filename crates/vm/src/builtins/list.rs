@@ -1,11 +1,11 @@
+use super::native_iter::{NativeIterKind, NativeSequenceIter};
 use super::{
-    PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
+    PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
     iter::{builtins_iter, builtins_reversed},
-    locked_next, locked_rev_next,
 };
 use crate::atomic_func;
 use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -417,7 +417,7 @@ impl PyList {
         AsSequence,
         Representable
     ),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF)
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF, LIST_SUBCLASS)
 )]
 impl Py<PyList> {
     #[pymethod]
@@ -521,9 +521,9 @@ impl Py<PyList> {
 
     #[pymethod]
     fn __reversed__(zelf: PyRef<PyList>) -> PyListReverseIterator {
-        let position = zelf.__len__().saturating_sub(1);
+        let position = zelf.__len__() as isize - 1;
         PyListReverseIterator {
-            internal: PyMutex::new(PositionIterInternal::new(zelf, position)),
+            internal: NativeSequenceIter::new(zelf, NativeIterKind::ListReverse, position),
         }
     }
 
@@ -767,7 +767,7 @@ impl AsSequence for PyList {
 impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
-            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
+            internal: NativeSequenceIter::new(zelf, NativeIterKind::List, 0),
         }
         .into_pyobject(vm))
     }
@@ -1075,7 +1075,7 @@ fn do_sort(
 #[pyclass(module = false, name = "list_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyListIterator {
-    internal: PyMutex<PositionIterInternal<PyListRef>>,
+    internal: NativeSequenceIter<PyListRef>,
 }
 
 impl PyPayload for PyListIterator {
@@ -1089,22 +1089,20 @@ impl PyPayload for PyListIterator {
 impl Py<PyListIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.__len__())
+        self.internal.length_hint(|obj| obj.__len__())
     }
 
     #[pymethod]
     fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal
-            .lock()
-            .set_state(&object, |obj, pos| pos.min(obj.__len__()), vm)
+        self.internal.set_state(&object, |obj| obj.__len__(), vm)
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        Ok(self.internal.lock().reduce(
+        Ok(self.internal.reduce(
             func,
-            |x| x.clone().into(),
+            |x| x.into(),
             |vm| vm.ctx.new_list(Vec::new()).into(),
             vm,
         ))
@@ -1114,32 +1112,22 @@ impl Py<PyListIterator> {
 impl PyListIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        locked_next(&self.internal, |list, pos| {
-            let vec = list.borrow_vec();
-            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
-        })
-        .ok()
-        .and_then(|r| match r {
-            PyIterReturn::Return(v) => Some(v),
-            PyIterReturn::StopIteration(_) => None,
-        })
+        self.internal
+            .next(|list, pos| list.borrow_vec().get(pos).cloned())
     }
 }
 
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_next(&zelf.internal, |list, pos| {
-            let vec = list.borrow_vec();
-            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
-        })
+        Ok(PyIterReturn::from_result(zelf.fast_next().ok_or(None)))
     }
 }
 
 #[pyclass(module = false, name = "list_reverseiterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyListReverseIterator {
-    internal: PyMutex<PositionIterInternal<PyListRef>>,
+    internal: NativeSequenceIter<PyListRef>,
 }
 
 impl PyPayload for PyListReverseIterator {
@@ -1153,22 +1141,20 @@ impl PyPayload for PyListReverseIterator {
 impl Py<PyListReverseIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().rev_length_hint(|obj| obj.__len__())
+        self.internal.length_hint(|obj| obj.__len__())
     }
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal
-            .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
+        self.internal.set_state(&state, |obj| obj.__len__(), vm)
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_reversed(vm)?;
-        Ok(self.internal.lock().reduce(
+        Ok(self.internal.reduce(
             func,
-            |x| x.clone().into(),
+            |x| x.into(),
             |vm| vm.ctx.new_list(Vec::new()).into(),
             vm,
         ))
@@ -1178,10 +1164,11 @@ impl Py<PyListReverseIterator> {
 impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_rev_next(&zelf.internal, |list, pos| {
-            let vec = list.borrow_vec();
-            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
-        })
+        Ok(PyIterReturn::from_result(
+            zelf.internal
+                .next(|list, pos| list.borrow_vec().get(pos).cloned())
+                .ok_or(None),
+        ))
     }
 }
 
@@ -1202,7 +1189,10 @@ fn vectorcall_list(
 pub(crate) fn init(context: &'static Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
-    list_type.slots.vectorcall.store(Some(vectorcall_list));
+    list_type
+        .slots
+        .constructor_vectorcall
+        .store(Some(vectorcall_list));
 
     PyListIterator::extend_class(context, context.types.list_iterator_type);
     PyListReverseIterator::extend_class(context, context.types.list_reverseiterator_type);

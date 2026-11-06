@@ -21,7 +21,7 @@ opcode-histogram = []
 flame-it = ["flame", "flamer"]
 freeze-stdlib = ["encodings"]
 jit = ["rustpython-jit"]
-threading = ["rustpython-common/threading"]
+threading = ["rustpython-common/threading", "dep:parking_lot_core"]
 gc = []
 compiler = ["parser", "codegen", "rustpython-compiler"]
 ast = ["ruff_python_ast", "ruff_text_size"]
@@ -68,6 +68,7 @@ num-integer = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
+parking_lot_core = { workspace = true, optional = true }
 paste = { workspace = true }
 rapidhash = { workspace = true }
 scopeguard = { workspace = true }

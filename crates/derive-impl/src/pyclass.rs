@@ -1,4 +1,6 @@
 use super::Diagnostic;
+use crate::item::ItemLike;
+use crate::metadata::{AttributeDoc, NestedMeta, PunctuatedNestedMeta, nested_meta};
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, internal_doc_tokens,
@@ -8,9 +10,8 @@ use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
 use std::collections::{HashMap, HashSet};
+use syn::Meta;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
-use syn_ext::ext::*;
-use syn_ext::types::*;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum AttrName {
@@ -81,7 +82,7 @@ fn extract_items_into_context<'a, Item>(
     context: &mut ImplContext,
     items: impl Iterator<Item = &'a mut Item>,
 ) where
-    Item: ItemLike + ToTokens + GetIdent + syn_ext::ext::ItemAttrExt + 'a,
+    Item: ItemLike + ToTokens + 'a,
 {
     for item in items {
         let r = item.try_split_attr_mut(|attrs, item| {
@@ -254,8 +255,28 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                     sig_constructor,
                     sig_structseq,
                 );
+                // The table names `Self`, so it has to be an associated const on the
+                // payload, not a `static` item inside `extend_slots`.
+                let static_c_slots_impl = if sig_constructor {
+                    quote! {
+                        impl ::rustpython_vm::types::HasStaticCSlots for #payload_ty {
+                            const TABLE: ::rustpython_vm::types::StaticCSlots =
+                                ::rustpython_vm::types::StaticCSlots {
+                                    new: Some(::rustpython_vm::types::CSlotPair {
+                                        rust: <#payload_ty as ::rustpython_vm::types::Constructor>::slot_new as _,
+                                        c: ::rustpython_vm::types::c_new_for::<
+                                            ::rustpython_vm::types::ViaConstructor<#payload_ty>,
+                                        > as _,
+                                    }),
+                                };
+                        }
+                    }
+                } else {
+                    quote! {}
+                };
                 quote! {
                     #imp
+                    #static_c_slots_impl
                     impl ::rustpython_vm::class::PyClassImpl for #payload_ty {
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
@@ -579,8 +600,10 @@ fn generate_class_def(
     };
     let is_pystruct = attrs.iter().any(|attr| {
         attr.path().is_ident("derive")
-            && if let Ok(Meta::List(l)) = attr.parse_meta() {
-                l.nested
+            && if let Meta::List(l) = &attr.meta
+                && let Ok(nested) = nested_meta(l)
+            {
+                nested
                     .into_iter()
                     .any(|n| n.get_ident().is_some_and(|p| p == "PyStructSequence"))
             } else {
@@ -591,8 +614,10 @@ fn generate_class_def(
     // generate PySubclass impl (requires same memory layout as base type)
     let is_repr_transparent = attrs.iter().any(|attr| {
         attr.path().is_ident("repr")
-            && if let Ok(Meta::List(l)) = attr.parse_meta() {
-                l.nested
+            && if let Meta::List(l) = &attr.meta
+                && let Ok(nested) = nested_meta(l)
+            {
+                nested
                     .into_iter()
                     .any(|n| n.get_ident().is_some_and(|p| p == "transparent"))
             } else {
@@ -1010,7 +1035,12 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> T
     let mut extra_attrs = Vec::new();
     let mut with_items = vec![];
     for nested in &attr {
-        if let NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) = nested {
+        if let NestedMeta::Meta(Meta::List(list)) = nested {
+            let path = &list.path;
+            let nested = match nested_meta(list) {
+                Ok(nested) => nested,
+                Err(error) => return error.into_compile_error(),
+            };
             // If we already found the constructor trait, no need to keep looking for it
             if path.is_ident("with") {
                 for meta in nested {
@@ -1018,11 +1048,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> T
                 }
                 continue;
             }
-            extra_attrs.push(NestedMeta::Meta(Meta::List(MetaList {
-                path: path.clone(),
-                paren_token: Default::default(),
-                nested: nested.clone(),
-            })));
+            extra_attrs.push(NestedMeta::Meta(Meta::List(list.clone())));
         }
     }
 
@@ -1160,14 +1186,14 @@ struct ImplItemArgs<'a, Item: ItemLike> {
 
 trait ImplItem<Item>: ContentItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()>;
 }
 
 impl<Item> ImplItem<Item> for MethodItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         let func = args
@@ -1347,7 +1373,7 @@ where
 
 impl<Item> ImplItem<Item> for GetSetItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         let func = args
@@ -1382,7 +1408,7 @@ where
 
 impl<Item> ImplItem<Item> for SlotItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         let (ident, span) = if let Ok(c) = args.item.constant() {
@@ -1414,6 +1440,11 @@ where
                     slots.#slot_ident.store(Some(Self::#ident as _));
                     slots.has_release_buffer.store(Self::RELEASE_BUFFER);
                 }
+            } else if slot_name == "vectorcall" {
+                quote_spanned! { span =>
+                    slots.#slot_ident.store(Some(Self::#ident as _));
+                    slots.flags.insert(::rustpython_vm::types::PyTypeFlags::HAVE_VECTORCALL);
+                }
             } else if POINTER_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>
                     slots.#slot_ident.store(Some(PointerSlot::from(Self::#ident())));
@@ -1444,7 +1475,7 @@ where
 
 impl<Item> ImplItem<Item> for AttributeItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         let cfgs = args.cfgs.to_vec();
@@ -1490,7 +1521,7 @@ where
 
 impl<Item> ImplItem<Item> for ExtendClassItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         args.attrs.remove(self.index());
@@ -1512,7 +1543,7 @@ where
 
 impl<Item> ImplItem<Item> for MemberItem
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         Err(self.new_syn_error(
@@ -2503,7 +2534,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
 
     for attr in attr {
         match attr {
-            NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) => {
+            NestedMeta::Meta(Meta::List(list)) => {
+                let nested = nested_meta(&list)?;
+                let path = &list.path;
                 if path.is_ident("with") {
                     for meta in nested {
                         let NestedMeta::Meta(Meta::Path(path)) = &meta else {
@@ -2554,6 +2587,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                         } else if path.is_ident("Constructor") {
                             quote_spanned! { item_span =>
                                 slots.new.store(Some(<Self as ::rustpython_vm::types::Constructor>::slot_new as _));
+                                slots.static_c_slots.store(Some(
+                                    &<Self as ::rustpython_vm::types::HasStaticCSlots>::TABLE,
+                                ));
                             }
                         } else {
                             quote_spanned! { item_span =>
@@ -2708,7 +2744,7 @@ fn impl_item_new<Item>(
     attr_name: AttrName,
 ) -> Box<dyn ImplItem<Item, AttrName = AttrName>>
 where
-    Item: ItemLike + ToTokens + GetIdent,
+    Item: ItemLike + ToTokens,
 {
     match attr_name {
         attr_name @ (AttrName::Method | AttrName::ClassMethod | AttrName::StaticMethod) => {
@@ -2748,7 +2784,7 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        let attr_name = if let Some(ident) = attr.get_ident() {
+        let attr_name = if let Some(ident) = attr.path().get_ident() {
             ident.to_string()
         } else {
             continue;
@@ -2763,7 +2799,7 @@ where
 
     for (i, attr) in iter {
         // take py items but no cfgs
-        let attr_name = if let Some(ident) = attr.get_ident() {
+        let attr_name = if let Some(ident) = attr.path().get_ident() {
             ident.to_string()
         } else {
             continue;

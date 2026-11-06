@@ -61,6 +61,9 @@ pub use libc::{
 #[cfg(any(target_os = "dragonfly", target_os = "netbsd", target_vendor = "apple"))]
 pub use libc::F_GETPATH;
 
+#[cfg(target_os = "linux")]
+pub use libc::{FICLONE, FICLONERANGE};
+
 pub fn normalize_ioctl_request(request: i64) -> libc::c_ulong {
     (request as u32) as libc::c_ulong
 }

@@ -6,16 +6,17 @@ use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 #[pymodule]
 mod math {
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{
-            PyFloat, PyInt, PyIntRef, PyModule, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint,
+            PyFloat, PyInt, PyIntRef, PyModule, PyStrInterned, PyTuple, try_bigint_to_f64,
+            try_f64_to_bigint,
         },
-        function::{
-            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, OptionalArg, PosArgs,
-        },
+        function::{ArgIndex, ArgIntoFloat, ArgIterable, NameCoordinates, OptionalArg, PosArgs},
         identifier,
     };
+    use itertools::Itertools;
     use malachite_bigint::BigInt;
+    use num_traits::{Signed, ToPrimitive};
 
     use super::{float_repr, pymath_exception};
 
@@ -151,8 +152,8 @@ mod math {
         if let Some(i) = x.downcast_ref::<PyInt>() {
             return integer_log(i);
         }
-        let val = match x.try_float(vm) {
-            Ok(value) => value.to_f64(),
+        let val = match x.to_owned().try_into_value::<ArgIntoFloat>(vm) {
+            Ok(value) => value.into_float(),
             Err(error) => {
                 if error.fast_isinstance(vm.ctx.exceptions.overflow_error)
                     && let Some(index) = x.try_index_opt(vm)
@@ -281,13 +282,27 @@ mod math {
     }
 
     #[pyfunction]
-    fn dist(p: Vec<ArgIntoFloat>, q: Vec<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let p = ArgIntoFloat::vec_into_f64(p);
-        let q = ArgIntoFloat::vec_into_f64(q);
+    fn dist(p: PyObjectRef, q: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+        // Snapshot both points before checking dimensions or converting coordinates.
+        // Tuple subclasses use their stored elements, just like PyTuple_Check.
+        let p = match p.downcast_ref::<PyTuple>() {
+            Some(tuple) => tuple.to_owned(),
+            None => p.sequence_unchecked().tuple(vm)?,
+        };
+        let q = match q.downcast_ref::<PyTuple>() {
+            Some(tuple) => tuple.to_owned(),
+            None => q.sequence_unchecked().tuple(vm)?,
+        };
         if p.len() != q.len() {
             return Err(vm.new_value_error("both points must have the same number of dimensions"));
         }
-        Ok(pymath::math::dist(&p, &q))
+        let mut differences = Vec::with_capacity(p.len());
+        for (p, q) in p.as_slice().iter().zip(q.as_slice()) {
+            let p: ArgIntoFloat = p.clone().try_into_value(vm)?;
+            let q: ArgIntoFloat = q.clone().try_into_value(vm)?;
+            differences.push(p.into_float() - q.into_float());
+        }
+        Ok(pymath::math::hypot(&differences))
     }
 
     #[pyfunction]
@@ -389,64 +404,47 @@ mod math {
         pymath::math::lgamma(x.into_float()).map_err(|err| pymath_exception(err, vm))
     }
 
-    fn try_magic_method(
-        func_name: &'static PyStrInterned,
+    fn round_to_int(
+        x: &PyObject,
+        method: &'static PyStrInterned,
+        round: fn(f64) -> f64,
         vm: &VirtualMachine,
-        value: &PyObject,
     ) -> PyResult {
-        let method = vm.get_method_or_type_error(value.to_owned(), func_name, || {
-            format!(
-                "type '{}' doesn't define '{}' method",
-                value.class().name(),
-                func_name.as_str(),
-            )
-        })?;
-        method.call((), vm)
+        // Exact floats skip special-method lookup. Other types may provide a
+        // result of any type, or fall back to the native float conversion.
+        let value = if let Some(float) = x.downcast_ref_if_exact::<PyFloat>(vm) {
+            float.to_f64()
+        } else {
+            if let Some(result) = vm.call_special_method_opt(x, method, ())? {
+                return Ok(result);
+            }
+            x.to_owned()
+                .try_into_value::<ArgIntoFloat>(vm)?
+                .into_float()
+        };
+        let value = try_f64_to_bigint(round(value), vm)?;
+        Ok(vm.ctx.new_int(value).into())
     }
 
     #[pyfunction]
     fn trunc(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_magic_method(identifier!(vm, __trunc__), vm, &x)
+        vm.call_special_method_opt(&x, identifier!(vm, __trunc__), ())?
+            .ok_or_else(|| {
+                let class = x.class();
+                let name = class.slot_name();
+                let name = &name[..name.floor_char_boundary(100)];
+                vm.new_type_error(format!("type {name} doesn't define __trunc__ method"))
+            })
     }
 
     #[pyfunction]
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // `math_ceil`: an exact float skips the `__ceil__` lookup.
-        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
-            let v = try_f64_to_bigint(f.to_f64().ceil(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        // Only call __ceil__ if the class defines it - if it exists but is not callable,
-        // the error should be propagated (not fall back to float conversion)
-        if x.class().has_attr(identifier!(vm, __ceil__)) {
-            return try_magic_method(identifier!(vm, __ceil__), vm, &x);
-        }
-        // __ceil__ not defined - fall back to float conversion
-        if let Some(v) = x.try_float_opt(vm) {
-            let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
+        round_to_int(&x, identifier!(vm, __ceil__), f64::ceil, vm)
     }
 
     #[pyfunction]
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // `math_floor`: an exact float skips the `__floor__` lookup.
-        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
-            let v = try_f64_to_bigint(f.to_f64().floor(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        // Only call __floor__ if the class defines it - if it exists but is not callable,
-        // the error should be propagated (not fall back to float conversion)
-        if x.class().has_attr(identifier!(vm, __floor__)) {
-            return try_magic_method(identifier!(vm, __floor__), vm, &x);
-        }
-        // __floor__ not defined - fall back to float conversion
-        if let Some(v) = x.try_float_opt(vm) {
-            let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
-            return Ok(vm.ctx.new_int(v).into());
-        }
-        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
+        round_to_int(&x, identifier!(vm, __floor__), f64::floor, vm)
     }
 
     #[pyfunction]
@@ -457,7 +455,7 @@ mod math {
     #[derive(FromArgs)]
     struct LdexpArgs {
         #[pyarg(positional)]
-        x: Either<PyRef<PyFloat>, PyIntRef>,
+        x: ArgIntoFloat,
         // Refuses anything that is not an `int`, including objects with `__index__`.
         #[pyarg(positional, error_msg = "Expected an int as second argument to ldexp.")]
         i: PyIntRef,
@@ -466,11 +464,8 @@ mod math {
     #[pyfunction]
     fn ldexp(args: LdexpArgs, vm: &VirtualMachine) -> PyResult<f64> {
         let LdexpArgs { x, i } = args;
-        let value = match x {
-            Either::A(f) => f.to_f64(),
-            Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
-        };
-        pymath::math::ldexp_bigint(value, i.as_bigint()).map_err(|err| pymath_exception(err, vm))
+        pymath::math::ldexp_bigint(x.into_float(), i.as_bigint())
+            .map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]
@@ -479,10 +474,20 @@ mod math {
     }
 
     #[pyfunction]
-    fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let values: Result<Vec<f64>, _> =
-            seq.iter(vm)?.map(|r| r.map(|v| v.into_float())).collect();
-        pymath::math::fsum(values?).map_err(|err| pymath_exception(err, vm))
+    fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult {
+        // Stream conversions so an intermediate overflow does not advance the
+        // Python iterator or invoke __float__ on any later summands.
+        let mut values = seq
+            .iter(vm)?
+            .map(|value| value.map(ArgIntoFloat::into_float));
+        values
+            .by_ref()
+            .process_results(|values| pymath::math::fsum(values))?
+            .map(|value| vm.ctx.new_float(value).into())
+            .map_err(|err| match err {
+                pymath::Error::ERANGE => vm.new_overflow_error("intermediate overflow in fsum"),
+                pymath::Error::EDOM => vm.new_value_error("-inf + inf in fsum"),
+            })
     }
 
     #[pyfunction]
@@ -508,11 +513,13 @@ mod math {
 
         let steps = match arg.steps {
             Some(steps) => {
-                let steps: i64 = steps.into_int_ref().try_to_primitive(vm)?;
-                if steps < 0 {
+                let steps = steps.as_ref().as_bigint();
+                if steps.is_negative() {
                     return Err(vm.new_value_error("steps must be a non-negative integer"));
                 }
-                Some(steps as u64)
+                // Every finite IEEE-754 path fits in u64 steps. Larger indices
+                // reach the destination, just like CPython's saturated count.
+                Some(steps.to_u64().unwrap_or(u64::MAX))
             }
             None => None,
         };
@@ -546,131 +553,83 @@ mod math {
 
     #[pyfunction]
     fn prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        use crate::vm::builtins::PyInt;
-
-        let iter = args.iterable;
-        let start = args.start;
-
-        // Check if start is provided and what type it is (exact types only, not subclasses)
-        let (mut obj_result, start_is_int, start_is_float) = match &start {
-            OptionalArg::Present(s) => {
-                let is_int = s.class().is(vm.ctx.types.int_type);
-                let is_float = s.class().is(vm.ctx.types.float_type);
-                (Some(s.clone()), is_int, is_float)
-            }
-            OptionalArg::Missing => (None, true, false), // Default is int 1
+        let mut items = args.iterable.iter(vm)?;
+        let mut result = match &args.start {
+            OptionalArg::Present(start) => start.clone(),
+            OptionalArg::Missing => vm.ctx.new_int(1).into(),
         };
 
-        let mut item_iter = iter.iter(vm)?;
-
-        // Integer fast path
-        if start_is_int && !start_is_float {
-            let mut int_result: i64 = match &start {
-                OptionalArg::Present(s) => {
-                    if let Some(i) = s.downcast_ref::<PyInt>() {
-                        match i.as_bigint().try_into() {
-                            Ok(v) => v,
-                            Err(_) => {
-                                // Start overflows i64, fall through to generic path
-                                obj_result = Some(s.clone());
-                                i64::MAX // Will be ignored
-                            }
-                        }
-                    } else {
-                        1
-                    }
-                }
-                OptionalArg::Missing => 1,
-            };
-
-            if obj_result.is_none() {
-                loop {
-                    let item = match item_iter.next() {
-                        Some(r) => r?,
-                        None => return Ok(vm.ctx.new_int(int_result).into()),
-                    };
-
-                    // Only use fast path for exact int type (not subclasses)
-                    if item.class().is(vm.ctx.types.int_type)
-                        && let Some(int_item) = item.downcast_ref::<PyInt>()
-                        && let Ok(b) = int_item.as_bigint().try_into() as Result<i64, _>
-                        && let Some(product) = int_result.checked_mul(b)
-                    {
-                        int_result = product;
-                        continue;
-                    }
-
-                    // Overflow or non-int: restore to PyObject and continue
-                    obj_result = Some(vm.ctx.new_int(int_result).into());
-                    let temp = vm._mul(obj_result.as_ref().unwrap(), &item)?;
-                    obj_result = Some(temp);
-                    break;
-                }
-            }
-        }
-
-        // Float fast path
-        let obj_float = obj_result
-            .as_ref()
-            .and_then(|obj| obj.clone().downcast::<PyFloat>().ok());
-        if obj_float.is_some() || start_is_float {
-            let mut flt_result: f64 = if let Some(ref f) = obj_float {
-                f.to_f64()
-            } else if start_is_float && let OptionalArg::Present(s) = &start {
-                s.downcast_ref::<PyFloat>().map_or(1.0, |f| f.to_f64())
-            } else {
-                1.0
-            };
-
+        // Only exact builtins may bypass Python's multiplication methods.
+        if result.class().is(vm.ctx.types.int_type)
+            && let Some(integer) = result.downcast_ref::<PyInt>()
+            && let Ok(mut total) = integer.as_bigint().try_into() as Result<i64, _>
+        {
             loop {
-                let item = match item_iter.next() {
-                    Some(r) => r?,
-                    None => return Ok(vm.ctx.new_float(flt_result).into()),
+                let Some(item) = items.next() else {
+                    return Ok(vm.ctx.new_int(total).into());
                 };
-
-                // Only use fast path for exact float/int types (not subclasses)
-                if item.class().is(vm.ctx.types.float_type)
-                    && let Some(f) = item.downcast_ref::<PyFloat>()
-                {
-                    flt_result *= f.to_f64();
-                    continue;
-                }
+                let item = item?;
                 if item.class().is(vm.ctx.types.int_type)
-                    && let Some(i) = item.downcast_ref::<PyInt>()
-                    && let Ok(v) = i.as_bigint().try_into() as Result<i64, _>
+                    && let Some(integer) = item.downcast_ref::<PyInt>()
+                    && let Ok(value) = integer.as_bigint().try_into() as Result<i64, _>
+                    && let Some(product) = total.checked_mul(value)
                 {
-                    flt_result *= v as f64;
+                    total = product;
                     continue;
                 }
 
-                // Non-exact-float/int: restore and continue with generic path
-                obj_result = Some(vm.ctx.new_float(flt_result).into());
-                let temp = vm._mul(obj_result.as_ref().unwrap(), &item)?;
-                obj_result = Some(temp);
+                result = vm.ctx.new_int(total).into();
+                result = vm._mul(&result, &item)?;
                 break;
             }
         }
 
-        // Generic path for remaining items
-        let mut result = obj_result.unwrap_or_else(|| vm.ctx.new_int(1).into());
-        for item in item_iter {
+        // The integer fallback can return a float subclass. Do not enter this
+        // path on a payload downcast: its __mul__ must still be called.
+        if result.class().is(vm.ctx.types.float_type)
+            && let Some(float) = result.downcast_ref::<PyFloat>()
+        {
+            let mut total = float.to_f64();
+            loop {
+                let Some(item) = items.next() else {
+                    return Ok(vm.ctx.new_float(total).into());
+                };
+                let item = item?;
+                if item.class().is(vm.ctx.types.float_type)
+                    && let Some(float) = item.downcast_ref::<PyFloat>()
+                {
+                    total *= float.to_f64();
+                    continue;
+                }
+                if item.class().is(vm.ctx.types.int_type)
+                    && let Some(integer) = item.downcast_ref::<PyInt>()
+                    && let Ok(value) = integer.as_bigint().try_into() as Result<i64, _>
+                {
+                    total *= value as f64;
+                    continue;
+                }
+
+                result = vm.ctx.new_float(total).into();
+                result = vm._mul(&result, &item)?;
+                break;
+            }
+        }
+
+        // Once the specialized paths end, every remaining product uses the
+        // normal numeric protocol, even if a later result is a builtin again.
+        for item in items {
             let item = item?;
             result = vm._mul(&result, &item)?;
         }
-
         Ok(result)
     }
 
     #[pyfunction]
-    fn sumprod(
-        p: ArgIterable<PyObjectRef>,
-        q: ArgIterable<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
+    fn sumprod(p: PyObjectRef, q: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         use crate::vm::builtins::PyInt;
 
-        let mut p_iter = p.iter(vm)?;
-        let mut q_iter = q.iter(vm)?;
+        let mut p_iter = p.get_iter(vm)?.into_iter::<PyObjectRef>(vm);
+        let mut q_iter = q.get_iter(vm)?.into_iter::<PyObjectRef>(vm);
 
         // Fast path state
         let mut int_path_enabled = true;
@@ -683,11 +642,13 @@ mod math {
         let mut obj_total: Option<PyObjectRef> = None;
 
         loop {
-            let m_p = p_iter.next();
-            let m_q = q_iter.next();
+            // An exception from p must escape before q is advanced. Likewise,
+            // an exception from q takes precedence over a length mismatch.
+            let m_p = p_iter.next().transpose()?;
+            let m_q = q_iter.next().transpose()?;
 
             let (p_i, q_i, finished) = match (m_p, m_q) {
-                (Some(r_p), Some(r_q)) => (Some(r_p?), Some(r_q?), false),
+                (Some(p_i), Some(q_i)) => (Some(p_i), Some(q_i), false),
                 (None, None) => (None, None, true),
                 _ => return Err(vm.new_value_error("Inputs are not the same length")),
             };
@@ -733,8 +694,12 @@ mod math {
 
                     let p_is_exact_float = p_i.class().is(vm.ctx.types.float_type);
                     let q_is_exact_float = q_i.class().is(vm.ctx.types.float_type);
-                    let p_is_exact_int = p_i.class().is(vm.ctx.types.int_type);
-                    let q_is_exact_int = q_i.class().is(vm.ctx.types.int_type);
+                    // Boolean weights participate in the compensated float
+                    // path, but arbitrary integer subclasses must not.
+                    let p_is_exact_int = p_i.class().is(vm.ctx.types.int_type)
+                        || p_i.class().is(vm.ctx.types.bool_type);
+                    let q_is_exact_int = q_i.class().is(vm.ctx.types.int_type)
+                        || q_i.class().is(vm.ctx.types.bool_type);
                     let p_is_exact_numeric = p_is_exact_float || p_is_exact_int;
                     let q_is_exact_numeric = q_is_exact_float || q_is_exact_int;
                     let has_exact_float = p_is_exact_float || q_is_exact_float;

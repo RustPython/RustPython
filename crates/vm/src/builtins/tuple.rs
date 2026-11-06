@@ -1,9 +1,8 @@
-use super::{
-    PositionIterInternal, PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
-    locked_next,
-};
+use super::native_iter::{NativeIterKind, NativeSequenceIter};
+use super::{PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter};
+use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::common::lock::LazyLock;
-use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
+use crate::common::{hash, hash::PyHash, wtf8::wtf8_concat};
 use crate::object::{PyTypedRefTarget, Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -30,9 +29,10 @@ use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
-#[repr(transparent)]
+#[repr(C)]
 pub struct PyTuple<R = PyObjectRef> {
     elements: TupleElements<R>,
+    hash: PyAtomic<PyHash>,
 }
 
 /// Tuple storage is immutable after publication, but marshal must publish a
@@ -307,6 +307,7 @@ impl PyTuple {
     fn from_elements(elements: Vec<PyObjectRef>) -> Self {
         Self {
             elements: TupleElements::new(elements.into_boxed_slice()),
+            hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
         }
     }
 }
@@ -360,6 +361,7 @@ impl PyTuple<PyObjectRef> {
             PyRef::new_ref(
                 Self {
                     elements: TupleElements::new(elements),
+                    hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
                 },
                 ctx.types.tuple_type.to_owned(),
                 None,
@@ -374,6 +376,7 @@ impl PyTuple<PyObjectRef> {
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self {
             elements: TupleElements::new(elements),
+            hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
         }
     }
 
@@ -398,6 +401,7 @@ impl PyTuple<PyObjectRef> {
             let elements = v.into_boxed_slice();
             Self {
                 elements: TupleElements::new(elements),
+                hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
             }
             .into_ref(&vm.ctx)
         })
@@ -510,6 +514,7 @@ impl PyTuple {
                     .collect::<Box<[_]>>();
                 Self {
                     elements: TupleElements::new(elements),
+                    hash: PyAtomic::<PyHash>::new(hash::SENTINEL),
                 }
                 .into_ref(&vm.ctx)
             }
@@ -543,7 +548,7 @@ impl PyTuple {
 
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
     with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl Py<PyTuple> {
@@ -660,7 +665,13 @@ impl AsNumber for PyTuple {
 impl Hashable for PyTuple {
     #[inline]
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        tuple_hash(zelf.as_slice(), vm)
+        let cached = Radium::load(&zelf.hash, Ordering::Relaxed);
+        if cached != hash::SENTINEL {
+            return Ok(cached);
+        }
+        let hash = tuple_hash(zelf.as_slice(), vm)?;
+        Radium::store(&zelf.hash, hash, Ordering::Relaxed);
+        Ok(hash)
     }
 }
 
@@ -686,7 +697,7 @@ impl Comparable for PyTuple {
 impl Iterable for PyTuple {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyTupleIterator {
-            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
+            internal: NativeSequenceIter::new(zelf, NativeIterKind::Sequence, 0),
         }
         .into_pyobject(vm))
     }
@@ -735,8 +746,8 @@ impl PyRef<PyTuple<PyObjectRef>> {
         for elem in self.as_slice() {
             <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
         }
-        // SAFETY: every element satisfies T's view invariant. Transparent
-        // tuple wrappers retain the same erased storage for every marker;
+        // SAFETY: every element satisfies T's view invariant. C-layout
+        // tuple payloads retain the same erased storage and hash for every marker;
         // this transfers the owner without changing its allocation or count.
         Ok(unsafe { core::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
@@ -745,7 +756,7 @@ impl PyRef<PyTuple<PyObjectRef>> {
 impl<T: PyTypedRefTarget> PyRef<PyTuple<PyRef<T>>> {
     #[must_use]
     pub fn into_untyped(self) -> PyRef<PyTuple> {
-        // SAFETY: transparent tuple wrappers have identical erased storage;
+        // SAFETY: C-layout tuple payloads have identical erased storage and hash;
         // forgetting the element guarantee does not change the allocation.
         unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }
     }
@@ -753,7 +764,7 @@ impl<T: PyTypedRefTarget> PyRef<PyTuple<PyRef<T>>> {
 
 impl<T: PyTypedRefTarget> Py<PyTuple<PyRef<T>>> {
     pub fn as_untyped(&self) -> &Py<PyTuple> {
-        // SAFETY: transparent tuple wrappers have identical erased storage;
+        // SAFETY: C-layout tuple payloads have identical erased storage and hash;
         // forgetting the element guarantee does not change the allocation.
         unsafe { core::mem::transmute::<&Self, &Py<PyTuple>>(self) }
     }
@@ -769,7 +780,7 @@ impl<T: PyTypedRefTarget> From<PyRef<PyTuple<PyRef<T>>>> for PyTupleRef {
 #[pyclass(module = false, name = "tuple_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
-    internal: PyMutex<PositionIterInternal<PyTupleRef>>,
+    internal: NativeSequenceIter<PyTupleRef>,
 }
 
 impl PyPayload for PyTupleIterator {
@@ -782,22 +793,21 @@ impl PyPayload for PyTupleIterator {
 impl Py<PyTupleIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.as_slice().len())
+        self.internal.length_hint(|obj| obj.as_slice().len())
     }
 
     #[pymethod]
     fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
-            .lock()
-            .set_state(&object, |obj, pos| pos.min(obj.as_slice().len()), vm)
+            .set_state(&object, |obj| obj.as_slice().len(), vm)
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;
-        Ok(self.internal.lock().reduce(
+        Ok(self.internal.reduce(
             func,
-            |x| x.clone().into(),
+            |x| x.into(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
         ))
@@ -807,27 +817,15 @@ impl Py<PyTupleIterator> {
 impl PyTupleIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        locked_next(&self.internal, |tuple, pos| {
-            Ok(PyIterReturn::from_result(
-                tuple.as_slice().get(pos).cloned().ok_or(None),
-            ))
-        })
-        .ok()
-        .and_then(|r| match r {
-            PyIterReturn::Return(v) => Some(v),
-            PyIterReturn::StopIteration(_) => None,
-        })
+        self.internal
+            .next(|tuple, pos| tuple.as_slice().get(pos).cloned())
     }
 }
 
 impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        locked_next(&zelf.internal, |tuple, pos| {
-            Ok(PyIterReturn::from_result(
-                tuple.as_slice().get(pos).cloned().ok_or(None),
-            ))
-        })
+        Ok(PyIterReturn::from_result(zelf.fast_next().ok_or(None)))
     }
 }
 
@@ -852,7 +850,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .tuple_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_tuple));
 }
 

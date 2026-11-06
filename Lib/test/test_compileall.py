@@ -28,9 +28,13 @@ except (NotImplementedError, ModuleNotFoundError):
 from test import support
 from test.support import os_helper
 from test.support import script_helper
-from test.test_py_compile import without_source_date_epoch
-from test.test_py_compile import SourceDateEpochTestMeta
+from test.support.os_helper import without_source_date_epoch
+from test.support.os_helper import SourceDateEpochTestMeta
 from test.support.os_helper import FakePath
+
+
+if sys.implementation.cache_tag is None:
+    raise unittest.SkipTest('requires sys.implementation.cache_tag is not None')
 
 
 def get_pyc(script, opt):
@@ -594,7 +598,6 @@ class CommandLineTestsBase:
         path = importlib.util.cache_from_source(fn)
         self.assertFalse(os.path.exists(path))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_args_compiles_path(self):
         # Note that -l is implied for the no args case.
         bazfn = script_helper.make_script(self.directory, 'baz', '')
@@ -604,7 +607,6 @@ class CommandLineTestsBase:
             self.assertNotCompiled(self.initfn)
             self.assertNotCompiled(self.barfn)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @without_source_date_epoch  # timestamp invalidation test
     @support.requires_resource('cpu')
     def test_no_args_respects_force_flag(self):

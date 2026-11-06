@@ -41,6 +41,7 @@ where
     E: DecodeErrorHandler<Ctx>,
 {
     let mut out = Wtf8Buf::new();
+    let mut consumed = ctx.full_data().len();
     loop {
         let rest = ctx.remaining_data();
         if rest.is_empty() {
@@ -62,6 +63,7 @@ where
             let escape_start = ctx.position();
             let digits_start = 2;
             if !final_decode && rest.len() < digits_start + want {
+                consumed = ctx.position();
                 break;
             }
             let available = (digits_start + want).min(rest.len());
@@ -99,6 +101,7 @@ where
             continue;
         }
         if kind.is_none() && !final_decode {
+            consumed = ctx.position();
             break;
         }
         out.push_char(b as char);
@@ -108,5 +111,5 @@ where
             ctx.advance(1);
         }
     }
-    Ok((out, ctx.position()))
+    Ok((out, consumed))
 }

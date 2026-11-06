@@ -157,7 +157,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_chunks_maxsize(self):
         lzd = LZMADecompressor()
         max_length = 100
@@ -390,7 +389,6 @@ class CompressDecompressFunctionTestCase(unittest.TestCase):
 
     # Test error cases:
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Failed to initialize encoder
     def test_bad_args(self):
         self.assertRaises(TypeError, lzma.compress)
         self.assertRaises(TypeError, lzma.compress, [])
@@ -690,7 +688,6 @@ class FileTestCase(unittest.TestCase):
             LZMAFile(BytesIO(), "w",
                      filters=[{"id": lzma.FILTER_X86, "foo": 0}])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Invalid format
     def test_init_with_preset_and_filters(self):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(), "w", format=lzma.FORMAT_RAW,
@@ -1349,7 +1346,6 @@ class FileTestCase(unittest.TestCase):
         f.close()
         self.assertRaises(ValueError, f.tell)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: True is not false
     def test_issue21872(self):
         # sometimes decompress data incompletely
 

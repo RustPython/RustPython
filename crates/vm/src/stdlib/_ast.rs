@@ -465,12 +465,26 @@ fn copy_ast_passthrough_fields(
             &["kind"]
         } else if is_node_instance(vm, target, pyast::NodeExprInterpolation::static_type())? {
             &["str"]
+        } else if is_node_instance(vm, target, pyast::NodeStmtImport::static_type())?
+            || is_node_instance(vm, target, pyast::NodeStmtImportFrom::static_type())?
+        {
+            &["is_lazy"]
         } else {
             &[]
         };
 
     for field in fields {
         if let Some(value) = vm.get_attribute_opt(source, *field)? {
+            let value = if *field == "is_lazy" {
+                let value = if vm.is_none(&value) {
+                    0
+                } else {
+                    node_object_to_i32(vm, &value)?
+                };
+                vm.ctx.new_int(value).into()
+            } else {
+                value
+            };
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -982,6 +996,7 @@ fn type_comment_parse_error(
         source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
         is_unclosed_string: false,
+        eof_token: None,
     }
     .into()
 }
@@ -1216,6 +1231,44 @@ fn invalid_type_comment_syntax_error(
         line_start = line_end;
     }
     None
+}
+
+/// The parser phase where a rejected TYPE_COMMENT stops grammar actions.
+/// Use the validator's token-backed location, not a textual comment search.
+pub(crate) fn invalid_type_comment_warning_boundary(
+    source_file: &SourceFile,
+    parsed: &parser::Parsed<ast::Mod>,
+    interactive: bool,
+) -> Option<usize> {
+    let comments = TypeCommentSource::new(source_file.source_text(), parsed.tokens());
+    match invalid_type_comment_syntax_error(source_file, &comments)? {
+        CompileError::Parse(error) => {
+            let offset = error.raw_location.start().to_usize();
+            (!interactive || type_comment_precedes_single_boundary(offset, source_file, parsed))
+                .then_some(offset)
+        }
+        CompileError::Codegen(_) => None,
+    }
+}
+
+fn type_comment_precedes_single_boundary(
+    offset: usize,
+    source_file: &SourceFile,
+    parsed: &parser::Parsed<ast::Mod>,
+) -> bool {
+    use rustpython_compiler::SingleModeStatementBoundary;
+    match rustpython_compiler::single_mode_statement_boundary(parsed) {
+        Some(SingleModeStatementBoundary::Simple { end, .. }) => offset < end.to_usize(),
+        Some(SingleModeStatementBoundary::Compound { .. }) => {
+            // Compound input still requests NEWLINE after the statement. A
+            // rejected comment may be that next token, before the next AST node.
+            match rustpython_compiler::single_mode_multiple_statements_error(source_file, parsed) {
+                Some(CompileError::Parse(error)) => offset < error.raw_location.start().to_usize(),
+                _ => true,
+            }
+        }
+        None => true,
+    }
 }
 
 fn feature_version_syntax_error(
@@ -1712,6 +1765,7 @@ fn ipython_escape_command_syntax_error(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }
         .into(),
     )
@@ -1753,6 +1807,7 @@ pub(crate) fn parse<E: From<CompileError>>(
     interactive: bool,
     explicit_future_features: crate::bytecode::CodeFlags,
     dont_imply_dedent: bool,
+    type_comment_error_offset: Option<&mut Option<usize>>,
     mut emit_warning: impl FnMut(usize, char) -> Result<(), E>,
 ) -> Result<PyObjectRef, E> {
     let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
@@ -1769,17 +1824,38 @@ pub(crate) fn parse<E: From<CompileError>>(
     );
     rustpython_compiler::pre_parse_source_error(&source_file)?;
     let parsed = parser::parse_unchecked(barry_source.source(), options);
+    let type_comment_source =
+        type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
+    let mut type_comment_error = type_comment_source
+        .as_ref()
+        .and_then(|lines| invalid_type_comment_syntax_error(&source_file, lines));
+    if interactive && parsed.has_valid_syntax() {
+        // A rejected comment before the first logical-input boundary prevents
+        // Simple input from succeeding. Compound input still needs NEWLINE,
+        // so compare its actual next-token error rather than its AST end.
+        type_comment_error = type_comment_error.filter(|error| match error {
+            CompileError::Parse(error) => type_comment_precedes_single_boundary(
+                error.raw_location.start().to_usize(),
+                &source_file,
+                &parsed,
+            ),
+            CompileError::Codegen(_) => false,
+        });
+    }
     if interactive
+        && !(parsed.has_valid_syntax() && type_comment_error.is_some())
         && let Some(error) =
             rustpython_compiler::single_mode_multiple_statements_error(&source_file, &parsed)
     {
         return Err(error.into());
     }
-    let type_comment_source =
-        type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
-    if let Some(lines) = &type_comment_source
-        && let Some(error) = invalid_type_comment_syntax_error(&source_file, lines)
-    {
+    if let Some(error) = type_comment_error {
+        if parsed.has_valid_syntax()
+            && let Some(offset) = type_comment_error_offset
+            && let CompileError::Parse(error) = &error
+        {
+            *offset = Some(error.raw_location.start().to_usize());
+        }
         return Err(error.into());
     }
     if let Err(errors) = parsed.as_result() {
@@ -1796,6 +1872,7 @@ pub(crate) fn parse<E: From<CompileError>>(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     }
@@ -1826,6 +1903,7 @@ pub(crate) fn parse<E: From<CompileError>>(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     }
@@ -1960,6 +2038,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }
         .into()
     };
@@ -1989,6 +2068,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     };
@@ -2010,6 +2090,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
+                eof_token: None,
             })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
@@ -2045,6 +2126,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
+                eof_token: None,
             })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {

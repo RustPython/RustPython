@@ -55,10 +55,11 @@ pub use memory::PyMemoryView;
 pub(crate) mod module;
 pub use module::{PyModule, PyModuleDef, PyModuleSlots};
 pub(crate) mod namespace;
+pub(crate) mod native_iter;
 pub use namespace::PyNamespace;
 pub(crate) mod object;
 pub use object::PyBaseObject;
-pub use object::{object_generic_set_dict, object_get_dict};
+pub use object::{alloc_default, object_generic_set_dict, object_get_dict};
 pub(crate) mod property;
 pub use property::PyProperty;
 #[path = "bool.rs"]
@@ -107,6 +108,7 @@ pub use descriptor::{
 };
 
 pub use float::float_from_string as parse_float_from_string;
+pub use float::invalid_float_literal_error;
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
 

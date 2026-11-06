@@ -222,6 +222,7 @@ pylifecycle
 pymain
 pymem
 pyrepl
+pyrun
 pystate
 pystrcmp
 PYTHONTRACEMALLOC

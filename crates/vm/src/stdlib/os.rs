@@ -97,6 +97,10 @@ impl<'fd, KW: DirFdKeyword> DirFd<'fd, 1, KW> {
 impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE, KW> {
     const PARAMS: Option<&'static [Param]> = Some(KW::PARAMS);
 
+    fn arity() -> core::ops::RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword(KW::NAME) {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
@@ -139,6 +143,20 @@ pub(crate) struct SymlinkArgs<'fd> {
 pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
+
+#[derive(FromArgs)]
+pub(super) struct AccessArgs<'fd> {
+    #[pyarg(any)]
+    pub(super) path: OsPath,
+    #[pyarg(any)]
+    pub(super) mode: u8,
+    #[pyarg(flatten)]
+    pub(super) dir_fd: DirFd<'fd, { _os::ACCESS_DIR_FD as usize }>,
+    #[pyarg(named, default)]
+    pub(super) effective_ids: bool,
+    #[pyarg(flatten)]
+    pub(super) follow_symlinks: FollowSymlinks,
+}
 
 #[cfg(not(windows))]
 fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
@@ -217,7 +235,7 @@ pub(super) mod _os {
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyException, ToPyObject},
-        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::OSErrorBuilder,
         function::{
             ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
         },
@@ -244,6 +262,15 @@ pub(super) mod _os {
     use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
+    pub(crate) const ACCESS_DIR_FD: bool = cfg!(all(
+        unix,
+        not(any(
+            target_os = "android",
+            target_os = "espidf",
+            target_os = "horizon",
+            target_os = "vita",
+        ))
+    ));
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -289,6 +316,10 @@ pub(super) mod _os {
     #[cfg(any(unix, windows, target_os = "wasi"))]
     impl FromArgs for OpenDirFd {
         const PARAMS: Option<&'static [Param]> = Some(DefaultDirFd::PARAMS);
+
+        fn arity() -> core::ops::RangeInclusive<usize> {
+            0..=0
+        }
 
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let fd = match args.take_keyword("dir_fd") {
@@ -540,19 +571,41 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
-                let dir_iter = match crate::host_env::fs::read_dir(&path) {
-                    Ok(iter) => iter,
-                    Err(err) => {
-                        return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                #[cfg(windows)]
+                {
+                    let wide = path
+                        .path
+                        .to_wide_cstring()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut dir = host_nt::scandir(&wide)
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let mut names = Vec::new();
+                    while let Some(entry) = dir
+                        .next_entry()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?
+                    {
+                        if !entry.is_dot_or_dotdot() {
+                            names.push(path.mode().process_path(entry.name, vm)?);
+                        }
                     }
-                };
-                let mode = path.mode();
-                dir_iter
-                    .map(|entry| match entry {
-                        Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
-                        Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
-                    })
-                    .collect::<PyResult<_>>()?
+                    names
+                }
+                #[cfg(not(windows))]
+                {
+                    let dir_iter = match crate::host_env::fs::read_dir(&path) {
+                        Ok(iter) => iter,
+                        Err(err) => {
+                            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+                        }
+                    };
+                    let mode = path.mode();
+                    dir_iter
+                        .map(|entry| match entry {
+                            Ok(entry_path) => mode.process_path(entry_path.file_name(), vm),
+                            Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
+                        })
+                        .collect::<PyResult<_>>()?
+                }
             }
             OsPathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
@@ -573,7 +626,7 @@ pub(super) mod _os {
                                 rustpython_host_env::os::bytes_as_os_str(&entry.name)
                                     .expect("unix dir entry names are arbitrary bytes"),
                                 vm,
-                            ),
+                            )?,
                         );
                     }
                     list
@@ -716,7 +769,7 @@ pub(super) mod _os {
         let [] = args.dir_fd.0;
         let path =
             fs::read_link(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
-        Ok(mode.process_path(path, vm))
+        mode.process_path(path, vm)
     }
 
     #[pyattr]
@@ -860,12 +913,12 @@ pub(super) mod _os {
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
     impl Py<DirEntry> {
         #[pygetset]
-        fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn name(&self, vm: &VirtualMachine) -> PyResult {
             self.mode.process_path(&self.file_name, vm)
         }
 
         #[pygetset]
-        fn path(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn path(&self, vm: &VirtualMachine) -> PyResult {
             self.mode.process_path(&self.pathval, vm)
         }
 
@@ -997,7 +1050,7 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn __fspath__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn __fspath__(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)
         }
 
@@ -1610,12 +1663,12 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn getcwd(vm: &VirtualMachine) -> PyResult {
-        Ok(OutputMode::String.process_path(curdir_inner(vm)?, vm))
+        OutputMode::String.process_path(curdir_inner(vm)?, vm)
     }
 
     #[pyfunction]
     fn getcwdb(vm: &VirtualMachine) -> PyResult {
-        Ok(OutputMode::Bytes.process_path(curdir_inner(vm)?, vm))
+        OutputMode::Bytes.process_path(curdir_inner(vm)?, vm)
     }
 
     #[derive(FromArgs)]
@@ -1677,12 +1730,8 @@ pub(super) mod _os {
         #[cfg(not(any(unix, target_os = "wasi")))]
         let dst_dir_fd = None;
 
-        crate::host_env::posix::rename(&src, src_dir_fd, &dst, dst_dir_fd).map_err(|err| {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder.filename(src.filename(vm));
-            let builder = builder.filename2(dst.filename(vm));
-            builder.build(vm).upcast()
-        })
+        crate::host_env::posix::rename(&src, src_dir_fd, &dst, dst_dir_fd)
+            .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
     }
 
     #[pyfunction]
@@ -1706,12 +1755,8 @@ pub(super) mod _os {
         #[cfg(not(any(unix, target_os = "wasi")))]
         let dst_dir_fd = None;
 
-        crate::host_env::posix::replace(&src, src_dir_fd, &dst, dst_dir_fd).map_err(|err| {
-            let builder = err.to_os_error_builder(vm);
-            let builder = builder.filename(src.filename(vm));
-            let builder = builder.filename2(dst.filename(vm));
-            builder.build(vm).upcast()
-        })
+        crate::host_env::posix::replace(&src, src_dir_fd, &dst, dst_dir_fd)
+            .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
     }
 
     #[pyfunction]
@@ -1746,7 +1791,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn _exit(status: ExitStatus) {
-        crate::host_env::os::exit(status.status)
+        crate::host_env::os::exit_immediately(status.status)
     }
 
     #[pyfunction]
@@ -1820,10 +1865,7 @@ pub(super) mod _os {
                 dst_cstr.as_c_str(),
                 follow_symlinks,
             ) {
-                let builder = err.to_os_error_builder(vm);
-                let builder = builder.filename(src.filename(vm));
-                let builder = builder.filename2(dst.filename(vm));
-                return Err(builder.build(vm).upcast());
+                return Err(OSErrorBuilder::with_filenames(&err, &src, &dst, vm));
             }
 
             Ok(())
@@ -1843,12 +1885,8 @@ pub(super) mod _os {
                 .to_wide_cstring()
                 .map_err(|err| err.into_pyexception(vm))?;
             let dst_wide = dst.to_wide_cstring(vm)?;
-            rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide).map_err(|err| {
-                let builder = err.to_os_error_builder(vm);
-                let builder = builder.filename(src.filename(vm));
-                let builder = builder.filename2(dst.filename(vm));
-                builder.build(vm).upcast()
-            })
+            rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide)
+                .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
         }
 
         #[cfg(not(any(unix, windows)))]
@@ -1861,12 +1899,8 @@ pub(super) mod _os {
                 PathBuf::from(src.path.clone())
             };
 
-            fs::hard_link(&src_path, &dst.path).map_err(|err| {
-                let builder = err.to_os_error_builder(vm);
-                let builder = builder.filename(src.filename(vm));
-                let builder = builder.filename2(dst.filename(vm));
-                builder.build(vm).upcast()
-            })
+            fs::hard_link(&src_path, &dst.path)
+                .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
         }
     }
 
@@ -2133,15 +2167,15 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[derive(FromArgs)]
     struct CopyFileRangeArgs<'fd> {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         src: crt_fd::Borrowed<'fd>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         dst: crt_fd::Borrowed<'fd>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         count: i64,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         offset_src: Option<crt_fd::Offset>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         offset_dst: Option<crt_fd::Offset>,
     }
 
@@ -2248,7 +2282,8 @@ pub(super) mod _os {
             OSErrorBuilder::with_filename(&error, path, vm)
         }
 
-        vm.audit("os.truncate", || (path.filename(vm), length))?;
+        let filename = path.filename(vm)?;
+        vm.audit("os.truncate", || (filename, length))?;
 
         // TODO: just call libc::truncate() on POSIX
         let f = match crate::host_env::fs::open_write(&path) {
@@ -2458,7 +2493,28 @@ pub(super) mod _os {
         let mut supports = super::platform::module::support_funcs();
         supports.extend(vec![
             SupportFunc::new("open", Some(false), Some(OPEN_DIR_FD), Some(false)),
-            SupportFunc::new("access", Some(false), Some(false), None),
+            SupportFunc::new(
+                "access",
+                Some(false),
+                Some(ACCESS_DIR_FD),
+                Some(cfg!(all(
+                    unix,
+                    not(any(
+                        target_os = "espidf",
+                        target_os = "horizon",
+                        target_os = "vita",
+                    )),
+                ))),
+            )
+            .with_effective_ids(Some(cfg!(all(
+                unix,
+                not(any(
+                    target_os = "android",
+                    target_os = "espidf",
+                    target_os = "horizon",
+                    target_os = "vita",
+                )),
+            )))),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
             // chflags Some, None Some
             SupportFunc::new("link", Some(false), Some(false), Some(cfg!(unix))),
@@ -2500,6 +2556,7 @@ pub(crate) struct SupportFunc {
     fd: Option<bool>,
     dir_fd: Option<bool>,
     follow_symlinks: Option<bool>,
+    effective_ids: Option<bool>,
 }
 
 impl SupportFunc {
@@ -2514,7 +2571,13 @@ impl SupportFunc {
             fd,
             dir_fd,
             follow_symlinks,
+            effective_ids: None,
         }
+    }
+
+    pub(crate) const fn with_effective_ids(mut self, effective_ids: Option<bool>) -> Self {
+        self.effective_ids = effective_ids;
+        self
     }
 }
 
@@ -2523,6 +2586,7 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
     let supports_follow_symlinks = PySet::default().into_ref(&vm.ctx);
+    let supports_effective_ids = PySet::default().into_ref(&vm.ctx);
     for support in support_funcs {
         let func_obj = module.get_attr(support.name, vm)?;
         if support.fd.unwrap_or(false) {
@@ -2532,7 +2596,10 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
             supports_dir_fd.clone().add(func_obj.clone(), vm)?;
         }
         if support.follow_symlinks.unwrap_or(false) {
-            supports_follow_symlinks.clone().add(func_obj, vm)?;
+            supports_follow_symlinks.clone().add(func_obj.clone(), vm)?;
+        }
+        if support.effective_ids.unwrap_or(false) {
+            supports_effective_ids.clone().add(func_obj, vm)?;
         }
     }
 
@@ -2540,32 +2607,43 @@ pub fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         "supports_fd" => supports_fd,
         "supports_dir_fd" => supports_dir_fd,
         "supports_follow_symlinks" => supports_follow_symlinks,
+        "supports_effective_ids" => supports_effective_ids,
         "error" => vm.ctx.exceptions.os_error.to_owned(),
     });
 
     Ok(())
 }
 
-/// Convert a mapping (e.g. os._Environ) to a plain dict for use by execve/posix_spawn.
-///
-/// For `os._Environ`, accesses the internal `_data` dict directly at the Rust level.
-/// This avoids Python-level method calls that can deadlock after fork() when
-/// parking_lot locks are held by threads that no longer exist.
+/// The existing direct-dict path also avoids Python callbacks for os._Environ
+/// after fork, when locks inherited from vanished threads may still be held.
 #[cfg(any(unix, windows))]
-pub(crate) fn envobj_to_dict(
-    env: crate::function::ArgMapping,
+pub(crate) fn envobj_fast_dict(
+    env: &crate::function::ArgMapping,
     vm: &VirtualMachine,
-) -> PyResult<crate::builtins::PyDictRef> {
+) -> Option<crate::builtins::PyDictRef> {
     let obj = env.obj();
     if let Some(dict) = obj.downcast_ref_if_exact::<crate::builtins::PyDict>(vm) {
-        return Ok(dict.to_owned());
+        return Some(dict.to_owned());
     }
     if let Some(inst_dict) = obj.dict()
         && let Ok(Some(data)) = inst_dict.get_item_opt("_data", vm)
         && let Some(dict) = data.downcast_ref_if_exact::<crate::builtins::PyDict>(vm)
     {
-        return Ok(dict.to_owned());
+        return Some(dict.to_owned());
     }
+    None
+}
+
+/// Convert a mapping to a plain dict for Windows execve.
+#[cfg(windows)]
+pub(crate) fn envobj_to_dict(
+    env: crate::function::ArgMapping,
+    vm: &VirtualMachine,
+) -> PyResult<crate::builtins::PyDictRef> {
+    if let Some(dict) = envobj_fast_dict(&env, vm) {
+        return Ok(dict);
+    }
+    let obj = env.obj();
     let keys = vm.call_method(obj, "keys", ())?;
     let dict = vm.ctx.new_dict();
     for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {

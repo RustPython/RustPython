@@ -1,3 +1,5 @@
+// cspell: ignore sigalgs
+
 //! Wasm `_ssl` on the rustls-free `rustpython_host_env::ssl` surface.
 //!
 //! MemoryBIO, protocol constants, OID lookup, hostname checks, and ALPN
@@ -20,7 +22,10 @@ mod _ssl {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
             builtins::{PyBytesRef, PyType, PyUtf8StrRef},
-            function::{ArgBytesLike, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+            function::{
+                ArgBytesLike, ArgIntoBool, ArgIntoFloat, ArgStrOrBytesLike, FuncArgs, OptionalArg,
+                PyComparisonValue, PySetterValue,
+            },
             stdlib::_warnings,
             types::{Comparable, Constructor, PyComparisonOp, Representable},
         },
@@ -137,6 +142,8 @@ mod _ssl {
     #[pyattr]
     const HAS_PSK: bool = false;
     #[pyattr]
+    const HAS_PSK_TLS13: bool = false;
+    #[pyattr]
     const HAS_SSLv2: bool = false;
     #[pyattr]
     const HAS_SSLv3: bool = false;
@@ -217,7 +224,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_check_hostname(zelf: &Py<Self>, value: bool) {
+        fn set_check_hostname(zelf: &Py<Self>, value: ArgIntoBool) {
+            let value = value.into_bool();
             *zelf.check_hostname.write() = value;
             if value && *zelf.verify_mode.read() == CERT_NONE {
                 *zelf.verify_mode.write() = CERT_REQUIRED;
@@ -274,7 +282,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_post_handshake_auth(zelf: &Py<Self>, value: bool) {
+        fn set_post_handshake_auth(zelf: &Py<Self>, value: ArgIntoBool) {
+            let value = value.into_bool();
             *zelf.post_handshake_auth.write() = value;
         }
 
@@ -568,16 +577,17 @@ mod _ssl {
             args: WrapBioArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
+            let server_side = args.server_side.map_or(false, ArgIntoBool::into_bool);
             if let Some(hostname) = args.server_hostname {
                 validate_hostname(hostname.as_str(), vm)?;
             }
-            if args.server_side.unwrap_or(false) && zelf.protocol == PROTOCOL_TLS_CLIENT {
+            if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
                 return ssl_error(
                     vm,
                     "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
                 );
             }
-            if !args.server_side.unwrap_or(false) && zelf.protocol == PROTOCOL_TLS_SERVER {
+            if !server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
                 return ssl_error(
                     vm,
                     "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
@@ -665,7 +675,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct GetCertArgs {
         #[pyarg(any, optional)]
-        binary_form: OptionalArg<bool>,
+        binary_form: OptionalArg<ArgIntoBool>,
     }
 
     #[derive(FromArgs)]
@@ -685,7 +695,7 @@ mod _ssl {
         #[allow(dead_code)]
         outgoing: PyRef<PyMemoryBIO>,
         #[pyarg(named, optional)]
-        server_side: OptionalArg<bool>,
+        server_side: OptionalArg<ArgIntoBool>,
         #[pyarg(named, optional)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
@@ -887,12 +897,17 @@ mod _ssl {
     }
 
     #[pyfunction]
+    fn get_sigalgs(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Err(vm.new_not_implemented_error(UNAVAILABLE))
+    }
+
+    #[pyfunction]
     fn RAND_status() -> i32 {
         1
     }
 
     #[pyfunction]
-    fn RAND_add(_string: PyObjectRef, _entropy: f64) {}
+    fn RAND_add(_string: ArgStrOrBytesLike, _entropy: ArgIntoFloat) {}
 
     #[pyfunction]
     fn RAND_bytes(n: i32, vm: &VirtualMachine) -> PyResult<PyBytesRef> {

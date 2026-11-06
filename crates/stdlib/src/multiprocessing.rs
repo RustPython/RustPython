@@ -115,15 +115,15 @@ mod _multiprocessing {
 
     #[derive(FromArgs)]
     struct SemLockNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         kind: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         value: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         maxvalue: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         name: String,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         unlink: bool,
     }
 
@@ -401,16 +401,16 @@ mod _multiprocessing {
     }
 
     #[pyfunction]
-    fn closesocket(socket: usize, vm: &VirtualMachine) -> PyResult<()> {
-        host_multiprocessing::close_socket(socket as host_multiprocessing::RawSocket)
+    fn closesocket(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
+        host_multiprocessing::close_socket(handle as host_multiprocessing::RawSocket)
             .map_err(|_| vm.new_last_os_error())
     }
 
     #[pyfunction]
-    fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn recv(handle: usize, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut buf = vm
             .allow_threads(|| {
-                host_multiprocessing::recv_socket(socket as host_multiprocessing::RawSocket, size)
+                host_multiprocessing::recv_socket(handle as host_multiprocessing::RawSocket, size)
             })
             .map_err(|error| error.to_pyexception(vm))?;
         buf.shrink_to_fit();
@@ -418,10 +418,10 @@ mod _multiprocessing {
     }
 
     #[pyfunction]
-    fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
+    fn send(handle: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
         let buf = buf.borrow_buf_unlocked(vm)?;
         vm.allow_threads(|| {
-            host_multiprocessing::send_socket(socket as host_multiprocessing::RawSocket, &buf)
+            host_multiprocessing::send_socket(handle as host_multiprocessing::RawSocket, &buf)
         })
         .map_err(|error| error.to_pyexception(vm))
     }
@@ -515,15 +515,15 @@ mod _multiprocessing {
 
     #[derive(FromArgs)]
     struct SemLockNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         kind: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         value: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         maxvalue: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         name: String,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         unlink: bool,
     }
 

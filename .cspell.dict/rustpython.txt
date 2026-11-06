@@ -37,6 +37,7 @@ pyperformance
 pytype
 qsbr
 rustix
+rustpythonw
 struc
 unscanned
 zelf

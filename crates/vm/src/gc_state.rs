@@ -5,6 +5,8 @@
 use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_REACHABLE, GC_UNTRACKED, GcLink, GcOwner};
+#[cfg(feature = "threading")]
+use crate::vm::stop_the_world::StopTheWorldGroup;
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
@@ -190,114 +192,6 @@ impl core::hash::Hasher for GcPtrHasher {
 type GcBuildHasher = core::hash::BuildHasherDefault<GcPtrHasher>;
 type GcSet<T> = std::collections::HashSet<T, GcBuildHasher>;
 type GcMap<K, V> = std::collections::HashMap<K, V, GcBuildHasher>;
-
-/// RAII barrier that parks every other thread for the pointer-reading phases
-/// of a collection and lets them run again before finalizers execute.
-///
-/// Reference subtraction, the reachability walk and the strong-reference
-/// snapshot dereference the interpreter state of every tracked object,
-/// including the `localsplus` of frames that other threads are actively
-/// executing. Those writes carry no synchronization, so the reads are only
-/// well-defined while all other threads are parked at a safepoint. Restarting
-/// happens explicitly once the snapshot has pinned every object; `Drop` is a
-/// backstop that also restarts on the early-return paths.
-///
-/// A collection acts on one interpreter's objects, but its candidates include
-/// the ones no interpreter owns, which every interpreter can reference and so
-/// incref. Reading a refcount that another interpreter is changing is what
-/// makes an object look unreachable when it is not, so every live interpreter
-/// is stopped, not just the collecting one. Stopping in `runtime` id order
-/// is deterministic. One process-wide STW transaction covers the entire group,
-/// preventing a single-interpreter requester from stopping a collector while
-/// that collector waits for a different interpreter.
-#[cfg(feature = "threading")]
-struct CollectStopTheWorld {
-    /// Entire interpreter snapshot, retained through restart even on unwind.
-    /// Dropping the last state can release Python objects and run finalizers,
-    /// so both stopped and not-yet-stopped states must outlive the transaction
-    /// and the collection's generation locks.
-    states: Vec<crate::common::rc::PyRc<crate::vm::PyGlobalState>>,
-    stopped_count: usize,
-    /// Keeps interpreters from registering between the snapshot below and the
-    /// restart. One registered in that window would be missing from `states`,
-    /// so its bootstrap would keep running — and mutating the shared generation
-    /// lists — while this collection reads them.
-    admission: Option<parking_lot::MutexGuard<'static, ()>>,
-    /// Acquired before admission and retained until every state is restarted.
-    transaction: Option<crate::vm::StopTheWorldTransaction>,
-    restarted: bool,
-}
-
-#[cfg(feature = "threading")]
-impl CollectStopTheWorld {
-    /// Request stop-the-world on every live interpreter when the current thread
-    /// has an attached VM. Falls back to no barrier when no VM is attached (the
-    /// tracked-object reads then run without other threads only if the caller
-    /// guarantees it).
-    fn new() -> Self {
-        // No attached VM means no interpreter is running Python on this thread;
-        // keep the historical no-barrier fallback.
-        if !crate::vm::thread::current_vm_is_set() {
-            return Self {
-                states: Vec::new(),
-                stopped_count: 0,
-                admission: None,
-                transaction: None,
-                restarted: true,
-            };
-        }
-
-        // Accumulate into a live `Self` rather than a bare Vec: if a later
-        // `stop_the_world` unwinds, dropping this guard restarts the
-        // interpreters already stopped, instead of leaving their threads parked
-        // and their exclusion held forever.
-        let transaction = crate::vm::StopTheWorldTransaction::acquire();
-        let mut guard = Self {
-            states: Vec::new(),
-            stopped_count: 0,
-            admission: Some(crate::vm::runtime::lock_admission_for_stop()),
-            transaction: Some(transaction),
-            restarted: false,
-        };
-        guard.states = crate::vm::runtime::live_interpreter_states();
-        for state in &guard.states {
-            state
-                .stop_the_world
-                .stop_with_transaction(state, guard.transaction.as_ref().unwrap());
-            guard.stopped_count += 1;
-        }
-        guard
-    }
-
-    /// Restart the world. Idempotent.
-    fn restart(&mut self) {
-        if self.restarted {
-            return;
-        }
-        self.restarted = true;
-        // Reverse of the stop order. The references stay until this guard is
-        // dropped; see the field comment.
-        for state in self.states[..self.stopped_count].iter().rev() {
-            state.stop_the_world.start_the_world(state);
-        }
-        // Nothing is parked any more, so registration may resume.
-        self.admission = None;
-        self.transaction = None;
-    }
-
-    /// Whether this collection actually stopped the world.
-    #[cfg(all(unix, debug_assertions))]
-    fn is_stopped(&self) -> bool {
-        self.stopped_count != 0
-    }
-}
-
-#[cfg(feature = "threading")]
-impl Drop for CollectStopTheWorld {
-    fn drop(&mut self) {
-        self.restart();
-    }
-}
 
 /// The process-wide object lists every interpreter's collections walk.
 ///
@@ -639,7 +533,7 @@ impl GcState {
         // Closing it fully would require making those locks stop-the-world
         // aware; the exclusion above only serializes the fork/GC requesters.
         #[cfg(feature = "threading")]
-        let mut stw = CollectStopTheWorld::new();
+        let mut stw = StopTheWorldGroup::new();
 
         // Step 1: Gather objects from generations 0..=generation
         // Hold read locks for the entire scan to prevent concurrent modifications.
@@ -921,19 +815,24 @@ impl GcState {
             })
             .collect();
 
-        // 6c: Clear existing weakrefs BEFORE calling __del__
+        // 6c: Clear callback-bearing weakrefs BEFORE calling __del__. Keep
+        // callback-free weakrefs usable throughout finalization.
+        let unreachable_set: GcSet<GcPtr> = unreachable.iter().copied().collect();
+        let is_unreachable =
+            |obj: &PyObject| unreachable_set.contains(&GcPtr(core::ptr::NonNull::from(obj)));
         let mut all_callbacks: Vec<(crate::PyRef<crate::object::PyWeak>, crate::PyObjectRef)> =
             Vec::new();
         for obj_ref in &unreachable_refs {
-            let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks();
+            let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks(&is_unreachable);
             all_callbacks.extend(callbacks);
         }
         for (wr, cb) in all_callbacks {
-            if let Some(Err(e)) = crate::vm::thread::with_vm(&cb, |vm| cb.call((wr.clone(),), vm)) {
-                crate::vm::thread::with_vm(&cb, |vm| {
-                    vm.run_unraisable(e.clone(), Some("weakref callback".to_owned()), cb.clone());
-                });
-            }
+            crate::vm::thread::with_vm(&cb, |vm| {
+                let _raised = vm.preserve_raised_exception();
+                if let Err(e) = cb.call((wr.clone(),), vm) {
+                    vm.run_unraisable(e, Some("weakref callback".to_owned()), cb.clone());
+                }
+            });
         }
 
         // 6d: Call __del__ on unreachable objects (skip already-finalized).
@@ -945,7 +844,6 @@ impl GcState {
 
         // Detect resurrection
         let mut resurrected_set: GcSet<GcPtr> = GcSet::default();
-        let unreachable_set: GcSet<GcPtr> = unreachable.iter().copied().collect();
 
         for obj in &unreachable_refs {
             let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
@@ -1039,6 +937,14 @@ impl GcState {
             // skips tp_clear for saved objects).
             let save_all = debug.contains(GcDebugFlags::SAVEALL);
 
+            // Callback-free weakrefs remain usable during finalizers, so a
+            // thread can still acquire an external reference at this point.
+            // Stop before taking generation/list locks, and keep the final
+            // liveness check and weakref closure in the same stopped phase.
+            // No callbacks, finalizers or tp_clear may run under this guard.
+            #[cfg(feature = "threading")]
+            let mut clear_stw = StopTheWorldGroup::new();
+
             // Untrack dead objects BEFORE clearing them, mirroring the
             // untrack-then-clear ordering of the refcount dealloc path.
             // A cleared object (e.g. a frame husk with iframe == None) must
@@ -1056,11 +962,10 @@ impl GcState {
                     // One strong reference held by the `truly_dead` vec itself.
                     expected_counts.insert(GcPtr(NonNull::from(obj)), 1);
                 }
-                // With the objects out of the generation lists, no new external
-                // reference can appear. Count the references coming from within
-                // the dead set; any surplus in strong_count means another thread
-                // grabbed a reference before untracking (late resurrection) and
-                // the object must not be cleared.
+                // With the world stopped and these objects off the generation
+                // lists, count references from within the dead set. Any surplus
+                // means an external reference appeared before this stopped phase
+                // (late resurrection), and the object must not be cleared.
                 let mut referents: GcMap<GcPtr, Vec<NonNull<PyObject>>> = GcMap::default();
                 for obj_ref in &truly_dead {
                     let referent_ptrs = unsafe { obj_ref.gc_get_referent_ptrs() };
@@ -1106,6 +1011,20 @@ impl GcState {
                     unsafe { self.track_object(ptr.0, owner) };
                 }
             }
+            // Clear every weakref in or pointing to objects that will be
+            // cleared, including weakrefs created by finalizers. Do not run
+            // or drop callbacks here: all objects must remain intact until
+            // this pass finishes. Resurrected objects retain their weakrefs.
+            for obj_ref in &truly_dead {
+                if !late_resurrected.contains(&GcPtr(NonNull::from(obj_ref.as_ref()))) {
+                    obj_ref.gc_clear_weakrefs();
+                }
+            }
+            // Every remaining dead object is now unreachable through both
+            // generation lists and weakrefs. Resume before tp_clear can release
+            // edges or invoke arbitrary Python through deallocation.
+            #[cfg(feature = "threading")]
+            clear_stw.restart();
             rustpython_common::refcount::with_deferred_drops(|| {
                 if !save_all {
                     for obj_ref in &truly_dead {
@@ -1454,8 +1373,19 @@ pub fn current_owner() -> GcOwner {
 /// it collect if the allocation pushed gen0 past its threshold.
 ///
 /// # Safety
-/// obj must be a valid pointer to a PyObject that is not already tracked.
+/// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
+#[inline]
 pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
+    unsafe { track_new_object_impl(obj, true) };
+}
+
+/// Track fresh internal storage, optionally allowing collection before its
+/// caller publishes it.
+///
+/// # Safety
+/// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
+#[inline]
+pub(crate) unsafe fn track_new_object_impl(obj: NonNull<PyObject>, allow_collection: bool) {
     let state = gc_state();
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
@@ -1466,7 +1396,9 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
     unsafe { state.track_object_fresh(obj, gc.owner) };
-    state.maybe_collect(gc);
+    if allow_collection {
+        state.maybe_collect(gc);
+    }
 }
 
 /// Track a generator (or coroutine, or async generator) together with the

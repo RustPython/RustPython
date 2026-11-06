@@ -19,12 +19,13 @@ pub mod module {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
-        convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
+            _os, AccessArgs, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata,
+            warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -397,35 +398,58 @@ pub mod module {
             .collect())
     }
 
-    #[derive(FromArgs)]
-    pub(super) struct AccessArgs<'a> {
-        #[pyarg(any)]
-        path: OsPath,
-        #[pyarg(any)]
-        mode: u8,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'a, 0>,
-        #[pyarg(named, default)]
-        effective_ids: bool,
-        #[pyarg(flatten)]
-        follow_symlinks: FollowSymlinks,
-    }
-
+    #[allow(clippy::unnecessary_wraps)]
     #[pyfunction]
-    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
-        let [] = args.dir_fd.0;
+    pub(super) fn access(
+        args: AccessArgs<'_>,
+        #[allow(unused_variables)] vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        #[cfg(any(
+            target_os = "android",
+            target_os = "espidf",
+            target_os = "horizon",
+            target_os = "vita",
+        ))]
         if args.effective_ids {
             return Err(
                 vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
             );
         }
+        #[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
         if !args.follow_symlinks.0 {
             return Err(vm.new_not_implemented_error(
                 "access: follow_symlinks unavailable on this platform",
             ));
         }
-        rustpython_host_env::posix::check_access(args.path.as_ref(), args.mode)
-            .map_err(|err| err.to_pyexception(vm))
+
+        #[cfg(all(
+            unix,
+            not(any(
+                target_os = "android",
+                target_os = "espidf",
+                target_os = "horizon",
+                target_os = "vita",
+            )),
+        ))]
+        let dir_fd = args.dir_fd.get_opt();
+        #[cfg(not(all(
+            unix,
+            not(any(
+                target_os = "android",
+                target_os = "espidf",
+                target_os = "horizon",
+                target_os = "vita",
+            )),
+        )))]
+        let dir_fd = None;
+
+        Ok(rustpython_host_env::posix::check_access(
+            dir_fd,
+            args.path.as_ref(),
+            args.mode,
+            args.effective_ids,
+            args.follow_symlinks.0,
+        ))
     }
 
     #[pyfunction]
@@ -681,7 +705,12 @@ pub mod module {
         }
     }
 
-    fn py_os_before_fork(vm: &VirtualMachine) {
+    #[cfg(feature = "threading")]
+    use crate::vm::stop_the_world::ForkStopTheWorld;
+    #[cfg(not(feature = "threading"))]
+    struct ForkStopTheWorld;
+
+    fn py_os_before_fork(vm: &VirtualMachine) -> ForkStopTheWorld {
         let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
         // functions must be executed in reversed order as they are registered
         // only for before_forkers, refer: test_register_at_fork in test_posix
@@ -692,10 +721,21 @@ pub mod module {
         crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.stop_the_world(&vm.state);
+        {
+            ForkStopTheWorld::new()
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            ForkStopTheWorld
+        }
     }
 
-    fn py_os_after_fork_child(vm: &VirtualMachine) {
+    fn py_os_after_fork_child(vm: &VirtualMachine, _stopped: &mut ForkStopTheWorld) {
+        #[cfg(feature = "threading")]
+        unsafe {
+            _stopped.begin_child_repair();
+        }
+
         // The interpreter registry is reachable from every thread, so repair it
         // before anything enumerates interpreters.
         #[cfg(all(unix, feature = "threading"))]
@@ -711,20 +751,14 @@ pub mod module {
         // if we try to acquire them. This must happen before anything else.
         #[cfg(feature = "threading")]
         reinit_locks_after_fork(vm);
+        #[cfg(feature = "threading")]
+        _stopped.retain_thread_slots(&vm.state);
 
         // The collector stops every interpreter, so interpreters other than the
         // forking one must be repaired too; otherwise the child's first
         // collection waits for threads that did not survive the fork.
         #[cfg(all(unix, feature = "threading"))]
-        reinit_other_interpreters_after_fork(vm);
-
-        // Reinit per-object IO buffer locks on std streams.
-        // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
-        // held by dead parent threads, causing deadlocks on any IO in the child.
-        #[cfg(feature = "threading")]
-        unsafe {
-            crate::stdlib::_io::reinit_std_streams_after_fork(vm)
-        };
+        reinit_other_interpreters_after_fork(vm, _stopped);
 
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
@@ -755,6 +789,8 @@ pub mod module {
             crate::object::qsbr::QSBR.reset_after_fork()
         };
 
+        vm.state.reinit_running_main();
+
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
@@ -771,6 +807,20 @@ pub mod module {
         // When forked from a worker thread, the OnceCell is empty.
         vm.signal_handlers
             .get_or_init(crate::signal::SignalHandlers::default);
+
+        #[cfg(feature = "threading")]
+        _stopped.finish_child_repair();
+
+        // Reinit per-object IO buffer locks on std streams.
+        // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
+        // held by dead parent threads, causing deadlocks on any IO in the child.
+        // Lookup can call Python (for example sys.__getattr__), so core repair
+        // and transaction release must precede it. Such hooks must still avoid
+        // using inherited IO locks before this existing repair completes.
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::stdlib::_io::reinit_std_streams_after_fork(vm)
+        };
 
         // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
@@ -829,7 +879,7 @@ pub mod module {
     /// # Safety
     /// Must only be called after `fork()` in the child, when no other threads exist.
     #[cfg(all(unix, feature = "threading"))]
-    fn reinit_other_interpreters_after_fork(vm: &VirtualMachine) {
+    fn reinit_other_interpreters_after_fork(vm: &VirtualMachine, stopped: &mut ForkStopTheWorld) {
         use rustpython_common::lock::reinit_mutex_after_fork;
 
         for state in crate::vm::runtime::live_interpreter_states() {
@@ -855,6 +905,7 @@ pub mod module {
             }
 
             state.stop_the_world.reset_after_fork();
+            stopped.retain_thread_slots(&state);
 
             // Every thread registered here belongs to the parent, including any
             // slot the forking thread itself registered before the fork.
@@ -866,9 +917,9 @@ pub mod module {
         crate::vm::thread::purge_other_interpreter_slots_after_fork(vm.state.interpreter_id);
     }
 
-    fn py_os_after_fork_parent(vm: &VirtualMachine) {
+    fn py_os_after_fork_parent(vm: &VirtualMachine, _stopped: &mut ForkStopTheWorld) {
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.start_the_world(&vm.state);
+        _stopped.restart();
 
         #[cfg(feature = "threading")]
         crate::stdlib::_imp::release_imp_lock_after_fork_parent();
@@ -953,25 +1004,25 @@ pub mod module {
 
         vm.audit("os.fork", || ())?;
 
-        py_os_before_fork(vm);
+        let mut stopped = py_os_before_fork(vm);
         let pid = rustpython_host_env::posix::fork();
 
         match pid {
             Ok(0) => {
-                py_os_after_fork_child(vm);
+                py_os_after_fork_child(vm, &mut stopped);
                 Ok(0)
             }
             Ok(pid) => {
                 // Capture this before parent after-fork hooks in case those
                 // hooks start threads.
                 let num_os_threads = get_number_of_os_threads();
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 // Warn only after parent callback path resumes the world.
                 warn_if_multi_threaded("fork", num_os_threads, vm)?;
                 Ok(pid)
             }
             Err(err) => {
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 Err(err.into_pyexception(vm))
             }
         }
@@ -998,22 +1049,22 @@ pub mod module {
 
         vm.audit("os.forkpty", || ())?;
 
-        py_os_before_fork(vm);
+        let mut stopped = py_os_before_fork(vm);
         let result = rustpython_host_env::posix::forkpty();
 
         match result {
             Ok((0, master)) => {
-                py_os_after_fork_child(vm);
+                py_os_after_fork_child(vm, &mut stopped);
                 Ok((0, master))
             }
             Ok((pid, master)) => {
                 let num_os_threads = get_number_of_os_threads();
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 warn_if_multi_threaded("forkpty", num_os_threads, vm)?;
                 Ok((pid, master))
             }
             Err(err) => {
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 Err(err.into_pyexception(vm))
             }
         }
@@ -1052,8 +1103,8 @@ pub mod module {
         path: MkfifoPath,
         #[pyarg(any, default = MkfifoMode(0o666), py_default = "438")]
         mode: MkfifoMode,
-        #[pyarg(named, optional, py_default = "None")]
-        dir_fd: OptionalArg<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        dir_fd: Option<PyObjectRef>,
     }
 
     #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
@@ -1064,7 +1115,7 @@ pub mod module {
         // Keep a raw C int: even -1 is valid with an absolute path, for which
         // mkfifoat ignores dir_fd. BorrowedFd cannot represent that value.
         let dir_fd = match args.dir_fd {
-            OptionalArg::Present(fd) if !vm.is_none(&fd) => {
+            Some(fd) => {
                 warn_if_bool_fd(&fd, vm)?;
                 let fd = fd.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
@@ -1082,7 +1133,7 @@ pub mod module {
                 })?;
                 (fd != rustpython_host_env::os::AT_FDCWD).then_some(fd)
             }
-            _ => None,
+            None => None,
         };
         if dir_fd.is_some() && !host_posix::has_mkfifoat() {
             return Err(vm.new_not_implemented_error("dir_fd unavailable on this platform"));
@@ -1363,7 +1414,7 @@ pub mod module {
         path: OsPathOrFd<'fd>,
         #[pyarg(any)]
         mode: u32,
-        #[pyarg(named, default, py_default = "None")]
+        #[pyarg(named, default = None)]
         dir_fd: Option<ChmodDirFd>,
         // CPython writes the platform expression; on posix it is always true.
         #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
@@ -1490,6 +1541,52 @@ pub mod module {
         env: ArgMapping,
     }
 
+    fn execve_environment(env: &ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<CString>> {
+        fn make_entry(
+            key: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<CString> {
+            let key_bytes = OsPath::try_from_object(vm, key.clone())?.into_bytes();
+            let value_bytes = OsPath::try_from_object(vm, value.clone())?.into_bytes();
+            if key_bytes.is_empty() || memchr::memchr(b'=', &key_bytes).is_some() {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+            let mut entry = key_bytes;
+            entry.push(b'=');
+            entry.extend_from_slice(&value_bytes);
+            let entry = CString::new(entry).map_err(|err| err.into_pyexception(vm));
+            drop((key, value));
+            entry
+        }
+
+        if let Some(dict) = crate::stdlib::os::envobj_fast_dict(env, vm) {
+            // Snapshot references before any path conversion can mutate the mapping.
+            #[allow(clippy::needless_collect, reason = "the snapshot is intentional")]
+            let pairs: Vec<_> = dict.into_iter().collect();
+            return pairs
+                .into_iter()
+                .map(|(key, value)| make_entry(key, value, vm))
+                .collect();
+        }
+
+        // CPython obtains length, keys and values separately, rather than
+        // looking up each key. Exact lists returned by user code remain live.
+        let len = env.mapping().length(vm)?;
+        let keys = PyListRef::try_from_object(vm, env.mapping().keys(vm)?)?;
+        let values = PyListRef::try_from_object(vm, env.mapping().values(vm)?)?;
+        let mut result = Vec::new();
+        for index in 0..len {
+            // Acquire owned references before __fspath__ can mutate either list.
+            let key = { keys.borrow_vec().get(index).cloned() }
+                .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+            let value = { values.borrow_vec().get(index).cloned() }
+                .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+            result.push(make_entry(key, value, vm)?);
+        }
+        Ok(result)
+    }
+
     #[pyfunction]
     fn execve(args: ExecveArgs, vm: &VirtualMachine) -> PyResult<()> {
         let ExecveArgs { path, argv, env } = args;
@@ -1513,26 +1610,7 @@ pub mod module {
             return Err(vm.new_value_error("execve() arg 2 first element cannot be empty"));
         }
 
-        let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
-        let env = env
-            .into_iter()
-            .map(|(k, v)| -> PyResult<_> {
-                let (key, value) = (
-                    OsPath::try_from_object(vm, k)?.into_bytes(),
-                    OsPath::try_from_object(vm, v)?.into_bytes(),
-                );
-
-                if key.is_empty() || memchr::memchr(b'=', &key).is_some() {
-                    return Err(vm.new_value_error("illegal environment variable name"));
-                }
-
-                let mut entry = key;
-                entry.push(b'=');
-                entry.extend_from_slice(&value);
-
-                CString::new(entry).map_err(|err| err.into_pyexception(vm))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let env = execve_environment(&env, vm)?;
 
         let env: Vec<&CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
@@ -2153,13 +2231,20 @@ pub mod module {
     }
 
     #[cfg(target_os = "linux")]
+    #[derive(FromArgs)]
+    struct PidfdOpenArgs {
+        #[pyarg(any)]
+        pid: libc::pid_t,
+        #[pyarg(any, default)]
+        flags: u32,
+    }
+
+    #[cfg(target_os = "linux")]
     #[pyfunction]
     fn pidfd_open(
-        pid: libc::pid_t,
-        flags: OptionalArg<u32>,
+        PidfdOpenArgs { pid, flags }: PidfdOpenArgs,
         vm: &VirtualMachine,
     ) -> PyResult<OwnedFd> {
-        let flags = flags.unwrap_or(0);
         rustpython_host_env::posix::pidfd_open(pid, flags).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -2357,7 +2442,7 @@ pub mod module {
     fn getlogin(vm: &VirtualMachine) -> PyResult<crate::builtins::PyStrRef> {
         let login =
             rustpython_host_env::posix::getlogin().map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.fsdecode(std::ffi::OsString::from_vec(login.into_bytes())))
+        vm.fsdecode(std::ffi::OsString::from_vec(login.into_bytes()))
     }
 
     // cfg from nix
@@ -3017,8 +3102,20 @@ pub mod module {
     }
 
     #[cfg(target_os = "linux")]
+    #[derive(FromArgs)]
+    struct GetRandomArgs {
+        #[pyarg(any)]
+        size: isize,
+        #[pyarg(any, default)]
+        flags: core::ffi::c_int,
+    }
+
+    #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn getrandom(size: isize, flags: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn getrandom(
+        GetRandomArgs { size, flags }: GetRandomArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let size = usize::try_from(size)
             .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {size}")))?;
         let mut buf = Vec::with_capacity(size);
@@ -3026,7 +3123,7 @@ pub mod module {
             let len = rustpython_host_env::posix::getrandom(
                 buf.as_mut_ptr() as *mut libc::c_void,
                 size,
-                flags.unwrap_or(0),
+                flags as u32,
             )
             .map_err(|_| vm.new_last_os_error())?;
             buf.set_len(len);
@@ -3156,7 +3253,7 @@ mod posix_sched {
         pid: i32,
         #[pyarg(positional)]
         policy: i32,
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "param")]
         sched_param: PyObjectRef,
     }
 
@@ -3185,7 +3282,7 @@ mod posix_sched {
     struct SchedSetParamArgs {
         #[pyarg(positional)]
         pid: i32,
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "param")]
         sched_param: PyObjectRef,
     }
 

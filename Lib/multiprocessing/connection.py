@@ -734,8 +734,7 @@ if sys.platform == 'win32':
                 # written data and then disconnected -- see Issue 14725.
             else:
                 try:
-                    res = _winapi.WaitForMultipleObjects(
-                        [ov.event], False, INFINITE)
+                    _winapi.WaitForMultipleObjects([ov.event], False, INFINITE)
                 except:
                     ov.cancel()
                     _winapi.CloseHandle(handle)
@@ -1089,14 +1088,22 @@ if sys.platform == 'win32':
 
         Returns list of those objects in object_list which are ready/readable.
         '''
+        object_list = list(object_list)
+
+        if not object_list:
+            if timeout is None:
+                while True:
+                    time.sleep(1e6)
+            elif timeout > 0:
+                time.sleep(timeout)
+            return []
+
         if timeout is None:
             timeout = INFINITE
         elif timeout < 0:
             timeout = 0
         else:
             timeout = int(timeout * 1000 + 0.5)
-
-        object_list = list(object_list)
         waithandle_to_obj = {}
         ov_list = []
         ready_objects = set()
