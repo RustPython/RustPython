@@ -709,12 +709,11 @@ fn object_getstate(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyRes
                             )
                         })
             });
-    let state = if is_default {
+    if is_default {
         object_getstate_default(obj, required, vm)
     } else {
         getstate.call((), vm)
-    };
-    state
+    }
 }
 
 /// Get list items iterator if obj is a list (or subclass), None iterator otherwise
@@ -765,12 +764,7 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
             // Use copyreg.__newobj_ex__
             let newobj = copyreg.get_attr("__newobj_ex__", vm);
             drop(copyreg);
-            let newobj = match newobj {
-                Ok(newobj) => newobj,
-                Err(exc) => {
-                    return Err(exc);
-                }
-            };
+            let newobj = newobj?;
             let newargs = vm.ctx.new_tuple(vec![
                 obj.class().to_owned().into(),
                 args.into(),
@@ -783,12 +777,7 @@ fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
             drop(kwargs);
             let newobj = copyreg.get_attr("__newobj__", vm);
             drop(copyreg);
-            let newobj = match newobj {
-                Ok(newobj) => newobj,
-                Err(exc) => {
-                    return Err(exc);
-                }
-            };
+            let newobj = newobj?;
             // Create (cls, *args) after callbacks, but before releasing args.
             let mut newargs_vec = vec![obj.class().to_owned().into()];
             if let Some(args) = &args {
