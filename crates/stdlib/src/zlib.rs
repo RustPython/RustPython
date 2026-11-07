@@ -346,8 +346,8 @@ mod zlib {
         mem_level: ArgCInt,
         #[pyarg(any, default = ::Z_DEFAULT_STRATEGY)]
         strategy: ArgCInt,
-        // Missing dictionary is None.
-        #[pyarg(any, optional, py_default = "None")]
+        // Omission is distinct from an explicit None.
+        #[pyarg(any, optional)]
         zdict: OptionalArg<ArgBytesLike>,
     }
 
@@ -483,10 +483,10 @@ mod zlib {
         }
     }
 
-    // `decompressobj` shows MAX_WBITS. This constructor shows the integer.
+    // Keep the symbolic default used by CPython's Clinic signature.
     #[derive(FromArgs)]
     struct ZlibDecompressorArgs {
-        #[pyarg(any, default = ArgCInt::from(MAX_WBITS), py_default = "15")]
+        #[pyarg(any, default = ::MAX_WBITS)]
         wbits: ArgCInt,
         // Missing dictionary is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]

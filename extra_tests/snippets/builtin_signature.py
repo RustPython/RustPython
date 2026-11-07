@@ -73,3 +73,42 @@ if hasattr(os, "chmod"):
     assert chmod_signature.startswith("($module, /, path, mode, *, dir_fd=None"), (
         chmod_signature
     )
+
+# Omitted arguments keep their runtime sentinels while displaying CPython 3.15's
+# public defaults. In particular, an omitted compression dictionary is not None.
+import binascii
+import signal
+import zlib
+
+for f in (binascii.hexlify, binascii.b2a_hex):
+    assert f.__text_signature__ == (
+        "($module, /, data, sep=<unrepresentable>, bytes_per_sep=1)"
+    )
+    assert f(b"abc", b":") == f(b"abc", b":", 1) == b"61:62:63"
+
+if hasattr(signal, "setitimer"):
+    assert signal.setitimer.__text_signature__ == (
+        "($module, which, seconds, interval=0.0, /)"
+    )
+    assert inspect.signature(signal.setitimer).parameters["interval"].default == 0.0
+
+assert zlib.compressobj.__text_signature__ == (
+    "($module, /, level=Z_DEFAULT_COMPRESSION, method=DEFLATED, "
+    "wbits=MAX_WBITS, memLevel=DEF_MEM_LEVEL, "
+    "strategy=Z_DEFAULT_STRATEGY, zdict=<unrepresentable>)"
+)
+try:
+    zlib.compressobj(zdict=None)
+except TypeError:
+    pass
+else:
+    raise AssertionError("None is not an omitted compression dictionary")
+
+assert zlib._ZlibDecompressor.__text_signature__ == "(wbits=MAX_WBITS, zdict=b'')"
+assert (
+    inspect.signature(zlib._ZlibDecompressor).parameters["wbits"].default
+    == zlib.MAX_WBITS
+)
+assert zlib._ZlibDecompressor().decompress(zlib.compress(b"signature defaults")) == (
+    b"signature defaults"
+)

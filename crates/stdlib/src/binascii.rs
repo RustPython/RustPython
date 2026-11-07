@@ -162,7 +162,7 @@ mod decl {
         data: ArgBytesLike,
         #[pyarg(any, optional)]
         sep: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "1")]
         bytes_per_sep: OptionalArg<isize>,
     }
 

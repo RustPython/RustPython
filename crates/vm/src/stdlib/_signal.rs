@@ -335,7 +335,7 @@ pub(crate) mod _signal {
         which: i32,
         #[pyarg(positional)]
         seconds: PyObjectRef,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, optional, py_default = "0.0")]
         interval: crate::function::OptionalArg<PyObjectRef>,
     }
 
