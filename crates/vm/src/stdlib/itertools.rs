@@ -264,10 +264,15 @@ mod decl {
     #[pyclass(name = "cycle", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCycle {
-        iter: PyMutex<Option<PyIter>>,
-        saved: PyRwLock<Vec<PyObjectRef>>,
+        state: PyRwLock<CycleState>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
+    }
+
+    #[derive(Debug, Traverse)]
+    struct CycleState {
+        iter: Option<PyIter>,
+        saved: Vec<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsCycle {
@@ -277,8 +282,10 @@ mod decl {
         fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let iter = args.iterable;
             Ok(Self {
-                iter: PyMutex::new(Some(iter)),
-                saved: PyRwLock::new(Vec::new()),
+                state: PyRwLock::new(CycleState {
+                    iter: Some(iter),
+                    saved: Vec::new(),
+                }),
                 index: AtomicCell::new(0),
             })
         }
@@ -291,21 +298,21 @@ mod decl {
 
     impl IterNext for PyItertoolsCycle {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let iterator = zelf.iter.lock().clone();
+            let iterator = zelf.state.read().iter.clone();
             let restarting = if let Some(iterator) = iterator {
                 let next = iterator.next(vm);
                 drop(iterator);
                 match next? {
                     PyIterReturn::Return(item) => {
-                        zelf.saved.write().push(item.clone());
+                        zelf.state.write().saved.push(item.clone());
                         return Ok(PyIterReturn::Return(item));
                     }
                     PyIterReturn::StopIteration(value) => {
                         drop(value);
                         let _previous = {
-                            let mut iterator = zelf.iter.lock();
+                            let mut state = zelf.state.write();
                             zelf.index.store(0);
-                            iterator.take()
+                            state.iter.take()
                         };
                         // Publish replay mode before releasing the source. Its
                         // finalizer may advance this cycle, but this call still
@@ -317,7 +324,8 @@ mod decl {
                 false
             };
 
-            let saved = zelf.saved.read();
+            let state = zelf.state.read();
+            let saved = &state.saved;
             if saved.is_empty() {
                 return Ok(PyIterReturn::StopIteration(None));
             }
@@ -1926,10 +1934,15 @@ mod decl {
     #[pyclass(name = "pairwise", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsPairwise {
-        iterator: PyMutex<Option<PyIter>>,
-        old: PyRwLock<Option<PyObjectRef>>,
+        state: PyRwLock<PairwiseState>,
         #[pytraverse(skip)]
         terminal: AtomicBool,
+    }
+
+    #[derive(Debug, Traverse)]
+    struct PairwiseState {
+        iterator: Option<PyIter>,
+        old: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsPairwise {
@@ -1940,8 +1953,10 @@ mod decl {
         fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let iterator = args.iterable;
             Ok(Self {
-                iterator: PyMutex::new(Some(iterator)),
-                old: PyRwLock::new(None),
+                state: PyRwLock::new(PairwiseState {
+                    iterator: Some(iterator),
+                    old: None,
+                }),
                 terminal: AtomicBool::new(false),
             })
         }
@@ -1954,7 +1969,7 @@ mod decl {
 
     impl PyItertoolsPairwise {
         fn next_item(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let Some(iterator) = self.iterator.lock().clone() else {
+            let Some(iterator) = self.state.read().iterator.clone() else {
                 return Ok(PyIterReturn::StopIteration(None));
             };
             iterator.next(vm)
@@ -1962,11 +1977,11 @@ mod decl {
 
         fn clear_iterator(&self) {
             self.terminal.store(true, Ordering::Release);
-            let _previous = self.iterator.lock().take();
+            let _previous = self.state.write().iterator.take();
         }
 
         fn clear_old(&self) {
-            let _previous = self.old.write().take();
+            let _previous = self.state.write().old.take();
         }
     }
 
@@ -1976,17 +1991,17 @@ mod decl {
                 return Ok(PyIterReturn::StopIteration(None));
             }
             let old_clone = {
-                let guard = zelf.old.read();
-                guard.clone()
+                let state = zelf.state.read();
+                state.old.clone()
             };
             let old = match old_clone {
                 None => {
                     let next = zelf.next_item(vm);
                     let previous = {
-                        let mut old = zelf.old.write();
+                        let mut state = zelf.state.write();
                         match &next {
-                            Ok(PyIterReturn::Return(obj)) => old.replace(obj.clone()),
-                            _ => old.take(),
+                            Ok(PyIterReturn::Return(obj)) => state.old.replace(obj.clone()),
+                            _ => state.old.take(),
                         }
                     };
                     // The first source callback can publish an old item by
@@ -2019,7 +2034,7 @@ mod decl {
                     return result;
                 }
             };
-            let previous = zelf.old.write().replace(new.clone());
+            let previous = zelf.state.write().old.replace(new.clone());
             drop(previous);
 
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
