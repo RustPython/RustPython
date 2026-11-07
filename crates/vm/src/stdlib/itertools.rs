@@ -3,26 +3,23 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
-        VirtualMachine,
-        builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int},
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef,
+        TryFromBorrowedObject, TryFromObject, VirtualMachine,
+        builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef},
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock},
         convert::ToPyObject,
-        function::{ArgIndex, FuncArgs, NameIterables, PosArgs},
+        function::{FuncArgs, NameIterables, OptionalArg, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
-        stdlib::sys,
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
     };
     use core::sync::atomic::{AtomicBool, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
-    use malachite_bigint::BigInt;
-    use num_traits::One;
     use rustpython_common::wtf8::Wtf8Buf;
 
     use alloc::fmt;
-    use num_traits::{Signed, ToPrimitive};
+    use num_traits::ToPrimitive;
 
     #[pyattr]
     #[pyclass(name = "chain", traverse)]
@@ -152,9 +149,9 @@ mod decl {
     #[derive(FromArgs)]
     struct CompressNewArgs {
         #[pyarg(any)]
-        data: PyIter,
+        data: PyObjectRef,
         #[pyarg(any)]
-        selectors: PyIter,
+        selectors: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsCompress {
@@ -163,9 +160,14 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { data, selectors }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(Self { data, selectors })
+            let data_iter = data.get_iter(vm)?;
+            let selectors_iter = selectors.get_iter(vm)?;
+            Ok(Self {
+                data: data_iter,
+                selectors: selectors_iter,
+            })
         }
     }
 
@@ -338,7 +340,7 @@ mod decl {
     struct PyRepeatNewArgs {
         object: PyObjectRef,
         #[pyarg(any, optional)]
-        times: Option<PyObjectRef>,
+        times: OptionalArg<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsRepeat {
@@ -350,13 +352,12 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let times = match times {
-                Some(obj) => {
-                    let int = obj.try_index(vm)?;
-                    let val: isize = int.try_to_primitive(vm)?;
+                OptionalArg::Present(obj) => {
+                    let val = index_to_ssize(&obj, vm)?;
                     // times always >= 0.
                     Some(PyRwLock::new(val.to_usize().unwrap_or(0)))
                 }
-                None => None,
+                OptionalArg::Missing => None,
             };
             Ok(Self { object, times })
         }
@@ -629,7 +630,7 @@ mod decl {
     #[derive(FromArgs)]
     struct GroupByArgs {
         #[pyarg(any)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
         #[pyarg(any, optional)]
         key: Option<PyObjectRef>,
     }
@@ -640,10 +641,11 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { iterable, key }: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let iterator = iterable.get_iter(vm)?;
             Ok(Self {
-                iterable,
+                iterable: iterator,
                 key_func: key,
                 state: PyMutex::new(GroupByState::default()),
             })
@@ -840,86 +842,65 @@ mod decl {
         step: usize,
     }
 
-    fn pyobject_to_opt_usize(
-        obj: &PyObject,
-        name: &'static str,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let value = match obj.try_index(vm) {
-            Ok(i) => int::get_value(i.as_object()).to_usize(),
-            Err(e)
-                if e.fast_isinstance(vm.ctx.exceptions.type_error)
-                    || e.fast_isinstance(vm.ctx.exceptions.overflow_error) =>
-            {
-                None
-            }
-            Err(e) => return Err(e),
-        };
-        if let Some(value) = value
-            && value <= sys::MAXSIZE as usize
-        {
-            return Ok(value);
-        }
-        Err(vm.new_value_error(format!(
-            "{name} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
-        )))
-    }
-
     #[pyclass(with(IterNext, Iterable), flags(BASETYPE))]
     impl PyItertoolsIslice {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let args =
                 crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
-            let (iter, start, stop, step) = match args.args.len() {
-                0 | 1 => {
-                    return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
-                }
-                2 => {
-                    let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
-                    (iter, 0usize, stop, 1usize)
-                }
-                _ => {
-                    let (iter, start, stop, step) = if args.args.len() == 3 {
-                        let (iter, start, stop): (PyObjectRef, PyObjectRef, PyObjectRef) =
-                            args.bind_for(vm, Self::NAME)?;
-                        (iter, start, stop, 1usize)
-                    } else {
-                        let (iter, start, stop, step): (
-                            PyObjectRef,
-                            PyObjectRef,
-                            PyObjectRef,
-                            PyObjectRef,
-                        ) = args.bind_for(vm, Self::NAME)?;
+            let (iter, a1, a2, a3): (
+                PyObjectRef,
+                PyObjectRef,
+                OptionalArg<PyObjectRef>,
+                OptionalArg<PyObjectRef>,
+            ) = args.bind_for(vm, Self::NAME)?;
 
-                        let step = if !vm.is_none(&step) {
-                            let step = pyobject_to_opt_usize(&step, "Step", vm)?;
-                            if step == 0 {
-                                return Err(vm.new_value_error(
-                                    "Step for islice() must be a positive integer or None.",
-                                ));
-                            }
-                            step
-                        } else {
-                            1usize
-                        };
-                        (iter, start, stop, step)
-                    };
-                    let start = if !vm.is_none(&start) {
-                        pyobject_to_opt_usize(&start, "Start", vm)?
-                    } else {
-                        0usize
-                    };
-
-                    (iter, start, stop, step)
+            // CPython clears index conversion errors and reports the appropriate
+            // islice ValueError after converting arguments in this order.
+            let to_ssize = |obj: &PyObject| isize::try_from_borrowed_object(vm, obj).unwrap_or(-1);
+            let mut start = 0;
+            let mut stop = -1;
+            if let OptionalArg::Present(a2) = &a2 {
+                if !vm.is_none(&a1) {
+                    start = to_ssize(&a1);
                 }
-            };
+                if !vm.is_none(a2) {
+                    stop = to_ssize(a2);
+                    if stop == -1 {
+                        return Err(vm.new_value_error(
+                            "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+                        ));
+                    }
+                }
+            } else if !vm.is_none(&a1) {
+                stop = to_ssize(&a1);
+                if stop == -1 {
+                    return Err(vm.new_value_error(
+                        "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+                    ));
+                }
+            }
+            if start < 0 || stop < -1 {
+                return Err(vm.new_value_error(
+                    "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+                ));
+            }
 
-            let stop = if !vm.is_none(&stop) {
-                Some(pyobject_to_opt_usize(&stop, "Stop", vm)?)
+            let step = if let OptionalArg::Present(a3) = &a3
+                && !vm.is_none(a3)
+            {
+                to_ssize(a3)
             } else {
-                None
+                1
             };
+            if step < 1 {
+                return Err(
+                    vm.new_value_error("Step for islice() must be a positive integer or None.")
+                );
+            }
+            let start = start as usize;
+            let stop = (stop >= 0).then_some(stop as usize);
+            let step = step as usize;
 
             let iter = PyIter::try_from_object(vm, iter)?;
 
@@ -1050,7 +1031,7 @@ mod decl {
     #[derive(FromArgs)]
     struct AccumulateArgs {
         #[pyarg(any)]
-        iterable: PyIter,
+        iterable: PyObjectRef,
         #[pyarg(any, optional)]
         func: Option<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -1060,9 +1041,10 @@ mod decl {
     impl Constructor for PyItertoolsAccumulate {
         type Args = AccumulateArgs;
 
-        fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let iterator = args.iterable.get_iter(vm)?;
             Ok(Self {
-                iterable: args.iterable,
+                iterable: iterator,
                 bin_op: args.func,
                 has_initial: args.initial.is_some(),
                 initial: PyRwLock::new(args.initial),
@@ -1155,11 +1137,19 @@ mod decl {
         advancing: AtomicBool,
     }
 
+    #[derive(FromArgs)]
+    struct TeeNewArgs {
+        #[pyarg(positional)]
+        iterable: PyObjectRef,
+    }
+
     impl Constructor for PyItertoolsTee {
-        type Args = IterablePosArg;
+        type Args = TeeNewArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let iterator = args.iterable;
+            // Keep the source alive until an existing tee's position is copied:
+            // its finalizer can advance the iterator returned by __iter__.
+            let iterator = args.iterable.get_iter(vm)?;
             // An iterator that is already a tee shares its buffer rather than
             // getting one of its own.
             if let Some(tee) = iterator.as_object().downcast_ref::<Self>() {
@@ -1210,17 +1200,21 @@ mod decl {
     struct TeeArgs {
         #[pyarg(positional)]
         iterable: PyObjectRef,
-        #[pyarg(positional, default = 2)]
-        n: isize,
+        #[pyarg(positional, optional, py_default = "2")]
+        n: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
     fn tee(args: TeeArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let TeeArgs { iterable, n } = args;
-        if n < 0 {
-            return Err(vm.new_value_error("n must be >= 0"));
+        let n_value = match &n {
+            OptionalArg::Present(value) => index_to_ssize(value, vm)?,
+            OptionalArg::Missing => 2,
+        };
+        if n_value < 0 {
+            return Err(vm.new_value_error("n cannot be negative"));
         }
-        let n = n as usize;
+        let n = n_value as usize;
 
         let mut tee_vec: Vec<PyObjectRef> = Vec::new();
         tee_vec
@@ -1441,7 +1435,28 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any)]
-        r: ArgIndex,
+        r: PyObjectRef,
+    }
+
+    fn index_to_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<isize> {
+        let index;
+        let int = if let Some(int) = obj.downcast_ref::<PyInt>() {
+            int
+        } else {
+            index = obj.try_index(vm)?;
+            &index
+        };
+        int.as_bigint()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+    }
+
+    fn combinations_r(r: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+        let value = index_to_ssize(r, vm)?;
+        if value < 0 {
+            return Err(vm.new_value_error("r cannot be negative"));
+        }
+        Ok(value as usize)
     }
 
     impl Constructor for PyItertoolsCombinations {
@@ -1452,17 +1467,9 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let r_value = combinations_r(&r, vm)?;
             let pool: Vec<_> = iterable.try_to_value(vm)?;
-
-            let r = r.into_int_ref();
-            let r = r.as_bigint();
-            if r.is_negative() {
-                return Err(vm.new_value_error("r must be non-negative"));
-            }
-            let r = r.to_isize().ok_or_else(|| {
-                vm.new_overflow_error("Python int too large to convert to C ssize_t")
-            })? as usize;
-
+            let r = r_value;
             let n = pool.len();
 
             let mut indices = Vec::new();
@@ -1566,16 +1573,9 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let r_value = combinations_r(&r, vm)?;
             let pool: Vec<_> = iterable.try_to_value(vm)?;
-            let r = r.into_int_ref();
-            let r = r.as_bigint();
-            if r.is_negative() {
-                return Err(vm.new_value_error("r must be non-negative"));
-            }
-            let r = r.to_isize().ok_or_else(|| {
-                vm.new_overflow_error("Python int too large to convert to C ssize_t")
-            })? as usize;
-
+            let r = r_value;
             let n = pool.len();
 
             let mut indices = Vec::new();
@@ -1681,19 +1681,20 @@ mod decl {
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.
             // If None, it behaves the same as if it was not provided.
-            let r = match r {
+            let r = match &r {
                 Some(r) => {
-                    let val = r
+                    let value = r
                         .downcast_ref::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("Expected int as r"))?
-                        .as_bigint();
-
-                    if val.is_negative() {
+                        .as_bigint()
+                        .to_isize()
+                        .ok_or_else(|| {
+                            vm.new_overflow_error("Python int too large to convert to C ssize_t")
+                        })?;
+                    if value < 0 {
                         return Err(vm.new_value_error("r must be non-negative"));
                     }
-                    val.to_isize().ok_or_else(|| {
-                        vm.new_overflow_error("Python int too large to convert to C ssize_t")
-                    })? as usize
+                    value as usize
                 }
                 None => n,
             };
@@ -1974,9 +1975,9 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any)]
-        n: ArgIndex,
-        #[pyarg(named, default)]
-        strict: bool,
+        n: PyObjectRef,
+        #[pyarg(named, optional, py_default = "False")]
+        strict: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsBatched {
@@ -1991,21 +1992,21 @@ mod decl {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let n = n.into_int_ref();
-            let n = n.as_bigint();
-            if n.lt(&BigInt::one()) {
+            let n_value = index_to_ssize(&n, vm)?;
+            let strict_value = match &strict {
+                Some(value) => value.try_to_bool(vm)?,
+                None => false,
+            };
+            if n_value < 1 {
                 return Err(vm.new_value_error("n must be at least one"));
             }
-            let n = n
-                .to_usize()
-                .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
             let iterable = PyIter::try_from_object(vm, iterable)?;
 
             Ok(Self {
                 iterable,
-                n: AtomicCell::new(n),
+                n: AtomicCell::new(n_value as usize),
                 exhausted: AtomicCell::new(false),
-                strict: AtomicCell::new(strict),
+                strict: AtomicCell::new(strict_value),
             })
         }
     }
@@ -2023,13 +2024,20 @@ mod decl {
             let mut result: Vec<PyObjectRef> = Vec::new();
             let n = zelf.n.load();
             for _ in 0..n {
-                match zelf.iterable.next(vm)? {
-                    PyIterReturn::Return(obj) => {
+                match zelf.iterable.next(vm) {
+                    Ok(PyIterReturn::Return(obj)) => {
                         result.push(obj);
                     }
-                    PyIterReturn::StopIteration(_) => {
-                        zelf.exhausted.store(true);
+                    Ok(PyIterReturn::StopIteration(value)) => {
+                        drop(value);
+                        if result.is_empty() || zelf.strict.load() {
+                            zelf.exhausted.store(true);
+                        }
                         break;
+                    }
+                    Err(err) => {
+                        zelf.exhausted.store(true);
+                        return Err(err);
                     }
                 }
             }
@@ -2038,6 +2046,7 @@ mod decl {
                 0 => Ok(PyIterReturn::StopIteration(None)),
                 _ => {
                     if zelf.strict.load() && res_len != n {
+                        drop(result);
                         Err(vm.new_value_error("batched(): incomplete batch"))
                     } else {
                         Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))

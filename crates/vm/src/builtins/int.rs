@@ -961,6 +961,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
 }
 
 // Retrieve inner int value:
+#[cfg(any(test, feature = "serde", feature = "jit"))]
 pub(crate) fn get_value(obj: &PyObject) -> &BigInt {
     obj.downcast_ref::<PyInt>().unwrap().as_bigint()
 }
