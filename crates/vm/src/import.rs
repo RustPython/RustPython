@@ -20,7 +20,9 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
     let mut builtins: Option<PyObjectRef> = None;
     let mut globals: Option<PyObjectRef> = crate::frame::current_globals().map(Into::into);
     let has_globals = globals.is_some();
-    let result = (|| {
+    // Keep the selected module/error alive across callback-capable cleanup on
+    // every path, including lookup and invocation failures.
+    (|| {
         let globals = globals.get_or_insert_with(|| vm.ctx.new_dict().into());
         let builtins = builtins.insert(if has_globals {
             globals.get_item(identifier!(vm, __builtins__), vm)?
@@ -61,10 +63,7 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
         };
         drop(modules);
         selected?.ok_or_else(|| vm.new_key_error(module_name.to_owned().into()))
-    })();
-    // Keep the selected module/error alive across callback-capable cleanup on
-    // every path, including lookup and invocation failures.
-    result
+    })()
 }
 
 /// Return a module from `sys.modules`, creating it if absent or not a module.
