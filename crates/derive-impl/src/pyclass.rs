@@ -1003,9 +1003,45 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
 
     // Forward a `traverse` option to the generated `#[pyclass]` so exception
     // payloads with a manual `Traverse` impl are GC-tracked and traversed.
-    let traverse_attr = match class_meta.inner()._optional_str("traverse").ok().flatten() {
-        Some(value) => quote! { , traverse = #value },
-        None => quote! {},
+    // Owned one-field wrappers must expose the base's references when allocated
+    // with their own vtable, rather than through the base's allocation slot.
+    let is_wrapper = matches!(item, Item::Struct(item) if matches!(&item.fields,
+        syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1));
+    // Only the struct expansion knows whether the base is the sole field.
+    // Other shapes retain the owned-construction stub and can opt into an
+    // explicit Constructor to initialize their additional fields.
+    let owned_constructor = if is_wrapper {
+        quote! { Ok(Self(new_base()?)) }
+    } else {
+        quote! {
+            let _ = new_base;
+            unreachable!("slot_new is defined")
+        }
+    };
+    let (traverse_attr, traverse_impl) = match class_meta
+        .inner()
+        ._optional_str("traverse")
+        .ok()
+        .flatten()
+    {
+        Some(value) => (quote! { , traverse = #value }, quote! {}),
+        None if is_wrapper => (
+            quote! { , traverse = "manual" },
+            quote! {
+                // SAFETY: The sole field owns all payload references. Forward
+                // to its traversal once without cloning any references.
+                unsafe impl ::rustpython_vm::object::Traverse for #ident {
+                    fn traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn<'_>) {
+                        ::rustpython_vm::object::MaybeTraverse::try_traverse(&self.0, tracer_fn);
+                    }
+
+                    fn clear(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
+                        ::rustpython_vm::object::MaybeTraverse::try_clear(&mut self.0, out);
+                    }
+                }
+            },
+        ),
+        None => (quote! {}, quote! {}),
     };
 
     let payload_attr = match class_meta.inner()._optional_str("payload")? {
@@ -1021,6 +1057,16 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
     let ret = quote! {
         #[pyclass(#module_attr name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
         #item
+        impl #ident {
+            // A custom Constructor need not use this generated helper.
+            #[allow(dead_code)]
+            pub(crate) fn __pyexception_new(
+                new_base: impl ::core::ops::FnOnce() -> ::rustpython_vm::PyResult<<Self as ::rustpython_vm::class::PyClassDef>::Base>,
+            ) -> ::rustpython_vm::PyResult<Self> {
+                #owned_constructor
+            }
+        }
+        #traverse_impl
         #impl_pyclass
     };
     Ok(ret)
@@ -1080,11 +1126,13 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> T
                     <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
                 }
                 fn py_new(
-                    _cls: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
-                    _args: Self::Args,
-                    _vm: &::rustpython_vm::VirtualMachine
+                    cls: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
+                    args: Self::Args,
+                    vm: &::rustpython_vm::VirtualMachine
                 ) -> ::rustpython_vm::PyResult<Self> {
-                    unreachable!("slot_new is defined")
+                    Self::__pyexception_new(|| {
+                        <<Self as ::rustpython_vm::class::PyClassDef>::Base as ::rustpython_vm::types::Constructor>::py_new(cls, args, vm)
+                    })
                 }
             }
         }

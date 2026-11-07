@@ -1037,8 +1037,8 @@ impl Constructor for PyBaseException {
             .map(Into::into)
     }
 
-    fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
-        unimplemented!("use slot_new")
+    fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self::new(args.args, vm))
     }
 }
 
