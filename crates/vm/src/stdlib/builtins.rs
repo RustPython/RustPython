@@ -55,12 +55,8 @@ mod builtins {
         all_or_any(&iterable, true, vm)
     }
 
-    fn all_or_any(
-        iterable: &PyObjectRef,
-        short_circuit: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        let iter = PyIter::try_from_object(vm, iterable.clone())?;
+    fn all_or_any(iterable: &PyObject, short_circuit: bool, vm: &VirtualMachine) -> PyResult<bool> {
+        let iter = iterable.get_iter(vm)?;
         // Cache the slot, not __next__: the wrapper still looks up the method
         // after callbacks mutate the iterator's type.
         let next = iter.class().slots().iternext.load().ok_or_else(|| {
