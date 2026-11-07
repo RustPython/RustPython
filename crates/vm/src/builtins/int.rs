@@ -700,7 +700,6 @@ impl Py<PyInt> {
                 cls.as_object().call((value,), vm)
             }
         })();
-        release_byte_conversion_options(signed, byteorder);
         result
     }
 
@@ -765,7 +764,6 @@ impl Py<PyInt> {
             };
             Ok(bytes.into())
         })();
-        release_byte_conversion_options(signed, byteorder);
         result
     }
 
@@ -962,15 +960,6 @@ struct IntToByteArgs {
     byteorder: OptionalArg<PyObjectRef>,
     #[pyarg(named, optional, py_default = "False")]
     signed: OptionalArg<PyObjectRef>,
-}
-
-// Retain raw controls through conversion and result construction, then release
-// them in reverse parameter order even when conversion returned an error.
-fn release_byte_conversion_options(
-    signed: OptionalArg<PyObjectRef>,
-    _byteorder: OptionalArg<PyObjectRef>,
-) {
-    drop(signed);
 }
 
 fn byte_conversion_options(
