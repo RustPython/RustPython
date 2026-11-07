@@ -71,3 +71,53 @@ def kwargs_are_variable(x=[]):
 
 assert [1] == kwargs_are_variable()
 assert [1, 1] == kwargs_are_variable()
+
+
+# Direct constructor calls must retain original argument owners during errors.
+# Eager conversion of a later argument must not finalize earlier arguments
+# before formatting its error, or reverse the original finalizer order.
+def check_function_constructor_error_owners():
+    import types
+
+    events = []
+
+    class Globals(dict):
+        def __del__(self):
+            events.append("globals")
+
+    class BadName:
+        def __del__(self):
+            events.append("name")
+
+    try:
+        types.FunctionType.__new__(
+            types.FunctionType, (lambda: None).__code__, Globals(), BadName()
+        )
+    except TypeError as exc:
+        assert str(exc) == "arg 3 (name) must be None or string"
+    else:
+        assert False, "invalid name accepted"
+    assert events == ["globals", "name"], events
+
+    class BadGlobals:
+        pass
+
+    class CodeConstant:
+        def __del__(self):
+            BadGlobals.__name__ = "FinalizedGlobals"
+
+    try:
+        types.FunctionType.__new__(
+            types.FunctionType,
+            (lambda: None).__code__.replace(co_consts=(CodeConstant(),)),
+            BadGlobals(),
+        )
+    except TypeError as exc:
+        assert str(exc) == (
+            "function() argument 'globals' must be dict, not BadGlobals"
+        ), str(exc)
+    else:
+        assert False, "invalid globals accepted"
+
+
+check_function_constructor_error_owners()
