@@ -21,7 +21,7 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike, Either,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgSpec, ArgStrOrBytesLike, Either,
             FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
@@ -46,23 +46,38 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
-        for item in iterable.iter(vm)? {
-            if !item?.into_bool() {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+    fn all(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        all_or_any(&iterable, false, vm)
     }
 
     #[pyfunction]
-    fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
-        for item in iterable.iter(vm)? {
-            if item?.into_bool() {
-                return Ok(true);
+    fn any(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        all_or_any(&iterable, true, vm)
+    }
+
+    fn all_or_any(iterable: &PyObject, short_circuit: bool, vm: &VirtualMachine) -> PyResult<bool> {
+        let iter = iterable.get_iter(vm)?;
+        // Cache the slot, not __next__: the wrapper still looks up the method
+        // after callbacks mutate the iterator's type.
+        let next = iter.class().slots().iternext.load().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object is not an iterator",
+                iter.class().slot_name()
+            ))
+        })?;
+        loop {
+            match next(&iter, vm)? {
+                PyIterReturn::Return(item) => {
+                    let truth = item.try_to_bool(vm);
+                    if truth? == short_circuit {
+                        return Ok(short_circuit);
+                    }
+                }
+                PyIterReturn::StopIteration(_value) => {
+                    return Ok(!short_circuit);
+                }
             }
         }
-        Ok(false)
     }
 
     #[pyfunction]
@@ -980,8 +995,32 @@ mod builtins {
         vm.current_locals()
     }
 
+    enum MinMaxCandidates<'a> {
+        Positional(core::slice::Iter<'a, PyObjectRef>),
+        Iterable(PyIter),
+    }
+
+    impl MinMaxCandidates<'_> {
+        fn next(&mut self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            match self {
+                Self::Positional(args) => Ok(args.next().cloned()),
+                Self::Iterable(iter) => match iter.next(vm)? {
+                    PyIterReturn::Return(item) => Ok(Some(item)),
+                    PyIterReturn::StopIteration(_) => Ok(None),
+                },
+            }
+        }
+    }
+
+    // Field order is also release order: replacing the incumbent or unwinding
+    // an error must release its key before its item.
+    struct MinMaxBest {
+        key: PyObjectRef,
+        item: PyObjectRef,
+    }
+
     fn min_or_max(
-        mut args: FuncArgs,
+        args: &FuncArgs,
         vm: &VirtualMachine,
         func_name: &'static str,
         op: PyComparisonOp,
@@ -991,63 +1030,67 @@ mod builtins {
             return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
         }
 
-        let default = args.take_keyword("default");
-        let key_func = args.take_keyword("key");
-
-        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
-            return Err(err);
+        let options = ArgSpec {
+            fname: func_name,
+            keywords: &["key", "default"],
+            required: 0,
+            max_positional: 0,
         }
+        .parse_keywords(&args.kwargs, vm)?;
+        let default = options[1].as_ref();
 
-        let candidates = if args.args.len() > 1 {
+        let mut candidates = if args.args.len() > 1 {
             if default.is_some() {
                 return Err(vm.new_type_error(format!(
                     "Cannot specify a default for {func_name}() with multiple positional arguments"
                 )));
             }
-            args.args
+            // Keep the caller's slots alive, cloning only the current item.
+            MinMaxCandidates::Positional(args.args.iter())
         } else {
-            args.args[0].try_to_value(vm)?
+            MinMaxCandidates::Iterable(args.args[0].get_iter(vm)?)
         };
+        let key_func = options[0].as_ref().filter(|f| !vm.is_none(f));
 
-        let mut candidates_iter = candidates.into_iter();
-        let mut x = match candidates_iter.next() {
-            Some(x) => x,
-            None => {
-                return default.ok_or_else(|| {
-                    vm.new_value_error(format!("{func_name}() iterable argument is empty"))
-                });
-            }
-        };
-
-        let key_func = key_func.filter(|f| !vm.is_none(f));
-        if let Some(ref key_func) = key_func {
-            let mut x_key = key_func.call((x.clone(),), vm)?;
-            for y in candidates_iter {
-                let y_key = key_func.call((y.clone(),), vm)?;
-                if y_key.rich_compare_bool(&x_key, op, vm)? {
-                    x = y;
-                    x_key = y_key;
-                }
-            }
-        } else {
-            for y in candidates_iter {
-                if y.rich_compare_bool(&x, op, vm)? {
-                    x = y;
-                }
+        // Declare the incumbent after the iterator so error unwinding releases
+        // its key and item before releasing the iterator.
+        let mut best: Option<MinMaxBest> = None;
+        while let Some(item) = candidates.next(vm)? {
+            // No later item is requested until this key and comparison finish.
+            // A key failure releases item before best; a comparison failure
+            // releases key, item, best's key and item, then the iterator.
+            let key = match key_func {
+                Some(key_func) => key_func.call((item.clone(),), vm)?,
+                None => item.clone(),
+            };
+            let replace = match &best {
+                Some(best) => key.rich_compare_bool(&best.key, op, vm)?,
+                None => true,
+            };
+            if replace {
+                best = Some(MinMaxBest { key, item });
+            } else {
+                // Rejected candidates have the opposite release order.
+                drop(item);
             }
         }
 
-        Ok(x)
+        match best {
+            Some(MinMaxBest { key: _key, item }) => Ok(item),
+            None => default.cloned().ok_or_else(|| {
+                vm.new_value_error(format!("{func_name}() iterable argument is empty"))
+            }),
+        }
     }
 
     #[pyfunction]
     fn max(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        min_or_max(args, vm, "max", PyComparisonOp::Gt)
+        min_or_max(&args, vm, "max", PyComparisonOp::Gt)
     }
 
     #[pyfunction]
     fn min(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        min_or_max(args, vm, "min", PyComparisonOp::Lt)
+        min_or_max(&args, vm, "min", PyComparisonOp::Lt)
     }
 
     #[pyfunction]
@@ -1258,7 +1301,7 @@ mod builtins {
     #[derive(FromArgs)]
     pub(super) struct SumArgs {
         #[pyarg(positional)]
-        iterable: ArgIterable,
+        iterable: PyObjectRef,
         // The int object needs the VM, so the default is not a literal.
         #[pyarg(any, default = 0)]
         start: PyObjectRef,
@@ -1266,7 +1309,11 @@ mod builtins {
 
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
-        let mut sum = start;
+        // Acquire and validate the iterator before rejecting a start type.
+        let items = iterable.get_iter(vm)?.into_iter::<PyObjectRef>(vm);
+        // Keep the original argument alive independently of the accumulator.
+        // Declaring the accumulator last also releases it before the iterator.
+        let (_start, mut items, mut sum) = (start.clone(), items, start);
 
         match_class!(match sum {
             PyStr =>
@@ -1279,8 +1326,6 @@ mod builtins {
                 ),
             _ => (),
         });
-
-        let mut items = iterable.iter(vm)?;
 
         // Fast paths after CPython's builtin_sum_impl: an exact int accumulator
         // hands over to the float one, which hands over to the complex one.
@@ -1358,8 +1403,13 @@ mod builtins {
             sum = vm._add(total.as_object(), &item)?;
         }
 
-        for item in items {
-            sum = vm._add(&sum, &*item?)?;
+        for item in items.by_ref() {
+            let item = item?;
+            let result = vm._add(&sum, &item);
+            // On both success and failure, release the old total before the
+            // item, and only then propagate an addition error to the iterator.
+            drop(sum);
+            sum = result?;
         }
         Ok(sum)
     }

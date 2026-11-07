@@ -1,9 +1,10 @@
 //! `PyArg_ParseTupleAndKeywords` argument matching.
 
-use super::{FuncArgs, given_by_name_and_position_message};
+use super::{FuncArgs, KwArgs, given_by_name_and_position_message};
 use crate::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyBaseExceptionRef,
-    common::wtf8::Wtf8,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::PyBaseExceptionRef,
+    common::wtf8::{Wtf8, Wtf8Buf},
 };
 
 /// The keyword list of a `PyArg_ParseTupleAndKeywords` call together with the
@@ -25,7 +26,8 @@ pub struct ArgSpec<'a> {
 /// Sequential view of `ArgSpec` slots in kwlist order.
 pub struct ArgSlots<'a> {
     spec: &'a ArgSpec<'a>,
-    args: &'a FuncArgs,
+    args: &'a [PyObjectRef],
+    kwargs: &'a KwArgs,
     index: usize,
     nkwargs: usize,
     exhausted: bool,
@@ -67,6 +69,27 @@ impl ArgSpec<'_> {
         })
     }
 
+    /// Bind the keyword portion of a vectorcall whose positional arguments
+    /// are handled separately. The caller keeps ownership of both portions.
+    /// This entry point also supplies CPython's keyword typo suggestions.
+    pub(crate) fn parse_keywords(
+        &self,
+        kwargs: &KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<Option<PyObjectRef>>> {
+        self.bind_parts(&[], kwargs, true, vm, |slots| {
+            let mut parsed = Vec::with_capacity(self.keywords.len());
+            for i in 0..self.keywords.len() {
+                parsed.push(if i < self.required {
+                    Some(slots.required(vm)?)
+                } else {
+                    slots.optional(vm)?
+                });
+            }
+            Ok(parsed)
+        })
+    }
+
     /// Matches `args` to the kwlist and hands the slots to `bind` in kwlist order.
     pub fn bind<R, E>(
         &self,
@@ -77,10 +100,24 @@ impl ArgSpec<'_> {
     where
         E: From<PyBaseExceptionRef>,
     {
+        self.bind_parts(&args.args, &args.kwargs, false, vm, bind)
+    }
+
+    fn bind_parts<R, E>(
+        &self,
+        args: &[PyObjectRef],
+        kwargs: &KwArgs,
+        suggest_keywords: bool,
+        vm: &VirtualMachine,
+        bind: impl FnOnce(&mut ArgSlots<'_>) -> Result<R, E>,
+    ) -> Result<R, E>
+    where
+        E: From<PyBaseExceptionRef>,
+    {
         let fname = self.fname;
         let len = self.keywords.len();
-        let nargs = args.args.len();
-        let nkwargs = args.kwargs.len();
+        let nargs = args.len();
+        let nkwargs = kwargs.len();
         if nargs + nkwargs > len {
             // Saying "keyword" when nothing was passed positionally keeps the
             // message right for keyword-only signatures.
@@ -95,6 +132,7 @@ impl ArgSpec<'_> {
         let mut slots = ArgSlots {
             spec: self,
             args,
+            kwargs,
             index: 0,
             nkwargs,
             exhausted: false,
@@ -114,17 +152,41 @@ impl ArgSpec<'_> {
         }
         if !slots.exhausted && slots.nkwargs > 0 {
             for (i, name) in self.keywords.iter().enumerate().take(nargs) {
-                if args.kwargs.contains_key(name) {
+                if kwargs.contains_key(name) {
                     return Err(E::from(vm.new_type_error(
                         given_by_name_and_position_message(Some(fname), name, i + 1),
                     )));
                 }
             }
-            for key in args.kwargs.keys() {
+            for key in kwargs.keys() {
                 if !self.keywords.iter().any(|name| &**key == Wtf8::new(name)) {
-                    return Err(E::from(vm.new_type_error(format!(
-                        "{fname}() got an unexpected keyword argument '{key}'"
-                    ))));
+                    let mut message =
+                        Wtf8Buf::from(format!("{fname}() got an unexpected keyword argument '"));
+                    if suggest_keywords {
+                        // A keyword may contain a lone surrogate. Preserve it
+                        // in the error rather than formatting it as UTF-8.
+                        message.push_wtf8(key);
+                    } else {
+                        message.push_str(&key.to_string());
+                    }
+                    message.push_str("'");
+                    // CPython cannot calculate suggestions for a name that
+                    // does not encode as UTF-8, including lone surrogates.
+                    if suggest_keywords && key.as_str().is_ok() {
+                        let names: Vec<_> = self
+                            .keywords
+                            .iter()
+                            .map(|name| vm.ctx.new_str(*name))
+                            .collect();
+                        let name = vm.ctx.new_str(&**key);
+                        if let Some(suggestion) = crate::suggestion::calculate_keyword_suggestions(
+                            names.iter().map(|name| name.as_object()),
+                            name.as_object(),
+                        ) {
+                            message.push_str(&format!(". Did you mean '{suggestion}'?"));
+                        }
+                    }
+                    return Err(E::from(vm.new_type_error(message)));
                 }
             }
             return Err(E::from(
@@ -212,7 +274,7 @@ impl ArgSlots<'_> {
         }
         let fname = self.spec.fname;
         let len = self.spec.keywords.len();
-        let nargs = self.args.args.len();
+        let nargs = self.args.len();
         if i == self.spec.max_positional && self.spec.max_positional < nargs {
             return Err(vm.new_type_error(if self.spec.max_positional == 0 {
                 format!("{fname}() takes no positional arguments")
@@ -234,10 +296,9 @@ impl ArgSlots<'_> {
             }));
         }
         let current = if i < nargs {
-            Some(self.args.args[i].clone())
+            Some(self.args[i].clone())
         } else if self.nkwargs > 0 {
-            self.args
-                .kwargs
+            self.kwargs
                 .get(self.spec.keywords[i])
                 .inspect(|_| self.nkwargs -= 1)
                 .cloned()
