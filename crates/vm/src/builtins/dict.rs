@@ -1201,19 +1201,6 @@ impl Py<PyDict> {
         self.entries.insert(vm, key, hash, value)
     }
 
-    pub(crate) fn del_item_known_hash(
-        &self,
-        key: &PyObject,
-        hash: crate::common::hash::PyHash,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if self.entries.delete_if_exists(vm, key, hash)? {
-            Ok(())
-        } else {
-            Err(vm.new_key_error(key.to_owned()))
-        }
-    }
-
     pub(crate) fn contains_known_hash(
         &self,
         key: &PyObject,
