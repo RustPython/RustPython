@@ -5,8 +5,8 @@ pub(crate) use self::termios::module_def;
 #[pymodule]
 mod termios {
     use crate::vm::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
+        PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyList, PyListRef, PyTypeRef},
         convert::ToPyObject,
         stdlib::_io::Fildes,
     };
@@ -173,8 +173,7 @@ mod termios {
     use host_termios::{VSWTCH, VSWTCH as VSWTC};
 
     #[pyfunction]
-    fn tcgetattr(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+    fn tcgetattr(Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let termios = host_termios::tcgetattr(fd).map_err(|e| termios_error(e, vm))?;
         let noncanon = (termios.c_lflag & host_termios::ICANON) == 0;
         let cc = termios
@@ -200,46 +199,61 @@ mod termios {
 
     #[pyfunction]
     fn tcsetattr(
-        fd: PyObjectRef,
+        Fildes(fd): Fildes,
         when: i32,
-        attributes: PyListRef,
+        attributes: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
-        let [iflag, oflag, cflag, lflag, ispeed, ospeed, cc] =
-            <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_vec())
-                .map_err(|_| vm.new_type_error("tcsetattr, arg 3: must be 7 element list"))?
-                .clone();
+        let attributes = attributes
+            .downcast::<PyList>()
+            .ok()
+            .filter(|attributes| attributes.borrow_vec().len() == 7)
+            .ok_or_else(|| vm.new_type_error("tcsetattr, arg 3: must be 7 element list"))?;
         let mut termios = host_termios::tcgetattr(fd).map_err(|e| termios_error(e, vm))?;
-        termios.c_iflag = iflag.try_into_value(vm)?;
-        termios.c_oflag = oflag.try_into_value(vm)?;
-        termios.c_cflag = cflag.try_into_value(vm)?;
-        termios.c_lflag = lflag.try_into_value(vm)?;
-        host_termios::cfsetispeed(&mut termios, ispeed.try_into_value(vm)?)
-            .map_err(|e| termios_error(e, vm))?;
-        host_termios::cfsetospeed(&mut termios, ospeed.try_into_value(vm)?)
-            .map_err(|e| termios_error(e, vm))?;
-        let cc = PyListRef::try_from_object(vm, cc)?;
-        let cc = cc.borrow_vec();
-        let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
-            vm.new_type_error(format!(
-                "tcsetattr: attributes[6] must be {NCCS} element list"
-            ))
-        })?;
-        for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
+
+        // Read each item after converting the previous one: __index__ can
+        // replace later elements of the attributes list.
+        let long_at = |index| -> PyResult<libc::c_long> {
+            list_item(&attributes, index, vm)?
+                .try_index(vm)?
+                .try_to_primitive(vm)
+        };
+        termios.c_iflag = long_at(0)? as _;
+        termios.c_oflag = long_at(1)? as _;
+        termios.c_cflag = long_at(2)? as _;
+        termios.c_lflag = long_at(3)? as _;
+        let ispeed = long_at(4)?;
+        let ospeed = long_at(5)?;
+
+        let cc = list_item(&attributes, 6, vm)?
+            .downcast::<PyList>()
+            .ok()
+            .filter(|cc| cc.borrow_vec().len() == NCCS)
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "tcsetattr: attributes[6] must be {NCCS} element list"
+                ))
+            })?;
+        for (cc, x) in termios.c_cc.iter_mut().zip(cc.borrow_vec().iter()) {
             *cc = if let Some(c) = x
                 .downcast_ref::<PyBytes>()
                 .filter(|b| b.as_bytes().len() == 1)
             {
                 c.as_bytes()[0] as _
             } else if let Some(i) = x.downcast_ref::<PyInt>() {
-                i.try_to_primitive(vm)?
+                // CPython checks C long range, then casts to cc_t. Negative
+                // values and values larger than a byte therefore wrap.
+                i.try_to_primitive::<libc::c_long>(vm)? as _
             } else {
                 return Err(vm.new_type_error(
-                    "tcsetattr: elements of attributes must be characters or integers",
+                    "tcsetattr: elements of attributes must be bytes objects of length 1 or integers",
                 ));
             };
         }
+
+        // Validate all Python values before asking libc to validate the speeds.
+        host_termios::cfsetispeed(&mut termios, ispeed as _).map_err(|e| termios_error(e, vm))?;
+        host_termios::cfsetospeed(&mut termios, ospeed as _).map_err(|e| termios_error(e, vm))?;
 
         host_termios::tcsetattr(fd, when, &termios).map_err(|e| termios_error(e, vm))?;
 
@@ -247,29 +261,25 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcsendbreak(fd: PyObjectRef, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+    fn tcsendbreak(Fildes(fd): Fildes, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
         host_termios::tcsendbreak(fd, duration).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcdrain(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+    fn tcdrain(Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
         host_termios::tcdrain(fd).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcflush(fd: PyObjectRef, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+    fn tcflush(Fildes(fd): Fildes, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
         host_termios::tcflush(fd, queue).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcflow(fd: PyObjectRef, action: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+    fn tcflow(Fildes(fd): Fildes, action: i32, vm: &VirtualMachine) -> PyResult<()> {
         host_termios::tcflow(fd, action).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
@@ -282,19 +292,28 @@ mod termios {
 
     #[pyfunction]
     fn tcsetwinsize(Fildes(fd): Fildes, winsize: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let size = winsize;
-        let seq = size.try_sequence(vm)?;
-        if seq.length(vm)? != 2 {
-            return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));
+        let seq = winsize.sequence_unchecked();
+        if !seq.check() || seq.length(vm).ok() != Some(2) {
+            return Err(vm.new_type_error("tcsetwinsize, arg 2: must be a two-item sequence"));
         }
-        let row = seq.get_item(0, vm)?;
-        let col = seq.get_item(1, vm)?;
+        // A row's __index__ may change the next item in the sequence.
+        let row: libc::c_long = seq.get_item(0, vm)?.try_index(vm)?.try_to_primitive(vm)?;
+        let col: libc::c_long = seq.get_item(1, vm)?.try_index(vm)?.try_to_primitive(vm)?;
 
-        let row: u16 = row.try_index(vm)?.try_to_primitive(vm)?;
-        let col: u16 = col.try_index(vm)?.try_to_primitive(vm)?;
-
-        host_termios::tcsetwinsize(fd, row, col).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcsetwinsize(fd, row, col).map_err(|e| match e {
+            host_termios::SetWinSizeError::Io(e) => termios_error(e, vm),
+            host_termios::SetWinSizeError::OutOfRange => {
+                vm.new_overflow_error("winsize value(s) out of range.")
+            }
+        })?;
         Ok(())
+    }
+
+    fn list_item(list: &PyListRef, index: usize, vm: &VirtualMachine) -> PyResult {
+        list.borrow_vec()
+            .get(index)
+            .cloned()
+            .ok_or_else(|| vm.new_index_error("list index out of range"))
     }
 
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
