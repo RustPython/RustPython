@@ -23,6 +23,8 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PyOSError},
 };
+#[cfg(all(feature = "host_env", feature = "stdio"))]
+pub(crate) use _io::default_text_encoding;
 pub use _io::{OpenArgs, io_open as open};
 use rustpython_host_env::io as host_io;
 
@@ -5987,6 +5989,11 @@ mod _io {
             static CELL: PyTypeRef;
         }
         CELL.get_or_init(|| create_unsupported_operation(Context::genesis()))
+    }
+
+    #[cfg(all(feature = "host_env", feature = "stdio"))]
+    pub(crate) fn default_text_encoding(vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+        TextIOWrapper::resolve_encoding(None, vm)
     }
 
     #[pyfunction]
