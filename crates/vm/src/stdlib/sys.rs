@@ -1361,7 +1361,7 @@ pub mod sys {
             .downcast::<crate::builtins::PyTraceback>()
         {
             let mut writer = crate::py_io::PyWriter(file.clone(), vm);
-            let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+            let _ = crate::exceptions::write_traceback(&mut writer, &traceback, vm);
         }
 
         let module_name = unraisable
