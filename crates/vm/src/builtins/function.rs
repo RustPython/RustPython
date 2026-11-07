@@ -1119,10 +1119,9 @@ impl Py<PyFunction> {
         } else {
             vm.audit("object.__delattr__", || (self.to_owned(), "__kwdefaults__"))?;
         }
-        let old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().1, kwdefaults);
+        let _old = core::mem::replace(&mut self.defaults_and_kwdefaults.lock().1, kwdefaults);
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
-        drop(old);
         Ok(())
     }
 
@@ -1137,8 +1136,7 @@ impl Py<PyFunction> {
             .into_option()
             .and_then(|value| value.downcast::<PyStr>().ok())
             .ok_or_else(|| vm.new_type_error("__name__ must be set to a string object"))?;
-        let old = core::mem::replace(&mut *self.name.lock(), name);
-        drop(old);
+        let _old = core::mem::replace(&mut *self.name.lock(), name);
         Ok(())
     }
 
