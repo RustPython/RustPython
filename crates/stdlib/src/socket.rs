@@ -28,8 +28,8 @@ mod _socket {
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgSpec, ArgStrOrBytesLike, FsPath,
-            FuncArgs, OptionalArg,
+            ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgSpec, ArgStrOrBytesLike,
+            FsPath, FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
@@ -1907,33 +1907,19 @@ mod _socket {
             too_small: &'static str,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let buffer = core::cell::RefCell::new(None);
-            let nbytes = core::cell::Cell::new(0isize);
-            let flags = core::cell::Cell::new(0i32);
-            ArgSpec {
+            let (buffer, nbytes, flags) = ArgSpec {
                 fname: name,
                 keywords: &["buffer", "nbytes", "flags"],
                 required: 1,
                 max_positional: 3,
             }
-            .parse_with(
-                args,
-                |position, value, vm| {
-                    match position {
-                        0 => {
-                            let export = ArgMemoryBuffer::try_from_borrowed_object(vm, value)?;
-                            *buffer.borrow_mut() = Some(export);
-                        }
-                        1 => nbytes.set(value.try_index(vm)?.try_to_primitive::<isize>(vm)?),
-                        2 => flags.set(value.try_index(vm)?.try_to_primitive::<i32>(vm)?),
-                        _ => unreachable!(),
-                    }
-                    Ok(())
-                },
-                vm,
-            )?;
-            let buffer = buffer.into_inner().expect("required buffer was parsed");
-            let nbytes = usize::try_from(nbytes.get())
+            .bind(args, vm, |slots| -> PyResult<_> {
+                let buffer = slots.required_as::<ArgMemoryBuffer>(vm)?;
+                let nbytes = slots.optional_as::<isize>(vm)?.unwrap_or(0);
+                let flags = slots.optional_as::<i32>(vm)?.unwrap_or(0);
+                Ok((buffer, nbytes, flags))
+            })?;
+            let nbytes = usize::try_from(nbytes)
                 .map_err(|_| vm.new_value_error(format!("negative buffersize in {name}")))?;
             let nbytes = if nbytes == 0 { buffer.len() } else { nbytes };
             if nbytes > buffer.len() {
@@ -1944,7 +1930,7 @@ mod _socket {
             Ok(Self {
                 buffer,
                 nbytes,
-                flags: flags.get(),
+                flags,
             })
         }
     }
@@ -2382,14 +2368,13 @@ mod _socket {
                 clippy::redundant_clone,
                 reason = "Keep original arguments alive through callbacks and the socket operation"
             )]
-            let (data, flags_or_address, address): (
-                PyObjectRef,
+            let (bytes, flags_or_address, address): (
+                ArgBytesLike,
                 PyObjectRef,
                 OptionalArg<PyObjectRef>,
             ) = args.clone().bind_for(vm, "sendto")?;
             // Export before converting flags, but defer borrowing its data
             // until all Python callbacks, including address conversion, finish.
-            let bytes = ArgBytesLike::try_from_object(vm, data)?;
             let (flags, address) = match address {
                 OptionalArg::Missing => (0, flags_or_address),
                 OptionalArg::Present(address) => (
@@ -2883,16 +2868,13 @@ mod _socket {
                 reason = "Keep original arguments alive through callbacks and the socket operation"
             )]
             let (level, name, value, optlen): (
-                PyObjectRef,
-                PyObjectRef,
+                i32,
+                i32,
                 Option<PyObjectRef>,
-                OptionalArg<PyObjectRef>,
+                OptionalArg<ArgIndex>,
             ) = args.clone().bind_for(vm, "setsockopt")?;
-            let level = level.try_index(vm)?.try_to_primitive::<i32>(vm)?;
-            let name = name.try_index(vm)?.try_to_primitive::<i32>(vm)?;
             let optlen = match optlen {
                 OptionalArg::Present(index) => {
-                    let index = crate::vm::function::ArgIndex::try_from_object(vm, index)?;
                     OptionalArg::Present(index.as_unsigned_bitfield::<32>(vm)? as u32)
                 }
                 OptionalArg::Missing => OptionalArg::Missing,
