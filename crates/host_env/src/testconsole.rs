@@ -4,12 +4,17 @@ use windows_sys::Win32::{
     System::Console::{INPUT_RECORD, KEY_EVENT, WriteConsoleInputW},
 };
 
-use crate::windows::{CheckWin32Bool, CheckWin32Handle};
+use crate::windows::CheckWin32Bool;
 
-pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
-    let handle = (unsafe { libc::get_osfhandle(fd) } as HANDLE).check_valid()?;
+fn console_handle(fd: i32) -> io::Result<HANDLE> {
+    let raw_handle = unsafe { crate::suppress_iph!(libc::get_osfhandle(fd)) };
+    if raw_handle == -1 {
+        return Err(crate::os::errno_io_error());
+    }
+    Ok(raw_handle as HANDLE)
+}
 
-    let size = data.len() as u32;
+fn input_records(data: &[u16]) -> Vec<INPUT_RECORD> {
     let mut records: Vec<INPUT_RECORD> = Vec::with_capacity(data.len());
     for &wc in data {
         let mut rec: INPUT_RECORD = unsafe { core::mem::zeroed() };
@@ -19,7 +24,11 @@ pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
         rec.Event.KeyEvent.uChar.UnicodeChar = wc;
         records.push(rec);
     }
+    records
+}
 
+fn write_records(handle: HANDLE, records: &[INPUT_RECORD]) -> io::Result<()> {
+    let size = records.len() as u32;
     let mut total: u32 = 0;
     while total < size {
         let mut wrote: u32 = 0;
@@ -40,6 +49,19 @@ pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
         }
         total += wrote;
     }
-
     Ok(())
+}
+
+pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
+    let handle = console_handle(fd)?;
+    let records = input_records(data);
+    write_records(handle, &records)
+}
+
+/// Resolve the descriptor after preparing the input records.
+#[doc(hidden)]
+pub fn write_console_input_with_fd(data: &[u16], get_fd: impl FnOnce() -> i32) -> io::Result<()> {
+    let records = input_records(data);
+    let handle = console_handle(get_fd())?;
+    write_records(handle, &records)
 }

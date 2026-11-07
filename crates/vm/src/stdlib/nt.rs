@@ -241,6 +241,12 @@ pub(crate) mod module {
         path: crate::PyObjectRef,
     }
 
+    #[derive(FromArgs)]
+    struct OsPathArg {
+        #[pyarg(any)]
+        path: OsPath,
+    }
+
     impl PathArg {
         fn to_path_or_fd(&self, vm: &VirtualMachine) -> PyResult<Option<OsPathOrFd<'static>>> {
             match PathConverter::new().try_path_or_fd_allow_invalid(self.path.clone(), vm) {
@@ -378,7 +384,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_isdevdrive(path: OsPath, vm: &VirtualMachine) -> PyResult<bool> {
+    fn _path_isdevdrive(args: OsPathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        let path = args.path;
         let path = path.to_wide_cstring(vm)?;
         host_nt::path_isdevdrive(&path).map_err(|err| err.to_pyexception(vm))
     }
@@ -615,7 +622,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
+    fn _getvolumepathname(args: OsPathArg, vm: &VirtualMachine) -> PyResult {
+        let path = args.path;
         let wide = path.to_wide_cstring(vm)?;
         let buflen = core::cmp::max(wide.len(), host_nt::MAX_PATH_USIZE);
         if buflen > u32::MAX as usize {
@@ -915,13 +923,17 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_normpath(path: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Handle path-like objects via os.fspath
-        let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
-            fspath?.call((), vm)?
-        } else {
-            path
-        };
+    fn _path_normpath(args: PathArg, vm: &VirtualMachine) -> PyResult {
+        let path = args.path;
+        // Direct strings and bytes take precedence over __fspath__, including subclasses.
+        let path =
+            if path.downcast_ref::<PyStr>().is_some() || path.downcast_ref::<PyBytes>().is_some() {
+                path
+            } else if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
+                fspath?.call((), vm)?
+            } else {
+                path
+            };
 
         let (wide, is_bytes): (Vec<u16>, bool) = if let Some(s) = path.downcast_ref::<PyStr>() {
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
@@ -949,7 +961,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _getdiskusage(path: OsPath, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
+    fn _getdiskusage(args: OsPathArg, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
+        let path = args.path;
         let path = path.to_wide_cstring(vm)?;
         host_nt::getdiskusage(&path).map_err(|err| err.to_pyexception(vm))
     }
@@ -995,8 +1008,15 @@ pub(crate) mod module {
         Ok(vm.ctx.new_list(result))
     }
 
+    #[derive(FromArgs)]
+    struct VolumeArg {
+        #[pyarg(any)]
+        volume: OsPath,
+    }
+
     #[pyfunction]
-    fn listmounts(volume: OsPath, vm: &VirtualMachine) -> PyResult<PyListRef> {
+    fn listmounts(args: VolumeArg, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        let volume = args.volume;
         let volume = volume.to_wide_cstring(vm)?;
         let result = host_nt::listmounts(&volume)
             .map_err(|err| err.to_pyexception(vm))?
@@ -1108,7 +1128,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _add_dll_directory(path: OsPath, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn _add_dll_directory(args: OsPathArg, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let path = args.path;
         let wide = path.to_wide_cstring(vm)?;
         let cookie = host_winapi::add_dll_directory(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
@@ -1118,8 +1139,15 @@ pub(crate) mod module {
             .into())
     }
 
+    #[derive(FromArgs)]
+    struct DllDirectoryCookieArg {
+        #[pyarg(any)]
+        cookie: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn _remove_dll_directory(cookie: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _remove_dll_directory(args: DllDirectoryCookieArg, vm: &VirtualMachine) -> PyResult<()> {
+        let cookie = args.cookie;
         let not_a_cookie =
             || vm.new_type_error("Provided cookie was not returned from os.add_dll_directory");
         let capsule = cookie
