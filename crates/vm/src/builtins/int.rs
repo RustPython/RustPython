@@ -659,7 +659,7 @@ impl Py<PyInt> {
             byteorder,
             signed,
         } = args;
-        let result = (|| {
+        (|| {
             let (byteorder, signed) =
                 byte_conversion_options(&byteorder, &signed, "from_bytes", vm)?;
             let convert = |bytes: &[u8]| match (byteorder, signed) {
@@ -699,8 +699,7 @@ impl Py<PyInt> {
             } else {
                 cls.as_object().call((value,), vm)
             }
-        })();
-        result
+        })()
     }
 
     #[pymethod]
@@ -710,7 +709,7 @@ impl Py<PyInt> {
             byteorder,
             signed,
         } = args;
-        let result = (|| {
+        (|| {
             // Finish binding before conversions, then validate length before either
             // byteorder's type check or signed's truth conversion can run.
             let byte_len = match &length {
@@ -763,8 +762,7 @@ impl Py<PyInt> {
                 }
             };
             Ok(bytes.into())
-        })();
-        result
+        })()
     }
 
     #[pygetset]
