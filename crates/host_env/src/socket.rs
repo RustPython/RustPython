@@ -804,11 +804,30 @@ pub fn setsockopt_none(fd: libc::c_int, level: i32, name: i32, optlen: u32) -> i
     target_os = "openbsd",
 ))]
 pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
+    Ok(if_nameindex_bytes()?
+        .into_iter()
+        .map(|(index, name)| (index, String::from_utf8_lossy(&name).into_owned()))
+        .collect())
+}
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd",
+))]
+/// Return interface names as their original platform bytes without applying
+/// a lossy text conversion.
+pub fn if_nameindex_bytes() -> io::Result<Vec<(u32, Vec<u8>)>> {
     let list = nix::net::if_::if_nameindex().map_err(io::Error::from)?;
     Ok(list
         .to_slice()
         .iter()
-        .map(|iface| (iface.index(), iface.name().to_string_lossy().into_owned()))
+        .map(|iface| (iface.index(), iface.name().to_bytes().to_vec()))
         .collect())
 }
 
@@ -824,6 +843,12 @@ pub fn if_nametoindex_checked(name: &CStr) -> io::Result<u32> {
 
 #[cfg(unix)]
 pub fn if_indextoname_checked(index: u32) -> io::Result<String> {
+    if_indextoname_bytes(index).map(|name| String::from_utf8_lossy(&name).into_owned())
+}
+
+#[cfg(unix)]
+/// Return an interface name as its original platform bytes.
+pub fn if_indextoname_bytes(index: u32) -> io::Result<Vec<u8>> {
     let mut buf = [0u8; libc::IF_NAMESIZE];
     let ret = unsafe {
         libc::if_indextoname(index as libc::c_uint, buf.as_mut_ptr() as *mut libc::c_char)
@@ -832,7 +857,7 @@ pub fn if_indextoname_checked(index: u32) -> io::Result<String> {
         Err(io::Error::last_os_error())
     } else {
         let buf = unsafe { CStr::from_ptr(buf.as_ptr() as *const libc::c_char) };
-        Ok(buf.to_string_lossy().into_owned())
+        Ok(buf.to_bytes().to_vec())
     }
 }
 

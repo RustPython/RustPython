@@ -3837,10 +3837,12 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_indextoname(if_index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
+    fn if_indextoname(if_index: IfIndex, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         #[cfg(windows)]
         {
-            host_socket::if_indextoname_checked(if_index).map_err(|_| vm.new_last_errno_error())
+            host_socket::if_indextoname_checked(if_index)
+                .map(|name| vm.ctx.new_str(name))
+                .map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
@@ -3851,8 +3853,9 @@ mod _socket {
             if ret.is_null() {
                 Err(vm.new_last_errno_error())
             } else {
+                use std::os::unix::ffi::OsStrExt;
                 let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
-                Ok(buf.to_string_lossy().into_owned())
+                vm.fsdecode(std::ffi::OsStr::from_bytes(buf.to_bytes()))
             }
         }
     }
@@ -3872,13 +3875,15 @@ mod _socket {
     fn if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         #[cfg(not(windows))]
         {
-            let list = host_socket::if_nameindex()
+            use std::os::unix::ffi::OsStringExt;
+            host_socket::if_nameindex_bytes()
                 .map_err(|err| err.into_pyexception(vm))?
                 .into_iter()
-                .map(|tup| tup.to_pyobject(vm))
-                .collect();
-
-            Ok(list)
+                .map(|(index, name)| {
+                    let name = vm.fsdecode(std::ffi::OsString::from_vec(name))?;
+                    Ok((index, name).to_pyobject(vm))
+                })
+                .collect()
         }
         #[cfg(windows)]
         {

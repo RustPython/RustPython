@@ -40,13 +40,20 @@ pub fn play_sound(source: PlaySoundSource<'_>, flags: u32) -> Result<(), PlaySou
     if matches!(source, PlaySoundSource::Memory(_)) && flags & SND_ASYNC != 0 {
         return Err(PlaySoundError::MemoryAsyncRejected);
     }
-    // `SND_MEMORY` requires a `Memory(_)` source; an empty pointer would
-    // dereference garbage.
-    if !matches!(source, PlaySoundSource::Memory(_)) && flags & SND_MEMORY != 0 {
+    // `SND_MEMORY` with a name would reinterpret the name's UTF-16 allocation
+    // as a RIFF buffer. A null source is still the documented stop operation,
+    // for which the remaining flags are ignored.
+    if matches!(source, PlaySoundSource::Name(_)) && flags & SND_MEMORY != 0 {
         return Err(PlaySoundError::MemoryFlagWithoutBuffer);
     }
+    // An empty slice's pointer is a dangling sentinel. Give WinMM zeroed
+    // storage instead; zero bytes do not start a RIFF header.
+    static EMPTY_IMAGE: [u8; 64] = [0; 64];
+    // SND_MEMORY makes the `LPCWSTR` parameter point at a byte-oriented RIFF
+    // image. The pointer is only passed through, so it needs no `u16` alignment.
     let ptr: *const u16 = match source {
         PlaySoundSource::Stop => core::ptr::null(),
+        PlaySoundSource::Memory([]) => EMPTY_IMAGE.as_ptr().cast(),
         PlaySoundSource::Memory(buf) => buf.as_ptr().cast(),
         PlaySoundSource::Name(s) => s.as_ptr(),
     };
@@ -64,7 +71,7 @@ pub enum PlaySoundError {
     CallFailed,
     /// `Memory(_)` source cannot be combined with `SND_ASYNC` in the safe API.
     MemoryAsyncRejected,
-    /// `SND_MEMORY` set in `flags` but no `Memory(_)` buffer supplied.
+    /// `SND_MEMORY` set in `flags` for a named source.
     MemoryFlagWithoutBuffer,
 }
 

@@ -15,7 +15,12 @@ pub(crate) fn get_locale_info() -> LocaleInfo {
         reason = "libc::c_char is not u8 on all platforms"
     )]
     let mut grouping = lc.grouping.iter().map(|&c| c as u8).collect::<Vec<u8>>();
-    if !grouping.is_empty() {
+    // A CHAR_MAX terminator is already in the list; otherwise restore the NUL.
+    if lc
+        .grouping
+        .last()
+        .is_some_and(|&c| c != core::ffi::c_char::MAX)
+    {
         grouping.push(0);
     }
     LocaleInfo {
