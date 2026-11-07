@@ -136,13 +136,6 @@ struct ByteArrayBuffers {
     second: Option<PyBuffer>,
 }
 
-impl Drop for ByteArrayBuffers {
-    fn drop(&mut self) {
-        drop(self.first.take());
-        drop(self.second.take());
-    }
-}
-
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &'static Context) {
     PyByteArray::extend_class(context, context.types.bytearray_type);

@@ -80,9 +80,8 @@ impl Initializer for PyCPointerType {
             && let Some(mut target_info) = target_type.get_type_data_mut::<StgInfo>()
         {
             let zelf_obj: PyObjectRef = zelf.to_owned().into();
-            let old = target_info.pointer_type.replace(zelf_obj);
+            let _old = target_info.pointer_type.replace(zelf_obj);
             drop(target_info);
-            drop(old);
         }
 
         Ok(())
@@ -184,9 +183,8 @@ impl PyCPointerType {
 
         // 5. Cache: set target_type.__pointer_type__ = self (via StgInfo)
         if let Some(mut target_info) = typ_type.get_type_data_mut::<StgInfo>() {
-            let old = target_info.pointer_type.replace(zelf.into());
+            let _old = target_info.pointer_type.replace(zelf.into());
             drop(target_info);
-            drop(old);
         }
 
         Ok(())

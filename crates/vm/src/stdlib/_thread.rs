@@ -885,8 +885,7 @@ pub(crate) mod _thread {
     fn cleanup_thread_local_data() {
         // Move all guards out before dropping them. A local dict's __del__ may
         // re-enter thread-local access and borrow LOCAL_GUARDS again.
-        let guards = LOCAL_GUARDS.take();
-        drop(guards);
+        let _guards = LOCAL_GUARDS.take();
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
@@ -1265,8 +1264,7 @@ pub(crate) mod _thread {
             if let Some(local_data) = self.local.upgrade() {
                 // Remove from map while holding the lock, but drop the value
                 // outside the lock to prevent deadlock if __del__ accesses _local
-                let removed = local_data.state.lock().dicts.remove(&self.thread_id);
-                drop(removed);
+                let _removed = local_data.state.lock().dicts.remove(&self.thread_id);
             }
         }
     }
@@ -1399,8 +1397,7 @@ pub(crate) mod _thread {
             if let Some(guard) = guard {
                 drop(guard);
             } else {
-                let removed = self.inner.state.lock().dicts.remove(&thread_id);
-                drop(removed);
+                let _removed = self.inner.state.lock().dicts.remove(&thread_id);
             }
         }
 

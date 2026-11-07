@@ -249,7 +249,5 @@ pub(crate) fn descriptor_set_callable(
     drop(slot.store(callable.clone()));
     let current = slot.load_owned();
     let result = functools_wraps(wrapper, &current, vm);
-    drop(current);
-    drop(callable);
     result
 }

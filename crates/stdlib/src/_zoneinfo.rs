@@ -1404,7 +1404,6 @@ mod _zoneinfo {
             } else {
                 Ok(new_instance(cls, key, SOURCE_NOCACHE, vm)?.into())
             };
-            drop(from_cache);
             result
         }
 

@@ -1002,7 +1002,6 @@ impl WeakRefList {
             }
             current = next;
         }
-        drop(_lock);
         callbacks
     }
 
@@ -1321,10 +1320,7 @@ impl InstanceDict {
             let dict = vm.ctx.new_dict();
             match self.dict.compare_exchange_empty(dict.clone()) {
                 Ok(()) => return dict,
-                Err(rejected) => {
-                    drop(rejected);
-                    drop(dict);
-                }
+                Err(_rejected) => {}
             }
         }
     }

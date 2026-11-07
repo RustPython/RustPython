@@ -109,7 +109,7 @@ mod _bisect {
         let get_item = sequence_item(sequence, vm)?;
         // On failure, leave the recursion section before releasing the current
         // item. This owner must be declared before the guard for drop ordering.
-        let mut error_item = None;
+        let mut _error_item = None;
         let recursion_context = if LEFT {
             " in _bisect.bisect_left"
         } else {
@@ -137,7 +137,7 @@ mod _bisect {
                 let result = match key.call((&*a_mid,), vm) {
                     Ok(result) => result,
                     Err(err) => {
-                        error_item = Some(a_mid);
+                        _error_item = Some(a_mid);
                         break Err(err);
                     }
                 };
@@ -168,7 +168,7 @@ mod _bisect {
             let less = match less {
                 Ok(value) => value,
                 Err(err) => {
-                    error_item = Some(comp);
+                    _error_item = Some(comp);
                     break Err(err);
                 }
             };
@@ -181,7 +181,6 @@ mod _bisect {
             }
         };
         drop(recursion_guard);
-        drop(error_item);
         result
     }
 

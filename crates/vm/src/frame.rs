@@ -457,9 +457,8 @@ impl LocalsPlus {
         let dst = self.fastlocals_mut();
         let source = src.fastlocals();
         for i in 0..n {
-            let old = dst[i].take();
+            let _old = dst[i].take();
             dst[i].clone_from(&source[i]);
-            drop(old);
         }
     }
 
@@ -2030,8 +2029,7 @@ impl FrameObject {
         if localsplus.stack_is_empty() {
             return;
         }
-        let refs = localsplus.take_stack_object_refs();
-        drop(refs);
+        let _refs = localsplus.take_stack_object_refs();
     }
 
     /// Clear locals and stack after generator/coroutine close.
@@ -6635,9 +6633,8 @@ impl ExecutingFrame<'_> {
                     if i < vec.len() {
                         // Unlock before dropping the replaced element; its
                         // finalizer may access this list.
-                        let old = core::mem::replace(&mut vec[i], value);
+                        let _old = core::mem::replace(&mut vec[i], value);
                         drop(vec);
-                        drop(old);
                         return Ok(None);
                     }
                 }
@@ -10206,7 +10203,6 @@ impl ExecutingFrame<'_> {
         {
             Some(cloned)
         } else {
-            drop(cloned);
             None
         }
     }

@@ -672,7 +672,6 @@ impl Py<PyComplex> {
         } else {
             PyType::call(&cls, vec![result.into()].into(), vm)
         };
-        drop(number);
         result
     }
 }

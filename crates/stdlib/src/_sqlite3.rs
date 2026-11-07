@@ -1327,7 +1327,7 @@ mod _sqlite3 {
             };
             let statement = statement.into_ref(&vm.ctx);
             let lease = StatementLease::acquire(statement.clone()).unwrap();
-            let evicted = {
+            let _evicted = {
                 let mut cache = self.statement_cache.lock();
                 if cached.is_none()
                     && cache.generation == generation
@@ -1345,7 +1345,6 @@ mod _sqlite3 {
                     None
                 }
             };
-            drop(evicted);
             Ok(Some(lease))
         }
 
@@ -3302,8 +3301,7 @@ mod _sqlite3 {
         #[pymethod]
         fn close(zelf: &Py<Self>) {
             with_deferred_drops(|| {
-                let inner = zelf.inner.lock().take();
-                drop(inner);
+                let _inner = zelf.inner.lock().take();
             });
         }
 
@@ -3823,14 +3821,13 @@ mod _sqlite3 {
         fn drop(&mut self) {
             with_deferred_drops(|| {
                 let statement = self.0.lock();
-                let db = SqliteOperation(statement.db.clone());
+                // Reset can delay cleanup queued by another thread's BLOB close.
+                let _db = SqliteOperation(statement.db.clone());
                 statement.reset();
                 // Cached statements must not retain previous parameter buffers.
                 unsafe { sqlite3_clear_bindings(statement.st) };
                 drop(statement);
                 self.0.in_use.store(false, Ordering::Release);
-                // Reset can delay cleanup queued by another thread's BLOB close.
-                drop(db);
             });
         }
     }

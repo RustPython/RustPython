@@ -188,9 +188,8 @@ pub(crate) fn locked_step<T>(
     step: impl FnOnce(&mut PositionIterInternal<T>) -> (PyResult<PyIterReturn>, Option<T>),
 ) -> PyResult<PyIterReturn> {
     let mut guard = internal.lock();
-    let (ret, released) = step(&mut guard);
+    let (ret, _released) = step(&mut guard);
     drop(guard);
-    drop(released);
     ret
 }
 

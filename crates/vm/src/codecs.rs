@@ -255,12 +255,11 @@ impl CodecsRegistry {
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
         let name = normalize_registry_name(name);
-        let previous = self
+        let _previous = self
             .inner
             .write()
             .search_cache
             .insert(name.into_owned(), codec);
-        drop(previous);
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {

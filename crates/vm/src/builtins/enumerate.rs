@@ -216,8 +216,6 @@ impl Constructor for PyReverseSequenceIterator {
         }
         let ReversedArgs { object } = constructor_args.bind_for(vm, "reversed")?;
         let result = Self::from_object(cls, &object, vm);
-        drop(object);
-        drop(args);
         result
     }
 

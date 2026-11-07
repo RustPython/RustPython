@@ -291,7 +291,7 @@ impl PyList {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let removed = {
+        let _removed = {
             let mut elements = self.borrow_vec_mut();
             let index = elements
                 .wrap_index(index)
@@ -302,7 +302,6 @@ impl PyList {
                 elements.remove(index)
             }
         };
-        drop(removed);
         Ok(())
     }
 
@@ -362,8 +361,6 @@ impl PyList {
         };
         if slice.step() == 1 {
             removed.into_iter().rev().for_each(drop);
-        } else {
-            drop(removed);
         }
         Ok(())
     }
@@ -581,11 +578,10 @@ impl Py<PyList> {
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
-            let removed = {
+            let _removed = {
                 let mut elements = self.borrow_vec_mut();
                 (index < elements.len()).then(|| elements.remove(index))
             };
-            drop(removed);
             Ok(())
         } else {
             Err(vm.new_value_error("list.remove(x): x not in list"))

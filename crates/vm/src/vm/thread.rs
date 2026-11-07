@@ -846,9 +846,8 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     }
 
     detach_thread();
-    let reattach_guard = scopeguard::guard(vm, attach_thread);
+    let _reattach_guard = scopeguard::guard(vm, attach_thread);
     let result = f();
-    drop(reattach_guard);
     result
 }
 
@@ -885,9 +884,8 @@ pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     attach_thread(vm);
     // Detach again even if `f` unwinds, so the `allow_threads` this is nested
     // inside still finds the state it left behind.
-    let redetach_guard = scopeguard::guard((), |()| detach_thread());
+    let _redetach_guard = scopeguard::guard((), |()| detach_thread());
     let result = f();
-    drop(redetach_guard);
     result
 }
 

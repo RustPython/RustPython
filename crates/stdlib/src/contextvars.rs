@@ -427,9 +427,8 @@ mod _contextvars {
             };
             let mut cached = zelf.cached.lock();
             zelf.cached_id.store(ctx.inner.cache_id, Ordering::SeqCst);
-            let replaced = cached.replace(cache);
+            let _replaced = cached.replace(cache);
             drop(cached);
-            drop(replaced);
         }
 
         fn generate_hash(zelf: &Py<Self>, name_hash: PyHash) -> PyHash {

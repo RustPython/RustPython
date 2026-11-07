@@ -251,7 +251,6 @@ mod _heapq {
         };
 
         siftup(&heap, 0, vm)?;
-        drop(item);
         Ok(returnitem)
     }
 
@@ -497,7 +496,6 @@ mod _heapq {
         };
 
         siftup_max(&heap, 0, vm)?;
-        drop(item);
         Ok(returnitem)
     }
 }

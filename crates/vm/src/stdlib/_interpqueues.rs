@@ -240,7 +240,6 @@ pub(crate) mod _interpqueues {
             .remove(&qid)
             .ok_or(QueueErr::NotFound)?;
         kill_queue(&queue.queue);
-        drop(queue);
         Ok(())
     }
 
@@ -276,7 +275,6 @@ pub(crate) mod _interpqueues {
         };
         if let Some(queue) = removed {
             kill_queue(&queue.queue);
-            drop(queue);
         }
         Ok(())
     }
@@ -663,6 +661,5 @@ pub(crate) mod _interpqueues {
                 }
             }
         }
-        drop(dropped);
     }
 }

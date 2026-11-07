@@ -1465,7 +1465,6 @@ impl PyType {
                     if same_ptr && entry.end_read(seq1) {
                         return (Some(cloned), entry_version);
                     }
-                    drop(cloned);
                     continue;
                 }
                 break;
@@ -2991,7 +2990,6 @@ impl Py<PyType> {
             crate::stdlib::_testinternalcapi::note_set_bases();
             Ok(())
         });
-        drop(retired);
         result
     }
 

@@ -80,13 +80,12 @@ mod _testinternalcapi {
         #[pymethod]
         fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             zelf.within.store(true, Ordering::Relaxed);
-            let Some(old) = vm.replace_async_exception(Some(
+            let Some(_old) = vm.replace_async_exception(Some(
                 vm.ctx.exceptions.keyboard_interrupt.to_owned().into(),
             )) else {
                 return Err(vm.new_runtime_error("the current thread state is being cleared"));
             };
             vm.notify_async_exception();
-            drop(old);
             Ok(zelf)
         }
 

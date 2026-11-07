@@ -1562,7 +1562,6 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
             call_python_release_buffer(&wrapper.exporter, mv.clone());
         }
         // Py_CLEAR(bw->mv): the view outlives this only if user code kept it.
-        drop(mv);
     },
 };
 

@@ -148,11 +148,10 @@ mod _collections {
         }
 
         fn append_item(&self, item: PyObjectRef, left: bool, maxlen: Option<usize>) {
-            let removed = {
+            let _removed = {
                 let mut deque = self.borrow_deque_mut();
                 self.push_item(&mut deque, item, left, maxlen)
             };
-            drop(removed);
         }
 
         // Return evicted items to the caller so they can be dropped after unlocking.
@@ -440,8 +439,7 @@ mod _collections {
                                 .try_reserve(1)
                                 .map(|()| zelf.push_item(&mut deque, item.clone(), false, maxlen))
                         };
-                        let removed = removed.map_err(|_| vm.no_memory_error())?;
-                        drop(removed);
+                        let _removed = removed.map_err(|_| vm.no_memory_error())?;
                     }
                 }
                 return Ok(());
@@ -452,7 +450,6 @@ mod _collections {
                 core::mem::swap(&mut *deque, &mut mul_deque);
                 zelf.state.fetch_add(1);
             }
-            drop(mul_deque);
             Ok(())
         }
 
