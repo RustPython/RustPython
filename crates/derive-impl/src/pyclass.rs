@@ -2702,7 +2702,7 @@ fn class_internal_doc(
                         name: "",
                         params: CHOSEN,
                         binding_params: CHOSEN,
-                        use_keyword_parser: false,
+                        force_unpack_keywords: false,
                     },
                 ];
                 const BASE: ::rustpython_vm::function::ItemDoc =

@@ -66,7 +66,8 @@ mod _sqlite3 {
         },
         function::{
             ArgCallable, ArgIntoBool, ArgIntoFloat, ArgIterable, ArgStrOrBytesLike, ArgStrictInt,
-            FsPath, FuncArgs, KeywordParser, KwArgs, OptionalArg, PyComparisonValue, PySetterValue,
+            FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue,
+            UnpackKeywords,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -1732,7 +1733,7 @@ mod _sqlite3 {
         #[pymethod]
         fn create_aggregate(
             zelf: &Py<Self>,
-            KeywordParser(args): KeywordParser<CreateAggregateArgs>,
+            UnpackKeywords(args): UnpackKeywords<CreateAggregateArgs>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             with_deferred_drops(|| Self::create_aggregate_inner(zelf, args, vm))
@@ -1776,7 +1777,7 @@ mod _sqlite3 {
         #[pymethod]
         fn create_collation(
             zelf: &Py<Self>,
-            KeywordParser(args): KeywordParser<CreateCollationArgs>,
+            UnpackKeywords(args): UnpackKeywords<CreateCollationArgs>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             with_deferred_drops(|| Self::create_collation_inner(zelf, args.name, args.callback, vm))
@@ -1828,7 +1829,7 @@ mod _sqlite3 {
         #[pymethod]
         fn create_window_function(
             zelf: &Py<Self>,
-            KeywordParser(args): KeywordParser<CreateWindowFunctionArgs>,
+            UnpackKeywords(args): UnpackKeywords<CreateWindowFunctionArgs>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             with_deferred_drops(|| {
@@ -1890,7 +1891,7 @@ mod _sqlite3 {
         #[pymethod]
         fn set_authorizer(
             zelf: &Py<Self>,
-            KeywordParser(authorizer_callback): KeywordParser<PyObjectRef>,
+            UnpackKeywords(authorizer_callback): UnpackKeywords<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             zelf.set_callback(authorizer_callback, CallbackKind::Authorizer, vm)
@@ -1899,7 +1900,7 @@ mod _sqlite3 {
         #[pymethod]
         fn set_trace_callback(
             zelf: &Py<Self>,
-            KeywordParser(trace_callback): KeywordParser<PyObjectRef>,
+            UnpackKeywords(trace_callback): UnpackKeywords<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             zelf.set_callback(trace_callback, CallbackKind::Trace, vm)

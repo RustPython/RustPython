@@ -108,8 +108,8 @@ pub struct SigArg {
     /// Actual accepted arguments, independent of the displayed signature.
     /// `None` leaves dispatch permissive so a custom parser owns validation.
     pub binding_params: Option<&'static [Param]>,
-    /// Clinic keyword parsing may be required by an all-positional signature.
-    pub use_keyword_parser: bool,
+    /// Force `_PyArg_UnpackKeywords` dispatch even for positional-only signatures.
+    pub force_unpack_keywords: bool,
 }
 
 const SCALAR_PARAMS: &[Param] = &[Param::positional_only("")];
@@ -121,7 +121,7 @@ impl SigArg {
             name,
             params: T::PARAMS,
             binding_params: T::BINDING_PARAMS,
-            use_keyword_parser: T::USE_KEYWORD_PARSER,
+            force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
     }
 
@@ -132,7 +132,7 @@ impl SigArg {
             name,
             params: None,
             binding_params: Some(SCALAR_PARAMS),
-            use_keyword_parser: false,
+            force_unpack_keywords: false,
         }
     }
 
@@ -147,7 +147,7 @@ impl SigArg {
                 None => &[],
             }),
             binding_params: T::BINDING_PARAMS,
-            use_keyword_parser: T::USE_KEYWORD_PARSER,
+            force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
     }
 }
@@ -165,7 +165,7 @@ pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super:
     let mut fixed = 0usize;
     let mut i = 0;
     while i < args.len() {
-        has_keywords |= args[i].use_keyword_parser;
+        has_keywords |= args[i].force_unpack_keywords;
         match args[i].binding_params {
             Some(params)
                 if receiver
@@ -828,7 +828,7 @@ mod tests {
                     Some(params) => Some(params),
                     None => Some(super::SCALAR_PARAMS),
                 },
-                use_keyword_parser: false,
+                force_unpack_keywords: false,
             }
         }
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
@@ -878,8 +878,8 @@ mod tests {
     }
 
     #[test]
-    fn keyword_parser_keeps_the_positional_signature_and_keyword_dispatch() {
-        type Wrapped = crate::function::KeywordParser<crate::PyObjectRef>;
+    fn unpack_keywords_keeps_the_positional_signature_and_keyword_dispatch() {
+        type Wrapped = crate::function::UnpackKeywords<crate::PyObjectRef>;
         const ARGS: &[SigArg] = &[
             SigArg::marker("$self"),
             SigArg::from_arg::<Wrapped>("callback"),
@@ -900,7 +900,7 @@ mod tests {
             name: "ignored",
             params: Some(&[]),
             binding_params: Some(&[Param::var_positional("args"), Param::var_keyword("kwargs")]),
-            use_keyword_parser: false,
+            force_unpack_keywords: false,
         }];
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
         assert_eq!(native_call_flags(ARGS, false), keywords);
@@ -916,13 +916,13 @@ mod tests {
             name: "custom",
             params: Some(&[Param::positional_only("display")]),
             binding_params: None,
-            use_keyword_parser: false,
+            force_unpack_keywords: false,
         };
         const NESTED: SigArg = SigArg {
             name: "nested",
             params: Some(&[]),
             binding_params: Some(&[Param::flatten(None)]),
-            use_keyword_parser: false,
+            force_unpack_keywords: false,
         };
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
         assert_eq!(native_call_flags(&[CUSTOM], false), keywords);

@@ -890,8 +890,8 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
 
             #binding_params
 
-            const USE_KEYWORD_PARSER: bool = false #(
-                || <#flattened as ::rustpython_vm::function::FromArgs>::USE_KEYWORD_PARSER
+            const FORCE_UNPACK_KEYWORDS: bool = false #(
+                || <#flattened as ::rustpython_vm::function::FromArgs>::FORCE_UNPACK_KEYWORDS
             )*;
 
             const HAS_REQUIRED_KEYWORD_ONLY: bool =
