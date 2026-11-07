@@ -26,7 +26,7 @@ mod builtins {
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
-        readline::{Readline, ReadlineResult},
+        readline::ReadlineResult,
         types::PyComparisonOp,
         vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
@@ -830,25 +830,6 @@ mod builtins {
         obj.get_id()
     }
 
-    thread_local! {
-        // Rustyline retains input read ahead past the current line. Keep the
-        // editor across input() calls so that queued lines are not discarded.
-        // It contains no Python objects or interpreter-specific helper state.
-        static INPUT_READLINE: core::cell::RefCell<Option<Readline<()>>> =
-            core::cell::RefCell::new(Some(Readline::new(())));
-    }
-
-    struct InputReadlineGuard<'a> {
-        slot: &'a core::cell::RefCell<Option<Readline<()>>>,
-        reader: Option<Readline<()>>,
-    }
-
-    impl Drop for InputReadlineGuard<'_> {
-        fn drop(&mut self) {
-            *self.slot.borrow_mut() = self.reader.take();
-        }
-    }
-
     #[pyfunction]
     fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
         let prompt = args.prompt;
@@ -926,19 +907,9 @@ mod builtins {
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();
-            let result = INPUT_READLINE.with(|slot| -> PyResult<_> {
-                // Do not keep a RefCell borrow alive while reading. An empty
-                // slot means a nested call, which must not create another
-                // editor and consume or discard the outer reader's input.
-                let reader = slot.borrow_mut().take();
-                let reader =
-                    reader.ok_or_else(|| vm.new_runtime_error("reentrant call inside input"))?;
-                let mut guard = InputReadlineGuard {
-                    slot,
-                    reader: Some(reader),
-                };
-                Ok(guard.reader.as_mut().unwrap().readline(prompt))
-            })?;
+            let result = vm
+                .allow_threads(|| crate::readline::input_readline(prompt))
+                .map_err(|_| vm.new_runtime_error("can't re-enter readline"))?;
             match result {
                 ReadlineResult::Line(s) => {
                     let result = vm.ctx.new_str(s);
