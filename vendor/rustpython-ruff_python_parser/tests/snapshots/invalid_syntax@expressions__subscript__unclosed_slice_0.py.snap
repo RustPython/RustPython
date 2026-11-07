@@ -1,0 +1,86 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/subscript/unclosed_slice_0.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..10,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..10,
+                    value: Subscript(
+                        ExprSubscript {
+                            node_index: NodeIndex(None),
+                            range: 0..10,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 0..1,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            slice: Slice(
+                                ExprSlice {
+                                    node_index: NodeIndex(None),
+                                    range: 2..10,
+                                    lower: None,
+                                    upper: Some(
+                                        BinOp(
+                                            ExprBinOp {
+                                                node_index: NodeIndex(None),
+                                                range: 5..10,
+                                                left: Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 5..6,
+                                                        id: Name("x"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                                op: Add,
+                                                right: Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 9..10,
+                                                        id: Name("y"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    step: None,
+                                },
+                            ),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | x[:
+  |  ^ Syntax Error: '[' was never closed
+2 |
+3 | x + y
+  |
+
+
+  |
+1 | x[:
+2 |
+3 | x + y
+  |      ^ Syntax Error: invalid syntax

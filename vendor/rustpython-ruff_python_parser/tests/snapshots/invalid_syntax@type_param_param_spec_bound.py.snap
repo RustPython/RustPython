@@ -1,0 +1,65 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/type_param_param_spec_bound.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..23,
+        body: [
+            TypeAlias(
+                StmtTypeAlias {
+                    node_index: NodeIndex(None),
+                    range: 0..22,
+                    name: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 5..6,
+                            id: Name("X"),
+                            ctx: Store,
+                        },
+                    ),
+                    type_params: Some(
+                        TypeParams {
+                            range: 6..16,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                ParamSpec(
+                                    TypeParamParamSpec {
+                                        node_index: NodeIndex(None),
+                                        range: 7..15,
+                                        name: Identifier {
+                                            id: Name("T"),
+                                            range: 9..10,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 19..22,
+                            id: Name("int"),
+                            ctx: Load,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | type X[**T: int] = int
+  |           ^^^^^ Syntax Error: cannot use bound with ParamSpec

@@ -1,0 +1,51 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/ok/match_classify_as_identifier_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..18,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..17,
+                    value: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 0..17,
+                            ops: [
+                                NotIn,
+                            ],
+                            operands: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 0..5,
+                                        id: Name("match"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 13..17,
+                                        id: Name("case"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```

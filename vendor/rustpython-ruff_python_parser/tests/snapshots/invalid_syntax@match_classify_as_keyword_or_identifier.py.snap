@@ -1,0 +1,75 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/match_classify_as_keyword_or_identifier.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..39,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 0..38,
+                    subject: Starred(
+                        ExprStarred {
+                            node_index: NodeIndex(None),
+                            range: 6..10,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 7..10,
+                                    id: Name("foo"),
+                                    ctx: Load,
+                                },
+                            ),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 27..38,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 32..33,
+                                    pattern: None,
+                                    name: None,
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Expr(
+                                    StmtExpr {
+                                        node_index: NodeIndex(None),
+                                        range: 35..38,
+                                        value: EllipsisLiteral(
+                                            ExprEllipsisLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 35..38,
+                                            },
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | match *foo:  # Keyword
+  |       ^ Syntax Error: invalid syntax
+2 |     case _: ...
+  |

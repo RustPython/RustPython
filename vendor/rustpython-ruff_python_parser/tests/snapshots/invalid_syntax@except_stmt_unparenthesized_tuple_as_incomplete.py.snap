@@ -1,0 +1,224 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/except_stmt_unparenthesized_tuple_as_incomplete.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..87,
+        body: [
+            Try(
+                StmtTry {
+                    node_index: NodeIndex(None),
+                    range: 0..35,
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 9..13,
+                            },
+                        ),
+                    ],
+                    handlers: [
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 14..35,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Tuple(
+                                        ExprTuple {
+                                            node_index: NodeIndex(None),
+                                            range: 21..25,
+                                            elts: [
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 21..22,
+                                                        id: Name("x"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 24..25,
+                                                        id: Name("y"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                            ],
+                                            ctx: Load,
+                                            parenthesized: false,
+                                            runtime_elts: None,
+                                        },
+                                    ),
+                                ),
+                                name: None,
+                                body: [
+                                    AnnAssign(
+                                        StmtAnnAssign {
+                                            node_index: NodeIndex(None),
+                                            range: 29..35,
+                                            target: Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 30..33,
+                                                    id: Name("exc"),
+                                                    ctx: Store,
+                                                },
+                                            ),
+                                            annotation: Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 35..35,
+                                                    id: Name(""),
+                                                    ctx: Invalid,
+                                                },
+                                            ),
+                                            value: None,
+                                            simple: false,
+                                            runtime_simple: None,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    finalbody: [],
+                    is_star: false,
+                    runtime_body: None,
+                    runtime_handlers: None,
+                    runtime_orelse: None,
+                    runtime_finalbody: None,
+                },
+            ),
+            Pass(
+                StmtPass {
+                    node_index: NodeIndex(None),
+                    range: 40..44,
+                },
+            ),
+            Try(
+                StmtTry {
+                    node_index: NodeIndex(None),
+                    range: 45..86,
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 54..58,
+                            },
+                        ),
+                    ],
+                    handlers: [
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 59..86,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Tuple(
+                                        ExprTuple {
+                                            node_index: NodeIndex(None),
+                                            range: 66..70,
+                                            elts: [
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 66..67,
+                                                        id: Name("x"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                                Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 69..70,
+                                                        id: Name("y"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                            ],
+                                            ctx: Load,
+                                            parenthesized: false,
+                                            runtime_elts: None,
+                                        },
+                                    ),
+                                ),
+                                name: Some(
+                                    Identifier {
+                                        id: Name("exc"),
+                                        range: 74..77,
+                                        node_index: NodeIndex(None),
+                                    },
+                                ),
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 82..86,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    finalbody: [],
+                    is_star: false,
+                    runtime_body: None,
+                    runtime_handlers: None,
+                    runtime_orelse: None,
+                    runtime_finalbody: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | try:
+2 |     pass
+3 | except x, y as (exc):
+  |                ^ Syntax Error: invalid syntax
+4 |     pass
+5 | try:
+  |
+
+
+  |
+1 | try:
+2 |     pass
+3 | except x, y as (exc):
+  |                      ^ Syntax Error: invalid syntax
+4 |     pass
+5 | try:
+6 |     pass
+  |
+
+
+  |
+2 |     pass
+3 | except x, y as (exc):
+4 |     pass
+  |    ^ Syntax Error: unexpected indent
+5 | try:
+6 |     pass
+  |
+
+
+  |
+5 | try:
+6 |     pass
+7 | except x, y as exc
+  |                   ^ Syntax Error: expected ':'
+8 |     pass
+  |

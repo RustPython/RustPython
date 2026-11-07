@@ -1,0 +1,482 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/statements/function_type_parameters.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..988,
+        body: [
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 796..824,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("keyword"),
+                        range: 800..807,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: Some(
+                        TypeParams {
+                            range: 807..817,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 808..809,
+                                        name: Identifier {
+                                            id: Name("A"),
+                                            range: 808..809,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 811..816,
+                                        name: Identifier {
+                                            id: Name("await"),
+                                            range: 811..816,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    parameters: Parameters {
+                        range: 817..819,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 821..824,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 821..824,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 826..862,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("not_a_type_param"),
+                        range: 830..846,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: Some(
+                        TypeParams {
+                            range: 846..855,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 847..848,
+                                        name: Identifier {
+                                            id: Name("A"),
+                                            range: 847..848,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 853..854,
+                                        name: Identifier {
+                                            id: Name("B"),
+                                            range: 853..854,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    parameters: Parameters {
+                        range: 855..857,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 859..862,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 859..862,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 864..896,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("multiple_commas"),
+                        range: 868..883,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: Some(
+                        TypeParams {
+                            range: 883..889,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 884..885,
+                                        name: Identifier {
+                                            id: Name("A"),
+                                            range: 884..885,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 887..888,
+                                        name: Identifier {
+                                            id: Name("B"),
+                                            range: 887..888,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    parameters: Parameters {
+                        range: 889..891,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 893..896,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 893..896,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 898..938,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("multiple_trailing_commas"),
+                        range: 902..926,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: Some(
+                        TypeParams {
+                            range: 926..931,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 927..928,
+                                        name: Identifier {
+                                            id: Name("A"),
+                                            range: 927..928,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    parameters: Parameters {
+                        range: 931..933,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 935..938,
+                                value: EllipsisLiteral(
+                                    ExprEllipsisLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 935..938,
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 940..979,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("multiple_commas_and_recovery"),
+                        range: 944..972,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: Some(
+                        TypeParams {
+                            range: 972..976,
+                            node_index: NodeIndex(None),
+                            type_params: [
+                                TypeVar(
+                                    TypeParamTypeVar {
+                                        node_index: NodeIndex(None),
+                                        range: 973..974,
+                                        name: Identifier {
+                                            id: Name("A"),
+                                            range: 973..974,
+                                            node_index: NodeIndex(None),
+                                        },
+                                        bound: None,
+                                        default: None,
+                                    },
+                                ),
+                            ],
+                            runtime_type_params: None,
+                        },
+                    ),
+                    parameters: Parameters {
+                        range: 976..976,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [
+                        Expr(
+                            StmtExpr {
+                                node_index: NodeIndex(None),
+                                range: 976..979,
+                                value: NumberLiteral(
+                                    ExprNumberLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 976..979,
+                                        value: Int(
+                                            100,
+                                        ),
+                                    },
+                                ),
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+            AnnAssign(
+                StmtAnnAssign {
+                    node_index: NodeIndex(None),
+                    range: 980..987,
+                    target: Tuple(
+                        ExprTuple {
+                            node_index: NodeIndex(None),
+                            range: 980..982,
+                            elts: [],
+                            ctx: Store,
+                            parenthesized: true,
+                            runtime_elts: None,
+                        },
+                    ),
+                    annotation: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 984..987,
+                        },
+                    ),
+                    value: None,
+                    simple: false,
+                    runtime_simple: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+   |
+ 9 | # on following lines.
+10 |
+11 | def keyword[A, await](): ...
+   |                ^^^^^ Syntax Error: invalid syntax
+12 |
+13 | def not_a_type_param[A, |, B](): ...
+   |
+
+
+   |
+11 | def keyword[A, await](): ...
+12 |
+13 | def not_a_type_param[A, |, B](): ...
+   |                         ^ Syntax Error: invalid syntax
+14 |
+15 | def multiple_commas[A,,B](): ...
+   |
+
+
+   |
+11 | def keyword[A, await](): ...
+12 |
+13 | def not_a_type_param[A, |, B](): ...
+   |                          ^ Syntax Error: invalid syntax
+14 |
+15 | def multiple_commas[A,,B](): ...
+   |
+
+
+   |
+13 | def not_a_type_param[A, |, B](): ...
+14 |
+15 | def multiple_commas[A,,B](): ...
+   |                       ^ Syntax Error: invalid syntax
+16 |
+17 | def multiple_trailing_commas[A,,](): ...
+   |
+
+
+   |
+15 | def multiple_commas[A,,B](): ...
+16 |
+17 | def multiple_trailing_commas[A,,](): ...
+   |                                ^ Syntax Error: invalid syntax
+18 |
+19 | def multiple_commas_and_recovery[A,,100](): ...
+   |
+
+
+   |
+17 | def multiple_trailing_commas[A,,](): ...
+18 |
+19 | def multiple_commas_and_recovery[A,,100](): ...
+   |                                    ^ Syntax Error: invalid syntax
+
+
+   |
+17 | def multiple_trailing_commas[A,,](): ...
+18 |
+19 | def multiple_commas_and_recovery[A,,100](): ...
+   |                                     ^^^ Syntax Error: invalid syntax
+
+
+   |
+17 | def multiple_trailing_commas[A,,](): ...
+18 |
+19 | def multiple_commas_and_recovery[A,,100](): ...
+   |                                        ^ Syntax Error: unmatched ']'
+
+
+   |
+17 | def multiple_trailing_commas[A,,](): ...
+18 |
+19 | def multiple_commas_and_recovery[A,,100](): ...
+   |                                         ^^ Syntax Error: only single target (not tuple) can be annotated

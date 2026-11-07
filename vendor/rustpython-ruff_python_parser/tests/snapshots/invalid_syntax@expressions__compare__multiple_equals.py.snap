@@ -1,0 +1,141 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/compare/multiple_equals.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..41,
+        body: [
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 25..32,
+                    targets: [
+                        Compare(
+                            ExprCompare {
+                                node_index: NodeIndex(None),
+                                range: 25..29,
+                                ops: [
+                                    Eq,
+                                ],
+                                operands: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 25..26,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 29..29,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                ],
+                                runtime_comparators: None,
+                            },
+                        ),
+                    ],
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 31..32,
+                            id: Name("y"),
+                            ctx: Load,
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 33..40,
+                    targets: [
+                        Compare(
+                            ExprCompare {
+                                node_index: NodeIndex(None),
+                                range: 33..37,
+                                ops: [
+                                    NotEq,
+                                ],
+                                operands: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 33..34,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 37..37,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                ],
+                                runtime_comparators: None,
+                            },
+                        ),
+                    ],
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 39..40,
+                            id: Name("y"),
+                            ctx: Load,
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | # This is not JavaScript
+2 | x === y
+  |     ^ Syntax Error: invalid syntax
+3 | x !== y
+  |
+
+
+  |
+1 | # This is not JavaScript
+2 | x === y
+  | ^^^^ Syntax Error: cannot assign to comparison
+3 | x !== y
+  |
+
+
+  |
+1 | # This is not JavaScript
+2 | x === y
+3 | x !== y
+  |     ^ Syntax Error: invalid syntax
+
+
+  |
+1 | # This is not JavaScript
+2 | x === y
+3 | x !== y
+  | ^^^^ Syntax Error: cannot assign to comparison

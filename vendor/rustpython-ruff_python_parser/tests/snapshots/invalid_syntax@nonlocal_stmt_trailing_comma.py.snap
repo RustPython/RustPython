@@ -1,0 +1,120 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/nonlocal_stmt_trailing_comma.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..59,
+        body: [
+            FunctionDef(
+                StmtFunctionDef {
+                    node_index: NodeIndex(None),
+                    range: 0..58,
+                    is_async: false,
+                    decorator_list: [],
+                    name: Identifier {
+                        id: Name("_"),
+                        range: 4..5,
+                        node_index: NodeIndex(None),
+                    },
+                    type_params: None,
+                    parameters: Parameters {
+                        range: 5..7,
+                        node_index: NodeIndex(None),
+                        posonlyargs: [],
+                        args: [],
+                        vararg: None,
+                        kwonlyargs: [],
+                        kwarg: None,
+                        runtime_defaults: None,
+                    },
+                    returns: None,
+                    body: [
+                        Nonlocal(
+                            StmtNonlocal {
+                                node_index: NodeIndex(None),
+                                range: 13..23,
+                                names: [],
+                            },
+                        ),
+                        Nonlocal(
+                            StmtNonlocal {
+                                node_index: NodeIndex(None),
+                                range: 28..39,
+                                names: [
+                                    Identifier {
+                                        id: Name("x"),
+                                        range: 37..38,
+                                        node_index: NodeIndex(None),
+                                    },
+                                ],
+                            },
+                        ),
+                        Nonlocal(
+                            StmtNonlocal {
+                                node_index: NodeIndex(None),
+                                range: 44..58,
+                                names: [
+                                    Identifier {
+                                        id: Name("x"),
+                                        range: 53..54,
+                                        node_index: NodeIndex(None),
+                                    },
+                                    Identifier {
+                                        id: Name("y"),
+                                        range: 56..57,
+                                        node_index: NodeIndex(None),
+                                    },
+                                ],
+                            },
+                        ),
+                    ],
+                    runtime_decorator_list: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | def _():
+2 |     nonlocal ,
+  |              ^ Syntax Error: invalid syntax
+3 |     nonlocal x,
+4 |     nonlocal x, y,
+  |
+
+
+  |
+1 | def _():
+2 |     nonlocal ,
+  |               ^ Syntax Error: invalid syntax
+3 |     nonlocal x,
+4 |     nonlocal x, y,
+  |
+
+
+  |
+1 | def _():
+2 |     nonlocal ,
+3 |     nonlocal x,
+  |                ^ Syntax Error: invalid syntax
+4 |     nonlocal x, y,
+  |
+
+
+  |
+2 |     nonlocal ,
+3 |     nonlocal x,
+4 |     nonlocal x, y,
+  |                   ^ Syntax Error: invalid syntax

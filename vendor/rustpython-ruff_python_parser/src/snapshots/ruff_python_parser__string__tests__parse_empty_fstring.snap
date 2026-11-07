@@ -1,0 +1,35 @@
+---
+source: crates/ruff_python_parser/src/string.rs
+expression: suite
+---
+[
+    Expr(
+        StmtExpr {
+            node_index: NodeIndex(None),
+            range: 0..3,
+            value: FString(
+                ExprFString {
+                    node_index: NodeIndex(None),
+                    range: 0..3,
+                    value: FStringValue {
+                        inner: Single(
+                            FString {
+                                range: 0..3,
+                                node_index: NodeIndex(None),
+                                elements: [],
+                                flags: FStringFlags {
+                                    quote_style: Double,
+                                    prefix: Regular,
+                                    triple_quoted: false,
+                                    unclosed: false,
+                                },
+                            },
+                        ),
+                    },
+                    runtime_joined_str: None,
+                    runtime_values: None,
+                },
+            ),
+        },
+    ),
+]

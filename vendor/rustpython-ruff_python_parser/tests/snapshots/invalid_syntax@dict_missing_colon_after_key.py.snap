@@ -1,0 +1,281 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/dict_missing_colon_after_key.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..38,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..9,
+                    value: Dict(
+                        ExprDict {
+                            node_index: NodeIndex(None),
+                            range: 0..9,
+                            items: [
+                                DictItem {
+                                    key: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 1..2,
+                                                id: Name("a"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                    value: NumberLiteral(
+                                        ExprNumberLiteral {
+                                            node_index: NodeIndex(None),
+                                            range: 4..5,
+                                            value: Int(
+                                                1,
+                                            ),
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 7..8,
+                                                id: Name("b"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 8..8,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                },
+                            ],
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 10..24,
+                    value: Dict(
+                        ExprDict {
+                            node_index: NodeIndex(None),
+                            range: 10..24,
+                            items: [
+                                DictItem {
+                                    key: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 11..12,
+                                                id: Name("a"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                    value: NumberLiteral(
+                                        ExprNumberLiteral {
+                                            node_index: NodeIndex(None),
+                                            range: 14..15,
+                                            value: Int(
+                                                1,
+                                            ),
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 17..18,
+                                                id: Name("b"),
+                                                ctx: Load,
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 19..20,
+                                            id: Name("c"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        NumberLiteral(
+                                            ExprNumberLiteral {
+                                                node_index: NodeIndex(None),
+                                                range: 22..23,
+                                                value: Int(
+                                                    2,
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 23..23,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                },
+                            ],
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 25..37,
+                    value: Dict(
+                        ExprDict {
+                            node_index: NodeIndex(None),
+                            range: 25..37,
+                            items: [
+                                DictItem {
+                                    key: None,
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 28..29,
+                                            id: Name("a"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                },
+                                DictItem {
+                                    key: Some(
+                                        BinOp(
+                                            ExprBinOp {
+                                                node_index: NodeIndex(None),
+                                                range: 31..36,
+                                                left: Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 31..32,
+                                                        id: Name("b"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                                op: Add,
+                                                right: Name(
+                                                    ExprName {
+                                                        node_index: NodeIndex(None),
+                                                        range: 35..36,
+                                                        id: Name("c"),
+                                                        ctx: Load,
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    value: Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 36..36,
+                                            id: Name(""),
+                                            ctx: Invalid,
+                                        },
+                                    ),
+                                },
+                            ],
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | {a: 1, b}
+  |        ^ Syntax Error: ':' expected after dictionary key
+2 | {a: 1, b c: 2}
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+  |         ^ Syntax Error: invalid syntax
+2 | {a: 1, b c: 2}
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+  |        ^ Syntax Error: ':' expected after dictionary key
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+  |          ^ Syntax Error: invalid syntax
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+  |           ^ Syntax Error: invalid syntax
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+  |             ^ Syntax Error: ':' expected after dictionary key
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+  |              ^ Syntax Error: invalid syntax
+3 | {**a, b + c}
+  |
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+3 | {**a, b + c}
+  |           ^ Syntax Error: ':' expected after dictionary key
+
+
+  |
+1 | {a: 1, b}
+2 | {a: 1, b c: 2}
+3 | {**a, b + c}
+  |            ^ Syntax Error: invalid syntax
