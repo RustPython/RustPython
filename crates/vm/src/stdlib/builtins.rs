@@ -22,7 +22,7 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgSpec, ArgStrOrBytesLike, Either,
-            FsPath, FuncArgs, KwArgs, NameKws, NameObjects, OptionalArg, PosArgs,
+            FsPath, FuncArgs, KwArgs, NameObjects, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
