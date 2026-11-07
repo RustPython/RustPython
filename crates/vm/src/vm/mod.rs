@@ -890,7 +890,7 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
-    filesystem_codec_ready: AtomicBool,
+    pub(crate) filesystem_codec_ready: AtomicBool,
     pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
@@ -1532,6 +1532,144 @@ impl VirtualMachine {
         Ok(())
     }
 
+    // PyUnicode_InitEncodings completes filesystem setup before creating stdio.
+    fn init_stdio(&self) -> PyResult<()> {
+        let io = import::import_builtin(self, "_io")?;
+
+        // CPython normalizes configured stdio encodings to CodecInfo.name.
+        #[cfg(all(feature = "host_env", feature = "stdio"))]
+        let stdio_encoding: Option<PyRef<PyUtf8Str>> = self
+            .state
+            .config
+            .settings
+            .stdio_encoding
+            .as_deref()
+            .map(|encoding| {
+                self.state
+                    .codec_registry
+                    .lookup(encoding, self)?
+                    .as_tuple()
+                    .as_object()
+                    .get_attr("name", self)?
+                    .try_into_value(self)
+            })
+            .transpose()?;
+
+        // Full stdio: FileIO → BufferedWriter → TextIOWrapper
+        #[cfg(all(feature = "host_env", feature = "stdio"))]
+        let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
+            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            if !rustpython_host_env::fileutils::is_valid_fd(fd) {
+                return Ok(self.ctx.none());
+            }
+
+            let result = (|| {
+                let buffered_stdio = self.state.config.settings.buffered_stdio;
+                let unbuffered = write && !buffered_stdio;
+                let buf = crate::stdlib::_io::open(
+                    self.ctx.new_int(fd).into(),
+                    Some(if write { "wb" } else { "rb" }),
+                    crate::stdlib::_io::OpenArgs {
+                        buffering: if unbuffered { 0 } else { -1 },
+                        closefd: false,
+                        ..Default::default()
+                    },
+                    self,
+                )?;
+                let raw = if unbuffered {
+                    buf.clone()
+                } else {
+                    buf.get_attr("raw", self)?
+                };
+                raw.set_attr("name", self.ctx.new_str(format!("<{name}>")), self)?;
+                let isatty = self.call_method(&raw, "isatty", ())?.is_true(self)?;
+                let write_through = !buffered_stdio;
+                let line_buffering = buffered_stdio && (isatty || fd == 2);
+
+                let newline = if cfg!(windows) { None } else { Some("\n") };
+                let encoding = stdio_encoding.clone();
+                // stderr always uses backslashreplace (ignores stdio_errors)
+                let errors = if fd == 2 {
+                    Some("backslashreplace")
+                } else {
+                    self.state
+                        .config
+                        .settings
+                        .stdio_errors
+                        .as_deref()
+                        .or_else(|| {
+                            Some(if self.state.config.settings.stdio_encoding.is_some() {
+                                "strict"
+                            } else {
+                                "surrogateescape"
+                            })
+                        })
+                };
+
+                let stdio = self.call_method(
+                    &io,
+                    "TextIOWrapper",
+                    (
+                        buf,
+                        encoding,
+                        errors,
+                        newline,
+                        line_buffering,
+                        write_through,
+                    ),
+                )?;
+                let mode = if write { "w" } else { "r" };
+                stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
+                Ok::<_, self::PyBaseExceptionRef>(stdio)
+            })();
+
+            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            if let Err(ref exc) = result
+                && exc.fast_isinstance(self.ctx.exceptions.os_error)
+                && !rustpython_host_env::fileutils::is_valid_fd(fd)
+            {
+                return Ok(self.ctx.none());
+            }
+            result
+        };
+
+        // Sandbox stdio: lightweight wrapper using Rust's std::io directly
+        #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+        let make_stdio = |name: &str, fd: i32, write: bool| {
+            let mode = if write { "w" } else { "r" };
+            let stdio = stdlib::sys::SandboxStdio {
+                fd,
+                name: format!("<{name}>"),
+                mode: mode.to_owned(),
+            }
+            .into_ref(&self.ctx);
+            Ok(stdio.into())
+        };
+
+        // No stdio: set to None (embedding use case)
+        #[cfg(not(feature = "stdio"))]
+        let make_stdio = |_name: &str, _fd: i32, _write: bool| Ok(self.ctx.none());
+
+        let set_stdio = |name, fd, write| {
+            let stdio: PyObjectRef = make_stdio(name, fd, write)?;
+            let dunder_name = self.ctx.intern_str(format!("__{name}__"));
+            self.sys_module.set_attr(
+                dunder_name, // e.g. __stdin__
+                stdio.clone(),
+                self,
+            )?;
+            self.sys_module.set_attr(name, stdio, self)?;
+            Ok(())
+        };
+        set_stdio("stdin", 0, false)?;
+        set_stdio("stdout", 1, true)?;
+        set_stdio("stderr", 2, true)?;
+
+        let io_open = io.get_attr("open", self)?;
+        self.builtins.set_attr("open", io_open, self)?;
+        Ok(())
+    }
+
     fn initialize(&mut self) {
         flame_guard!("init VirtualMachine");
 
@@ -1580,146 +1718,6 @@ impl VirtualMachine {
             import::import_frozen(self, "_thread")?;
             let importlib = import::init_importlib_base(self)?;
             self.import_ascii_utf8_encodings()?;
-            // RustPython has no separate filesystem-codec initialization state.
-            // Successful core codec registration is our bootstrap boundary for
-            // development-mode name validation, before constructing stdio.
-            self.state.codec_registry.finish_core_codec_bootstrap();
-
-            {
-                let io = import::import_builtin(self, "_io")?;
-
-                // CPython normalizes configured stdio encodings to CodecInfo.name.
-                #[cfg(all(feature = "host_env", feature = "stdio"))]
-                let stdio_encoding: Option<PyRef<PyUtf8Str>> = self
-                    .state
-                    .config
-                    .settings
-                    .stdio_encoding
-                    .as_deref()
-                    .map(|encoding| {
-                        self.state
-                            .codec_registry
-                            .lookup(encoding, self)?
-                            .as_tuple()
-                            .as_object()
-                            .get_attr("name", self)?
-                            .try_into_value(self)
-                    })
-                    .transpose()?;
-
-                // Full stdio: FileIO → BufferedWriter → TextIOWrapper
-                #[cfg(all(feature = "host_env", feature = "stdio"))]
-                let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
-                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-                    if !rustpython_host_env::fileutils::is_valid_fd(fd) {
-                        return Ok(self.ctx.none());
-                    }
-
-                    let result = (|| {
-                        let buffered_stdio = self.state.config.settings.buffered_stdio;
-                        let unbuffered = write && !buffered_stdio;
-                        let buf = crate::stdlib::_io::open(
-                            self.ctx.new_int(fd).into(),
-                            Some(if write { "wb" } else { "rb" }),
-                            crate::stdlib::_io::OpenArgs {
-                                buffering: if unbuffered { 0 } else { -1 },
-                                closefd: false,
-                                ..Default::default()
-                            },
-                            self,
-                        )?;
-                        let raw = if unbuffered {
-                            buf.clone()
-                        } else {
-                            buf.get_attr("raw", self)?
-                        };
-                        raw.set_attr("name", self.ctx.new_str(format!("<{name}>")), self)?;
-                        let isatty = self.call_method(&raw, "isatty", ())?.is_true(self)?;
-                        let write_through = !buffered_stdio;
-                        let line_buffering = buffered_stdio && (isatty || fd == 2);
-
-                        let newline = if cfg!(windows) { None } else { Some("\n") };
-                        let encoding = stdio_encoding.clone();
-                        // stderr always uses backslashreplace (ignores stdio_errors)
-                        let errors = if fd == 2 {
-                            Some("backslashreplace")
-                        } else {
-                            self.state
-                                .config
-                                .settings
-                                .stdio_errors
-                                .as_deref()
-                                .or_else(|| {
-                                    Some(if self.state.config.settings.stdio_encoding.is_some() {
-                                        "strict"
-                                    } else {
-                                        "surrogateescape"
-                                    })
-                                })
-                        };
-
-                        let stdio = self.call_method(
-                            &io,
-                            "TextIOWrapper",
-                            (
-                                buf,
-                                encoding,
-                                errors,
-                                newline,
-                                line_buffering,
-                                write_through,
-                            ),
-                        )?;
-                        let mode = if write { "w" } else { "r" };
-                        stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
-                        Ok::<_, self::PyBaseExceptionRef>(stdio)
-                    })();
-
-                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-                    if let Err(ref exc) = result
-                        && exc.fast_isinstance(self.ctx.exceptions.os_error)
-                        && !rustpython_host_env::fileutils::is_valid_fd(fd)
-                    {
-                        return Ok(self.ctx.none());
-                    }
-                    result
-                };
-
-                // Sandbox stdio: lightweight wrapper using Rust's std::io directly
-                #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
-                let make_stdio = |name: &str, fd: i32, write: bool| {
-                    let mode = if write { "w" } else { "r" };
-                    let stdio = stdlib::sys::SandboxStdio {
-                        fd,
-                        name: format!("<{name}>"),
-                        mode: mode.to_owned(),
-                    }
-                    .into_ref(&self.ctx);
-                    Ok(stdio.into())
-                };
-
-                // No stdio: set to None (embedding use case)
-                #[cfg(not(feature = "stdio"))]
-                let make_stdio = |_name: &str, _fd: i32, _write: bool| Ok(self.ctx.none());
-
-                let set_stdio = |name, fd, write| {
-                    let stdio: PyObjectRef = make_stdio(name, fd, write)?;
-                    let dunder_name = self.ctx.intern_str(format!("__{name}__"));
-                    self.sys_module.set_attr(
-                        dunder_name, // e.g. __stdin__
-                        stdio.clone(),
-                        self,
-                    )?;
-                    self.sys_module.set_attr(name, stdio, self)?;
-                    Ok(())
-                };
-                set_stdio("stdin", 0, false)?;
-                set_stdio("stdout", 1, true)?;
-                set_stdio("stderr", 2, true)?;
-
-                let io_open = io.get_attr("open", self)?;
-                self.builtins.set_attr("open", io_open, self)?;
-            }
 
             Ok(importlib)
         };
@@ -1774,6 +1772,10 @@ impl VirtualMachine {
         }
 
         if let Err(error) = self.init_filesystem_codec() {
+            self.startup_error = Some(error);
+            return;
+        }
+        if let Err(error) = self.init_stdio() {
             self.startup_error = Some(error);
             return;
         }

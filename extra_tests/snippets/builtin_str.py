@@ -1293,3 +1293,371 @@ class PartitionString(str):
 partition_string = PartitionString("abc")
 assert partition_string.partition(":")[0] is partition_string
 assert partition_string.rpartition(":")[2] is partition_string
+
+
+# Codec searches run while nonempty input is exported, but after an empty
+# export is released. They must see the original storage, not a prior copy.
+def test_decode_codec_search_buffer_lifetime():
+    import codecs
+
+    for kind in (bytearray, memoryview):
+        for initial in (b"x", b""):
+            data = bytearray(initial)
+            source = data if kind is bytearray else memoryview(data)
+            events = []
+            name = "snippet_buffer_%s_%s" % (kind.__name__, len(initial))
+
+            def search(encoding):
+                if encoding != name:
+                    return None
+                try:
+                    data.extend(b"y")
+                    events.append("resized")
+                except BufferError:
+                    events.append("exported")
+                if initial:
+                    data[0] = ord("z")
+                return codecs.lookup("utf-8")
+
+            codecs.register(search)
+            try:
+                assert str(source, name) == ("z" if initial else "")
+                # Normal mode never looks up the encoding for empty input.
+                if initial or sys.flags.dev_mode:
+                    expected = (
+                        "exported" if initial or kind is memoryview else "resized"
+                    )
+                    assert events == [expected], events
+                else:
+                    assert events == []
+            finally:
+                codecs.unregister(search)
+                if kind is memoryview:
+                    source.release()
+            data.extend(b"released")
+
+    class Exporter:
+        def __init__(self, data):
+            self.data = data
+            self.events = []
+
+        def __buffer__(self, flags):
+            self.events.append("acquire")
+            return memoryview(self.data)
+
+        def __release_buffer__(self, view):
+            self.events.append("release")
+
+    for initial in (b"x", b""):
+        exporter = Exporter(bytearray(initial))
+        name = "snippet_exporter_%s" % len(initial)
+
+        def search(encoding):
+            if encoding != name:
+                return None
+            exporter.events.append("lookup")
+            if initial:
+                exporter.data[0] = ord("z")
+            return codecs.lookup("utf-8")
+
+        codecs.register(search)
+        try:
+            assert str(exporter, name) == ("z" if initial else "")
+            expected = (
+                ["acquire", "lookup", "release"] if initial else ["acquire", "release"]
+            )
+            if not initial and sys.flags.dev_mode:
+                expected.append("lookup")
+            assert exporter.events == expected, exporter.events
+        finally:
+            codecs.unregister(search)
+
+
+test_decode_codec_search_buffer_lifetime()
+
+
+class CodecBufferBytearray(bytearray):
+    exports = 0
+
+    def __buffer__(self, flags):
+        self.exports += 1
+        return memoryview(b"first" if self.exports == 1 else b"second")
+
+
+codec_buffer = CodecBufferBytearray(b"unused")
+assert str(codec_buffer, "ascii") == "first"
+assert codec_buffer.exports == 1
+
+
+if sys.flags.dev_mode:
+    import codecs
+    import encodings
+
+    utf8_codec = codecs.lookup("utf8")
+    codecs.unregister(encodings.search_function)
+    codec_input = bytearray(b"x")
+    codec_events = []
+
+    def search_utf8_alias(name):
+        if name != "utf8":
+            return None
+        with assert_raises(BufferError):
+            codec_input.extend(b"y")
+        codec_input[0] = ord("z")
+        codec_events.append(name)
+        return utf8_codec
+
+    codecs.register(search_utf8_alias)
+    try:
+        assert str(codec_input, "UTF8") == "z"
+        assert codec_events == ["utf8"]
+    finally:
+        codecs.unregister(search_utf8_alias)
+        codecs.register(encodings.search_function)
+    codec_input.extend(b"released")
+
+
+def test_decode_callback_input():
+    import array
+    import codecs
+
+    class BytesWithBuffer(bytes):
+        def __buffer__(self, flags):
+            raise AssertionError("bytes decoding must use the native payload")
+
+    assert str(BytesWithBuffer(b"native"), "ascii") == "native"
+    bad_bytes = BytesWithBuffer(b"\xffA")
+    with assert_raises(UnicodeDecodeError) as caught:
+        bad_bytes.decode("ascii")
+    assert type(caught.exception.object) is bytes
+    assert (
+        caught.exception.object == bad_bytes
+        and caught.exception.object is not bad_bytes
+    )
+    for wrap in (bytes, BytesWithBuffer, bytearray, memoryview):
+        data = bytearray(b"x")
+        source = wrap(data)
+        name = "snippet_decoder_input_%s" % wrap.__name__.lower()
+
+        def decode(view, errors="strict"):
+            assert type(view) is memoryview
+            assert view.readonly and view.obj is None
+            with assert_raises(TypeError):
+                view[0] = ord("z")
+            if wrap is bytearray:
+                source[0] = ord("z")
+            elif wrap is memoryview:
+                data[0] = ord("z")
+            return (chr(view[0]), len(view))
+
+        def search(encoding):
+            if encoding == name:
+                return codecs.CodecInfo(name=name, encode=None, decode=decode)
+
+        codecs.register(search)
+        try:
+            assert str(source, name) == ("x" if issubclass(wrap, bytes) else "z")
+        finally:
+            codecs.unregister(search)
+            if wrap is memoryview:
+                source.release()
+
+    for source in (array.array("I", [0x61]), memoryview(b"_abc")[1:]):
+        expected_bytes = bytes(source)
+
+        def decode_bytes(view, errors="strict"):
+            assert view.itemsize == 1 and view.format == "B"
+            assert view.shape == (len(expected_bytes),) and view.strides == (1,)
+            assert view.readonly and view.obj is None
+            assert bytes(view) == expected_bytes
+            return ("ok", len(view))
+
+        def search_bytes(encoding):
+            if encoding == "snippet_decoder_layout":
+                return codecs.CodecInfo(name=encoding, encode=None, decode=decode_bytes)
+
+        codecs.register(search_bytes)
+        try:
+            assert str(source, "snippet_decoder_layout") == "ok"
+        finally:
+            codecs.unregister(search_bytes)
+
+    data = bytearray(b"\xffA")
+
+    def mutate_original(exc):
+        # The input remains exported, but its read lock must not surround Python.
+        with assert_raises(BufferError):
+            data.extend(b"y")
+        data[1] = ord("B")
+        return ("X", exc.end)
+
+    codecs.register_error("snippet_mutate_original", mutate_original)
+    assert data.decode("ascii", "snippet_mutate_original") == "XA"
+    assert data == b"\xffB"
+    data.extend(b"released")
+
+    def change_object_from_index(exc):
+        class Restart:
+            def __index__(self):
+                exc.object = b"\xffZ"
+                return 1
+
+        return ("X", Restart())
+
+    codecs.register_error("snippet_restart_index", change_object_from_index)
+    assert b"\xffA".decode("ascii", "snippet_restart_index") == "XZ"
+
+    for position, error, message in (
+        (10**100, OverflowError, "Python int too large to convert to C ssize_t"),
+        ("x", TypeError, "'str' object cannot be interpreted as an integer"),
+        (-100, IndexError, "position -99 from error handler out of bounds"),
+    ):
+
+        def invalid_position(exc):
+            return ("X", position)
+
+        codecs.register_error("snippet_invalid_position", invalid_position)
+        with assert_raises(error) as caught:
+            b"\xff".decode("ascii", "snippet_invalid_position")
+        assert str(caught.exception) == message
+
+
+test_decode_callback_input()
+
+
+def test_text_codec_aliases_use_registry():
+    import codecs
+    import encodings
+
+    aliases = ("u8", "utf", "latin", "646")
+
+    def search(encoding):
+        if encoding in aliases + ("utf16", "utf32"):
+            return codecs.CodecInfo(
+                name=encoding,
+                encode=lambda obj, errors="strict": (b"custom", len(obj)),
+                decode=lambda obj, errors="strict": ("custom", len(obj)),
+            )
+
+    codecs.unregister(encodings.search_function)
+    codecs.register(search)
+    try:
+        for alias in aliases:
+            assert "x".encode(alias) == b"custom"
+            assert b"x".decode(alias) == "custom"
+        # CPython's actual fast-path spellings still bypass custom codecs.
+        assert "x".encode("utf8") == b"x"
+        assert b"x".decode("ascii") == "x"
+        for name, native_encode in (
+            ("utf16", codecs.utf_16_encode),
+            ("utf32", codecs.utf_32_encode),
+        ):
+            encoded = native_encode("x")[0]
+            assert "x".encode(name) == encoded
+            assert encoded.decode(name) == "x"
+    finally:
+        codecs.unregister(search)
+        codecs.register(encodings.search_function)
+
+
+test_text_codec_aliases_use_registry()
+
+
+def test_text_codec_error_boundaries():
+    import codecs
+    import warnings
+
+    for encoding in ("ascii", "utf8", "utf16", "utf32"):
+        with assert_raises(UnicodeEncodeError) as caught:
+            "\ud800".encode(encoding)
+        assert not hasattr(caught.exception, "__notes__")
+    with assert_raises(UnicodeDecodeError) as caught:
+        b"\xff".decode("ascii")
+    assert not hasattr(caught.exception, "__notes__")
+    with assert_raises(UnicodeDecodeError) as caught:
+        b"\xff".decode("u8")
+    assert caught.exception.__notes__ == ["decoding with 'u8' codec failed"]
+
+    result = bytearray(b"x")
+
+    def search(encoding):
+        if encoding == "snippet_bytearray_encoder":
+            return codecs.CodecInfo(
+                name=encoding,
+                encode=lambda obj, errors="strict": (result, len(obj)),
+                decode=None,
+            )
+
+    codecs.register(search)
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert "x".encode("snippet_bytearray_encoder") == b"x"
+        assert len(caught) == 1 and caught[0].category is RuntimeWarning
+        assert (
+            str(caught[0].message)
+            == "encoder snippet_bytearray_encoder returned bytearray instead of bytes; use codecs.encode() to encode to arbitrary types"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with assert_raises(RuntimeWarning) as caught:
+                "x".encode("snippet_bytearray_encoder")
+            assert not hasattr(caught.exception, "__notes__")
+    finally:
+        codecs.unregister(search)
+
+
+test_text_codec_error_boundaries()
+
+
+for wide_encoding, invalid, error_encoding in (
+    ("utf-16", b"\xff\xfe\x00\xdc", "utf-16-le"),
+    ("utf-16", b"\xfe\xff\xdc\x00", "utf-16-be"),
+    ("utf-32", b"\xff\xfe\x00\x00\x00\x00\x11\x00", "utf-32-le"),
+    ("utf-32", b"\x00\x00\xfe\xff\x00\x11\x00\x00", "utf-32-be"),
+):
+    with assert_raises(UnicodeDecodeError) as caught:
+        invalid.decode(wide_encoding)
+    assert caught.exception.encoding == error_encoding
+    assert not hasattr(caught.exception, "__notes__")
+
+
+for wide_encoding, surrogate in (
+    ("utf-16", b"\xff\xfe\x00\xd8"),
+    ("utf-16", b"\xfe\xff\xd8\x00"),
+    ("utf-32", b"\xff\xfe\x00\x00\x00\xd8\x00\x00"),
+    ("utf-32", b"\x00\x00\xfe\xff\x00\x00\xd8\x00"),
+):
+    assert surrogate.decode(wide_encoding, "surrogatepass") == "\ud800"
+
+
+def test_text_decoder_str_subclass():
+    import codecs
+
+    class Text(str):
+        def __str__(self):
+            raise AssertionError("decoder result normalization must use its payload")
+
+    def search(name):
+        if name == "snippet_str_subclass":
+            return codecs.CodecInfo(
+                name=name,
+                encode=None,
+                decode=lambda obj, errors="strict": (text, len(obj)),
+            )
+
+    codecs.register(search)
+    try:
+        for value in ("", "a", "é", "Ā", "decoded"):
+            text = Text(value)
+            result = b"x".decode("snippet_str_subclass")
+            assert result == value
+            if not value or len(value) == 1 and ord(value) <= 255:
+                assert type(result) is str and result is value
+            else:
+                assert result is text
+    finally:
+        codecs.unregister(search)
+
+
+test_text_decoder_str_subclass()

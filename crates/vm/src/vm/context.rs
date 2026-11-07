@@ -508,7 +508,7 @@ impl Context {
     }
 
     #[inline]
-    fn latin1_singleton_index(s: &PyStr) -> Option<u8> {
+    pub(crate) fn latin1_singleton_index(s: &PyStr) -> Option<u8> {
         let mut cps = s.as_wtf8().code_points();
         let cp = cps.next()?;
 
