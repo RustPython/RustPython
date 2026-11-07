@@ -3,8 +3,6 @@
 //! See also:
 //!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
 
-use rustpython_common::wtf8::{Wtf8, wtf8_concat};
-
 mod async_exception;
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
