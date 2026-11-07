@@ -12,8 +12,8 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIndex, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue,
-        PyComparisonValue, PySsize,
+        ArgByteOrder, ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyArithmeticValue,
+        PyComparisonValue, int_as_ssize,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -643,95 +643,119 @@ impl Py<PyInt> {
 
     #[pyclassmethod]
     fn from_bytes(cls: PyTypeRef, args: IntFromByteArgs, vm: &VirtualMachine) -> PyResult {
-        let signed = args.signed.into();
-        // Match PyObject_Bytes only after the buffer fast path.
-        let bytes = if !args.bytes.check_buffer()
-            && let Some(method) = crate::vm::PyMethod::get_special_ex::<false>(
-                &args.bytes,
+        let IntFromByteArgs {
+            bytes,
+            byteorder,
+            signed,
+        } = args;
+        let result = (|| {
+            let (byteorder, signed) =
+                byte_conversion_options(&byteorder, &signed, "from_bytes", vm)?;
+            let convert = |bytes: &[u8]| match (byteorder, signed) {
+                (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(bytes),
+                (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, bytes),
+                (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(bytes),
+                (ArgByteOrder::Little, false) => BigInt::from_bytes_le(Sign::Plus, bytes),
+            };
+            // Buffer exporters take precedence over __bytes__. Request SIMPLE,
+            // rather than copying strided exports as the bytes constructor does.
+            let value = if let Some(bytes) = bytes.downcast_ref_if_exact::<PyBytes>(vm) {
+                convert(bytes.as_bytes())
+            } else if bytes.check_buffer() {
+                let buffer = ArgBytesLike::try_from_borrowed_object(vm, &bytes)?;
+                buffer.with_ref(convert)
+            } else if let Some(method) = crate::vm::PyMethod::get_special_ex::<false>(
+                &bytes,
                 identifier!(vm, __bytes__),
                 vm,
                 true,
             )? {
-            let result = method.invoke((), vm)?;
-            let bytes = result.downcast_ref::<PyBytes>().ok_or_else(|| {
-                match (
-                    args.bytes.class().fully_qualified_name(vm),
-                    result.class().fully_qualified_name(vm),
-                ) {
-                    (Ok(source), Ok(result)) => vm.new_type_error(wtf8_concat!(
-                        source,
+                let result = method.invoke((), vm)?;
+                let Some(bytes) = result.downcast_ref::<PyBytes>() else {
+                    return Err(vm.new_type_error(wtf8_concat!(
+                        bytes.class().fully_qualified_name(vm)?,
                         ".__bytes__() must return a bytes, not ",
-                        result
-                    )),
-                    (Err(error), _) | (_, Err(error)) => error,
-                }
-            })?;
-            bytes.as_bytes().to_vec()
-        } else {
-            bytes_from_object(vm, &args.bytes)?
-        };
-        let value = match (args.byteorder, signed) {
-            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(&bytes),
-            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, &bytes),
-            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(&bytes),
-            (ArgByteOrder::Little, false) => BigInt::from_bytes_le(Sign::Plus, &bytes),
-        };
-        let value = vm.ctx.new_int(value);
-        if cls.is(vm.ctx.types.int_type) {
-            Ok(value.into())
-        } else {
-            cls.as_object().call((value,), vm)
-        }
+                        result.class().fully_qualified_name(vm)?
+                    )));
+                };
+                convert(bytes.as_bytes())
+            } else {
+                convert(&bytes_from_object(vm, &bytes)?)
+            };
+            let value = vm.ctx.new_int(value);
+            if cls.is(vm.ctx.types.int_type) {
+                Ok(value.into())
+            } else {
+                cls.as_object().call((value,), vm)
+            }
+        })();
+        release_byte_conversion_options(signed, byteorder);
+        result
     }
 
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed: bool = args.signed.into();
-        // Bound as `isize`, so a length past `isize::MAX` is an OverflowError rather
-        // than a failed allocation later on.
-        let byte_len = args.length;
-        let byte_len = usize::try_from(byte_len)
-            .map_err(|_| vm.new_value_error("length argument must be non-negative"))?;
+        let IntToByteArgs {
+            length,
+            byteorder,
+            signed,
+        } = args;
+        let result = (|| {
+            // Finish binding before conversions, then validate length before either
+            // byteorder's type check or signed's truth conversion can run.
+            let byte_len = match &length {
+                OptionalArg::Present(length) => {
+                    let index = length.try_index(vm)?;
+                    int_as_ssize(index.as_object(), vm)?
+                }
+                OptionalArg::Missing => 1,
+            };
+            let byte_len = usize::try_from(byte_len)
+                .map_err(|_| vm.new_value_error("length cannot be negative"))?;
+            let (byteorder, signed) = byte_conversion_options(&byteorder, &signed, "to_bytes", vm)?;
 
-        let value = self.as_bigint();
-        match value.sign() {
-            Sign::Minus if !signed => {
-                return Err(vm.new_overflow_error("can't convert negative int to unsigned"));
+            let value = self.as_bigint();
+            match value.sign() {
+                Sign::Minus if !signed => {
+                    return Err(vm.new_overflow_error("can't convert negative int to unsigned"));
+                }
+                Sign::NoSign => return Ok(vm.new_zeroed_bytes(byte_len)?.into()),
+                _ => {}
             }
-            Sign::NoSign => return Ok(vm.new_zeroed_bytes(byte_len)?.into()),
-            _ => {}
-        }
 
-        let mut origin_bytes = match (args.byteorder, signed) {
-            (ArgByteOrder::Big, true) => value.to_signed_bytes_be(),
-            (ArgByteOrder::Big, false) => value.to_bytes_be().1,
-            (ArgByteOrder::Little, true) => value.to_signed_bytes_le(),
-            (ArgByteOrder::Little, false) => value.to_bytes_le().1,
-        };
+            let mut origin_bytes = match (byteorder, signed) {
+                (ArgByteOrder::Big, true) => value.to_signed_bytes_be(),
+                (ArgByteOrder::Big, false) => value.to_bytes_be().1,
+                (ArgByteOrder::Little, true) => value.to_signed_bytes_le(),
+                (ArgByteOrder::Little, false) => value.to_bytes_le().1,
+            };
 
-        let origin_len = origin_bytes.len();
-        if origin_len > byte_len {
-            return Err(vm.new_overflow_error("int too big to convert"));
-        }
-
-        let mut append_bytes = vm.new_zeroed_bytes(byte_len - origin_len)?;
-        if value.sign() == Sign::Minus {
-            append_bytes.fill(255);
-        }
-
-        let bytes = match args.byteorder {
-            ArgByteOrder::Big => {
-                let mut bytes = append_bytes;
-                bytes.append(&mut origin_bytes);
-                bytes
+            let origin_len = origin_bytes.len();
+            if origin_len > byte_len {
+                return Err(vm.new_overflow_error("int too big to convert"));
             }
-            ArgByteOrder::Little => {
-                let mut bytes = origin_bytes;
-                bytes.append(&mut append_bytes);
-                bytes
+
+            let mut append_bytes = vm.new_zeroed_bytes(byte_len - origin_len)?;
+            if value.sign() == Sign::Minus {
+                append_bytes.fill(255);
             }
-        };
-        Ok(bytes.into())
+
+            let bytes = match byteorder {
+                ArgByteOrder::Big => {
+                    let mut bytes = append_bytes;
+                    bytes.append(&mut origin_bytes);
+                    bytes
+                }
+                ArgByteOrder::Little => {
+                    let mut bytes = origin_bytes;
+                    bytes.append(&mut append_bytes);
+                    bytes
+                }
+            };
+            Ok(bytes.into())
+        })();
+        release_byte_conversion_options(signed, byteorder);
+        result
     }
 
     #[pygetset]
@@ -913,38 +937,94 @@ pub(crate) struct IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     bytes: PyObjectRef,
-    #[pyarg(any, default = ArgByteOrder::Big)]
-    byteorder: ArgByteOrder,
-    #[pyarg(named, default = ArgIntoBool::FALSE)]
-    signed: ArgIntoBool,
+    #[pyarg(any, optional, py_default = "'big'")]
+    byteorder: OptionalArg<PyObjectRef>,
+    #[pyarg(named, optional, py_default = "False")]
+    signed: OptionalArg<PyObjectRef>,
 }
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(any, default = 1)]
-    length: PySsize,
-    #[pyarg(any, default = ArgByteOrder::Big)]
-    byteorder: ArgByteOrder,
-    #[pyarg(named, default = ArgIntoBool::FALSE)]
-    signed: ArgIntoBool,
+    #[pyarg(any, optional, py_default = "1")]
+    length: OptionalArg<PyObjectRef>,
+    #[pyarg(any, optional, py_default = "'big'")]
+    byteorder: OptionalArg<PyObjectRef>,
+    #[pyarg(named, optional, py_default = "False")]
+    signed: OptionalArg<PyObjectRef>,
+}
+
+// Retain raw controls through conversion and result construction, then release
+// them in reverse parameter order even when conversion returned an error.
+fn release_byte_conversion_options(
+    signed: OptionalArg<PyObjectRef>,
+    _byteorder: OptionalArg<PyObjectRef>,
+) {
+    drop(signed);
+}
+
+fn byte_conversion_options(
+    byteorder: &OptionalArg<PyObjectRef>,
+    signed: &OptionalArg<PyObjectRef>,
+    method: &str,
+    vm: &VirtualMachine,
+) -> PyResult<(ArgByteOrder, bool)> {
+    // Clinic checks that byteorder is a str before converting signed, but its
+    // value is checked only once both arguments have been converted.
+    let byteorder = byteorder
+        .as_ref()
+        .map(|obj| {
+            obj.downcast_ref::<PyStr>().ok_or_else(|| {
+                let name = if vm.is_none(obj) {
+                    "None".to_owned()
+                } else {
+                    obj.class().slot_name().to_owned()
+                };
+                let name = &name[..name.floor_char_boundary(name.len().min(50))];
+                vm.new_type_error(format!(
+                    "{method}() argument 'byteorder' must be str, not {name}"
+                ))
+            })
+        })
+        .transpose()?;
+    let signed = signed
+        .as_ref()
+        .map(|obj| obj.try_to_bool(vm))
+        .transpose()?
+        .unwrap_or(false);
+    let byteorder = byteorder
+        .map(|obj| ArgByteOrder::try_from_borrowed_object(vm, obj.as_object()))
+        .transpose()?
+        .unwrap_or(ArgByteOrder::Big);
+    Ok((byteorder, signed))
+}
+
+pub(crate) fn from_str_literal(
+    obj: &Py<PyStr>,
+    base: u32,
+    vm: &VirtualMachine,
+) -> PyResult<BigInt> {
+    bytes_to_int(
+        numeric_literal_from_str(obj).as_bytes(),
+        base,
+        vm.state.int_max_str_digits.load(),
+    )
+    .map_err(|error| handle_bytes_to_int_err(error, obj.as_object(), vm))
+}
+
+pub(crate) fn from_bytes_literal(bytes: &[u8], base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
+    bytes_to_int(bytes, base, vm.state.int_max_str_digits.load()).map_err(|error| {
+        // _PyLong_FromBytes reports a bytes snapshot, never a subclass's repr
+        // or the mutable exporter. Only its first 200 bytes can be displayed.
+        let literal = vm.ctx.new_bytes(bytes[..bytes.len().min(200)].to_vec());
+        handle_bytes_to_int_err(error, literal.as_object(), vm)
+    })
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     match_class!(match obj.to_owned() {
-        string @ PyStr => {
-            let s = numeric_literal_from_str(&string);
-            bytes_to_int(s.as_bytes(), base, vm.state.int_max_str_digits.load())
-                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
-        }
-        bytes @ PyBytes => {
-            bytes_to_int(bytes.as_bytes(), base, vm.state.int_max_str_digits.load())
-                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
-        }
-        bytearray @ PyByteArray => {
-            let inner = bytearray.borrow_buf();
-            bytes_to_int(&inner, base, vm.state.int_max_str_digits.load())
-                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
-        }
+        string @ PyStr => from_str_literal(&string, base, vm),
+        bytes @ PyBytes => from_bytes_literal(bytes.as_bytes(), base, vm),
+        bytearray @ PyByteArray => from_bytes_literal(&bytearray.borrow_buf(), base, vm),
         _ => Err(vm.new_type_error("int() can't convert non-string with explicit base")),
     })
 }
