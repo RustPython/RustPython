@@ -1,7 +1,6 @@
 use super::argument::OptionalArg;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
-    VirtualMachine,
+    Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     builtins::{PyComplex, PyFloat, PyInt, PyIntRef},
 };
 use core::{ffi::c_int, ops::Deref};
@@ -38,9 +37,9 @@ impl From<ArgIntoComplex> for Complex64 {
     }
 }
 
-impl TryFromObject for ArgIntoComplex {
+impl<'a> TryFromBorrowedObject<'a> for ArgIntoComplex {
     // Equivalent to PyComplex_AsCComplex
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         // Native scalar conversion reads complex subclasses directly. Only the
         // complex constructor prefers their overridden __complex__ method.
         let value = if let Some(complex) = obj.downcast_ref::<PyComplex>() {
@@ -96,9 +95,9 @@ impl From<ArgIntoFloat> for f64 {
     }
 }
 
-impl TryFromObject for ArgIntoFloat {
+impl<'a> TryFromBorrowedObject<'a> for ArgIntoFloat {
     // Equivalent to PyFloat_AsDouble.
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         // A float subclass is read directly, without calling its __float__.
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             return Ok(Self {
@@ -145,8 +144,8 @@ impl From<ArgIntoBool> for bool {
     }
 }
 
-impl TryFromObject for ArgIntoBool {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for ArgIntoBool {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         Ok(Self {
             value: obj.try_to_bool(vm)?,
         })
@@ -256,6 +255,37 @@ pub(crate) fn int_as_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySs
         .ok_or_else(|| vm.new_type_error("an integer is required"))?;
     PySsize::try_from(int.as_bigint())
         .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+}
+
+/// Clinic's slice_index(accept={int}): __index__ is accepted and overflow
+/// saturates, but None is not an omitted bound. _PyEval_SliceIndexNotNone.
+#[derive(Debug, Default)]
+pub struct ArgSliceIndex {
+    pub value: isize,
+    // Keep a temporary bound alive through the call, without cloning it.
+    // Its finalizer can mutate or release the sequence being searched.
+    _source: Option<PyObjectRef>,
+}
+
+impl ArgSliceIndex {
+    pub const MAX: Self = Self {
+        value: isize::MAX,
+        _source: None,
+    };
+}
+
+impl TryFromObject for ArgSliceIndex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let value = crate::sliceable::to_saturated_index(
+            vm,
+            &obj,
+            "slice indices must be integers or have an __index__ method",
+        )?;
+        Ok(Self {
+            value,
+            _source: Some(obj),
+        })
+    }
 }
 
 /// An `int` (or subclass, including `bool`) converted to a Rust primitive.
