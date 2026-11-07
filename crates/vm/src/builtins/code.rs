@@ -16,8 +16,7 @@ use crate::{
     convert::ToPyObject,
     frozen,
     function::{
-        ArgSpec, ArgumentError, FromArgs, FuncArgs, KwArgs, NameChanges, OptionalArg, Param,
-        PosArgs, arity_message,
+        ArgumentError, FromArgs, FuncArgs, KwArgs, NameChanges, OptionalArg, Param, PosArgs,
     },
     object::{Traverse, TraverseFn},
     types::{Comparable, Constructor, Hashable, Representable},
@@ -161,11 +160,6 @@ impl TryFromObject for CodeInt {
     }
 }
 
-trait CodeArgumentSpec: FromArgs {
-    const NAME: &'static str;
-    const POSITIONAL_ONLY: bool;
-}
-
 // Keep the caller's objects alive while derived conversion consumes its copy.
 // An early __index__ argument must survive later conversions and the audit hook.
 pub struct CodeArgs<T> {
@@ -173,43 +167,11 @@ pub struct CodeArgs<T> {
     _owners: FuncArgs,
 }
 
-impl<T: CodeArgumentSpec> FromArgs for CodeArgs<T> {
+impl<T: FromArgs> FromArgs for CodeArgs<T> {
     const PARAMS: Option<&'static [Param]> = T::PARAMS;
+    const BINDING_PARAMS: Option<&'static [Param]> = T::BINDING_PARAMS;
 
-    // Leave outer arity checks to this preflight: the constructor rejects
-    // keywords before arity, and both reject bad call shapes before conversion.
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        let arity = T::arity();
-        if T::POSITIONAL_ONLY {
-            if !args.kwargs.is_empty() {
-                return Err(vm
-                    .new_type_error(format!("{}() takes no keyword arguments", T::NAME))
-                    .into());
-            }
-            if !arity.contains(&args.args.len()) {
-                return Err(vm
-                    .new_type_error(arity_message(
-                        Some(T::NAME),
-                        &arity,
-                        args.args.len() < *arity.start(),
-                        args.args.len(),
-                    ))
-                    .into());
-            }
-        } else {
-            let keywords: Vec<_> = T::PARAMS
-                .unwrap_or_default()
-                .iter()
-                .map(|param| param.name)
-                .collect();
-            ArgSpec {
-                fname: T::NAME,
-                keywords: &keywords,
-                required: 0,
-                max_positional: 0,
-            }
-            .parse(args, vm)?;
-        }
         let owners = args.clone();
         let values = T::from_args(vm, args)?;
         Ok(Self {
@@ -257,11 +219,6 @@ struct ReplaceArgs {
     co_linetable: OptionalArg<PyBytesRef>,
     #[pyarg(named, optional)]
     co_exceptiontable: OptionalArg<PyBytesRef>,
-}
-
-impl CodeArgumentSpec for ReplaceArgs {
-    const NAME: &'static str = "replace";
-    const POSITIONAL_ONLY: bool = false;
 }
 
 #[derive(Clone)]
@@ -1226,11 +1183,6 @@ pub struct PyCodeNewArgs {
     freevars: OptionalArg<PyTupleRef>,
     #[pyarg(positional, optional, py_default = "()")]
     cellvars: OptionalArg<PyTupleRef>,
-}
-
-impl CodeArgumentSpec for PyCodeNewArgs {
-    const NAME: &'static str = "code";
-    const POSITIONAL_ONLY: bool = true;
 }
 
 struct CodeConstructor {
