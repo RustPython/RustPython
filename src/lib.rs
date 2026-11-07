@@ -126,13 +126,13 @@ fn run_impl(mut builder: InterpreterBuilder, configure_locale: bool) -> ExitCode
         }
     };
 
-    #[cfg(all(feature = "host_env", target_os = "linux"))]
+    #[cfg(all(feature = "host_env", any(target_os = "linux", target_os = "macos")))]
     if configure_locale {
         // SAFETY: only run_with_locale enables this, under its caller's
         // single-threaded process-startup contract.
         unsafe { vm::host_env::locale::initialize_ctype(settings.ignore_environment) };
     }
-    #[cfg(not(all(feature = "host_env", target_os = "linux")))]
+    #[cfg(not(all(feature = "host_env", any(target_os = "linux", target_os = "macos"))))]
     let _ = configure_locale;
 
     // don't translate newlines (\r\n <=> \n)

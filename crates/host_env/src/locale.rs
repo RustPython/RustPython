@@ -438,7 +438,7 @@ pub fn nl_langinfo_codeset() -> Option<Vec<u8>> {
 ///
 /// Call only during single-threaded process startup, before other threads or
 /// libraries can read the environment or use the process-global locale.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub unsafe fn initialize_ctype(ignore_environment: bool) {
     use std::io::Write;
 

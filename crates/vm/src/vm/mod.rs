@@ -1538,22 +1538,19 @@ impl VirtualMachine {
 
         // CPython normalizes configured stdio encodings to CodecInfo.name.
         #[cfg(all(feature = "host_env", feature = "stdio"))]
-        let stdio_encoding: Option<PyRef<PyUtf8Str>> = self
-            .state
-            .config
-            .settings
-            .stdio_encoding
-            .as_deref()
-            .map(|encoding| {
-                self.state
-                    .codec_registry
-                    .lookup(encoding, self)?
-                    .as_tuple()
-                    .as_object()
-                    .get_attr("name", self)?
-                    .try_into_value(self)
-            })
-            .transpose()?;
+        let stdio_encoding: PyRef<PyUtf8Str> = {
+            let encoding = match self.state.config.settings.stdio_encoding.as_deref() {
+                Some(encoding) => self.ctx.new_utf8_str(encoding),
+                None => crate::stdlib::_io::default_text_encoding(self)?,
+            };
+            self.state
+                .codec_registry
+                .lookup(encoding.as_str(), self)?
+                .as_tuple()
+                .as_object()
+                .get_attr("name", self)?
+                .try_into_value(self)?
+        };
 
         // Full stdio: FileIO → BufferedWriter → TextIOWrapper
         #[cfg(all(feature = "host_env", feature = "stdio"))]
