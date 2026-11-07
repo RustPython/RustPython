@@ -66,7 +66,7 @@ mod _sqlite3 {
         },
         function::{
             ArgCallable, ArgIntoBool, ArgIntoFloat, ArgIterable, ArgStrOrBytesLike, ArgStrictInt,
-            FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue,
+            FsPath, FuncArgs, KeywordParser, KwArgs, OptionalArg, PyComparisonValue, PySetterValue,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -480,6 +480,24 @@ mod _sqlite3 {
         name: SqliteStringArg,
         #[pyarg(positional)]
         n_arg: c_int,
+        #[pyarg(positional)]
+        aggregate_class: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct CreateCollationArgs {
+        #[pyarg(positional)]
+        name: SqliteStringArg,
+        #[pyarg(positional)]
+        callback: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct CreateWindowFunctionArgs {
+        #[pyarg(positional)]
+        name: SqliteStringArg,
+        #[pyarg(positional)]
+        num_params: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
     }
@@ -1714,7 +1732,7 @@ mod _sqlite3 {
         #[pymethod]
         fn create_aggregate(
             zelf: &Py<Self>,
-            args: CreateAggregateArgs,
+            KeywordParser(args): KeywordParser<CreateAggregateArgs>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             with_deferred_drops(|| Self::create_aggregate_inner(zelf, args, vm))
@@ -1758,11 +1776,10 @@ mod _sqlite3 {
         #[pymethod]
         fn create_collation(
             zelf: &Py<Self>,
-            name: SqliteStringArg,
-            callback: PyObjectRef,
+            KeywordParser(args): KeywordParser<CreateCollationArgs>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            with_deferred_drops(|| Self::create_collation_inner(zelf, name, callback, vm))
+            with_deferred_drops(|| Self::create_collation_inner(zelf, args.name, args.callback, vm))
         }
 
         fn create_collation_inner(
@@ -1811,13 +1828,17 @@ mod _sqlite3 {
         #[pymethod]
         fn create_window_function(
             zelf: &Py<Self>,
-            name: SqliteStringArg,
-            num_params: c_int,
-            aggregate_class: PyObjectRef,
+            KeywordParser(args): KeywordParser<CreateWindowFunctionArgs>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             with_deferred_drops(|| {
-                Self::create_window_function_inner(zelf, name, num_params, aggregate_class, vm)
+                Self::create_window_function_inner(
+                    zelf,
+                    args.name,
+                    args.num_params,
+                    args.aggregate_class,
+                    vm,
+                )
             })
         }
 
@@ -1869,7 +1890,7 @@ mod _sqlite3 {
         #[pymethod]
         fn set_authorizer(
             zelf: &Py<Self>,
-            authorizer_callback: PyObjectRef,
+            KeywordParser(authorizer_callback): KeywordParser<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             zelf.set_callback(authorizer_callback, CallbackKind::Authorizer, vm)
@@ -1878,7 +1899,7 @@ mod _sqlite3 {
         #[pymethod]
         fn set_trace_callback(
             zelf: &Py<Self>,
-            trace_callback: PyObjectRef,
+            KeywordParser(trace_callback): KeywordParser<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             zelf.set_callback(trace_callback, CallbackKind::Trace, vm)

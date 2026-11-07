@@ -601,6 +601,21 @@ impl BindingShape {
         Self::from_params(params, skip)
     }
 
+    const fn for_parser(
+        params: Option<&[Param]>,
+        skip: usize,
+        keyword_parser: bool,
+    ) -> Option<Self> {
+        let Some(mut shape) = Self::validated(params, skip) else {
+            return None;
+        };
+        if keyword_parser {
+            shape.has_keywords = true;
+            shape.anonymous_positional = false;
+        }
+        Some(shape)
+    }
+
     const fn arity(&self) -> RangeInclusive<usize> {
         self.required_positional..=if self.var_positional {
             usize::MAX
@@ -1068,6 +1083,12 @@ pub trait FromArgs: Sized {
         None => Some(&[Param::positional_only("")]),
     };
 
+    /// Use `_PyArg_UnpackKeywords` even when every parameter is positional-only.
+    /// This selects the keyword-capable calling convention used by Clinic
+    /// methods that receive their defining class. It does not allow passing
+    /// positional-only parameters by keyword.
+    const USE_KEYWORD_PARSER: bool = false;
+
     /// True when every parameter is positional-only or `*args`.
     const TAKES_NO_KEYWORDS: bool = match Self::PARAMS {
         Some(params) => params_take_no_keywords(params),
@@ -1130,9 +1151,9 @@ pub trait FromArgs: Sized {
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         let shape = if instance == 0 {
-            const { BindingShape::validated(Self::BINDING_PARAMS, 0) }
+            const { BindingShape::for_parser(Self::BINDING_PARAMS, 0, Self::USE_KEYWORD_PARSER) }
         } else {
-            const { BindingShape::validated(Self::BINDING_PARAMS, 1) }
+            const { BindingShape::for_parser(Self::BINDING_PARAMS, 1, Self::USE_KEYWORD_PARSER) }
         };
         if let Some(shape) = shape {
             if args.kwargs.is_empty()
@@ -1172,6 +1193,45 @@ pub trait FromArgs: Sized {
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
+}
+
+/// Bind typed arguments with Clinic's keyword parser, including when the
+/// signature is entirely positional-only. The wrapped type retains its
+/// conversions and signature; only the calling convention and error ordering
+/// differ from a positional-only native function. `T` must expose a known
+/// binding shape; opaque and legacy parsers retain their own validation order.
+#[repr(transparent)]
+pub struct KeywordParser<T>(pub T);
+
+impl<T: FromArgs> FromArgs for KeywordParser<T> {
+    const PARAMS: Option<&'static [Param]> = T::PARAMS;
+    const BINDING_PARAMS: Option<&'static [Param]> = {
+        assert!(
+            BindingShape::from_params(T::BINDING_PARAMS, 0).is_some(),
+            "KeywordParser requires a known binding shape"
+        );
+        T::BINDING_PARAMS
+    };
+    const USE_KEYWORD_PARSER: bool = true;
+    const TAKES_NO_KEYWORDS: bool = T::TAKES_NO_KEYWORDS;
+    const HAS_REQUIRED_KEYWORD_ONLY: bool = T::HAS_REQUIRED_KEYWORD_ONLY;
+
+    fn arity() -> RangeInclusive<usize> {
+        T::arity()
+    }
+
+    fn missing_from(
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+        skip: &mut usize,
+    ) -> Result<(), Option<ArgumentError>> {
+        T::missing_from(nargs, kwargs, pos, skip)
+    }
+
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        T::from_args(vm, args).map(Self)
+    }
 }
 
 pub trait FromArgOptional {
@@ -1627,6 +1687,8 @@ macro_rules! tuple_from_py_func_args {
                 }
             };
 
+            const USE_KEYWORD_PARSER: bool = false $(|| $T::USE_KEYWORD_PARSER)*;
+
             const HAS_REQUIRED_KEYWORD_ONLY: bool = false $(|| $T::HAS_REQUIRED_KEYWORD_ONLY)*;
 
             fn arity() -> RangeInclusive<usize> {
@@ -1880,6 +1942,59 @@ mod tests {
             Err(error) => error.args().as_slice()[0].try_to_value(vm).unwrap(),
             Ok(_) => panic!("binding unexpectedly succeeded"),
         }
+    }
+
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct FlattenedKeywordParser {
+        #[pyarg(flatten)]
+        args: super::KeywordParser<PyObjectRef>,
+    }
+
+    #[test]
+    fn keyword_parser_uses_clinic_order_for_positional_only_parameters() {
+        type Wrapped = super::KeywordParser<PyObjectRef>;
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for (nargs, names, expected) in [
+                (
+                    0,
+                    &[][..],
+                    "example() takes exactly 1 positional argument (0 given)",
+                ),
+                (2, &[][..], "example() takes at most 1 argument (2 given)"),
+                (
+                    0,
+                    &["value"][..],
+                    "example() takes exactly 1 positional argument (0 given)",
+                ),
+                (
+                    0,
+                    &["value", "other"][..],
+                    "example() takes at most 1 keyword argument (2 given)",
+                ),
+                (
+                    1,
+                    &["value"][..],
+                    "example() takes at most 1 argument (2 given)",
+                ),
+            ] {
+                assert_eq!(binding_error::<Wrapped>(nargs, names, false, vm), expected);
+                assert_eq!(
+                    binding_error::<(PyObjectRef, Wrapped)>(nargs + 1, names, true, vm),
+                    expected,
+                );
+                assert_eq!(
+                    binding_error::<FlattenedKeywordParser>(nargs, names, false, vm),
+                    expected,
+                );
+            }
+            let args = FuncArgs::new(vec![vm.ctx.none()], KwArgs::default());
+            assert!(args.bind_for::<Wrapped>(vm, "example").is_ok());
+            assert_eq!(
+                binding_error::<PyObjectRef>(0, &["value"], false, vm),
+                "example() takes no keyword arguments",
+            );
+        });
     }
 
     #[test]
