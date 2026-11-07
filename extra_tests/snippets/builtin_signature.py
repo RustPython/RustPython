@@ -134,3 +134,21 @@ if hasattr(os, "utime"):
         "($module, /, path, times=None, *, ns=<unrepresentable>, "
         "dir_fd=None, follow_symlinks=True)"
     )
+
+# Buffered stream constructors retain Clinic's symbolic module default.
+import _io
+
+for stream_type in (_io.BufferedReader, _io.BufferedWriter, _io.BufferedRandom):
+    assert stream_type.__text_signature__ == "(raw, buffer_size=DEFAULT_BUFFER_SIZE)"
+    assert (
+        inspect.signature(stream_type).parameters["buffer_size"].default
+        == _io.DEFAULT_BUFFER_SIZE
+    )
+
+assert _io.BufferedRWPair.__text_signature__ == (
+    "(reader, writer, buffer_size=DEFAULT_BUFFER_SIZE, /)"
+)
+assert (
+    inspect.signature(_io.BufferedRWPair).parameters["buffer_size"].default
+    == _io.DEFAULT_BUFFER_SIZE
+)
