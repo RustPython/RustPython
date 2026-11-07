@@ -25,7 +25,6 @@ mod _collections {
         object::{PyAtomicRef, Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
-        sequence::MutObjectSequenceOp,
         sliceable::SequenceIndexOp,
         types::{
             AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
@@ -312,13 +311,52 @@ mod _collections {
         }
 
         fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-            let start_state = self.state.load();
-            let ret = self.mut_contains(vm, needle)?;
-            if start_state != self.state.load() {
-                Err(vm.new_runtime_error("deque mutated during iteration"))
-            } else {
-                Ok(ret)
+            self.operation
+                .with(vm, || self.find_index(needle, 0, isize::MAX, vm))
+                .map(|index| index.is_some())
+        }
+
+        fn compare_item(
+            &self,
+            index: usize,
+            needle: &PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            let item = self.borrow_deque().get(index).cloned();
+            let item =
+                item.ok_or_else(|| vm.new_runtime_error("deque mutated during iteration"))?;
+            // Releasing the comparison reference can also mutate the deque.
+            item.rich_compare_bool(needle, PyComparisonOp::Eq, vm)
+        }
+
+        // Called inside the deque's operation guard, without holding its data lock
+        // across comparisons or the finalizers of replaced comparison items.
+        fn find_index(
+            &self,
+            needle: &PyObject,
+            start: isize,
+            stop: isize,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
+            let (start, stop, state) = {
+                let data = self.data.read();
+                (
+                    start.saturated_at(data.items.len()),
+                    stop.saturated_at(data.items.len()),
+                    self.state.load(),
+                )
+            };
+            for index in start..stop {
+                // Both index() and containment accept a successful comparison
+                // before checking whether its callback changed the deque.
+                if self.compare_item(index, needle, vm)? {
+                    return Ok(Some(index));
+                }
+                if state != self.state.load() {
+                    return Err(vm.new_runtime_error("deque mutated during iteration"));
+                }
             }
+            Ok(None)
         }
 
         fn _mul(
@@ -534,13 +572,24 @@ mod _collections {
 
         #[pymethod]
         fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            let start_state = self.state.load();
-            let count = self.mut_count(vm, &value)?;
-
-            if start_state != self.state.load() {
-                return Err(vm.new_runtime_error("deque mutated during iteration"));
-            }
-            Ok(count)
+            self.operation.with(vm, || {
+                let (len, state) = {
+                    let data = self.data.read();
+                    (data.items.len(), self.state.load())
+                };
+                let mut count = 0;
+                for index in 0..len {
+                    if self.compare_item(index, &value, vm)? {
+                        count += 1;
+                    }
+                    // Unlike a search, count checks mutation after every result,
+                    // including a match, before comparing any further elements.
+                    if state != self.state.load() {
+                        return Err(vm.new_runtime_error("deque mutated during iteration"));
+                    }
+                }
+                Ok(count)
+            })
         }
 
         #[pymethod]
@@ -567,33 +616,13 @@ mod _collections {
                 OptionalArg::Missing => isize::MAX,
             };
             self.operation.with(vm, || {
-                let (start, stop, state) = {
-                    let data = self.data.read();
-                    (
-                        start.saturated_at(data.items.len()),
-                        stop.saturated_at(data.items.len()),
-                        self.state.load(),
-                    )
-                };
-                for index in start..stop {
-                    let item = self.borrow_deque().get(index).cloned();
-                    let item =
-                        item.ok_or_else(|| vm.new_runtime_error("deque mutated during iteration"))?;
-                    let equal = item.rich_compare_bool(&needle, PyComparisonOp::Eq, vm);
-                    drop(item);
-                    if equal? {
-                        return Ok(index);
-                    }
-                    if state != self.state.load() {
-                        return Err(vm.new_runtime_error("deque mutated during iteration"));
-                    }
-                }
-                Err(vm.new_value_error("deque.index(x): x not in deque"))
+                self.find_index(&needle, start, stop, vm)?
+                    .ok_or_else(|| vm.new_value_error("deque.index(x): x not in deque"))
             })
         }
 
         #[pymethod]
-        fn insert(&self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn insert(&self, index: PySsize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.operation.with(vm, || {
                 let mut value = Some(value);
                 let full = {
@@ -603,7 +632,7 @@ mod _collections {
                     } else {
                         let len = data.items.len();
                         let index = if index < 0 {
-                            len.saturating_sub(index.unsigned_abs() as usize)
+                            len.saturating_sub(index.unsigned_abs())
                         } else {
                             (index as usize).min(len)
                         };
@@ -758,18 +787,6 @@ mod _collections {
         }
     }
 
-    impl MutObjectSequenceOp for PyDeque {
-        type Inner = VecDeque<PyObjectRef>;
-
-        fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObject> {
-            inner.get(index).map(|r| r.as_ref())
-        }
-
-        fn do_lock(&self) -> impl core::ops::Deref<Target = Self::Inner> {
-            self.borrow_deque()
-        }
-    }
-
     impl Constructor for PyDeque {
         type Args = FuncArgs;
 
@@ -886,6 +903,47 @@ mod _collections {
         }
     }
 
+    /// Compare two iterator streams, applying the requested operation to the first
+    /// unequal pair. Unlike indexed sequence comparisons, even equality compares
+    /// that pair again, and inequality dispatches its own comparison method.
+    fn deque_richcompare_iterators(
+        lhs: &PyIter,
+        rhs: &PyIter,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        loop {
+            let a = match lhs.next(vm)? {
+                PyIterReturn::Return(item) => Some(item),
+                PyIterReturn::StopIteration(_) => None,
+            };
+            // Both streams advance, including when the left stream just ended.
+            let b = rhs.next(vm).map(|result| match result {
+                PyIterReturn::Return(item) => Some(item),
+                PyIterReturn::StopIteration(_) => None,
+            });
+            let result = match (&a, &b) {
+                (Some(a), Ok(Some(b))) => {
+                    a.rich_compare_bool(b, PyComparisonOp::Eq, vm)
+                        .and_then(|equal| {
+                            if equal {
+                                Ok(None)
+                            } else {
+                                a.rich_compare_bool(b, op, vm).map(Some)
+                            }
+                        })
+                }
+                (_, Ok(b)) => Ok(Some(op.eval_ord(a.is_some().cmp(&b.is_some())))),
+                (_, Err(error)) => Err(error.clone()),
+            };
+            // Finalizers may mutate either stream before the next iteration.
+            drop(a);
+            if let Some(result) = result? {
+                return Ok(result);
+            }
+        }
+    }
+
     impl Comparable for PyDeque {
         fn cmp(
             zelf: &Py<Self>,
@@ -893,24 +951,25 @@ mod _collections {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
+            let other = class_or_notimplemented!(Self, other);
             if let Some(res) = op.identical_optimization(zelf, other) {
                 return Ok(res.into());
             }
 
-            let other = class_or_notimplemented!(Self, other);
-            crate::iter::richcompare_mutating_seqs(
-                |i| {
-                    let lhs = zelf.borrow_deque();
-                    (lhs.len(), lhs.get(i).cloned())
-                },
-                |i| {
-                    let rhs = other.borrow_deque();
-                    (rhs.len(), rhs.get(i).cloned())
-                },
-                op,
-                vm,
-            )
-            .map(PyComparisonValue::Implemented)
+            if matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+                let lhs_len = zelf.borrow_deque().len();
+                let rhs_len = other.borrow_deque().len();
+                if lhs_len != rhs_len {
+                    return Ok((op == PyComparisonOp::Ne).into());
+                }
+            }
+
+            let lhs = zelf.as_object().get_iter(vm)?;
+            let rhs = other.as_object().get_iter(vm)?;
+            let result = deque_richcompare_iterators(&lhs, &rhs, op, vm);
+            // Iterator finalizers run in operand order, after item cleanup.
+            drop(lhs);
+            result.map(PyComparisonValue::Implemented)
         }
     }
 
@@ -920,32 +979,68 @@ mod _collections {
         }
     }
 
+    fn deque_repr_elements(deque: &Py<PyDeque>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let iter = deque.as_object().get_iter(vm)?;
+        let mut elements = Vec::new();
+        let result = (|| {
+            let hint = vm
+                .length_hint_opt(deque.as_object().to_owned())?
+                .unwrap_or(8);
+            elements
+                .try_reserve_exact(hint)
+                .map_err(|_| vm.no_memory_error())?;
+            for item in iter.iter::<PyObjectRef>(vm)? {
+                let item = item?;
+                if elements.len() == elements.capacity() {
+                    elements.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+                }
+                elements.push(item);
+            }
+            if elements.len() < elements.capacity().div_ceil(2) {
+                elements.shrink_to_fit();
+            }
+            Ok(())
+        })();
+        // PySequence_List releases its iterator before a partial list on error.
+        // Its elements then run finalizers backwards, with the repr guard held.
+        drop(iter);
+        if let Err(error) = result {
+            elements.into_iter().rev().for_each(drop);
+            return Err(error);
+        }
+        Ok(elements)
+    }
+
     impl Representable for PyDeque {
         #[inline]
         fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            let (deque, maxlen, _) = zelf.snapshot();
+            let Some(guard) = ReprGuard::enter(vm, zelf.as_object()) else {
+                return Ok(vm.ctx.intern_str("[...]").to_owned());
+            };
+            // PySequence_List respects subclass iteration and length hints,
+            // even when the underlying deque is empty.
+            let elements = deque_repr_elements(zelf, vm)?;
+            let maxlen = zelf.maxlen_value();
             let class = zelf.class();
-            let class_name = class.name();
+            let class_name = class.name().to_string();
             let closing_part =
                 maxlen.map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
             let empty = format!("{class_name}([{closing_part})");
 
-            if deque.is_empty() {
-                return Ok(vm.ctx.new_str(empty));
-            }
-
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                Ok(vm.ctx.new_str(collection_repr(
-                    Some(&class_name),
-                    "[",
-                    &closing_part,
-                    &empty,
-                    deque.iter().map(|o| &**o),
-                    vm,
-                )?))
-            } else {
-                Ok(vm.ctx.intern_str("[...]").to_owned())
-            }
+            let result = collection_repr(
+                Some(&class_name),
+                "[",
+                &closing_part,
+                &empty,
+                elements.iter().map(|o| &**o),
+                vm,
+            )
+            .map(|repr| vm.ctx.new_str(repr));
+            // The temporary list releases its elements backwards, after the
+            // recursion guard, including when an element's repr raised.
+            drop(guard);
+            elements.into_iter().rev().for_each(drop);
+            result
         }
 
         fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
@@ -986,12 +1081,7 @@ mod _collections {
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let iter = Self::new(deque);
-            if let OptionalArg::Present(index) = index {
-                let index = max(index, 0) as usize;
-                iter.internal.lock().position = index;
-                iter.counter
-                    .store(iter.counter.load().saturating_sub(index));
-            }
+            deque_iter_skip(&iter.internal, &iter.counter, index);
             Ok(iter)
         }
     }
@@ -1022,15 +1112,7 @@ mod _collections {
             zelf: PyRef<PyDequeIterator>,
             vm: &VirtualMachine,
         ) -> (PyTypeRef, (PyDequeRef, PyObjectRef)) {
-            let (deque, position) = {
-                let internal = zelf.internal.lock();
-                let deque = match &internal.status {
-                    Active(obj) => Some(obj.clone()),
-                    Exhausted => None,
-                };
-                (deque, internal.position)
-            };
-            let deque = deque.unwrap_or_else(|| PyDeque::new(vm).into_ref(&vm.ctx));
+            let (deque, position) = deque_iter_reduce(&zelf.internal, &zelf.counter);
             (
                 zelf.class().to_owned(),
                 (deque, vm.ctx.new_int(position).into()),
@@ -1039,6 +1121,33 @@ mod _collections {
     }
 
     impl SelfIter for PyDequeIterator {}
+
+    fn deque_iter_skip(
+        internal: &PyMutex<PositionIterInternal<PyDequeRef>>,
+        counter: &AtomicCell<usize>,
+        index: OptionalArg<isize>,
+    ) {
+        if let OptionalArg::Present(index) = index {
+            let mut internal = internal.lock();
+            let index = (max(index, 0) as usize).min(counter.load());
+            internal.position = index;
+            counter.store(counter.load() - index);
+        }
+    }
+
+    fn deque_iter_reduce(
+        internal: &PyMutex<PositionIterInternal<PyDequeRef>>,
+        counter: &AtomicCell<usize>,
+    ) -> (PyDequeRef, isize) {
+        let internal = internal.lock();
+        // Deque iterators retain their owner even after exhaustion or mutation.
+        let Active(deque) = &internal.status else {
+            unreachable!("deque iterators retain their owner");
+        };
+        let data = deque.data.read();
+        let position = data.items.len() as isize - counter.load() as isize;
+        (deque.clone(), position)
+    }
 
     enum DequeStep {
         Item(PyObjectRef),
@@ -1061,13 +1170,13 @@ mod _collections {
         state: usize,
         counter: &AtomicCell<usize>,
         reverse: bool,
-    ) -> (DequeStep, Option<PyDequeRef>) {
+    ) -> DequeStep {
         let mut guard = internal.lock();
         let internal = &mut *guard;
         // The count before the deque, as in `dequereviter_next()`, so
         // an iterator that has raised once runs out instead.
         if reverse && counter.load() == 0 {
-            return (DequeStep::Exhausted, internal.exhaust());
+            return DequeStep::Exhausted;
         }
         let item = match &internal.status {
             Active(deque) => {
@@ -1077,7 +1186,7 @@ mod _collections {
                 // every call rather than running out after the first.
                 if state != deque.state.load() {
                     counter.store(0);
-                    return (DequeStep::Mutated, None);
+                    return DequeStep::Mutated;
                 }
                 if counter.load() == 0 {
                     None
@@ -1100,17 +1209,16 @@ mod _collections {
             Exhausted => None,
         };
         if let Some(item) = item {
-            (DequeStep::Item(item), None)
+            DequeStep::Item(item)
         } else {
             counter.store(0);
-            (DequeStep::Exhausted, internal.exhaust())
+            DequeStep::Exhausted
         }
     }
 
     impl IterNext for PyDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let (step, _released) = deque_step(&zelf.internal, zelf.state, &zelf.counter, false);
-            step.into_result(vm)
+            deque_step(&zelf.internal, zelf.state, &zelf.counter, false).into_result(vm)
         }
     }
 
@@ -1136,12 +1244,7 @@ mod _collections {
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let iter = Py::<PyDeque>::__reversed__(deque);
-            if let OptionalArg::Present(index) = index {
-                let index = max(index, 0) as usize;
-                iter.internal.lock().position = index;
-                iter.counter
-                    .store(iter.counter.load().saturating_sub(index));
-            }
+            deque_iter_skip(&iter.internal, &iter.counter, index);
             Ok(iter)
         }
     }
@@ -1158,15 +1261,7 @@ mod _collections {
             zelf: PyRef<PyReverseDequeIterator>,
             vm: &VirtualMachine,
         ) -> (PyTypeRef, (PyDequeRef, PyObjectRef)) {
-            let (deque, position) = {
-                let internal = zelf.internal.lock();
-                let deque = match &internal.status {
-                    Active(obj) => Some(obj.clone()),
-                    Exhausted => None,
-                };
-                (deque, internal.position)
-            };
-            let deque = deque.unwrap_or_else(|| PyDeque::new(vm).into_ref(&vm.ctx));
+            let (deque, position) = deque_iter_reduce(&zelf.internal, &zelf.counter);
             (
                 zelf.class().to_owned(),
                 (deque, vm.ctx.new_int(position).into()),
@@ -1178,8 +1273,7 @@ mod _collections {
 
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let (step, _released) = deque_step(&zelf.internal, zelf.state, &zelf.counter, true);
-            step.into_result(vm)
+            deque_step(&zelf.internal, zelf.state, &zelf.counter, true).into_result(vm)
         }
     }
 
