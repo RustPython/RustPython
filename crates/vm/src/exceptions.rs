@@ -194,12 +194,7 @@ impl VirtualMachine {
     /// Display `exc` through `traceback._print_exception_bltin`, falling back
     /// to the native printer writing to `file`.
     pub(crate) fn display_exception_to(&self, file: &PyObject, exc: &Py<PyBaseException>) {
-        if let Ok(print_exception) = self
-            .import("traceback", 0)
-            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
-            && print_exception.is_callable()
-            && print_exception.call((exc.to_owned(),), self).is_ok()
-        {
+        if self.try_display_exception_to(file, exc.as_object()) {
             return;
         }
         if self
@@ -210,6 +205,19 @@ impl VirtualMachine {
             eprintln!("lost sys.stderr");
         }
         let _ = self.call_method(file, "flush", ());
+    }
+
+    /// Try the shared Python formatter with the caller's retained output file.
+    /// Reporting paths provide their own native fallback if it is unavailable.
+    pub(crate) fn try_display_exception_to(&self, file: &PyObject, exc: &PyObject) -> bool {
+        self.import("traceback", 0)
+            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
+            .is_ok_and(|print_exception| {
+                print_exception.is_callable()
+                    && print_exception
+                        .call((exc.to_owned(), file.to_owned()), self)
+                        .is_ok()
+            })
     }
 
     pub fn write_exception<W: Write>(

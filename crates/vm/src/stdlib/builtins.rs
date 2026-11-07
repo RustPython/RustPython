@@ -26,7 +26,7 @@ mod builtins {
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
-        readline::{Readline, ReadlineResult},
+        readline::ReadlineResult,
         types::PyComparisonOp,
         vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
@@ -907,8 +907,10 @@ mod builtins {
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();
-            let mut readline = Readline::new(());
-            match readline.readline(prompt) {
+            let result = vm
+                .allow_threads(|| crate::readline::input_readline(prompt))
+                .map_err(|_| vm.new_runtime_error("can't re-enter readline"))?;
+            match result {
                 ReadlineResult::Line(s) => {
                     let result = vm.ctx.new_str(s);
                     vm.audit("builtins.input/result", || (result.clone(),))?;

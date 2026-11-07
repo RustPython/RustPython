@@ -1795,6 +1795,63 @@ mod _io {
         }
     }
 
+    #[cfg(feature = "threading")]
+    fn shutdown_buffer_description(
+        class_name: &str,
+        raw: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> String {
+        // Fatal diagnostics must not acquire an I/O lock or invoke user code.
+        // Inspect dictionary entries directly, avoiding custom attribute,
+        // equality, and repr implementations even on unusual raw streams.
+        // Limit diagnostic metadata; standard stream names are short and are
+        // among the first attributes installed on their FileIO objects.
+        let name = raw.and_then(|raw| raw.dict()).and_then(|dict| {
+            dict.into_iter().take(16).find_map(|(key, value)| {
+                let key = key.downcast_ref::<PyStr>()?;
+                if key.as_wtf8() != "name" || !value.class().is(vm.ctx.types.str_type) {
+                    return None;
+                }
+                let name = value.downcast_ref::<PyStr>()?;
+                if name.byte_len() > 1024 {
+                    return None;
+                }
+                PyStr::repr(name, vm).ok()
+            })
+        });
+        match name {
+            Some(name) => format!("<_io.{class_name} name={name}>"),
+            None => format!("<_io.{class_name}>"),
+        }
+    }
+
+    #[cfg(feature = "threading")]
+    fn shutdown_io_lock<'a, T>(
+        mutex: &'a PyThreadMutex<T>,
+        vm: &VirtualMachine,
+        reentrant_error: &'static str,
+        describe: impl FnOnce() -> String,
+    ) -> PyResult<PyThreadMutexGuard<'a, T>> {
+        use crate::common::lock::TryLockThreadError;
+        // Daemon threads may have parked permanently while owning this lock.
+        // Match _enter_buffered_busy's one-second grace period, including for
+        // RustPython's additional TextIOWrapper lock.
+        match mutex.try_lock_for_wrapped(core::time::Duration::from_secs(1), |wait| {
+            vm.allow_threads(wait)
+        }) {
+            Ok(guard) => Ok(guard),
+            Err(TryLockThreadError::Current) => Err(vm.new_runtime_error(reentrant_error)),
+            Err(TryLockThreadError::Other) => {
+                let message = format!(
+                    "Fatal Python error: _enter_buffered_busy: could not acquire lock for {} at interpreter shutdown, possibly due to daemon threads\n",
+                    describe()
+                );
+                let _ = crate::host_env::crt_fd::write_noraise(2, message.as_bytes());
+                crate::host_env::os::abort()
+            }
+        }
+    }
+
     #[pyclass]
     trait BufferedMixin: PyPayload + StaticType {
         const CLASS_NAME: &'static str;
@@ -1808,6 +1865,21 @@ mod _io {
         fn finalizing(&self) -> &AtomicBool;
 
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
+            #[cfg(feature = "threading")]
+            if vm.state.finalizing.load(Ordering::Acquire) {
+                return shutdown_io_lock(
+                    self.data(),
+                    vm,
+                    "reentrant call inside buffered io",
+                    || {
+                        shutdown_buffer_description(
+                            Self::CLASS_NAME,
+                            self.raw_cell().load_owned(),
+                            vm,
+                        )
+                    },
+                );
+            }
             self.data()
                 .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io"))
@@ -3216,6 +3288,25 @@ mod _io {
             &self,
             vm: &VirtualMachine,
         ) -> PyResult<PyThreadMutexGuard<'_, Option<TextIOData>>> {
+            #[cfg(feature = "threading")]
+            if vm.state.finalizing.load(Ordering::Acquire) {
+                return shutdown_io_lock(&self.data, vm, "reentrant call inside textio", || {
+                    let Some(buffer) = self.buffer.load_owned() else {
+                        return "<_io.TextIOWrapper>".to_owned();
+                    };
+                    let (class_name, raw) =
+                        if let Some(buffer) = buffer.downcast_ref::<BufferedWriter>() {
+                            (BufferedWriter::CLASS_NAME, buffer.raw.load_owned())
+                        } else if let Some(buffer) = buffer.downcast_ref::<BufferedReader>() {
+                            (BufferedReader::CLASS_NAME, buffer.raw.load_owned())
+                        } else if let Some(buffer) = buffer.downcast_ref::<BufferedRandom>() {
+                            (BufferedRandom::CLASS_NAME, buffer.raw.load_owned())
+                        } else {
+                            return format!("<{}>", buffer.class().slot_name());
+                        };
+                    shutdown_buffer_description(class_name, raw, vm)
+                });
+            }
             self.data
                 .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio"))
