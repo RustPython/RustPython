@@ -17,7 +17,7 @@ pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
     NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
     NameKeywords, NameKwargs, NameKwds, NameKws, NameObjects, NameObjs, NameOthers, NameValues,
-    OptionalArg, OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
+    OptionalArg, OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable, UnpackKeywords,
     params_have_required_keyword_only,
 };
 pub(crate) use argument::{

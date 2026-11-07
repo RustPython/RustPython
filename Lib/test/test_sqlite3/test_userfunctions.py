@@ -718,7 +718,6 @@ class AggregateTests(unittest.TestCase):
                 val = cur.fetchone()[0]
                 self.assertEqual(val, txt)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for create_aggregate
     def test_agg_keyword_args(self):
         with self.assertRaisesRegex(TypeError,
                 'takes exactly 3 positional arguments'):
@@ -766,7 +765,6 @@ class AuthorizerTests(unittest.TestCase):
         self.con.execute("select * from t2")
         self.con.execute("select c2 from t1")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_authorizer
     def test_authorizer_keyword_args(self):
         with self.assertRaisesRegex(TypeError,
                 'takes exactly 1 positional argument'):

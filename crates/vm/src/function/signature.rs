@@ -108,6 +108,8 @@ pub struct SigArg {
     /// Actual accepted arguments, independent of the displayed signature.
     /// `None` leaves dispatch permissive so a custom parser owns validation.
     pub binding_params: Option<&'static [Param]>,
+    /// Force `_PyArg_UnpackKeywords` dispatch even for positional-only signatures.
+    pub force_unpack_keywords: bool,
 }
 
 const SCALAR_PARAMS: &[Param] = &[Param::positional_only("")];
@@ -119,6 +121,7 @@ impl SigArg {
             name,
             params: T::PARAMS,
             binding_params: T::BINDING_PARAMS,
+            force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
     }
 
@@ -129,6 +132,7 @@ impl SigArg {
             name,
             params: None,
             binding_params: Some(SCALAR_PARAMS),
+            force_unpack_keywords: false,
         }
     }
 
@@ -143,6 +147,7 @@ impl SigArg {
                 None => &[],
             }),
             binding_params: T::BINDING_PARAMS,
+            force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
     }
 }
@@ -160,6 +165,7 @@ pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super:
     let mut fixed = 0usize;
     let mut i = 0;
     while i < args.len() {
+        has_keywords |= args[i].force_unpack_keywords;
         match args[i].binding_params {
             Some(params)
                 if receiver
@@ -822,6 +828,7 @@ mod tests {
                     Some(params) => Some(params),
                     None => Some(super::SCALAR_PARAMS),
                 },
+                force_unpack_keywords: false,
             }
         }
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
@@ -871,11 +878,29 @@ mod tests {
     }
 
     #[test]
+    fn unpack_keywords_keeps_the_positional_signature_and_keyword_dispatch() {
+        type Wrapped = crate::function::UnpackKeywords<crate::PyObjectRef>;
+        const ARGS: &[SigArg] = &[
+            SigArg::marker("$self"),
+            SigArg::from_arg::<Wrapped>("callback"),
+        ];
+        const FLAGS: PyMethodFlags = native_call_flags(ARGS, true);
+        assert_eq!(
+            FLAGS,
+            PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS)
+        );
+        const N: usize = super::signature_prefix_len("example", ARGS);
+        const TEXT: [u8; N] = super::signature_prefix_bytes::<N>("example", ARGS);
+        assert_eq!(&TEXT, b"example($self, callback, /)\n--\n\n");
+    }
+
+    #[test]
     fn dispatch_uses_binding_overrides_without_changing_display_signatures() {
         const ARGS: &[SigArg] = &[SigArg {
             name: "ignored",
             params: Some(&[]),
             binding_params: Some(&[Param::var_positional("args"), Param::var_keyword("kwargs")]),
+            force_unpack_keywords: false,
         }];
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
         assert_eq!(native_call_flags(ARGS, false), keywords);
@@ -891,11 +916,13 @@ mod tests {
             name: "custom",
             params: Some(&[Param::positional_only("display")]),
             binding_params: None,
+            force_unpack_keywords: false,
         };
         const NESTED: SigArg = SigArg {
             name: "nested",
             params: Some(&[]),
             binding_params: Some(&[Param::flatten(None)]),
+            force_unpack_keywords: false,
         };
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
         assert_eq!(native_call_flags(&[CUSTOM], false), keywords);
