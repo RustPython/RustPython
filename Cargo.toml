@@ -143,6 +143,8 @@ strip = true
 panic = "abort"
 
 [patch.crates-io]
+# Keep libc 0.2.191 compatible with iOS until nix releases https://github.com/nix-rust/nix/pull/2821.
+nix = { git = "https://github.com/nix-rust/nix", rev = "f9ba3ed0698255d93240b07ecbf39ecb05a8a5cd" }
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
