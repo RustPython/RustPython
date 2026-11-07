@@ -3855,7 +3855,7 @@ mod _socket {
             } else {
                 use std::os::unix::ffi::OsStrExt;
                 let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
-                Ok(vm.fsdecode(std::ffi::OsStr::from_bytes(buf.to_bytes())))
+                vm.fsdecode(std::ffi::OsStr::from_bytes(buf.to_bytes()))
             }
         }
     }
@@ -3876,15 +3876,14 @@ mod _socket {
         #[cfg(not(windows))]
         {
             use std::os::unix::ffi::OsStringExt;
-            let list = host_socket::if_nameindex_bytes()
+            host_socket::if_nameindex_bytes()
                 .map_err(|err| err.into_pyexception(vm))?
                 .into_iter()
                 .map(|(index, name)| {
-                    (index, vm.fsdecode(std::ffi::OsString::from_vec(name))).to_pyobject(vm)
+                    let name = vm.fsdecode(std::ffi::OsString::from_vec(name))?;
+                    Ok((index, name).to_pyobject(vm))
                 })
-                .collect();
-
-            Ok(list)
+                .collect()
         }
         #[cfg(windows)]
         {
