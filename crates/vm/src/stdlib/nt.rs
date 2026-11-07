@@ -241,6 +241,12 @@ pub(crate) mod module {
         path: crate::PyObjectRef,
     }
 
+    #[derive(FromArgs)]
+    struct OsPathArg {
+        #[pyarg(any)]
+        path: OsPath,
+    }
+
     impl PathArg {
         fn to_path_or_fd(&self, vm: &VirtualMachine) -> PyResult<Option<OsPathOrFd<'static>>> {
             match PathConverter::new().try_path_or_fd_allow_invalid(self.path.clone(), vm) {
@@ -378,8 +384,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_isdevdrive(args: PathArg, vm: &VirtualMachine) -> PyResult<bool> {
-        let path = OsPath::try_from_object(vm, args.path)?;
+    fn _path_isdevdrive(args: OsPathArg, vm: &VirtualMachine) -> PyResult<bool> {
+        let path = args.path;
         let path = path.to_wide_cstring(vm)?;
         host_nt::path_isdevdrive(&path).map_err(|err| err.to_pyexception(vm))
     }
@@ -616,8 +622,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _getvolumepathname(args: PathArg, vm: &VirtualMachine) -> PyResult {
-        let path = OsPath::try_from_object(vm, args.path)?;
+    fn _getvolumepathname(args: OsPathArg, vm: &VirtualMachine) -> PyResult {
+        let path = args.path;
         let wide = path.to_wide_cstring(vm)?;
         let buflen = core::cmp::max(wide.len(), host_nt::MAX_PATH_USIZE);
         if buflen > u32::MAX as usize {
@@ -955,8 +961,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _getdiskusage(args: PathArg, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
-        let path = OsPath::try_from_object(vm, args.path)?;
+    fn _getdiskusage(args: OsPathArg, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
+        let path = args.path;
         let path = path.to_wide_cstring(vm)?;
         host_nt::getdiskusage(&path).map_err(|err| err.to_pyexception(vm))
     }
@@ -1005,12 +1011,12 @@ pub(crate) mod module {
     #[derive(FromArgs)]
     struct VolumeArg {
         #[pyarg(any)]
-        volume: PyObjectRef,
+        volume: OsPath,
     }
 
     #[pyfunction]
     fn listmounts(args: VolumeArg, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let volume = OsPath::try_from_object(vm, args.volume)?;
+        let volume = args.volume;
         let volume = volume.to_wide_cstring(vm)?;
         let result = host_nt::listmounts(&volume)
             .map_err(|err| err.to_pyexception(vm))?
@@ -1122,8 +1128,8 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _add_dll_directory(args: PathArg, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let path = OsPath::try_from_object(vm, args.path)?;
+    fn _add_dll_directory(args: OsPathArg, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let path = args.path;
         let wide = path.to_wide_cstring(vm)?;
         let cookie = host_winapi::add_dll_directory(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;

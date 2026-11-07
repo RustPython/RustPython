@@ -13,12 +13,12 @@ mod _testconsole {
         #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any)]
-        s: PyObjectRef,
+        s: ArgBytesLike,
     }
 
     #[pyfunction]
     fn write_input(args: WriteInputArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let s = ArgBytesLike::try_from_object(vm, args.s)?;
+        let s = args.s;
         let console_type = {
             let io = vm.import("_io", 0)?;
             PyTypeRef::try_from_object(vm, io.get_attr("_WindowsConsoleIO", vm)?)?

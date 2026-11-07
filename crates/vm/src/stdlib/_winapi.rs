@@ -799,12 +799,12 @@ mod _winapi {
     #[derive(FromArgs)]
     struct PathNameArgs {
         #[pyarg(any)]
-        path: PyObjectRef,
+        path: PyStrRef,
     }
 
     #[pyfunction]
     fn GetShortPathName(args: PathNameArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let path = PyStrRef::try_from_object(vm, args.path)?;
+        let path = args.path;
         let path = path
             .as_wtf8()
             .to_wide_cstring()
@@ -815,7 +815,7 @@ mod _winapi {
 
     #[pyfunction]
     fn GetLongPathName(args: PathNameArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let path = PyStrRef::try_from_object(vm, args.path)?;
+        let path = args.path;
         let path = path
             .as_wtf8()
             .to_wide_cstring()

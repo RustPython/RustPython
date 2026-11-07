@@ -7,19 +7,19 @@ pub(crate) use _wmi::module_def;
 mod _wmi {
     use crate::builtins::PyStrRef;
     use crate::convert::ToPyException;
-    use crate::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+    use crate::{PyResult, VirtualMachine};
     use rustpython_host_env::wmi as host_wmi;
 
     #[derive(FromArgs)]
     struct ExecQueryArgs {
         #[pyarg(any)]
-        query: PyObjectRef,
+        query: PyStrRef,
     }
 
     #[pyfunction]
     fn exec_query(args: ExecQueryArgs, vm: &VirtualMachine) -> PyResult<String> {
         // Bind all keywords before converting the query, as Argument Clinic does.
-        let query = PyStrRef::try_from_object(vm, args.query)?;
+        let query = args.query;
         vm.audit("_wmi.exec_query", || (query.clone(),))?;
         let mut code_units = query.as_wtf8().encode_wide().collect::<Vec<_>>();
         // Adding the terminator first makes even a trailing input NUL interior.
