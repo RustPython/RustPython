@@ -378,7 +378,8 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
     }
 }
 
-#[cfg(all(test, feature = "threading"))]
+#[cfg(test)]
+#[cfg(feature = "threading")]
 mod tests {
     use super::TryLockThreadError;
     use crate::lock::PyThreadMutex;
