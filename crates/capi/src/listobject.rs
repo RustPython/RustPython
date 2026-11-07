@@ -275,7 +275,7 @@ mod tests {
         Python::attach(|py| unsafe {
             let list = PyList::new(py, [1, 2, 3, 4]).unwrap();
 
-            assert!(ffi::PyList_GetItemRef(list.as_ptr(), -1).is_null());
+            assert!(super::PyList_GetItemRef(list.as_ptr().cast(), -1).is_null());
             assert!(PyErr::take(py).unwrap().is_instance_of::<PyIndexError>(py));
 
             let slice = Bound::from_owned_ptr(py, ffi::PyList_GetSlice(list.as_ptr(), -1, 2));
