@@ -1365,8 +1365,13 @@ struct Argument {
     keep: Option<PyObjectRef>, // Object to keep alive during call
 }
 
-/// Out buffers for paramflags OUT parameters
-type OutBuffers = Vec<(usize, PyObjectRef)>;
+/// Values returned for paramflags OUT and IN/OUT parameters.
+enum OutValue {
+    Out(PyObjectRef),
+    InOut(PyObjectRef),
+}
+
+type OutBuffers = Vec<OutValue>;
 
 /// Get buffer address from a ctypes object
 fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
@@ -1483,7 +1488,7 @@ fn build_callargs_with_paramflags(
                 keep: None,
                 value: CArgValue::pointer(addr),
             });
-            out_buffers.push((param_idx, buffer));
+            out_buffers.push(OutValue::Out(buffer));
         } else {
             // IN or IN|OUT: get from caller args or default
             let arg = if caller_arg_idx < args.args.len() {
@@ -1497,7 +1502,7 @@ fn build_callargs_with_paramflags(
 
             if is_out {
                 // IN|OUT: track for return
-                out_buffers.push((param_idx, arg.clone()));
+                out_buffers.push(OutValue::InOut(arg.clone()));
             }
             let (value, keep) = arg_type.convert_object(arg, vm)?;
             arguments.push(Argument { value, keep });
@@ -1791,13 +1796,13 @@ fn pycdata_from_ffi_result(
 }
 
 /// Extract values from OUT buffers
-fn extract_out_values(
-    out_buffers: Vec<(usize, PyObjectRef)>,
-    vm: &VirtualMachine,
-) -> Vec<PyObjectRef> {
+fn extract_out_values(out_buffers: &[OutValue], vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     out_buffers
-        .into_iter()
-        .map(|(_, buffer)| buffer.get_attr("value", vm).unwrap_or(buffer))
+        .iter()
+        .map(|value| match value {
+            OutValue::Out(buffer) => vm.call_method(buffer, "__ctypes_from_outparam__", ()),
+            OutValue::InOut(buffer) => Ok(buffer.clone()),
+        })
         .collect()
 }
 
@@ -1863,7 +1868,10 @@ fn build_result(
         return result.map_or_else(|| Ok(vm.ctx.none()), Ok);
     }
 
-    let out_values = extract_out_values(out_buffers, vm);
+    // OUT parameters replace the raw result. Release it before conversion,
+    // which can invoke user-defined methods.
+    drop(result);
+    let out_values = extract_out_values(&out_buffers, vm)?;
     Ok(match <[PyObjectRef; 1]>::try_from(out_values) {
         Ok([single]) => single,
         Err(v) => PyTuple::new_ref(v, &vm.ctx).into(),
