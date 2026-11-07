@@ -16,10 +16,10 @@ use std::{io::Write, time::Instant};
 /// as both namespace arguments to the selected importer.
 pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
     let from_list = vm.ctx.new_list(vec![]);
+    let mut importer: Option<PyObjectRef> = None;
+    let mut builtins: Option<PyObjectRef> = None;
     let mut globals: Option<PyObjectRef> = crate::frame::current_globals().map(Into::into);
     let has_globals = globals.is_some();
-    let mut builtins: Option<PyObjectRef> = None;
-    let mut importer: Option<PyObjectRef> = None;
     let result = (|| {
         let globals = globals.get_or_insert_with(|| vm.ctx.new_dict().into());
         let builtins = builtins.insert(if has_globals {
@@ -64,8 +64,6 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
     })();
     // Keep the selected module/error alive across callback-capable cleanup on
     // every path, including lookup and invocation failures.
-    drop(globals);
-    drop(builtins);
     result
 }
 
