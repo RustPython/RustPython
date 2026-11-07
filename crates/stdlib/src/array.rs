@@ -1393,6 +1393,7 @@ pub mod array {
             }
             let result = array.setitem_by_item(index as isize, item, vm);
             drop(array);
+            drop(value);
             result
         }
 
