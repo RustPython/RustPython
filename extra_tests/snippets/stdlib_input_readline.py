@@ -102,3 +102,20 @@ print('RESULT=' + input('SECOND>'), flush=True)
 """,
         output_terminal=True,
     )
+
+    # The result audit runs after native reading and may start another input.
+    # It must not inherit an active reader borrow or lose the retained next line.
+    exercise(
+        """
+import sys
+results = []
+def audit(event, args):
+    if event == 'builtins.input/result' and not results:
+        results.append(args[0])
+        results.append(input('SECOND>'))
+sys.addaudithook(audit)
+assert input('FIRST>') == 'one'
+assert results == ['one', 'two'], results
+print('RESULT=' + results[1], flush=True)
+"""
+    )
