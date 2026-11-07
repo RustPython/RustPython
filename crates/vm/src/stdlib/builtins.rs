@@ -27,7 +27,6 @@ mod builtins {
         protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
-        stdlib::sys,
         types::PyComparisonOp,
         vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
@@ -750,7 +749,7 @@ mod builtins {
     struct InputArgs {
         // Missing means an empty prompt.
         #[pyarg(positional, optional, py_default = "''")]
-        prompt: OptionalArg<PyStrRef>,
+        prompt: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -836,29 +835,52 @@ mod builtins {
         let prompt = args.prompt;
         use std::io::IsTerminal;
 
-        let stdin = sys::get_stdin(vm)?;
-        let stdout = sys::get_stdout(vm)?;
-        let stderr = sys::get_stderr(vm)?;
+        // PySys_GetAttr bypasses a sys module subclass's attribute hooks.
+        // Keep all three selected streams alive across the callbacks below.
+        let get_stream = |name| {
+            vm.sys_module
+                .dict()
+                .get_item_opt(name, vm)?
+                .filter(|stream| !vm.is_none(stream))
+                .ok_or_else(|| vm.new_runtime_error(format!("lost sys.{name}")))
+        };
+        let stdin = get_stream("stdin")?;
+        let stdout = get_stream("stdout")?;
+        let stderr = get_stream("stderr")?;
+
+        vm.audit("builtins.input", || {
+            (match &prompt {
+                OptionalArg::Present(prompt) => prompt.clone(),
+                OptionalArg::Missing => vm.ctx.none(),
+            },)
+        })?;
 
         let _ = vm.call_method(&stderr, "flush", ());
 
-        let fd_matches = |obj, expected| {
-            vm.call_method(obj, "fileno", ())
-                .and_then(|o| i64::try_from_object(vm, o))
-                .is_ok_and(|fd| fd == expected)
+        let fd_matches = |obj, expected| -> PyResult<bool> {
+            // A failed fileno call selects the fallback, but conversion errors
+            // from a successfully returned descriptor must propagate.
+            let Ok(fileno) = vm.call_method(obj, "fileno", ()) else {
+                return Ok(false);
+            };
+            let index = fileno.try_index(vm)?;
+            let fd = core::ffi::c_long::try_from(index.as_bigint())
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+            Ok(fd == expected)
         };
 
-        let tty = fd_matches(&stdin, 0)
-            && fd_matches(&stdout, 1)
+        let tty = fd_matches(&stdin, 0)?
             && std::io::stdin().is_terminal()
+            && fd_matches(&stdout, 1)?
             && std::io::stdout().is_terminal();
 
         // Encode the prompt with stdout's encoding and reject embedded NULs
         // (`strlen` on the encoded bytes).
-        if tty && let OptionalArg::Present(prompt) = &prompt {
+        let tty_prompt = if tty && let OptionalArg::Present(prompt) = &prompt {
             let _ = vm.call_method(&stdout, "flush", ());
             let encoding = stdout.get_attr("encoding", vm)?;
             let errors = stdout.get_attr("errors", vm)?;
+            let prompt = prompt.str(vm)?;
             if !vm.is_none(&encoding) {
                 let encoded = vm.call_method(prompt.as_object(), "encode", (encoding, errors))?;
                 let bytes = encoded
@@ -870,13 +892,16 @@ mod builtins {
                     ));
                 }
             }
-        }
+            Some(prompt)
+        } else {
+            None
+        };
 
         // rustyline is the interactive tty reader. Skip it in a PTY child
         // (`pty.fork` + `setsid`): raw mode hangs there.
-        let prompt_str = match &prompt {
-            OptionalArg::Present(s) => s.to_str(),
-            OptionalArg::Missing => Some(""),
+        let prompt_str = match &tty_prompt {
+            Some(s) => s.to_str(),
+            None => Some(""),
         };
         let use_rustyline = tty && !is_pty_child() && prompt_str.is_some();
 
@@ -884,7 +909,11 @@ mod builtins {
             let prompt = prompt_str.unwrap();
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
-                ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s).into()),
+                ReadlineResult::Line(s) => {
+                    let result = vm.ctx.new_str(s);
+                    vm.audit("builtins.input/result", || (result.clone(),))?;
+                    Ok(result.into())
+                }
                 ReadlineResult::Eof => {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.to_owned()))
                 }
@@ -897,8 +926,12 @@ mod builtins {
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
-            if let OptionalArg::Present(prompt) = prompt {
-                vm.call_method(&stdout, "write", (prompt,))?;
+            if let Some(prompt) = &tty_prompt {
+                // The TTY guard may still select the stream fallback. Reuse
+                // the already converted prompt rather than calling str twice.
+                vm.call_method(&stdout, "write", (prompt.clone(),))?;
+            } else if let OptionalArg::Present(prompt) = &prompt {
+                py_io::file_write_object(&stdout, prompt, vm)?;
             }
             let _ = vm.call_method(&stdout, "flush", ());
             py_io::file_readline(&stdin, None, vm)
@@ -1191,14 +1224,14 @@ mod builtins {
     pub struct PrintOptions {
         // None means a space; the string is filled in when printing.
         #[pyarg(named, default, py_default = "' '")]
-        sep: Option<PyStrRef>,
+        sep: Option<PyObjectRef>,
         // None means a newline; the string is filled in when printing.
         #[pyarg(named, default, py_default = "'\\n'")]
-        end: Option<PyStrRef>,
+        end: Option<PyObjectRef>,
         #[pyarg(named, optional)]
         file: Option<PyObjectRef>,
-        #[pyarg(named, default = ArgIntoBool::FALSE)]
-        flush: ArgIntoBool,
+        #[pyarg(named, default, py_default = "False")]
+        flush: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1207,29 +1240,63 @@ mod builtins {
         options: PrintOptions,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let file = match options.file {
-            Some(f) => f,
-            None => sys::get_stdout(vm)?,
+        // Bind raw controls first, so unknown keywords fail before callbacks.
+        // Keep their owners until all writes and the final flush have finished.
+        let flush = options
+            .flush
+            .as_ref()
+            .map(|flush| flush.try_to_bool(vm))
+            .transpose()?
+            .unwrap_or(false);
+        let file = match &options.file {
+            Some(f) => f.clone(),
+            None => vm
+                .sys_module
+                .dict()
+                .get_item_opt("stdout", vm)?
+                .ok_or_else(|| vm.new_runtime_error("lost sys.stdout"))?,
         };
-        let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
-
-        let sep = options.sep.unwrap_or_else(|| vm.ctx.new_str(" "));
-
-        let mut first = true;
-        for object in objects {
-            if first {
-                first = false;
-            } else {
-                write(sep.clone())?;
-            }
-
-            write(object.str(vm)?)?;
+        // stdout can be None when the process has no connected output stream.
+        if vm.is_none(&file) {
+            return Ok(());
         }
 
-        let end = options.end.unwrap_or_else(|| vm.ctx.new_str("\n"));
-        write(end)?;
+        for (name, value) in [("sep", &options.sep), ("end", &options.end)] {
+            if let Some(value) = value
+                && value.downcast_ref::<PyStr>().is_none()
+            {
+                return Err(vm.new_type_error(format!(
+                    "{name} must be None or a string, not {}",
+                    value.class().slot_name(),
+                )));
+            }
+        }
 
-        if options.flush.into() {
+        let default_sep;
+        let sep = match options.sep.as_deref() {
+            Some(sep) => sep,
+            None => {
+                default_sep = vm.ctx.new_str(" ");
+                default_sep.as_object()
+            }
+        };
+        let default_end;
+        let end = match options.end.as_deref() {
+            Some(end) => end,
+            None => {
+                default_end = vm.ctx.new_str("\n");
+                default_end.as_object()
+            }
+        };
+        for (i, object) in objects.iter().enumerate() {
+            if i > 0 {
+                py_io::file_write_object(&file, sep, vm)?;
+            }
+            py_io::file_write_object(&file, object, vm)?;
+        }
+        py_io::file_write_object(&file, end, vm)?;
+
+        if flush {
             vm.call_method(&file, "flush", ())?;
         }
 

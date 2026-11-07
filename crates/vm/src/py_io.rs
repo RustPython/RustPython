@@ -2,7 +2,7 @@ use core::{fmt, ops};
 use std::io;
 
 use crate::{
-    PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
 };
@@ -68,6 +68,17 @@ impl Write for PyWriter<'_> {
     }
 }
 
+// PyFile_WriteObject with Py_PRINT_RAW: resolve the writer before converting
+// the object, since either operation can run Python code and replace write.
+pub fn file_write_object(file: &PyObject, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    let write = file.get_attr("write", vm)?;
+    let text = obj.str(vm)?;
+    let result = write.call((text.clone(),), vm);
+    drop(text);
+    drop(write);
+    result.map(drop)
+}
+
 pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
     let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size).into()]);
     let ret = vm.call_method(obj, "readline", args)?;
@@ -106,7 +117,12 @@ pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -
                 b.into()
             }
         }
-        _ => return Err(vm.new_type_error("object.readline() returned non-string")),
+        other =>
+            return Err(vm.new_type_error(format!(
+                "{}.readline() must return a str, not {}",
+                obj.class().fully_qualified_name(vm)?,
+                other.class().fully_qualified_name(vm)?,
+            ))),
     });
     Ok(ret)
 }
