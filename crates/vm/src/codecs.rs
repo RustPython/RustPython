@@ -1163,23 +1163,14 @@ impl<'a> PyDecodeContext<'a> {
     fn effective_encoding(&self) -> &'a str {
         match self.encoding {
             "utf-16" => {
-                let big = if self.data.starts_with(&[0xfe, 0xff]) {
-                    true
-                } else if self.data.starts_with(&[0xff, 0xfe]) {
-                    false
-                } else {
-                    cfg!(target_endian = "big")
-                };
+                let big = self.data.starts_with(&[0xfe, 0xff])
+                    || (cfg!(target_endian = "big") && !self.data.starts_with(&[0xff, 0xfe]));
                 if big { "utf-16-be" } else { "utf-16-le" }
             }
             "utf-32" => {
-                let big = if self.data.starts_with(&[0x00, 0x00, 0xfe, 0xff]) {
-                    true
-                } else if self.data.starts_with(&[0xff, 0xfe, 0x00, 0x00]) {
-                    false
-                } else {
-                    cfg!(target_endian = "big")
-                };
+                let big = self.data.starts_with(&[0x00, 0x00, 0xfe, 0xff])
+                    || (cfg!(target_endian = "big")
+                        && !self.data.starts_with(&[0xff, 0xfe, 0x00, 0x00]));
                 if big { "utf-32-be" } else { "utf-32-le" }
             }
             encoding => encoding,
