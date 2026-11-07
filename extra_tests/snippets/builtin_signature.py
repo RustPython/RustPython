@@ -92,7 +92,7 @@ if hasattr(signal, "setitimer"):
     )
     assert inspect.signature(signal.setitimer).parameters["interval"].default == 0.0
 
-assert zlib.compressobj.__text_signature__ == (
+assert " ".join(zlib.compressobj.__text_signature__.split()) == (
     "($module, /, level=Z_DEFAULT_COMPRESSION, method=DEFLATED, "
     "wbits=MAX_WBITS, memLevel=DEF_MEM_LEVEL, "
     "strategy=Z_DEFAULT_STRATEGY, zdict=<unrepresentable>)"
