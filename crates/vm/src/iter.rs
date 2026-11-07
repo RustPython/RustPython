@@ -1,7 +1,6 @@
 use crate::{
     PyObject, PyObjectRef, PyResult,
     function::{Either, PyComparisonValue},
-    protocol::{PyIter, PyIterReturn},
     types::PyComparisonOp,
     vm::VirtualMachine,
 };
@@ -45,47 +44,6 @@ pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObject> + Size
 }
 
 impl<'a, T> PyExactSizeIterator<'a> for T where T: ExactSizeIterator<Item = &'a PyObject> + Sized {}
-
-/// Compare two iterator streams, applying the requested operation to the first
-/// unequal pair. Unlike indexed sequence comparisons, even equality compares
-/// that pair again, and inequality dispatches its own comparison method.
-pub(crate) fn richcompare_iterators(
-    lhs: &PyIter,
-    rhs: &PyIter,
-    op: PyComparisonOp,
-    vm: &VirtualMachine,
-) -> PyResult<bool> {
-    loop {
-        let a = match lhs.next(vm)? {
-            PyIterReturn::Return(item) => Some(item),
-            PyIterReturn::StopIteration(_) => None,
-        };
-        // Both streams advance, including when the left stream just ended.
-        let b = rhs.next(vm).map(|result| match result {
-            PyIterReturn::Return(item) => Some(item),
-            PyIterReturn::StopIteration(_) => None,
-        });
-        let result = match (&a, &b) {
-            (Some(a), Ok(Some(b))) => {
-                a.rich_compare_bool(b, PyComparisonOp::Eq, vm)
-                    .and_then(|equal| {
-                        if equal {
-                            Ok(None)
-                        } else {
-                            a.rich_compare_bool(b, op, vm).map(Some)
-                        }
-                    })
-            }
-            (_, Ok(b)) => Ok(Some(op.eval_ord(a.is_some().cmp(&b.is_some())))),
-            (_, Err(error)) => Err(error.clone()),
-        };
-        // Finalizers may mutate either stream before the next iteration.
-        drop(a);
-        if let Some(result) = result? {
-            return Ok(result);
-        }
-    }
-}
 
 /// Compare two sequences whose item-comparison callbacks may mutate the
 /// containers. `get(i)` must snapshot `(len, item_at_i)` and drop any
