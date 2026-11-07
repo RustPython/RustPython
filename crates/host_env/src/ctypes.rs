@@ -2838,7 +2838,6 @@ impl ExternalLibs {
         let new_lib = SharedLibrary::new(library_path)?;
         let key = new_lib.get_pointer();
         if self.libraries.contains_key(&key) {
-            drop(new_lib);
             return Ok(key);
         }
         self.libraries.insert(key, new_lib);
@@ -2854,7 +2853,6 @@ impl ExternalLibs {
         let new_lib = SharedLibrary::new_with_mode(library_path, mode)?;
         let key = new_lib.get_pointer();
         if self.libraries.contains_key(&key) {
-            drop(new_lib);
             return Ok(key);
         }
         self.libraries.insert(key, new_lib);

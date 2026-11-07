@@ -127,8 +127,7 @@ mod _functools {
                 PySetterValue::Assign(v) => Some(v),
                 PySetterValue::Delete => None,
             };
-            let old = core::mem::replace(&mut *self.object.write(), value);
-            drop(old);
+            let _old = core::mem::replace(&mut *self.object.write(), value);
         }
 
         #[pygetset]

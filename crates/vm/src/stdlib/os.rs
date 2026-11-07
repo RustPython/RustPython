@@ -2294,7 +2294,6 @@ pub(super) mod _os {
             Err(e) => return Err(error(vm, e, path)),
         };
         f.set_len(length as u64).map_err(|e| error(vm, e, path))?;
-        drop(f);
         Ok(())
     }
 

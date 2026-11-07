@@ -133,8 +133,7 @@ mod _browser {
                 let args = vec![vm.ctx.new_float(time).into()];
                 let _ = func.invoke(args, vm);
 
-                let closure = f.borrow_mut().take();
-                drop(closure);
+                let _closure = f.borrow_mut().take();
             })
         }) as Box<dyn Fn(f64)>));
 

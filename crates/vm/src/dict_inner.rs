@@ -726,10 +726,9 @@ impl<T: Clone> Dict<T> {
             let mut inner = self.write();
             match inner.entries.get_mut(hint) {
                 Some(Some(entry)) if key.key_is(&entry.key) => {
-                    let removed = core::mem::replace(&mut entry.value, value);
+                    let _removed = core::mem::replace(&mut entry.value, value);
                     drop(inner);
                     // defer dec RC until after the lock is released
-                    drop(removed);
                     return Ok(None);
                 }
                 _ => value,

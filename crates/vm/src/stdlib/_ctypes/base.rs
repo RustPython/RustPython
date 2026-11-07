@@ -337,9 +337,8 @@ pub(super) fn pointer_type_set(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if let Some(mut info) = zelf.get_type_data_mut::<StgInfo>() {
-        let old = info.pointer_type.replace(value);
+        let _old = info.pointer_type.replace(value);
         drop(info);
-        drop(old);
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!("cannot set __pointer_type__ on {}", zelf.name())))
@@ -853,8 +852,7 @@ struct WriteRegistration {
 
 impl Drop for WriteRegistration {
     fn drop(&mut self) {
-        let removed = self.registry.writes.write().remove(self.key);
-        drop(removed);
+        let _removed = self.registry.writes.write().remove(self.key);
     }
 }
 
@@ -868,7 +866,7 @@ struct BufferAlias {
 
 impl Drop for BufferAlias {
     fn drop(&mut self) {
-        let removed = {
+        let _removed = {
             let mut views = self.registry.views.write();
             if let Some(aliases) = views.get_mut(&self.exporter) {
                 let removed = aliases.remove(self.key);
@@ -880,7 +878,6 @@ impl Drop for BufferAlias {
                 None
             }
         };
-        drop(removed);
     }
 }
 
@@ -1840,19 +1837,17 @@ impl PyCData {
         if self.base.read().is_some() {
             self.keep_ref(0, value, vm)
         } else {
-            let old = self.objects.write().replace(value);
-            drop(old);
+            let _old = self.objects.write().replace(value);
             Ok(())
         }
     }
 
     pub(super) fn keep_cast_owner(&self, owner: PyObjectRef) {
-        let old = self
+        let _old = self
             .kept_refs
             .write()
             .get_or_insert_with(Default::default)
             .replace("@cast".to_owned(), Some(HiddenRefs::Single(owner)));
-        drop(old);
     }
 
     // Follow provenance, including weak writer links. This is not GC traversal:
@@ -2355,7 +2350,7 @@ impl PyCData {
             key,
             record,
         };
-        let old = cdata
+        let _old = cdata
             .kept_refs
             .write()
             .get_or_insert_with(Default::default)
@@ -2363,7 +2358,6 @@ impl PyCData {
             .insert(slot.clone(), registration);
         // A slot owns at most its latest range; retargeting cannot accumulate
         // unbounded history. The full provenance fallback preserves older aliases.
-        drop(old);
         Ok(())
     }
 
@@ -2478,7 +2472,7 @@ impl PyCData {
                 );
             }
             if let Some(writer) = writer {
-                let old = {
+                let _old = {
                     let mut refs = writer.kept_refs.write();
                     let refs = refs.get_or_insert_with(Default::default);
                     match view_key {
@@ -2486,7 +2480,6 @@ impl PyCData {
                         None => refs.writer_paths.replace(cache.into()),
                     }
                 };
-                drop(old);
             }
             if direct.is_some() || target.is_some() {
                 return Ok(direct.or(target));
@@ -2590,7 +2583,7 @@ impl PyCData {
             let existing = refs
                 .first("@writers")
                 .and_then(|obj| obj.downcast::<PyDict>().ok());
-            let (views, old) = if let Some(views) = existing {
+            let (views, _old) = if let Some(views) = existing {
                 (views, Vec::new())
             } else {
                 let old = refs.replace(
@@ -2602,7 +2595,6 @@ impl PyCData {
             drop(guard);
             // Adding a writer group can invalidate the shared owner snapshot.
             // Release it outside the private-metadata lock.
-            drop(old);
             views
         };
         let registered = views
@@ -2816,7 +2808,6 @@ impl PyCData {
             }
         }
         drop(refs);
-        drop(value);
         Ok(())
     }
 
@@ -2911,7 +2902,6 @@ impl PyCData {
                 index.set(key, value.as_ref().map(|value| value.get_id()));
             }
             drop(refs);
-            drop(value);
         }
         Ok(None)
     }
@@ -4131,7 +4121,6 @@ pub(super) fn set_or_init_stginfo(type_ref: &PyType, stg_info: StgInfo) {
             existing.pointer_type = old.pointer_type.take();
         }
         drop(existing);
-        drop(old);
     }
 }
 

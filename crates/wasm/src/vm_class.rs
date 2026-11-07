@@ -203,13 +203,8 @@ impl VMStore {
 
     pub fn destroy(id: String) {
         STORED_VMS.with_borrow_mut(|vms| {
-            if let Some(stored_vm) = vms.remove(&id) {
-                // for f in stored_vm.drop_handlers.iter() {
-                //     f();
-                // }
-                // deallocate the VM
-                drop(stored_vm);
-            }
+            // Deallocate the VM after removing it from the registry.
+            let _stored_vm = vms.remove(&id);
         });
     }
 
