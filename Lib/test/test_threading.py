@@ -476,7 +476,6 @@ class ThreadTests(BaseTestCase):
         finally:
             threading._start_joinable_thread = _start_joinable_thread
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ctypes.pythonapi is not supported
     def test_finalize_running_thread(self):
         # Issue 1402: the PyGILState_Ensure / _Release functions may be called
         # very late on python exit: on deallocation of a running thread for
