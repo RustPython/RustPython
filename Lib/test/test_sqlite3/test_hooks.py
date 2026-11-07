@@ -449,7 +449,6 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
             cx.set_trace_callback(lambda stmt: 5/0)
             cx.execute("select 1")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_trace_callback
     def test_set_trace_callback_keyword_args(self):
         with self.assertRaisesRegex(TypeError,
                 'takes exactly 1 positional argument'):
