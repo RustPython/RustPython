@@ -17,7 +17,7 @@ mod _wmi {
     }
 
     #[pyfunction]
-    fn exec_query(args: ExecQueryArgs, vm: &VirtualMachine) -> PyResult<String> {
+    fn exec_query(args: ExecQueryArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // Bind all keywords before converting the query, as Argument Clinic does.
         let query = args.query;
         vm.audit("_wmi.exec_query", || (query.clone(),))?;
@@ -34,6 +34,11 @@ mod _wmi {
         {
             return Err(vm.new_value_error("only SELECT queries are supported"));
         }
-        host_wmi::exec_query_wide(wide).map_err(|err| err.to_pyexception(vm))
+        host_wmi::exec_query_wide(&wide)
+            .map(|result| {
+                vm.ctx
+                    .new_str(crate::common::wtf8::Wtf8Buf::from_wide(&result))
+            })
+            .map_err(|err| err.to_pyexception(vm))
     }
 }
