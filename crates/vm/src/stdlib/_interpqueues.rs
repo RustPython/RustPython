@@ -10,14 +10,13 @@ pub(crate) use _interpqueues::{
 #[pymodule]
 pub(crate) mod _interpqueues {
     use crate::{
-        AsObject, Py, PyObject, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyModule, PyType, PyTypeRef},
-        function::{ArgSpec, FuncArgs},
+        function::OptionalArg,
         types::Constructor,
         vm::crossinterp::{Fallback, SharedValue, UnboundOp},
     };
     use alloc::{collections::BTreeMap, collections::VecDeque, sync::Arc};
-    use core::cell::Cell;
     use num_traits::{Signed, ToPrimitive};
     use parking_lot::Mutex;
     use std::sync::OnceLock;
@@ -339,23 +338,11 @@ pub(crate) mod _interpqueues {
         Err(vm.new_overflow_error(format!("max queue ID is {}, got {repr}", i64::MAX)))
     }
 
-    fn qid_arg(args: &FuncArgs, func: &'static str, vm: &VirtualMachine) -> PyResult<i64> {
-        let qid = Cell::new(None);
-        ArgSpec {
-            fname: func,
-            keywords: &["qid"],
-            required: 1,
-            max_positional: 1,
+    fn optional_int_arg(arg: &OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<i32> {
+        match arg {
+            OptionalArg::Present(obj) => int_arg(obj, vm),
+            OptionalArg::Missing => Ok(-1),
         }
-        .parse_with(
-            args,
-            |_, obj, vm| {
-                qid.set(Some(parse_qid(obj, vm)?));
-                Ok(())
-            },
-            vm,
-        )?;
-        Ok(qid.get().unwrap())
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
@@ -365,39 +352,58 @@ pub(crate) mod _interpqueues {
         Ok(())
     }
 
-    #[pyfunction]
-    fn create(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        let maxsize = Cell::new(None);
-        let unboundarg = Cell::new(None);
-        let fallbackarg = Cell::new(None);
-        ArgSpec {
-            fname: "create",
-            keywords: &["maxsize", "unboundop", "fallback"],
-            required: 1,
-            max_positional: 3,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => maxsize.set(Some(ssize_arg(obj, vm)?)),
-                    1 => unboundarg.set(Some(int_arg(obj, vm)?)),
-                    2 => fallbackarg.set(Some(int_arg(obj, vm)?)),
-                    _ => unreachable!(),
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let unboundop = resolve_unboundop(unboundarg.get().unwrap_or(-1), UnboundOp::Replace, vm)?;
-        let fallback =
-            resolve_fallback(fallbackarg.get().unwrap_or(-1), Fallback::Full.as_i32(), vm)?;
-        queue_create(maxsize.get().unwrap(), unboundop, fallback).map_err(|err| err.into_py(-1, vm))
+    // Keep the original inputs alive while applying the queue-specific converters.
+    #[derive(FromArgs)]
+    struct QueueIdArgs {
+        #[pyarg(any)]
+        qid: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct CreateArgs {
+        #[pyarg(any)]
+        maxsize: PyObjectRef,
+        #[pyarg(any, optional, py_default = "-1")]
+        unboundop: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional, py_default = "-1")]
+        fallback: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct PutArgs {
+        #[pyarg(any)]
+        qid: PyObjectRef,
+        #[pyarg(any)]
+        obj: PyObjectRef,
+        #[pyarg(any, optional, py_default = "-1")]
+        unboundop: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional, py_default = "-1")]
+        fallback: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct RegisterHeapTypesArgs {
+        #[pyarg(any)]
+        queuetype: PyObjectRef,
+        #[pyarg(any)]
+        emptyerror: PyObjectRef,
+        #[pyarg(any)]
+        fullerror: PyObjectRef,
     }
 
     #[pyfunction]
-    fn destroy(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let qid = qid_arg(&args, "destroy", vm)?;
+    fn create(args: CreateArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let maxsize = ssize_arg(&args.maxsize, vm)?;
+        let unboundarg = optional_int_arg(&args.unboundop, vm)?;
+        let fallbackarg = optional_int_arg(&args.fallback, vm)?;
+        let unboundop = resolve_unboundop(unboundarg, UnboundOp::Replace, vm)?;
+        let fallback = resolve_fallback(fallbackarg, Fallback::Full.as_i32(), vm)?;
+        queue_create(maxsize, unboundop, fallback).map_err(|err| err.into_py(-1, vm))
+    }
+
+    #[pyfunction]
+    fn destroy(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let qid = parse_qid(&args.qid, vm)?;
         queue_destroy(qid).map_err(|err| err.into_py(qid, vm))
     }
 
@@ -429,33 +435,10 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn put(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let qid = Cell::new(None);
-        let unboundarg = Cell::new(None);
-        let fallbackarg = Cell::new(None);
-        let parsed = ArgSpec {
-            fname: "put",
-            keywords: &["qid", "obj", "unboundop", "fallback"],
-            required: 2,
-            max_positional: 4,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| {
-                match i {
-                    0 => qid.set(Some(parse_qid(obj, vm)?)),
-                    2 => unboundarg.set(Some(int_arg(obj, vm)?)),
-                    3 => fallbackarg.set(Some(int_arg(obj, vm)?)),
-                    _ => {}
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        let qid = qid.get().unwrap();
-        let obj = parsed[1].as_deref().unwrap();
-        let unboundarg = unboundarg.get().unwrap_or(-1);
-        let fallbackarg = fallbackarg.get().unwrap_or(-1);
+    fn put(args: PutArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let qid = parse_qid(&args.qid, vm)?;
+        let unboundarg = optional_int_arg(&args.unboundop, vm)?;
+        let fallbackarg = optional_int_arg(&args.fallback, vm)?;
         // The queue is only consulted when one of the arguments needs its default.
         let (default_unboundop, default_fallback) = if unboundarg < 0 || fallbackarg < 0 {
             let (unboundop, fallback) = queue_defaults(qid).map_err(|err| err.into_py(qid, vm))?;
@@ -465,7 +448,7 @@ pub(crate) mod _interpqueues {
         };
         let unboundop = resolve_unboundop(unboundarg, default_unboundop, vm)?;
         let fallback = resolve_fallback(fallbackarg, default_fallback, vm)?;
-        let value = SharedValue::from_object(obj, fallback, vm)?;
+        let value = SharedValue::from_object(&args.obj, fallback, vm)?;
         let queue = queue_lookup(qid).map_err(|err| err.into_py(qid, vm))?;
         let mut state = queue.lock();
         if !state.alive {
@@ -484,8 +467,8 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn get(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let qid = qid_arg(&args, "get", vm)?;
+    fn get(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult {
+        let qid = parse_qid(&args.qid, vm)?;
         let item = {
             let queue = queue_lookup(qid).map_err(|err| err.into_py(qid, vm))?;
             let mut state = queue.lock();
@@ -511,20 +494,20 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn bind(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let qid = qid_arg(&args, "bind", vm)?;
+    fn bind(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let qid = parse_qid(&args.qid, vm)?;
         queue_bind(qid).map_err(|err| err.into_py(qid, vm))
     }
 
     #[pyfunction]
-    fn release(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let qid = qid_arg(&args, "release", vm)?;
+    fn release(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let qid = parse_qid(&args.qid, vm)?;
         queue_release(qid).map_err(|err| err.into_py(qid, vm))
     }
 
     #[pyfunction]
-    fn get_maxsize(args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
-        let qid = qid_arg(&args, "get_maxsize", vm)?;
+    fn get_maxsize(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        let qid = parse_qid(&args.qid, vm)?;
         let queue = queue_lookup(qid).map_err(|err| err.into_py(qid, vm))?;
         let state = queue.lock();
         if !state.alive {
@@ -534,8 +517,8 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn get_queue_defaults(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let qid = qid_arg(&args, "get_queue_defaults", vm)?;
+    fn get_queue_defaults(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult {
+        let qid = parse_qid(&args.qid, vm)?;
         let (unboundop, fallback) = queue_defaults(qid).map_err(|err| err.into_py(qid, vm))?;
         Ok(vm
             .ctx
@@ -547,8 +530,8 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn is_full(args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let qid = qid_arg(&args, "is_full", vm)?;
+    fn is_full(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        let qid = parse_qid(&args.qid, vm)?;
         let queue = queue_lookup(qid).map_err(|err| err.into_py(qid, vm))?;
         let state = queue.lock();
         if !state.alive {
@@ -558,8 +541,8 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn get_count(args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        let qid = qid_arg(&args, "get_count", vm)?;
+    fn get_count(args: QueueIdArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        let qid = parse_qid(&args.qid, vm)?;
         let queue = queue_lookup(qid).map_err(|err| err.into_py(qid, vm))?;
         let state = queue.lock();
         if !state.alive {
@@ -569,29 +552,19 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn _register_heap_types(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parsed = ArgSpec {
-            fname: "_register_heap_types",
-            keywords: &["queuetype", "emptyerror", "fullerror"],
-            required: 3,
-            max_positional: 3,
-        }
-        .parse(&args, vm)?;
-        let queue = parsed[0]
-            .clone()
-            .unwrap()
+    fn _register_heap_types(args: RegisterHeapTypesArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let queue = args
+            .queuetype
             .downcast::<PyType>()
             .map_err(|_| vm.new_type_error("expected a type for 'queuetype'"))?;
-        let empty = parsed[1]
-            .clone()
-            .unwrap()
+        let empty = args
+            .emptyerror
             .downcast::<PyType>()
             .ok()
             .filter(|ty| ty.fast_issubclass(vm.ctx.exceptions.base_exception_type))
             .ok_or_else(|| vm.new_type_error("expected an exception type for 'emptyerror'"))?;
-        let full = parsed[2]
-            .clone()
-            .unwrap()
+        let full = args
+            .fullerror
             .downcast::<PyType>()
             .ok()
             .filter(|ty| ty.fast_issubclass(vm.ctx.exceptions.base_exception_type))
