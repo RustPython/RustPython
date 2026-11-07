@@ -848,12 +848,12 @@ mod builtins {
         // Rustyline retains input read ahead past the current line. Keep the
         // editor across input() calls so that queued lines are not discarded.
         // It contains no Python objects or interpreter-specific helper state.
-        static INPUT_READLINE: std::cell::RefCell<Option<Readline<()>>> =
-            std::cell::RefCell::new(Some(Readline::new(())));
+        static INPUT_READLINE: core::cell::RefCell<Option<Readline<()>>> =
+            core::cell::RefCell::new(Some(Readline::new(())));
     }
 
     struct InputReadlineGuard<'a> {
-        slot: &'a std::cell::RefCell<Option<Readline<()>>>,
+        slot: &'a core::cell::RefCell<Option<Readline<()>>>,
         reader: Option<Readline<()>>,
     }
 
