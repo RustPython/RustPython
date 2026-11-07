@@ -980,6 +980,17 @@ impl<'a> PyDecodeContext<'a> {
             exception: OnceCell::new(),
         }
     }
+
+    pub(crate) fn new_owned(encoding: &'a str, data: PyBytesRef, vm: &'a VirtualMachine) -> Self {
+        Self {
+            vm,
+            encoding,
+            data: PyDecodeData::Modified(data),
+            orig_bytes: None,
+            pos: 0,
+            exception: OnceCell::new(),
+        }
+    }
 }
 
 impl CodecContext for PyDecodeContext<'_> {
@@ -1130,6 +1141,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
 pub(crate) struct ErrorsHandler<'a> {
     errors: &'a Py<PyUtf8Str>,
     resolved: OnceCell<ResolvedError>,
+    use_registry: bool,
 }
 
 enum ResolvedError {
@@ -1144,12 +1156,22 @@ impl<'a> ErrorsHandler<'a> {
             Self {
                 errors,
                 resolved: OnceCell::new(),
+                use_registry: false,
             }
         } else {
             Self {
                 errors: identifier_utf8!(vm, strict),
                 resolved: OnceCell::from(ResolvedError::Standard(StandardError::Strict)),
+                use_registry: false,
             }
+        }
+    }
+
+    pub(crate) fn new_registered(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
+        Self {
+            errors: errors.unwrap_or_else(|| identifier_utf8!(vm, strict)),
+            resolved: OnceCell::new(),
+            use_registry: true,
         }
     }
 
@@ -1159,7 +1181,9 @@ impl<'a> ErrorsHandler<'a> {
             return Ok(val);
         }
         let errors_str = self.errors.as_str();
-        let val = if let Ok(standard) = errors_str.parse() {
+        let val = if !self.use_registry
+            && let Ok(standard) = errors_str.parse()
+        {
             ResolvedError::Standard(standard)
         } else {
             vm.state
@@ -1246,33 +1270,32 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
         let decode_exc = ctx.error_decoding(byte_range, reason);
         let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
         let res = handler.call((decode_exc.clone(),), vm)?;
+        let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
+        let Some([replace, restart]) = res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice())
+        else {
+            return Err(tuple_err());
+        };
+        let replace = replace
+            .downcast_ref::<PyStr>()
+            .ok_or_else(tuple_err)?
+            .to_owned();
+        let restart = isize::try_from_borrowed_object(vm, restart)
+            .map_err(|e| if self.use_registry { e } else { tuple_err() })?;
         let new_data = decode_exc.as_object().get_attr("object", vm)?;
-        if !new_data.is(&data_bytes) {
+        if self.use_registry || !new_data.is(&data_bytes) {
             let new_data: PyBytesRef = new_data
                 .downcast()
                 .map_err(|_| vm.new_type_error("object attribute must be bytes"))?;
             ctx.data = PyDecodeData::Modified(new_data);
         }
         let data = &*ctx.data;
-        let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
-        match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
-            Some([replace, restart]) => {
-                let replace = replace
-                    .downcast_ref::<PyStr>()
-                    .ok_or_else(tuple_err)?
-                    .to_owned();
-                let restart =
-                    isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
-                let restart = if restart < 0 {
-                    // will still be out of bounds if it underflows ¯\_(ツ)_/¯
-                    data.len().wrapping_sub(restart.unsigned_abs())
-                } else {
-                    restart as usize
-                };
-                Ok((replace, restart))
-            }
-            _ => Err(tuple_err()),
-        }
+        let restart = if restart < 0 {
+            // will still be out of bounds if it underflows ¯\_(ツ)_/¯
+            data.len().wrapping_sub(restart.unsigned_abs())
+        } else {
+            restart as usize
+        };
+        Ok((replace, restart))
     }
 }
 

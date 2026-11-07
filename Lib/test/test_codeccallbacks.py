@@ -1038,7 +1038,6 @@ class CodecCallbackTest(unittest.TestCase):
             self.assertRaises(ValueError, codecs.charmap_encode, "\xff", err, D())
             self.assertRaises(TypeError, codecs.charmap_encode, "\xff", err, {0xff: 300})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_decodehelper_bug36819(self):
         handler = RepeatedPosReturn("x")
         codecs.register_error("test.bug36819", handler.handle)
