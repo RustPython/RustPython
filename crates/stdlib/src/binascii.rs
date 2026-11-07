@@ -13,7 +13,7 @@ mod decl {
     use super::{base_n, new_binascii_error};
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytes, PyBytesRef, PyDict, PyModule, PyTypeRef},
+        builtins::{PyBytes, PyBytesRef, PyDict, PyModule, PyStr, PyTypeRef},
         function::{
             ArgAsciiBuffer, ArgBytesLike, ArgIndex, ArgIntoBool, ItemDoc, OptionalArg, PyMethodDef,
             PyMethodFlags,
@@ -161,7 +161,7 @@ mod decl {
         #[pyarg(any)]
         data: ArgBytesLike,
         #[pyarg(any, optional)]
-        sep: OptionalArg<ArgAsciiBuffer>,
+        sep: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         bytes_per_sep: OptionalArg<isize>,
     }
@@ -174,20 +174,33 @@ mod decl {
             sep,
             bytes_per_sep,
         } = args;
-        let sep = match sep {
-            OptionalArg::Present(sep) => sep.with_ref(|sep| {
-                let [sep] = sep else {
+        let sep_byte = match &sep {
+            OptionalArg::Present(sep) => {
+                if sep.length(vm)? != 1 {
                     return Err(vm.new_value_error("sep must be length 1."));
-                };
-                if !sep.is_ascii() {
-                    return Err(vm.new_value_error("sep must be ASCII."));
                 }
-                Ok(Some(*sep))
-            })?,
+                let byte = if let Some(string) = sep.downcast_ref::<PyStr>() {
+                    if string.kind().is_ascii() {
+                        string.as_bytes().first().copied().unwrap_or_default()
+                    } else {
+                        let mut chars = string.as_wtf8().code_points();
+                        let first = chars.next().map_or(0, |ch| ch.to_u32());
+                        if first > u8::MAX as u32 || chars.any(|ch| ch.to_u32() > u8::MAX as u32) {
+                            return Err(vm.new_value_error("sep must be ASCII."));
+                        }
+                        first as u8
+                    }
+                } else if let Some(bytes) = sep.downcast_ref::<PyBytes>() {
+                    bytes.as_bytes().first().copied().unwrap_or_default()
+                } else {
+                    return Err(vm.new_type_error("sep must be str or bytes."));
+                };
+                Some(byte)
+            }
             OptionalArg::Missing => None,
         };
         let bytes_per_sep = bytes_per_sep.unwrap_or(1);
-        Ok(data.with_ref(|bytes| binascii::hexlify(bytes, sep, bytes_per_sep)))
+        Ok(data.with_ref(|bytes| binascii::hexlify(bytes, sep_byte, bytes_per_sep)))
     }
 
     #[derive(FromArgs)]
