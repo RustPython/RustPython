@@ -853,17 +853,14 @@ def check_pairwise_source_finalizer(count):
         def __del__(self):
             events.append(("item", next(pairs, None)))
 
+    items = iter([Item()] if count else [])
+
     class Source:
-        remaining = count
+        # A native next avoids a Python traceback retaining self at exhaustion.
+        __next__ = staticmethod(items.__next__)
 
         def __iter__(self):
             return self
-
-        def __next__(self):
-            if self.remaining:
-                self.remaining -= 1
-                return Item()
-            raise StopIteration
 
         def __del__(self):
             events.append(("source", next(pairs, None)))
