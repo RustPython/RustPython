@@ -1554,20 +1554,20 @@ impl Py<PyStr> {
 
     #[pystaticmethod]
     fn maketrans(
-        dict_or_str: PyObjectRef,
-        to_str: OptionalArg<PyStrRef>,
-        none_str: OptionalArg<PyStrRef>,
+        x: PyObjectRef,
+        y: OptionalArg<PyStrRef>,
+        z: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let new_dict = vm.ctx.new_dict();
-        if let OptionalArg::Present(to_str) = to_str {
-            match dict_or_str.downcast::<PyStr>() {
+        if let OptionalArg::Present(y) = y {
+            match x.downcast::<PyStr>() {
                 Ok(from_str) => {
-                    if to_str.len() == from_str.len() {
+                    if y.len() == from_str.len() {
                         for (c1, c2) in from_str
                             .as_wtf8()
                             .code_points()
-                            .zip(to_str.as_wtf8().code_points())
+                            .zip(y.as_wtf8().code_points())
                         {
                             new_dict.set_item(
                                 &*vm.new_pyobj(c1.to_u32()),
@@ -1575,8 +1575,8 @@ impl Py<PyStr> {
                                 vm,
                             )?;
                         }
-                        if let OptionalArg::Present(none_str) = none_str {
-                            for c in none_str.as_wtf8().code_points() {
+                        if let OptionalArg::Present(z) = z {
+                            for c in z.as_wtf8().code_points() {
                                 new_dict.set_item(&*vm.new_pyobj(c.to_u32()), vm.ctx.none(), vm)?;
                             }
                         }
@@ -1593,9 +1593,8 @@ impl Py<PyStr> {
             }
         } else {
             // The single-argument form accepts exact dict and frozendict objects.
-            match PyAnyDict::from_object(&dict_or_str).filter(|_| {
-                dict_or_str.class().is(vm.ctx.types.dict_type)
-                    || dict_or_str.class().is(vm.ctx.types.frozendict_type)
+            match PyAnyDict::from_object(&x).filter(|_| {
+                x.class().is(vm.ctx.types.dict_type) || x.class().is(vm.ctx.types.frozendict_type)
             }) {
                 Some(dict) => {
                     for (key, val) in dict {

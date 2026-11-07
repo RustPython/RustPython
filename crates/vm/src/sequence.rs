@@ -161,7 +161,7 @@ pub struct OptionalRangeArgs {
     #[pyarg(positional, default = 0)]
     start: PyObjectRef,
     // Platform ssize maximum; a growing list may reach beyond its initial length.
-    #[pyarg(positional, optional, py_default = "9223372036854775807")]
+    #[pyarg(positional, optional, py_default = "sys.maxsize")]
     stop: OptionalArg<PyObjectRef>,
 }
 
