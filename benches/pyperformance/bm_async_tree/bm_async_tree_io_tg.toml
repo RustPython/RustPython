@@ -1,0 +1,7 @@
+[project]
+requires-python = ">=3.11"
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "async_tree_io_tg"
+extra_opts = ["io", "--task-groups"]

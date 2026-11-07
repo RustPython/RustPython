@@ -1,0 +1,10 @@
+[project]
+name = "pyperformance_bm_base64"
+requires-python = ">=3.8"
+dependencies = ["pyperf"]
+urls = {repository = "https://github.com/python/pyperformance"}
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "base64"
+tags = "serialize"

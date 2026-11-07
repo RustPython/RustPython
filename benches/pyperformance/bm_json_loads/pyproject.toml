@@ -1,0 +1,10 @@
+[project]
+name = "pyperformance_bm_json_loads"
+requires-python = ">=3.8"
+dependencies = ["pyperf"]
+urls = {repository = "https://github.com/python/pyperformance"}
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "json_loads"
+tags = "serialize"

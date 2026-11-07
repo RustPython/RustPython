@@ -1,0 +1,7 @@
+[project]
+requires-python = ">=3.12"
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "async_tree_eager_memoization_tg"
+extra_opts = ["eager_memoization", "--task-groups"]
