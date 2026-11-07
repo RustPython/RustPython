@@ -28,9 +28,10 @@ pub(crate) mod _thread {
         frame::FrameObjectRef,
         function::{
             ArgCallable, ArgIndex, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs,
-            OptionalArg, Param, ParamKind, PySetterValue, TimeoutSeconds,
+            OptionalArg, Param, ParamKind, PySetterValue,
         },
         object::{Traverse, TraverseFn},
+        stdlib::time::pytime,
         types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
     };
 
@@ -51,12 +52,6 @@ pub(crate) mod _thread {
         unix => Some("pthread"),
         any(target_os = "solaris", target_os = "illumos") => Some("solaris"),
         _ => None,
-    };
-
-    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = if cfg!(target_os = "windows") {
-        0xffffffff * 1_000
-    } else {
-        i64::MAX / 1_000
     };
 
     /// [CPython `SYSTEM_PAGE_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_obmalloc.h#L170)
@@ -81,46 +76,59 @@ pub(crate) mod _thread {
 
     // this is a value in seconds
     #[pyattr]
-    const TIMEOUT_MAX: f64 = (TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000) as f64;
+    const TIMEOUT_MAX: f64 = pytime::THREAD_TIMEOUT_MAX_SECONDS as f64;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.runtime_error.to_owned()
     }
 
-    #[derive(FromArgs)]
+    #[derive(Debug, FromArgs)]
     struct AcquireArgs {
-        #[pyarg(any, default = true)]
-        blocking: bool,
-        // No timeout; blocks until the lock is acquired.
-        #[pyarg(any, default = TimeoutSeconds::new(-1.0), py_default = "-1")]
-        timeout: TimeoutSeconds,
+        // Finish binding before truthiness or timeout conversion can run callbacks.
+        #[pyarg(any, optional, py_default = "True")]
+        blocking: OptionalArg<PyObjectRef>,
+        // No timeout; blocks until the lock is acquired. Explicit None is invalid.
+        #[pyarg(any, optional, py_default = "-1")]
+        timeout: OptionalArg<PyObjectRef>,
     }
 
     fn default_acquire_args() -> AcquireArgs {
         AcquireArgs {
-            blocking: true,
-            timeout: TimeoutSeconds::new(-1.0),
+            blocking: OptionalArg::Missing,
+            timeout: OptionalArg::Missing,
         }
     }
 
-    fn validate_acquire_args(args: AcquireArgs, vm: &VirtualMachine) -> PyResult<(bool, f64)> {
-        let timeout = args.timeout.to_secs_f64();
-        // CPython checks the signed nanosecond range before acquire-specific restrictions.
-        let timeout_ns = timeout * 1_000_000_000.0;
-        if !(i64::MIN as f64..-(i64::MIN as f64)).contains(&timeout_ns) {
-            return Err(vm.new_overflow_error("timestamp out of range for C PyTime_t"));
-        }
-        if !args.blocking && timeout != -1.0 {
+    fn validate_acquire_args(
+        args: &AcquireArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(bool, Option<Duration>)> {
+        let blocking = match &args.blocking {
+            OptionalArg::Present(value) => value.try_to_bool(vm)?,
+            OptionalArg::Missing => true,
+        };
+        let unset_timeout = pytime::from_seconds(-1);
+        let timeout = match &args.timeout {
+            OptionalArg::Present(value) => {
+                pytime::from_seconds_object(value, pytime::Round::Up, vm)?
+            }
+            OptionalArg::Missing => unset_timeout,
+        };
+        // CPython converts and rounds before checking the indefinite-wait sentinel.
+        if !blocking && timeout != unset_timeout {
             return Err(vm.new_value_error("can't specify a timeout for a non-blocking call"));
         }
-        if args.blocking && timeout < 0.0 && timeout != -1.0 {
+        if timeout < 0 && timeout != unset_timeout {
             return Err(vm.new_value_error("timeout value must be a non-negative number"));
         }
-        if timeout > TIMEOUT_MAX {
-            return Err(vm.new_overflow_error("timeout value is too large"));
-        }
-        Ok((args.blocking, timeout))
+        let duration = if timeout == unset_timeout {
+            None
+        } else {
+            pytime::check_thread_timeout(timeout, vm)?;
+            Some(Duration::from_nanos(timeout as u64))
+        };
+        Ok((blocking, duration))
     }
 
     macro_rules! acquire_lock_impl {
@@ -128,9 +136,6 @@ pub(crate) mod _thread {
         ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr, $owned:expr) => {{
             let (mu, blocking, timeout, vm) = ($mu, $blocking, $timeout, $vm);
             let started = std::time::Instant::now();
-            // CPython rounds positive timeouts up to the next nanosecond.
-            let timeout = (timeout != -1.0)
-                .then(|| Duration::from_nanos((timeout * 1_000_000_000.0).ceil() as u64));
             let mut remaining = timeout;
             loop {
                 // Ownership gained in a signal handler does not make an
@@ -219,7 +224,7 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let (blocking, timeout) = validate_acquire_args(args, vm)?;
+            let (blocking, timeout) = validate_acquire_args(&args, vm)?;
             acquire_lock_impl!(&self.mu, blocking, timeout, vm)
         }
 
@@ -319,7 +324,7 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let (blocking, timeout) = validate_acquire_args(args, vm)?;
+            let (blocking, timeout) = validate_acquire_args(&args, vm)?;
             if self.mu.is_owned_by_current_thread() {
                 // Re-entrant acquisition: just increment our count.
                 // parking_lot stays at 1 level; we track recursion ourselves.
@@ -1782,6 +1787,12 @@ pub(crate) mod _thread {
             Self { inner, done_event }
         }
 
+        fn join_wait_slice(timeout: Duration, elapsed: Duration) -> Duration {
+            timeout.saturating_sub(elapsed).min(Duration::from_micros(
+                pytime::THREAD_TIMEOUT_MAX_MICROSECONDS as u64,
+            ))
+        }
+
         fn join_internal(
             inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
             done_event: &Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
@@ -1790,8 +1801,7 @@ pub(crate) mod _thread {
         ) -> PyResult<()> {
             Self::check_started(inner, vm)?;
 
-            let deadline =
-                timeout_duration.and_then(|timeout| std::time::Instant::now().checked_add(timeout));
+            let started = std::time::Instant::now();
 
             // Wait for thread completion using Condvar (supports timeout)
             // Loop to handle spurious wakeups
@@ -1824,17 +1834,13 @@ pub(crate) mod _thread {
 
             while !*done {
                 if let Some(timeout) = timeout_duration {
-                    let remaining = deadline.map_or(timeout, |deadline| {
-                        deadline.saturating_duration_since(std::time::Instant::now())
-                    });
-                    if remaining.is_zero() {
+                    let wait = Self::join_wait_slice(timeout, started.elapsed());
+                    if wait.is_zero() {
                         return Ok(());
                     }
-                    let result = vm.allow_threads(|| cvar.wait_for(&mut done, remaining));
-                    if result.timed_out() && !*done {
-                        // Timeout occurred and done is still false
-                        return Ok(());
-                    }
+                    // Keep each Windows wait below INFINITE and retain the
+                    // original timeout budget after a slice or spurious wakeup.
+                    vm.allow_threads(|| cvar.wait_for(&mut done, wait));
                 } else {
                     // Infinite wait
                     vm.allow_threads(|| cvar.wait(&mut done));
@@ -1927,44 +1933,11 @@ pub(crate) mod _thread {
             timeout_obj: Option<crate::PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Duration>> {
-            const JOIN_TIMEOUT_MAX_SECONDS: i64 = TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000;
             let Some(timeout_obj) = timeout_obj else {
                 return Ok(None);
             };
-
-            if let Some(t) = timeout_obj.try_index_opt(vm) {
-                let t: i64 = t?.try_to_primitive(vm).map_err(|_| {
-                    vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
-                })?;
-                if !(-JOIN_TIMEOUT_MAX_SECONDS..=JOIN_TIMEOUT_MAX_SECONDS).contains(&t) {
-                    return Err(
-                        vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
-                    );
-                }
-                if t < 0 {
-                    return Ok(None);
-                }
-                return Ok(Some(Duration::from_secs(t as u64)));
-            }
-
-            if let Some(t) = timeout_obj.try_float_opt(vm) {
-                let t = t?.to_f64();
-                if t.is_nan() {
-                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                }
-                if !t.is_finite() || !(-TIMEOUT_MAX..=TIMEOUT_MAX).contains(&t) {
-                    return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-                }
-                if t < 0.0 {
-                    return Ok(None);
-                }
-                return Ok(Some(Duration::from_secs_f64(t)));
-            }
-
-            Err(vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer or float",
-                timeout_obj.class().name()
-            )))
+            let nanoseconds = pytime::from_seconds_object(&timeout_obj, pytime::Round::Up, vm)?;
+            Ok((nanoseconds >= 0).then(|| Duration::from_nanos(nanoseconds as u64)))
         }
     }
 
@@ -2175,7 +2148,7 @@ pub(crate) mod _thread {
         vm.audit("_thread.start_joinable_thread", || {
             (
                 function_obj,
-                daemon,
+                i32::from(daemon),
                 handle
                     .as_ref()
                     .map_or_else(|| vm.ctx.none(), |h| h.clone().into()),
@@ -2379,13 +2352,268 @@ pub(crate) mod _thread {
 
     #[cfg(test)]
     mod tests {
-        #[cfg(any(
-            all(unix, feature = "host_env"),
-            all(debug_assertions, any(target_os = "linux", target_os = "macos"))
-        ))]
         use super::*;
-        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
-        use crate::Interpreter;
+        use crate::{Interpreter, class::PyClassImpl, protocol::PyNumberMethods, types::AsNumber};
+
+        #[test]
+        fn join_wait_slices_preserve_the_timeout_budget() {
+            let limit = Duration::from_micros(pytime::THREAD_TIMEOUT_MAX_MICROSECONDS as u64);
+            let tail = Duration::from_nanos(1);
+            let timeout = limit + tail;
+            assert_eq!(
+                ThreadHandle::join_wait_slice(timeout, Duration::ZERO),
+                limit
+            );
+            assert_eq!(ThreadHandle::join_wait_slice(timeout, limit), tail);
+            assert_eq!(
+                ThreadHandle::join_wait_slice(timeout, timeout),
+                Duration::ZERO
+            );
+            assert_eq!(
+                ThreadHandle::join_wait_slice(timeout, timeout + tail),
+                Duration::ZERO
+            );
+            #[cfg(windows)]
+            assert!(limit.as_millis() < u128::from(u32::MAX));
+        }
+
+        #[pyclass(name = "AcquireConversion", module = false)]
+        #[derive(Debug, PyPayload)]
+        struct AcquireConversion {
+            calls: Arc<PyMutex<Vec<&'static str>>>,
+            fail_truth: bool,
+        }
+
+        #[pyclass(with(AsNumber))]
+        impl AcquireConversion {}
+
+        impl AsNumber for AcquireConversion {
+            fn as_number() -> &'static PyNumberMethods {
+                static METHODS: PyNumberMethods = PyNumberMethods {
+                    boolean: Some(|number, vm| {
+                        let value = number.obj.downcast_ref::<AcquireConversion>().unwrap();
+                        value.calls.lock().push("bool");
+                        if value.fail_truth {
+                            Err(vm.new_value_error("truth conversion failed"))
+                        } else {
+                            Ok(true)
+                        }
+                    }),
+                    index: Some(|number, vm| {
+                        let value = number.obj.downcast_ref::<AcquireConversion>().unwrap();
+                        value.calls.lock().push("index");
+                        Ok(vm.ctx.new_int(0).into())
+                    }),
+                    float: Some(|number, vm| {
+                        let value = number.obj.downcast_ref::<AcquireConversion>().unwrap();
+                        value.calls.lock().push("float");
+                        Err(vm.new_value_error("index must take precedence"))
+                    }),
+                    ..PyNumberMethods::NOT_IMPLEMENTED
+                };
+                &METHODS
+            }
+        }
+
+        #[test]
+        fn acquire_defaults_preserve_signature_and_missing_values() {
+            let params = AcquireArgs::PARAMS.unwrap();
+            assert_eq!(params.len(), 2);
+            for (param, name, default) in [
+                (&params[0], "blocking", "True"),
+                (&params[1], "timeout", "-1"),
+            ] {
+                assert_eq!(param.name, name);
+                assert!(matches!(param.kind, ParamKind::PositionalOrKeyword));
+                assert!(matches!(param.default, Some(DefaultRepr::Raw(value)) if value == default));
+            }
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let args = FuncArgs::default().bind::<AcquireArgs>(vm).unwrap();
+                assert!(args.blocking.is_missing());
+                assert!(args.timeout.is_missing());
+                assert_eq!(validate_acquire_args(&args, vm).unwrap(), (true, None));
+                let args = AcquireArgs {
+                    timeout: OptionalArg::Present(vm.ctx.none()),
+                    ..default_acquire_args()
+                };
+                let error = validate_acquire_args(&args, vm).unwrap_err();
+                assert!(error.fast_isinstance(vm.ctx.exceptions.type_error));
+            });
+        }
+
+        #[test]
+        fn acquire_blocking_accepts_general_truthiness() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for (value, expected) in [
+                    (vm.ctx.none(), false),
+                    (vm.ctx.new_list(vec![]).into(), false),
+                    (vm.ctx.new_list(vec![vm.ctx.none()]).into(), true),
+                    (vm.ctx.new_str("").into(), false),
+                    (vm.ctx.new_str("blocking").into(), true),
+                ] {
+                    let args = FuncArgs::from(vec![value]).bind::<AcquireArgs>(vm).unwrap();
+                    assert_eq!(validate_acquire_args(&args, vm).unwrap(), (expected, None));
+                }
+            });
+        }
+
+        #[test]
+        fn acquire_converts_once_in_parameter_order() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let _class = AcquireConversion::make_static_type();
+                for fail_truth in [false, true] {
+                    let calls = Arc::new(PyMutex::new(Vec::new()));
+                    let value: PyObjectRef = AcquireConversion {
+                        calls: calls.clone(),
+                        fail_truth,
+                    }
+                    .into_ref(&vm.ctx)
+                    .into();
+                    let args = FuncArgs::new(
+                        vec![],
+                        [("timeout", value.clone()), ("blocking", value)]
+                            .into_iter()
+                            .collect::<KwArgs>(),
+                    )
+                    .bind::<AcquireArgs>(vm)
+                    .unwrap();
+                    assert!(calls.lock().is_empty());
+                    let result = validate_acquire_args(&args, vm);
+                    if fail_truth {
+                        assert!(
+                            result
+                                .unwrap_err()
+                                .fast_isinstance(vm.ctx.exceptions.value_error)
+                        );
+                        assert_eq!(&*calls.lock(), &["bool"]);
+                    } else {
+                        assert_eq!(result.unwrap(), (true, Some(Duration::ZERO)));
+                        assert_eq!(&*calls.lock(), &["bool", "index"]);
+                    }
+                }
+            });
+        }
+
+        #[test]
+        fn acquire_binding_errors_do_not_run_converters() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let _class = AcquireConversion::make_static_type();
+                let calls = Arc::new(PyMutex::new(Vec::new()));
+                let value: PyObjectRef = AcquireConversion {
+                    calls: calls.clone(),
+                    fail_truth: false,
+                }
+                .into_ref(&vm.ctx)
+                .into();
+                for args in [
+                    FuncArgs::from(vec![value.clone(); 3]),
+                    FuncArgs::new(
+                        vec![value.clone()],
+                        core::iter::once(("blocking", value.clone())).collect::<KwArgs>(),
+                    ),
+                    FuncArgs::new(
+                        vec![value.clone()],
+                        core::iter::once(("unexpected", value)).collect::<KwArgs>(),
+                    ),
+                ] {
+                    let error = args.bind::<AcquireArgs>(vm).unwrap_err();
+                    assert!(error.fast_isinstance(vm.ctx.exceptions.type_error));
+                    assert!(calls.lock().is_empty());
+                }
+            });
+        }
+
+        #[test]
+        fn acquire_timeout_uses_rounded_signed_nanoseconds() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for (seconds, expected) in [
+                    (-1.0, None),
+                    (-1.0 + f64::EPSILON / 2.0, None),
+                    (0.0, Some(Duration::ZERO)),
+                    (-0.0, Some(Duration::ZERO)),
+                    (1e-300, Some(Duration::from_nanos(1))),
+                    (
+                        TIMEOUT_MAX + 0.1,
+                        Some(Duration::from_nanos(
+                            ((TIMEOUT_MAX + 0.1) * 1_000_000_000.0).ceil() as u64,
+                        )),
+                    ),
+                ] {
+                    let args = AcquireArgs {
+                        timeout: OptionalArg::Present(vm.ctx.new_float(seconds).into()),
+                        ..default_acquire_args()
+                    };
+                    assert_eq!(validate_acquire_args(&args, vm).unwrap(), (true, expected));
+                }
+                for seconds in [-1.0, -1.0 + f64::EPSILON / 2.0] {
+                    let args = AcquireArgs {
+                        blocking: OptionalArg::Present(vm.ctx.none()),
+                        timeout: OptionalArg::Present(vm.ctx.new_float(seconds).into()),
+                    };
+                    assert_eq!(validate_acquire_args(&args, vm).unwrap(), (false, None));
+                }
+                let args = AcquireArgs {
+                    blocking: OptionalArg::Present(vm.ctx.none()),
+                    timeout: OptionalArg::Present(vm.ctx.new_int(0).into()),
+                };
+                let error = validate_acquire_args(&args, vm).unwrap_err();
+                assert!(error.fast_isinstance(vm.ctx.exceptions.value_error));
+            });
+        }
+
+        #[test]
+        fn acquire_timeout_errors_precede_nonblocking_restriction() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                for (timeout, expected) in [
+                    (vm.ctx.none(), vm.ctx.exceptions.type_error),
+                    (
+                        vm.ctx.new_float(f64::NAN).into(),
+                        vm.ctx.exceptions.value_error,
+                    ),
+                    (
+                        vm.ctx.new_float(f64::INFINITY).into(),
+                        vm.ctx.exceptions.overflow_error,
+                    ),
+                    (
+                        vm.ctx.new_int(i128::MAX).into(),
+                        vm.ctx.exceptions.overflow_error,
+                    ),
+                ] {
+                    let args = AcquireArgs {
+                        blocking: OptionalArg::Present(vm.ctx.none()),
+                        timeout: OptionalArg::Present(timeout),
+                    };
+                    let error = validate_acquire_args(&args, vm).unwrap_err();
+                    assert!(error.fast_isinstance(expected));
+                    if error.fast_isinstance(vm.ctx.exceptions.value_error) {
+                        let message = error.get_arg(0).unwrap();
+                        assert_eq!(
+                            message.downcast_ref::<PyStr>().unwrap().as_wtf8().as_str(),
+                            Ok("Invalid value NaN (not a number)"),
+                        );
+                    }
+                }
+                for blocking in [false, true] {
+                    for seconds in [-1e-300, -2.0] {
+                        let args = AcquireArgs {
+                            blocking: OptionalArg::Present(vm.ctx.new_bool(blocking).into()),
+                            timeout: OptionalArg::Present(vm.ctx.new_float(seconds).into()),
+                        };
+                        let error = validate_acquire_args(&args, vm).unwrap_err();
+                        assert!(error.fast_isinstance(vm.ctx.exceptions.value_error));
+                        let message = error.get_arg(0).unwrap();
+                        assert_eq!(
+                            message.downcast_ref::<PyStr>().unwrap().as_wtf8().as_str(),
+                            Ok(if blocking {
+                                "timeout value must be a non-negative number"
+                            } else {
+                                "can't specify a timeout for a non-blocking call"
+                            }),
+                        );
+                    }
+                }
+            });
+        }
 
         /// Exercise only the native completion-state invariant, without Python
         /// execution or actual fork in the multithreaded Rust test harness.

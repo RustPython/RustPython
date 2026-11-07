@@ -9,8 +9,9 @@ mod _queue {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::TimeoutSeconds,
+        function::OptionalArg,
         protocol::PyNumberMethods,
+        stdlib::time::pytime,
         types::{AsNumber, Constructor, Representable},
     };
 
@@ -83,15 +84,6 @@ mod _queue {
         /// and the holder would never be resumed to release it.
         fn lock_count(&self, vm: &VirtualMachine) -> parking_lot::MutexGuard<'_, usize> {
             vm.allow_threads(|| self.mutex.lock())
-        }
-
-        fn release(&self, vm: &VirtualMachine) {
-            {
-                let mut count = self.lock_count(vm);
-                *count += 1;
-            } // lock dropped. now we can notify a waiting thread
-
-            self.cond.notify_one();
         }
 
         /// `Ok(true)` if acquired, `Ok(false)` on timeout, `Err` if a signal
@@ -167,10 +159,21 @@ mod _queue {
             expect(unused_variables, reason = "only the semaphore needs the vm")
         )]
         fn push(&self, item: PyObjectRef, vm: &VirtualMachine) {
-            self.buf.lock().push_back(item);
-
             #[cfg(feature = "threading")]
-            self.sem.release(vm);
+            {
+                // Publish the permit before unlocking the buffer, so another
+                // thread cannot observe an item that no getter can claim.
+                let mut count = self.sem.lock_count(vm);
+                {
+                    let mut buf = self.buf.lock();
+                    buf.push_back(item);
+                    *count += 1;
+                }
+                drop(count);
+                self.sem.cond.notify_one();
+            }
+            #[cfg(not(feature = "threading"))]
+            self.buf.lock().push_back(item);
         }
 
         /// Returns a strong reference from the head of the buffer.
@@ -204,26 +207,25 @@ mod _queue {
     struct PutArgs {
         #[pyarg(any)]
         item: PyObjectRef,
-        #[expect(
-            dead_code,
-            reason = "Intentional. Provide compatibility with the Queue class"
-        )]
-        #[pyarg(any, default = true)]
-        block: bool,
-        #[expect(
-            dead_code,
-            reason = "Intentional. Provide compatibility with the Queue class"
-        )]
+        #[pyarg(any, optional, py_default = "True")]
+        block: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         timeout: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetArgs {
-        #[pyarg(any, default = true)]
-        block: bool,
+        #[pyarg(any, optional, py_default = "True")]
+        block: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
-        timeout: Option<TimeoutSeconds>,
+        timeout: Option<PyObjectRef>,
+    }
+
+    fn is_blocking(block: &OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
+        match block {
+            OptionalArg::Present(value) => value.try_to_bool(vm),
+            OptionalArg::Missing => Ok(true),
+        }
     }
 
     #[pyclass(
@@ -248,9 +250,15 @@ mod _queue {
         }
 
         #[pymethod]
-        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) {
-            let PutArgs { item, .. } = args;
+        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let PutArgs {
+                item,
+                block,
+                timeout: _timeout,
+            } = args;
+            is_blocking(&block, vm)?;
             zelf.push(item, vm);
+            Ok(())
         }
 
         #[pymethod]
@@ -261,10 +269,11 @@ mod _queue {
         #[pymethod]
         fn get(zelf: &Py<Self>, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let GetArgs { block, timeout } = args;
+            let blocking = is_blocking(&block, vm)?;
 
             // Non-blocking: just try once
-            if !block {
-                return Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm));
+            if !blocking {
+                return Self::get_nowait(zelf, vm);
             }
 
             #[cfg_attr(
@@ -274,22 +283,37 @@ mod _queue {
                     reason = "We are still validating the 'timeout' arg even if we don't have threading"
                 )
             )]
-            let deadline = match timeout.map(|v| v.to_secs_f64()) {
-                Some(v) if v < 0.0 => {
-                    return Err(vm.new_value_error("'timeout' must be a non-negative number"));
+            let deadline = match timeout.as_ref() {
+                Some(value) => {
+                    let overflow =
+                        || vm.new_overflow_error("timestamp out of range for C PyTime_t");
+                    // SimpleQueue uses ceiling, unlike the away-from-zero
+                    // rounding used by thread locks and select timeouts.
+                    let nanos = pytime::from_seconds_object(value, pytime::Round::Ceiling, vm)?;
+                    if nanos < 0 {
+                        return Err(vm.new_value_error("'timeout' must be a non-negative number"));
+                    }
+                    Some(
+                        Instant::now()
+                            .checked_add(Duration::from_nanos(nanos as u64))
+                            .ok_or_else(overflow)?,
+                    )
                 }
-                Some(v) => Some(Instant::now() + Duration::from_secs_f64(v)),
                 None => None,
             };
 
             #[cfg(feature = "threading")]
             {
-                if !zelf.sem.acquire(block, deadline, vm)? {
+                if !zelf.sem.acquire(blocking, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
+            let item = {
+                let mut buf = zelf.buf.lock();
+                Self::get_inner(&mut buf)
+            };
+            item.ok_or_else(|| empty_error(vm))
         }
 
         #[pymethod]
@@ -301,7 +325,11 @@ mod _queue {
                 }
             }
 
-            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
+            let item = {
+                let mut buf = zelf.buf.lock();
+                Self::get_inner(&mut buf)
+            };
+            item.ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]

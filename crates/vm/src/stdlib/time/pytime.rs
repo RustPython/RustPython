@@ -16,8 +16,27 @@ const TIME_T_MAX: i64 = TimeT::MAX as _;
 const PYTIME_OVERFLOW: &str = "timestamp out of range for C PyTime_t";
 const TIME_T_OVERFLOW: &str = "timestamp out of range for platform time_t";
 
+/// `PY_TIMEOUT_MAX`: the longest finite native thread wait, in microseconds.
+pub(crate) const THREAD_TIMEOUT_MAX_MICROSECONDS: i64 = cfg_select! {
+    windows => 0xffff_fffe * 1_000,
+    unix => i64::MAX / 1_000,
+    _ => i64::MAX,
+};
+
+/// `_thread.TIMEOUT_MAX` also respects the signed nanosecond representation.
+#[cfg(feature = "threading")]
+pub(crate) const THREAD_TIMEOUT_MAX_SECONDS: i64 = {
+    let platform_max = THREAD_TIMEOUT_MAX_MICROSECONDS / 1_000_000;
+    let pytime_max = i64::MAX / 1_000_000_000;
+    if platform_max < pytime_max {
+        platform_max
+    } else {
+        pytime_max
+    }
+};
+
 #[derive(Clone, Copy)]
-pub(crate) enum Round {
+pub enum Round {
     Floor,
     Ceiling,
     HalfEven,
@@ -45,7 +64,8 @@ impl Round {
         }
     }
 
-    pub(crate) fn divide(self, value: i64, divisor: i64) -> i64 {
+    #[must_use]
+    pub fn divide(self, value: i64, divisor: i64) -> i64 {
         debug_assert!(divisor > 1);
         let quotient = value / divisor;
         let remainder = value % divisor;
@@ -95,25 +115,43 @@ fn float_seconds(object: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     Ok(seconds)
 }
 
-pub(crate) fn from_seconds_object(
+pub fn from_seconds_object(object: &PyObject, round: Round, vm: &VirtualMachine) -> PyResult<i64> {
+    from_object(object, SEC_TO_NS, round, vm)
+}
+
+pub fn from_milliseconds_object(
     object: &PyObject,
     round: Round,
     vm: &VirtualMachine,
 ) -> PyResult<i64> {
-    // _PyTime_FromSecondsObject uses __index__ before __float__ and bounds
-    // the converted value to signed 64-bit nanoseconds.
+    from_object(object, SEC_TO_NS / 1000, round, vm)
+}
+
+fn from_object(object: &PyObject, scale: i64, round: Round, vm: &VirtualMachine) -> PyResult<i64> {
+    // _PyTime_FromSecondsObject and _PyTime_FromMillisecondsObject use
+    // __index__ before __float__ and bound the result to signed nanoseconds.
     if object.number().is_index() {
         index_seconds(object, PYTIME_OVERFLOW, vm)?
-            .checked_mul(SEC_TO_NS)
+            .checked_mul(scale)
             .ok_or_else(|| vm.new_overflow_error(PYTIME_OVERFLOW))
     } else {
-        let nanoseconds = round.round(float_seconds(object, vm)? * SEC_TO_NS as f64);
+        let nanoseconds = round.round(float_seconds(object, vm)? * scale as f64);
         let minimum = i64::MIN as f64;
         // The maximum rounds up to 2**63 as a double, so use an exclusive bound.
         if !(minimum..-minimum).contains(&nanoseconds) {
             return Err(vm.new_overflow_error(PYTIME_OVERFLOW));
         }
         Ok(nanoseconds as i64)
+    }
+}
+
+/// Check the platform wait limit after the caller has handled negative values
+/// and any API-specific indefinite-wait sentinel.
+pub(crate) fn check_thread_timeout(nanoseconds: i64, vm: &VirtualMachine) -> PyResult<()> {
+    if Round::Up.divide(nanoseconds, 1_000) > THREAD_TIMEOUT_MAX_MICROSECONDS {
+        Err(vm.new_overflow_error("timeout value is too large"))
+    } else {
+        Ok(())
     }
 }
 
@@ -168,4 +206,22 @@ pub(crate) fn object_to_denominator(
         seconds -= 1.0;
     }
     Ok((float_to_time_t(seconds, vm)?, numerator as i64))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thread_wait_bound_checks_rounded_up_microseconds() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            if let Some(max_nanoseconds) = THREAD_TIMEOUT_MAX_MICROSECONDS.checked_mul(1_000) {
+                assert!(check_thread_timeout(max_nanoseconds, vm).is_ok());
+                let error = check_thread_timeout(max_nanoseconds + 1, vm).unwrap_err();
+                assert!(error.fast_isinstance(vm.ctx.exceptions.overflow_error));
+            } else {
+                assert!(check_thread_timeout(i64::MAX, vm).is_ok());
+            }
+        });
+    }
 }

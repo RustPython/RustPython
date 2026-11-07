@@ -15,6 +15,7 @@ pub(crate) mod _interpchannels {
         convert::ToPyObject,
         function::{ArgSpec, Either, FuncArgs, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
+        stdlib::time::pytime,
         types::{AsNumber, Constructor, Hashable, PyComparisonOp, PyStructSequence, Representable},
         vm::crossinterp::{Fallback, SharedValue, UnboundOp},
     };
@@ -1143,11 +1144,12 @@ pub(crate) mod _interpchannels {
         if !blocking {
             return Err(vm.new_value_error("can't specify a timeout for a non-blocking call"));
         }
-        let secs = t.try_float(vm)?.to_f64();
-        if secs < 0.0 {
+        let nanoseconds = pytime::from_seconds_object(t, pytime::Round::Up, vm)?;
+        if nanoseconds < 0 {
             return Err(vm.new_value_error("timeout value must be a non-negative number"));
         }
-        Ok(Some(Duration::from_secs_f64(secs)))
+        pytime::check_thread_timeout(nanoseconds, vm)?;
+        Ok(Some(Duration::from_nanos(nanoseconds as u64)))
     }
 
     #[pyfunction]
