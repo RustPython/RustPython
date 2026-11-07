@@ -51,7 +51,7 @@ impl TypeDataSlot {
     pub fn new_traced<T: Any + Send + Sync + crate::object::Traverse>(data: T) -> Self {
         let mut slot = Self::new(data);
         slot.traverse = Some(|data, tracer| data.downcast_ref::<T>().unwrap().traverse(tracer));
-        slot.clear = Some(|data, out| data.downcast_mut::<T>().unwrap().clear(out));
+        slot.clear = Some(|data, out| data.downcast_mut::<T>().unwrap().clear_refs(out));
         slot
     }
 
@@ -82,7 +82,7 @@ unsafe impl crate::object::Traverse for TypeDataSlot {
             traverse(&*self.data, tracer);
         }
     }
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         if let Some(clear) = self.clear {
             clear(&mut *self.data, out);
         }

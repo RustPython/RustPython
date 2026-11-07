@@ -53,8 +53,8 @@ unsafe impl Traverse for PySet {
         self.inner.traverse(tracer);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        Traverse::clear(&mut self.inner, out);
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear_refs(&mut self.inner, out);
     }
 }
 
@@ -115,8 +115,8 @@ unsafe impl Traverse for PyFrozenSet {
         self.inner.traverse(tracer);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        Traverse::clear(&mut self.inner, out);
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear_refs(&mut self.inner, out);
     }
 }
 
@@ -225,7 +225,7 @@ unsafe impl Traverse for PySetInner {
         }
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         if let Some(content) = PyRc::get_mut(&mut self.content) {
             // Detach before releasing keys: dropping them may re-enter Python.
             out.reserve(content.len());
@@ -1940,9 +1940,9 @@ mod reference_tests {
             });
             assert_eq!(visits, 1);
             let mut edges = Vec::new();
-            set.try_clear(&mut edges);
+            set.try_clear_refs(&mut edges);
             set.try_traverse(&mut |_| panic!("cleared set retained a key"));
-            set.try_clear(&mut edges);
+            set.try_clear_refs(&mut edges);
             assert_eq!(edges.len(), 1);
             assert!(core::ptr::eq(&*edges[0], &**key));
             assert_eq!(key.strong_count(), 2);
@@ -1980,11 +1980,11 @@ mod reference_tests {
             inner.traverse(&mut |_| panic!("shared table edge counted"));
             alias.traverse(&mut |_| panic!("shared table edge counted"));
             let mut edges = Vec::new();
-            Traverse::clear(&mut inner, &mut edges);
+            Traverse::clear_refs(&mut inner, &mut edges);
             assert!(edges.is_empty());
             assert!(alias.contains(&key, vm).unwrap());
             drop(alias);
-            Traverse::clear(&mut inner, &mut edges);
+            Traverse::clear_refs(&mut inner, &mut edges);
             assert_eq!(inner.len(), 0);
             assert_eq!(edges.len(), 1);
         });

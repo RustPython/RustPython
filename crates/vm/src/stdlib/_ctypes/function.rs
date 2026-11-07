@@ -473,8 +473,8 @@ unsafe impl Traverse for PyCFuncPtr {
         self.iid.traverse(tracer);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        self._base.clear(out);
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
+        self._base.clear_refs(out);
         if let Some(mut value) = self.thunk.try_write() {
             out.extend(value.take().map(Into::into));
         }

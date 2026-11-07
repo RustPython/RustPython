@@ -107,7 +107,7 @@ unsafe impl crate::object::Traverse for PyModule {
         self.native_state.traverse(tracer);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         if let Some(state) = self.native_state.store(None) {
             out.push(state);
         }

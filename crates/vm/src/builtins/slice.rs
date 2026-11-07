@@ -37,7 +37,7 @@ unsafe impl crate::object::Traverse for PySlice {
         self.step.traverse(traverse_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         // Release step, start, then stop before the husk enters the freelist.
         // Keep the mandatory stop field valid without retaining its old owner.
         if let Some(step) = self.step.take() {

@@ -76,7 +76,7 @@ mod _collections {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             out.extend(self.data.get_mut().items.drain(..));
         }
     }
@@ -1214,8 +1214,8 @@ mod _collections {
             self.default_factory.traverse(tracer_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-            Traverse::clear(&mut self.dict, out);
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
+            Traverse::clear_refs(&mut self.dict, out);
             if let Some(factory) = self.default_factory.store(None) {
                 out.push(factory);
             }

@@ -300,10 +300,10 @@ pub(super) unsafe fn try_traverse_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mu
     payload.try_traverse(tracer_fn)
 }
 
-/// Call `try_clear` on payload to extract child references (tp_clear)
+/// Call `try_clear_refs` on payload to extract child references (tp_clear)
 pub(super) unsafe fn try_clear_obj<T: PyPayload>(x: *mut PyObject, out: &mut Vec<PyObjectRef>) {
     let x = unsafe { &mut *(x as *mut Py<T>) };
-    x.payload.try_clear(out);
+    x.payload.try_clear_refs(out);
 }
 
 bitflags::bitflags! {
@@ -1204,7 +1204,7 @@ unsafe impl Traverse for PyWeak {
         unsafe { &*self.callback.get() }.traverse(tracer_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         let callback = Self::clear(self);
         if let Some(callback) = callback {
             out.push(callback);
@@ -3706,7 +3706,7 @@ mod tests {
                     } else {
                         Vec::new()
                     };
-                    sequence.clear(&mut out);
+                    sequence.clear_refs(&mut out);
                     if existing {
                         assert_eq!(out[0].try_to_value::<i32>(vm).unwrap(), 1);
                     } else {
