@@ -3,7 +3,7 @@ mod jit;
 
 use super::{
     PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyModule, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, object,
+    PyStrRef, PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -15,7 +15,7 @@ use crate::{
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
     frame::{FrameObject, FrameObjectRef},
-    function::{ArgSpec, Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
@@ -1347,6 +1347,9 @@ impl Representable for PyFunction {
     }
 }
 
+// Keep all original owners until validation finishes. Eager typed conversion
+// can release earlier arguments before formatting a later argument error,
+// allowing finalizers to change the error (including direct __new__ calls).
 #[derive(FromArgs)]
 pub struct PyFunctionNewArgs {
     #[pyarg(any)]
@@ -1365,34 +1368,6 @@ pub struct PyFunctionNewArgs {
 
 impl Constructor for PyFunction {
     type Args = PyFunctionNewArgs;
-
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // Finish structural binding before validating any supplied value.
-        let mut parsed = ArgSpec {
-            fname: "function",
-            keywords: &[
-                "code",
-                "globals",
-                "name",
-                "argdefs",
-                "closure",
-                "kwdefaults",
-            ],
-            required: 2,
-            max_positional: 6,
-        }
-        .parse(&args, vm)?;
-        let bound = PyFunctionNewArgs {
-            code: parsed[0].take().unwrap(),
-            globals: parsed[1].take().unwrap(),
-            name: parsed[2].take(),
-            argdefs: parsed[3].take(),
-            closure: parsed[4].take(),
-            kwdefaults: parsed[5].take(),
-        };
-        let payload = Self::py_new(&cls, bound, vm)?;
-        payload.into_ref_with_type(vm, cls).map(Into::into)
-    }
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let bad_argument = |name, expected, value: &PyObject| {
