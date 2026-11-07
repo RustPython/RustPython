@@ -2901,7 +2901,7 @@ impl Py<PyType> {
             }
         };
 
-        let result = PyType::with_type_lock(vm, || {
+        PyType::with_type_lock(vm, || {
             for base in bases.as_slice() {
                 if is_subtype_with_mro(&base.mro.read(), base, zelf)
                     || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
@@ -2989,8 +2989,7 @@ impl Py<PyType> {
             }
             crate::stdlib::_testinternalcapi::note_set_bases();
             Ok(())
-        });
-        result
+        })
     }
 
     #[pygetset]

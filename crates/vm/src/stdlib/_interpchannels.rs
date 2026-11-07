@@ -522,6 +522,7 @@ pub(crate) mod _interpchannels {
             state.open = state.ends.is_open();
         }
         release_waiters_detached(waiters);
+        drop(dropped);
     }
 
     /// `resolve_unboundop`.

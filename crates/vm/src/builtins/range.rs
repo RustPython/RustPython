@@ -633,6 +633,8 @@ impl Py<PyRangeIterator> {
         let _ = self
             .index
             .fetch_update(|index| Some(index.saturating_add(advance).min(self.length)));
+        drop(index);
+        drop(state);
         Ok(())
     }
 

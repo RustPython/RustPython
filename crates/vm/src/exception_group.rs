@@ -301,6 +301,8 @@ pub(super) mod types {
                 .map(Into::into);
             // Retain the original owners even if native allocation rejects the
             // payload, then release them in their normal scope order.
+            drop(exceptions_arg);
+            drop(args);
             result
         }
 

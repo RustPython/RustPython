@@ -661,5 +661,6 @@ pub(crate) mod _interpqueues {
                 }
             }
         }
+        drop(dropped);
     }
 }
