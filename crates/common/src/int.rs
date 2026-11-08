@@ -5,6 +5,11 @@ use num_traits::{One, ToPrimitive, Zero};
 
 #[must_use]
 pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
+    // Rational has no signed zero. Preserve the division sign before
+    // converting a zero numerator, as CPython's long_true_divide does.
+    if numerator.is_zero() && denominator.sign() == Sign::Minus {
+        return -0.0;
+    }
     let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
     // Nearest rounding can return the largest finite value for a quotient
     // slightly beyond it; overflow starts at the halfway rounding boundary.
@@ -214,6 +219,24 @@ pub fn bigint_to_finite_float(int: &BigInt) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn true_div_signed_zero() {
+        let denominator = BigInt::one() << 100usize;
+        assert_eq!(
+            true_div(&BigInt::zero(), &denominator).to_bits(),
+            0.0f64.to_bits()
+        );
+        assert_eq!(
+            true_div(&BigInt::zero(), &-denominator).to_bits(),
+            (-0.0f64).to_bits()
+        );
+        let denominator = BigInt::one() << 2000usize;
+        assert_eq!(
+            true_div(&BigInt::from(-1), &denominator).to_bits(),
+            (-0.0f64).to_bits()
+        );
+    }
 
     const DIGIT_LIMIT: usize = 4300; // Default of Cpython
 
