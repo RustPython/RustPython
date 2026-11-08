@@ -1051,9 +1051,7 @@ jobs:
         builtin_bytes
         builtin_hash
         builtin_int
-        builtin_iter
         builtin_list
-        builtin_map
         builtin_memoryview
         builtin_open
         builtin_posixshmem
@@ -1075,7 +1073,6 @@ jobs:
         stdlib_io
         stdlib_io_blocking_buffer
         stdlib_itertools
-        stdlib_json
         stdlib_mmap
         stdlib_multiprocessing_condition
         stdlib_multiprocessing_fork_sharer
@@ -1123,6 +1120,20 @@ jobs:
         test_genericpath
         test_grammar
         test_fstring
+        test_array
+        test_bool
+        test_bytes
+        test_codecs
+        test_complex
+        test_enumerate
+        test_float
+        test_list
+        test_long
+        test_memoryview
+        test_range
+        test_set
+        test_slice
+        test_tuple
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
