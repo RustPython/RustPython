@@ -1168,7 +1168,25 @@ jobs:
 
       - name: Setup Wasmer
         if: env.RUN_WASM_WASI == 'true'
-        uses: wasmerio/setup-wasmer@24b15c95293d23f89c68bd40dac76338f773e924 # v3.1
+        # This job runs on Linux x86_64. Verify the release archive instead of
+        # using an installer that can report success after a failed download.
+        env:
+          WASMER_VERSION: 7.5.0
+          WASMER_SHA256: 23f99818deaad93859f8bb8292af81f0c39f25aea19eaccfb72fc7c9e8a3fae9
+        run: |
+          test "$(uname -s)-$(uname -m)" = Linux-x86_64
+          wasmer_dir="$(mktemp -d "$RUNNER_TEMP/wasmer.XXXXXX")"
+          archive="$wasmer_dir/wasmer.tar.gz"
+          curl --fail --location --silent --show-error \
+            --retry 5 --retry-connrefused --retry-max-time 180 \
+            --connect-timeout 15 --max-time 120 \
+            "https://github.com/wasmerio/wasmer/releases/download/v${WASMER_VERSION}/wasmer-linux-amd64.tar.gz" \
+            --output "$archive"
+          echo "$WASMER_SHA256  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$wasmer_dir"
+          WASMER_DIR="$wasmer_dir" "$wasmer_dir/bin/wasmer" --version
+          echo "WASMER_DIR=$wasmer_dir" >> "$GITHUB_ENV"
+          echo "$wasmer_dir/bin" >> "$GITHUB_PATH"
 
       - name: Install clang
         if: env.RUN_WASM_WASI == 'true'
