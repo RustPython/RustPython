@@ -2122,7 +2122,8 @@ pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
 }
 
-#[cfg(all(test, feature = "compiler"))]
+#[cfg(test)]
+#[cfg(feature = "compiler")]
 mod boundary_cache_tests {
     use super::*;
     use crate::bytecode::CodeUnit;
