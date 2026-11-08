@@ -784,13 +784,10 @@ fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyRe
             render_repr(&func.builtins, vm)
         ))
     })?;
-    if func
-        .__defaults__()
-        .is_some_and(|d| !d.as_slice().is_empty())
-    {
+    if func.defaults().is_some_and(|d| !d.as_slice().is_empty()) {
         return Err(vm.new_value_error("defaults not supported"));
     }
-    if func.__kwdefaults__().is_some_and(|d| !d.is_empty()) {
+    if func.kwdefaults().is_some_and(|d| !d.is_empty()) {
         return Err(vm.new_value_error("keyword defaults not supported"));
     }
     if func
