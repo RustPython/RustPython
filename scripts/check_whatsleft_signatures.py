@@ -8,10 +8,19 @@ Baselines are platform-specific observations, never wildcard suppressions.
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 GOOD_RAW = {"exact_raw_match", "matching_nontext_state", "not_applicable"}
 RAW_FIELDS = ("status", "kind", "binding", "value", "error_type", "representative")
+
+
+def diagnostic(value):
+    # Only exception diagnostics contain process-specific repr addresses.
+    # Never normalize raw signature literals, parameter names or defaults.
+    if isinstance(value, str) and re.match(r"[A-Za-z_][\w.]*\(", value):
+        return re.sub(r" at 0x[0-9a-fA-F]+(?=>)", " at 0xADDR", value)
+    return value
 
 
 def snapshot(result):
@@ -49,16 +58,23 @@ def snapshot(result):
     # not produce a comparable signature (and aliases remain separate paths).
     for module, items in result["cpython_modules"].items():
         for name, info in items.items():
-            observe("reference", f"{module}/{name}", info["sig"], not info["sig_error"])
+            observe(
+                "reference",
+                f"{module}/{name}",
+                diagnostic(info["sig"]),
+                not info["sig_error"],
+            )
     for name, methods in result["reference_builtin_inventory"].items():
         coverage.add(f"builtin:{name}")
         coverage.update(f"builtin:{name}.{method}" for method in methods)
     for group, entries in result["mismatched_items"].items():
         for name, actual, expected in entries:
-            observe("inspect", f"{group}/{name}", [expected, actual])
+            observe(
+                "inspect", f"{group}/{name}", [diagnostic(expected), diagnostic(actual)]
+            )
     for group, entries in result["uncomparable_signatures"].items():
         for name, error in entries:
-            observe("uncomparable", f"{group}/{name}", error)
+            observe("uncomparable", f"{group}/{name}", diagnostic(error))
     # Inherited differences are classified as missing, not mismatched_items.
     for group, entries in result["missing_items"].items():
         for name in entries:
@@ -89,7 +105,7 @@ def snapshot(result):
     for module, parents in result["reference_expanded_classes"].items():
         coverage.update(f"expanded:{module}/{parent}" for parent in parents)
     for module, error in result["cpython_failed_imports"].items():
-        observe("reference_import", module, error)
+        observe("reference_import", module, diagnostic(error))
 
     discovery = result["reference_discovery"]
     diagnostics = result["reference_inventory_diagnostics"]
