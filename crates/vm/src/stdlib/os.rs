@@ -1923,7 +1923,7 @@ pub(super) mod _os {
     #[derive(FromArgs)]
     struct UtimeArgs<'fd> {
         path: OsPath,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         times: Option<PyTupleRef>,
         #[pyarg(named, default)]
         ns: Option<PyTupleRef>,

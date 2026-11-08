@@ -112,3 +112,25 @@ assert (
 assert zlib._ZlibDecompressor().decompress(zlib.compress(b"signature defaults")) == (
     b"signature defaults"
 )
+
+# Clinic keeps platform-dependent defaults symbolic rather than hard-coding
+# the 64-bit value. inspect resolves the symbol for the running interpreter.
+import sys
+
+for sequence_type in (list, tuple):
+    assert sequence_type.index.__text_signature__ == (
+        "($self, value, start=0, stop=sys.maxsize, /)"
+    )
+    index_signature = inspect.signature(sequence_type.index)
+    assert index_signature.parameters["stop"].default == sys.maxsize
+
+assert str.maketrans.__text_signature__ == (
+    "(x, y=<unrepresentable>, z=<unrepresentable>, /)"
+)
+
+if hasattr(os, "utime"):
+    # ns is deliberately unrepresentable; only times has a None default.
+    assert " ".join(os.utime.__text_signature__.split()) == (
+        "($module, /, path, times=None, *, ns=<unrepresentable>, "
+        "dir_fd=None, follow_symlinks=True)"
+    )
