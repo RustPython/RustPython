@@ -232,6 +232,68 @@ finally:
         monitoring.register_callback(2, event, None)
     monitoring.free_tool_id(2)
 
+
+# Disabling monitoring on EXTENDED_ARG must preserve its operand prefix when
+# the following instruction moves back to ordinary dispatch.
+import dis
+
+prefixes = {
+    instruction.offset
+    for instruction in dis.get_instructions(large_loop)
+    if instruction.opname == "EXTENDED_ARG"
+}
+assert prefixes
+prefix_hits = []
+
+
+def disable_at_prefix(code, offset):
+    if offset in prefixes:
+        prefix_hits.append(offset)
+        monitoring.set_local_events(2, code, 0)
+
+
+monitoring.use_tool_id(2, "dispatch-transition")
+try:
+    monitoring.register_callback(2, monitoring.events.INSTRUCTION, disable_at_prefix)
+    for _ in range(10):
+        monitoring.set_local_events(
+            2, large_loop.__code__, monitoring.events.INSTRUCTION
+        )
+        assert large_loop() == 300
+    assert len(prefix_hits) == 10
+finally:
+    monitoring.set_local_events(2, large_loop.__code__, 0)
+    monitoring.register_callback(2, monitoring.events.INSTRUCTION, None)
+    monitoring.free_tool_id(2)
+
+
+# A nested frame cannot consume an enable notification needed by its caller.
+def enable_outer_monitoring():
+    monitoring.set_local_events(
+        2, resume_after_nested_monitoring.__code__, monitoring.events.LINE
+    )
+    monitored_loop()
+
+
+def resume_after_nested_monitoring():
+    enable_outer_monitoring()
+    result = monitored_loop()
+    return result
+
+
+outer_lines = []
+monitoring.use_tool_id(2, "nested-dispatch-transition")
+try:
+    monitoring.register_callback(
+        2, monitoring.events.LINE, lambda code, line: outer_lines.append(line)
+    )
+    assert resume_after_nested_monitoring() == 3
+    assert outer_lines
+finally:
+    monitoring.set_local_events(2, resume_after_nested_monitoring.__code__, 0)
+    monitoring.register_callback(2, monitoring.events.LINE, None)
+    monitoring.free_tool_id(2)
+
 assert sys.exc_info() == (None, None, None)
 
 try:

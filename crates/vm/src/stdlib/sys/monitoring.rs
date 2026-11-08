@@ -674,11 +674,34 @@ fn event_for_opcode(
     }
 }
 
+// Serialize mask publication with thread-slot registration. A new slot either
+// inherits the new mask or is present in this publication's registry walk.
+// Caller holds monitoring state; registration only reads the atomic mask, never
+// takes the monitoring lock while holding the registry lock.
+fn publish_events_mask(vm: &VirtualMachine, events: u32) {
+    // Callers serialize publication under monitoring state; newly registered
+    // slots inherit this mask while holding the registry lock.
+    if vm.state.monitoring_events.load() == events {
+        return;
+    }
+    #[cfg(feature = "threading")]
+    let registry = vm.state.thread_frames.lock();
+    vm.state.monitoring_events.store(events);
+    #[cfg(feature = "threading")]
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "all slots receive the same hint"
+    )]
+    for slot in registry.values() {
+        slot.stop_requested.set_monitoring(events != 0);
+    }
+}
+
 /// Update only this interpreter's scalar subscriptions. Executable bytecode
 /// and adaptive caches are never rewritten by monitoring state changes.
 fn update_events_mask(vm: &VirtualMachine, state: &mut MonitoringState) {
     state.synchronize_layers(false);
-    vm.state.monitoring_events.store(state.combined_events());
+    publish_events_mask(vm, state.combined_events());
 }
 
 pub(crate) fn prepare_code(vm: &VirtualMachine, code: &PyCode) {
@@ -693,7 +716,7 @@ pub(crate) fn prepare_code(vm: &VirtualMachine, code: &PyCode) {
         };
         state.ensure_code(identity);
         if !retired.is_empty() {
-            vm.state.monitoring_events.store(state.combined_events());
+            publish_events_mask(vm, state.combined_events());
         }
         (state.codes[&key].metadata.is_none(), retired)
     };
@@ -770,49 +793,23 @@ pub(crate) fn layer_site(
     vm.state.monitoring.lock().layer_site(code, index)
 }
 
-// This arbitrary-offset lookup scans the bounded prefix in O(index) time.
-// Dispatch-proven instruction starts can instead read and deoptimize directly.
+// Arbitrary offsets are checked against the owner's immutable boundary bitmap.
+// Executable scalar opcodes are still read atomically and deoptimized each time.
 pub(crate) fn source_operation(
     code: &PyCode,
     index: usize,
 ) -> Option<rustpython_compiler_core::bytecode::CodeUnit> {
-    code.instructions
-        .base_instructions()
-        .take_while(|(at, _)| *at <= index)
-        .find_map(|(at, unit)| (at == index).then_some(unit))
+    code.source_instruction(index)
 }
 
-// Batch arbitrary-offset lookups on the same owner without rescanning its prefix.
-// Indices must be nondecreasing; duplicates receive the same scalar unit.
-// Missing instruction starts (including caches) remain None, and the bounded
-// walker retains its existing wrapper and incomplete-extent stopping rules.
+// Indices must be nondecreasing; duplicates resolve to the same base scalar.
+// Cache entries, unsupported wrappers and incomplete extents remain unavailable.
 pub(crate) fn source_operations_sorted<const N: usize>(
     code: &PyCode,
     indices: [usize; N],
 ) -> [Option<rustpython_compiler_core::bytecode::CodeUnit>; N] {
     debug_assert!(indices.windows(2).all(|pair| pair[0] <= pair[1]));
-    let mut result = [None; N];
-    let Some(&last) = indices.last() else {
-        return result;
-    };
-    let mut requested = 0;
-    for (at, unit) in code
-        .instructions
-        .base_instructions()
-        .take_while(|(at, _)| *at <= last)
-    {
-        while requested < N && indices[requested] < at {
-            requested += 1;
-        }
-        while requested < N && indices[requested] == at {
-            result[requested] = Some(unit);
-            requested += 1;
-        }
-        if requested == N {
-            break;
-        }
-    }
-    result
+    indices.map(|index| code.source_instruction(index))
 }
 
 pub(crate) fn known_operation(
@@ -1003,7 +1000,7 @@ fn restart_events(vm: &VirtualMachine) {
         let mut state = vm.state.monitoring.lock();
         let retired = state.sweep_dead_codes();
         state.synchronize_layers(true);
-        vm.state.monitoring_events.store(state.combined_events());
+        publish_events_mask(vm, state.combined_events());
         retired
     };
 }

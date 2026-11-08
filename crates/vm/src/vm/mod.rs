@@ -3868,13 +3868,26 @@ impl VirtualMachine {
     /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        #[cfg(feature = "threading")]
+        let stop = thread::stop_requested_for_current_thread();
+        #[cfg(not(feature = "threading"))]
+        let stop = false;
+        self.eval_breaker_tripped_with_stop(stop)
+    }
+
+    /// The inactive loop already sampled STOP before decoding this opcode.
+    /// Signal/GC/async-exception checks and callbacks remain at their old phase.
+    #[inline]
+    pub(crate) fn eval_breaker_tripped_with_stop(&self, stop: bool) -> bool {
         if self.async_exception.is_pending() {
             return true;
         }
         #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
+        if stop || self.state.gc.collection_ready() {
             return true;
         }
+        #[cfg(not(feature = "threading"))]
+        let _ = stop;
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::signal::eval_breaker_pending()

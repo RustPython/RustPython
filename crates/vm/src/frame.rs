@@ -1926,6 +1926,15 @@ impl GenCont {
 /// A valid execution result, or an exception
 type FrameResult = PyResult<Option<ExecutionResult>>;
 
+// Saved only when monitoring/tracing changes between instruction dispatches.
+// Keeping the prefix state makes switching loops safe even after EXTENDED_ARG.
+struct DispatchState {
+    idx: usize,
+    arg_state: bytecode::OpArgState,
+    #[cfg(feature = "opcode-histogram")]
+    prev_op: u8,
+}
+
 impl FrameObject {
     pub(crate) fn new(
         code: PyRef<PyCode>,
@@ -2891,8 +2900,8 @@ pub(crate) fn run_iframe(
 /// Whether the trampoline may skip a delegating frame's own instructions.
 ///
 /// It may not while anything is watching them run: `sys.settrace` fires line
-/// and opcode events per instruction, and `sys.monitoring` both fires events
-/// and rewrites the very opcodes the `yield from` shape is recognized by.
+/// and opcode events per instruction, and virtual `sys.monitoring` dispatch
+/// must observe each logical instruction even though executable opcodes stay intact.
 #[inline]
 pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
     !vm.use_tracing.get() && vm.state.monitoring_events.load() == 0
@@ -3872,15 +3881,35 @@ impl ExecutingFrame<'_> {
         &mut self,
         vm: &VirtualMachine,
     ) -> PyResult<Option<ExecutionResult>> {
-        let result = self.run_until_inner::<PREPARE_GENERATOR>(vm);
+        let mut state = DispatchState {
+            idx: self.lasti() as usize,
+            arg_state: bytecode::OpArgState::default(),
+            #[cfg(feature = "opcode-histogram")]
+            prev_op: 0,
+        };
+        let result = loop {
+            let observed = !PREPARE_GENERATOR
+                && (vm.state.monitoring_events.load() != 0 || vm.use_tracing.get());
+            let step = if observed {
+                self.run_until_inner::<PREPARE_GENERATOR, true>(state, vm)
+            } else {
+                self.run_until_inner::<PREPARE_GENERATOR, false>(state, vm)
+            };
+            match step {
+                Ok(core::ops::ControlFlow::Continue(next)) => state = next,
+                Ok(core::ops::ControlFlow::Break(result)) => break Ok(result),
+                Err(exception) => break Err(exception),
+            }
+        };
         self.clear_pending_lineno_jump();
         result
     }
 
-    fn run_until_inner<const PREPARE_GENERATOR: bool>(
+    fn run_until_inner<const PREPARE_GENERATOR: bool, const OBSERVED: bool>(
         &mut self,
+        state: DispatchState,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<ExecutionResult>> {
+    ) -> PyResult<core::ops::ControlFlow<Option<ExecutionResult>, DispatchState>> {
         flame_guard!(format!(
             "FrameObject::run({obj_name})",
             obj_name = self.code.obj_name
@@ -3902,12 +3931,12 @@ impl ExecutingFrame<'_> {
         // its base pointer is hoisted here; reading it through `self.code`
         // inside the loop cost two more dependent loads per instruction.
         let units_ptr = self.code.instructions.units_ptr();
-        let mut arg_state = bytecode::OpArgState::default();
-        let mut idx = lasti_cell.load(Relaxed) as usize;
+        let mut arg_state = state.arg_state;
+        let mut idx = state.idx;
         // Previous opcode in this frame, for the `(prev, op)` pair histogram.
         // Zero (`CACHE`, never dispatched) marks "no predecessor yet".
         #[cfg(feature = "opcode-histogram")]
-        let mut prev_op: u8 = 0;
+        let mut prev_op = state.prev_op;
         loop {
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
@@ -3916,6 +3945,34 @@ impl ExecutingFrame<'_> {
             // than read-modify-written, which would re-load what was just read.
             lasti_cell.store(idx as u32 + 1, Relaxed);
 
+            #[cfg(feature = "threading")]
+            let dispatch_requests = if !PREPARE_GENERATOR && !OBSERVED {
+                crate::vm::thread::current_dispatch_requests()
+            } else {
+                None
+            };
+            if !PREPARE_GENERATOR
+                && OBSERVED != {
+                    #[cfg(feature = "threading")]
+                    let monitoring = dispatch_requests.map_or_else(
+                        || vm.state.monitoring_events.load() != 0,
+                        |requests| requests.monitoring_active(),
+                    );
+                    #[cfg(not(feature = "threading"))]
+                    let monitoring = vm.state.monitoring_events.load() != 0;
+                    // Keep the effective Cell as the tracing source of truth,
+                    // including callback suppression and external embedding writes.
+                    monitoring || vm.use_tracing.get()
+                }
+            {
+                return Ok(core::ops::ControlFlow::Continue(DispatchState {
+                    idx,
+                    arg_state,
+                    #[cfg(feature = "opcode-histogram")]
+                    prev_op,
+                }));
+            }
+
             // Read once and reuse for both the line-trace check below and
             // the opcode-trace check after the instruction is decoded,
             // instead of re-reading the Cell twice per instruction. This is
@@ -3923,14 +3980,14 @@ impl ExecutingFrame<'_> {
             // principle toggle it, because we refresh `tracing` below right
             // after that call returns (that cold path is only taken when
             // tracing was already on, so it costs nothing on the hot path).
-            let mut virtual_dispatch = if PREPARE_GENERATOR {
+            let mut virtual_dispatch = if PREPARE_GENERATOR || !OBSERVED {
                 None
             } else {
                 monitoring::dispatch_operation(vm, self.code, idx)
             };
             let virtual_line = virtual_dispatch
                 .is_some_and(|(_, top)| matches!(top, Instruction::InstrumentedLine));
-            let mut tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
+            let mut tracing = !PREPARE_GENERATOR && OBSERVED && vm.use_tracing.get();
             let mut legacy_line_processed = false;
 
             // Fire 'line' trace event when line number changes.
@@ -4005,7 +4062,9 @@ impl ExecutingFrame<'_> {
                                     idx = lasti_cell.load(Relaxed) as usize;
                                     continue;
                                 }
-                                Ok(Some(value)) => break Ok(Some(value)),
+                                Ok(Some(value)) => {
+                                    break Ok(core::ops::ControlFlow::Break(Some(value)));
+                                }
                                 Err(e) => break Err(e),
                             }
                         }
@@ -4061,11 +4120,12 @@ impl ExecutingFrame<'_> {
                     unit.op,
                     unit.arg,
                     DispatchMode::Physical,
-                    unit.op.cache_entries(),
+                    if OBSERVED { unit.op.cache_entries() } else { 0 },
                 )
             };
             let arg = arg_state.extend(raw_arg);
             let mut do_extend_arg = false;
+            let mut dispatch_index = idx as u32;
 
             // f_lineno for a live (currently executing) frame is derived
             // lazily from lasti/locations (see `FrameObject::lineno`) rather
@@ -4092,6 +4152,7 @@ impl ExecutingFrame<'_> {
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
+                    dispatch_index = self.lasti().saturating_sub(1);
                 }
             }
 
@@ -4110,8 +4171,19 @@ impl ExecutingFrame<'_> {
                 vm.run_scheduled_gc();
                 vm.raise_async_exception()
             }
-            if vm.eval_breaker_tripped()
-                && let Err(exception) = eval_breaker_work(vm)
+            #[cfg(feature = "threading")]
+            let breaker_tripped = dispatch_requests.map_or_else(
+                || vm.eval_breaker_tripped(),
+                |requests| vm.eval_breaker_tripped_with_stop(requests.stop_requested()),
+            );
+            #[cfg(not(feature = "threading"))]
+            let breaker_tripped = vm.eval_breaker_tripped();
+            if breaker_tripped
+                && let Err(exception) = {
+                    let result = eval_breaker_work(vm);
+                    dispatch_index = self.lasti().saturating_sub(1);
+                    result
+                }
             {
                 #[cold]
                 fn handle_signal_exception(
@@ -4143,7 +4215,7 @@ impl ExecutingFrame<'_> {
                 match handle_signal_exception(self, exception, idx, !PREPARE_GENERATOR, vm) {
                     Ok(None) => {}
                     Ok(Some(value)) => {
-                        break Ok(Some(value));
+                        break Ok(core::ops::ControlFlow::Break(Some(value)));
                     }
                     Err(exception) => {
                         break Err(exception);
@@ -4172,9 +4244,11 @@ impl ExecutingFrame<'_> {
                 // pointer advanced to POP_TOP. The iterator pair a generator
                 // expression pushed must outlive this execution borrow.
                 self.localsplus.promote_stack();
-                break Ok(None);
+                break Ok(core::ops::ControlFlow::Break(None));
             }
-            let result = self.execute_instruction(op, arg, mode, &mut do_extend_arg, vm);
+            let result =
+                self.execute_instruction(op, arg, mode, dispatch_index, &mut do_extend_arg, vm);
+            let caches = if OBSERVED { caches } else { op.cache_entries() };
             // Skip inline cache entries if instruction fell through (no jump).
             // `cache_entries()` is a table lookup, so it is done here rather
             // than before dispatch: computing it up front kept the count live
@@ -4188,7 +4262,7 @@ impl ExecutingFrame<'_> {
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
-                    break Ok(Some(value));
+                    break Ok(core::ops::ControlFlow::Break(Some(value)));
                 }
                 // Instruction raised an exception
                 Err(exception) => {
@@ -4330,7 +4404,7 @@ impl ExecutingFrame<'_> {
                         // The handler unwound to a new position, so the next
                         // index is whatever it left in the frame.
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
-                        Ok(Some(result)) => break Ok(Some(result)),
+                        Ok(Some(result)) => break Ok(core::ops::ControlFlow::Break(Some(result))),
                         Err(exception) => {
                             monitoring::reset_reraise_pending();
                             // Fire PY_UNWIND: exception escapes this frame
@@ -4634,13 +4708,13 @@ impl ExecutingFrame<'_> {
         instruction: Instruction,
         arg: bytecode::OpArg,
         mode: DispatchMode,
+        index: u32,
         extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
         flame_guard!(format!(
             "FrameObject::execute_instruction({instruction:?} {arg:?})"
         ));
-        let index = self.lasti().saturating_sub(1);
         self.monitoring_previous = self.monitoring_current.replace(Some(index));
         if matches!(
             mode,
@@ -8877,6 +8951,7 @@ impl ExecutingFrame<'_> {
                     DispatchMode::Monitored {
                         opcode_traced: false,
                     },
+                    self.lasti().saturating_sub(1),
                     do_extend_arg,
                     vm,
                 )
@@ -8906,6 +8981,7 @@ impl ExecutingFrame<'_> {
                     DispatchMode::Monitored {
                         opcode_traced: true,
                     },
+                    self.lasti().saturating_sub(1),
                     do_extend_arg,
                     vm,
                 )
