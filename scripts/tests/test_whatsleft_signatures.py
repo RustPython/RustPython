@@ -88,6 +88,50 @@ class GateTests(unittest.TestCase):
         self.result["reference_class_selection"]["demo"]["Thing"] = "not_selected"
         self.assertTrue(self.errors())
 
+    def test_diagnostic_addresses_are_not_regressions(self):
+        self.result["uncomparable_signatures"] = {
+            "demo": [
+                ["demo.f", "ValueError('<type object at 0x123> invalid signature')"]
+            ]
+        }
+        self.baseline = gate.snapshot(self.result)
+        self.result["uncomparable_signatures"]["demo"][0][1] = (
+            "ValueError('<type object at 0x456> invalid signature')"
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_changed_exception_kind_or_message_still_fails(self):
+        self.result["uncomparable_signatures"] = {
+            "demo": [
+                ["demo.f", "ValueError('<type object at 0x123> invalid signature')"]
+            ]
+        }
+        self.baseline = gate.snapshot(self.result)
+        for message in (
+            "TypeError('<type object at 0x123> invalid signature')",
+            "ValueError('<type object at 0x123> failed lookup')",
+        ):
+            with self.subTest(message=message):
+                self.result["uncomparable_signatures"]["demo"][0][1] = message
+                self.assertTrue(self.errors())
+
+    def test_inspected_signature_default_addresses_still_fail(self):
+        self.result["mismatched_items"] = {
+            "demo": [["demo.f", "(x=' at 0x123>')", "(x='expected')"]]
+        }
+        self.baseline = gate.snapshot(self.result)
+        self.result["mismatched_items"]["demo"][0][1] = "(x=' at 0x456>')"
+        self.assertTrue(self.errors())
+
+    def test_signature_literals_not_address_normalized(self):
+        self.assertEqual(gate.diagnostic("(text=' at 0x123>')"), "(text=' at 0x123>')")
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        pair["comparison"] = "raw_difference"
+        pair["rustpython"]["value"] = "($self, text=' at 0x123>', /)"
+        self.baseline = gate.snapshot(self.result)
+        pair["rustpython"]["value"] = "($self, text=' at 0x456>', /)"
+        self.assertTrue(self.errors())
+
     def test_raw_change(self):
         pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
         pair["comparison"] = "raw_difference"

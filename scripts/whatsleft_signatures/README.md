@@ -1,10 +1,13 @@
 # Signature observation regression gate
 
 CI reuses the existing RustPython executable and single `whats_left.py` scan.
+It runs immediately after the build, before the expensive CPython test suite.
 It checks raw native `__text_signature__` separately from `inspect.signature`,
 and rejects new/changed known failures, lost or changed selected scopes, and
 resolved exceptions left in the baseline. The last rule prevents a later PR
 from reintroducing a previously fixed mismatch under an obsolete exception.
+Only process addresses in exception-shaped repr diagnostics are normalized.
+Raw signature text, parameter names and default literals are never normalized.
 No runtime call compatibility is inferred from either signature representation.
 Type-document observations are not constructor compatibility evidence.
 
@@ -17,10 +20,13 @@ observations and CPython introspection/import failures remain explicitly
 unverified. A passing gate means no change against reviewed observations, not
 zero mismatches or complete CPython compatibility.
 
-The three baselines originate from existing CI run
-[42421287760](https://github.com/RustPython/RustPython/actions/runs/42421287760),
-head `143c4816323988d558d2fd202eba1b998efcae12`, merge
-`5da7d5b1d1d56467fb60997bbdb66676e0c6c33d`. They use CPython **3.15.0**, not the
+The baselines are reviewed platform-specific CI observations. The initial
+run [42421287760](https://github.com/RustPython/RustPython/actions/runs/42421287760)
+is superseded where recorded by
+[42491705325](https://github.com/RustPython/RustPython/actions/runs/42491705325),
+head `4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7`, merge
+`3b4735987efcc7ba59d454a1f6cf9d667a631778`. Each baseline records its own provenance.
+They use CPython **3.15.0**, not the
 separate local 3.15.1 inventory. Their exact OS, architecture, reference version
 and RustPython feature context must match. CI pins the oracle using
 `.python-version`. Platform-specific paths are not suppressed on other OSes.
