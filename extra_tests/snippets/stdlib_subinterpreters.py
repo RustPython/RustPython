@@ -164,3 +164,94 @@ for operation in ("destroy", "close", "drop", "timeout"):
     check=True,
     timeout=30,
 )
+
+
+def check_preserve_exc_conversion():
+    trace = []
+
+    class Flag:
+        def __init__(self, name, raises=False):
+            self.name = name
+            self.raises = raises
+
+        def __bool__(self):
+            trace.append(self.name)
+            if self.raises:
+                raise RuntimeError(self.name)
+            return False
+
+        def __del__(self):
+            trace.append("del-" + self.name)
+
+    class Id:
+        def __index__(self):
+            trace.append("id")
+            return -1
+
+    # Conversion is required even when preserve_exc's value is unused. It must
+    # precede restrict conversion and the implementation's id lookup.
+    try:
+        _interpreters.call(
+            Id(),
+            None,
+            preserve_exc=Flag("preserve", True),
+            restrict=Flag("restrict", True),
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "preserve"
+    else:
+        raise AssertionError("preserve_exc was not converted")
+    assert [event for event in trace if not event.startswith("del-")] == ["preserve"]
+
+    trace.clear()
+    try:
+        _interpreters.call(
+            Id(), None, preserve_exc=Flag("preserve"), restrict=Flag("restrict", True)
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "restrict"
+    else:
+        raise AssertionError("restrict was not converted")
+    assert trace[:2] == ["preserve", "restrict"], trace
+
+    # The original kwargs ownership must survive conversion. Both **dict
+    # insertion orders retain the original inputs through id resolution.
+    for reverse in (False, True):
+        trace.clear()
+        try:
+            if reverse:
+                _interpreters.call(
+                    Id(),
+                    None,
+                    **{"restrict": Flag("restrict"), "preserve_exc": Flag("preserve")},
+                )
+            else:
+                _interpreters.call(
+                    Id(),
+                    None,
+                    **{"preserve_exc": Flag("preserve"), "restrict": Flag("restrict")},
+                )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("negative id was accepted")
+        cleanup = (
+            ["del-restrict", "del-preserve"]
+            if reverse
+            else ["del-preserve", "del-restrict"]
+        )
+        assert trace == ["preserve", "restrict", "id"] + cleanup, trace
+
+    # Existing tuple/dict conversions still take precedence over the flags.
+    for bad in ({"args": None}, {"kwargs": None}):
+        trace.clear()
+        try:
+            _interpreters.call(Id(), None, preserve_exc=Flag("preserve", True), **bad)
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("invalid call arguments were accepted")
+        assert [event for event in trace if not event.startswith("del-")] == [], trace
+
+
+check_preserve_exc_conversion()
