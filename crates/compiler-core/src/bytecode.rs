@@ -969,24 +969,35 @@ impl CodeUnits {
         &self,
         resolve: impl Fn(usize, Instruction) -> Instruction,
     ) -> Vec<u8> {
-        let len = self.len();
-        let mut out = Vec::with_capacity(len * 2);
-        let mut i = 0;
-        while i < len {
-            let op = resolve(i, self.read_op(i)).deoptimize();
-            let arg = self.read_arg(i);
-            let caches = op.cache_entries();
-            out.push(u8::from(op));
-            out.push(u8::from(arg));
+        let mut out = Vec::with_capacity(self.len() * 2);
+        for unit in self.original_instructions_with(resolve) {
+            out.push(u8::from(unit.op));
+            out.push(u8::from(unit.arg));
             // Zero-fill all CACHE entries (counter + cached data)
-            for _ in 0..caches {
-                i += 1;
+            for _ in 0..unit.op.cache_entries() {
                 out.push(0); // op = Cache = 0
                 out.push(0); // arg = 0
             }
-            i += 1;
         }
         out
+    }
+
+    /// Iterate over deoptimized instructions, skipping inline cache data.
+    /// `resolve` restores instrumentation placeholders before resolving base opcodes.
+    pub fn original_instructions_with(
+        &self,
+        resolve: impl Fn(usize, Instruction) -> Instruction,
+    ) -> impl Iterator<Item = CodeUnit> {
+        let mut i = 0;
+        core::iter::from_fn(move || {
+            if i >= self.len() {
+                return None;
+            }
+            let op = resolve(i, self.read_op(i)).deoptimize();
+            let unit = CodeUnit::new(op, self.read_arg(i));
+            i += 1 + op.cache_entries();
+            Some(unit)
+        })
     }
 
     /// Initialize adaptive warmup counters for all cacheable instructions.
