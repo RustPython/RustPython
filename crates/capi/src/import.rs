@@ -8,11 +8,7 @@ use rustpython_vm::import::{add_module, import_code_obj};
 pub unsafe extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
-        let _ = vm.import(name, 0)?;
-
-        vm.sys_module
-            .get_attr(rustpython_vm::identifier!(vm, modules), vm)?
-            .get_item(name, vm)
+        rustpython_vm::import::import_module(vm, name)
     })
 }
 

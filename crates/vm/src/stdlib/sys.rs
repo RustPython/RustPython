@@ -972,55 +972,73 @@ pub mod sys {
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         #[cfg(feature = "host_env")]
-        let env_var = crate::host_env::os::var("PYTHONBREAKPOINT")
-            .and_then(|env_var| {
-                if env_var.is_empty() {
-                    Err(std::env::VarError::NotPresent)
-                } else {
-                    Ok(env_var)
-                }
-            })
-            .unwrap_or_else(|_| "pdb.set_trace".to_owned());
-        #[cfg(not(feature = "host_env"))]
-        let env_var = "pdb.set_trace".to_owned();
-
-        if env_var.eq("0") {
-            return Ok(vm.ctx.none());
+        let env_var = if vm.state.config.settings.ignore_environment {
+            None
+        } else {
+            crate::host_env::os::var("PYTHONBREAKPOINT").ok()
         };
+        #[cfg(not(feature = "host_env"))]
+        let env_var: Option<String> = None;
+
+        // Own the environment value before importing: import callbacks can
+        // change the environment while the selected hook is being resolved.
+        let env_var = env_var
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "pdb.set_trace".to_owned());
+
+        if env_var == "0" {
+            return Ok(vm.ctx.none());
+        }
 
         let print_unimportable_module_warn = || {
             warn(
                 vm.ctx.exceptions.runtime_warning,
-                format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\"",),
+                format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\""),
                 0,
                 vm,
             )?;
             Ok(vm.ctx.none())
         };
 
-        let last = match env_var.rsplit_once('.') {
-            Some((_, last)) => last,
-            None if !env_var.is_empty() => env_var.as_str(),
-            _ => return print_unimportable_module_warn(),
+        let (module_path, attr_name) = match env_var.rsplit_once('.') {
+            // A leading separator has no module to import. A trailing one
+            // still imports the module and looks up the empty attribute.
+            Some(("", _)) => return print_unimportable_module_warn(),
+            Some((module_path, attr_name)) => (module_path, attr_name),
+            None => ("builtins", env_var.as_str()),
         };
 
-        let (module_path, attr_name) = if last == env_var {
-            ("builtins", env_var.as_str())
-        } else {
-            (&env_var[..(env_var.len() - last.len() - 1)], last)
-        };
-
-        let module = match vm.import(&vm.ctx.new_str(module_path), 0) {
+        let module_name = vm.ctx.new_str(module_path);
+        let module = crate::import::import_module(vm, &module_name);
+        drop(module_name);
+        let module = match module {
             Ok(module) => module,
-            Err(_) => {
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.import_error) => {
+                drop(err);
                 return print_unimportable_module_warn();
             }
+            Err(err) => return Err(err),
         };
 
-        match vm.get_attribute_opt(&module, &vm.ctx.new_str(attr_name)) {
-            Ok(Some(hook)) => hook.as_ref().call(args, vm),
-            _ => print_unimportable_module_warn(),
-        }
+        // AttributeError is the only lookup failure treated as an unavailable
+        // hook. Release the module before warning or invoking the hook: its
+        // attribute callback may have removed it from sys.modules.
+        let hook = module.get_attr(&vm.ctx.new_str(attr_name), vm);
+        drop(module);
+        let hook = match hook {
+            Ok(hook) => hook,
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                drop(err);
+                return print_unimportable_module_warn();
+            }
+            Err(err) => return Err(err),
+        };
+
+        // Calling consumes FuncArgs. Keep the original owners alive through
+        // release of the resolved callable, including when its call fails.
+        // Scope cleanup drops the later hook binding before the retained args.
+        let (_retained_args, hook) = (args.clone(), hook);
+        hook.call(args, vm)
     }
 
     #[pyfunction]
