@@ -810,3 +810,73 @@ def check_tee_source_lifetime():
 
 
 check_tee_source_lifetime()
+
+
+# Source finalizers can reenter after the iterator has published terminal/replay
+# state. No state lock may remain held when the finalizer runs.
+def check_cycle_source_finalizer():
+    events = []
+
+    class Source:
+        def __init__(self):
+            self.items = iter((1, 2))
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self.items)
+
+        def __del__(self):
+            events.append(next(cycled))
+
+    source = Source()
+    source_ref = weakref.ref(source)
+    cycled = itertools.cycle(source)
+    del source
+    assert next(cycled) == 1
+    assert next(cycled) == 2
+    assert next(cycled) == 1
+    assert source_ref() is None
+    assert events == [1]
+    # The outer call retains its own replay index across finalizer reentry.
+    assert next(cycled) == 2
+
+
+check_cycle_source_finalizer()
+
+
+def check_pairwise_source_finalizer(count):
+    events = []
+
+    class Item:
+        def __del__(self):
+            events.append(("item", next(pairs, None)))
+
+    items = iter([Item()] if count else [])
+
+    class Source:
+        # A native next avoids a Python traceback retaining self at exhaustion.
+        __next__ = staticmethod(items.__next__)
+
+        def __iter__(self):
+            return self
+
+        def __del__(self):
+            events.append(("source", next(pairs, None)))
+
+    source = Source()
+    source_ref = weakref.ref(source)
+    pairs = itertools.pairwise(source)
+    del source
+    assert next(pairs, None) is None
+    assert source_ref() is None
+    expected = [("source", None)]
+    if count:
+        expected.append(("item", None))
+    assert events == expected
+    assert next(pairs, None) is None
+
+
+check_pairwise_source_finalizer(0)
+check_pairwise_source_finalizer(1)
