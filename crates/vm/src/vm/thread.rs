@@ -581,7 +581,7 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
 #[cfg(feature = "threading")]
 fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
     let interp_id = vm.state.interpreter_id;
-    let (slot, retired) = INTERP_THREAD_SLOTS.with(|slots| {
+    let (slot, _retired) = INTERP_THREAD_SLOTS.with(|slots| {
         let mut slots = slots.borrow_mut();
         if let Some(existing) = slots.get(&interp_id) {
             return (existing.clone(), None);
@@ -643,9 +643,8 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
         slots.insert(interp_id, new_slot.clone());
         (new_slot, retired)
     });
-    // Finalizers may reenter monitoring or thread registration. Both the
-    // registry mutex and INTERP_THREAD_SLOTS RefCell borrow are now released.
-    drop(retired);
+    // The displaced slot remains owned until after the registry mutex and
+    // INTERP_THREAD_SLOTS RefCell borrow have been released.
     slot
 }
 
@@ -1318,6 +1317,10 @@ pub fn update_thread_exception(exc: Option<PyBaseExceptionRef>) {
 /// Acquires the global registry lock briefly, then reads each slot's exception atomically.
 #[cfg(feature = "threading")]
 pub fn get_all_current_exceptions(vm: &VirtualMachine) -> Vec<(u64, Option<PyBaseExceptionRef>)> {
+    #[expect(
+        clippy::needless_collect,
+        reason = "release the registry guard before owned exception loads can run finalizers"
+    )]
     let slots: Vec<_> = vm
         .state
         .thread_frames
