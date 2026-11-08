@@ -24,6 +24,6 @@ def get_analysis() -> Analysis:
     from generators_common import DEFAULT_INPUT
 
     analysis = analyze_files([DEFAULT_INPUT])
-    # Our speration is done at the enum definition
+    # Our separation is done at the enum definition
     analysis.instructions |= analysis.pseudos
     return analysis
