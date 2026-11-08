@@ -499,6 +499,9 @@ pub struct PyCode {
     nlocals: i32,
     // Native lifetime witness, separate from Python-visible weak references.
     monitoring_identity: OnceCell<PyRc<MonitoringCodeIdentity>>,
+    // Immutable instruction-start bitmap, not a snapshot of executable opcodes.
+    // Specialization preserves base families, operands and cache widths.
+    instruction_boundaries: OnceCell<Box<[u8]>>,
     /// Whether adaptive counters have been initialized (lazy quickening).
     pub quickened: core::sync::atomic::AtomicBool,
     /// Whether the bytecode contains any instruction that mutates the current
@@ -639,6 +642,31 @@ impl PyCode {
         self.monitoring_identity.get()
     }
 
+    /// Resolve an arbitrary offset without touching inline-cache storage.
+    /// The first lookup preserves base_instructions' wrapper/incomplete-extent
+    /// stopping rules. Initialization uses only atomic reads and native storage;
+    /// it must not take interpreter locks or invoke Python while publishing.
+    pub(crate) fn source_instruction(&self, index: usize) -> Option<bytecode::CodeUnit> {
+        if index >= self.instructions.len() {
+            return None;
+        }
+        let boundaries = self.instruction_boundaries.get_or_init(|| {
+            let mut bits = vec![0u8; self.instructions.len().div_ceil(8)];
+            for (at, _) in self.instructions.base_instructions() {
+                bits[at / 8] |= 1 << (at % 8);
+            }
+            bits.into_boxed_slice()
+        });
+        if boundaries[index / 8] & (1 << (index % 8)) == 0 {
+            return None;
+        }
+        // The published bit proves this is an instruction start. Read the
+        // current scalar atomically: executable specialization can race here,
+        // but its deoptimized family and argument are immutable for this code.
+        let unit = self.instructions.read_unit(index);
+        Some(bytecode::CodeUnit::new(unit.op.deoptimize(), unit.arg))
+    }
+
     pub fn new(mut code: CodeObject, ctx: &Context) -> Self {
         code.instructions.fixup_get_iter(code.flags);
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
@@ -703,6 +731,7 @@ impl PyCode {
             source_path: AtomicPtr::new(sp),
             nlocals,
             monitoring_identity: OnceCell::new(),
+            instruction_boundaries: OnceCell::new(),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
         }
@@ -2091,4 +2120,89 @@ impl<'a> LineTableReader<'a> {
 
 pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
+}
+
+#[cfg(all(test, feature = "compiler"))]
+mod boundary_cache_tests {
+    use super::*;
+    use crate::bytecode::CodeUnit;
+
+    #[test]
+    fn cached_boundaries_match_bounded_walk() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let seed = vm
+                .compile("pass", crate::compiler::Mode::Exec, "<boundaries>")
+                .unwrap();
+            let unit = |op| CodeUnit::new(op, 0.into());
+            let mut fixtures = vec![
+                vec![],
+                vec![unit(Instruction::ExtendedArg), unit(Instruction::Nop)],
+                vec![
+                    unit(Instruction::Nop),
+                    unit(bytecode::Opcode::LoadGlobal.as_instruction()),
+                ],
+                vec![
+                    unit(bytecode::Opcode::LoadGlobal.as_instruction()),
+                    unit(Instruction::InstrumentedLine),
+                    unit(Instruction::InstrumentedInstruction),
+                    unit(Instruction::EnterExecutor),
+                    unit(Instruction::Cache),
+                    unit(Instruction::ReturnValue),
+                ],
+            ];
+            for unavailable in [
+                Instruction::InstrumentedLine,
+                Instruction::InstrumentedInstruction,
+                Instruction::EnterExecutor,
+                Instruction::TraceRecord,
+                Instruction::Reserved,
+                Instruction::InterpreterExit,
+            ] {
+                fixtures.push(vec![
+                    unit(Instruction::Nop),
+                    unit(unavailable),
+                    unit(Instruction::ReturnValue),
+                ]);
+            }
+            for units in fixtures {
+                // Scalar fixtures only; no malformed bytecode is executed.
+                let mut raw = seed.code.clone();
+                raw.instructions = CodeUnits::from(units);
+                let code = PyCode::new(raw, &vm.ctx);
+                assert!(code.instruction_boundaries.get().is_none());
+                for index in (0..code.instructions.len() + 2).chain([usize::MAX]) {
+                    let expected = code
+                        .instructions
+                        .base_instructions()
+                        .find_map(|(at, unit)| (at == index).then_some(unit));
+                    let scalar = |u: CodeUnit| (u.op.as_opcode(), u8::from(u.arg));
+                    assert_eq!(
+                        code.source_instruction(index).map(scalar),
+                        expected.map(scalar)
+                    );
+                }
+                if code.instructions.len() == 6 {
+                    // The bitmap is already published. Same-family specialization
+                    // must preserve its boundaries and expose the same base scalar.
+                    unsafe {
+                        code.instructions
+                            .replace_op(0, Instruction::LoadGlobalModule);
+                    }
+                    assert_eq!(
+                        code.source_instruction(0).unwrap().op.as_opcode(),
+                        bytecode::Opcode::LoadGlobal
+                    );
+                    for index in 1..5 {
+                        assert!(code.source_instruction(index).is_none());
+                    }
+                    assert_eq!(
+                        code.source_instruction(5).unwrap().op.as_opcode(),
+                        bytecode::Opcode::ReturnValue
+                    );
+                    let replacement = PyCode::new(code.code.clone(), &vm.ctx);
+                    assert!(replacement.instruction_boundaries.get().is_none());
+                }
+            }
+        });
+    }
 }
