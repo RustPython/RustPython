@@ -1471,14 +1471,19 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             ResolvedError::Handler(handler) => handler,
         };
         let decode_exc = ctx.error_decoding(byte_range, reason);
-        let data_bytes = decode_exc
-            .as_object()
-            .get_attr("object", vm)?
-            .downcast::<PyBytes>()
-            .map_err(|_| vm.new_type_error("UnicodeError 'object' attribute must be a bytes"))?;
-        // CPython resumes from the exception's bytes object, not the original
-        // mutable buffer. Switch before calling Python to release its data lock.
-        ctx.data = PyDecodeData::Modified(data_bytes);
+        if matches!(ctx.data, PyDecodeData::Original(_)) {
+            // Release the original buffer's read guard before calling Python.
+            // A retained exception may have been changed by a mapping callback;
+            // only validate its object after the error handler can repair it.
+            let data_bytes = decode_exc
+                .as_object()
+                .get_attr("object", vm)?
+                .downcast::<PyBytes>()
+                .map_err(|_| {
+                    vm.new_type_error("UnicodeError 'object' attribute must be a bytes")
+                })?;
+            ctx.data = PyDecodeData::Modified(data_bytes);
+        }
         let res = handler.call((decode_exc.clone(),), vm)?;
         let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
         let (replace, restart) = match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
