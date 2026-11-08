@@ -1191,7 +1191,6 @@ impl<'a> PyDecodeContext<'a> {
             vm,
             encoding,
             data: PyDecodeData::Modified(data),
-            orig_bytes: None,
             pos: 0,
             exception: OnceCell::new(),
         }
