@@ -1015,6 +1015,9 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
+    // A previously bounded-walk-validated yield-from shape in this frame's code.
+    // Zero is not a suspension point. Access requires the frame execution claim.
+    validated_yield_from: core::cell::Cell<u32>,
     /// Base pointer of the datastack allocation when this frame and its
     /// localsplus are bump-allocated together. Null for heap-backed frames.
     pub(crate) datastack_base: *mut u8,
@@ -1111,6 +1114,7 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
+            validated_yield_from: core::cell::Cell::new(0),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -1432,6 +1436,7 @@ impl InterpreterFrame {
             // an executing frame"; `attached_tid` carries the "still running"
             // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            validated_yield_from: core::cell::Cell::new(self.validated_yield_from.get()),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
@@ -1514,6 +1519,7 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            validated_yield_from: core::cell::Cell::new(self.validated_yield_from.get()),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -2923,30 +2929,42 @@ pub(crate) fn yield_from_delegate(
     }
     // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
     let send_idx = resumed_at.checked_sub(2 + send_caches)?;
-    // checked_sub above proves send_idx <= resumed_at - 2. The optional
-    // predecessor uses a duplicate zero when send_idx is zero.
-    let [before_send, send_unit, yield_unit, resume_unit] = monitoring::source_operations_sorted(
-        code,
-        [
-            send_idx.saturating_sub(1),
-            send_idx,
-            resumed_at - 1,
-            resumed_at,
-        ],
-    );
-    if !matches!(resume_unit?.op, Instruction::Resume { .. }) {
-        return None;
-    }
-    let yield_unit = yield_unit?;
-    if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1 {
-        return None;
-    }
-    let send_unit = send_unit?;
+    let send_unit = if iframe.validated_yield_from.get() == resumed_at as u32 {
+        // The code's instruction boundaries and operands are immutable. A
+        // previous bounded walk proved this SEND start, even if f_lineno has
+        // since moved away and back. Specialization can still change its opcode.
+        code.instructions.read_unit(send_idx)
+    } else {
+        let [before_send, send_unit, yield_unit, resume_unit] =
+            monitoring::source_operations_sorted(
+                code,
+                [
+                    send_idx.saturating_sub(1),
+                    send_idx,
+                    resumed_at - 1,
+                    resumed_at,
+                ],
+            );
+        if !matches!(resume_unit?.op, Instruction::Resume { .. }) {
+            return None;
+        }
+        let yield_unit = yield_unit?;
+        if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1
+        {
+            return None;
+        }
+        let send_unit = send_unit?;
+        if !matches!(send_unit.op, Instruction::Send { .. }) {
+            return None;
+        }
+        // An EXTENDED_ARG prefix would make the raw operand the wrong exit.
+        if send_idx > 0 && matches!(before_send?.op, Instruction::ExtendedArg) {
+            return None;
+        }
+        iframe.validated_yield_from.set(resumed_at as u32);
+        send_unit
+    };
     if !matches!(code.instructions.read_op(send_idx), Instruction::SendGen) {
-        return None;
-    }
-    // An EXTENDED_ARG prefix would make the raw oparg below the wrong exit.
-    if send_idx > 0 && matches!(before_send?.op, Instruction::ExtendedArg) {
         return None;
     }
     let stack = iframe.localsplus.stack_as_slice();
