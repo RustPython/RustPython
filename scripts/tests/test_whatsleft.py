@@ -1,10 +1,11 @@
 """Tests for whats_left's selected top-level reference discovery.
 
 Checks for ambiguity in whats_left's flattened reference inventory.
-Tests for scan coverage and reference-signature error accounting.
+Tests for the side-effect-conscious raw text-signature observations.
 """
 
 import ast
+import builtins
 import inspect
 import io
 import json
@@ -543,6 +544,7 @@ class InventoryTests(unittest.TestCase):
 
 
 names = {
+    "make_native_raw_observer",
     "attr_is_not_inherited",
     "compare",
     "observe_real_type",
@@ -551,7 +553,7 @@ names = {
     "name_sort_key",
 }
 nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
-coverage_namespace = {
+raw_namespace = {
     "cpython_failed_imports": {},
     "reference_discovery": {},
     "inspect": inspect,
@@ -565,30 +567,93 @@ coverage_namespace = {
     "_safe_str": str,
     "_safe_frozenset": frozenset,
 }
-exec(
-    compile(ast.Module(nodes, type_ignores=[]), str(SOURCE), "exec"), coverage_namespace
-)
-for name in ("extra_info",):
+exec(compile(ast.Module(nodes, type_ignores=[]), str(SOURCE), "exec"), raw_namespace)
+raw_namespace["native_raw_text_signature"] = raw_namespace["make_native_raw_observer"]()
+for name in ("observe_raw_safely", "extra_info"):
     node = next(
         n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name
     )
     exec(
-        compile(ast.Module([node], type_ignores=[]), str(SOURCE), "exec"),
-        coverage_namespace,
+        compile(ast.Module([node], type_ignores=[]), str(SOURCE), "exec"), raw_namespace
     )
 
 
-class CoverageTests(unittest.TestCase):
+class RawTextTests(unittest.TestCase):
     def setUp(self):
-        original = coverage_namespace.copy()
-        coverage_namespace["actual_parent_scans"] = {}
-        coverage_namespace["reference_expanded_classes"] = {}
+        original = raw_namespace.copy()
+        raw_namespace["actual_parent_scans"] = {}
+        raw_namespace["reference_expanded_classes"] = {}
 
         def restore():
-            coverage_namespace.clear()
-            coverage_namespace.update(original)
+            raw_namespace.clear()
+            raw_namespace.update(original)
 
         self.addCleanup(restore)
+
+    def test_native_text_context_and_noncallables(self):
+        observe = raw_namespace["observe_raw_safely"]
+        self.assertEqual(observe(len)["binding"], "bound_module")
+        self.assertEqual(observe([].append)["binding"], "bound_non_none")
+        self.assertEqual(observe(sys.__sizeof__)["binding"], "bound_module")
+
+        class ModuleSubclass(types.ModuleType):
+            pass
+
+        self.assertEqual(
+            observe(ModuleSubclass("test").__sizeof__)["binding"], "bound_non_none"
+        )
+        self.assertEqual(observe(list.append)["binding"], "unbound")
+        self.assertEqual(observe(list.append)["value"], "($self, object, /)")
+        self.assertFalse(observe(list)["representative"])
+        self.assertEqual(
+            raw_namespace["extra_info"](None)["raw_text_signature"]["status"],
+            "not_callable",
+        )
+
+    def test_module_binding_compares_only_raw_text(self):
+        raw = raw_namespace["observe_raw_safely"](len)
+        self.assertEqual(raw["binding"], "bound_module")
+        ref = {
+            "sig": "(object, /)",
+            "sig_error": False,
+            "doc": "same",
+            "raw_text_signature": raw,
+        }
+        changed = {**ref, "raw_text_signature": {**raw, "value": "($module, value, /)"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "demo.py").touch()
+            raw_namespace.update(
+                {
+                    "expected_methods": {},
+                    "cpymods": {"demo": {"func": ref, "same": ref, "instance": ref}},
+                    "libdir": os.fsencode(tmp),
+                    "dir_of_mod_or_error": lambda name: {
+                        "func": changed,
+                        "same": ref,
+                        "instance": {
+                            **ref,
+                            "raw_text_signature": raw_namespace["observe_raw_safely"](
+                                [].append
+                            ),
+                        },
+                    },
+                    "import_module": lambda name: types.ModuleType(name),
+                }
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                raw_namespace["compare"]()
+        pair = json.loads(output.getvalue())["raw_text_signatures"]["modules"]["demo"][
+            "func"
+        ]
+        observations = json.loads(output.getvalue())["raw_text_signatures"]["modules"][
+            "demo"
+        ]
+        self.assertEqual(observations["same"]["comparison"], "exact_raw_match")
+        self.assertEqual(observations["instance"]["comparison"], "unknown")
+        self.assertEqual(pair["comparison"], "raw_difference")
+        self.assertEqual(pair["cpython"]["value"], raw["value"])
+        self.assertEqual(pair["rustpython"]["value"], "($module, value, /)")
 
     def test_real_type_observation_ignores_spoofed_class(self):
         calls = []
@@ -602,9 +667,9 @@ class CoverageTests(unittest.TestCase):
         obj = PretendsToBeType()
         self.assertTrue(isinstance(obj, type))
         calls.clear()
-        self.assertEqual(coverage_namespace["observe_real_type"](obj), "not_real_type")
+        self.assertEqual(raw_namespace["observe_real_type"](obj), "not_real_type")
         self.assertEqual(calls, [])
-        self.assertEqual(coverage_namespace["observe_real_type"](list), "real_type")
+        self.assertEqual(raw_namespace["observe_real_type"](list), "real_type")
 
     def test_direct_scan_records_selected_parents_without_extra_getters(self):
         calls = []
@@ -631,8 +696,8 @@ class CoverageTests(unittest.TestCase):
                     return values[name]
                 return super().__getattribute__(name)
 
-        observe = coverage_namespace["observe_real_type"]
-        coverage_namespace.update(
+        observe = raw_namespace["observe_real_type"]
+        raw_namespace.update(
             import_module=lambda name: Module(),
             extra_info=lambda obj: {"sig": None, "sig_error": False, "doc": None},
             observe_real_type=lambda obj: (
@@ -642,10 +707,10 @@ class CoverageTests(unittest.TestCase):
                 "demo": ["Type", "Pretend", "Failure", "Missing"]
             },
         )
-        coverage_namespace["dir_of_mod_or_error"]("demo")
+        raw_namespace["dir_of_mod_or_error"]("demo")
         self.assertEqual(calls, ["Failure", "Pretend", "Type"])
         self.assertEqual(
-            coverage_namespace["actual_parent_scans"],
+            raw_namespace["actual_parent_scans"],
             {
                 "demo": {
                     "Failure": "classification_failed",
@@ -656,15 +721,17 @@ class CoverageTests(unittest.TestCase):
         )
 
     def test_module_scan_and_second_import_outcomes_are_distinct(self):
+        raw = raw_namespace["observe_raw_safely"](list.append)
         ref = {
             "sig": "(self, /)",
             "sig_error": False,
             "doc": "same",
+            "raw_text_signature": raw,
         }
         with tempfile.TemporaryDirectory() as tmp:
             pathlib.Path(tmp, "failed.py").touch()
             pathlib.Path(tmp, "demo.py").touch()
-            coverage_namespace.update(
+            raw_namespace.update(
                 expected_methods={},
                 cpymods={
                     "absent": {},
@@ -684,7 +751,7 @@ class CoverageTests(unittest.TestCase):
             )
             output = io.StringIO()
             with redirect_stdout(output):
-                coverage_namespace["compare"]()
+                raw_namespace["compare"]()
         result = json.loads(output.getvalue())
         self.assertEqual(
             result["actual_scan_status"],
@@ -710,6 +777,111 @@ class CoverageTests(unittest.TestCase):
             result["actual_parent_scans"]["absent"], {"Empty": "not_observed"}
         )
 
+    def test_user_getters_and_metaclass_hooks_are_not_called(self):
+        class Meta(type):
+            def __hash__(self):
+                raise AssertionError("hash")
+
+            def __eq__(self, other):
+                raise AssertionError("equality")
+
+            @property
+            def __mro__(self):
+                raise AssertionError("MRO property")
+
+        class Hostile(metaclass=Meta):
+            def __getattribute__(self, name):
+                raise AssertionError("instance getter")
+
+            def __call__(self):
+                pass
+
+        self.assertEqual(
+            raw_namespace["observe_raw_safely"](Hostile())["status"],
+            "unsafe_or_unrepresentative",
+        )
+
+        class HostileList(list, metaclass=Meta):
+            pass
+
+        bound = list.append.__get__(HostileList(), HostileList)
+        self.assertEqual(
+            raw_namespace["observe_raw_safely"](bound)["binding"], "bound_non_none"
+        )
+
+    def test_captured_primitives_survive_later_builtin_replacement(self):
+        observer = raw_namespace["observe_raw_safely"]
+        original = (
+            builtins.type,
+            builtins.vars,
+            builtins.str,
+            builtins.tuple,
+            builtins.Exception,
+        )
+        try:
+
+            def fail(*args, **kwargs):
+                raise AssertionError("replaced builtin called")
+
+            builtins.type = builtins.vars = builtins.str = builtins.tuple = (
+                builtins.Exception
+            ) = fail
+            result = observer(list.append)
+        finally:
+            (
+                builtins.type,
+                builtins.vars,
+                builtins.str,
+                builtins.tuple,
+                builtins.Exception,
+            ) = original
+        self.assertEqual(result["status"], "present")
+        self.assertEqual(result["binding"], "unbound")
+
+    def test_raw_difference_does_not_create_inherited_missing(self):
+        class Parent:
+            def f(self):
+                pass
+
+        class Child(Parent):
+            pass
+
+        ref = {
+            "status": "present",
+            "kind": "method_descriptor",
+            "binding": "unbound",
+            "value": '($self, text=" at 0x123", /)',
+            "error_type": None,
+            "representative": None,
+        }
+        actual = {**ref, "value": '($self, text=" at 0x456", /)'}
+        info = {
+            "sig": "(self, /)",
+            "sig_error": False,
+            "doc": "same",
+            "raw_text_signature": ref,
+        }
+        current = {**info, "raw_text_signature": actual}
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_namespace.update(
+                {
+                    "expected_methods": {"Child": (Child, info, [("f", info)])},
+                    "cpymods": {},
+                    "libdir": os.fsencode(tmp),
+                    "extra_info": lambda obj: current,
+                    "dir_of_mod_or_error": lambda name: {},
+                }
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                raw_namespace["compare"]()
+        result = json.loads(output.getvalue())
+        self.assertNotIn("Child", result["not_implementeds"])
+        self.assertEqual(
+            result["raw_text_signatures"]["builtins"]["Child.f"]["comparison"],
+            "raw_difference",
+        )
+
     def test_module_inherited_and_missing_observations(self):
         class Parent:
             def same(self):
@@ -723,13 +895,23 @@ class CoverageTests(unittest.TestCase):
 
         module = types.ModuleType("demo")
         module.Thing = Child
+        raw = {
+            "status": "present",
+            "kind": "method_descriptor",
+            "binding": "unbound",
+            "value": '($self, text=" at 0x123", /)',
+            "error_type": None,
+            "representative": None,
+        }
         ref = {
             "sig": "(self, /)",
             "sig_error": False,
             "doc": "same",
+            "raw_text_signature": raw,
         }
         actual = {
             **ref,
+            "raw_text_signature": {**raw, "value": '($self, text=" at 0x456", /)'},
         }
         incompatible = {**actual, "sig": "(self, required, /)"}
 
@@ -738,7 +920,7 @@ class CoverageTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             pathlib.Path(tmp, "demo.py").touch()
-            coverage_namespace.update(
+            raw_namespace.update(
                 {
                     "expected_methods": {},
                     "reference_expanded_classes": {"demo": ["Thing", "Empty"]},
@@ -761,8 +943,21 @@ class CoverageTests(unittest.TestCase):
             )
             output = io.StringIO()
             with redirect_stdout(output):
-                coverage_namespace["compare"]()
+                raw_namespace["compare"]()
         result = json.loads(output.getvalue())
+        raw_result = result["raw_text_signatures"]["modules"]["demo"]
+        self.assertEqual(raw_result["Thing.same"]["comparison"], "raw_difference")
+        self.assertEqual(
+            raw_result["Thing.same"]["cpython"]["value"],
+            '($self, text=" at 0x123", /)',
+        )
+        self.assertEqual(
+            raw_result["Thing.other"]["rustpython"]["value"],
+            '($self, text=" at 0x456", /)',
+        )
+        self.assertEqual(
+            raw_result["Thing.missing"]["rustpython"]["status"], "not_observed"
+        )
         self.assertIn("demo.Thing.other (inherited)", result["missing_items"]["demo"])
         self.assertIn("demo.Thing.missing", result["missing_items"]["demo"])
         self.assertNotIn("demo.Thing.same", result["missing_items"]["demo"])
@@ -783,18 +978,67 @@ class CoverageTests(unittest.TestCase):
             },
         )
 
+    def test_constructor_raw_scan_does_not_reinspect_signature(self):
+        def forbidden(_obj):
+            raise AssertionError("constructor was reinspected")
+
+        raw = raw_namespace["observe_raw_safely"](list)
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_namespace.update(
+                {
+                    "expected_methods": {
+                        "list": (
+                            list,
+                            {
+                                "sig": None,
+                                "sig_error": False,
+                                "doc": None,
+                                "raw_text_signature": raw,
+                            },
+                            [],
+                        )
+                    },
+                    "cpymods": {},
+                    "libdir": os.fsencode(tmp),
+                    "extra_info": forbidden,
+                    "dir_of_mod_or_error": lambda name: {},
+                }
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                raw_namespace["compare"]()
+        pair = json.loads(output.getvalue())["raw_text_signatures"]["builtins"]["list"]
+        self.assertEqual(pair["comparison"], "type_document_exact_raw_match")
+        self.assertFalse(pair["cpython"]["representative"])
+
+    def test_reference_empty_modules_have_raw_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_namespace.update(
+                {
+                    "expected_methods": {},
+                    "cpymods": {"not_scanned": {}},
+                    "libdir": os.fsencode(tmp),
+                    "dir_of_mod_or_error": lambda name: {},
+                }
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                raw_namespace["compare"]()
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["raw_text_signatures"]["modules"]["not_scanned"], {})
+
 
 class ReferenceErrorTests(unittest.TestCase):
     def setUp(self):
         global reference_error_namespace
-        reference_error_namespace = coverage_namespace
-        original = coverage_namespace.copy()
+        reference_error_namespace = raw_namespace
+        original = raw_namespace.copy()
         reference_error_namespace["actual_parent_scans"] = {}
         reference_error_namespace["reference_expanded_classes"] = {}
 
         def restore():
-            coverage_namespace.clear()
-            coverage_namespace.update(original)
+            raw_namespace.clear()
+            raw_namespace.update(original)
 
         self.addCleanup(restore)
 
@@ -806,6 +1050,10 @@ class ReferenceErrorTests(unittest.TestCase):
             "doc": "same",
         }
         actual = {"sig": "(x, /)", "sig_error": False, "doc": "same"}
+        for info in (builtin, reference, actual):
+            info["raw_text_signature"] = reference_error_namespace[
+                "observe_raw_safely"
+            ](None)
         with tempfile.TemporaryDirectory() as tmp:
             pathlib.Path(tmp, "demo.py").touch()
             reference_error_namespace.update(

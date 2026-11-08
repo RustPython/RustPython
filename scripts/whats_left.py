@@ -63,6 +63,11 @@ def parse_args():
         help="print output as JSON (instead of line by line)",
     )
     parser.add_argument(
+        "--json-output",
+        metavar="PATH",
+        help="also write the complete comparison as JSON to PATH",
+    )
+    parser.add_argument(
         "--no-default-features",
         action="store_true",
         help="disable default features when building RustPython",
@@ -149,7 +154,167 @@ def attr_is_not_inherited(type_, attr):
     return attr in type_.__dict__
 
 
+def make_native_raw_observer():
+    # Capture trusted primitives before the module scan can mutate builtins.
+    type_fn, vars_fn, str_type, tuple_type, exception_type = (
+        type,
+        vars,
+        str,
+        tuple,
+        Exception,
+    )
+    module_type = type_fn(sys)
+    fromkeys = dict.__dict__.get("fromkeys")
+    text_getset = type.__dict__.get("__text_signature__")
+    member = type.__dict__.get("__basicsize__")
+    type_mro = type.__dict__.get("__mro__")
+    families = (
+        (type(len), "native_callable"),
+        (type([].append), "native_callable"),
+        (type(str.join), "method_descriptor"),
+        (type(object.__str__), "wrapper_descriptor"),
+        (type((1).__str__), "method_wrapper"),
+        (type(fromkeys) if fromkeys is not None else None, "classmethod_descriptor"),
+    )
+    getset_type = type(text_getset) if text_getset is not None else None
+    member_type = type(member) if member is not None else None
+
+    name_getset = type_fn.__dict__.get("__name__")
+
+    def observe(obj):
+        # Exact module bindings can be identified without invoking module hooks.
+        # Other non-None bindings remain unrepresentative of an unbound callable.
+        cls = type_fn(obj)
+        kind = "type_document" if cls is type_fn else None
+        for candidate, label in families:
+            if cls is candidate:
+                if kind is not None and kind != label:
+                    kind = None
+                    break
+                kind = label
+        if kind is None or type_fn(cls) is not type_fn:
+            return {
+                "status": "unsafe_or_unrepresentative",
+                "kind": None,
+                "binding": None,
+                "value": None,
+                "error_type": None,
+                "representative": None,
+            }
+
+        if (
+            type_mro is None
+            or type_fn(type_mro) not in (getset_type, member_type)
+            or type_mro.__objclass__ is not type_fn
+        ):
+            return {
+                "status": "unsafe_or_unrepresentative",
+                "kind": kind,
+                "binding": None,
+                "value": None,
+                "error_type": None,
+                "representative": False if kind == "type_document" else None,
+            }
+        try:
+            class_mro = type_mro.__get__(cls, type_fn)
+        except exception_type:
+            class_mro = None
+        if type_fn(class_mro) is not tuple_type:
+            return {
+                "status": "unsafe_or_unrepresentative",
+                "kind": kind,
+                "binding": None,
+                "value": None,
+                "error_type": None,
+                "representative": False if kind == "type_document" else None,
+            }
+
+        def read_native(name, allow_member=False):
+            for owner in class_mro:
+                if type_fn(owner) is not type_fn:
+                    return "unsafe_descriptor", None, None
+                descriptor = vars_fn(owner).get(name)
+                if descriptor is None:
+                    continue
+                if type_fn(descriptor) is not getset_type and not (
+                    allow_member and type_fn(descriptor) is member_type
+                ):
+                    return "unsafe_descriptor", None, None
+                if descriptor.__objclass__ is not owner:
+                    return "unsafe_descriptor", None, None
+                try:
+                    return "ok", descriptor.__get__(obj, cls), None
+                except exception_type as exc:
+                    if (
+                        name_getset is not None
+                        and type_fn(name_getset) is getset_type
+                        and name_getset.__objclass__ is type_fn
+                    ):
+                        try:
+                            return (
+                                "getter_error",
+                                None,
+                                name_getset.__get__(type_fn(exc), type_fn),
+                            )
+                        except exception_type:
+                            pass
+                    return "getter_error", None, None
+            return "absent", None, None
+
+        binding = "unbound"
+        if kind == "type_document":
+            binding = "type_document"
+        elif kind == "method_wrapper":
+            binding = "bound"
+        elif kind == "native_callable":
+            status, bound, _ = read_native("__self__", True)
+            if status != "ok":
+                binding = "unknown"
+            elif bound is None:
+                binding = "unbound"
+            elif type_fn(bound) is module_type:
+                binding = "bound_module"
+            else:
+                binding = "bound_non_none"
+
+        status, value, error_type = read_native("__text_signature__")
+        if status == "ok":
+            if value is None:
+                status = "none"
+            elif type_fn(value) is str_type:
+                status = "present"
+            else:
+                status, value = "invalid_return", None
+        return {
+            "status": status,
+            "kind": kind,
+            "binding": binding,
+            "value": value,
+            "error_type": error_type,
+            "representative": False if kind == "type_document" else None,
+        }
+
+    return observe
+
+
+native_raw_text_signature = make_native_raw_observer()
 _safe_type, _safe_str, _safe_frozenset = type, str, frozenset
+
+
+def observe_raw_safely(
+    obj, _raw_observer=native_raw_text_signature, _raw_exception=Exception
+):
+    try:
+        return _raw_observer(obj)
+    except _raw_exception:
+        return {
+            "status": "collector_error",
+            "kind": None,
+            "binding": None,
+            "value": None,
+            "error_type": None,
+            "representative": None,
+        }
 
 
 def observe_real_type(obj, _type=type, _issubclass=issubclass, _exception=Exception):
@@ -174,8 +339,12 @@ def observe_real_exception(
         return "classification_failed"
 
 
-def extra_info(obj):
+def extra_info(obj, _observe_raw=observe_raw_safely):
     import sys
+
+    def with_raw(info):
+        info["raw_text_signature"] = _observe_raw(obj)
+        return info
 
     class _OrderedSet:
         """Set repr with sorted elements, so hash order does not change it."""
@@ -229,31 +398,45 @@ def extra_info(obj):
     if callable(obj):
         doc = inspect.getdoc(obj)
         try:
-            return {
-                "sig": stable_signature(obj),
-                "sig_error": False,
-                "doc": doc,
-            }
+            return with_raw(
+                {
+                    "sig": stable_signature(obj),
+                    "sig_error": False,
+                    "doc": doc,
+                }
+            )
         except Exception as e:
             exception = repr(e)
             # CPython uses ' RustPython uses "
             if exception.replace('"', "'").startswith("ValueError('no signature found"):
-                return {
-                    "sig": "ValueError('no signature found')",
+                return with_raw(
+                    {
+                        "sig": "ValueError('no signature found')",
+                        "sig_error": True,
+                        "doc": doc,
+                    }
+                )
+
+            return with_raw(
+                {
+                    "sig": exception,
                     "sig_error": True,
                     "doc": doc,
                 }
-
-            return {
-                "sig": exception,
-                "sig_error": True,
-                "doc": doc,
-            }
+            )
 
     return {
         "sig": None,
         "sig_error": False,
         "doc": None,
+        "raw_text_signature": {
+            "status": "not_callable",
+            "kind": None,
+            "binding": None,
+            "value": None,
+            "error_type": None,
+            "representative": None,
+        },
     }
 
 
@@ -562,6 +745,14 @@ def dir_of_mod_or_error(module_name, keep_other=True):
                 "sig": None,
                 "sig_error": False,
                 "doc": inspect.getdoc(module),
+                "raw_text_signature": {
+                    "status": "not_callable",
+                    "kind": None,
+                    "binding": None,
+                    "value": None,
+                    "error_type": None,
+                    "representative": None,
+                },
             }
             continue
         item = getattr(module, item_name)
@@ -637,6 +828,14 @@ def _pure_decimal_baseline(wrapper):
                 "sig": None,
                 "sig_error": False,
                 "doc": inspect.getdoc(wrapper),
+                "raw_text_signature": {
+                    "status": "not_callable",
+                    "kind": None,
+                    "binding": None,
+                    "value": None,
+                    "error_type": None,
+                    "representative": None,
+                },
             }
             continue
         item = getattr(_pydecimal, item_name)
@@ -735,6 +934,8 @@ libdir = {os.path.abspath("Lib/").encode("utf8")!r}
 # Copy the source code of functions we will reuse in the generated script
 REUSED = [
     attr_is_not_inherited,
+    make_native_raw_observer,
+    observe_raw_safely,
     observe_real_type,
     observe_real_exception,
     extra_info,
@@ -743,9 +944,10 @@ REUSED = [
     is_child,
     name_sort_key,
 ]
-output += "_safe_type, _safe_str, _safe_frozenset = type, str, frozenset\n\n"
 for fn in REUSED:
     output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
+    if fn is make_native_raw_observer:
+        output += "native_raw_text_signature = make_native_raw_observer()\n_safe_type, _safe_str, _safe_frozenset = type, str, frozenset\n\n"
 
 # Prevent missing variable linter errors from compare()
 expected_methods = {}
@@ -783,10 +985,59 @@ def compare():
         )
         return signatures_match and rustpy_info["doc"] == cpython_info["doc"]
 
+    raw_text_signatures = {"builtins": {}, "modules": {}}
+
+    def record_raw_text(module, item, reference, actual):
+        ref = reference
+        observed = (
+            actual
+            if actual is not None
+            else {
+                "status": "not_observed",
+                "kind": None,
+                "binding": None,
+                "value": None,
+                "error_type": None,
+                "representative": None,
+            }
+        )
+        valid = {"present", "none", "absent"}
+        if ref["status"] == observed["status"] == "not_callable":
+            comparison = "not_applicable"
+        elif (
+            ref["status"] not in valid
+            or observed["status"] not in valid
+            or ref["binding"] in {"unknown", "bound_non_none"}
+            or observed["binding"] in {"unknown", "bound_non_none"}
+        ):
+            comparison = "unknown"
+        elif ref["kind"] != observed["kind"] or ref["binding"] != observed["binding"]:
+            comparison = "different_context"
+        elif ref["status"] != observed["status"]:
+            comparison = "different_text_state"
+        elif ref["status"] != "present":
+            comparison = "matching_nontext_state"
+        elif ref["value"] == observed["value"]:
+            comparison = "exact_raw_match"
+        else:
+            comparison = "raw_difference"
+        if ref["kind"] == observed["kind"] == "type_document":
+            comparison = "type_document_" + comparison
+        scope = (
+            raw_text_signatures["builtins"]
+            if module is None
+            else raw_text_signatures["modules"].setdefault(module, {})
+        )
+        scope[item] = {
+            "cpython": ref,
+            "rustpython": observed,
+            "comparison": comparison,
+        }
+
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
         if not has_method:
-            return ""
+            return "", None
 
         is_inherited = not attr_is_not_inherited(typ, method_name)
         # Inheriting something that reads the same as CPython's own member
@@ -794,15 +1045,18 @@ def compare():
         if is_inherited:
             value = extra_info(getattr(typ, method_name))
             if not info_equivalent(value, real_method_value):
-                return "(inherited)"
+                return "(inherited)", value
 
-        return None
+        return None, None
 
     not_implementeds = {}
     mismatched_methods = {}
     mismatched_method_docs = {}
     uncomparable = {}
     for name, (typ, real_value, methods) in expected_methods.items():
+        record_raw_text(
+            None, name, real_value["raw_text_signature"], observe_raw_safely(typ)
+        )
         if real_value["sig_error"]:
             uncomparable.setdefault(name, []).append((name, real_value["sig"]))
         missing_methods = {}
@@ -812,12 +1066,28 @@ def compare():
                 uncomparable.setdefault(name, []).append(
                     (item, real_method_value["sig"])
                 )
-            reason = method_incompatibility_reason(typ, method, real_method_value)
+            reason, inherited_value = method_incompatibility_reason(
+                typ, method, real_method_value
+            )
             if reason is not None:
                 missing_methods[method] = reason
+                record_raw_text(
+                    None,
+                    item,
+                    real_method_value["raw_text_signature"],
+                    inherited_value["raw_text_signature"]
+                    if inherited_value is not None
+                    else None,
+                )
                 continue
             # A method that exists but differs is a mismatch, not a missing one.
             value = extra_info(getattr(typ, method))
+            record_raw_text(
+                None,
+                item,
+                real_method_value["raw_text_signature"],
+                value["raw_text_signature"],
+            )
             if sig_mismatch(value["sig"], real_method_value):
                 mismatched_methods.setdefault(name, []).append(
                     (item, value["sig"], real_method_value["sig"])
@@ -874,8 +1144,12 @@ def compare():
         "mismatched_items": mismatched_methods,
         "uncomparable_signatures": uncomparable,
         "mismatched_doc_items": mismatched_method_docs,
+        "raw_text_signatures": raw_text_signatures,
     }
     for modname, cpymod in cpymods.items():
+        raw_text_signatures["modules"].setdefault(modname, {})
+        for item, info in cpymod.items():
+            record_raw_text(modname, item, info["raw_text_signature"], None)
         module_has_uncomparable = False
         for item, info in cpymod.items():
             if info["sig_error"]:
@@ -927,8 +1201,21 @@ def compare():
                     if info_equivalent(value, cpymod[item]):
                         rustpymod[item] = value
                     else:
+                        record_raw_text(
+                            modname,
+                            item,
+                            cpymod[item]["raw_text_signature"],
+                            value["raw_text_signature"],
+                        )
                         inherited.add(item)
             implemented_items = sorted(set(cpymod) & set(rustpymod))
+            for item in implemented_items:
+                record_raw_text(
+                    modname,
+                    item,
+                    cpymod[item]["raw_text_signature"],
+                    rustpymod[item]["raw_text_signature"],
+                )
             mod_missing_items = set(cpymod) - set(rustpymod) - skipped
             mod_missing_items = sorted(
                 f"{modname}.{item}" + (" (inherited)" if item in inherited else "")
@@ -1025,6 +1312,11 @@ print(result.stderr, file=sys.stderr)
 result.check_returncode()
 result = json.loads(result.stdout.splitlines()[-1])
 
+if args.json_output:
+    with open(args.json_output, "w", encoding="utf-8") as f:
+        json.dump(result, f)
+        f.write("\n")
+
 if args.json:
     print(json.dumps(result))
     sys.exit()
@@ -1083,6 +1375,7 @@ print("# summary")
 for error_type, modules in result.items():
     if error_type not in {
         "reference_discovery",
+        "raw_text_signatures",
         "reference_inventory_diagnostics",
         "reference_builtin_inventory",
         "reference_expanded_classes",
