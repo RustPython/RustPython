@@ -2907,6 +2907,20 @@ pub(crate) fn yield_from_delegate(
     let code = iframe.code();
     let send_caches = Instruction::from(Opcode::Send).cache_entries();
     let resumed_at = iframe.lasti.load(Relaxed) as usize;
+    // Suspension advances monitoring_current to the RESUME after YIELD_VALUE.
+    // Its predecessor is therefore a known instruction start, so a direct
+    // yield can be rejected without walking the prefix on every resume.
+    // Other positions retain the bounded walk below.
+    if iframe.monitoring_current.get() == Some(resumed_at as u32)
+        && let Some(previous) = resumed_at.checked_sub(1)
+        && previous < code.instructions.len()
+    {
+        let unit = code.instructions.read_unit(previous);
+        if matches!(unit.op.deoptimize(), Instruction::YieldValue { .. }) && u8::from(unit.arg) == 0
+        {
+            return None;
+        }
+    }
     // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
     let send_idx = resumed_at.checked_sub(2 + send_caches)?;
     // checked_sub above proves send_idx <= resumed_at - 2. The optional
