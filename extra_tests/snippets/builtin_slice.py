@@ -191,7 +191,7 @@ def test_all_slices():
                 except AssertionError:
                     failures.append(
                         "start: {} ,stop: {}, step {}. Expected: {}, found: {}".format(
-                            s, e, t, lhs, slices_res[count]
+                            s, e, t, slices_res[count], lhs
                         )
                     )
                 count += 1
@@ -199,7 +199,7 @@ def test_all_slices():
     if failures:
         for f in failures:
             print(f)
-        print(len(failures), "slices failed")
+        raise AssertionError(f"{len(failures)} slices failed")
 
 
 test_all_slices()
