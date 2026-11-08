@@ -170,6 +170,20 @@ impl PyMemoryView {
         }
     }
 
+    /// A readonly view with no Python-visible exporter, as for
+    /// PyMemoryView_FromBuffer with a NULL Py_buffer.obj. Keep the Rust owner
+    /// alive so a codec retaining the view cannot create dangling storage.
+    pub(crate) fn from_anonymous_buffer(
+        mut buffer: PyBuffer,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        buffer.desc.readonly = true;
+        let mut desc = BufferDescriptor::simple(buffer.desc.len, true);
+        desc.offset = buffer.desc.offset;
+        let window = PyBufferWindow { source: buffer }.into_pyobject(vm);
+        Self::from_buffer(PyBuffer::new(window, desc, &BUFFER_WINDOW_METHODS), vm)
+    }
+
     /// don't use this function to create the memoryview if the buffer is exporting
     /// via another memoryview, use PyMemoryView::new_view() or PyMemoryView::from_object
     /// to reduce the chain
@@ -1566,9 +1580,8 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
     },
 };
 
-// Read-only window over an exporter, handed to `__release_buffer__`. It owns no
-// export, like a `Py_buffer` whose `obj` is NULL, so releasing it is inert and
-// cannot recurse back into the hook.
+// Read-only window with no Python-visible exporter. A release-hook window
+// borrows a detached source, while a codec window owns its acquisition.
 #[pyclass(module = false, name = "_buffer_window", traverse)]
 #[derive(Debug)]
 struct PyBufferWindow {
@@ -1588,7 +1601,7 @@ static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyBufferWindow>().source.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyBufferWindow>().source.obj_bytes_mut(),
     retain: |_buffer| {},
-    release: |_buffer| {},
+    release: |buffer| buffer.obj_as::<PyBufferWindow>().source.release(),
 };
 
 /// The object that ultimately owns the bytes a buffer reads, seen through the
