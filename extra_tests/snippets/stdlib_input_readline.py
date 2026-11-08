@@ -4,20 +4,41 @@ import os
 import sys
 
 if os.name == "posix" and hasattr(os, "openpty"):
+    import errno
     import select
     import subprocess
     import time
 
-    def read_until(fd, marker):
-        output = bytearray()
+    def read_until(fd, marker, buffers, closed):
         deadline = time.monotonic() + 20
-        while marker not in output:
+        while marker not in buffers[fd]:
             remaining = deadline - time.monotonic()
-            assert remaining > 0, (marker, output)
-            ready, _, _ = select.select([fd], [], [], remaining)
-            assert ready, (marker, output)
-            output.extend(os.read(fd, 4096))
-        return bytes(output)
+            assert remaining > 0, (marker, buffers)
+            # Drain both terminals, even while waiting for the other one's
+            # prompt. On BSD, unread output can block tcsetattr(TCSADRAIN)
+            # when the first input restores its terminal mode.
+            ready, _, _ = select.select(
+                [stream for stream in buffers if stream not in closed],
+                [],
+                [],
+                remaining,
+            )
+            assert ready, (marker, buffers)
+            for stream in ready:
+                try:
+                    chunk = os.read(stream, 4096)
+                except OSError as error:
+                    # Linux PTY masters report EIO after their last slave closes.
+                    if error.errno != errno.EIO:
+                        raise
+                    chunk = b""
+                if chunk:
+                    buffers[stream].extend(chunk)
+                else:
+                    closed.add(stream)
+            assert fd not in closed or marker in buffers[fd], (marker, buffers)
+        end = buffers[fd].index(marker) + len(marker)
+        del buffers[fd][:end]
 
     def exercise(code, switch_terminal=False, output_terminal=False):
         master, slave = os.openpty()
@@ -35,17 +56,19 @@ if os.name == "posix" and hasattr(os, "openpty"):
         )
         os.close(slave)
         os.close(other_slave)
+        buffers = {master: bytearray(), other_master: bytearray()}
+        closed = set()
         try:
-            read_until(master, b"FIRST>")
+            read_until(master, b"FIRST>", buffers, closed)
             os.write(master, b"one\ntwo\n")
             if switch_terminal:
-                read_until(other_master, b"SECOND>")
+                read_until(other_master, b"SECOND>", buffers, closed)
                 os.write(other_master, b"fresh\n")
-                read_until(other_master, b"RESULT=fresh")
+                read_until(other_master, b"RESULT=fresh", buffers, closed)
             elif output_terminal:
-                read_until(other_master, b"RESULT=two")
+                read_until(other_master, b"RESULT=two", buffers, closed)
             else:
-                read_until(master, b"RESULT=two")
+                read_until(master, b"RESULT=two", buffers, closed)
             assert process.wait(timeout=20) == 0
         finally:
             if process.poll() is None:
