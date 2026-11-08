@@ -1476,7 +1476,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             .as_object()
             .get_attr("object", vm)?
             .downcast::<PyBytes>()
-            .map_err(|_| vm.new_type_error("object attribute must be bytes"))?;
+            .map_err(|_| vm.new_type_error("UnicodeError 'object' attribute must be a bytes"))?;
         // CPython resumes from the exception's bytes object, not the original
         // mutable buffer. Switch before calling Python to release its data lock.
         ctx.data = PyDecodeData::Modified(data_bytes);
@@ -1501,7 +1501,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             .as_object()
             .get_attr("object", vm)?
             .downcast::<PyBytes>()
-            .map_err(|_| vm.new_type_error("object attribute must be bytes"))?;
+            .map_err(|_| vm.new_type_error("UnicodeError 'object' attribute must be a bytes"))?;
         ctx.data = PyDecodeData::Modified(new_data);
         let restart = if restart < 0 {
             ctx.data.len() as isize + restart

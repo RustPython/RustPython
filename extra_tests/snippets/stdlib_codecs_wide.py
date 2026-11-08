@@ -204,3 +204,24 @@ def test_registry_reentrant_cleanup():
 
 
 test_registry_reentrant_cleanup()
+
+
+def test_charmap_invalid_callback_object_diagnostic():
+    def handler(exc):
+        exc.object = None
+        return ("", 1)
+
+    name = "test_charmap_invalid_callback_object"
+    codecs.register_error(name, handler)
+    try:
+        try:
+            codecs.charmap_decode(b"!", name, {})
+        except TypeError as exc:
+            assert str(exc) == "UnicodeError 'object' attribute must be a bytes"
+        else:
+            raise AssertionError("invalid callback input was accepted")
+    finally:
+        _codecs._unregister_error(name)
+
+
+test_charmap_invalid_callback_object_diagnostic()
