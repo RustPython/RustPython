@@ -25,12 +25,19 @@ else:
 
 p = subprocess.Popen(echo("test"))
 
-time.sleep(0.1)
-
 assert p.returncode is None
 
-assert p.poll() == 0
-assert p.returncode == 0
+# Process startup may exceed 100 ms on a busy runner. Keep testing poll()
+# without assuming when the child gets scheduled.
+try:
+    deadline = time.monotonic() + 30
+    while p.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert p.returncode == 0
+finally:
+    if p.returncode is None:
+        p.kill()
+    p.wait()
 
 p = subprocess.Popen(sleep(2))
 
