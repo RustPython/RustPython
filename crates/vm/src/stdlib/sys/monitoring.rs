@@ -714,6 +714,7 @@ pub(crate) fn prepare_code(vm: &VirtualMachine, code: &PyCode) {
     }
 }
 
+#[inline]
 pub(crate) fn dispatch_operation(
     vm: &VirtualMachine,
     code: &PyCode,
@@ -725,6 +726,19 @@ pub(crate) fn dispatch_operation(
     if vm.state.monitoring_events.load() == 0 {
         return None;
     }
+    dispatch_monitored_operation(vm, code, index)
+}
+
+// Keep the inactive check in the dispatch loop without inlining metadata
+// preparation and lookup into the ordinary bytecode execution path.
+fn dispatch_monitored_operation(
+    vm: &VirtualMachine,
+    code: &PyCode,
+    index: usize,
+) -> Option<(
+    MonitoringInstruction,
+    rustpython_compiler_core::bytecode::Instruction,
+)> {
     prepare_code(vm, code);
     let state = vm.state.monitoring.lock();
     if state.events_for_code(code) == 0 {
