@@ -1570,8 +1570,7 @@ mod _ssl {
                     let _ = exc.as_object().set_attr("filename", value.clone(), vm);
                     exc
                 })?;
-            let old_filename = zelf.keylog_filename.write().replace(value);
-            drop(old_filename);
+            let _old_filename = zelf.keylog_filename.write().replace(value);
             Ok(())
         }
 

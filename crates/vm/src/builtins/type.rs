@@ -1465,7 +1465,6 @@ impl PyType {
                     if same_ptr && entry.end_read(seq1) {
                         return (Some(cloned), entry_version);
                     }
-                    drop(cloned);
                     continue;
                 }
                 break;
@@ -2902,7 +2901,7 @@ impl Py<PyType> {
             }
         };
 
-        let result = PyType::with_type_lock(vm, || {
+        PyType::with_type_lock(vm, || {
             for base in bases.as_slice() {
                 if is_subtype_with_mro(&base.mro.read(), base, zelf)
                     || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
@@ -2990,9 +2989,7 @@ impl Py<PyType> {
             }
             crate::stdlib::_testinternalcapi::note_set_bases();
             Ok(())
-        });
-        drop(retired);
-        result
+        })
     }
 
     #[pygetset]

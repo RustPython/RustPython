@@ -550,7 +550,6 @@ impl StopTheWorldState {
             // a thread may have suspended and notified right before we enter wait.
             let guard = self.notify_mutex.lock().unwrap();
             if self.all_non_requester_suspended(state) {
-                drop(guard);
                 break;
             }
             let _ = self
@@ -4028,9 +4027,8 @@ impl VirtualMachine {
             "set_exception called with empty exception stack"
         );
         if let Some(top) = excs.stack.last_mut() {
-            let prev = core::mem::replace(top, exc);
+            let _prev = core::mem::replace(top, exc);
             drop(excs);
-            drop(prev);
         } else {
             excs.stack.push(exc);
             drop(excs);

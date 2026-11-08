@@ -382,7 +382,6 @@ impl GcState {
             let mut list = list_lock.write();
             // Re-check generation under lock (may have changed due to promotion)
             if obj_ref.gc_generation() != obj_gen {
-                drop(list);
                 continue; // Retry with the updated generation
             }
             if unsafe { list.remove(obj) }.is_some() {
@@ -1033,8 +1032,7 @@ impl GcState {
                             continue;
                         }
                         if obj.gc_has_clear() {
-                            let edges = unsafe { obj.gc_clear() };
-                            drop(edges);
+                            let _edges = unsafe { obj.gc_clear() };
                         }
                     }
                 }

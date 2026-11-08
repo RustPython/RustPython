@@ -861,7 +861,6 @@ pub(crate) mod _elementtree {
                 inner.text = text;
                 inner.tail = tail;
                 inner.children = children;
-                drop(inner);
             }
             Ok(new)
         }
@@ -1260,7 +1259,7 @@ pub(crate) mod _elementtree {
                 }),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyElement::sequence_downcast(seq);
-                    let recycle = {
+                    let _recycle = {
                         let mut inner = zelf.inner.write();
                         let Some(pos) = inner.children.wrap_index(i) else {
                             drop(inner);
@@ -1276,7 +1275,6 @@ pub(crate) mod _elementtree {
                             inner.children.remove(pos)
                         }
                     };
-                    drop(recycle);
                     Ok(())
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED

@@ -3593,11 +3593,10 @@ mod _io {
         #[pygetset(setter, name = "_CHUNK_SIZE")]
         fn set_chunksize(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             {
-                let textio = self.lock(vm)?;
+                let _textio = self.lock(vm)?;
                 if self.buffer.deref().is_none() {
                     return Err(vm.new_value_error("underlying buffer has been detached"));
                 }
-                drop(textio);
             }
 
             let PySetterValue::Assign(object_value) = value else {

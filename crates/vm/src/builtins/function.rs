@@ -1710,8 +1710,7 @@ impl PyCell {
         // What was here is released after the lock, the way `Py_XSETREF` stores
         // before it decrefs. Releasing it under the lock would let a `__del__`
         // that reads this cell wait on a lock this call still holds.
-        let replaced = core::mem::replace(&mut *self.contents.lock(), x);
-        drop(replaced);
+        let _replaced = core::mem::replace(&mut *self.contents.lock(), x);
     }
 }
 
