@@ -1,0 +1,7 @@
+[project]
+requires-python = ">=3.12"
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "async_tree_eager_io_tg"
+extra_opts = ["eager_io", "--task-groups"]

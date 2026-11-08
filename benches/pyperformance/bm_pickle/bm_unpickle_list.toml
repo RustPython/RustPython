@@ -1,0 +1,11 @@
+[project]
+name = "pyperformance_bm_unpickle_list"
+requires-python = ">=3.8"
+dependencies = ["pyperf"]
+urls = {repository = "https://github.com/python/pyperformance"}
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "unpickle_list"
+tags = "serialize"
+extra_opts = ["unpickle_list"]

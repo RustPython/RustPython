@@ -1,0 +1,9 @@
+[project]
+name = "pyperformance_bm_pyflate"
+requires-python = ">=3.8"
+dependencies = ["pyperf"]
+urls = {repository = "https://github.com/python/pyperformance"}
+dynamic = ["version"]
+
+[tool.pyperformance]
+name = "pyflate"
