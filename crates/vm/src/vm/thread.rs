@@ -1758,7 +1758,8 @@ impl VirtualMachine {
     }
 }
 
-#[cfg(all(test, feature = "threading"))]
+#[cfg(test)]
+#[cfg(feature = "threading")]
 mod dispatch_request_tests {
     use super::{DispatchRequestsSnapshot, ThreadDispatchRequests};
     use core::sync::atomic::Ordering;
