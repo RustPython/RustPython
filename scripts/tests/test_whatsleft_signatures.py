@@ -1,4 +1,4 @@
-"""Regression-gate tests use observations, not a second interpreter scan."""
+"""The gate covers comparable signatures, not every scanner diagnostic."""
 
 import copy
 import importlib.util
@@ -31,24 +31,14 @@ def fixture():
         "cpython_modules": {
             "demo": {"Thing.f": {"sig": "(self, /)", "sig_error": False}}
         },
-        "reference_builtin_inventory": {"Thing": ["f"]},
+        "cpython_builtin_signatures": {
+            "Thing": {"type": None, "methods": {"f": "(self, /)"}}
+        },
         "mismatched_items": {},
-        "uncomparable_signatures": {},
         "missing_items": {},
         "not_implementeds": {},
-        "actual_scan_status": {"demo": "scan_completed"},
-        "actual_second_import_status": {"demo": "returned_nonexception"},
-        "actual_parent_scans": {"demo": {"Thing": "real_type"}},
-        "reference_discovery": {
-            "names": ["demo"],
-            "truncated": False,
-            "scanner_errors": [],
-        },
-        "actual_parent_decisions": {"demo": {"Thing.f": "isinstance_true"}},
-        "reference_class_selection": {"demo": {"Thing": "selected"}},
-        "reference_expanded_classes": {"demo": ["Thing"]},
-        "cpython_failed_imports": {},
-        "reference_inventory_diagnostics": {"issues": [], "truncated": False},
+        "reference_discovery": {"truncated": False},
+        "reference_inventory_diagnostics": {"truncated": False, "issues": []},
     }
 
 
@@ -63,6 +53,7 @@ class GateTests(unittest.TestCase):
     def test_roundtrip_and_unchanged(self):
         self.assertEqual(gate.unpack(gate.pack(self.baseline)), self.baseline)
         self.assertEqual(self.errors(), [])
+        self.assertEqual(len(self.baseline["coverage"]), 4)
 
     def test_generated_baseline_roundtrip(self):
         state = {"context": "test", **gate.pack(self.baseline)}
@@ -71,178 +62,167 @@ class GateTests(unittest.TestCase):
             gate.write_baseline(path, state)
             self.assertEqual(json.loads(path.read_text()), state)
 
-    def test_missing_provenance_rejected(self):
-        for field in (
-            "actual_parent_decisions",
-            "reference_class_selection",
-            "reference_expanded_classes",
-            "cpython_failed_imports",
-        ):
+    def test_required_schema(self):
+        for field in fixture():
             with self.subTest(field=field):
                 result = fixture()
                 del result[field]
                 with self.assertRaises(KeyError):
                     gate.snapshot(result)
 
-    def test_selection_change_not_hidden(self):
-        self.result["reference_class_selection"]["demo"]["Thing"] = "not_selected"
-        self.assertTrue(self.errors())
-
-    def test_diagnostic_addresses_are_not_regressions(self):
-        self.result["uncomparable_signatures"] = {
-            "demo": [
-                ["demo.f", "ValueError('<type object at 0x123> invalid signature')"]
-            ]
-        }
-        self.baseline = gate.snapshot(self.result)
-        self.result["uncomparable_signatures"]["demo"][0][1] = (
-            "ValueError('<type object at 0x456> invalid signature')"
-        )
-        self.assertEqual(self.errors(), [])
-
-    def test_changed_exception_kind_or_message_still_fails(self):
-        self.result["uncomparable_signatures"] = {
-            "demo": [
-                ["demo.f", "ValueError('<type object at 0x123> invalid signature')"]
-            ]
-        }
-        self.baseline = gate.snapshot(self.result)
-        for message in (
-            "TypeError('<type object at 0x123> invalid signature')",
-            "ValueError('<type object at 0x123> failed lookup')",
-        ):
-            with self.subTest(message=message):
-                self.result["uncomparable_signatures"]["demo"][0][1] = message
-                self.assertTrue(self.errors())
-
-    def test_inspected_signature_default_addresses_still_fail(self):
-        self.result["mismatched_items"] = {
-            "demo": [["demo.f", "(x=' at 0x123>')", "(x='expected')"]]
-        }
-        self.baseline = gate.snapshot(self.result)
-        self.result["mismatched_items"]["demo"][0][1] = "(x=' at 0x456>')"
-        self.assertTrue(self.errors())
-
-    def test_signature_literals_not_address_normalized(self):
-        self.assertEqual(gate.diagnostic("(text=' at 0x123>')"), "(text=' at 0x123>')")
+    def test_raw_change(self):
         pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
-        pair["comparison"] = "raw_difference"
+        pair["rustpython"]["value"] = "($self, value, /)"
+        self.assertTrue(self.errors())
+
+    def test_signature_literals_are_not_normalized(self):
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
         pair["rustpython"]["value"] = "($self, text=' at 0x123>', /)"
         self.baseline = gate.snapshot(self.result)
         pair["rustpython"]["value"] = "($self, text=' at 0x456>', /)"
         self.assertTrue(self.errors())
 
-    def test_raw_change(self):
+    def test_checked_raw_signature_becoming_unobservable_fails(self):
+        for side in ("cpython", "rustpython"):
+            for status in ("none", "absent", "not_observed", "unsafe_descriptor"):
+                with self.subTest(side=side, status=status):
+                    result = fixture()
+                    result["raw_text_signatures"]["builtins"]["Thing.f"][side][
+                        "status"
+                    ] = status
+                    self.assertTrue(
+                        gate.compare(gate.snapshot(result), self.baseline)[0]
+                    )
+
+    def test_checked_binding_change_fails(self):
         pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
-        pair["comparison"] = "raw_difference"
-        pair["rustpython"]["value"] = "($self, value, /)"
+        pair["rustpython"]["binding"] = "bound_non_none"
         self.assertTrue(self.errors())
 
-    def test_additional_signature_needs_no_baseline_exception(self):
-        for reference_status in ("none", "absent"):
-            for prefix in ("", "type_document_"):
-                with self.subTest(status=reference_status, prefix=prefix):
-                    pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
-                    pair["cpython"]["status"] = reference_status
-                    pair["cpython"]["value"] = None
-                    pair["comparison"] = prefix + "different_text_state"
-                    self.assertEqual(self.errors(), [])
-                    pair["rustpython"]["value"] = "($self, extra=None, /)"
-                    self.assertEqual(self.errors(), [])
+    def test_additional_signature_is_unrestricted(self):
+        for status in ("none", "absent"):
+            with self.subTest(status=status):
+                result = fixture()
+                pair = result["raw_text_signatures"]["builtins"]["Thing.f"]
+                pair["cpython"].update(status=status, value=None)
+                result["cpython_builtin_signatures"]["Thing"]["methods"]["f"] = None
+                baseline = gate.snapshot(result)
+                for value in ("($self, value, /)", "($self, other=None, /)"):
+                    pair["rustpython"]["value"] = value
+                    self.assertEqual(
+                        gate.compare(gate.snapshot(result), baseline)[0], []
+                    )
 
-    def test_additional_signature_scanner_classification(self):
-        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
-        pair["cpython"]["status"] = "none"
-        pair["cpython"]["value"] = None
-        pair["comparison"] = "additional_signature"
+    def test_unrelated_diagnostics_do_not_require_baseline(self):
+        self.result.update(
+            actual_scan_status={"irrelevant": "scan_returned_exception"},
+            uncomparable_signatures={"irrelevant": [["x", "ValueError"]]},
+            actual_parent_decisions={"irrelevant": {"x": "isinstance_false"}},
+        )
         self.assertEqual(self.errors(), [])
 
-    def test_missing_reference_signature_is_not_symmetric(self):
-        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
-        pair["rustpython"]["status"] = "none"
-        pair["rustpython"]["value"] = None
-        pair["comparison"] = "different_text_state"
+    def test_non_signature_reference_does_not_change_coverage(self):
+        self.result["cpython_modules"]["demo"]["noncallable"] = {
+            "sig": None,
+            "sig_error": False,
+        }
+        self.assertEqual(self.errors(), [])
+
+    def test_missing_checked_path_fails(self):
+        del self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        with self.assertRaises(KeyError):
+            self.errors()
+
+    def test_missing_module_observation_fails(self):
+        self.result["raw_text_signatures"]["modules"]["demo"]["Thing.f"]["rustpython"][
+            "status"
+        ] = "not_observed"
         self.assertTrue(self.errors())
 
-    def test_additional_signature_does_not_hide_unknown_context(self):
-        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
-        pair["cpython"]["status"] = "none"
-        pair["cpython"]["value"] = None
-        for comparison in ("unknown", "different_context"):
-            with self.subTest(comparison=comparison):
-                pair["comparison"] = comparison
-                self.assertTrue(self.errors())
-
-    def test_raw_unknown_is_not_a_pass(self):
-        self.result["raw_text_signatures"]["builtins"]["Thing.f"]["comparison"] = (
-            "unknown"
-        )
-        self.assertTrue(self.errors())
-
-    def test_type_document_difference_is_not_ignored(self):
-        self.result["raw_text_signatures"]["builtins"]["Thing.f"]["comparison"] = (
-            "type_document_raw_difference"
-        )
-        self.assertTrue(self.errors())
-
-    def test_missing_raw_path(self):
-        self.result["raw_text_signatures"]["modules"]["demo"].clear()
-        self.assertTrue(self.errors())
-
-    def test_new_inventory_requires_review(self):
-        self.result["reference_discovery"]["names"].append("new_module")
-        self.assertTrue(self.errors())
-
-    def test_reference_coverage_loss(self):
-        self.result["cpython_modules"]["demo"].clear()
+    def test_new_comparable_signature_requires_scope_review(self):
+        pair = copy.deepcopy(self.result["raw_text_signatures"]["builtins"]["Thing.f"])
+        self.result["raw_text_signatures"]["builtins"]["Thing.new"] = pair
         self.assertTrue(self.errors())
 
     def test_inspect_mismatch(self):
-        self.result["mismatched_items"] = {"demo": [["demo.f", "(x)", "(y)"]]}
+        self.result["mismatched_items"] = {
+            "demo": [["demo.Thing.f", "(x)", "(self, /)"]]
+        }
         self.assertTrue(self.errors())
 
-    def test_uncomparable_not_success(self):
-        self.result["uncomparable_signatures"] = {"demo": [["demo.f", "ValueError"]]}
+    def test_reference_inspection_failure_cannot_look_like_fix(self):
+        self.result["cpython_modules"]["demo"]["Thing.f"]["sig_error"] = True
         self.assertTrue(self.errors())
 
-    def test_inherited_mismatch_cannot_escape(self):
+    def test_actual_inspection_failure_cannot_look_like_fix(self):
+        self.result["mismatched_items"] = {
+            "demo": [["demo.Thing.f", "ValueError('bad')", "(self, /)"]]
+        }
+        self.assertTrue(self.errors())
+
+    def test_inherited_value_not_invented(self):
         self.result["missing_items"] = {"demo": ["demo.Thing.f (inherited)"]}
         self.assertTrue(self.errors())
-
-    def test_import_failure(self):
-        self.result["actual_scan_status"]["demo"] = "scan_returned_exception"
+        self.result["not_implementeds"] = {"Thing": {"f": "(inherited)"}}
         self.assertTrue(self.errors())
 
-    def test_second_import_failure(self):
-        self.result["actual_second_import_status"]["demo"] = "returned_exception"
-        self.assertTrue(self.errors())
-
-    def test_parent_scan_failure(self):
-        self.result["actual_parent_scans"]["demo"]["Thing"] = "not_observed"
+    def test_reference_signature_change_requires_review(self):
+        self.result["cpython_modules"]["demo"]["Thing.f"]["sig"] = "(self, value, /)"
         self.assertTrue(self.errors())
 
     def test_truncation_rejected(self):
-        self.result["reference_discovery"]["truncated"] = True
+        for field in ("reference_discovery", "reference_inventory_diagnostics"):
+            with self.subTest(field=field):
+                self.result[field]["truncated"] = True
+                with self.assertRaises(ValueError):
+                    self.errors()
+                self.result[field]["truncated"] = False
+
+    def test_reference_ambiguity_rejected(self):
+        self.result["reference_inventory_diagnostics"]["issues"] = [
+            ["flattened_name_collision", "demo", "Thing.f"]
+        ]
         with self.assertRaises(ValueError):
             self.errors()
 
-    def test_empty_or_missing_schema_rejected(self):
-        self.result["raw_text_signatures"]["builtins"].clear()
+    def test_existing_missing_signature_remains_a_failure(self):
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        pair["rustpython"].update(status="none", value=None)
+        self.baseline = gate.snapshot(self.result)
+        self.assertIn("raw:builtin/Thing.f", self.baseline["defects"])
+        pair["rustpython"]["status"] = "not_observed"
+        self.assertTrue(self.errors())
+
+    def test_existing_inspection_error_remains_a_failure(self):
+        self.result["mismatched_items"] = {
+            "demo": [["demo.Thing.f", "ValueError('bad')", "(self, /)"]]
+        }
+        self.baseline = gate.snapshot(self.result)
+        self.assertIn("inspect:module/demo/Thing.f", self.baseline["defects"])
+        self.result["raw_text_signatures"]["modules"]["demo"]["Thing.f"]["rustpython"][
+            "status"
+        ] = "not_observed"
+        self.result["mismatched_items"] = {}
+        self.assertTrue(self.errors())
+
+    def test_empty_inventory_rejected(self):
+        self.result["raw_text_signatures"] = {"builtins": {}, "modules": {}}
+        self.result["cpython_modules"] = {}
+        self.result["cpython_builtin_signatures"] = {}
         with self.assertRaises(ValueError):
-            self.errors()
-        del self.result["raw_text_signatures"]
-        with self.assertRaises(KeyError):
             self.errors()
 
     def test_resolved_failure_requires_baseline_removal(self):
         baseline = copy.deepcopy(self.baseline)
-        baseline["defects"]["inspect:demo/demo.f"] = ["(x)", "(y)"]
+        baseline["defects"]["inspect:module/demo/Thing.f"] = ["(self, /)", "(x)"]
         errors, resolved = gate.compare(self.baseline, baseline)
         self.assertTrue(errors)
-        self.assertEqual(resolved, ["inspect:demo/demo.f"])
+        self.assertEqual(resolved, ["inspect:module/demo/Thing.f"])
 
-    def test_changed_known_failure_not_suppressed(self):
-        self.result["mismatched_items"] = {"demo": [["demo.f", "(x)", "(y)"]]}
+    def test_changed_known_failure_is_rejected(self):
+        self.result["mismatched_items"] = {
+            "demo": [["demo.Thing.f", "(x)", "(self, /)"]]
+        }
         self.baseline = gate.snapshot(self.result)
         self.result["mismatched_items"]["demo"][0][1] = "(z)"
         self.assertTrue(self.errors())
