@@ -969,7 +969,7 @@ mod _io {
     #[derive(FromArgs, Clone)]
     struct BufferSize {
         // 128 * 1024, the module buffer size.
-        #[pyarg(any, default = 131072)]
+        #[pyarg(any, default = DEFAULT_BUFFER_SIZE as isize, py_default = "DEFAULT_BUFFER_SIZE")]
         buffer_size: isize,
     }
 
@@ -977,7 +977,7 @@ mod _io {
     struct BufferedInitArgs {
         #[pyarg(any)]
         raw: PyObjectRef,
-        #[pyarg(any, default = 131072)]
+        #[pyarg(any, default = DEFAULT_BUFFER_SIZE as isize, py_default = "DEFAULT_BUFFER_SIZE")]
         buffer_size: isize,
     }
 
@@ -987,7 +987,7 @@ mod _io {
         reader: PyObjectRef,
         #[pyarg(positional)]
         writer: PyObjectRef,
-        #[pyarg(positional, default = 131072)]
+        #[pyarg(positional, default = DEFAULT_BUFFER_SIZE as isize, py_default = "DEFAULT_BUFFER_SIZE")]
         buffer_size: isize,
     }
 
