@@ -362,3 +362,19 @@ except ImportError:
 else:
     assert _hashlib.HASHXOF.update.__text_signature__ == "($self, obj, /)"
     assert str(inspect.signature(_hashlib.HASHXOF.update)) == "(self, obj, /)"
+# Pickle protocol parameters retain the public spelling even when ignored.
+import _io
+
+for pickle_type in (
+    bytes,
+    memoryview,
+    _io.BufferedReader,
+    _io.BufferedWriter,
+    _io.BufferedRandom,
+    _io.TextIOWrapper,
+):
+    reduce_ex = pickle_type.__reduce_ex__
+    assert reduce_ex.__text_signature__ == "($self, protocol, /)"
+    parameters = inspect.signature(reduce_ex).parameters
+    assert list(parameters) == ["self", "protocol"]
+    assert parameters["protocol"].kind == inspect.Parameter.POSITIONAL_ONLY
