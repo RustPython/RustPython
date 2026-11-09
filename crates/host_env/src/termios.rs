@@ -181,17 +181,25 @@ pub fn tcgetwinsize(fd: i32) -> std::io::Result<(u16, u16)> {
     Ok((size.ws_row, size.ws_col))
 }
 
-pub fn tcsetwinsize(fd: i32, row: u16, col: u16) -> std::io::Result<()> {
+pub enum SetWinSizeError {
+    Io(std::io::Error),
+    OutOfRange,
+}
+
+pub fn tcsetwinsize(fd: i32, row: libc::c_long, col: libc::c_long) -> Result<(), SetWinSizeError> {
     let mut size: libc::winsize = unsafe { core::mem::zeroed() };
     let ret = unsafe { libc::ioctl(fd, TIOCGWINSZ as _, &mut size) };
     if ret < 0 {
-        return Err(std::io::Error::last_os_error());
+        return Err(SetWinSizeError::Io(std::io::Error::last_os_error()));
     }
-    size.ws_row = row;
-    size.ws_col = col;
+    size.ws_row = row as _;
+    size.ws_col = col as _;
+    if libc::c_long::from(size.ws_row) != row || libc::c_long::from(size.ws_col) != col {
+        return Err(SetWinSizeError::OutOfRange);
+    }
     let ret = unsafe { libc::ioctl(fd, TIOCSWINSZ as _, &size) };
     if ret < 0 {
-        return Err(std::io::Error::last_os_error());
+        return Err(SetWinSizeError::Io(std::io::Error::last_os_error()));
     }
     Ok(())
 }

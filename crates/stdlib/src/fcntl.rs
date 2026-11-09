@@ -7,9 +7,11 @@ mod fcntl {
     use rustpython_host_env::fcntl as host_fcntl;
 
     use crate::vm::{
-        PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBytes, PyStr},
         convert::ToPyException,
-        function::{ArgIndex, ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
+        function::ArgStrOrBytesLike,
+        protocol::{BufferFlags, PyBuffer},
         stdlib::_io,
     };
     use rustpython_host_env::io::is_interrupted_error;
@@ -119,7 +121,12 @@ mod fcntl {
             self.heap.as_deref_mut().unwrap_or(&mut self.stack)
         }
 
-        fn into_bytes(self, operation: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn check_guard(
+            &self,
+            operation: &str,
+            writable: bool,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             // Like CPython, detect writes into the trailing guard. This cannot
             // make a buffer safe for an operation requiring an arbitrary size.
             let valid = match &self.heap {
@@ -132,11 +139,21 @@ mod fcntl {
                 } else {
                     "Possible stack corruption"
                 };
+                let argument = if writable {
+                    "a writable buffer argument"
+                } else {
+                    "an argument"
+                };
                 return Err(vm.new_system_error(format!(
                     "{corruption} in {operation}() due to buffer overflow. \
-                     Provide an argument of sufficient size as determined by the operation."
+                     Provide {argument} of sufficient size as determined by the operation."
                 )));
             }
+            Ok(())
+        }
+
+        fn into_bytes(self, operation: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            self.check_guard(operation, false, vm)?;
             match self.heap {
                 Some(mut heap) => {
                     heap.truncate(self.len);
@@ -147,10 +164,30 @@ mod fcntl {
         }
     }
 
+    fn unsigned_mask(arg: &PyObjectRef, bits: u32, vm: &VirtualMachine) -> PyResult<u64> {
+        use num_traits::ToPrimitive;
+
+        let value = arg.try_index(vm)?;
+        let valid_range = -(1i128 << (bits - 1))..=(1i128 << bits) - 1;
+        if !value
+            .as_bigint()
+            .to_i128()
+            .is_some_and(|value| valid_range.contains(&value))
+        {
+            crate::vm::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "integer value out of range".to_owned(),
+                1,
+                vm,
+            )?;
+        }
+        Ok(value.as_u64_mask())
+    }
+
     #[derive(FromArgs)]
     struct FcntlArg {
         #[pyarg(positional, default = 0)]
-        arg: Either<ArgStrOrBytesLike, ArgIndex>,
+        arg: PyObjectRef,
     }
 
     #[pyfunction]
@@ -160,18 +197,28 @@ mod fcntl {
         FcntlArg { arg }: FcntlArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let int = match arg {
-            Either::A(arg) => {
-                let mut buf = SyscallBuffer::new(&arg.borrow_bytes(), vm)?;
-                retry_on_eintr(
-                    vm,
-                    || host_fcntl::fcntl_with_bytes(fd, cmd, buf.as_mut_slice()),
-                    is_interrupted_error,
-                )?;
-                return Ok(vm.ctx.new_bytes(buf.into_bytes("fcntl", vm)?).into());
+        if !arg.number().is_index() {
+            if !arg.check_buffer() && !arg.fast_isinstance(vm.ctx.types.str_type) {
+                return Err(vm.new_type_error(format!(
+                    "fcntl() argument 3 must be an integer, a bytes-like object, or a string, not {}",
+                    arg.class().name()
+                )));
             }
-            Either::B(i) => i.as_ref().as_u32_mask(),
-        };
+            #[expect(
+                clippy::redundant_clone,
+                reason = "keep the original argument alive after releasing its buffer export"
+            )]
+            let buffer_arg = ArgStrOrBytesLike::try_from_object(vm, arg.clone())?;
+            let mut buf = SyscallBuffer::new(&buffer_arg.borrow_bytes(), vm)?;
+            drop(buffer_arg);
+            retry_on_eintr(
+                vm,
+                || host_fcntl::fcntl_with_bytes(fd, cmd, buf.as_mut_slice()),
+                is_interrupted_error,
+            )?;
+            return Ok(vm.ctx.new_bytes(buf.into_bytes("fcntl", vm)?).into());
+        }
+        let int = unsigned_mask(&arg, u32::BITS, vm)? as u32;
         let ret = retry_on_eintr(
             vm,
             || host_fcntl::fcntl_int(fd, cmd, int as i32),
@@ -183,88 +230,112 @@ mod fcntl {
     #[derive(FromArgs)]
     struct IoctlArgs {
         #[pyarg(positional, default = 0)]
-        arg: Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>,
+        arg: PyObjectRef,
         #[pyarg(positional, default = true)]
-        mutate_flag: bool,
+        mutate_flag: PyObjectRef,
     }
 
     #[pyfunction]
     fn ioctl(
         _io::Fildes(fd): _io::Fildes,
-        request: i64,
+        request: PyObjectRef,
         IoctlArgs { arg, mutate_flag }: IoctlArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let mutate_flag = OptionalArg::Present(mutate_flag);
-        let request = host_fcntl::normalize_ioctl_request(request);
-        match arg {
-            Either::A(buf_kind) => {
-                let mut buf = match buf_kind {
-                    Either::A(rw_arg) => {
-                        let mutate_flag = mutate_flag.unwrap_or(true);
-                        if mutate_flag {
-                            // A terminal or a socket answers an ioctl when it is
-                            // ready to, so the call runs detached, and the target's
-                            // bytes go in and come back through a buffer of our own
-                            // rather than stay locked meanwhile -- `fcntl_ioctl_impl`
-                            // copies through one the same way.
-                            let mut scratch = vm.new_zeroed_bytes(rw_arg.len())?;
-                            scratch.copy_from_slice(&rw_arg.borrow_buf_mut());
-                            let ret = retry_on_eintr(
-                                vm,
-                                || unsafe {
-                                    host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
-                                },
-                                is_interrupted_error,
-                            )?;
-                            rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
-                            return Ok(vm.ctx.new_int(ret).into());
-                        }
-                        // treat like an immutable buffer
-                        SyscallBuffer::new(&rw_arg.borrow_buf_mut(), vm)?
+        let request = unsigned_mask(&request, libc::c_ulong::BITS, vm)? as libc::c_ulong;
+        // Clinic converts mutate_flag before the implementation examines arg.
+        let mutate_flag = mutate_flag.try_to_bool(vm)?;
+        if arg.number().is_index() {
+            let arg = arg.try_index(vm)?.try_to_primitive::<i32>(vm)?;
+            let ret = retry_on_eintr(
+                vm,
+                || host_fcntl::ioctl_int(fd, request, arg),
+                is_interrupted_error,
+            )?;
+            return Ok(vm.ctx.new_int(ret).into());
+        }
+        if !arg.check_buffer() && !arg.fast_isinstance(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error(format!(
+                "ioctl() argument 3 must be an integer, a bytes-like object, or a string, not {}",
+                arg.class().name()
+            )));
+        }
+
+        if mutate_flag && !arg.downcastable::<PyBytes>() && !arg.downcastable::<PyStr>() {
+            match PyBuffer::from_object(vm, &arg, BufferFlags::WRITABLE) {
+                Ok(buffer) => {
+                    let mut scratch = {
+                        let bytes = buffer.as_contiguous_mut().ok_or_else(|| {
+                            vm.new_buffer_error("underlying buffer is not C-contiguous")
+                        })?;
+                        SyscallBuffer::new(&bytes, vm)?
+                    };
+                    // Keep the export alive, but not its lock, while detached.
+                    // Small writable buffers need the same overflow guard as
+                    // immutable buffers, rather than an exact-size allocation.
+                    let ret = retry_on_eintr(
+                        vm,
+                        || unsafe {
+                            host_fcntl::ioctl_ptr(
+                                fd,
+                                request,
+                                scratch.as_mut_slice().as_mut_ptr().cast(),
+                            )
+                        },
+                        is_interrupted_error,
+                    )?;
+                    {
+                        let mut bytes = buffer.as_contiguous_mut().ok_or_else(|| {
+                            vm.new_buffer_error("underlying buffer is not C-contiguous")
+                        })?;
+                        let len = bytes.len();
+                        bytes.copy_from_slice(&scratch.as_mut_slice()[..len]);
                     }
-                    Either::B(ro_buf) => SyscallBuffer::new(&ro_buf.borrow_bytes(), vm)?,
-                };
-                retry_on_eintr(
-                    vm,
-                    || unsafe {
-                        host_fcntl::ioctl_ptr(fd, request, buf.as_mut_slice().as_mut_ptr().cast())
-                    },
-                    is_interrupted_error,
-                )?;
-                Ok(vm.ctx.new_bytes(buf.into_bytes("ioctl", vm)?).into())
-            }
-            Either::B(i) => {
-                let ret = retry_on_eintr(
-                    vm,
-                    || host_fcntl::ioctl_int(fd, request, i),
-                    is_interrupted_error,
-                )?;
-                Ok(vm.ctx.new_int(ret).into())
+                    drop(buffer);
+                    scratch.check_guard("ioctl", true, vm)?;
+                    return Ok(vm.ctx.new_int(ret).into());
+                }
+                Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.buffer_error) => {}
+                Err(exc) => return Err(exc),
             }
         }
+        #[expect(
+            clippy::redundant_clone,
+            reason = "keep the original argument alive after releasing its buffer export"
+        )]
+        let buffer_arg = ArgStrOrBytesLike::try_from_object(vm, arg.clone())?;
+        let mut buf = SyscallBuffer::new(&buffer_arg.borrow_bytes(), vm)?;
+        drop(buffer_arg);
+        retry_on_eintr(
+            vm,
+            || unsafe {
+                host_fcntl::ioctl_ptr(fd, request, buf.as_mut_slice().as_mut_ptr().cast())
+            },
+            is_interrupted_error,
+        )?;
+        Ok(vm.ctx.new_bytes(buf.into_bytes("ioctl", vm)?).into())
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
-    fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
+    fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult<()> {
         // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
         // be for good.
-        let ret = retry_on_eintr(
+        retry_on_eintr(
             vm,
             || host_fcntl::flock(fd, operation),
             is_interrupted_error,
         )?;
-        Ok(vm.ctx.new_int(ret).into())
+        Ok(())
     }
 
     #[derive(FromArgs)]
     struct LockfArgs {
         #[pyarg(positional, default = 0)]
-        len: ArgIndex,
+        len: PyObjectRef,
         #[pyarg(positional, default = 0)]
-        start: ArgIndex,
+        start: PyObjectRef,
         #[pyarg(positional, default)]
         whence: i32,
     }
@@ -277,11 +348,21 @@ mod fcntl {
         cmd: i32,
         LockfArgs { len, start, whence }: LockfArgs,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        let start = start.as_ref().try_to_primitive(vm)?;
-        let len = len.as_ref().try_to_primitive(vm)?;
+    ) -> PyResult<()> {
+        host_fcntl::lockf_type(cmd).map_err(|e| e.to_pyexception(vm))?;
+        // Clinic converts whence first. The implementation then validates cmd
+        // and converts start before len, using C long for index-only objects.
+        let offset = |obj: &PyObjectRef| -> PyResult<i64> {
+            let value = obj.try_index(vm)?;
+            if !obj.downcastable::<crate::vm::builtins::PyInt>() {
+                value.try_to_primitive::<libc::c_long>(vm)?;
+            }
+            value.try_to_primitive(vm)
+        };
+        let start = offset(&start)?;
+        let len = offset(&len)?;
         // F_LOCK and F_TLOCK differ in exactly this: the first one waits.
-        let ret = retry_on_eintr(
+        retry_on_eintr(
             vm,
             || host_fcntl::lockf(fd, cmd, len, start, whence),
             |err| match err {
@@ -289,6 +370,6 @@ mod fcntl {
                 _ => false,
             },
         )?;
-        Ok(vm.ctx.new_int(ret).into())
+        Ok(())
     }
 }

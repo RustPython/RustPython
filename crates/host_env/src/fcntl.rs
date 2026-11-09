@@ -64,10 +64,6 @@ pub use libc::F_GETPATH;
 #[cfg(target_os = "linux")]
 pub use libc::{FICLONE, FICLONERANGE};
 
-pub fn normalize_ioctl_request(request: i64) -> libc::c_ulong {
-    (request as u32) as libc::c_ulong
-}
-
 pub fn fcntl_int(fd: i32, cmd: i32, arg: i32) -> io::Result<i32> {
     unsafe { libc::fcntl(fd, cmd, arg) }.check_libc_neg()
 }
@@ -144,6 +140,23 @@ pub enum LockfError {
 }
 
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+pub fn lockf_type(cmd: i32) -> Result<libc::c_int, LockfError> {
+    let l_type = if cmd == libc::LOCK_UN {
+        libc::F_UNLCK
+    } else if (cmd & libc::LOCK_SH) != 0 {
+        libc::F_RDLCK
+    } else if (cmd & libc::LOCK_EX) != 0 {
+        libc::F_WRLCK
+    } else {
+        return Err(LockfError::InvalidCmd);
+    };
+
+    // Lock constants are c_short on BSD-family targets and c_int on Linux.
+    #[allow(clippy::unnecessary_cast)]
+    Ok(l_type as libc::c_int)
+}
+
+#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
 pub fn lockf(fd: i32, cmd: i32, len: i64, start: i64, whence: i32) -> Result<i32, LockfError> {
     fn convert_field<T, U>(value: T) -> Result<U, LockfError>
     where
@@ -155,19 +168,11 @@ pub fn lockf(fd: i32, cmd: i32, len: i64, start: i64, whence: i32) -> Result<i32
             .map_err(|err| LockfError::Overflow(err.to_string()))
     }
 
-    let l_type = if cmd == libc::LOCK_UN {
-        libc::F_UNLCK
-    } else if (cmd & libc::LOCK_SH) != 0 {
-        libc::F_RDLCK
-    } else if (cmd & libc::LOCK_EX) != 0 {
-        libc::F_WRLCK
-    } else {
-        return Err(LockfError::InvalidCmd);
-    };
+    let l_type = lockf_type(cmd)?;
 
     let lock = libc::flock {
         l_type: convert_field(l_type)?,
-        l_whence: convert_field(whence)?,
+        l_whence: whence as _,
         l_start: convert_field(start)?,
         l_len: convert_field(len)?,
         ..unsafe { core::mem::zeroed() }
