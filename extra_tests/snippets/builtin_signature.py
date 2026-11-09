@@ -1,3 +1,4 @@
+import builtins
 import inspect
 import os
 
@@ -152,3 +153,81 @@ assert (
     inspect.signature(_io.BufferedRWPair).parameters["buffer_size"].default
     == _io.DEFAULT_BUFFER_SIZE
 )
+
+# CPython's tp_new_wrapper hides its bound defining type, but still requires
+# the caller to supply the subtype as the first positional argument. The raw
+# signature intentionally has no slash, unlike other slot descriptors.
+new_wrapper_types = (
+    "object",
+    "type",
+    "bool",
+    "bytearray",
+    "bytes",
+    "complex",
+    "dict",
+    "float",
+    "frozenset",
+    "int",
+    "list",
+    "memoryview",
+    "range",
+    "set",
+    "slice",
+    "str",
+    "tuple",
+    "BaseException",
+    "Exception",
+    "ArithmeticError",
+    "AssertionError",
+    "AttributeError",
+    "EOFError",
+    "ImportError",
+    "IndexError",
+    "KeyError",
+    "LookupError",
+    "MemoryError",
+    "NameError",
+    "NotImplementedError",
+    "OSError",
+    "OverflowError",
+    "ReferenceError",
+    "RuntimeError",
+    "StopIteration",
+    "SyntaxError",
+    "SystemError",
+    "SystemExit",
+    "TypeError",
+    "ValueError",
+    "ZeroDivisionError",
+    "Warning",
+    "UserWarning",
+    "RuntimeWarning",
+    "DeprecationWarning",
+    "FutureWarning",
+    "UnicodeError",
+)
+for type_name in new_wrapper_types:
+    cls = getattr(builtins, type_name)
+    new = cls.__new__
+    assert new.__text_signature__ == "($type, *args, **kwargs)", type_name
+    assert str(inspect.signature(new)) == "(*args, **kwargs)", type_name
+    assert isinstance(new.__self__, type), type_name
+
+
+class NewList(list):
+    pass
+
+
+assert NewList.__new__ is list.__new__
+assert NewList.__new__.__self__ is list
+assert dict.__new__(dict, answer=42) == {}
+assert int.__new__(int, "10", base=2) == 2
+# The hidden $type in the raw signature does not make the explicit subtype
+# keyword-bindable. Do not silently alter dispatch when matching its spelling.
+for new, kwargs in ((object.__new__, {"type": object}), (list.__new__, {"cls": list})):
+    try:
+        new(**kwargs)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("the subtype must remain positional")

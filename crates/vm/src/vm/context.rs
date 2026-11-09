@@ -361,7 +361,7 @@ impl Context {
             PyType::__new__,
             PyMethodFlags::METHOD,
             ItemDoc::static_text(
-                "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
+                "__new__($type, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
             ),
         );
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
