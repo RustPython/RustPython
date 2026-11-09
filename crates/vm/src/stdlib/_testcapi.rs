@@ -321,6 +321,7 @@ mod _testcapi {
 
     #[derive(FromArgs)]
     struct FatalErrorArgs {
+        #[pyarg(positional)]
         message: FatalMessage,
         #[pyarg(positional, default = false)]
         release_gil: ArgIntoBool,
