@@ -150,6 +150,13 @@ class GateTests(unittest.TestCase):
                     pair["rustpython"]["value"] = "($self, extra=None, /)"
                     self.assertEqual(self.errors(), [])
 
+    def test_additional_signature_scanner_classification(self):
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        pair["cpython"]["status"] = "none"
+        pair["cpython"]["value"] = None
+        pair["comparison"] = "additional_signature"
+        self.assertEqual(self.errors(), [])
+
     def test_missing_reference_signature_is_not_symmetric(self):
         pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
         pair["rustpython"]["status"] = "none"

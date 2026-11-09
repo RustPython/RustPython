@@ -545,6 +545,7 @@ class InventoryTests(unittest.TestCase):
 
 names = {
     "make_native_raw_observer",
+    "signature_warnings",
     "attr_is_not_inherited",
     "compare",
     "observe_real_type",
@@ -654,6 +655,42 @@ class RawTextTests(unittest.TestCase):
         self.assertEqual(pair["comparison"], "raw_difference")
         self.assertEqual(pair["cpython"]["value"], raw["value"])
         self.assertEqual(pair["rustpython"]["value"], "($module, value, /)")
+
+    def test_additional_signature_is_allowed_and_not_reported_as_warning(self):
+        raw = raw_namespace["observe_raw_safely"](len)
+        ref = {
+            "sig": "ValueError('no signature found')",
+            "sig_error": True,
+            "doc": "same",
+            "raw_text_signature": {**raw, "status": "none", "value": None},
+        }
+        actual = {
+            **ref,
+            "sig": "(object, /)",
+            "sig_error": False,
+            "raw_text_signature": raw,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "demo.py").touch()
+            raw_namespace.update(
+                expected_methods={},
+                cpymods={"demo": {"func": ref}},
+                libdir=os.fsencode(tmp),
+                dir_of_mod_or_error=lambda name: {"func": actual},
+                import_module=lambda name: types.ModuleType(name),
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                raw_namespace["compare"]()
+        result = json.loads(output.getvalue())
+        pair = result["raw_text_signatures"]["modules"]["demo"]["func"]
+        self.assertEqual(pair["comparison"], "additional_signature")
+        self.assertFalse(result["mismatched_items"])
+        self.assertEqual(raw_namespace["signature_warnings"](result), {})
+        self.assertTrue(result["uncomparable_signatures"])
+        # A genuine reference observation error must remain visible.
+        pair["comparison"] = "unknown"
+        self.assertTrue(raw_namespace["signature_warnings"](result))
 
     def test_real_type_observation_ignores_spoofed_class(self):
         calls = []

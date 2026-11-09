@@ -1013,6 +1013,8 @@ def compare():
             comparison = "unknown"
         elif ref["kind"] != observed["kind"] or ref["binding"] != observed["binding"]:
             comparison = "different_context"
+        elif ref["status"] in {"none", "absent"} and observed["status"] == "present":
+            comparison = "additional_signature"
         elif ref["status"] != observed["status"]:
             comparison = "different_text_state"
         elif ref["status"] != "present":
@@ -1354,11 +1356,38 @@ if args.signature:
             if i < len(mismatched) - 1:
                 print()
 
+
+def signature_warnings(result):
+    # Preserve the reference introspection diagnostics in JSON, but an allowed
+    # additional RustPython signature is not a problem in the human report.
+    raw = result["raw_text_signatures"]
+    allowed = {
+        name
+        for name, pair in raw["builtins"].items()
+        if pair["comparison"].removeprefix("type_document_") == "additional_signature"
+    }
+    allowed.update(
+        f"{module}.{name}"
+        for module, items in raw["modules"].items()
+        for name, pair in items.items()
+        if pair["comparison"].removeprefix("type_document_") == "additional_signature"
+    )
+    return {
+        group: filtered
+        for group, entries in result["uncomparable_signatures"].items()
+        if (
+            filtered := [
+                (name, error) for name, error in entries if name not in allowed
+            ]
+        )
+    }
+
+
 if args.signature:
     print(
         "\n# uncomparable signature observations (CPython introspection errors; aliases may repeat)"
     )
-    for entries in result["uncomparable_signatures"].values():
+    for entries in signature_warnings(result).values():
         for item, error in entries:
             print(f"{item}: {error}")
 
@@ -1385,6 +1414,8 @@ for error_type, modules in result.items():
         "actual_parent_scans",
         "actual_parent_decisions",
     }:
+        if error_type == "uncomparable_signatures":
+            modules = signature_warnings(result)
         print("# ", error_type, len(modules))
 diagnostics = result["reference_inventory_diagnostics"]
 if diagnostics["issues"] or diagnostics["truncated"]:

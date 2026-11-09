@@ -11,12 +11,18 @@ import json
 import re
 from pathlib import Path
 
-GOOD_RAW = {"exact_raw_match", "matching_nontext_state", "not_applicable"}
+GOOD_RAW = {
+    "exact_raw_match",
+    "matching_nontext_state",
+    "not_applicable",
+    "additional_signature",
+}
 RAW_FIELDS = ("status", "kind", "binding", "value", "error_type", "representative")
 
 
 def additional_signature(pair, comparison):
-    # No reference text means there is no text to disagree with. Retain the
+    # Accept older scanner artifacts too. No reference text means there is
+    # no text to disagree with. Retain the
     # observation/coverage, but do not require an exception for useful extra
     # RustPython metadata. Unknown or different contexts remain unverified.
     return (

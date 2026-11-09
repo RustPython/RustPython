@@ -11,6 +11,9 @@ Raw signature text, parameter names and default literals are never normalized.
 When CPython has no raw signature (`None` or an absent attribute), an additional
 RustPython signature is allowed without a baseline exception. Its value may
 change without claiming CPython parity; the observed path stays in coverage.
+The scanner classifies these as `additional_signature` and omits them from
+human-readable signature warnings. JSON retains the original reference
+introspection diagnostics for investigation, not as a signature disagreement.
 This is asymmetric: a missing RustPython signature where CPython provides one
 still fails. Unknown observations and differing contexts are not exempted.
 No runtime call compatibility is inferred from either signature representation.
