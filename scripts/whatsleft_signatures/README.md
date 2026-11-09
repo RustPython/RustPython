@@ -29,7 +29,10 @@ Their recorded provenance is CI run
 [42491705325](https://github.com/RustPython/RustPython/actions/runs/42491705325),
 head `4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7`.
 They were reclassified with this narrower checker; no runtime improvements are
-implied by removing unrelated diagnostic exceptions.
+implied by removing unrelated diagnostic exceptions. Four buffer-constructor
+exceptions per platform were also removed after #9744 merged into current main.
+That removal is based on the shared implementation and a verified Linux binary;
+the next hosted run must confirm all three current platform baselines.
 
 ## Updating a baseline
 
