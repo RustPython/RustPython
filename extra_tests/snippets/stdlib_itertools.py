@@ -1,4 +1,5 @@
 import itertools
+import sys
 
 from testutils import assert_raises
 
@@ -583,9 +584,9 @@ for factory in (
     with assert_raises(OverflowError):
         factory(range(5), 2**64)
 
-with assert_raises(MemoryError):
+with assert_raises(MemoryError if sys.maxsize >= 2**44 else OverflowError):
     itertools.combinations(range(5), 2**44)
-with assert_raises(MemoryError):
+with assert_raises(MemoryError if sys.maxsize >= 2**44 else OverflowError):
     itertools.combinations_with_replacement(range(5), 2**44)
 
 # repeat is an arbitrary Python int: a negative one is refused, and one whose
@@ -598,7 +599,7 @@ with assert_raises(OverflowError):
 
 # The pools are filled by their own count, so a repeat with nothing to repeat
 # answers at once instead of counting up to it.
-assert list(itertools.product(repeat=2**62)) == [()]
+assert list(itertools.product(repeat=min(2**62, sys.maxsize))) == [()]
 assert list(itertools.product(repeat=0)) == [()]
 
 

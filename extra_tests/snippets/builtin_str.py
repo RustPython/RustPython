@@ -1055,10 +1055,11 @@ assert id(b) != id(b * 2)
 
 
 def test_huge_width():
-    # A width that cannot be allocated is a MemoryError, not an aborted
-    # process, and a tabsize wider than a C int does not fit at all.
+    # A representable width reaches allocation; a wider one overflows first.
+    # A tabsize wider than a C int does not fit at all.
+    width_error = MemoryError if sys.maxsize >= 1 << 62 else OverflowError
     for meth in ("center", "ljust", "rjust", "zfill"):
-        assert_raises(MemoryError, lambda meth=meth: getattr("a", meth)(1 << 62))
+        assert_raises(width_error, lambda meth=meth: getattr("a", meth)(1 << 62))
     assert_raises(OverflowError, lambda: "\ta".expandtabs(1 << 62))
     assert_raises(OverflowError, lambda: "\ta".expandtabs(2**31))
     # The widest tabsize that still fits is accepted. With no tab to expand

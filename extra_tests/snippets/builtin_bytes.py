@@ -849,12 +849,13 @@ assert not "123A\ta".istitle(), f"{s}"
 
 
 def test_huge_size():
-    # sizes that cannot be allocated are MemoryError, not an aborted process
+    # An unrepresentable size overflows before allocation on 32-bit builds.
+    size_error = MemoryError if sys.maxsize >= 2**62 else OverflowError
     for factory in (bytes, bytearray):
-        assert_raises(MemoryError, lambda factory=factory: factory(2**62))
+        assert_raises(size_error, lambda factory=factory: factory(2**62))
         for meth in ("center", "ljust", "rjust", "zfill"):
             assert_raises(
-                MemoryError,
+                size_error,
                 lambda factory=factory, meth=meth: getattr(factory(b"a"), meth)(
                     1 << 62
                 ),

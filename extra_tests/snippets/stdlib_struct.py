@@ -1,4 +1,5 @@
 import struct
+import sys
 
 from testutils import assert_raises
 
@@ -99,7 +100,7 @@ for fmt, message in (
     ("b", "'b' format requires -128 <= number <= 127"),
     (">H", "'H' format requires 0 <= number <= 65535"),
     (">i", "'i' format requires -2147483648 <= number <= 2147483647"),
-    ("N", "'N' format requires 0 <= number <= 18446744073709551615"),
+    ("N", f"'N' format requires 0 <= number <= {2 ** (8 * struct.calcsize('N')) - 1}"),
     ("P", "int too large to convert"),
 ):
     try:
@@ -159,8 +160,8 @@ for call in (
 
 
 # The buffer a format asks for is sized by the format: one too large to
-# allocate must raise instead of aborting.
-with assert_raises(MemoryError):
+# allocate must raise instead of aborting; an unrepresentable size fails earlier.
+with assert_raises(MemoryError if sys.maxsize >= 2**60 else struct.error):
     struct.pack("%dx" % (2**60))
 
 
