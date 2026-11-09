@@ -2413,7 +2413,7 @@ pub fn compile_with_syntax_warning_handler<'a>(
     opts: CompileOpts,
     syntax_warning_handler: &'a mut compile::SyntaxWarningHandler<'a>,
 ) -> Result<CodeObject, CompileError> {
-    let source = source.replace("\r\n", "\n");
+    let source = source.replace("\r\n", "\n").replace('\r', "\n");
     #[cfg(windows)]
     let source = source.as_str();
 
