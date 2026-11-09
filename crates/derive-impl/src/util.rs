@@ -319,6 +319,26 @@ impl ItemMeta for SimpleItemMeta {
     }
 }
 
+/// Module function metadata; legacy signatures deliberately opt out of Clinic text.
+pub(crate) struct FunctionItemMeta(pub ItemMetaInner);
+
+impl ItemMeta for FunctionItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "legacy_signature"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl FunctionItemMeta {
+    pub(crate) fn legacy_signature(&self) -> Result<bool> {
+        self.inner()._bool("legacy_signature")
+    }
+}
+
 pub(crate) struct ModuleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for ModuleItemMeta {
@@ -902,6 +922,30 @@ pub(crate) fn internal_doc_tokens(
     leading_marker: Option<&str>,
 ) -> TokenStream {
     let args_const = args_const(&sig_pieces(sig, implicit_self, self_ty, leading_marker));
+    doc_from_signature_args(py_name, doc, args_const)
+}
+
+/// CPython's flags-based fallback, evaluated entirely during compilation.
+pub(crate) fn legacy_module_doc_tokens(
+    sig: &Signature,
+    py_name: &str,
+    doc: TokenStream,
+) -> TokenStream {
+    let original = args_const(&sig_pieces(sig, None, None, None));
+    let args = quote! {
+        const ARGS: &[::rustpython_vm::function::SigArg] = {
+            #original
+            ::rustpython_vm::function::legacy_module_signature(ARGS)
+        };
+    };
+    doc_from_signature_args(py_name, doc, args)
+}
+
+fn doc_from_signature_args(
+    py_name: &str,
+    doc: TokenStream,
+    args_const: TokenStream,
+) -> TokenStream {
     quote! {
         {
             #args_const
@@ -965,6 +1009,38 @@ mod metadata_tests {
             args.into_iter(),
             &["name", "impl"],
         )
+    }
+
+    #[test]
+    fn legacy_signature_is_a_module_function_only_opt_in() {
+        let attr = parse_quote!(#[pyfunction(name = "alias", legacy_signature)]);
+        let meta = FunctionItemMeta::from_attr(parse_quote!(function), &attr).unwrap();
+        assert_eq!(meta.simple_name().unwrap(), "alias");
+        assert!(meta.legacy_signature().unwrap());
+        let ordinary = parse_quote!(#[pyfunction]);
+        assert!(
+            !FunctionItemMeta::from_attr(parse_quote!(function), &ordinary)
+                .unwrap()
+                .legacy_signature()
+                .unwrap()
+        );
+        assert!(SimpleItemMeta::from_attr(parse_quote!(function), &attr).is_err());
+        let invalid = parse_quote!(#[pyfunction(legacy_signature = "arbitrary text")]);
+        let result = FunctionItemMeta::from_attr(parse_quote!(function), &invalid);
+        assert!(result.and_then(|meta| meta.legacy_signature()).is_err());
+    }
+
+    #[test]
+    fn legacy_signature_codegen_preserves_original_argument_metadata() {
+        let sig: Signature = parse_quote!(fn sample(value: ValueArgs, vm: &VirtualMachine));
+        let doc = quote!(::rustpython_vm::function::ItemDoc::NONE);
+        let legacy = legacy_module_doc_tokens(&sig, "sample", doc.clone()).to_string();
+        assert!(legacy.contains("legacy_module_signature"));
+        assert!(legacy.contains("ValueArgs"));
+        let ordinary =
+            internal_doc_tokens(&sig, "sample", None, doc, None, Some("$module")).to_string();
+        assert!(!ordinary.contains("legacy_module_signature"));
+        assert!(ordinary.contains("$module"));
     }
 
     #[test]

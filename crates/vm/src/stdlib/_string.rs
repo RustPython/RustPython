@@ -37,7 +37,7 @@ mod _string {
         tuple.to_pyobject(vm)
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn formatter_parser(object: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
             FormatString::from_str(object.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
@@ -101,7 +101,7 @@ mod _string {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn formatter_field_name_split(
         object: PyStrRef,
         vm: &VirtualMachine,

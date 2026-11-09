@@ -122,7 +122,7 @@ mod decl {
         duration_since_system_now(vm)
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
@@ -171,12 +171,12 @@ mod decl {
         Ok(())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn time_ns(vm: &VirtualMachine) -> PyResult<u64> {
         Ok(duration_since_system_now(vm)?.as_nanos() as u64)
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     pub fn time(vm: &VirtualMachine) -> PyResult<f64> {
         _time(vm)
     }
@@ -215,22 +215,22 @@ mod decl {
         Err(vm.new_not_implemented_error("time.time"))
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(get_monotonic_time(vm)?.as_secs_f64())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_monotonic_time(vm)?.as_nanos())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(get_perf_time(vm)?.as_secs_f64())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     pub(crate) fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
     }
@@ -393,7 +393,7 @@ mod decl {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn mktime(object: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         #[cfg(unix)]
         {
@@ -585,12 +585,12 @@ mod decl {
         Err(vm.new_not_implemented_error("thread time unsupported in this system"))
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn thread_time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(get_thread_time(vm)?.as_secs_f64())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn thread_time_ns(vm: &VirtualMachine) -> PyResult<u64> {
         Ok(get_thread_time(vm)?.as_nanos() as u64)
     }
@@ -628,12 +628,12 @@ mod decl {
         Err(vm.new_not_implemented_error("process time unsupported in this system"))
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn process_time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(get_process_time(vm)?.as_secs_f64())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn process_time_ns(vm: &VirtualMachine) -> PyResult<u64> {
         Ok(get_process_time(vm)?.as_nanos() as u64)
     }

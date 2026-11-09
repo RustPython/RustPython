@@ -44,7 +44,8 @@ pub use number::{
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
     DefaultRepr, Param, ParamKind, SigArg, choose_class_params, has_signature, internal_doc_bytes,
-    internal_doc_len, real_signature, signature_prefix_bytes, signature_prefix_len,
+    internal_doc_len, legacy_module_signature, real_signature, signature_prefix_bytes,
+    signature_prefix_len,
 };
 pub use time::TimeoutSeconds;
 

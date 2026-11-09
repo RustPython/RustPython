@@ -29,8 +29,21 @@ assert (
     inspect.signature(len).parameters["obj"].kind == inspect.Parameter.POSITIONAL_ONLY
 )
 
-# *args/**kwargs cannot be followed by `/`. The parameter names themselves still
-# differ from CPython here, which is out of scope.
+# *args/**kwargs cannot be followed by `/`; collector names also match Clinic.
+assert breakpoint.__text_signature__ == "($module, /, *args, **kws)"
+assert str(inspect.signature(breakpoint)) == "(*args, **kws)"
+# Collector names are descriptive, not reserved keyword parameters.
+import sys
+
+original_breakpointhook = sys.breakpointhook
+try:
+    sys.breakpointhook = lambda *args, **kws: (args, kws)
+    assert breakpoint(1, args=2, kws=3, kwargs=4) == (
+        (1,),
+        {"args": 2, "kws": 3, "kwargs": 4},
+    )
+finally:
+    sys.breakpointhook = original_breakpointhook
 breakpoint_kinds = [p.kind for p in inspect.signature(breakpoint).parameters.values()]
 assert breakpoint_kinds == [
     inspect.Parameter.VAR_POSITIONAL,
@@ -231,3 +244,107 @@ for new, kwargs in ((object.__new__, {"type": object}), (list.__new__, {"cls": l
         pass
     else:
         raise AssertionError("the subtype must remain positional")
+# CPython falls back to METH_NOARGS/METH_O signatures for these non-Clinic
+# functions. The hidden marker is $self even though they bind a module.
+import importlib
+
+legacy_signatures = {
+    "_ast": {
+        "_is_abstract": "($self, object, /)",
+    },
+    "_codecs_cn": {
+        "getcodec": "($self, object, /)",
+    },
+    "_codecs_hk": {
+        "getcodec": "($self, object, /)",
+    },
+    "_codecs_iso2022": {
+        "getcodec": "($self, object, /)",
+    },
+    "_codecs_jp": {
+        "getcodec": "($self, object, /)",
+    },
+    "_codecs_kr": {
+        "getcodec": "($self, object, /)",
+    },
+    "_codecs_tw": {
+        "getcodec": "($self, object, /)",
+    },
+    "_ctypes": {
+        "Py_DECREF": "($self, object, /)",
+        "Py_INCREF": "($self, object, /)",
+        "alignment": "($self, object, /)",
+        "buffer_info": "($self, object, /)",
+        "dllist": "($self, /)",
+        "get_errno": "($self, /)",
+    },
+    "_interpchannels": {
+        "list_all": "($self, /)",
+    },
+    "_socket": {
+        "close": "($self, object, /)",
+        "dup": "($self, object, /)",
+        "getdefaulttimeout": "($self, /)",
+        "gethostname": "($self, /)",
+        "if_nameindex": "($self, /)",
+        "setdefaulttimeout": "($self, object, /)",
+    },
+    "_stat": {
+        "S_IFMT": "($self, object, /)",
+        "S_IMODE": "($self, object, /)",
+        "S_ISBLK": "($self, object, /)",
+        "S_ISCHR": "($self, object, /)",
+        "S_ISDIR": "($self, object, /)",
+        "S_ISDOOR": "($self, object, /)",
+        "S_ISFIFO": "($self, object, /)",
+        "S_ISLNK": "($self, object, /)",
+        "S_ISPORT": "($self, object, /)",
+        "S_ISREG": "($self, object, /)",
+        "S_ISSOCK": "($self, object, /)",
+        "S_ISWHT": "($self, object, /)",
+        "filemode": "($self, object, /)",
+    },
+    "_string": {
+        "formatter_field_name_split": "($self, object, /)",
+        "formatter_parser": "($self, object, /)",
+    },
+    "_uuid": {
+        "generate_time_safe": "($self, /)",
+    },
+    "time": {
+        "mktime": "($self, object, /)",
+        "monotonic": "($self, /)",
+        "monotonic_ns": "($self, /)",
+        "perf_counter": "($self, /)",
+        "perf_counter_ns": "($self, /)",
+        "process_time": "($self, /)",
+        "process_time_ns": "($self, /)",
+        "sleep": "($self, object, /)",
+        "thread_time": "($self, /)",
+        "thread_time_ns": "($self, /)",
+        "time": "($self, /)",
+        "time_ns": "($self, /)",
+    },
+}
+for module_name, signatures in legacy_signatures.items():
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        # Some native modules are unavailable on WASI or disabled by features.
+        continue
+    for function_name, expected in signatures.items():
+        function = getattr(module, function_name, None)
+        if function is None:
+            # Unix-only symbols are not present on every platform.
+            continue
+        assert function.__text_signature__ == expected, (
+            module_name,
+            function_name,
+            function.__text_signature__,
+        )
+        assert function.__self__ is module, (module_name, function_name)
+        displayed = "(object, /)" if "object" in expected else "()"
+        assert str(inspect.signature(function)) == displayed
+
+# Ordinary Clinic functions keep their module marker and real parameter names.
+assert len.__text_signature__ == "($module, obj, /)"

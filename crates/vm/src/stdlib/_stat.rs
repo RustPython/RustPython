@@ -275,76 +275,76 @@ mod _stat {
 
     const S_IMODE: Mode = 0o7777;
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISDIR(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFDIR
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISCHR(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFCHR
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISREG(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFREG
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISBLK(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFBLK
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISFIFO(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFIFO
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISLNK(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFLNK
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISSOCK(object: ModeArg) -> bool {
         (object.0 & S_IFMT) == S_IFSOCK
     }
 
     // TODO: RUSTPYTHON Support Solaris
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISDOOR(_object: ModeArg) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support Solaris
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISPORT(_object: ModeArg) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support BSD
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_ISWHT(_object: ModeArg) -> bool {
         false
     }
 
-    #[pyfunction(name = "S_IMODE")]
+    #[pyfunction(name = "S_IMODE", legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_IMODE_method(object: ModeArg) -> Mode {
         object.0 & S_IMODE
     }
 
-    #[pyfunction(name = "S_IFMT")]
+    #[pyfunction(name = "S_IFMT", legacy_signature)]
     #[allow(non_snake_case)]
     const fn S_IFMT_method(object: ModeArg) -> Mode {
         object.0 & S_IFMT
@@ -379,7 +379,7 @@ mod _stat {
     }
 
     // Convert file mode to string representation
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn filemode(object: ModeArg) -> String {
         let mut result = String::with_capacity(10);
 

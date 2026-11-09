@@ -883,7 +883,7 @@ pub(crate) mod _interpchannels {
         Ok(())
     }
 
-    #[pyfunction]
+    #[pyfunction(legacy_signature)]
     fn list_all(vm: &VirtualMachine) -> PyResult {
         let chans: Vec<(i64, UnboundOp, i32)> = channels()
             .lock()

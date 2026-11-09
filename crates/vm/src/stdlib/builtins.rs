@@ -21,8 +21,9 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgSpec, ArgStrOrBytesLike, Either,
-            FsPath, FuncArgs, KwArgs, NameObjects, OptionalArg, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgSpec, ArgStrOrBytesLike,
+            ArgumentError, Either, FromArgs, FsPath, FuncArgs, KwArgs, NameObjects, OptionalArg,
+            Param, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -799,8 +800,22 @@ mod builtins {
         obj.hash(vm)
     }
 
+    // Only the displayed keyword collector name differs from FuncArgs. Keep
+    // its move-only conversion and binding metadata unchanged.
+    struct BreakpointArgs(FuncArgs);
+
+    impl FromArgs for BreakpointArgs {
+        const PARAMS: Option<&'static [Param]> =
+            Some(&[Param::var_positional("args"), Param::var_keyword("kws")]);
+        const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            FuncArgs::from_args(vm, args).map(Self)
+        }
+    }
+
     #[pyfunction]
-    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn breakpoint(BreakpointArgs(args): BreakpointArgs, vm: &VirtualMachine) -> PyResult {
         // PySys_GetAttr reads the dictionary, bypassing module attribute hooks.
         // A present None is still selected and audited before the call fails.
         let hook = vm

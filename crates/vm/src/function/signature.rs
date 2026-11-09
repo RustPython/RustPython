@@ -152,6 +152,56 @@ impl SigArg {
     }
 }
 
+// CPython Objects/typeobject.c::signature_from_flags supplies these when a
+// METH_NOARGS/METH_O function has no Clinic internal-doc signature. This is a
+// display-only opt-in: module ownership and call dispatch remain unchanged.
+#[must_use]
+pub const fn legacy_module_signature(args: &[SigArg]) -> &'static [SigArg] {
+    const EMPTY: &[SigArg] = &[SigArg::marker("$self")];
+    const ONE: &[SigArg] = &[SigArg::marker("$self"), SigArg::marker("object")];
+    let mut display = 0;
+    let mut binding = 0;
+    let mut i = 0;
+    while i < args.len() {
+        display += match args[i].params {
+            None => 1,
+            Some(params) => legacy_positional_count(params),
+        };
+        binding += match args[i].binding_params {
+            Some(params) => legacy_positional_count(params),
+            None => panic!("legacy_signature requires known argument binding"),
+        };
+        assert!(
+            !args[i].force_unpack_keywords,
+            "legacy_signature cannot unpack keywords"
+        );
+        i += 1;
+    }
+    assert!(
+        display == binding && binding <= 1,
+        "legacy_signature requires zero or one required positional-only argument"
+    );
+    if binding == 0 { EMPTY } else { ONE }
+}
+
+const fn legacy_positional_count(params: &[Param]) -> usize {
+    let mut count = 0;
+    let mut i = 0;
+    while i < params.len() {
+        assert!(
+            params[i].default.is_none(),
+            "legacy_signature cannot have optional arguments"
+        );
+        count += match params[i].kind {
+            ParamKind::PositionalOnly => 1,
+            ParamKind::Flatten(Some(inner)) => legacy_positional_count(inner),
+            _ => panic!("legacy_signature requires known positional-only arguments"),
+        };
+        i += 1;
+    }
+    count
+}
+
 /// Calling-convention bits from each argument's binding metadata.
 ///
 /// Display signatures must not prevent a custom parser from receiving a call.
@@ -778,6 +828,68 @@ mod tests {
         );
         let text = core::str::from_utf8(&buf[..st.n]).unwrap();
         text.split_once('=').unwrap().1.to_owned()
+    }
+
+    #[test]
+    fn legacy_module_signatures_use_cpython_flag_fallbacks() {
+        const NOARGS: &[SigArg] = super::legacy_module_signature(&[]);
+        const NOARGS_N: usize = super::signature_prefix_len("sample", NOARGS);
+        const NOARGS_TEXT: [u8; NOARGS_N] =
+            super::signature_prefix_bytes::<NOARGS_N>("sample", NOARGS);
+        const ONE: &[SigArg] = super::legacy_module_signature(&[SigArg::marker("custom_name")]);
+        const ONE_N: usize = super::signature_prefix_len("sample", ONE);
+        const ONE_TEXT: [u8; ONE_N] = super::signature_prefix_bytes::<ONE_N>("sample", ONE);
+        assert_eq!(
+            core::str::from_utf8(&NOARGS_TEXT).unwrap(),
+            "sample($self, /)\n--\n\n"
+        );
+        assert_eq!(
+            core::str::from_utf8(&ONE_TEXT).unwrap(),
+            "sample($self, object, /)\n--\n\n"
+        );
+    }
+
+    #[test]
+    fn legacy_module_signature_rejects_other_call_shapes() {
+        const KEYWORD: &[Param] = &[Param::positional_or_keyword("value")];
+        const OPTIONAL: &[Param] = &[Param {
+            name: "value",
+            kind: ParamKind::PositionalOnly,
+            default: Some(DefaultRepr::None),
+        }];
+        const VARARGS: &[Param] = &[Param::var_positional("args")];
+        const UNKNOWN: &[Param] = &[Param::flatten(None)];
+        const POSITIONAL: &[Param] = &[Param::positional_only("value")];
+        for params in [KEYWORD, OPTIONAL, VARARGS, UNKNOWN] {
+            let args = [SigArg {
+                name: "arg",
+                params: Some(params),
+                binding_params: Some(params),
+                force_unpack_keywords: false,
+            }];
+            assert!(std::panic::catch_unwind(|| super::legacy_module_signature(&args)).is_err());
+        }
+        assert!(
+            std::panic::catch_unwind(|| super::legacy_module_signature(&[
+                SigArg::marker("one"),
+                SigArg::marker("two")
+            ]))
+            .is_err()
+        );
+        let custom = SigArg {
+            name: "arg",
+            params: None,
+            binding_params: None,
+            force_unpack_keywords: false,
+        };
+        assert!(std::panic::catch_unwind(|| super::legacy_module_signature(&[custom])).is_err());
+        let mismatch = SigArg {
+            name: "arg",
+            params: Some(&[]),
+            binding_params: Some(POSITIONAL),
+            force_unpack_keywords: false,
+        };
+        assert!(std::panic::catch_unwind(|| super::legacy_module_signature(&[mismatch])).is_err());
     }
 
     #[test]
