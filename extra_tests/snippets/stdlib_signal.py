@@ -346,3 +346,13 @@ def check_native_stdin_eintr():
 
 
 check_native_stdin_eintr()
+
+
+import faulthandler
+
+# An invalid file proves register's signum keyword binds without installing
+# any signal handler. This API is absent on Windows.
+if hasattr(faulthandler, "register") and hasattr(signal, "SIGUSR1"):
+    with assert_raises(ValueError) as caught:
+        faulthandler.register(signum=signal.SIGUSR1, file=-1)
+    assert str(caught.exception) == "file is not a valid file descriptor"
