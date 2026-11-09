@@ -18,7 +18,7 @@
         "mini-css-extract-plugin": "^2.10.2",
         "serve": "^14.2.6",
         "webpack": "^5.112.2",
-        "webpack-cli": "^7.2.3",
+        "webpack-cli": "^7.3.1",
         "webpack-dev-server": "^5.2.6"
     },
     "scripts": {
