@@ -138,6 +138,34 @@ class GateTests(unittest.TestCase):
         pair["rustpython"]["value"] = "($self, value, /)"
         self.assertTrue(self.errors())
 
+    def test_additional_signature_needs_no_baseline_exception(self):
+        for reference_status in ("none", "absent"):
+            for prefix in ("", "type_document_"):
+                with self.subTest(status=reference_status, prefix=prefix):
+                    pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+                    pair["cpython"]["status"] = reference_status
+                    pair["cpython"]["value"] = None
+                    pair["comparison"] = prefix + "different_text_state"
+                    self.assertEqual(self.errors(), [])
+                    pair["rustpython"]["value"] = "($self, extra=None, /)"
+                    self.assertEqual(self.errors(), [])
+
+    def test_missing_reference_signature_is_not_symmetric(self):
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        pair["rustpython"]["status"] = "none"
+        pair["rustpython"]["value"] = None
+        pair["comparison"] = "different_text_state"
+        self.assertTrue(self.errors())
+
+    def test_additional_signature_does_not_hide_unknown_context(self):
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        pair["cpython"]["status"] = "none"
+        pair["cpython"]["value"] = None
+        for comparison in ("unknown", "different_context"):
+            with self.subTest(comparison=comparison):
+                pair["comparison"] = comparison
+                self.assertTrue(self.errors())
+
     def test_raw_unknown_is_not_a_pass(self):
         self.result["raw_text_signatures"]["builtins"]["Thing.f"]["comparison"] = (
             "unknown"

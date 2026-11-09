@@ -8,6 +8,11 @@ resolved exceptions left in the baseline. The last rule prevents a later PR
 from reintroducing a previously fixed mismatch under an obsolete exception.
 Only process addresses in exception-shaped repr diagnostics are normalized.
 Raw signature text, parameter names and default literals are never normalized.
+When CPython has no raw signature (`None` or an absent attribute), an additional
+RustPython signature is allowed without a baseline exception. Its value may
+change without claiming CPython parity; the observed path stays in coverage.
+This is asymmetric: a missing RustPython signature where CPython provides one
+still fails. Unknown observations and differing contexts are not exempted.
 No runtime call compatibility is inferred from either signature representation.
 Type-document observations are not constructor compatibility evidence.
 
