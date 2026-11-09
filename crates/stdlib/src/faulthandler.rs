@@ -1100,7 +1100,8 @@ mod decl {
         host_faulthandler::raise_exception(args.code, args.flags);
     }
 
-    #[cfg(all(test, any(unix, windows)))]
+    #[cfg(test)]
+    #[cfg(any(unix, windows))]
     mod tests {
         use super::*;
         use std::sync::mpsc;
