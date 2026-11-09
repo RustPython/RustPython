@@ -10,7 +10,7 @@ pub(crate) mod ssl_cert {
             Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
-            function::{FsPath, OptionalArg, PyComparisonValue},
+            function::{FsPath, PyComparisonValue},
             types::{Comparable, Hashable, PyComparisonOp, Representable},
         },
     };
@@ -67,6 +67,12 @@ pub(crate) mod ssl_cert {
         }
     }
 
+    #[derive(FromArgs)]
+    struct CertificatePublicBytesArgs {
+        #[pyarg(any, default = ENCODING_PEM, py_default = "Encoding.PEM")]
+        format: i32,
+    }
+
     #[pyclass(
         flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
         with(Comparable, Hashable, Representable)
@@ -75,12 +81,10 @@ pub(crate) mod ssl_cert {
         #[pymethod]
         fn public_bytes(
             zelf: &Py<Self>,
-            format: OptionalArg<i32>,
+            args: CertificatePublicBytesArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let format = format.unwrap_or(ENCODING_PEM);
-
-            match format {
+            match args.format {
                 ENCODING_DER => {
                     // DER encoding
                     let der = zelf
