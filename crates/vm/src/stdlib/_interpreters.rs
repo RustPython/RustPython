@@ -800,8 +800,9 @@ pub(crate) mod _interpreters {
             },
             vm,
         )?;
-        // preserve_exc is accepted and ignored: an unpickled exception is
-        // always a new object.
+        // Clinic converts preserve_exc even though the implementation ignores
+        // its value. Its truthiness must run before restrict and id resolution.
+        flag(parsed[4].as_deref(), vm)?;
         let restrict = flag(parsed[5].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restrict, true, "make a call in", vm)?;
