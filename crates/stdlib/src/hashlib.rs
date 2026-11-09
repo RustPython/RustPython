@@ -894,8 +894,8 @@ pub(crate) mod _hashlib {
         }
 
         #[pymethod]
-        fn update(zelf: &Py<Self>, data: ArgBytesLike) {
-            data.with_ref(|bytes| zelf.ctx.update(bytes));
+        fn update(zelf: &Py<Self>, obj: ArgBytesLike) {
+            obj.with_ref(|bytes| zelf.ctx.update(bytes));
         }
 
         #[pymethod]
