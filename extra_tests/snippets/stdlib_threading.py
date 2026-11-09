@@ -118,3 +118,30 @@ assert scope["namedtuple"].__name__ == "namedtuple"
 
 scope = run_exec("module = __import__('multiprocessing.connection', fromlist=['*'])")
 assert scope["module"].__name__ == "multiprocessing.connection"
+
+
+class LocalWithProperty(threading.local):
+    def __init__(self, value):
+        self.name = value
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+
+local_with_property = LocalWithProperty("main")
+assert local_with_property.name == "main"
+assert "name" not in local_with_property.__dict__
+assert local_with_property.__dict__["_name"] == "main"
+
+local_property_results = []
+local_property_thread = threading.Thread(
+    target=lambda: local_property_results.append(local_with_property.name)
+)
+local_property_thread.start()
+local_property_thread.join()
+assert local_property_results == ["main"]

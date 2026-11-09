@@ -1492,6 +1492,14 @@ pub(crate) mod _thread {
                 )))
             } else {
                 let dict = Self::l_dict(zelf, vm)?;
+                // Data descriptors on the class (e.g. property setters) take
+                // precedence over the per-thread dict, as in generic setattr.
+                if let Some(attr_name) = vm.ctx.interned_str(attr)
+                    && let Some(descr) = zelf.as_object().get_class_attr(attr_name)
+                    && let Some(descr_set) = descr.class().slots().descr_set.load()
+                {
+                    return descr_set(&descr, zelf.as_object().to_owned(), value, vm);
+                }
                 if let PySetterValue::Assign(value) = value {
                     dict.set_item(attr, value, vm)?;
                 } else {
