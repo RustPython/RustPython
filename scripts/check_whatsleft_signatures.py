@@ -1,164 +1,120 @@
 #!/usr/bin/env python3
-"""Ratchet the *observed* signature surface, not runtime argument semantics.
+"""Ratchet comparable signatures, not runtime argument semantics.
 
 Consumes whats_left's JSON without importing scanned modules or building RustPython.
-Baselines are platform-specific observations, never wildcard suppressions.
+Baselines contain only signature mismatches and checked-scope fingerprints.
 """
 
 import argparse
 import hashlib
 import json
-import re
 from pathlib import Path
-
-GOOD_RAW = {
-    "exact_raw_match",
-    "matching_nontext_state",
-    "not_applicable",
-    "additional_signature",
-}
-RAW_FIELDS = ("status", "kind", "binding", "value", "error_type", "representative")
-
-
-def additional_signature(pair, comparison):
-    # Accept older scanner artifacts too. No reference text means there is
-    # no text to disagree with. Retain the
-    # observation/coverage, but do not require an exception for useful extra
-    # RustPython metadata. Unknown or different contexts remain unverified.
-    return (
-        comparison == "different_text_state"
-        and pair["cpython"]["status"] in {"none", "absent"}
-        and pair["rustpython"]["status"] == "present"
-    )
-
-
-def diagnostic(value):
-    # Only exception diagnostics contain process-specific repr addresses.
-    # Never normalize raw signature literals, parameter names or defaults.
-    if isinstance(value, str) and re.match(r"[A-Za-z_][\w.]*\(", value):
-        return re.sub(r" at 0x[0-9a-fA-F]+(?=>)", " at 0xADDR", value)
-    return value
 
 
 def snapshot(result):
-    # Require the schema: a missing collection must not look like zero failures.
+    """Check comparable signatures; keep other diagnostics in scan artifacts."""
     defects = {}
-    coverage = set()
+    scopes = {}
 
-    def observe(category, key, value, good=False):
-        name = f"{category}:{key}"
-        coverage.add(name)
-        if not good:
-            defects[name] = value
+    def observe(category, scope, name, expected, actual):
+        key = f"{category}:{scope}/{name}"
+        namespace = scope.partition("/")[0]
+        scopes.setdefault(f"{category}:{namespace}", []).append(
+            (f"{scope}/{name}", expected)
+        )
+        if actual != expected:
+            defects[key] = [expected, actual]
 
     raw = result["raw_text_signatures"]
-    scopes = [("builtin", raw["builtins"])]
-    scopes += [(f"module/{name}", items) for name, items in raw["modules"].items()]
-    for scope, items in scopes:
+    raw_scopes = {"builtin": raw["builtins"]}
+    raw_scopes.update(
+        (f"module/{name}", items) for name, items in raw["modules"].items()
+    )
+    for scope, items in raw_scopes.items():
         for name, pair in items.items():
-            comparison = pair["comparison"]
-            # Type-document equality is not constructor compatibility. Keep its
-            # observation separate but still guard its text against regressions.
-            kind = comparison.removeprefix("type_document_")
-            observe(
-                "raw",
-                f"{scope}/{name}",
-                [comparison]
-                + [
-                    [pair[side][field] for field in RAW_FIELDS]
-                    for side in ("cpython", "rustpython")
-                ],
-                kind in GOOD_RAW or additional_signature(pair, kind),
-            )
+            ref, actual = pair["cpython"], pair["rustpython"]
+            # A failed/absent observation must not be treated as matching text.
+            # If a previously checked path becomes unobservable, its scope
+            # fingerprint changes and the gate fails instead.
+            if (
+                ref["status"] == "present"
+                and actual["status"] in {"present", "none", "absent"}
+                and ref["kind"] == actual["kind"]
+                and ref["binding"] == actual["binding"]
+                and ref["binding"] not in {"unknown", "bound_non_none"}
+            ):
+                observe(
+                    "raw",
+                    scope,
+                    name,
+                    ref["value"],
+                    actual["value"]
+                    if actual["status"] == "present"
+                    else [actual["status"]],
+                )
 
-    # The complete selected reference inventory protects even paths that did
-    # not produce a comparable signature (and aliases remain separate paths).
+    mismatches = {
+        (group, name): actual
+        for group, entries in result["mismatched_items"].items()
+        for name, actual, _expected in entries
+    }
+    inherited = {
+        (group, name.removesuffix(" (inherited)"))
+        for group, entries in result["missing_items"].items()
+        for name in entries
+        if name.endswith(" (inherited)")
+    }
+
+    def inspected(scope, group, name, full_name, expected):
+        if not isinstance(expected, str) or not expected.startswith("("):
+            return
+        pair = raw_scopes[scope][name]
+        if pair["rustpython"]["status"] == "not_observed":
+            return
+        # The existing scanner reports inherited differences as missing and
+        # does not retain their inspected actual value. Do not invent a match.
+        if (group, full_name) in inherited:
+            return
+        actual = mismatches.get((group, full_name), expected)
+        # A known API with an invalid/missing inspected signature remains a
+        # failure, not an excluded target. Details stay in the scan artifact.
+        if not isinstance(actual, str) or not actual.startswith("("):
+            actual = ["uncomparable"]
+        observe("inspect", scope, name, expected, actual)
+
     for module, items in result["cpython_modules"].items():
         for name, info in items.items():
-            observe(
-                "reference",
-                f"{module}/{name}",
-                diagnostic(info["sig"]),
-                not info["sig_error"],
-            )
-    for name, methods in result["reference_builtin_inventory"].items():
-        coverage.add(f"builtin:{name}")
-        coverage.update(f"builtin:{name}.{method}" for method in methods)
-    for group, entries in result["mismatched_items"].items():
-        for name, actual, expected in entries:
-            observe(
-                "inspect", f"{group}/{name}", [diagnostic(expected), diagnostic(actual)]
-            )
-    for group, entries in result["uncomparable_signatures"].items():
-        for name, error in entries:
-            observe("uncomparable", f"{group}/{name}", diagnostic(error))
-    # Inherited differences are classified as missing, not mismatched_items.
-    for group, entries in result["missing_items"].items():
-        for name in entries:
-            observe("missing", f"{group}/{name}", True)
-    for name, entries in result["not_implementeds"].items():
-        for method, reason in entries.items():
-            observe("missing_builtin", f"{name}.{method}", reason)
-    for field, good in (
-        ("actual_scan_status", "scan_completed"),
-        ("actual_second_import_status", "returned_nonexception"),
-    ):
-        for name, status in result[field].items():
-            observe(field, name, status, status == good)
-    for name, entries in result["actual_parent_scans"].items():
-        for parent, status in entries.items():
-            observe("parent", f"{name}/{parent}", status, status == "real_type")
-
-    for field in ("actual_parent_decisions", "reference_class_selection"):
-        for module, items in result[field].items():
-            for item, status in items.items():
-                coverage.add(f"{field}_decision:{module}/{item}={status}")
-                observe(
-                    field,
-                    f"{module}/{item}",
-                    status,
-                    status in {"isinstance_true", "selected", "not_selected"},
+            if not info["sig_error"]:
+                inspected(
+                    f"module/{module}", module, name, f"{module}.{name}", info["sig"]
                 )
-    for module, parents in result["reference_expanded_classes"].items():
-        coverage.update(f"expanded:{module}/{parent}" for parent in parents)
-    for module, error in result["cpython_failed_imports"].items():
-        observe("reference_import", module, diagnostic(error))
+    for typ, info in result["cpython_builtin_signatures"].items():
+        for method, expected in info["methods"].items():
+            name = f"{typ}.{method}"
+            if result["not_implementeds"].get(typ, {}).get(method) == "(inherited)":
+                continue
+            inspected("builtin", typ, name, name, expected)
 
-    discovery = result["reference_discovery"]
-    diagnostics = result["reference_inventory_diagnostics"]
-    if discovery["truncated"] or diagnostics["truncated"]:
-        raise ValueError("truncated reference inventory cannot certify coverage")
-    for name in discovery["names"]:
-        coverage.add(f"discovered:{name}")
-    for key, value in (
-        ("scanner_errors", discovery["scanner_errors"]),
-        ("inventory_issues", diagnostics["issues"]),
+    if (
+        result["reference_discovery"]["truncated"]
+        or result["reference_inventory_diagnostics"]["truncated"]
     ):
-        if value:
-            defects[key] = value
-    if not raw["builtins"] or not raw["modules"]:
-        raise ValueError("empty raw inventory cannot certify coverage")
-    # Hash each exact selected scope instead of checking in tens of thousands
-    # of duplicate successful observations. Additions also require an explicit
-    # reviewed refresh: a changed inventory must never silently certify parity.
-    scopes = {}
-    failure_prefixes = ("inspect:", "uncomparable:", "missing:", "missing_builtin:")
-    for path in sorted(coverage):
-        if path.startswith(failure_prefixes):
-            continue
-        category, _, item = path.partition(":")
-        parent = item.rpartition("/")[0]
-        scopes.setdefault(f"{category}:{parent}", []).append(item)
+        raise ValueError("truncated reference inventory cannot certify coverage")
+    if result["reference_inventory_diagnostics"]["issues"]:
+        raise ValueError("ambiguous reference inventory cannot certify signatures")
+    if not scopes:
+        raise ValueError("empty comparable signature inventory")
+    # Store one digest per checked scope, not every unrelated discovery,
+    # unknown, import error, missing API or class-selection decision.
     fingerprints = {
-        scope: hashlib.sha256(json.dumps(paths).encode()).hexdigest()
+        scope: hashlib.sha256(json.dumps(sorted(paths)).encode()).hexdigest()
         for scope, paths in sorted(scopes.items())
     }
     return {"coverage": fingerprints, "defects": defects}
 
 
 def pack(state):
-    # Group identical observations to avoid repeating thousands of unknown or
-    # missing states. Every suppression still names each individual API path.
+    # Group identical signature mismatches while retaining individual paths.
     groups = {}
     for path, value in sorted(state["defects"].items()):
         groups.setdefault(json.dumps(value, sort_keys=True), []).append(path)
@@ -184,12 +140,14 @@ def compare(current, baseline):
     errors = []
     for scope in sorted(set(current["coverage"]) | set(baseline["coverage"])):
         if current["coverage"].get(scope) != baseline["coverage"].get(scope):
-            errors.append(f"observation scope changed: {scope}")
+            errors.append(f"checked signature scope changed: {scope}")
     for path, value in sorted(current["defects"].items()):
         if path not in baseline["defects"] or baseline["defects"][path] != value:
-            errors.append(f"new or changed observation: {path}: {json.dumps(value)}")
+            errors.append(
+                f"new or changed signature mismatch: {path}: {json.dumps(value)}"
+            )
     resolved = sorted(set(baseline["defects"]) - set(current["defects"]))
-    errors.extend(f"remove resolved baseline observation: {path}" for path in resolved)
+    errors.extend(f"remove resolved signature exception: {path}" for path in resolved)
     return errors, resolved
 
 
@@ -252,11 +210,11 @@ def main():
     for error in errors:
         print(error)
     print(
-        f"{len(errors)} regressions; {len(resolved)} resolved baseline observations; {len(current['defects'])} unresolved observations"
+        f"{len(errors)} regressions; {len(resolved)} resolved signature exceptions; {len(current['defects'])} unresolved signature mismatches"
     )
     if resolved:
         print(
-            "Remove resolved entries when updating the reviewed baseline; unchanged known failures are not compatibility guarantees."
+            "Remove resolved signature exceptions from the reviewed baseline; unchanged known failures are not compatibility guarantees."
         )
     return bool(errors)
 

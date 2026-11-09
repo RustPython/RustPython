@@ -1,70 +1,53 @@
-# Signature observation regression gate
+# Signature regression gate
 
-CI reuses the existing RustPython executable and single `whats_left.py` scan.
-It runs immediately after the build, before the expensive CPython test suite.
-It checks raw native `__text_signature__` separately from `inspect.signature`,
-and rejects new/changed known failures, lost or changed selected scopes, and
-resolved exceptions left in the baseline. The last rule prevents a later PR
-from reintroducing a previously fixed mismatch under an obsolete exception.
-Only process addresses in exception-shaped repr diagnostics are normalized.
-Raw signature text, parameter names and default literals are never normalized.
-When CPython has no raw signature (`None` or an absent attribute), an additional
-RustPython signature is allowed without a baseline exception. Its value may
-change without claiming CPython parity; the observed path stays in coverage.
-The scanner classifies these as `additional_signature` and omits them from
-human-readable signature warnings. JSON retains the original reference
-introspection diagnostics for investigation, not as a signature disagreement.
-This is asymmetric: a missing RustPython signature where CPython provides one
-still fails. Unknown observations and differing contexts are not exempted.
-No runtime call compatibility is inferred from either signature representation.
-Type-document observations are not constructor compatibility evidence.
+CI reuses the existing RustPython build and whatsleft scan. The gate checks
+comparable raw native `__text_signature__` and `inspect.signature` separately.
+It does not freeze unrelated import errors, unknowns, missing APIs, selection
+decisions, or the complete discovery inventory. Those diagnostics remain in
+the full scan artifact.
 
-## Scope and known limitations
+CPython must provide a signature to establish a disagreement. Additional
+RustPython signatures are allowed without an exception. Raw comparisons require
+matching native kind/binding contexts; a missing actual signature is retained
+as a failure. Inspected comparisons likewise retain invalid actual signatures
+as compact failures, without freezing exception diagnostics. They cover the scanner's
+successfully compared API paths, not inherited differences whose actual
+inspected value was not retained. Type-document text is not proof of constructor
+or runtime call compatibility.
 
-The scanner selects builtin/iterator objects, top-level modules and selected
-native class members. It does not enumerate every possible object, nested
-package, instance or inherited API surface. Unknown/unrepresentative raw
-observations and CPython introspection/import failures remain explicitly
-unverified. A passing gate means no change against reviewed observations, not
-zero mismatches or complete CPython compatibility.
+Each platform baseline contains only exact signature mismatches and four
+fingerprints of the checked raw/inspected builtin/module scopes. Fingerprints
+include API paths and reference signatures. A previously checked signature
+becoming absent, unobservable, or uncomparable changes its fingerprint and fails;
+it cannot silently count as a fix. New comparable paths and reference changes
+also require review. This protects the checked surface, not all possible APIs.
+Truncated, ambiguous or empty reference inventories are rejected.
 
-The baselines are reviewed platform-specific CI observations. The initial
-run [42421287760](https://github.com/RustPython/RustPython/actions/runs/42421287760)
-is superseded where recorded by
+The baseline context pins OS, architecture, CPython version and build features.
+The source artifacts use CPython **3.15.0**, not the local 3.15.1 test oracle.
+Their recorded provenance is CI run
 [42491705325](https://github.com/RustPython/RustPython/actions/runs/42491705325),
-head `4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7`, merge
-`3b4735987efcc7ba59d454a1f6cf9d667a631778`. Each baseline records its own provenance.
-They use CPython **3.15.0**, not the
-separate local 3.15.1 inventory. Their exact OS, architecture, reference version
-and RustPython feature context must match. CI pins the oracle using
-`.python-version`. Platform-specific paths are not suppressed on other OSes.
-
-`observations` groups identical failures for size, but every exception names
-individual paths and exact observed values. `coverage` hashes sorted paths in
-each selected scope, including selection decisions. Changes (including new
-coverage) require review; a hash is not a claim of full API coverage. Full
-readable data and host context remain CI artifacts, including on gate failure.
+head `4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7`.
+They were reclassified with this narrower checker; no runtime improvements are
+implied by removing unrelated diagnostic exceptions.
 
 ## Updating a baseline
 
-1. Read the failing artifact and compare its context with the baseline.
-2. Review every changed signature and observation scope against CPython 3.15.
-   A disappeared API, failed import or new unknown is not a signature fix.
-3. Recreate only the corresponding platform file from that verified artifact:
+1. Read the failing full scan/context artifact and compare with the previous
+   artifact. Review changed checked paths and signatures against CPython 3.15.
+   A lost observation is not evidence of compatibility.
+2. Recreate only the matching platform baseline:
    ```sh
    python scripts/check_whatsleft_signatures.py whats-left.json \
      scripts/whatsleft_signatures/Linux.json --context '<exact context>' \
      --write-baseline
    ```
-4. Inspect the diff. Remove resolved exceptions in the same PR as each fix;
-   do not retain them as permission for future regressions. Preserve/update
-   the provenance and state why any newly accepted observation is necessary.
-5. Run the checker without `--write-baseline` and the focused tests:
+3. Review the diff and preserve provenance. Remove resolved exceptions in the
+   same PR as the fix; stale exceptions must not permit a later regression.
+4. Run the checker without `--write-baseline` and:
    ```sh
    python -m unittest discover -s scripts/tests -p 'test_whatsleft*.py'
    ```
 
-CI never writes its own baseline and never accepts artifacts from another
-platform as proof. Updating the oracle/build features also requires reviewing
-all affected baselines. The intended end state is no comparable signature
-exceptions, while unsupported/unobservable coverage stays separately visible.
+CI never writes its own baseline. Passing means no regression in the checked
+signatures, not zero mismatches or complete CPython compatibility.
