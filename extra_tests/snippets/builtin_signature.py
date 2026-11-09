@@ -1,6 +1,7 @@
 import builtins
 import inspect
 import os
+import sys
 
 from testutils import assert_raises
 
@@ -595,6 +596,17 @@ for module_name, signatures in clinic_wrapped_signatures.items():
         # Native modules vary with the platform and build features.
         continue
     for attribute_path, expected in signatures.items():
+        if module_name == "posix":
+            if attribute_path == "copy_file_range" and sys.platform != "linux":
+                # copy_file_range is a Linux-only syscall.
+                continue
+            if sys.platform == "wasi" and attribute_path in (
+                "posix_spawn",
+                "posix_spawnp",
+                "register_at_fork",
+            ):
+                # WASI does not provide process creation or fork hooks.
+                continue
         function = module
         for component in attribute_path.split("."):
             function = getattr(function, component)
