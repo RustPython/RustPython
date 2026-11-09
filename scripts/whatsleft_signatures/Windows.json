@@ -154,12 +154,11 @@
     [["(path, *, dir_fd=None)", "(path, /)"], ["inspect:module/nt/readlink"]],
     [["(path, *, dir_fd=None)", "(path, /, *, dir_fd=None)"], ["inspect:module/nt/remove", "inspect:module/nt/unlink"]],
     [["(path, argv, env)", "(path, argv, env, /)"], ["inspect:module/nt/execve"]],
-    [["(raw, buffer_size=DEFAULT_BUFFER_SIZE)", "(raw, buffer_size=131072)"], ["raw:module/_io/BufferedRandom", "raw:module/_io/BufferedReader", "raw:module/_io/BufferedWriter"]],
-    [["(reader, writer, buffer_size=DEFAULT_BUFFER_SIZE, /)", "(reader, writer, buffer_size=131072, /)"], ["raw:module/_io/BufferedRWPair"]],
     [["(release_gil=False, /)", ["uncomparable"]], ["inspect:module/faulthandler/_sigsegv"]],
     [["(self, object, /)", "(self, state, /)"], ["inspect:module/builtins/reversed.__setstate__"]],
     [["(unicode_char, /)", "(s, /)"], ["inspect:module/msvcrt/putwch", "inspect:module/msvcrt/ungetwch"]],
     [["(year, month, day, hour=0, minute=0, second=0, microsecond=0,\n         tzinfo=None, *, fold=0)", "(year, month, day, hour=0, minute=0, second=0, microsecond=0, tzinfo=None, *, fold=0)"], ["raw:module/datetime/datetime"]]
   ],
-  "provenance": {"head": "4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7", "merge": "3b4735987efcc7ba59d454a1f6cf9d667a631778", "reason": "Bootstrap current main observations: remove 28 resolved entries; retain exact pre-existing differences including breakpoint/charmap_decode tracked by the bulk signature follow-up. Unknowns remain unverified.", "run": 42491705325}
+  "provenance": {"head": "4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7", "merge": "3b4735987efcc7ba59d454a1f6cf9d667a631778", "reason": "Bootstrap current main observations: remove 28 resolved entries; retain exact pre-existing differences including breakpoint/charmap_decode tracked by the bulk signature follow-up. Unknowns remain unverified.", "run": 42491705325},
+  "adjustments": {"main": "a8bd43ea1119d660af14528106b659a59837ee0a", "resolved": "Removed four _io buffer signature exceptions fixed by merged #9744; source and Linux binary checked, cross-platform confirmation pending CI."}
 }
