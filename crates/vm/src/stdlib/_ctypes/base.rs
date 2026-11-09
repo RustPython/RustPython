@@ -178,7 +178,7 @@ unsafe impl Traverse for StgInfo {
         self.checker.traverse(tracer);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         out.extend(self.proto.take().map(Into::into));
         out.extend(self.element_type.take().map(Into::into));
         out.extend(self.pointer_type.take());
@@ -493,7 +493,7 @@ unsafe impl Traverse for PyCData {
         }
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         // Disconnect a view before its backing owners can be released. Owned
         // storage keeps its allocation until deallocation.
         if let Some(mut buffer) = self.buffer.try_write() {
@@ -513,7 +513,7 @@ unsafe impl Traverse for PyCData {
         if let Some(mut refs) = self.kept_refs.try_write()
             && let Some(mut refs) = refs.take()
         {
-            refs.clear(out);
+            refs.clear_refs(out);
         }
     }
 }
@@ -668,7 +668,7 @@ unsafe impl Traverse for PrivateRefs {
             }
         }
     }
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         if let Some(alias) = self.buffer_alias.take() {
             out.push(alias.source.clone());
         }

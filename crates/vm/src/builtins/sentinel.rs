@@ -26,7 +26,7 @@ unsafe impl Traverse for PySentinel {
         self.repr.traverse(tracer_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         // String subclasses may own references back to this sentinel.
         let name = core::mem::replace(&mut self.name, Context::genesis().empty_str.to_owned());
         out.push(name.into());

@@ -554,7 +554,7 @@ mod _pickle {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             let state = self.read_state.get_mut();
             out.extend(state.read.take());
             out.extend(state.readinto.take());
