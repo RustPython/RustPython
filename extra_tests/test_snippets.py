@@ -51,6 +51,9 @@ RUSTPYTHON_BINARY = os.environ.get("RUSTPYTHON") or os.path.join(
     ROOT_DIR, "target/release/rustpython"
 )
 RUSTPYTHON_BINARY = os.path.abspath(RUSTPYTHON_BINARY)
+RUSTPYTHON_SNIPPET_EXCLUDE = set(
+    os.environ.get("RUSTPYTHON_SNIPPET_EXCLUDE", "").split()
+)
 
 
 def run_via_rustpython(filename, test_type):
@@ -70,6 +73,14 @@ def create_test_function(cls, filename, method, test_type):
 
     def test_function(self):
         perform_test(filename, method, test_type)
+
+    if (
+        method == "rustpython"
+        and os.path.splitext(snippet_filename)[0] in RUSTPYTHON_SNIPPET_EXCLUDE
+    ):
+        test_function = unittest.skip("excluded by RUSTPYTHON_SNIPPET_EXCLUDE")(
+            test_function
+        )
 
     if hasattr(cls, test_function_name):
         raise ValueError("Duplicate test case {}".format(test_function_name))

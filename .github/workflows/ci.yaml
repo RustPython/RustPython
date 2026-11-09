@@ -79,6 +79,9 @@ jobs:
             ':benches/**' \
             ':example_projects/**' \
             ':extra_tests/snippets/**' \
+            ':extra_tests/test_snippets.py' \
+            ':extra_tests/rustpython_wasi.sh' \
+            ':extra_tests/requirements.txt' \
             ':.github/workflows/ci.yaml' \
           ; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -1055,7 +1058,6 @@ jobs:
         builtin_memoryview
         builtin_open
         builtin_posixshmem
-        builtin_slice
         builtin_str
         builtin_thread
         cli_int_max_str_digits
@@ -1179,19 +1181,23 @@ jobs:
       - name: build rustpython
         if: env.RUN_WASM_WASI == 'true'
         run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc,ucd_3_2_0 --verbose
+      - name: Setup Python for the snippet harness
+        if: env.RUN_WASM_WASI == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Install snippet harness dependencies
+        if: env.RUN_WASM_WASI == 'true'
+        run: python -m pip install -r extra_tests/requirements.txt
+
       - name: run snippets
         if: env.RUN_WASM_WASI == 'true'
-        run: |
-          exclude=" $WASM_WASI_SNIPPET_EXCLUDE "
-          for path in extra_tests/snippets/*.py; do
-            name=$(basename "$path" .py)
-            case "$exclude" in
-              *" $name "*) continue ;;
-            esac
-            echo "::group::${path}"
-            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/${path}"
-            echo "::endgroup::"
-          done
+        working-directory: extra_tests
+        env:
+          RUSTPYTHON: ${{ github.workspace }}/extra_tests/rustpython_wasi.sh
+          RUSTPYTHON_SNIPPET_EXCLUDE: ${{ env.WASM_WASI_SNIPPET_EXCLUDE }}
+        run: pytest -v test_snippets.py -k test_rustpython_
       - name: run cpython unittest
         if: env.RUN_WASM_WASI == 'true'
         run: |
