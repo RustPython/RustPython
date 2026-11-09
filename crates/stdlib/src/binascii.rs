@@ -29,7 +29,7 @@ mod decl {
             a2b_base64,
             PyMethodFlags::empty(),
             ItemDoc::static_text(
-                "a2b_base64($module, data, /, *, strict_mode=<unrepresentable>, padded=True, alphabet=BASE64_ALPHABET, ignorechars=<unrepresentable>, canonical=False)\n--\n\nDecode a line of base64 data.",
+                "a2b_base64($module, data, /, *, strict_mode=<unrepresentable>,\n           padded=True, alphabet=BASE64_ALPHABET,\n           ignorechars=<unrepresentable>, canonical=False)\n--\n\nDecode a line of base64 data.",
             ),
         );
         const DECODE32: &PyMethodDef = &PyMethodDef::new_const(
@@ -37,7 +37,7 @@ mod decl {
             a2b_base32,
             PyMethodFlags::empty(),
             ItemDoc::static_text(
-                "a2b_base32($module, data, /, *, padded=True, alphabet=BASE32_ALPHABET, ignorechars=b'', canonical=False)\n--\n\nDecode a line of base32 data.",
+                "a2b_base32($module, data, /, *, padded=True, alphabet=BASE32_ALPHABET,\n           ignorechars=b'', canonical=False)\n--\n\nDecode a line of base32 data.",
             ),
         );
         const DECODE85: &PyMethodDef = &PyMethodDef::new_const(
@@ -45,7 +45,7 @@ mod decl {
             a2b_base85,
             PyMethodFlags::empty(),
             ItemDoc::static_text(
-                "a2b_base85($module, data, /, *, alphabet=BASE85_ALPHABET, ignorechars=b'', canonical=False)\n--\n\nDecode a line of Base85 data.",
+                "a2b_base85($module, data, /, *, alphabet=BASE85_ALPHABET,\n           ignorechars=b'', canonical=False)\n--\n\nDecode a line of Base85 data.",
             ),
         );
         for (name, definition) in [
