@@ -32,6 +32,20 @@ unsafe impl Traverse for PyBaseException {
         self.context.traverse(tracer_fn);
         self.args.traverse(tracer_fn);
     }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(traceback) = self.traceback.get_mut().take() {
+            out.push(traceback.into());
+        }
+
+        if let Some(cause) = self.cause.get_mut().take() {
+            out.push(cause.into());
+        }
+
+        if let Some(context) = self.context.get_mut().take() {
+            out.push(context.into());
+        }
+    }
 }
 
 impl core::fmt::Debug for PyBaseException {
@@ -1879,6 +1893,20 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
     }
 }
 
+// Generated `Constructor::py_new` calls this. One-field wrappers override it
+// with owned construction; other shapes keep the default and allocate via
+// `slot_new`.
+#[doc(hidden)]
+pub trait PyExceptionOwnedConstructor: crate::class::PyClassDef + Sized {
+    fn __pyexception_new<F>(new_base: F) -> crate::PyResult<Self>
+    where
+        F: FnOnce() -> crate::PyResult<Self::Base>,
+    {
+        let _ = new_base;
+        unreachable!("slot_new is defined")
+    }
+}
+
 pub(super) mod types {
     use crate::class::PyClassDef;
     use crate::common::lock::PyRwLock;
@@ -2456,18 +2484,7 @@ pub(super) mod types {
         }
 
         fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-            let base = &mut self.0.0;
-            if let Some(traceback) = base.traceback.get_mut().take() {
-                out.push(traceback.into());
-            }
-
-            if let Some(cause) = base.cause.get_mut().take() {
-                out.push(cause.into());
-            }
-
-            if let Some(context) = base.context.get_mut().take() {
-                out.push(context.into());
-            }
+            self.0.0.clear(out);
         }
     }
 
@@ -2590,10 +2607,7 @@ pub(super) mod types {
 
     unsafe impl Traverse for PyOSError {
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-            // `self.base` is a `PyException` newtype whose `MaybeTraverse` is a
-            // no-op; reach the underlying `PyBaseException` so its traceback,
-            // cause, context and args are visited by the collector.
-            self.base.0.traverse(tracer_fn);
+            self.base.traverse(tracer_fn);
             if let Some(obj) = self.errno.deref() {
                 tracer_fn(obj);
             }

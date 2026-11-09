@@ -1007,15 +1007,26 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
     // with their own vtable, rather than through the base's allocation slot.
     let is_wrapper = matches!(item, Item::Struct(item) if matches!(&item.fields,
         syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1));
-    // Only the struct expansion knows whether the base is the sole field.
-    // Other shapes retain the owned-construction stub and can opt into an
-    // explicit Constructor to initialize their additional fields.
-    let owned_constructor = if is_wrapper {
-        quote! { Ok(Self(new_base()?)) }
+    // One-field wrappers implement owned construction. Other shapes keep the
+    // trait default, which leaves allocation on slot_new.
+    let owned_constructor_impl = if is_wrapper {
+        quote! {
+            impl ::rustpython_vm::exceptions::PyExceptionOwnedConstructor for #ident {
+                fn __pyexception_new<F>(
+                    new_base: F,
+                ) -> ::rustpython_vm::PyResult<Self>
+                where
+                    F: ::core::ops::FnOnce() -> ::rustpython_vm::PyResult<
+                        <Self as ::rustpython_vm::class::PyClassDef>::Base,
+                    >,
+                {
+                    Ok(Self(new_base()?))
+                }
+            }
+        }
     } else {
         quote! {
-            let _ = new_base;
-            unreachable!("slot_new is defined")
+            impl ::rustpython_vm::exceptions::PyExceptionOwnedConstructor for #ident {}
         }
     };
     let (traverse_attr, traverse_impl) = match class_meta
@@ -1057,15 +1068,7 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
     let ret = quote! {
         #[pyclass(#module_attr name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
         #item
-        impl #ident {
-            // A custom Constructor need not use this generated helper.
-            #[allow(dead_code)]
-            pub(crate) fn __pyexception_new(
-                new_base: impl ::core::ops::FnOnce() -> ::rustpython_vm::PyResult<<Self as ::rustpython_vm::class::PyClassDef>::Base>,
-            ) -> ::rustpython_vm::PyResult<Self> {
-                #owned_constructor
-            }
-        }
+        #owned_constructor_impl
         #traverse_impl
         #impl_pyclass
     };
@@ -1130,7 +1133,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> T
                     args: Self::Args,
                     vm: &::rustpython_vm::VirtualMachine
                 ) -> ::rustpython_vm::PyResult<Self> {
-                    Self::__pyexception_new(|| {
+                    <Self as ::rustpython_vm::exceptions::PyExceptionOwnedConstructor>::__pyexception_new(|| {
                         <<Self as ::rustpython_vm::class::PyClassDef>::Base as ::rustpython_vm::types::Constructor>::py_new(cls, args, vm)
                     })
                 }

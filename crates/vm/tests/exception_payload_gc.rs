@@ -30,6 +30,10 @@ fn owned_wrapper_cycles_release_argument_objects() {
             .as_base()
             .as_base()
             .set_cause(Some(exception.clone().upcast::<PyBaseException>()));
+        exception
+            .as_base()
+            .as_base()
+            .set_context(Some(exception.clone().upcast::<PyBaseException>()));
         scope.globals.del_item("marker", vm).unwrap();
         drop(exception);
         vm.state.gc.collect_force(2);
