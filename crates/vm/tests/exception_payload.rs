@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-// Keep collection isolated from other interpreter fixtures in this process.
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use rustpython_vm::{
@@ -16,6 +15,8 @@ use rustpython_vm::{
     types::Constructor,
 };
 
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[pyclass(module = "exception_payload_test", name = "DropError", base = PyValueError, traverse = "manual")]
 #[repr(C)]
 #[derive(Debug)]
@@ -24,12 +25,10 @@ struct DropError {
     dropped: Arc<AtomicBool>,
 }
 
-// SAFETY: repr(C) keeps the valid base first for the payload's entire lifetime;
-// pyclass checks the base offset and compatible payload alignment.
+// SAFETY: repr(C) keeps the valid base first; pyclass checks offset and alignment.
 unsafe impl PySubclass for DropError {
     type Base = PyValueError;
 
-    /// Exposes the embedded base without changing the native payload's lifetime.
     fn as_base(&self) -> &Self::Base {
         &self.base
     }
@@ -37,12 +36,10 @@ unsafe impl PySubclass for DropError {
 
 // SAFETY: The base owns every Python reference; the flag owns none.
 unsafe impl Traverse for DropError {
-    /// Visits the base's Python references; the destruction flag holds no Python objects.
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.base.traverse(tracer_fn);
     }
 
-    /// Delegates collection to the production wrapper's clearing implementation.
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         self.base.clear(out);
     }
@@ -54,7 +51,6 @@ impl DropError {}
 impl Constructor for DropError {
     type Args = FuncArgs;
 
-    /// Constructs the owned base and initializes its native destruction witness.
     fn py_new(cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(Self {
             base: PyValueError::py_new(cls, args, vm)?,
@@ -64,15 +60,67 @@ impl Constructor for DropError {
 }
 
 impl Drop for DropError {
-    /// Records actual native destruction independently of Python weakref invalidation.
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::SeqCst);
     }
 }
 
-/// Proves a context-only cycle releases the native exception payload itself.
+#[test]
+fn owned_native_exception_round_trips_through_python() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        let class = DropError::make_static_type();
+        let argument = vm.ctx.new_str("payload");
+        let payload = DropError::py_new(&class, vec![argument.clone().into()].into(), vm).unwrap();
+        let dropped = payload.dropped.clone();
+        let exception = payload.into_ref_with_type(vm, class).unwrap();
+        let base = exception.as_base().as_base().as_base();
+        assert!(base.__traceback__().is_none());
+        assert!(base.__cause__().is_none());
+        assert!(base.__context__().is_none());
+        assert!(
+            !exception
+                .as_object()
+                .get_attr("__suppress_context__", vm)
+                .unwrap()
+                .try_to_bool(vm)
+                .unwrap()
+        );
+        assert!(!dropped.load(Ordering::SeqCst));
+
+        let scope = vm.new_scope_with_builtins();
+        scope.globals.set_item("exc", exception.into(), vm).unwrap();
+        scope.globals.set_item("arg", argument.into(), vm).unwrap();
+        let source = r#"
+try:
+    raise exc
+except ValueError as e:
+    assert e.args == (arg,)
+    assert isinstance(e, ValueError)
+    caught = e
+"#;
+        let code = vm
+            .compile(
+                source,
+                rustpython_vm::compiler::Mode::Exec,
+                "<native-exception>",
+            )
+            .map_err(|error| error.into_pyexception(vm, Some(source)))
+            .unwrap();
+        if let Err(error) = vm.run_code_obj(code, scope.clone()) {
+            vm.print_exception(&error);
+            panic!("owned native exception round-trip failed");
+        }
+        let caught = scope.globals.get_item("caught", vm).unwrap();
+        let native = caught.downcast::<DropError>().unwrap();
+        assert!(Arc::ptr_eq(&native.dropped, &dropped));
+        assert!(!native.dropped.load(Ordering::SeqCst));
+    });
+}
+
 #[test]
 fn context_cycle_destroys_owned_exception_payload() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
         let class = DropError::make_static_type();
         let payload = DropError::py_new(&class, FuncArgs::default(), vm).unwrap();
