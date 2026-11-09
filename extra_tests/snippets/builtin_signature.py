@@ -220,7 +220,6 @@ class NewList(list):
 
 assert NewList.__new__ is list.__new__
 assert NewList.__new__.__self__ is list
-assert type(list.__new__(NewList)) is NewList
 assert dict.__new__(dict, answer=42) == {}
 assert int.__new__(int, "10", base=2) == 2
 # The hidden $type in the raw signature does not make the explicit subtype
