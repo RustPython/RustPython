@@ -4698,6 +4698,12 @@ mod _ssl {
         }
     }
 
+    #[derive(FromArgs)]
+    struct CertificatePublicBytesArgs {
+        #[pyarg(any, default = ENCODING_PEM, py_default = "Encoding.PEM")]
+        format: i32,
+    }
+
     #[pyclass(
         flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
         with(Comparable, Hashable, Representable)
@@ -4706,10 +4712,10 @@ mod _ssl {
         #[pymethod]
         fn public_bytes(
             zelf: &Py<Self>,
-            format: OptionalArg<i32>,
+            args: CertificatePublicBytesArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let format = format.unwrap_or(ENCODING_PEM);
+            let format = args.format;
 
             match format {
                 x if x == ENCODING_DER => {

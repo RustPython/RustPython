@@ -5416,6 +5416,44 @@ mod _io {
         }
 
         #[pymethod]
+        fn readlines(&self, size: OptionalPos, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+            // Unlike IOBase.readlines, BytesIO checks closed before accepting
+            // only int/None (not __index__), and reads its storage directly.
+            let mut buffer = self.buffer.write();
+            self.check_closed(vm)?;
+            let maxsize = match size.size.as_deref() {
+                None => -1,
+                Some(obj) => {
+                    let integer =
+                        obj.downcast_ref::<crate::builtins::PyInt>()
+                            .ok_or_else(|| {
+                                vm.new_type_error(format!(
+                                    "integer argument expected, got '{}'",
+                                    obj.class().slot_name(),
+                                ))
+                            })?;
+                    integer.as_bigint().to_isize().ok_or_else(|| {
+                        vm.new_overflow_error("Python int too large to convert to C ssize_t")
+                    })?
+                }
+            };
+            let mut lines = Vec::new();
+            let mut total = 0;
+            loop {
+                let line = buffer.readline(None, vm)?;
+                if line.is_empty() {
+                    break;
+                }
+                total += line.len();
+                lines.push(vm.ctx.new_bytes(line).into());
+                if maxsize > 0 && total >= maxsize as usize {
+                    break;
+                }
+            }
+            Ok(lines)
+        }
+
+        #[pymethod]
         fn truncate(&self, pos: OptionalPos, vm: &VirtualMachine) -> PyResult<usize> {
             self.check_closed(vm)?;
             drop(self.try_resizable(vm)?);
