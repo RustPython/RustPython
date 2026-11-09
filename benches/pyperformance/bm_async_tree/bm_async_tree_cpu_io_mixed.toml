@@ -1,0 +1,3 @@
+[tool.pyperformance]
+name = "async_tree_cpu_io_mixed"
+extra_opts = ["cpu_io_mixed"]

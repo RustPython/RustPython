@@ -821,6 +821,9 @@ jobs:
       - name: prek run
         run: prek run --show-diff-on-failure --color=always --all-files
 
+      - name: Check the vendored pyperformance benchmarks match their release
+        run: python3 -I scripts/vendor-pyperformance.py --check
+
       - name: Clone CPython opcode metadata source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

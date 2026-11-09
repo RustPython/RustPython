@@ -21,22 +21,23 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   CI: true
+  # Must share its major version with the `codspeed-criterion-compat` crate
+  # in Cargo.toml, which writes the raw walltime results this tool aggregates.
+  CARGO_CODSPEED_VERSION: v5.0.3
 
 jobs:
-  benchmarks:
+  # The benchmark executables are compiled on a hosted runner, so the Macro
+  # runner's time goes to measuring, not to building.
+  build:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    name: Run benchmarks
+    name: Build the benchmark executables
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write # for OpenID Connect authentication with CodSpeed
+    timeout-minutes: 60
     env:
       CACHE_PATHS: |
         # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
         ~/.cargo/.crates2.json
         ~/.cargo/.crates.toml
-        ~/.cargo/bin/
         ~/.cargo/registry/index/
         ~/.cargo/registry/cache/
         ~/.cargo/git/db/
@@ -48,67 +49,77 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # The benchmarks are linked against libpython through the pyo3 dev-dependency.
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-
-      - name: Restore the machine main last measured on
-        # A recording that cannot be fetched is read as "none yet", which the step
-        # below treats as nothing to disagree with. Failing here instead would
-        # turn a cache outage into a red benchmark job.
-        continue-on-error: true
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: build/codspeed-environment-reference.json
-          key: codspeed-environment-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
-          restore-keys: codspeed-environment-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Name the machine this run drew
-        id: environment
-        shell: bash
-        run: |
-          reference=build/codspeed-environment-reference.json
-          if [ "$GITHUB_REF" = refs/heads/main ]; then
-            args=(--record "$reference")
-          else
-            args=(--record build/codspeed-environment.json --reference "$reference")
-          fi
-          python3 scripts/codspeed-environment.py "${args[@]}" --github-output
-
       - name: Restore cache
-        if: ${{ steps.environment.outputs.match != 'false' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.CACHE_PATHS }}
-          key: codspeed-v2-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: codspeed-v2-
+          key: codspeed-v3-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: codspeed-v3-
         continue-on-error: true
 
       - name: Install cargo-codspeed
-        if: ${{ steps.environment.outputs.match != 'false' }}
-        run: cargo install cargo-codspeed --locked --version ^5
+        run: .github/scripts/install-cargo-codspeed.sh "${CARGO_CODSPEED_VERSION}"
 
+      # `benches/execution.rs` and `benches/microbenchmarks.rs` are not built:
+      # they link CPython through pyo3 for a local comparison, and an executable
+      # linked against one machine's libpython cannot be moved to the Macro
+      # runner that executes it.
       - name: Build the benchmark targets
-        if: ${{ steps.environment.outputs.match != 'false' }}
-        run: cargo codspeed build --locked --measurement-mode simulation -p rustpython -p rustpython-sre_engine
+        run: >-
+          cargo codspeed build --locked --measurement-mode walltime
+          -p rustpython --bench pyperformance
+          -p rustpython-sre_engine
 
       - name: Save cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.CACHE_PATHS }}
-          key: codspeed-v2-${{ hashFiles('**/Cargo.lock') }}
+          key: codspeed-v3-${{ hashFiles('**/Cargo.lock') }}
         continue-on-error: true
 
-      - name: Run the benchmarks
-        if: ${{ steps.environment.outputs.match != 'false' }}
-        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+      - name: Upload the benchmark executables
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          mode: simulation
-          run: cargo codspeed run -p rustpython -p rustpython-sre_engine
+          name: codspeed-benchmarks-${{ github.run_id }}
+          path: target/codspeed/walltime/
+          retention-days: 1
+          if-no-files-found: error
 
-      - name: Record the machine this baseline was measured on
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+  run:
+    name: Run the benchmarks
+    needs: build
+    # A CodSpeed Macro runner: dedicated hardware, so wall time is comparable
+    # between runs without any environment matching.
+    runs-on: codspeed-macro
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write # for OpenID Connect authentication with CodSpeed
+    steps:
+      # The executables read `Lib/` and `benches/pyperformance/` at run time,
+      # and `cargo codspeed run` reads the workspace metadata.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: build/codspeed-environment-reference.json
-          key: codspeed-environment-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-codspeed
+        run: .github/scripts/install-cargo-codspeed.sh "${CARGO_CODSPEED_VERSION}"
+
+      - name: Download the benchmark executables
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: codspeed-benchmarks-${{ github.run_id }}
+          path: target/codspeed/walltime/
+
+      - name: Restore the executable bits
+        # Artifacts are zipped and come back without their permission bits.
+        run: find target/codspeed/walltime -type f -exec chmod +x {} +
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+        with:
+          mode: walltime
+          run: cargo codspeed run -p rustpython --bench pyperformance -p rustpython-sre_engine
