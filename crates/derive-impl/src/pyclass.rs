@@ -1012,6 +1012,7 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
     let owned_constructor_impl = if is_wrapper {
         quote! {
             impl ::rustpython_vm::exceptions::PyExceptionOwnedConstructor for #ident {
+                /// Wraps the owned payload returned by the base constructor.
                 fn __pyexception_new<F>(
                     new_base: F,
                 ) -> ::rustpython_vm::PyResult<Self>
@@ -1042,10 +1043,12 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
                 // SAFETY: The sole field owns all payload references. Forward
                 // to its traversal once without cloning any references.
                 unsafe impl ::rustpython_vm::object::Traverse for #ident {
+                    /// Visits the sole field's Python references without cloning them.
                     fn traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn<'_>) {
                         ::rustpython_vm::object::MaybeTraverse::try_traverse(&self.0, tracer_fn);
                     }
 
+                    /// Forwards cycle breaking to the sole field's clear implementation.
                     fn clear(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
                         ::rustpython_vm::object::MaybeTraverse::try_clear(&mut self.0, out);
                     }
@@ -1075,6 +1078,10 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
     Ok(ret)
 }
 
+/// Expands exception methods while preserving custom constructors and base allocation slots.
+///
+/// Unless `with(Constructor)` supplies a custom implementation, owned construction
+/// uses the struct-generated helper and Python allocation delegates to the base.
 pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     let Item::Impl(imp) = item else {
         return item.into_token_stream();
@@ -1128,6 +1135,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> T
                 ) -> ::rustpython_vm::PyResult {
                     <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
                 }
+                /// Constructs an owned wrapper through its base payload constructor.
                 fn py_new(
                     cls: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     args: Self::Args,

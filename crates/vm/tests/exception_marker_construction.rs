@@ -44,6 +44,7 @@ impl CustomError {}
 impl Constructor for CustomError {
     type Args = FuncArgs;
 
+    /// Initializes the non-Default marker explicitly alongside the owned base payload.
     fn py_new(cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(Self(PyException::py_new(cls, args, vm)?, Marker))
     }
@@ -54,6 +55,7 @@ impl Constructor for CustomError {
 #[repr(transparent)]
 struct SimpleError(PyException);
 
+/// Checks allocation, subclass constructor ordering, and raised-exception identity in Python.
 fn check_python_dispatch(class: rustpython_vm::builtins::PyTypeRef, vm: &VirtualMachine) {
     let scope = vm.new_scope_with_builtins();
     scope.globals.set_item("Error", class.into(), vm).unwrap();
@@ -94,6 +96,7 @@ except Error as caught:
     }
 }
 
+/// Checks Python dispatch for a transparent wrapper with a PhantomData field.
 #[test]
 fn phantom_wrapper_preserves_python_allocation_and_dispatch() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -101,6 +104,7 @@ fn phantom_wrapper_preserves_python_allocation_and_dispatch() {
     });
 }
 
+/// Checks that a non-Default marker does not prevent ordinary Python allocation.
 #[test]
 fn non_default_marker_preserves_python_allocation_and_dispatch() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -108,6 +112,7 @@ fn non_default_marker_preserves_python_allocation_and_dispatch() {
     });
 }
 
+/// Checks explicit marker initialization, argument identity, and Python dispatch together.
 #[test]
 fn custom_constructor_initializes_owned_marker_payload() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -123,6 +128,7 @@ fn custom_constructor_initializes_owned_marker_payload() {
     });
 }
 
+/// Checks automatic owned construction preserves arguments for a one-field wrapper.
 #[test]
 fn simple_wrapper_retains_automatic_owned_construction() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -150,6 +156,7 @@ use split_payload::SplitError;
 #[pyexception]
 impl SplitError {}
 
+/// Checks owned construction and Python dispatch across struct/impl module boundaries.
 #[test]
 fn split_module_wrapper_preserves_owned_construction_and_python_dispatch() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {

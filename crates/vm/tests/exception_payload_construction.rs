@@ -9,6 +9,7 @@ use rustpython_vm::{
     types::Constructor,
 };
 
+/// Checks argument identity and empty initial traceback, cause, and context state.
 #[test]
 fn owned_base_exception_preserves_arguments_and_starts_without_exception_state() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -30,6 +31,7 @@ fn owned_base_exception_preserves_arguments_and_starts_without_exception_state()
     });
 }
 
+/// Checks owned exception wrappers preserve their base payload's positional arguments.
 #[test]
 fn owned_simple_exception_payloads_delegate_through_their_base() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -52,6 +54,7 @@ fn owned_simple_exception_payloads_delegate_through_their_base() {
     });
 }
 
+/// Checks the allocated wrapper's vtable exposes the argument tuple to GC traversal.
 #[test]
 fn allocated_owned_wrapper_traverses_its_argument_tuple() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -116,6 +119,7 @@ mod native_subclass {
     impl Constructor for NativeError {
         type Args = FuncArgs;
 
+        /// Initializes the base payload and native marker for Python construction.
         fn py_new(cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 base: PyException::py_new(cls, args, vm)?,
@@ -124,6 +128,7 @@ mod native_subclass {
         }
     }
 
+    /// Checks native state, exception chaining, and Python subclass constructor dispatch.
     #[test]
     fn external_native_exception_retains_payload_and_python_constructor_dispatch() {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {

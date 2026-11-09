@@ -33,6 +33,11 @@ unsafe impl Traverse for PyBaseException {
         self.args.traverse(tracer_fn);
     }
 
+    /// Detaches traceback, cause, and context references for deferred release.
+    ///
+    /// Moving references into `out` breaks these cycles without dropping children
+    /// during the collector's exclusive payload access. Arguments remain owned by
+    /// the payload until its destruction.
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         if let Some(traceback) = self.traceback.get_mut().take() {
             out.push(traceback.into());
@@ -1055,6 +1060,7 @@ impl Constructor for PyBaseException {
             .map(Into::into)
     }
 
+    /// Creates an unallocated base payload preserving the supplied positional arguments.
     fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(Self::new(args.args, vm))
     }
@@ -1897,7 +1903,16 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 // with owned construction; other shapes keep the default and allocate via
 // `slot_new`.
 #[doc(hidden)]
+/// Connects generated exception constructors to shape-specific owned construction.
 pub trait PyExceptionOwnedConstructor: crate::class::PyClassDef + Sized {
+    /// Rejects owned construction unless the wrapper supplies an implementation.
+    ///
+    /// The default does not invoke `new_base`. Generated single-field wrappers
+    /// override it to wrap the base payload and propagate constructor errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this default is called for a shape requiring explicit construction.
     fn __pyexception_new<F>(new_base: F) -> crate::PyResult<Self>
     where
         F: FnOnce() -> crate::PyResult<Self::Base>,
@@ -2483,6 +2498,7 @@ pub(super) mod types {
             self.0.0.traverse(tracer_fn);
         }
 
+        /// Delegates cycle breaking to the shared base-exception payload.
         fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
             self.0.0.clear(out);
         }
@@ -2606,6 +2622,7 @@ pub(super) mod types {
     }
 
     unsafe impl Traverse for PyOSError {
+        /// Visits base-exception references and the operating-system error's object fields.
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
             self.base.traverse(tracer_fn);
             if let Some(obj) = self.errno.deref() {

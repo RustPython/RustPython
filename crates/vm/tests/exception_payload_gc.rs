@@ -4,12 +4,13 @@
 // Keep the collection regression in its own process: collect_force may return
 // without collecting when another interpreter holds the global collector lock.
 use rustpython_vm::{
-    Interpreter, PyPayload,
+    AsObject, Interpreter, PyPayload,
     builtins::{PyBaseException, PyValueError},
     class::PySubclass,
     types::Constructor,
 };
 
+/// Checks weakref invalidation for an owned wrapper's cause and context cycles.
 #[test]
 fn owned_wrapper_cycles_release_argument_objects() {
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -34,6 +35,14 @@ fn owned_wrapper_cycles_release_argument_objects() {
             .as_base()
             .as_base()
             .set_context(Some(exception.clone().upcast::<PyBaseException>()));
+        assert!(
+            exception
+                .as_base()
+                .as_base()
+                .__context__()
+                .unwrap()
+                .is(exception.as_object())
+        );
         scope.globals.del_item("marker", vm).unwrap();
         drop(exception);
         vm.state.gc.collect_force(2);
