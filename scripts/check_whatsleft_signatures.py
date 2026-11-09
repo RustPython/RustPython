@@ -15,6 +15,17 @@ GOOD_RAW = {"exact_raw_match", "matching_nontext_state", "not_applicable"}
 RAW_FIELDS = ("status", "kind", "binding", "value", "error_type", "representative")
 
 
+def additional_signature(pair, comparison):
+    # No reference text means there is no text to disagree with. Retain the
+    # observation/coverage, but do not require an exception for useful extra
+    # RustPython metadata. Unknown or different contexts remain unverified.
+    return (
+        comparison == "different_text_state"
+        and pair["cpython"]["status"] in {"none", "absent"}
+        and pair["rustpython"]["status"] == "present"
+    )
+
+
 def diagnostic(value):
     # Only exception diagnostics contain process-specific repr addresses.
     # Never normalize raw signature literals, parameter names or defaults.
@@ -51,7 +62,7 @@ def snapshot(result):
                     [pair[side][field] for field in RAW_FIELDS]
                     for side in ("cpython", "rustpython")
                 ],
-                kind in GOOD_RAW,
+                kind in GOOD_RAW or additional_signature(pair, kind),
             )
 
     # The complete selected reference inventory protects even paths that did
