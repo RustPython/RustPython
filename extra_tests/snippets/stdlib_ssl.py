@@ -54,6 +54,61 @@ for _ in range(5):
 client.do_handshake()
 server.do_handshake()
 
+
+def test_certificate_public_bytes(connection):
+    import _ssl
+    import inspect
+
+    cert = connection._sslobj.get_unverified_chain()[0]
+    assert _ssl.Certificate.public_bytes.__text_signature__ == (
+        "($self, /, format=Encoding.PEM)"
+    )
+    # Encoding is not exported by _ssl, so inspect cannot resolve this default
+    # in CPython either. Do not substitute a different public default spelling.
+    try:
+        inspect.signature(_ssl.Certificate.public_bytes)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("symbolic Encoding.PEM unexpectedly resolved")
+
+    pem = cert.public_bytes()
+    der = cert.public_bytes(_ssl.ENCODING_DER)
+    assert cert.public_bytes(format=_ssl.ENCODING_PEM) == pem
+    assert cert.public_bytes(format=_ssl.ENCODING_DER) == der
+    assert ssl.PEM_cert_to_DER_cert(pem) == der
+
+    class Format:
+        calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return _ssl.ENCODING_DER
+
+    format = Format()
+    assert cert.public_bytes(format=format) == der
+    assert format.calls == 1
+
+    for args, kwargs, error in (
+        ((), {"format": None}, TypeError),
+        ((), {"format": 1 << 40}, OverflowError),
+        ((), {"format": 0}, ValueError),
+        ((format,), {"format": format}, TypeError),
+        ((format, format), {}, TypeError),
+        ((), {"unknown": format}, TypeError),
+    ):
+        format.calls = 0
+        try:
+            cert.public_bytes(*args, **kwargs)
+        except error:
+            pass
+        else:
+            raise AssertionError((args, kwargs, error))
+        assert format.calls == 0, "invalid call shape must precede conversion"
+
+
+test_certificate_public_bytes(client)
+
 # OpenSSL retries require the original content and length. Never retry with
 # the mutated exporter: behavior for an invalid retry is not a parity claim.
 assert client.write(saved_write) == len(saved_write)
