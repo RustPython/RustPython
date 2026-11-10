@@ -1859,6 +1859,12 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(error.into());
     }
     if let Err(errors) = parsed.as_result() {
+        if matches!(mode, parser::Mode::Expression)
+            && let Some(error) =
+                rustpython_compiler::expression_initial_indent_error(parsed.tokens(), &source_file)
+        {
+            return Err(error.into());
+        }
         let parse_error = errors[0].clone();
         if let Some(error) = barry_source.diagnostic(Some(&parse_error), &source_file) {
             return Err(error.into());

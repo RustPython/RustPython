@@ -2020,7 +2020,6 @@ Module(
         malformed = ast.Dict(keys=[ast.Constant(1)], values=[ast.Constant(2), ast.Constant(3)])
         self.assertRaises(ValueError, ast.literal_eval, malformed)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: expected an expression
     def test_literal_eval_trailing_ws(self):
         self.assertEqual(ast.literal_eval("    -1"), -1)
         self.assertEqual(ast.literal_eval("\t\t-1"), -1)
@@ -2039,7 +2038,6 @@ Module(
         with self.assertRaisesRegex(ValueError, msg):
             ast.literal_eval(node)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "unexpected indent" does not match "expected an expression (<unknown>, line 2)"
     def test_literal_eval_syntax_errors(self):
         with self.assertRaisesRegex(SyntaxError, "unexpected indent"):
             ast.literal_eval(r'''
