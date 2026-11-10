@@ -510,6 +510,9 @@ impl VirtualMachine {
             return self.new_recursion_error(error.to_string());
         }
 
+        let source = source.map(crate::compiler::core::normalize_newlines);
+        let source = source.as_deref();
+
         let incomplete_or_syntax = |allow| -> &'static Py<crate::builtins::PyType> {
             if allow {
                 self.ctx.exceptions.incomplete_input_error
