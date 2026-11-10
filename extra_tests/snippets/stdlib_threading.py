@@ -4,6 +4,26 @@ import threading
 import time
 
 
+class LocalWithProperty(threading.local):
+    def __init__(self):
+        self.name = "ROOT"
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+
+local = LocalWithProperty()
+assert local.name == "ROOT"
+assert local.__dict__ == {"_name": "ROOT"}
+local.name = "updated"
+assert local.name == "updated"
+
+
 def import_in_thread(module_name):
     outcome = {}
     error = {}

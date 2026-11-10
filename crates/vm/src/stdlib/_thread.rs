@@ -1480,6 +1480,15 @@ pub(crate) mod _thread {
                     zelf.class().name()
                 )))
             } else {
+                if let Some(attr) = vm
+                    .ctx
+                    .interned_str(attr)
+                    .and_then(|name| zelf.as_object().get_class_attr(name))
+                    && let Some(descriptor) = attr.class().slots().descr_set.load()
+                {
+                    return descriptor(attr.as_object(), zelf.as_object().to_owned(), value, vm);
+                }
+
                 let dict = Self::l_dict(zelf, vm)?;
                 if let PySetterValue::Assign(value) = value {
                     dict.set_item(attr, value, vm)?;
