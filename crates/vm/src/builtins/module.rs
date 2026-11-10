@@ -172,11 +172,16 @@ impl Py<PyModule> {
     pub fn __init_methods(&self, vm: &VirtualMachine) -> PyResult<()> {
         debug_assert!(self.def.is_some());
         for method in self.def.unwrap().methods {
-            let func = method
-                .to_function()
-                .with_module(self.name.unwrap())
-                .with_module_object(self.to_owned().into())
-                .into_ref(&vm.ctx);
+            let mut func = method.to_function().with_module(self.name.unwrap());
+            if method
+                .flags
+                .contains(crate::function::PyMethodFlags::BIND_MODULE)
+            {
+                func.zelf = Some(self.to_owned().into());
+            } else {
+                func = func.with_module_object(self.to_owned().into());
+            }
+            let func = func.into_ref(&vm.ctx);
             vm.__module_set_attr(self, vm.ctx.intern_str(method.name), func)?;
         }
         Ok(())

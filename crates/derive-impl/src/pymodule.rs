@@ -540,6 +540,7 @@ struct FunctionNurseryItem {
     ident: Ident,
     /// One internal doc per [`py_names`](Self::py_names) entry.
     docs: Vec<TokenStream>,
+    binds_module: bool,
 }
 
 impl FunctionNursery {
@@ -569,13 +570,18 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
+            let flags = if item.binds_module {
+                quote!(rustpython_vm::function::PyMethodFlags::BIND_MODULE)
+            } else {
+                quote!(rustpython_vm::function::PyMethodFlags::empty())
+            };
             for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
                 inner_tokens.extend(quote![
                     #cfgs
                     rustpython_vm::function::PyMethodDef::new_const(
                         #py_name,
                         #ident,
-                        rustpython_vm::function::PyMethodFlags::empty(),
+                        #flags,
                         #doc,
                     ),
                 ]);
@@ -678,6 +684,7 @@ impl ModuleItem for FunctionItem {
 
         let py_name = item_meta.simple_name()?;
         let mut flags_signatures = vec![item_meta.signature_from_flags()?];
+        let mut binds_module = item_meta.with_module()?;
         let mut py_names = vec![py_name];
         for attr_index in self.py_attrs.iter().rev() {
             let mut loop_unit = || {
@@ -692,6 +699,7 @@ impl ModuleItem for FunctionItem {
                     ));
                 }
                 flags_signatures.push(item_meta.signature_from_flags()?);
+                binds_module |= item_meta.with_module()?;
                 py_names.push(py_name);
                 Ok(())
             };
@@ -699,6 +707,16 @@ impl ModuleItem for FunctionItem {
             args.context.errors.ok_or_push(r);
         }
 
+        if binds_module && !crate::util::has_module_receiver(func.sig()) {
+            return Err(self.new_syn_error(
+                ident.span(),
+                "with_module requires a leading PyRef<PyModule> or &Py<PyModule> argument",
+            ));
+        }
+        let mut doc_signature = func.sig().clone();
+        if binds_module {
+            doc_signature.inputs = doc_signature.inputs.into_iter().skip(1).collect();
+        }
         let module = args.doc_module();
         let rust_doc = args.attrs.doc().filter(|doc| !doc.is_empty());
         let docs = py_names
@@ -714,9 +732,9 @@ impl ModuleItem for FunctionItem {
                 };
                 let doc = crate::class_docs::item_doc_tokens(db_doc, rust_doc.clone());
                 if from_flags {
-                    flags_signature_doc_tokens(func.sig(), py_name, doc)
+                    flags_signature_doc_tokens(&doc_signature, py_name, doc)
                 } else {
-                    internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
+                    internal_doc_tokens(&doc_signature, py_name, None, doc, None, Some("$module"))
                 }
             })
             .collect();
@@ -726,6 +744,7 @@ impl ModuleItem for FunctionItem {
             py_names,
             cfgs: args.cfgs.to_vec(),
             docs,
+            binds_module,
         });
         Ok(())
     }

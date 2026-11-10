@@ -205,7 +205,7 @@ const fn flags_positional_count(params: &[Param]) -> usize {
 /// Calling-convention bits from each argument's binding metadata.
 ///
 /// Display signatures must not prevent a custom parser from receiving a call.
-/// With `receiver`, the first argument is the bound `$self` / `$type`; it
+/// With `receiver`, the first argument is the bound `$self` / `$type` / `$module`; it
 /// contributes only the parameters its type supplies.
 /// A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
 #[must_use]
@@ -446,7 +446,7 @@ const fn write_signature_prefix(buf: &mut [u8], name: &str, args: &[SigArg]) -> 
         total_tokens: usize::MAX,
     };
     // Clinic counts a token's trailing comma when deciding where to wrap.
-    // A counting pass also includes synthetic '/' and '*' tokens, without a
+    // The renderer runs twice at compile time. The counting pass includes synthetic '/' and '*' tokens, without a
     // separate traversal that could disagree with the actual renderer.
     let total_tokens = write_args(&mut [], initial, args).tokens;
     let st = write_args(
