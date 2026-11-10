@@ -172,7 +172,7 @@ impl Representable for PyMethodDescriptor {
         Ok(format!(
             "<method '{}' of '{}' objects>",
             zelf.method.name,
-            zelf.common.typ.name()
+            zelf.common.typ.slot_name()
         ))
     }
 }

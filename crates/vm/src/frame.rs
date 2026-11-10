@@ -2887,6 +2887,21 @@ fn exec_iframe<'a>(
     }
 }
 
+// Legacy profiling must observe calls even after native-call specialization.
+#[cold]
+fn legacy_profile_call(op: Instruction) -> bool {
+    matches!(
+        op,
+        Instruction::CallListAppend
+            | Instruction::CallLen
+            | Instruction::CallIsinstance
+            | Instruction::CallMethodDescriptorNoargs
+            | Instruction::CallMethodDescriptorO
+            | Instruction::CallMethodDescriptorFast
+            | Instruction::CallMethodDescriptorFastWithKeywords
+    )
+}
+
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
 #[inline(always)]
 pub(crate) fn run_iframe(
@@ -4116,10 +4131,22 @@ impl ExecutingFrame<'_> {
                 )
             } else {
                 let unit = unsafe { bytecode::CodeUnits::read_unit_from(units_ptr, idx) };
+                let (op, mode) = if OBSERVED && tracing && legacy_profile_call(unit.op) {
+                    (
+                        Opcode::Call.as_instruction(),
+                        // The physical-path opcode callback runs below. Avoid
+                        // adaptive cache writes for this virtual legacy call.
+                        DispatchMode::Monitored {
+                            opcode_traced: true,
+                        },
+                    )
+                } else {
+                    (unit.op, DispatchMode::Physical)
+                };
                 (
-                    unit.op,
+                    op,
                     unit.arg,
-                    DispatchMode::Physical,
+                    mode,
                     if OBSERVED { unit.op.cache_entries() } else { 0 },
                 )
             };
