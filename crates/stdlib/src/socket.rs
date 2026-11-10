@@ -3365,7 +3365,7 @@ mod _socket {
         (String::new(), 0).to_pyobject(vm)
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn gethostname(vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.audit("socket.gethostname", || ())?;
 
@@ -3916,7 +3916,7 @@ mod _socket {
         target_os = "netbsd",
         target_os = "openbsd",
     ))]
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         #[cfg(not(windows))]
         {
@@ -4120,13 +4120,13 @@ mod _socket {
 
     static DEFAULT_TIMEOUT: AtomicCell<f64> = AtomicCell::new(-1.0);
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn getdefaulttimeout() -> Option<f64> {
         let timeout = DEFAULT_TIMEOUT.load();
         if timeout >= 0.0 { Some(timeout) } else { None }
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn setdefaulttimeout(object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
         let val = match object {
             Some(t) => {
@@ -4145,7 +4145,7 @@ mod _socket {
         Ok(())
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn dup(object: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
         let sock = get_raw_sock(&object, vm)?;
         let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
@@ -4156,7 +4156,7 @@ mod _socket {
         Ok(fd)
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn close(object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
         Ok(close_inner(get_raw_sock(&object, vm)?)?)
     }

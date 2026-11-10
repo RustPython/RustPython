@@ -363,6 +363,14 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// ### pyfunction
+///
+/// `#[pyfunction(signature_from_flags)]` displays CPython's non-Clinic
+/// `METH_NOARGS` / `METH_O` signature (`$self`, and `object` for one argument).
+/// Compilation rejects anything other than zero or one required positional-only
+/// argument. It changes only the generated text, not module ownership or calls.
+/// Use this only where CPython derives the signature from its method flags;
+/// ordinary functions retain their generated Clinic-style signature.
+///
 /// This is used to create a python function.
 /// #### Function signature
 /// The last argument can optionally be of the type `&VirtualMachine` to access the VM.
