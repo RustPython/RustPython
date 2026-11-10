@@ -263,3 +263,29 @@ assert (spec.lineno, spec.end_lineno, spec.col_offset, spec.end_col_offset) == (
     -1,
     -1,
 )
+
+# Parameter diagnostics preserve the complete ast.arg range through AST input,
+# including annotations but excluding the * and ** prefixes.
+for source, name, location in [
+    ("def f(x, x): pass", "x", (1, 10, 1, 11)),
+    ("def f(x: int, x: str): pass", "x", (1, 15, 1, 21)),
+    ("def f(x, *, x): pass", "x", (1, 13, 1, 14)),
+    ("def f(x, *x): pass", "x", (1, 11, 1, 12)),
+    ("def f(x, **x): pass", "x", (1, 12, 1, 13)),
+    ("class C:\n def f(__x,_C__x): pass", "_C__x", (2, 12, 2, 17)),
+    ("def f(é, é): pass", "é", (1, 11, 1, 13)),
+    ("lambda x,x: None", "x", (1, 10, 1, 11)),
+]:
+    for input_source in (source, ast.parse(source)):
+        try:
+            compile(input_source, "<parameter-locations>", "exec")
+        except SyntaxError as error:
+            assert error.msg == f"duplicate parameter '{name}' in function definition"
+            assert (
+                error.lineno,
+                error.offset,
+                error.end_lineno,
+                error.end_offset,
+            ) == location
+        else:
+            raise AssertionError("duplicate parameter accepted")

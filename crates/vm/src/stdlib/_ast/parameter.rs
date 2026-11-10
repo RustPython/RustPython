@@ -189,7 +189,8 @@ impl Node for ast::Parameter {
         source_file: &AstSourceContext,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        let name = get_required_identifier_field(vm, source_file, &_object, "arg", "arg")?;
+        let mut name: ast::Identifier =
+            get_required_identifier_field(vm, source_file, &_object, "arg", "arg")?;
         let annotation = get_node_field_opt(vm, &_object, "annotation")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?;
@@ -199,6 +200,7 @@ impl Node for ast::Parameter {
                 super::constant::runtime_string_from_pyobject(vm, &type_comment)
             });
         let range = range_from_object(vm, source_file, &_object, "arg")?;
+        name.range = range.range;
         Ok(Self {
             node_index: range.node_index(),
             name,

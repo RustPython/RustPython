@@ -1454,6 +1454,9 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
+        // CPython reports the whole arg node, including any annotation.
+        // Ruff parameter ranges also include * or **, so start at the name.
+        let range = TextRange::new(parameter.name.start(), parameter.end());
         // Check for duplicate parameter names
         let table = self.tables.last().unwrap();
         if table.symbols.contains_key(parameter.name.as_str()) {
@@ -1462,11 +1465,11 @@ impl SymbolTableBuilder {
                     "duplicate parameter '{}' in function definition",
                     parameter.name
                 ),
-                parameter.name.range,
+                range,
             ));
         }
 
-        self.register_ident(&parameter.name, SymbolUsage::Parameter)
+        self.register_name(parameter.name.id(), SymbolUsage::Parameter, range)
     }
 
     /// Scan an annotation from an AnnAssign statement (can be conditional)
@@ -3028,10 +3031,6 @@ impl SymbolTableBuilder {
             location: Some(source_code.source_location(range.start(), PositionEncoding::Utf8)),
             end_location: Some(source_code.source_location(range.end(), PositionEncoding::Utf8)),
         }
-    }
-
-    fn register_ident(&mut self, ident: &ast::Identifier, role: SymbolUsage) -> SymbolTableResult {
-        self.register_name(ident.id(), role, ident.range)
     }
 
     fn check_name(
