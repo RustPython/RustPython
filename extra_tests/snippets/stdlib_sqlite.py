@@ -1061,3 +1061,164 @@ try:
         con.close()
 finally:
     del sqlite.converters["METADATA"]
+
+
+# Cursor checks apply to operations, not passive getters or fetchmany(0).
+def cursor_thread_error_priority():
+    import threading
+
+    for state in ("open", "cursor_closed", "connection_closed", "both_closed"):
+        con = sqlite.connect(":memory:")
+        cur = con.cursor()
+        if state in ("cursor_closed", "both_closed"):
+            cur.close()
+        if state in ("connection_closed", "both_closed"):
+            con.close()
+        outcomes = []
+
+        def run():
+            for operation in (cur.fetchone, cur.close):
+                try:
+                    operation()
+                except sqlite.ProgrammingError as exc:
+                    outcomes.append(str(exc))
+                else:
+                    outcomes.append("no error")
+            # CPython does not iterate when zero rows are requested.
+            outcomes.append(cur.fetchmany(0))
+            if state == "open":
+                outcomes.append(cur.rowcount)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        worker.join()
+        con.close()
+        thread_message = "SQLite objects created in a thread can only be used"
+        if state in ("cursor_closed", "both_closed"):
+            assert outcomes[0] == "Cannot operate on a closed cursor."
+        else:
+            assert outcomes[0].startswith(thread_message), outcomes
+        # close() checks the connection's thread even for a closed cursor.
+        assert outcomes[1].startswith(thread_message), outcomes
+        assert outcomes[2] == []
+        if state == "open":
+            assert outcomes[3] == -1
+
+
+cursor_thread_error_priority()
+
+
+# Finalization warns with source=self, rolls back, and ignores thread ownership.
+def connection_finalization():
+    import gc
+    import threading
+    import warnings
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always", ResourceWarning)
+        events = []
+        con = sqlite.connect(":memory:", autocommit=False)
+        con.set_trace_callback(events.append)
+        del con
+        gc.collect()
+        assert len(records) == 1
+        assert str(records[0].message).startswith("unclosed database in ")
+        with unittest.TestCase().assertRaisesRegex(
+            sqlite.ProgrammingError, "closed database"
+        ):
+            records[0].source.execute("SELECT 1")
+        assert events == ["ROLLBACK"], events
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always", ResourceWarning)
+        con = sqlite.connect(":memory:")
+        con.close()
+        del con
+        con = sqlite.Connection.__new__(sqlite.Connection)
+        del con
+        gc.collect()
+        assert not records
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always", ResourceWarning)
+        owners = [sqlite.connect(":memory:")]
+
+        def release():
+            owners.pop()
+
+        worker = threading.Thread(target=release)
+        worker.start()
+        worker.join()
+        gc.collect()
+        assert len(records) == 1
+        with unittest.TestCase().assertRaisesRegex(
+            sqlite.ProgrammingError, "closed database"
+        ):
+            records[0].source.execute("SELECT 1")
+
+
+connection_finalization()
+
+
+def connection_warning_error_still_closes():
+    import gc
+    import os
+    import tempfile
+    import warnings
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "finalize.db")
+        con = sqlite.connect(path)
+        con.execute("CREATE TABLE data(value)")
+        con.close()
+        errors = []
+        previous_hook = sys.unraisablehook
+        sys.unraisablehook = lambda event: errors.append(
+            (event.exc_type, event.err_msg, event.object)
+        )
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", ResourceWarning)
+                con = sqlite.connect(path, autocommit=False)
+                con.execute("INSERT INTO data VALUES(1)")
+                del con
+                gc.collect()
+            assert len(errors) == 1, errors
+            assert errors[0][0] is ResourceWarning
+            assert errors[0][1].startswith(
+                "Exception ignored while finalizing database connection <"
+            )
+            assert errors[0][2] is None
+            con = sqlite.connect(path, timeout=0)
+            try:
+                assert con.execute("SELECT * FROM data").fetchall() == []
+                con.execute("INSERT INTO data VALUES(2)")
+                con.commit()
+            finally:
+                con.close()
+        finally:
+            sys.unraisablehook = previous_hook
+
+
+connection_warning_error_still_closes()
+
+
+def connection_teardown_disables_callbacks():
+    import subprocess
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-Wignore::ResourceWarning",
+            "-c",
+            "import sqlite3; con = sqlite3.connect(':memory:', autocommit=False); "
+            "con.set_trace_callback(lambda sql: print('UNEXPECTED_CALLBACK'))",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert process.returncode == 0, process.stderr
+    assert "UNEXPECTED_CALLBACK" not in process.stdout, process.stdout
+
+
+connection_teardown_disables_callbacks()
