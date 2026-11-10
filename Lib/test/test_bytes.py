@@ -204,7 +204,6 @@ class BaseBytesTest:
         self.assertRaises(ValueError, self.type2test, [sys.maxsize+1])
         self.assertRaises(ValueError, self.type2test, [10**100])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @bigaddrspacetest
     def test_constructor_overflow(self):
         size = MAX_Py_ssize_t
