@@ -2,6 +2,7 @@ use alloc::{borrow::Cow, string::String};
 
 /// Translate physical source line endings before tokenization, including those
 /// inside literals, as CPython's `_PyTokenizer_translate_newlines` does.
+#[must_use]
 pub fn normalize_newlines(source: &str) -> Cow<'_, str> {
     let Some(first_cr) = source.find('\r') else {
         return Cow::Borrowed(source);
