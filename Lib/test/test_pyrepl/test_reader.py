@@ -596,7 +596,6 @@ class TestReaderInColor(ScreenEqualMixin, TestCase):
         self.assert_screen_equal(reader, code, clean=True)
         self.assert_screen_equal(reader, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ
     def test_syntax_highlighting_literal_brace_in_fstring_or_tstring(self):
         code = dedent(
             """\
