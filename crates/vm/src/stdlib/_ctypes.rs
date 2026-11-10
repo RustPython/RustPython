@@ -407,7 +407,7 @@ pub(crate) mod _ctypes {
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn dllist(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         rustpython_host_env::ctypes::dllist()
             .into_iter()
@@ -653,7 +653,7 @@ pub(crate) mod _ctypes {
         .to_pyobject(vm))
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn alignment(object: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
         use crate::builtins::PyType;
 
@@ -798,7 +798,7 @@ pub(crate) mod _ctypes {
         Ok(())
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn get_errno() -> i32 {
         rustpython_host_env::ctypes::get_errno()
     }
@@ -866,7 +866,7 @@ pub(crate) mod _ctypes {
         super::function::cast_impl(&obj, obj.clone(), &typ, vm)
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn buffer_info(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Determine if object is a type or an instance
         let is_type = object
@@ -987,13 +987,13 @@ pub(crate) mod _ctypes {
         }
     }
 
-    #[pyfunction(name = "Py_INCREF", legacy_signature)]
+    #[pyfunction(name = "Py_INCREF", signature_from_flags)]
     fn py_incref(object: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         // TODO:
         object
     }
 
-    #[pyfunction(name = "Py_DECREF", legacy_signature)]
+    #[pyfunction(name = "Py_DECREF", signature_from_flags)]
     fn py_decref(object: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         // TODO:
         object

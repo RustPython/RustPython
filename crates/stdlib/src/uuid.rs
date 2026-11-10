@@ -29,7 +29,7 @@ mod _uuid {
     }
 
     #[cfg(not(windows))]
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn generate_time_safe() -> (Vec<u8>, PyNone) {
         static CONTEXT: ContextV1 = ContextV1::new(0);
         let ts = Timestamp::now(&CONTEXT);

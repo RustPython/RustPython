@@ -319,11 +319,11 @@ impl ItemMeta for SimpleItemMeta {
     }
 }
 
-/// Module function metadata; legacy signatures deliberately opt out of Clinic text.
+/// Module function metadata; flag-derived signatures deliberately opt out of Clinic text.
 pub(crate) struct FunctionItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for FunctionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "legacy_signature"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "signature_from_flags"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -334,8 +334,8 @@ impl ItemMeta for FunctionItemMeta {
 }
 
 impl FunctionItemMeta {
-    pub(crate) fn legacy_signature(&self) -> Result<bool> {
-        self.inner()._bool("legacy_signature")
+    pub(crate) fn signature_from_flags(&self) -> Result<bool> {
+        self.inner()._bool("signature_from_flags")
     }
 }
 
@@ -926,7 +926,7 @@ pub(crate) fn internal_doc_tokens(
 }
 
 /// CPython's flags-based fallback, evaluated entirely during compilation.
-pub(crate) fn legacy_module_doc_tokens(
+pub(crate) fn flags_signature_doc_tokens(
     sig: &Signature,
     py_name: &str,
     doc: TokenStream,
@@ -935,7 +935,7 @@ pub(crate) fn legacy_module_doc_tokens(
     let args = quote! {
         const ARGS: &[::rustpython_vm::function::SigArg] = {
             #original
-            ::rustpython_vm::function::legacy_module_signature(ARGS)
+            ::rustpython_vm::function::signature_from_flags(ARGS)
         };
     };
     doc_from_signature_args(py_name, doc, args)
@@ -1012,34 +1012,34 @@ mod metadata_tests {
     }
 
     #[test]
-    fn legacy_signature_is_a_module_function_only_opt_in() {
-        let attr = parse_quote!(#[pyfunction(name = "alias", legacy_signature)]);
+    fn signature_from_flags_is_a_module_function_only_opt_in() {
+        let attr = parse_quote!(#[pyfunction(name = "alias", signature_from_flags)]);
         let meta = FunctionItemMeta::from_attr(parse_quote!(function), &attr).unwrap();
         assert_eq!(meta.simple_name().unwrap(), "alias");
-        assert!(meta.legacy_signature().unwrap());
+        assert!(meta.signature_from_flags().unwrap());
         let ordinary = parse_quote!(#[pyfunction]);
         assert!(
             !FunctionItemMeta::from_attr(parse_quote!(function), &ordinary)
                 .unwrap()
-                .legacy_signature()
+                .signature_from_flags()
                 .unwrap()
         );
         assert!(SimpleItemMeta::from_attr(parse_quote!(function), &attr).is_err());
-        let invalid = parse_quote!(#[pyfunction(legacy_signature = "arbitrary text")]);
+        let invalid = parse_quote!(#[pyfunction(signature_from_flags = "arbitrary text")]);
         let result = FunctionItemMeta::from_attr(parse_quote!(function), &invalid);
-        assert!(result.and_then(|meta| meta.legacy_signature()).is_err());
+        assert!(result.and_then(|meta| meta.signature_from_flags()).is_err());
     }
 
     #[test]
-    fn legacy_signature_codegen_preserves_original_argument_metadata() {
+    fn signature_from_flags_codegen_preserves_original_argument_metadata() {
         let sig: Signature = parse_quote!(fn sample(value: ValueArgs, vm: &VirtualMachine));
         let doc = quote!(::rustpython_vm::function::ItemDoc::NONE);
-        let legacy = legacy_module_doc_tokens(&sig, "sample", doc.clone()).to_string();
-        assert!(legacy.contains("legacy_module_signature"));
-        assert!(legacy.contains("ValueArgs"));
+        let from_flags = flags_signature_doc_tokens(&sig, "sample", doc.clone()).to_string();
+        assert!(from_flags.contains("signature_from_flags"));
+        assert!(from_flags.contains("ValueArgs"));
         let ordinary =
             internal_doc_tokens(&sig, "sample", None, doc, None, Some("$module")).to_string();
-        assert!(!ordinary.contains("legacy_module_signature"));
+        assert!(!ordinary.contains("signature_from_flags"));
         assert!(ordinary.contains("$module"));
     }
 

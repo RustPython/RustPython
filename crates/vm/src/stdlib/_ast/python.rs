@@ -273,7 +273,7 @@ pub(crate) mod _ast {
         ]
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn _is_abstract(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         is_abstract(&object, vm)
     }

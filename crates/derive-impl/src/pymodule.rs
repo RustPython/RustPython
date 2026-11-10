@@ -5,7 +5,7 @@ use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, FunctionItemMeta, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta,
-    internal_doc_tokens, iter_use_idents, legacy_module_doc_tokens, pyclass_ident_and_attrs,
+    flags_signature_doc_tokens, internal_doc_tokens, iter_use_idents, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -677,7 +677,7 @@ impl ModuleItem for FunctionItem {
         let item_meta = FunctionItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
-        let mut legacy_signatures = vec![item_meta.legacy_signature()?];
+        let mut flags_signatures = vec![item_meta.signature_from_flags()?];
         let mut py_names = vec![py_name];
         for attr_index in self.py_attrs.iter().rev() {
             let mut loop_unit = || {
@@ -691,7 +691,7 @@ impl ModuleItem for FunctionItem {
                         &format!("`{py_name}` is duplicated name for multiple py* attribute"),
                     ));
                 }
-                legacy_signatures.push(item_meta.legacy_signature()?);
+                flags_signatures.push(item_meta.signature_from_flags()?);
                 py_names.push(py_name);
                 Ok(())
             };
@@ -703,8 +703,8 @@ impl ModuleItem for FunctionItem {
         let rust_doc = args.attrs.doc().filter(|doc| !doc.is_empty());
         let docs = py_names
             .iter()
-            .zip(legacy_signatures)
-            .map(|(py_name, legacy_signature)| {
+            .zip(flags_signatures)
+            .map(|(py_name, from_flags)| {
                 let db_doc = if rust_doc.is_some() {
                     None
                 } else {
@@ -713,8 +713,8 @@ impl ModuleItem for FunctionItem {
                     })
                 };
                 let doc = crate::class_docs::item_doc_tokens(db_doc, rust_doc.clone());
-                if legacy_signature {
-                    legacy_module_doc_tokens(func.sig(), py_name, doc)
+                if from_flags {
+                    flags_signature_doc_tokens(func.sig(), py_name, doc)
                 } else {
                     internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
                 }

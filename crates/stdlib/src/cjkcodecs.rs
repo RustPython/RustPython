@@ -17,7 +17,7 @@ macro_rules! codecs_module {
 
             const CODECS: &[&'static str] = &[$($name),+];
 
-            #[pyfunction(legacy_signature)]
+            #[pyfunction(signature_from_flags)]
             fn getcodec(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                 multibytecodec::get_codec(CODECS, &object, vm)
             }

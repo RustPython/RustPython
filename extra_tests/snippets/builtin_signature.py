@@ -248,7 +248,7 @@ for new, kwargs in ((object.__new__, {"type": object}), (list.__new__, {"cls": l
 # functions. The hidden marker is $self even though they bind a module.
 import importlib
 
-legacy_signatures = {
+flags_signatures = {
     "_ast": {
         "_is_abstract": "($self, object, /)",
     },
@@ -326,7 +326,7 @@ legacy_signatures = {
         "time_ns": "($self, /)",
     },
 }
-for module_name, signatures in legacy_signatures.items():
+for module_name, signatures in flags_signatures.items():
     try:
         module = importlib.import_module(module_name)
     except ImportError:

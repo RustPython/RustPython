@@ -143,13 +143,13 @@ mod _socket {
         }
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn getdefaulttimeout() -> Option<f64> {
         let timeout = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
         (timeout >= 0.0).then_some(timeout)
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn setdefaulttimeout(object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
         match object {
             None => DEFAULT_TIMEOUT.store((-1.0f64).to_bits(), Ordering::Relaxed),
@@ -167,7 +167,7 @@ mod _socket {
         Ok(())
     }
 
-    #[pyfunction(legacy_signature)]
+    #[pyfunction(signature_from_flags)]
     fn gethostname(vm: &VirtualMachine) -> PyResult<String> {
         Err(unsupported(vm, "gethostname").into())
     }
