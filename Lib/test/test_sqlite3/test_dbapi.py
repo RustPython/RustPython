@@ -554,7 +554,6 @@ class ConnectionTests(unittest.TestCase):
                 r'connect\(\) takes at most 1 positional arguments'):
             sqlite.connect(":memory:", 1.0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ResourceWarning not emitted
     def test_connection_resource_warning(self):
         with self.assertWarns(ResourceWarning):
             cx = sqlite.connect(":memory:")
@@ -1618,7 +1617,6 @@ class ThreadTests(unittest.TestCase):
             with self.subTest(fn=fn):
                 self._run_test(fn)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_check_cursor_thread(self):
         fns = [
             lambda: self.cur.execute("insert into test(name) values('a')"),

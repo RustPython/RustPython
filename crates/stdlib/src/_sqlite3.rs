@@ -76,8 +76,8 @@ mod _sqlite3 {
         },
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
-            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-            Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
+            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Destructor,
+            Hashable, Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
         },
         utils::ToCString,
     };
@@ -1296,15 +1296,66 @@ mod _sqlite3 {
         }
     }
 
-    #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
+    impl Destructor for Connection {
+        fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let teardown = vm.state.finalizing.load(Ordering::Acquire);
+            if teardown {
+                let db = zelf.db.lock().clone();
+                if let Some(db) = db {
+                    db.disable_callbacks();
+                }
+            }
+            if !zelf.is_closed() {
+                let warning = zelf.as_object().repr(vm).and_then(|repr| {
+                    rustpython_vm::warn::warn(
+                        vm.ctx
+                            .new_str(format!("unclosed database in {}", repr.as_wtf8()))
+                            .into(),
+                        Some(vm.ctx.exceptions.resource_warning.to_owned()),
+                        1,
+                        Some(zelf.as_object().to_owned()),
+                        vm,
+                    )
+                });
+                if let Err(exc) = warning
+                    && exc.fast_isinstance(vm.ctx.exceptions.warning)
+                {
+                    let message = zelf.as_object().repr(vm).ok().map(|repr| {
+                        format!(
+                            "Exception ignored while finalizing database connection {}",
+                            repr.as_wtf8()
+                        )
+                    });
+                    vm.run_unraisable(exc, message, vm.ctx.none());
+                }
+            }
+            // A warning promoted to an exception must not prevent cleanup.
+            // Unlike close(), finalization is allowed on a different thread.
+            if let Err(exc) = zelf.drop_db(vm)
+                && !teardown
+            {
+                let message = zelf.as_object().repr(vm).ok().map(|repr| {
+                    format!(
+                        "Exception ignored while closing database {}",
+                        repr.as_wtf8()
+                    )
+                });
+                vm.run_unraisable(exc, message, vm.ctx.none());
+            }
+            Ok(())
+        }
+    }
+
+    #[pyclass(
+        with(Constructor, Callable, Initializer, Destructor),
+        flags(BASETYPE, HAS_WEAKREF)
+    )]
     impl Connection {
         fn cached_statement(
             &self,
             sql: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<Option<StatementLease>> {
-            // Check the connection even on a cache hit.
-            drop(self.db_lock(vm)?);
             let (cached, generation) = {
                 let mut cache = self.statement_cache.lock();
                 let statement = cache.entries.get_index_of(sql.as_str()).map(|index| {
@@ -2466,6 +2517,7 @@ mod _sqlite3 {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let mut inner = zelf.inner(vm)?;
+            zelf.connection.check_open(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
@@ -2478,7 +2530,8 @@ mod _sqlite3 {
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
-            let db = stmt.database(&zelf.connection, vm)?;
+            zelf.connection.check_open(vm)?;
+            let db = stmt.database();
 
             // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml {
@@ -2544,6 +2597,7 @@ mod _sqlite3 {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let mut inner = zelf.inner(vm)?;
+            zelf.connection.check_open(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
@@ -2554,7 +2608,8 @@ mod _sqlite3 {
                 return Ok(zelf);
             };
 
-            let db = stmt.database(&zelf.connection, vm)?;
+            zelf.connection.check_open(vm)?;
+            let db = stmt.database();
             let st = stmt.lock();
 
             if st.readonly() {
@@ -2713,6 +2768,7 @@ mod _sqlite3 {
                 ));
             };
 
+            zelf.connection.check_open(vm)?;
             drop(inner.statement.take());
             inner.closed = true;
 
@@ -2865,23 +2921,22 @@ mod _sqlite3 {
 
     impl Cursor {
         fn next_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            // Check if connection is closed first, and if so, clear statement to release file lock
-            if zelf.connection.is_closed() {
-                let mut guard = zelf.inner.lock();
-                if let Some(stmt) = guard.as_mut().and_then(|inner| inner.statement.take()) {
+            let mut inner = zelf.inner(vm)?;
+            zelf.connection.check_thread(vm)?;
+            if let Err(exc) = zelf.connection._db_lock(vm) {
+                // Preserve closed-database cleanup, but only after checking the
+                // cursor state and thread in CPython's order.
+                if zelf.connection.is_closed()
+                    && let Some(stmt) = inner.statement.take()
+                {
                     stmt.lock().reset();
                 }
-                return Err(new_programming_error(
-                    vm,
-                    "Cannot operate on a closed database.".to_owned(),
-                ));
+                return Err(exc);
             }
-
-            let mut inner = zelf.inner(vm)?;
             let Some(stmt) = &inner.statement else {
                 return Ok(PyIterReturn::StopIteration(None));
             };
-            let db = stmt.database(&zelf.connection, vm)?;
+            let db = stmt.database();
             let st = stmt.lock();
             // fetch_one_row
 
@@ -3789,16 +3844,11 @@ mod _sqlite3 {
                 .map(|_| Self(statement))
         }
 
-        fn database(
-            &self,
-            connection: &Connection,
-            vm: &VirtualMachine,
-        ) -> PyResult<SqliteOperation> {
-            connection.check_open(vm)?;
+        fn database(&self) -> SqliteOperation {
             // The statement owns a live connection, not just memory retained by
             // sqlite3_close_v2. Reinitialization may replace Connection.db while
             // existing cursors continue reading this original database.
-            Ok(SqliteOperation(self.lock().db.clone()))
+            SqliteOperation(self.lock().db.clone())
         }
     }
 
@@ -3897,6 +3947,7 @@ mod _sqlite3 {
         blobs: Vec<SqliteBlob>,
         rollback: bool,
         clear_callbacks: bool,
+        disable_callbacks: bool,
     }
 
     impl SqliteCleanup {
@@ -3905,6 +3956,7 @@ mod _sqlite3 {
                 && self.blobs.is_empty()
                 && !self.rollback
                 && !self.clear_callbacks
+                && !self.disable_callbacks
         }
     }
 
@@ -3919,6 +3971,11 @@ mod _sqlite3 {
     }
 
     impl Sqlite {
+        fn disable_callbacks(&self) {
+            self.pending.lock().disable_callbacks = true;
+            self.flush_cleanup();
+        }
+
         fn flush_cleanup(&self) {
             self.drain_cleanup(false);
         }
@@ -3939,6 +3996,9 @@ mod _sqlite3 {
                     };
                     // Never keep a Rust mutex while SQLite can invoke Python.
                     let pending = core::mem::take(&mut *self.pending.lock());
+                    if pending.disable_callbacks {
+                        self.remove_callbacks();
+                    }
                     if pending.rollback && !self.is_autocommit() {
                         // close() has already returned; like sqlite3_close_v2,
                         // deferred rollback cannot report an error to its caller.
@@ -3973,6 +4033,10 @@ mod _sqlite3 {
         fn close_callbacks(&self, rollback: bool, vm: &VirtualMachine) -> PyResult<()> {
             self.callbacks.lock().closed = true;
             if let Some(guard) = self.raw.try_lock() {
+                let disable_callbacks = core::mem::take(&mut self.pending.lock().disable_callbacks);
+                if disable_callbacks {
+                    self.remove_callbacks();
+                }
                 let result = if rollback && !self.is_autocommit() {
                     self._exec(c"ROLLBACK", vm)
                 } else {
@@ -3995,7 +4059,7 @@ mod _sqlite3 {
         }
 
         // The native mutex is held. SQLite must stop using the pointers first.
-        fn clear_callbacks(&self) -> [Option<PyRc<CallbackData>>; 3] {
+        fn remove_callbacks(&self) {
             for kind in [
                 CallbackKind::Trace,
                 CallbackKind::Progress(0),
@@ -4003,6 +4067,10 @@ mod _sqlite3 {
             ] {
                 kind.register(self.raw, null_mut());
             }
+        }
+
+        fn clear_callbacks(&self) -> [Option<PyRc<CallbackData>>; 3] {
+            self.remove_callbacks();
             let mut slots = self.callbacks.lock();
             [
                 slots.trace.take(),
