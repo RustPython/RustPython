@@ -735,70 +735,40 @@ mod _tokenize {
         let mut part_start_col = cur_col;
         let mut chars = raw.chars().peekable();
 
-        // Compute end position of the current accumulated text
-        let end_pos = |current: &str, start_line: usize, start_col: usize| -> (usize, usize) {
-            let mut el = start_line;
-            let mut ec = start_col;
-            for ch in current.chars() {
-                if ch == '\n' {
-                    el += 1;
-                    ec = 0;
-                } else {
-                    ec += ch.len_utf8();
-                }
-            }
-            (el, ec)
-        };
-
         while let Some(ch) = chars.next() {
-            if ch == '{' && chars.peek() == Some(&'{') {
+            current.push(ch);
+            if ch == '\n' {
+                cur_line += 1;
+                cur_col = 0;
+            } else {
+                cur_col += 1;
+            }
+            if matches!(ch, '{' | '}') && chars.peek() == Some(&ch) {
                 chars.next();
-                current.push('{');
-                cur_col += 2; // skip both {{ in source
-            } else if ch == '}' && chars.peek() == Some(&'}') {
-                chars.next();
-                // Flush accumulated text before }}
-                if !current.is_empty() {
-                    let (el, ec) = end_pos(&current, part_start_line, part_start_col);
-                    parts.push((
-                        token_type,
-                        core::mem::take(&mut current),
-                        part_start_line,
-                        part_start_col,
-                        el,
-                        ec,
-                    ));
-                }
-                // Emit unescaped '}' at source position of }}
+                // CPython ends each middle token at the first escaped brace.
                 parts.push((
                     token_type,
-                    "}".to_string(),
+                    core::mem::take(&mut current),
+                    part_start_line,
+                    part_start_col,
                     cur_line,
                     cur_col,
-                    cur_line,
-                    cur_col + 1,
                 ));
-                cur_col += 2; // skip both }} in source
+                cur_col += 1;
                 part_start_line = cur_line;
                 part_start_col = cur_col;
-            } else {
-                if current.is_empty() {
-                    part_start_line = cur_line;
-                    part_start_col = cur_col;
-                }
-                current.push(ch);
-                if ch == '\n' {
-                    cur_line += 1;
-                    cur_col = 0;
-                } else {
-                    cur_col += ch.len_utf8();
-                }
             }
         }
 
         if !current.is_empty() {
-            let (el, ec) = end_pos(&current, part_start_line, part_start_col);
-            parts.push((token_type, current, part_start_line, part_start_col, el, ec));
+            parts.push((
+                token_type,
+                current,
+                part_start_line,
+                part_start_col,
+                cur_line,
+                cur_col,
+            ));
         }
 
         parts
