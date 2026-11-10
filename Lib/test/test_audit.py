@@ -71,7 +71,6 @@ class AuditTest(unittest.TestCase):
     def test_monkeypatch(self):
         self.do_test("test_monkeypatch")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_open(self):
         self.do_test("test_open", os_helper.TESTFN)
 

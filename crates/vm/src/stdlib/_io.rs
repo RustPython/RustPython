@@ -5704,14 +5704,14 @@ mod _io {
     impl Mode {
         const fn rawmode(&self) -> &'static str {
             match (&self.file, self.plus) {
-                (FileMode::Read, true) => "rb+",
-                (FileMode::Read, false) => "rb",
-                (FileMode::Write, true) => "wb+",
-                (FileMode::Write, false) => "wb",
-                (FileMode::Exclusive, true) => "xb+",
-                (FileMode::Exclusive, false) => "xb",
-                (FileMode::Append, true) => "ab+",
-                (FileMode::Append, false) => "ab",
+                (FileMode::Read, true) => "r+",
+                (FileMode::Read, false) => "r",
+                (FileMode::Write, true) => "w+",
+                (FileMode::Write, false) => "w",
+                (FileMode::Exclusive, true) => "x+",
+                (FileMode::Exclusive, false) => "x",
+                (FileMode::Append, true) => "a+",
+                (FileMode::Append, false) => "a",
             }
         }
     }
@@ -6242,6 +6242,7 @@ mod fileio {
             let mode = parsed.mode;
             let flags = parsed.flags;
             zelf.mode.store(mode);
+            vm.audit("open", || (name.clone(), mode_str, flags))?;
 
             let (fd, _filename) = if let Some(fd) = arg_fd {
                 zelf.closefd.store(args.closefd);
