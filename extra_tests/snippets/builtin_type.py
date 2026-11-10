@@ -825,3 +825,65 @@ assert native_static.__func__ is str.maketrans
 assert native_static.__wrapped__ is str.maketrans
 assert str.maketrans("a", "b") == {97: 98}
 assert "".maketrans("a", "b") == {97: 98}
+
+
+# Metaclasses inherit weakref storage from type without introducing a data
+# descriptor that would shadow their instances' own __weakref__ descriptor.
+def check_metaclass_weakref_descriptor():
+    import weakref
+
+    class Meta(type):
+        pass
+
+    class SubMeta(Meta):
+        pass
+
+    for metaclass in (Meta, SubMeta):
+        assert "__weakref__" not in metaclass.__dict__
+        assert not hasattr(metaclass, "__weakref__")
+
+        class Example(metaclass=metaclass):
+            pass
+
+        descriptor = Example.__dict__["__weakref__"]
+        assert Example.__weakref__ is descriptor
+        instance = Example()
+        assert instance.__weakref__ is None
+        ref = weakref.ref(instance)
+        assert instance.__weakref__ is ref
+        assert weakref.ref(Example)() is Example
+
+        class Slotted(metaclass=metaclass):
+            __slots__ = ()
+
+        assert not hasattr(Slotted, "__weakref__")
+        assert weakref.ref(Slotted)() is Slotted
+
+
+check_metaclass_weakref_descriptor()
+
+
+# A secondary base can supply weakref storage despite explicit empty slots.
+class WeakrefPrimary:
+    __slots__ = ("value",)
+
+
+class WeakrefSecondary:
+    __slots__ = ("__weakref__",)
+
+
+del WeakrefSecondary.__weakref__
+
+
+class WeakrefCombined(WeakrefPrimary, WeakrefSecondary):
+    __slots__ = ()
+
+
+assert WeakrefCombined.__base__ is WeakrefPrimary
+assert "__weakref__" in WeakrefCombined.__dict__
+assert WeakrefCombined().__weakref__ is None
+
+for variable_base in (tuple, int, bytes):
+    Combined = type("Combined", (variable_base, WeakrefSecondary), {"__slots__": ()})
+    assert "__weakref__" in Combined.__dict__
+    assert Combined().__weakref__ is None
