@@ -253,11 +253,6 @@ pub mod sys {
         _ => c"unknown",
     };
 
-    #[pyattr(name = "ps1")]
-    const PS1: &str = ">>> ";
-    #[pyattr(name = "ps2")]
-    const PS2: &str = "... ";
-
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
     fn vpath(vm: &VirtualMachine) -> String {

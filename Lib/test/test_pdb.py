@@ -4862,7 +4862,6 @@ class PdbTestInline(unittest.TestCase):
         )
         return stdout, stderr
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quit(self):
         script = """
             x = 1
@@ -4889,7 +4888,6 @@ class PdbTestInline(unittest.TestCase):
         # The quit prompt should be printed exactly twice
         self.assertEqual(stdout.count("Quit anyway"), 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quit_after_interact(self):
         """
         interact command will set sys.ps1 temporarily, we need to make sure
