@@ -1128,8 +1128,10 @@ mod _pyexpat {
             );
         }
 
-        fn create_config(&self) -> xml::ParserConfig {
+        fn create_config(&self, unicode_input: bool) -> xml::ParserConfig {
             xml::ParserConfig::new()
+                .override_encoding(unicode_input.then_some(xml::Encoding::Utf8))
+                .ignore_invalid_encoding_declarations(unicode_input)
                 .cdata_to_characters(false)
                 .coalesce_characters(false)
                 .ignore_comments(false)
@@ -1773,7 +1775,13 @@ mod _pyexpat {
         /// `xml.etree.ElementTree` reads and feeds a file 64KB at a time);
         /// see the module doc comment for how each backend stays consistent
         /// across those calls.
-        fn feed(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
+        fn feed(
+            &self,
+            vm: &VirtualMachine,
+            chunk: &[u8],
+            isfinal: bool,
+            unicode_input: bool,
+        ) -> PyResult<()> {
             if self.busy.swap(true, Ordering::SeqCst) {
                 // Reentrant call, e.g. a handler calling Parse() on the same
                 // parser. Draining our own channel (Threaded) or re-entering
@@ -1781,12 +1789,18 @@ mod _pyexpat {
                 // corrupt state, so reject it instead, mirroring CPython.
                 return Err(vm.new_runtime_error("Parse() called before Parse() returned"));
             }
-            let result = self.feed_inner(vm, chunk, isfinal);
+            let result = self.feed_inner(vm, chunk, isfinal, unicode_input);
             self.busy.store(false, Ordering::SeqCst);
             result
         }
 
-        fn feed_inner(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
+        fn feed_inner(
+            &self,
+            vm: &VirtualMachine,
+            chunk: &[u8],
+            isfinal: bool,
+            unicode_input: bool,
+        ) -> PyResult<()> {
             if let Some(entity) = &self.external_entity {
                 // xml-rs only parses complete documents. In particular, an
                 // external DTD is not a document, and a general external
@@ -1816,7 +1830,9 @@ mod _pyexpat {
             {
                 let mut guard = self.backend.write();
                 if guard.is_none() {
-                    *guard = Some(Backend::new(self.create_config()));
+                    // CPython selects UTF-8 for str input with XML_SetEncoding;
+                    // that call cannot change the encoding after parsing starts.
+                    *guard = Some(Backend::new(self.create_config(unicode_input)));
                 }
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -1868,7 +1884,12 @@ mod _pyexpat {
             vm: &VirtualMachine,
         ) -> PyResult<i32> {
             let bytes = data.borrow_bytes().to_vec();
-            zelf.feed(vm, &bytes, isfinal.unwrap_or(false))?;
+            zelf.feed(
+                vm,
+                &bytes,
+                isfinal.unwrap_or(false),
+                matches!(data, ArgStrOrBytesLike::Str(_)),
+            )?;
             Ok(1)
         }
 
@@ -1883,7 +1904,7 @@ mod _pyexpat {
             let buf = bytes_like.borrow_buf().to_vec();
             // `file.read()` with no argument reads to EOF, so this chunk is
             // always the last one.
-            zelf.feed(vm, &buf, true)?;
+            zelf.feed(vm, &buf, true, false)?;
             Ok(1)
         }
     }
