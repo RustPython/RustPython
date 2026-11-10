@@ -1260,6 +1260,36 @@ fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Optio
 
 /// Converts the first parse error. A tokenizer error that follows an earlier syntax error is
 /// only found by the pass over the rest of the source, so it never asks for more input.
+/// Classify an initial INDENT after expression parsing has failed.
+/// CPython reports this before later tokenizer errors in the same input.
+#[doc(hidden)]
+#[must_use]
+pub fn expression_initial_indent_error(
+    tokens: &Tokens,
+    source_file: &SourceFile,
+) -> Option<CompileError> {
+    let first = tokens.iter().find(|token| {
+        !matches!(
+            token.kind(),
+            TokenKind::Comment | TokenKind::NonLogicalNewline | TokenKind::Newline
+        )
+    })?;
+    if first.kind() != TokenKind::Indent {
+        return None;
+    }
+    // An indentation token can span explicitly continued physical lines.
+    // The parser points at the last indentation character on the final line.
+    let offset = first.end() - TextSize::new(1);
+    Some(CompileError::from_ruff_parse_error(
+        parser::ParseError {
+            error: ParseErrorType::UnexpectedIndentation,
+            location: ruff_text_size::TextRange::empty(offset),
+        },
+        source_file,
+        Mode::Eval,
+    ))
+}
+
 fn first_parse_error(
     parsed: parser::Parsed<ast::Mod>,
     source_file: &SourceFile,
@@ -1270,6 +1300,11 @@ fn first_parse_error(
     let Some((first, rest)) = parsed.errors().split_first() else {
         return Ok(parsed);
     };
+    if matches!(mode, Mode::Eval)
+        && let Some(error) = expression_initial_indent_error(parsed.tokens(), source_file)
+    {
+        return Err(error);
+    }
     let after_syntax_error = rest.iter().any(|error| {
         !matches!(error.error, ParseErrorType::Lexical(_))
             && error.location.start() < first.location.start()

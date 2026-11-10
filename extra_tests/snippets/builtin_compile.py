@@ -223,3 +223,30 @@ _expect_incomplete(" #x", "single")
 # reported rather than assumed away.
 with assert_raises(UnicodeEncodeError):
     compile(chr(0xD800), "<test>", "eval")
+
+# Initial indentation in eval input precedes later tokenizer errors, with the
+# same locations whether compile returns bytecode or an AST.
+for source, line, column in (
+    (" 1", 1, 1),
+    ("\n -1", 2, 1),
+    ("\n\t-1", 2, 1),
+    ("\n\f -1", 2, 2),
+    ("\n  # comment\n  -1", 3, 2),
+    ("\n    \\\n  -1", 3, 2),
+    ("\n    \\\n    (\\\n\\ ", 3, 4),
+):
+    for flags in (0, ast.PyCF_ONLY_AST):
+        try:
+            compile(source, "<test>", "eval", flags=flags)
+        except IndentationError as exc:
+            assert exc.msg == "unexpected indent"
+            assert (exc.lineno, exc.offset, exc.end_lineno, exc.end_offset) == (
+                line,
+                column,
+                line,
+                -1,
+            )
+        else:
+            raise AssertionError("initial eval indentation was accepted")
+
+assert eval(compile("(\n  1\n)", "<test>", "eval")) == 1
