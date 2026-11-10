@@ -322,8 +322,30 @@ fn full_data_parsers_latest() {
         }
     }
 
+    #[cfg(feature = "ucd_3_2_0")]
+    generate_normalization_changes_3_2(&decomp_lines);
     generate_decomp(decomp_lines);
     generate_algo_names(algo_names);
+}
+
+/// Preserve the pre-4.0 normalization corrections for the Unicode 3.2 view.
+#[cfg(feature = "ucd_3_2_0")]
+fn generate_normalization_changes_3_2(latest: &[(u32, String)]) {
+    let mut changes = Vec::new();
+    for line in UnicodeLineReader::from_file_name("UnicodeData-3.2.0.txt", false) {
+        let old = line.field(NonZeroUsize::new(5).unwrap(), None);
+        if let Ok(i) = latest.binary_search_by_key(&line.start, |(code, _)| *code)
+            && latest[i].1 != old
+        {
+            // Like CPython's previous-version normalization table, each
+            // correction replaces one character before recursive decomposition.
+            let replacement = u32::from_str_radix(old, 16)
+                .expect("normalization corrections have one canonical replacement");
+            changes.push((line.start, replacement));
+        }
+    }
+    let mut writer = open_writer("normalization_3_2.rs");
+    write_slice_pairs(&mut writer, "NORMALIZATION_3_2", "(u32, u32)", &mut changes);
 }
 
 fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
