@@ -57,3 +57,24 @@ for exc, expected_name in [
 ]:
     assert exc.__module__ == "binascii"
     assert exc.__name__ == expected_name
+
+# Module-bound functions retain their defining module when stored elsewhere.
+# Both owned and borrowed Rust module receivers use the same Python binding.
+for name, encoded, decoded in (
+    ("a2b_base64", b"YQ==", b"a"),
+    ("a2b_base32", b"ME======", b"a"),
+    ("a2b_base85", b"VE", b"a"),
+):
+    function = getattr(binascii, name)
+    assert function.__self__ is binascii
+    assert function.__module__ == "binascii"
+    assert function(encoded) == decoded
+    assert function.__text_signature__.startswith("($module, data, /, *")
+
+# A Python-visible module argument must not be mistaken for a bound receiver.
+import _imp
+import sys
+
+assert _imp.exec_builtin(sys) == 0
+with assert_raises(TypeError):
+    _imp.exec_builtin()
