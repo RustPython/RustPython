@@ -1243,7 +1243,11 @@ jobs:
         run: |
           for name in $WASM_WASI_TEST_FILES; do
             echo "::group::Lib/test/${name}.py"
-            wasmer run --volume "$(pwd)" --env "RUSTPYTHONPATH=$(pwd)/Lib" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
+            test_file="$(pwd)/Lib/test/${name}.py"
+            if [ "$name" = "test_sort" ]; then
+              test_file="$(pwd)/extra_tests/wasi_test_sort.py"
+            fi
+            wasmer run --volume "$(pwd)" --env "RUSTPYTHONPATH=$(pwd)/Lib" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$test_file"
             echo "::endgroup::"
           done
 
