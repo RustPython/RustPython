@@ -2196,7 +2196,6 @@ class PydocWithMetaClasses(unittest.TestCase):
     def tearDown(self):
         self.assertIs(sys.modules['pydoc'], pydoc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings

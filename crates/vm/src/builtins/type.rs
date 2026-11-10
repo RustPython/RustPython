@@ -2321,10 +2321,21 @@ impl Constructor for PyType {
         // Add HAS_WEAKREF if:
         // 1. __slots__ is not defined (automatic weakref support), OR
         // 2. __weakref__ is in __slots__
-        // A variable-size base does not gain a weakref slot.
-        let may_add_weakref =
-            base.slots.itemsize == 0 && !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
-        if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
+        let may_add_weakref = !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
+        // Match type_new_slots/type_new_slots_bases: variable-size bases do
+        // not gain automatic weakref storage, but explicit slots may inherit
+        // it from a secondary base.
+        let add_weakref = add_weakref
+            || (may_add_weakref
+                && if heaptype_slots.is_none() {
+                    base.slots.itemsize == 0
+                } else {
+                    bases
+                        .as_slice()
+                        .iter()
+                        .any(|base| base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
+                });
+        if add_weakref {
             flags |= WEAKREF_FLAGS;
         }
 
@@ -2470,8 +2481,9 @@ impl Constructor for PyType {
             }
         }
 
-        // Add __weakref__ descriptor for types with HAS_WEAKREF
-        if typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
+        // Only a newly added weakref slot introduces a descriptor. Inherited
+        // support (notably type subclasses) must not expose a new descriptor.
+        if add_weakref {
             let __weakref__ = vm.ctx.intern_str("__weakref__");
             let has_inherited_weakref = typ
                 .mro
