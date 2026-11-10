@@ -801,49 +801,39 @@ impl BindingShape {
             || self.required_positional != 0
             || self.required_keyword_only
         {
-            let mut matched = BindingMatch {
-                positional: 0,
-                position: 0,
-                skip: instance,
-                found: 0,
-            };
+            let mut matched = BindingMatch::new(instance);
             if let Err(missing) = matched.walk(self.params, nargs, &args.kwargs) {
                 return Some(missing.into_exception(arity, nargs, 0, callee, vm));
             }
+            // A leftover keyword either names a parameter filled by position,
+            // lands in **kwargs, or is unexpected.
             if matched.found < nkwargs {
-                return self.leftover_keywords(args, nargs, instance, callee, vm);
+                if let Some((name, pos)) =
+                    BindingMatch::new(instance).first_duplicate(self.params, nargs, &args.kwargs)
+                {
+                    return Some(callee.given_by_name_and_position(name, pos, vm));
+                }
+                if !self.var_keyword {
+                    return self.unexpected_keyword(args, callee, vm);
+                }
             }
         }
         None
     }
 
+    /// Reports the first keyword no parameter accepts. Only reached when the
+    /// call fails, so the linear scan per keyword stays off the call path.
     #[cold]
-    fn leftover_keywords(
+    fn unexpected_keyword(
         &self,
         args: &FuncArgs,
-        nargs: usize,
-        instance: usize,
         callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
-        let mut matched = BindingMatch {
-            positional: 0,
-            position: 0,
-            skip: instance,
-            found: 0,
-        };
-        if let Some((name, pos)) = matched.first_duplicate(self.params, nargs, &args.kwargs) {
-            return Some(callee.given_by_name_and_position(name, pos, vm));
-        }
-        if self.var_keyword {
-            return None;
-        }
-        for name in args.kwargs.keys() {
-            if !binding_accepts_keyword(self.params, name) {
-                return Some(callee.unexpected_keyword(&name.to_string(), vm));
-            }
-        }
-        None
+        args.kwargs
+            .keys()
+            .find(|name| !binding_accepts_keyword(self.params, name))
+            .map(|name| callee.unexpected_keyword(&name.to_string(), vm))
     }
 }
 
@@ -855,6 +845,15 @@ struct BindingMatch {
 }
 
 impl BindingMatch {
+    const fn new(skip: usize) -> Self {
+        Self {
+            positional: 0,
+            position: 0,
+            skip,
+            found: 0,
+        }
+    }
+
     fn walk(
         &mut self,
         params: &[Param],
