@@ -48,3 +48,28 @@ except BufferError:
 else:
     raise AssertionError("Parse released its input buffer before the callback")
 xml.extend(b" ")
+
+
+# Expat's Error* positions alias Current* even before a parse error.
+def check_position_aliases(parser):
+    for suffix in ("LineNumber", "ColumnNumber", "ByteIndex"):
+        assert getattr(parser, "Error" + suffix) == getattr(parser, "Current" + suffix)
+        try:
+            setattr(parser, "Error" + suffix, 0)
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError("error positions must be read-only")
+
+
+parser = expat.ParserCreate()
+check_position_aliases(parser)
+parser.StartElementHandler = lambda *_: check_position_aliases(parser)
+parser.Parse(b"<r>", False)
+check_position_aliases(parser)
+try:
+    parser.Parse(b"", True)
+except expat.ExpatError:
+    check_position_aliases(parser)
+else:
+    raise AssertionError("incomplete XML accepted")
