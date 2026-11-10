@@ -1223,6 +1223,7 @@ def connection_teardown_disables_callbacks():
 
 connection_teardown_disables_callbacks()
 
+
 # Audit hooks observe the original path before filesystem conversion and an
 # unpublished connection before it can be used. Keep hooks inert after testing.
 def check_connection_audit():
