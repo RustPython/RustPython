@@ -86,15 +86,15 @@ impl PyObject {
         } else if let Some(s) = self.downcast_ref::<PyStr>() {
             int::from_str_literal(s, 10, vm).map(|value| vm.ctx.new_int(value))
         } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
-            int::from_bytes_literal(bytes.as_bytes(), 10, vm).map(|value| vm.ctx.new_int(value))
+            PyInt::from_bytes_literal(bytes.as_bytes(), 10, vm).map(|value| vm.ctx.new_int(value))
         } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {
-            int::from_bytes_literal(&bytearray.borrow_buf(), 10, vm)
+            PyInt::from_bytes_literal(&bytearray.borrow_buf(), 10, vm)
                 .map(|value| vm.ctx.new_int(value))
         } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
             // Generic exporters are copied before parsing, as in PyNumber_Long.
             // Do not call an exporter's repr while its buffer is borrowed.
             let bytes = buffer.borrow_buf().to_vec();
-            int::from_bytes_literal(&bytes, 10, vm).map(|value| vm.ctx.new_int(value))
+            PyInt::from_bytes_literal(&bytes, 10, vm).map(|value| vm.ctx.new_int(value))
         } else {
             let name = self.class().slot_name();
             let name = &name[..name.floor_char_boundary(name.len().min(200))];

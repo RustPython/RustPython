@@ -279,3 +279,55 @@ except json.JSONDecodeError as e:
     assert e.pos == 5, f"expected pos=5, got {e.pos}"
 else:
     raise AssertionError("expected JSONDecodeError")
+
+
+# The scanner reads the current limit, while user parse_int callbacks control
+# their own conversions. JSON syntax and float parsing remain separate.
+def check_integer_conversion_limit():
+    import sys
+
+    previous = sys.get_int_max_str_digits()
+    threshold = sys.int_info.str_digits_check_threshold
+    digits = "7" * (threshold + 1)
+    decoder = json.JSONDecoder()
+    try:
+        sys.set_int_max_str_digits(threshold)
+        for value in (digits, "-" + digits):
+            with assert_raises(ValueError) as error:
+                decoder.decode(value)
+            assert f"value has {threshold + 1} digits" in str(error.exception)
+            assert json.loads(value, parse_int=str) == value
+            seen = []
+
+            def parse_int(text):
+                seen.append(text)
+                return "converted"
+
+            assert json.loads(value, parse_int=parse_int) == "converted"
+            assert seen == [value]
+            with assert_raises(ValueError):
+                json.loads(value, parse_int=int)
+        assert json.loads("-" + "7" * threshold) < 0
+        assert json.loads(digits + ".0") == float("inf")
+        with assert_raises(json.JSONDecodeError):
+            json.loads("0" + digits)
+
+        class CallbackError(Exception):
+            pass
+
+        def fail(text):
+            raise CallbackError(text)
+
+        with assert_raises(CallbackError):
+            json.loads(digits, parse_int=fail)
+
+        sys.set_int_max_str_digits(0)
+        assert decoder.decode(digits) == int(digits)
+        sys.set_int_max_str_digits(threshold)
+        with assert_raises(ValueError):
+            decoder.decode(digits)
+    finally:
+        sys.set_int_max_str_digits(previous)
+
+
+check_integer_conversion_limit()

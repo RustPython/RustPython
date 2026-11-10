@@ -255,7 +255,16 @@ mod _json {
             } else if let Some(ref parse_int) = self.parse_int {
                 parse_int.call((buf,), vm)
             } else {
-                Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
+                let limit = vm.state.int_max_str_digits.load();
+                if limit != 0 && buf.len() > limit {
+                    // Preserve int()'s digit counting and error text. The JSON
+                    // scanner has already validated the literal, so ordinary
+                    // numbers need no second lexical validation pass.
+                    PyInt::from_bytes_literal(buf.as_bytes(), 10, vm)
+                        .map(|value| vm.new_pyobj(value))
+                } else {
+                    Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
+                }
             };
             Some((ret, buf.len()))
         }

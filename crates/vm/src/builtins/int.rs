@@ -1009,20 +1009,22 @@ pub(crate) fn from_str_literal(
     .map_err(|error| handle_bytes_to_int_err(error, obj.as_object(), vm))
 }
 
-pub(crate) fn from_bytes_literal(bytes: &[u8], base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
-    bytes_to_int(bytes, base, vm.state.int_max_str_digits.load()).map_err(|error| {
-        // _PyLong_FromBytes reports a bytes snapshot, never a subclass's repr
-        // or the mutable exporter. Only its first 200 bytes can be displayed.
-        let literal = vm.ctx.new_bytes(bytes[..bytes.len().min(200)].to_vec());
-        handle_bytes_to_int_err(error, literal.as_object(), vm)
-    })
+impl PyInt {
+    pub fn from_bytes_literal(bytes: &[u8], base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
+        bytes_to_int(bytes, base, vm.state.int_max_str_digits.load()).map_err(|error| {
+            // _PyLong_FromBytes reports a bytes snapshot, never a subclass's repr
+            // or the mutable exporter. Only its first 200 bytes can be displayed.
+            let literal = vm.ctx.new_bytes(bytes[..bytes.len().min(200)].to_vec());
+            handle_bytes_to_int_err(error, literal.as_object(), vm)
+        })
+    }
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     match_class!(match obj.to_owned() {
         string @ PyStr => from_str_literal(&string, base, vm),
-        bytes @ PyBytes => from_bytes_literal(bytes.as_bytes(), base, vm),
-        bytearray @ PyByteArray => from_bytes_literal(&bytearray.borrow_buf(), base, vm),
+        bytes @ PyBytes => PyInt::from_bytes_literal(bytes.as_bytes(), base, vm),
+        bytearray @ PyByteArray => PyInt::from_bytes_literal(&bytearray.borrow_buf(), base, vm),
         _ => Err(vm.new_type_error("int() can't convert non-string with explicit base")),
     })
 }
