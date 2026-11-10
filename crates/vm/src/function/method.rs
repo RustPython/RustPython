@@ -44,6 +44,10 @@ bitflags::bitflags! {
         // It uses PyCMethodObject instead of PyCFunctionObject.
         // May not be combined with METH_NOARGS, METH_O, METH_CLASS or METH_STATIC.
         const METHOD = 0x0200;
+
+        // Rust-only: the native function consumes its defining module as its
+        // first Rust argument. CPython always supplies this C-level receiver.
+        const BIND_MODULE = 0x10000;
     }
 }
 
@@ -58,12 +62,12 @@ impl PyMethodFlags {
         .union(Self::FASTCALL);
 
     /// Adds the calling convention inferred from `args` unless one is set.
-    /// For METHOD and CLASS the first argument is the bound receiver.
+    /// For METHOD, CLASS and BIND_MODULE the first argument is the bound receiver.
     pub(crate) const fn with_call_convention(self, args: &[SigArg]) -> Self {
         if self.intersects(Self::CALL_CONVENTION) {
             return self;
         }
-        let receiver = self.intersects(Self::METHOD.union(Self::CLASS));
+        let receiver = self.intersects(Self::METHOD.union(Self::CLASS).union(Self::BIND_MODULE));
         self.union(super::signature::native_call_flags(args, receiver))
     }
 }

@@ -323,7 +323,7 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct FunctionItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for FunctionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "signature_from_flags"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "signature_from_flags", "with_module"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -334,6 +334,10 @@ impl ItemMeta for FunctionItemMeta {
 }
 
 impl FunctionItemMeta {
+    pub(crate) fn with_module(&self) -> Result<bool> {
+        self.inner()._bool("with_module")
+    }
+
     pub(crate) fn signature_from_flags(&self) -> Result<bool> {
         self.inner()._bool("signature_from_flags")
     }
@@ -794,6 +798,38 @@ enum SigPiece {
     Implicit(Type),
 }
 
+/// Validate the receiver requested by `#[pyfunction(with_module)]`.
+/// Do not infer binding from this type alone: `_imp.exec_builtin`, for example,
+/// takes an ordinary Python-visible module argument of the same type.
+pub(crate) fn has_module_receiver(sig: &Signature) -> bool {
+    let Some(FnArg::Typed(arg)) = sig.inputs.first() else {
+        return false;
+    };
+    let (ty, wrapper) = match &*arg.ty {
+        Type::Reference(reference) => (&*reference.elem, "Py"),
+        ty => (ty, "PyRef"),
+    };
+    let Type::Path(path) = ty else { return false };
+    let Some(segment) = path.path.segments.last() else {
+        return false;
+    };
+    if segment.ident != wrapper {
+        return false;
+    }
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return false;
+    };
+    let Some(syn::GenericArgument::Type(Type::Path(payload))) = arguments.args.first() else {
+        return false;
+    };
+    arguments.args.len() == 1
+        && payload
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "PyModule")
+}
+
 fn is_vm_or_callee(ty: &Type) -> bool {
     let ty = quote!(#ty).to_string().replace(' ', "");
     (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee")
@@ -1000,6 +1036,43 @@ fn doc_from_signature_args(
 mod metadata_tests {
     use super::*;
     use syn::{parse::Parser, parse_quote};
+
+    #[test]
+    fn module_receiver_requires_an_explicit_opt_in() {
+        let ordinary = parse_quote!(#[pyfunction]);
+        assert!(
+            !FunctionItemMeta::from_attr(parse_quote!(f), &ordinary)
+                .unwrap()
+                .with_module()
+                .unwrap()
+        );
+        let bound = parse_quote!(#[pyfunction(with_module)]);
+        assert!(
+            FunctionItemMeta::from_attr(parse_quote!(f), &bound)
+                .unwrap()
+                .with_module()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn module_receiver_is_a_leading_module_payload() {
+        for signature in [
+            parse_quote!(fn f(module: PyRef<PyModule>, value: u8)),
+            parse_quote!(fn f(module: &Py<PyModule>, value: u8)),
+            parse_quote!(fn f(module: crate::PyRef<crate::builtins::PyModule>)),
+        ] {
+            assert!(has_module_receiver(&signature));
+        }
+        for signature in [
+            parse_quote!(fn f(value: PyRef<PyType>)),
+            parse_quote!(fn f(value: PyObjectRef)),
+            parse_quote!(fn f(value: u8, module: PyRef<PyModule>)),
+            parse_quote!(fn f()),
+        ] {
+            assert!(!has_module_receiver(&signature));
+        }
+    }
 
     fn parse_options(source: &str) -> Result<ItemMetaInner> {
         let args = PunctuatedNestedMeta::parse_terminated.parse_str(source)?;
