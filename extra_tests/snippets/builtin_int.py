@@ -403,14 +403,25 @@ finally:
     sys.set_int_max_str_digits(_orig_limit)
 
 # to_bytes is handed the length to allocate, so one that cannot be satisfied
-# must raise. Zero and non-zero take different paths to the same buffer.
+# must raise. A length outside Py_ssize_t overflows before allocation.
+# Zero and non-zero take different paths to the same buffer.
 for value in (0, 1, -1):
-    with assert_raises(MemoryError):
+    with assert_raises(MemoryError if sys.maxsize >= 2**60 else OverflowError):
         value.to_bytes(2**60, "big", signed=True)
 
-# Results too large to allocate raise MemoryError instead of aborting
-assert_raises(MemoryError, lambda: 2**62 << 2**62)
-assert_raises(MemoryError, lambda: 1 << 9223372036854775770)
+# A shift beyond the platform's digit-count range overflows before allocation.
+assert_raises(
+    MemoryError
+    if sys.maxsize * sys.int_info.bits_per_digit >= 2**62
+    else OverflowError,
+    lambda: 2**62 << 2**62,
+)
+assert_raises(
+    MemoryError
+    if sys.maxsize * sys.int_info.bits_per_digit >= 9223372036854775770
+    else OverflowError,
+    lambda: 1 << 9223372036854775770,
+)
 assert_raises(OverflowError, lambda: 1 << 9223372036854775771)
 assert_raises(OverflowError, lambda: 1 << 2**64)
 assert_raises(OverflowError, lambda: -5 << 10**30)

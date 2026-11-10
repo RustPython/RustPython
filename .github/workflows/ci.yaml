@@ -1051,21 +1051,17 @@ jobs:
       # every other snippet is discovered and run automatically.
       WASM_WASI_SNIPPET_EXCLUDE: >-
         builtin_bytearray
-        builtin_bytes
         builtin_hash
         builtin_int
-        builtin_list
         builtin_memoryview
         builtin_open
         builtin_posixshmem
-        builtin_str
         builtin_thread
         cli_int_max_str_digits
         protocol_index_argument
         recursion
         stdlib_ast
         stdlib_asyncio
-        stdlib_collections_deque
         stdlib_contextvars
         stdlib_ctypes
         stdlib_ctypes_byvalue
@@ -1074,7 +1070,6 @@ jobs:
         stdlib_genericalias
         stdlib_io
         stdlib_io_blocking_buffer
-        stdlib_itertools
         stdlib_mmap
         stdlib_multiprocessing_condition
         stdlib_multiprocessing_fork_sharer
@@ -1087,7 +1082,6 @@ jobs:
         stdlib_sqlite
         stdlib_ssl
         stdlib_ssl_short_recv
-        stdlib_struct
         stdlib_subinterpreters
         stdlib_subprocess
         stdlib_sys
@@ -1136,6 +1130,11 @@ jobs:
         test_set
         test_slice
         test_tuple
+        test_bisect
+        test_heapq
+        test_operator
+        test_functools
+        test_str
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
@@ -1203,7 +1202,7 @@ jobs:
         run: |
           for name in $WASM_WASI_TEST_FILES; do
             echo "::group::Lib/test/${name}.py"
-            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
+            wasmer run --volume "$(pwd)" --env "RUSTPYTHONPATH=$(pwd)/Lib" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
             echo "::endgroup::"
           done
 

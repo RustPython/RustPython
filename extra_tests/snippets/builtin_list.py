@@ -496,7 +496,7 @@ assert x == z
 assert x == zz
 
 
-# A huge length hint is a MemoryError, not an aborted process
+# A representable huge length hint reaches allocation; a wider one overflows.
 class HugeLen:
     def __len__(self):
         return 2**62
@@ -508,7 +508,7 @@ class HugeLen:
 
 
 slice_target = [3, 1, 2]
-with assert_raises(MemoryError):
+with assert_raises(MemoryError if sys.maxsize >= 2**62 else OverflowError):
     slice_target[1::-1] = HugeLen()
 
 

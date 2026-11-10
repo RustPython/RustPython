@@ -153,7 +153,7 @@ d.appendleft("z")
 assert list(d) == ["z", "b", "c"]
 
 # Repeating a bounded deque keeps only the last maxlen items without walking the rest
-assert deque([1], maxlen=3) * 2**62 == deque([1, 1, 1])
+assert deque([1], maxlen=3) * min(2**62, sys.maxsize) == deque([1, 1, 1])
 assert deque([1, 2, 3], maxlen=4) * 3 == deque([3, 1, 2, 3])
 
 
