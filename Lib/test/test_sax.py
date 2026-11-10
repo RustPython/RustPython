@@ -204,7 +204,6 @@ class ParseTest(unittest.TestCase):
             input.setEncoding('iso-8859-1')
             self.check_parse(input)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parse_close_source(self):
         builtin_open = open
         fileobj = None
@@ -1336,7 +1335,6 @@ class ExpatReaderTest(XmlTestBase):
 # ===========================================================================
 
 class ErrorReportingTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_inpsource_location(self):
         parser = create_parser()
         parser.setContentHandler(ContentHandler()) # do nothing
@@ -1350,7 +1348,6 @@ class ErrorReportingTest(unittest.TestCase):
         except SAXException as e:
             self.assertEqual(e.getSystemId(), name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incomplete(self):
         parser = create_parser()
         parser.setContentHandler(ContentHandler()) # do nothing

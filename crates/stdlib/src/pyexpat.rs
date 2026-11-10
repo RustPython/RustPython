@@ -1026,27 +1026,15 @@ mod _pyexpat {
                 class,
                 specified_attributes
             );
-            create_readonly_int_property!(
-                ctx,
-                attributes,
-                "CurrentLineNumber",
-                class,
-                current_line
-            );
-            create_readonly_int_property!(
-                ctx,
-                attributes,
-                "CurrentColumnNumber",
-                class,
-                current_column
-            );
-            create_readonly_int_property!(
-                ctx,
-                attributes,
-                "CurrentByteIndex",
-                class,
-                current_byte_index
-            );
+            for name in ["CurrentLineNumber", "ErrorLineNumber"] {
+                create_readonly_int_property!(ctx, attributes, name, class, current_line);
+            }
+            for name in ["CurrentColumnNumber", "ErrorColumnNumber"] {
+                create_readonly_int_property!(ctx, attributes, name, class, current_column);
+            }
+            for name in ["CurrentByteIndex", "ErrorByteIndex"] {
+                create_readonly_int_property!(ctx, attributes, name, class, current_byte_index);
+            }
             // Additional handlers (stubs for compatibility)
             create_property!(
                 ctx,
