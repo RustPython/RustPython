@@ -308,31 +308,13 @@ class RLock:
 
 
 class _local:
-    """Dummy implementation of _thread._local (thread-local storage)."""
+    """Dummy implementation of _thread._local (thread-local storage).
 
-    def __init__(self):
-        object.__setattr__(self, "_local__impl", {})
+    There is only one thread, so the instance dict doubles as the per-thread
+    dict and normal attribute semantics (descriptors included) apply.
+    """
 
-    def __getattribute__(self, name):
-        if name.startswith("_local__"):
-            return object.__getattribute__(self, name)
-        impl = object.__getattribute__(self, "_local__impl")
-        try:
-            return impl[name]
-        except KeyError:
-            raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        if name.startswith("_local__"):
-            return object.__setattr__(self, name, value)
-        impl = object.__getattribute__(self, "_local__impl")
-        impl[name] = value
-
-    def __delattr__(self, name):
-        if name.startswith("_local__"):
-            return object.__delattr__(self, name)
-        impl = object.__getattribute__(self, "_local__impl")
-        try:
-            del impl[name]
-        except KeyError:
-            raise AttributeError(name)
+    def __new__(cls, *args, **kwargs):
+        if (args or kwargs) and cls.__init__ is object.__init__:
+            raise TypeError("Initialization arguments are not supported")
+        return object.__new__(cls)
