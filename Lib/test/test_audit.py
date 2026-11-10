@@ -169,7 +169,6 @@ class AuditTest(unittest.TestCase):
             self.assertIn('HTTP', events[1][2])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite3(self):
         sqlite3 = import_helper.import_module("sqlite3")
         returncode, events, stderr = self.run_python("test_sqlite3")
