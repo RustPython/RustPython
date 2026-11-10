@@ -2887,6 +2887,21 @@ fn exec_iframe<'a>(
     }
 }
 
+// Legacy profiling must observe calls even after native-call specialization.
+#[cold]
+fn legacy_profile_call(op: Instruction) -> bool {
+    matches!(
+        op,
+        Instruction::CallListAppend
+            | Instruction::CallLen
+            | Instruction::CallIsinstance
+            | Instruction::CallMethodDescriptorNoargs
+            | Instruction::CallMethodDescriptorO
+            | Instruction::CallMethodDescriptorFast
+            | Instruction::CallMethodDescriptorFastWithKeywords
+    )
+}
+
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
 #[inline(always)]
 pub(crate) fn run_iframe(
@@ -4252,17 +4267,7 @@ impl ExecutingFrame<'_> {
             // Native-call specializations bypass PyCallable's legacy profile
             // events. Use the generic call only while tracing, without rewriting
             // shared bytecode or touching the specialization's inline caches.
-            let result = if tracing
-                && matches!(
-                    op,
-                    Instruction::CallListAppend
-                        | Instruction::CallLen
-                        | Instruction::CallIsinstance
-                        | Instruction::CallMethodDescriptorNoargs
-                        | Instruction::CallMethodDescriptorO
-                        | Instruction::CallMethodDescriptorFast
-                        | Instruction::CallMethodDescriptorFastWithKeywords
-                ) {
+            let result = if tracing && legacy_profile_call(op) {
                 self.execute_call_vectorcall(arg.into(), vm)
             } else {
                 self.execute_instruction(op, arg, mode, dispatch_index, &mut do_extend_arg, vm)
