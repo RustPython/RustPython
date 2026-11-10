@@ -2353,12 +2353,15 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn device_encoding(fd: DeviceEncodingArgs, _vm: &VirtualMachine) -> Option<String> {
+    fn device_encoding(fd: DeviceEncodingArgs, vm: &VirtualMachine) -> Option<String> {
         let fd = fd.fd;
         if !isatty(fd) {
             return None;
         }
 
+        if cfg!(not(windows)) && vm.state.config.settings.utf8_mode > 0 {
+            return Some("utf-8".to_owned());
+        }
         rustpython_host_env::os::device_encoding(fd)
     }
 

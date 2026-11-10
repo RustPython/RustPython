@@ -254,7 +254,6 @@ class UTF8ModeTests(unittest.TestCase):
         out = self.get_output('-X', 'utf8', '-E', '-c', code)
         self.assertEqual(out, '1')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(MS_WINDOWS,
                      "os.device_encoding() doesn't implement "
                      "the UTF-8 Mode on Windows")
