@@ -292,7 +292,7 @@ pub fn block(c: CodePoint) -> &'static str {
 /// used by `unicodedata.ucd_3_2_0` are consulted.
 #[derive(Debug, Clone, Copy)]
 pub struct Ucd {
-    modern: bool,
+    pub(crate) modern: bool,
 }
 
 impl Ucd {

@@ -421,13 +421,13 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn normalize(_zelf: &Py<Self>, form: NormalizeFormArg, unistr: PyStrRef) -> Wtf8Buf {
-            unicode_core::normalize(form.0, unistr.as_wtf8())
+        fn normalize(zelf: &Py<Self>, form: NormalizeFormArg, unistr: PyStrRef) -> Wtf8Buf {
+            zelf.inner.normalize(form.0, unistr.as_wtf8())
         }
 
         #[pymethod]
-        fn is_normalized(_zelf: &Py<Self>, form: NormalizeFormArg, unistr: PyStrRef) -> bool {
-            unicode_core::is_normalized(form.0, unistr.as_wtf8())
+        fn is_normalized(zelf: &Py<Self>, form: NormalizeFormArg, unistr: PyStrRef) -> bool {
+            zelf.inner.is_normalized(form.0, unistr.as_wtf8())
         }
 
         #[pymethod]

@@ -1111,10 +1111,6 @@ class Unicode_3_2_0_FunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
                         if quicktest else
                         '68cd01e2c680b851c1fcab012efb5635b2229c2b')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_normalization(self):
-        return super().test_normalization()
-
     @unittest.expectedSuccess  # TODO: RUSTPYTHON
     def test_combining(self):
         return super().test_combining()
@@ -1266,7 +1262,6 @@ class NormalizationTest(unittest.TestCase):
         with testdata:
             self.run_normalization_tests(testdata, unicodedata)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : 2F868;2136A;2136A;2136A;2136A
     @requires_resource('cpu')
     def test_normalization_3_2_0(self):
         testdatafile = findfile('NormalizationTest-3.2.0.txt')
