@@ -102,7 +102,6 @@ class TestSimpleInteract(unittest.TestCase):
         self.assertFalse(result)
         self.assertIn('SyntaxError', f.getvalue())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_runsource_show_syntax_error_location(self):
         console = InteractiveColoredConsole()
