@@ -1052,7 +1052,6 @@ jobs:
       WASM_WASI_SNIPPET_EXCLUDE: >-
         builtin_bytearray
         builtin_hash
-        builtin_int
         builtin_memoryview
         builtin_open
         builtin_posixshmem
