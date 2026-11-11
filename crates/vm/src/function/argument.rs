@@ -113,6 +113,7 @@ impl FuncArgs {
     /// Release a borrowed native call's owners in evaluation-stack order.
     /// Keyword values follow positional values on that stack. Expanded calls
     /// retain their tuple/dict owners at the call site instead.
+    #[inline(always)]
     pub(super) fn drop_reverse(self) {
         self.kwargs.into_iter().rev().for_each(drop);
         self.args.into_iter().rev().for_each(drop);

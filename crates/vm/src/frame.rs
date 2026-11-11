@@ -56,12 +56,6 @@ use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
 pub type FrameObjectRef = PyRef<FrameObject>;
 
-struct ExCallArgs {
-    values: Vec<PyObjectRef>,
-    kwnames: Vec<PyObjectRef>,
-    owners: Option<ExCallOwners>,
-}
-
 // CALL_FUNCTION_EX keeps its original containers until a non-Python callable
 // returns. Exact Python functions instead transfer their arguments to locals.
 // A converted iterable needs only its value storage, not a new tuple object.
@@ -4663,8 +4657,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
-                let args = self.collect_ex_args(false, vm)?;
-                self.execute_call_ex(args, false, vm)
+                self.execute_call_ex::<false>(vm)
             }
             Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
@@ -8353,10 +8346,7 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_keyword_args(u32::from(arg));
                 self.execute_call_instrumented(args, vm)
             }
-            Instruction::InstrumentedCallFunctionEx => {
-                let args = self.collect_ex_args(true, vm)?;
-                self.execute_call_ex(args, true, vm)
-            }
+            Instruction::InstrumentedCallFunctionEx => self.execute_call_ex::<true>(vm),
             Instruction::InstrumentedLoadSuperAttr => {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
                 let offset = (self.lasti() - 1) * 2;
@@ -9021,11 +9011,11 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(&mut self, instrumented: bool, vm: &VirtualMachine) -> PyResult<ExCallArgs> {
+    fn execute_call_ex<const INSTRUMENTED: bool>(&mut self, vm: &VirtualMachine) -> FrameResult {
         let kwargs_or_null = self.pop_value_opt();
         // Only uninstrumented exact Python calls consume containers before
         // executing the body. Other calls retain them through CALL/RETURN hooks.
-        let keep_owners = instrumented
+        let keep_owners = INSTRUMENTED
             || self
                 .nth_value(2)
                 .downcast_ref_if_exact::<PyFunction>(vm)
@@ -9050,7 +9040,8 @@ impl ExecutingFrame<'_> {
         let args_obj = self.pop_value();
         let (mut args, positional_owner) =
             if let Some(tuple) = args_obj.downcast_ref_if_exact::<PyTuple>(vm) {
-                let values = tuple.as_slice().to_vec();
+                let mut values = Vec::with_capacity(tuple.len() + keyword_values.len());
+                values.extend_from_slice(tuple.as_slice());
                 (values, keep_owners.then_some(Either::A(args_obj)))
             } else {
                 // Single *arg passed directly; convert to sequence at runtime.
@@ -9072,7 +9063,9 @@ impl ExecutingFrame<'_> {
                 // call, but the resulting positional values still have an owner.
                 drop(args_obj);
                 if keep_owners {
-                    (values.clone(), Some(Either::B(values)))
+                    let mut call_values = Vec::with_capacity(values.len() + keyword_values.len());
+                    call_values.extend_from_slice(&values);
+                    (call_values, Some(Either::B(values)))
                 } else {
                     (values, None)
                 }
@@ -9082,11 +9075,31 @@ impl ExecutingFrame<'_> {
             kwargs: kwargs_or_null,
             positional,
         });
-        Ok(ExCallArgs {
-            values: args,
-            kwnames,
-            owners,
-        })
+        // Stack: [callable, self_or_null]
+        let self_or_null = self.pop_value_opt();
+        let callable = self.pop_value();
+        if let Some(self_val) = self_or_null {
+            args.insert(0, self_val);
+        }
+        let nargs = args.len() - kwnames.len();
+        let arg0 = if INSTRUMENTED {
+            args[..nargs].first().cloned()
+        } else {
+            None
+        };
+        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        let result = if INSTRUMENTED {
+            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+        } else {
+            invoke().map(|value| {
+                self.push_value(value);
+                None
+            })
+        };
+        if let Some(owners) = owners {
+            owners.release();
+        }
+        result
     }
 
     /// Returns a display string for a callable object for use in error messages.
@@ -9280,46 +9293,6 @@ impl ExecutingFrame<'_> {
         let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
         self.push_value(result);
         Ok(None)
-    }
-
-    #[inline]
-    fn execute_call_ex(
-        &mut self,
-        args: ExCallArgs,
-        instrumented: bool,
-        vm: &VirtualMachine,
-    ) -> FrameResult {
-        let ExCallArgs {
-            values: mut args,
-            kwnames,
-            owners,
-        } = args;
-        // Stack: [callable, self_or_null, ...]
-        let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
-        let callable = self.pop_value();
-
-        if let Some(self_val) = self_or_null {
-            args.insert(0, self_val);
-        }
-        let nargs = args.len() - kwnames.len();
-        let arg0 = if instrumented {
-            args[..nargs].first().cloned()
-        } else {
-            None
-        };
-        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
-        let result = if instrumented {
-            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
-        } else {
-            invoke().map(|value| {
-                self.push_value(value);
-                None
-            })
-        };
-        if let Some(owners) = owners {
-            owners.release();
-        }
-        result
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
