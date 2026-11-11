@@ -310,10 +310,10 @@ mod _io {
         pub whence: i32,
     }
 
+    // IOBase and TextIOWrapper spell the same zero default symbolically.
     #[derive(FromArgs)]
-    #[allow(dead_code)]
-    struct IgnoredWhence {
-        #[pyarg(positional, default)]
+    struct SeekWhenceArg {
+        #[pyarg(positional, default, py_default = "os.SEEK_SET")]
         whence: i32,
     }
 
@@ -547,7 +547,7 @@ mod _io {
         fn seek(
             zelf: PyObjectRef,
             _offset: PyObjectRef,
-            _whence: IgnoredWhence,
+            _whence: SeekWhenceArg,
             vm: &VirtualMachine,
         ) -> PyResult {
             _unsupported(vm, &zelf, "seek")
@@ -3633,7 +3633,7 @@ mod _io {
         fn seek(
             zelf: PyRef<TextIOWrapper>,
             cookie: PyObjectRef,
-            whence: HowArg,
+            whence: SeekWhenceArg,
             vm: &VirtualMachine,
         ) -> PyResult {
             let how = whence.whence;

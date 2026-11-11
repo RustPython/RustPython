@@ -372,11 +372,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pymethod]
-    fn __getitem__(zelf: PyRef<PyTuple>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: PyRef<PyTuple>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let n_seq = get_visible_len(zelf.as_ref(), vm)?;
         let visible_elements = &zelf.as_slice()[..n_seq];
 
-        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, &needle)? {
+        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, &key)? {
             SequenceIndex::Int(i) => visible_elements.getitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => visible_elements
                 .getitem_by_slice(vm, slice)

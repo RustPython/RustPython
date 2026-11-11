@@ -166,11 +166,11 @@ mod _warnings {
         lineno: usize,
         #[pyarg(any, optional)]
         module: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         registry: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         module_globals: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         source: OptionalArg<PyObjectRef>,
     }
 

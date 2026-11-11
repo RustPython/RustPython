@@ -335,7 +335,8 @@ mod _imp {
         #[pyarg(positional)]
         spec: PyObjectRef,
         #[pyarg(positional, optional)]
-        _file: crate::function::OptionalArg<PyObjectRef>,
+        #[allow(dead_code)]
+        file: crate::function::OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
