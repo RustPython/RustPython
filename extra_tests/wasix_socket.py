@@ -147,6 +147,17 @@ class WasixSocketTests(unittest.TestCase):
         server.setblocking(True)
         self.assertIsNone(server.gettimeout())
 
+    def test_sendall_timeout_under_backpressure(self):
+        client, server = self.pair()
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        client.settimeout(0.03)
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            client.sendall(bytes(4 * 1024 * 1024))
+        self.assertLess(time.monotonic() - start, 2)
+        # A timed-out sendall may already have sent a prefix.
+        self.assertTrue(server.recv(1))
+
     def test_accept_timeout(self):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
