@@ -59,6 +59,22 @@ class WasixSocketTests(unittest.TestCase):
             server_file.flush()
             self.assertEqual(client_file.readline(), b"reply\n")
 
+    def test_mutable_send_buffers(self):
+        client, server = self.pair()
+        data = bytearray(b"mutable")
+        self.assertEqual(client.send(data), len(data))
+        self.assertEqual(server.recv(32), data)
+        client.sendall(memoryview(data))
+        self.assertEqual(server.recv(32), data)
+        with (
+            socket.socket(type=socket.SOCK_DGRAM) as receiver,
+            socket.socket(type=socket.SOCK_DGRAM) as sender,
+        ):
+            receiver.bind(("127.0.0.1", 0))
+            receiver.settimeout(2)
+            self.assertEqual(sender.sendto(data, receiver.getsockname()), len(data))
+            self.assertEqual(receiver.recv(32), data)
+
     def test_sendfile_and_partial_reads(self):
         client, server = self.pair()
         payload = bytes(range(256)) * 128
