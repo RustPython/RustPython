@@ -28,6 +28,7 @@ omitting `--net` and passing `--denied` to the test script.
 - TCP bind, listen, connect, accept, send, receive, shutdown, and endpoint names.
 - UDP bind, connect, send/receive, sendto/recvfrom, including empty datagrams.
 - `sendall`, `recv_into`, `recvfrom_into`, `makefile`, and `create_connection`.
+- Loopback `http.server.HTTPServer` using the existing WASI select support.
 - Blocking, nonblocking and finite-timeout socket operations using host polling.
 - Descriptor ownership, close, detach, duplication and cleanup on destruction.
 - `MSG_PEEK` and the socket options supported by the WASIX host.
@@ -48,6 +49,9 @@ multicast configuration, interface enumeration, reverse DNS, system hostname,
 service-name lookup or IPv6 flowinfo/scope IDs. Unsupported flags and options
 raise errors instead of being silently ignored. `getaddrinfo` accepts
 `AI_PASSIVE`, `AI_NUMERICHOST` and `AI_NUMERICSERV`; other flags are rejected.
+`gethostbyaddr` raises `ENOTSUP`, allowing `getfqdn` to fall back to an explicit
+name. Wildcard HTTP server bindings still need a hostname provider or an
+application override because `gethostname` is unavailable.
 
 Wasmer's descriptor metadata identifies connected TCP and unbound sockets,
 but not TCP listeners or bound UDP sockets. Pass explicit `family` and `type`

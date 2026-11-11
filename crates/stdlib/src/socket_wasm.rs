@@ -194,6 +194,13 @@ mod _socket {
         Err(unsupported(vm, "gethostname"))
     }
 
+    #[pyfunction]
+    fn gethostbyaddr(_name: ArgStrOrBytesLike, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // Keep reverse lookup failure an OSError so socket.getfqdn can use
+        // its documented fallback to the supplied name.
+        Err(unsupported(vm, "gethostbyaddr"))
+    }
+
     fn hostname(value: ArgStrOrBytesLike, vm: &VirtualMachine) -> PyResult<String> {
         let name = match value {
             ArgStrOrBytesLike::Str(s) => {
