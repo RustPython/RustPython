@@ -237,7 +237,6 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
-    /// Decode a line of base64 data.
     #[pyfunction(with_module)]
     fn a2b_base64(
         module: PyRef<PyModule>,
@@ -411,7 +410,6 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
-    /// Decode a line of base32 data.
     #[pyfunction(with_module)]
     fn a2b_base32(
         module: PyRef<PyModule>,
@@ -487,7 +485,6 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
-    /// Decode a line of Base85 data.
     #[pyfunction(with_module)]
     fn a2b_base85(
         module: &Py<PyModule>,
