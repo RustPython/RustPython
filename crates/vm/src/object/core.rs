@@ -236,7 +236,11 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         unsafe { clear_fn(obj, &mut edges) };
     }
     // Drop extracted child references - may trigger recursive destruction.
-    drop(edges);
+    if T::REVERSE_DEALLOC {
+        edges.into_iter().rev().for_each(drop);
+    } else {
+        drop(edges);
+    }
 
     // Try to store in freelist for reuse. This must happen AFTER clear_fn and
     // after the extracted-children drop: both can run user code (`__del__`)
