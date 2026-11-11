@@ -427,3 +427,32 @@ assert_raises(OverflowError, lambda: 1 << 2**64)
 assert_raises(OverflowError, lambda: -5 << 10**30)
 assert 0 << 2**64 == 0
 assert pow(1, 2**63) == 1 and pow(-1, 2**63 + 1) == -1 and pow(0, 2**63) == 0
+
+# Check the allocation boundary itself, including a carry digit for a partial
+# shift and the digits already occupied by the left operand. CPython's 32-bit
+# PyLong header has three pointer-sized fields before its u32 digit array.
+_digit_bits = sys.int_info.bits_per_digit
+_max_digits = (
+    (sys.maxsize - 12) // sys.int_info.sizeof_digit
+    if sys.maxsize < 2**32
+    else (2**63 - 2) // _digit_bits
+)
+for _base in (1, -1, 2**30, -(2**30), 2**62, -(2**62)):
+    _base_digits = (_base.bit_length() + _digit_bits - 1) // _digit_bits
+    _last_shift = (_max_digits - _base_digits) * _digit_bits
+    # On 32-bit CPython this could actually allocate approximately 2 GiB.
+    if sys.maxsize > 2**32:
+        with assert_raises(MemoryError):
+            _base << _last_shift
+    for _shift in (_last_shift + 1, _last_shift + _digit_bits, 2**63, 2**128):
+        with assert_raises(OverflowError) as _error:
+            _base << _shift
+        assert str(_error.exception) == "too many digits in integer"
+
+# Check the negative-count message even when zero or overflow could otherwise
+# short-circuit the shift.
+for _shift in (_max_digits * _digit_bits, 2**128):
+    for _base in (0, 1, -1):
+        with assert_raises(ValueError) as _error:
+            _base << -_shift
+        assert str(_error.exception) == "negative shift count"

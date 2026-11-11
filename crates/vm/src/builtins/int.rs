@@ -211,8 +211,14 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
         bits,
         |base, bits| base << bits,
         |bits, vm| {
-            // CPython's limit: `(i64::MAX - 1) / 30` digits of 30 bits.
-            const MAX_DIGITS: u128 = (i64::MAX as u128 - 1) / 30;
+            // Match CPython's MAX_LONG_DIGITS for 30-bit, u32 digits. On
+            // 32-bit platforms the allocation, including the reference count,
+            // type pointer and digit-count tag, must fit in Py_ssize_t.
+            const MAX_DIGITS: u128 = if usize::BITS < 64 {
+                (isize::MAX as u128 - 3 * size_of::<usize>() as u128) / size_of::<u32>() as u128
+            } else {
+                (i64::MAX as u128 - 1) / 30
+            };
             let digits = bits.to_u128().map(|shift| {
                 u128::from(base.bits().div_ceil(30)) + shift / 30 + u128::from(shift % 30 != 0)
             });
@@ -220,8 +226,9 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
                 return Err(vm.new_overflow_error("too many digits in integer"));
             }
             let shift = bits.to_u64().ok_or_else(|| vm.no_memory_error())?;
+            let shift_bits = usize::try_from(shift).map_err(|_| vm.no_memory_error())?;
             reserve_result_bits(base.bits().checked_add(shift), vm)?;
-            usize::try_from(shift).map_err(|_| vm.no_memory_error())
+            Ok(shift_bits)
         },
         vm,
     )
