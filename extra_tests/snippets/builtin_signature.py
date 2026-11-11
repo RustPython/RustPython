@@ -467,3 +467,69 @@ for pickle_type in (
     parameters = inspect.signature(reduce_ex).parameters
     assert list(parameters) == ["self", "protocol"]
     assert parameters["protocol"].kind == inspect.Parameter.POSITIONAL_ONLY
+
+# Legacy optional groups are public text, not Python parameter-list syntax.
+for sequence_type in (str, bytes, bytearray):
+    value = sequence_type("abc", "ascii") if sequence_type is not str else "abc"
+    needle = sequence_type("b", "ascii") if sequence_type is not str else "b"
+    for method_name in (
+        "count",
+        "find",
+        "index",
+        "rfind",
+        "rindex",
+        "startswith",
+        "endswith",
+    ):
+        parameter = {"startswith": "prefix", "endswith": "suffix"}.get(
+            method_name, "sub"
+        )
+        method = getattr(sequence_type, method_name)
+        assert method.__text_signature__ == f"($self, {parameter}[, start[, end]], /)"
+        bound = getattr(value, method_name)
+        for target in (method, bound):
+            try:
+                inspect.signature(target)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("optional group should not be inspect-parsable")
+        assert bound(needle) == bound(needle, None, None)
+        assert bound(needle, 1) == bound(needle, 1, None)
+        events = []
+
+        class Index:
+            def __init__(self, name, value):
+                self.name, self.value = name, value
+
+            def __index__(self):
+                events.append(self.name)
+                return self.value
+
+        assert bound(needle, Index("start", 0), Index("end", 3)) == bound(needle)
+        assert events == ["start", "end"]
+        for args, kwargs in (
+            ((needle,), {"start": 0}),
+            ((), {}),
+            ((needle, 0, 3, 4), {}),
+        ):
+            try:
+                bound(*args, **kwargs)
+            except TypeError:
+                pass
+            else:
+                raise AssertionError("positional-only argument validation changed")
+
+import _csv
+
+for _function, _first in (
+    (_csv.reader, "iterable"),
+    (_csv.writer, "fileobj"),
+    (_csv.register_dialect, "name"),
+):
+    assert _function.__text_signature__ == (
+        f"($module, {_first}, /, dialect='excel', **fmtparams)"
+    )
+    assert str(inspect.signature(_function)) == (
+        f"({_first}, /, dialect='excel', **fmtparams)"
+    )

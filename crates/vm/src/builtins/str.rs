@@ -1090,7 +1090,7 @@ impl Py<PyStr> {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix[, start[, end]], /)")]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         options.matches(
             self.len(),
@@ -1104,7 +1104,7 @@ impl Py<PyStr> {
         )
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix[, start[, end]], /)")]
     fn startswith(
         &self,
         options: anystr::StartsEndsWithArgs,
@@ -1356,23 +1356,23 @@ impl Py<PyStr> {
         PyStr::join_items(&zelf, &items, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn find(&self, args: FindArgs) -> isize {
         self._find(args, Wtf8::find).map_or(-1, |v| v as isize)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rfind(&self, args: FindArgs) -> isize {
         self._find(args, Wtf8::rfind).map_or(-1, |v| v as isize)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self._find(args, Wtf8::find)
             .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self._find(args, Wtf8::rfind)
             .ok_or_else(|| vm.new_value_error("substring not found"))
@@ -1445,7 +1445,7 @@ impl Py<PyStr> {
         cased
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
         let chars = range.len();
