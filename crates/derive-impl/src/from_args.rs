@@ -894,11 +894,6 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 || <#flattened as ::rustpython_vm::function::FromArgs>::FORCE_UNPACK_KEYWORDS
             )*;
 
-            const HAS_REQUIRED_KEYWORD_ONLY: bool =
-                ::rustpython_vm::function::params_have_required_keyword_only(Self::PARAMS) #(
-                    || <#flattened as ::rustpython_vm::function::FromArgs>::HAS_REQUIRED_KEYWORD_ONLY
-                )*;
-
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 let min = #min_arity;
                 let max = #max_arity;

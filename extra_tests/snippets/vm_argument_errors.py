@@ -310,6 +310,15 @@ def test_clinic_checks_all_arguments_before_conversion():
     )
     check(
         TypeError,
+        "argument for isclose() given by name ('a') and position (1)",
+        math.isclose,
+        FailingFloat(),
+        2,
+        a=1,
+        bogus=1,
+    )
+    check(
+        TypeError,
         "compress() takes at most 2 arguments (3 given)",
         itertools.compress,
         TestFailingIter(),

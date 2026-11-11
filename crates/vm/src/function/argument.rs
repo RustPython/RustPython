@@ -567,6 +567,7 @@ pub(crate) fn given_by_name_and_position_message(
 
 /// Compile-time counts for a binding whose entire parameter tree is known.
 struct BindingShape {
+    params: &'static [Param],
     fixed: usize,
     positional: usize,
     required_positional: usize,
@@ -579,7 +580,7 @@ struct BindingShape {
 }
 
 impl BindingShape {
-    const fn validated(params: Option<&[Param]>, skip: usize) -> Option<Self> {
+    const fn validated(params: Option<&'static [Param]>, skip: usize) -> Option<Self> {
         const fn known(params: Option<&[Param]>) -> bool {
             let Some(params) = params else {
                 return false;
@@ -607,7 +608,7 @@ impl BindingShape {
     }
 
     const fn for_parser(
-        params: Option<&[Param]>,
+        params: Option<&'static [Param]>,
         skip: usize,
         force_unpack_keywords: bool,
     ) -> Option<Self> {
@@ -629,11 +630,12 @@ impl BindingShape {
         }
     }
 
-    const fn from_params(params: Option<&[Param]>, mut skip: usize) -> Option<Self> {
+    const fn from_params(params: Option<&'static [Param]>, mut skip: usize) -> Option<Self> {
         let Some(params) = params else {
             return None;
         };
         let mut shape = Self {
+            params,
             fixed: 0,
             positional: 0,
             required_positional: 0,
@@ -712,7 +714,6 @@ impl BindingShape {
 
     fn check(
         &self,
-        params: &[Param],
         args: &FuncArgs,
         arity: &RangeInclusive<usize>,
         instance: usize,
@@ -793,44 +794,69 @@ impl BindingShape {
             )));
         }
 
-        // Without positional or required arguments, only keyword names need
-        // checking. Avoid walking optional fields on calls such as list.sort.
-        if nargs != 0 || self.required_positional != 0 || self.required_keyword_only {
-            let mut matched = BindingMatch {
-                positional: 0,
-                position: 0,
-                skip: instance,
-                duplicate: None,
-            };
-            if let Err(missing) = matched.walk(params, nargs, &args.kwargs) {
+        // Walk when a required argument may be missing, or when keywords need
+        // matching. Optional-only calls with no keywords skip this.
+        if !args.kwargs.is_empty()
+            || nargs != 0
+            || self.required_positional != 0
+            || self.required_keyword_only
+        {
+            let mut matched = BindingMatch::new(instance);
+            if let Err(missing) = matched.walk(self.params, nargs, &args.kwargs) {
                 return Some(missing.into_exception(arity, nargs, 0, callee, vm));
             }
-            if let Some((name, pos)) = matched.duplicate {
-                return Some(callee.given_by_name_and_position(name, pos, vm));
-            }
-        }
-        if !self.var_keyword {
-            for name in args.kwargs.keys() {
-                if !binding_accepts_keyword(params, name) {
-                    return Some(callee.unexpected_keyword(&name.to_string(), vm));
+            // A leftover keyword either names a parameter filled by position,
+            // lands in **kwargs, or is unexpected.
+            if matched.found < nkwargs {
+                if let Some((name, pos)) =
+                    BindingMatch::new(instance).first_duplicate(self.params, nargs, &args.kwargs)
+                {
+                    return Some(callee.given_by_name_and_position(name, pos, vm));
+                }
+                if !self.var_keyword {
+                    return self.unexpected_keyword(args, callee, vm);
                 }
             }
         }
         None
     }
+
+    /// Reports the first keyword no parameter accepts. Only reached when the
+    /// call fails, so the linear scan per keyword stays off the call path.
+    #[cold]
+    fn unexpected_keyword(
+        &self,
+        args: &FuncArgs,
+        callee: Callee,
+        vm: &VirtualMachine,
+    ) -> Option<PyBaseExceptionRef> {
+        args.kwargs
+            .keys()
+            .find(|name| !binding_accepts_keyword(self.params, name))
+            .map(|name| callee.unexpected_keyword(&name.to_string(), vm))
+    }
 }
 
-struct BindingMatch<'a> {
+struct BindingMatch {
     positional: usize,
     position: usize,
     skip: usize,
-    duplicate: Option<(&'a str, usize)>,
+    found: usize,
 }
 
-impl<'a> BindingMatch<'a> {
+impl BindingMatch {
+    const fn new(skip: usize) -> Self {
+        Self {
+            positional: 0,
+            position: 0,
+            skip,
+            found: 0,
+        }
+    }
+
     fn walk(
         &mut self,
-        params: &'a [Param],
+        params: &[Param],
         nargs: usize,
         kwargs: &KwArgs,
     ) -> Result<(), ArgumentError> {
@@ -844,27 +870,57 @@ impl<'a> BindingMatch<'a> {
                 }
                 ParamKind::PositionalOrKeyword | ParamKind::KeywordOnly => {
                     self.position += 1;
-                    let positional = matches!(param.kind, ParamKind::PositionalOrKeyword);
-                    if positional {
+                    if matches!(param.kind, ParamKind::PositionalOrKeyword) {
                         self.positional += 1;
-                    }
-                    let by_position = positional && self.positional <= nargs;
-                    if by_position {
-                        if self.duplicate.is_none() && kwargs.contains_key(param.name) {
-                            self.duplicate = Some((param.name, self.position));
+                        if self.positional <= nargs {
+                            continue;
                         }
-                    } else if param.default.is_none() && !kwargs.contains_key(param.name) {
+                    }
+                    if kwargs.contains_key(param.name) {
+                        self.found += 1;
+                    } else if param.default.is_none() {
                         return Err(ArgumentError::MissingRequiredArgument {
                             name: param.name.to_owned(),
                             pos: self.position,
                         });
                     }
                 }
-                ParamKind::VarPositional | ParamKind::VarKeyword => {}
-                ParamKind::Flatten(None) => unreachable!("binding shape was checked"),
+                ParamKind::Flatten(None) | ParamKind::VarPositional | ParamKind::VarKeyword => {}
             }
         }
         Ok(())
+    }
+
+    fn first_duplicate<'a>(
+        &mut self,
+        params: &'a [Param],
+        nargs: usize,
+        kwargs: &KwArgs,
+    ) -> Option<(&'a str, usize)> {
+        for param in params {
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => {
+                    if let Some(duplicate) = self.first_duplicate(inner, nargs, kwargs) {
+                        return Some(duplicate);
+                    }
+                }
+                ParamKind::PositionalOnly if self.skip > 0 => self.skip -= 1,
+                ParamKind::PositionalOnly => {
+                    self.positional += 1;
+                    self.position += 1;
+                }
+                ParamKind::PositionalOrKeyword => {
+                    self.positional += 1;
+                    self.position += 1;
+                    if self.positional <= nargs && kwargs.contains_key(param.name) {
+                        return Some((param.name, self.position));
+                    }
+                }
+                ParamKind::KeywordOnly => self.position += 1,
+                ParamKind::Flatten(None) | ParamKind::VarPositional | ParamKind::VarKeyword => {}
+            }
+        }
+        None
     }
 }
 
@@ -875,72 +931,6 @@ fn binding_accepts_keyword(params: &[Param], name: &Wtf8) -> bool {
         ParamKind::VarKeyword => true,
         _ => false,
     })
-}
-
-/// Walk `params` in declaration order looking for the first required argument
-/// that is missing. `Err(None)` ends the walk without a result.
-fn missing_from_params(
-    params: &[Param],
-    nargs: usize,
-    kwargs: &KwArgs,
-    pos: &mut usize,
-) -> Result<(), Option<ArgumentError>> {
-    for param in params {
-        match param.kind {
-            ParamKind::Flatten(Some(inner)) => {
-                missing_from_params(inner, nargs, kwargs, pos)?;
-            }
-            ParamKind::Flatten(None) => *pos += 1,
-            ParamKind::PositionalOnly => {
-                *pos += 1;
-                if *pos > nargs && param.default.is_none() {
-                    return Err(Some(ArgumentError::TooFewArgs));
-                }
-            }
-            ParamKind::PositionalOrKeyword => {
-                *pos += 1;
-                if *pos > nargs && param.default.is_none() && !kwargs.contains_key(param.name) {
-                    return Err(Some(ArgumentError::MissingRequiredArgument {
-                        name: param.name.to_owned(),
-                        pos: *pos,
-                    }));
-                }
-            }
-            ParamKind::VarPositional => {}
-            ParamKind::KeywordOnly => {
-                *pos += 1;
-                if param.default.is_none() && !kwargs.contains_key(param.name) {
-                    return Err(Some(ArgumentError::MissingRequiredArgument {
-                        name: param.name.to_owned(),
-                        pos: *pos,
-                    }));
-                }
-            }
-            ParamKind::VarKeyword => {}
-        }
-    }
-    Ok(())
-}
-
-/// Whether `params` includes a required keyword-only parameter, including
-/// nested `Flatten(Some(_))` lists.
-#[must_use]
-pub const fn params_have_required_keyword_only(params: Option<&'static [Param]>) -> bool {
-    let Some(params) = params else {
-        return false;
-    };
-    let mut i = 0;
-    while i < params.len() {
-        match params[i].kind {
-            ParamKind::KeywordOnly if params[i].default.is_none() => return true,
-            ParamKind::Flatten(inner) if params_have_required_keyword_only(inner) => {
-                return true;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    false
 }
 
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
@@ -1100,45 +1090,6 @@ pub trait FromArgs: Sized {
         None => false,
     };
 
-    /// True when a required keyword-only parameter can be missing even after
-    /// every required positional argument is given. Evaluated from [`PARAMS`]
-    /// unless an implementor overrides it.
-    const HAS_REQUIRED_KEYWORD_ONLY: bool = params_have_required_keyword_only(Self::PARAMS);
-
-    /// Walk this binding looking for the first required argument that is
-    /// missing. `Ok` continues; `Err(Some(_))` is that error; `Err(None)`
-    /// ends the walk without a result (unknown shape).
-    ///
-    /// `skip` leading positional-only slots are the method instance: they do
-    /// not consume a caller-supplied argument or advance `pos`.
-    fn missing_from(
-        nargs: usize,
-        kwargs: &KwArgs,
-        pos: &mut usize,
-        skip: &mut usize,
-    ) -> Result<(), Option<ArgumentError>> {
-        if let Some(params) = Self::PARAMS {
-            missing_from_params(params, nargs, kwargs, pos)
-        } else {
-            let arity = Self::arity();
-            if *arity.start() == 1 && *arity.end() == 1 {
-                if *skip > 0 {
-                    *skip -= 1;
-                    Ok(())
-                } else {
-                    *pos += 1;
-                    if *pos > nargs {
-                        Err(Some(ArgumentError::TooFewArgs))
-                    } else {
-                        Ok(())
-                    }
-                }
-            } else {
-                Err(None)
-            }
-        }
-    }
-
     /// Validate a known binding shape before converting any argument, following
     /// `_PyArg_UnpackKeywords` error ordering. Explicit custom parsers keep the
     /// positional-count and no-keyword checks, but own named validation.
@@ -1168,14 +1119,7 @@ pub trait FromArgs: Sized {
             {
                 return None;
             }
-            return shape.check(
-                Self::BINDING_PARAMS.unwrap(),
-                args,
-                arity,
-                instance,
-                callee,
-                vm,
-            );
+            return shape.check(args, arity, instance, callee, vm);
         }
 
         // A function that takes no keywords refuses them before counting its
@@ -1220,19 +1164,9 @@ impl<T: FromArgs> FromArgs for UnpackKeywords<T> {
     };
     const FORCE_UNPACK_KEYWORDS: bool = true;
     const TAKES_NO_KEYWORDS: bool = T::TAKES_NO_KEYWORDS;
-    const HAS_REQUIRED_KEYWORD_ONLY: bool = T::HAS_REQUIRED_KEYWORD_ONLY;
 
     fn arity() -> RangeInclusive<usize> {
         T::arity()
-    }
-
-    fn missing_from(
-        nargs: usize,
-        kwargs: &KwArgs,
-        pos: &mut usize,
-        skip: &mut usize,
-    ) -> Result<(), Option<ArgumentError>> {
-        T::missing_from(nargs, kwargs, pos, skip)
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
@@ -1695,8 +1629,6 @@ macro_rules! tuple_from_py_func_args {
 
             const FORCE_UNPACK_KEYWORDS: bool = false $(|| $T::FORCE_UNPACK_KEYWORDS)*;
 
-            const HAS_REQUIRED_KEYWORD_ONLY: bool = false $(|| $T::HAS_REQUIRED_KEYWORD_ONLY)*;
-
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
                 let mut max = 0;
@@ -1708,16 +1640,6 @@ macro_rules! tuple_from_py_func_args {
                     max = usize::saturating_add(max, end);
                 )+
                 min..=max
-            }
-
-            fn missing_from(
-                nargs: usize,
-                kwargs: &KwArgs,
-                pos: &mut usize,
-                skip: &mut usize,
-            ) -> Result<(), Option<ArgumentError>> {
-                $($T::missing_from(nargs, kwargs, pos, skip)?;)+
-                Ok(())
             }
 
             tuple_check_before_convert!($($T),+);
@@ -2011,6 +1933,10 @@ mod tests {
                 "example() missing required argument 'second' (pos 2)",
             );
             assert_eq!(
+                binding_error::<NamedRequired>(1, &[], false, vm),
+                "example() missing required argument 'second' (pos 2)",
+            );
+            assert_eq!(
                 binding_error::<ClinicNamed>(2, &["unknown"], false, vm),
                 "example() got an unexpected keyword argument 'unknown'",
             );
@@ -2101,7 +2027,8 @@ mod tests {
     fn legacy_binding_remains_opaque_and_converts_first() {
         const { assert!(LegacyNamed::BINDING_PARAMS.is_none()) };
         const { assert!(<(PyObjectRef, LegacyNamed)>::BINDING_PARAMS.is_none()) };
-        assert!(BindingShape::from_params(Some(&[super::Param::flatten(None)]), 0).is_none());
+        const UNKNOWN: &[super::Param] = &[super::Param::flatten(None)];
+        assert!(BindingShape::from_params(Some(UNKNOWN), 0).is_none());
         assert!(BindingShape::from_params(<(PosArgs, i32)>::BINDING_PARAMS, 0).is_none());
         assert!(BindingShape::from_params(<(KwArgs, ClinicNamed)>::BINDING_PARAMS, 0).is_none());
         assert!(BindingShape::from_params(<(ClinicNamed, i32)>::BINDING_PARAMS, 0).is_none());
@@ -2204,44 +2131,5 @@ mod tests {
     #[should_panic(expected = "must describe one Clinic signature")]
     fn malformed_known_compositions_cannot_silently_disable_clinic_validation() {
         BindingShape::validated(<(PosArgs, i32)>::BINDING_PARAMS, 0);
-    }
-
-    fn missing<T: FromArgs>(nargs: usize, skip: usize) -> Result<(), Option<ArgumentError>> {
-        let kwargs = KwArgs::default();
-        let mut pos = 0;
-        let mut skip = skip;
-        T::missing_from(nargs, &kwargs, &mut pos, &mut skip)
-    }
-
-    #[test]
-    fn tuple_of_required_positionals_reports_too_few_args() {
-        assert!(matches!(
-            missing::<(i32, i32)>(1, 0),
-            Err(Some(ArgumentError::TooFewArgs))
-        ));
-        assert!(matches!(missing::<(i32, i32)>(2, 0), Ok(())));
-    }
-
-    #[test]
-    fn method_instance_is_skipped_without_advancing_pos() {
-        assert!(matches!(
-            missing::<(i32, i32, i32)>(1, 1),
-            Err(Some(ArgumentError::TooFewArgs))
-        ));
-        assert!(matches!(missing::<(i32, i32, i32)>(2, 1), Ok(())));
-    }
-
-    #[test]
-    fn required_keyword_only_is_visible_at_compile_time() {
-        const { assert!(NamedRequired::HAS_REQUIRED_KEYWORD_ONLY) };
-        const { assert!(<(i32, NamedRequired)>::HAS_REQUIRED_KEYWORD_ONLY) };
-        const { assert!(!<(i32, i32)>::HAS_REQUIRED_KEYWORD_ONLY) };
-        match missing::<NamedRequired>(1, 0) {
-            Err(Some(ArgumentError::MissingRequiredArgument { name, pos })) => {
-                assert_eq!(name, "second");
-                assert_eq!(pos, 2);
-            }
-            _ => panic!("expected a missing required keyword-only argument"),
-        }
     }
 }
