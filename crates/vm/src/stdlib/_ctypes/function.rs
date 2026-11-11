@@ -1795,15 +1795,12 @@ fn pycdata_from_ffi_result(
     Ok(instance)
 }
 
-/// Extract values from OUT buffers
-fn extract_out_values(out_buffers: &[OutValue], vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-    out_buffers
-        .iter()
-        .map(|value| match value {
-            OutValue::Out(buffer) => vm.call_method(buffer, "__ctypes_from_outparam__", ()),
-            OutValue::InOut(buffer) => Ok(buffer.clone()),
-        })
-        .collect()
+/// Extract one OUT parameter without consuming its owner.
+fn extract_out_value(value: &OutValue, vm: &VirtualMachine) -> PyResult {
+    match value {
+        OutValue::Out(buffer) => vm.call_method(buffer, "__ctypes_from_outparam__", ()),
+        OutValue::InOut(buffer) => Ok(buffer.clone()),
+    }
 }
 
 /// Build final result (main function)
@@ -1871,11 +1868,14 @@ fn build_result(
     // OUT parameters replace the raw result. Release it before conversion,
     // which can invoke user-defined methods.
     drop(result);
-    let out_values = extract_out_values(&out_buffers, vm)?;
-    Ok(match <[PyObjectRef; 1]>::try_from(out_values) {
-        Ok([single]) => single,
-        Err(v) => PyTuple::new_ref(v, &vm.ctx).into(),
-    })
+    if let [single] = out_buffers.as_slice() {
+        return extract_out_value(single, vm);
+    }
+    let out_values = out_buffers
+        .iter()
+        .map(|value| extract_out_value(value, vm))
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok(PyTuple::new_ref(out_values, &vm.ctx).into())
 }
 
 impl Callable for PyCFuncPtr {
@@ -2490,6 +2490,138 @@ impl AsSequence for PyCFuncPtrType {
 mod tests {
     use super::*;
     use crate::{TryFromObject, class::PyClassImpl, function::ArgBytesLike};
+
+    #[cfg(all(feature = "compiler", not(target_family = "wasm")))]
+    #[test]
+    fn native_out_returns_preserve_python_protocol() {
+        extern "C" fn fill_one(output: *mut i32) -> i32 {
+            // The ctypes pointer argument owns an initialized C-int buffer.
+            unsafe { *output = 11 };
+            33
+        }
+        extern "C" fn fill_two(first: *mut i32, second: *mut i32) -> i32 {
+            // Both arguments are backed by live ctypes C-int buffers.
+            unsafe {
+                *first = 11;
+                *second = 22;
+            }
+            33
+        }
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            scope
+                .globals
+                .set_item(
+                    "address_one",
+                    vm.ctx.new_int(fill_one as *const () as usize).into(),
+                    vm,
+                )
+                .unwrap();
+            scope
+                .globals
+                .set_item(
+                    "address_two",
+                    vm.ctx.new_int(fill_two as *const () as usize).into(),
+                    vm,
+                )
+                .unwrap();
+            vm.run_string(
+                scope.clone(),
+                r#"
+import _ctypes
+
+class CInt(_ctypes._SimpleCData):
+    _type_ = "i"
+
+events = []
+fail = False
+
+class Out(CInt):
+    def __ctypes_from_outparam__(self):
+        events.append(("convert", self.value))
+        if fail:
+            raise ValueError("output conversion failed")
+        return ("converted", self.value)
+
+class Pointer(_ctypes._Pointer):
+    _type_ = Out
+
+class Raw(CInt):
+    def __del__(self):
+        events.append("drop raw result")
+
+class One(_ctypes.CFuncPtr):
+    _flags_ = 1
+    _argtypes_ = (Pointer,)
+    _restype_ = Raw
+
+class Two(_ctypes.CFuncPtr):
+    _flags_ = 1
+    _argtypes_ = (Pointer, Pointer)
+    _restype_ = Raw
+
+out_one = One(address_one)
+inout_one = One(address_one)
+out_two = Two(address_two)
+flags_one = ((2, "first"),)
+flags_inout = ((3, "first"),)
+flags_two = ((2, "first"), (2, "second"))
+"#,
+                "<ctypes native output fixture>",
+            )
+            .unwrap();
+            // The ordinary DLL constructor currently discards paramflags.
+            // Inject only that metadata, as the COM constructor does, then
+            // exercise the real Python -> libffi -> Python call path.
+            for (function, flags) in [
+                ("out_one", "flags_one"),
+                ("inout_one", "flags_inout"),
+                ("out_two", "flags_two"),
+            ] {
+                let function = scope
+                    .globals
+                    .get_item(function, vm)
+                    .unwrap()
+                    .downcast::<PyCFuncPtr>()
+                    .unwrap();
+                *function.paramflags.write() = Some(scope.globals.get_item(flags, vm).unwrap());
+            }
+            vm.run_string(
+                scope,
+                r#"
+assert out_one() == ("converted", 11)
+assert events == ["drop raw result", ("convert", 11)]
+events.clear()
+value = Out()
+assert inout_one(value) is value
+assert value.value == 11
+assert events == ["drop raw result"]
+events.clear()
+assert out_two() == (("converted", 11), ("converted", 22))
+assert events == ["drop raw result", ("convert", 11), ("convert", 22)]
+events.clear()
+out_one.errcheck = lambda result, function, args: None
+assert out_one() is None
+assert events == ["drop raw result"]
+events.clear()
+out_one.errcheck = lambda result, function, args: args
+assert out_one() == ("converted", 11)
+assert events == ["drop raw result", ("convert", 11)]
+events.clear()
+fail = True
+try:
+    out_one()
+except ValueError as error:
+    assert str(error) == "output conversion failed"
+else:
+    raise AssertionError("output conversion failure was swallowed")
+assert events == ["drop raw result", ("convert", 11)]
+"#,
+                "<ctypes native output assertions>",
+            )
+            .unwrap();
+        });
+    }
 
     #[test]
     fn unlocked_raw_buffers_are_copied_even_when_readonly() {
