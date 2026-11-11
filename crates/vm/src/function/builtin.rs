@@ -134,10 +134,11 @@ where
     const ARGS: &'static [SigArg] = &[SigArg::from_arg::<T>("")];
 
     fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
-        let bound = T::bind(&args, vm, callee)?;
         // The original owners outlive conversion, the body, and return-value
         // conversion, including every error path. No keepalive copy is needed.
-        (self)(bound, vm).to_pyresult(vm)
+        let result = T::bind(&args, vm, callee).and_then(|bound| (self)(bound, vm).to_pyresult(vm));
+        args.drop_reverse();
+        result
     }
 }
 

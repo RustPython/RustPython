@@ -463,11 +463,10 @@ def check_interpreter_clinic():
             else:
                 raise AssertionError(mode)
             expected = ["preserve", "restrict"] + ([] if raises else ["id"])
-            # RustPython currently releases direct keyword owners in insertion
-            # order; CPython's vectorcall stack releases them in reverse order.
-            # Borrowed binding must preserve each caller's original ownership.
+            # Direct calls release the evaluation stack in reverse, whereas
+            # expanded calls release the keyword mapping in insertion order.
             reverse = mode % 2 == 1
-            if sys.implementation.name == "cpython" and mode < 2:
+            if mode < 2:
                 reverse = not reverse
             if raises:
                 # The __bool__ traceback owns restrict until exception cleanup.
@@ -478,6 +477,138 @@ def check_interpreter_clinic():
                 else ["del-preserve", "del-restrict"]
             )
             assert trace == expected, (mode, raises, trace)
+
+    class TemporaryId(Id):
+        def __del__(self):
+            trace.append("del-id")
+
+    class TemporaryValue:
+        def __init__(self, name):
+            self.name = name
+
+        def __del__(self):
+            trace.append("del-" + self.name)
+
+    class TemporaryTuple(tuple):
+        def __del__(self):
+            trace.append("del-args")
+
+    class TemporaryDict(dict):
+        def __del__(self):
+            trace.append("del-kwargs")
+
+    # Positional values and borrowed payloads have the same owners as flags.
+    # Binding failures must also release those owners without any conversion.
+    for invoke, converted, destroyed in (
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                TemporaryTuple(),
+                TemporaryDict(),
+                preserve_exc=TemporaryFlag("preserve"),
+                restrict=TemporaryFlag("restrict"),
+            ),
+            ["preserve", "restrict", "id"],
+            ["restrict", "preserve", "kwargs", "args", "callable", "id"],
+        ),
+        (
+            lambda: _interpreters.call(
+                restrict=TemporaryFlag("restrict"),
+                callable=TemporaryValue("callable"),
+                id=TemporaryId(),
+                kwargs=TemporaryDict(),
+                preserve_exc=TemporaryFlag("preserve"),
+                args=TemporaryTuple(),
+            ),
+            ["preserve", "restrict", "id"],
+            ["args", "preserve", "kwargs", "id", "callable", "restrict"],
+        ),
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                TemporaryTuple(),
+                TemporaryDict(),
+                **dict(
+                    restrict=TemporaryFlag("restrict"),
+                    preserve_exc=TemporaryFlag("preserve"),
+                ),
+            ),
+            ["preserve", "restrict", "id"],
+            ["restrict", "preserve", "kwargs", "args", "callable", "id"],
+        ),
+        (
+            lambda: _interpreters.call(
+                **dict(
+                    id=TemporaryId(),
+                    callable=TemporaryValue("callable"),
+                    args=TemporaryTuple(),
+                    kwargs=TemporaryDict(),
+                    preserve_exc=TemporaryFlag("preserve"),
+                    restrict=TemporaryFlag("restrict"),
+                )
+            ),
+            ["preserve", "restrict", "id"],
+            ["id", "callable", "args", "kwargs", "preserve", "restrict"],
+        ),
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                preserve_exc=TemporaryFlag("preserve"),
+                restrict=TemporaryFlag("restrict"),
+                unexpected=TemporaryValue("unexpected"),
+            ),
+            [],
+            ["unexpected", "restrict", "preserve", "callable", "id"],
+        ),
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                **dict(
+                    preserve_exc=TemporaryFlag("preserve"),
+                    restrict=TemporaryFlag("restrict"),
+                    unexpected=TemporaryValue("unexpected"),
+                ),
+            ),
+            [],
+            ["preserve", "restrict", "unexpected", "callable", "id"],
+        ),
+    ):
+        for _ in range(32):
+            trace.clear()
+            try:
+                invoke()
+            except (TypeError, ValueError):
+                pass
+            else:
+                raise AssertionError("invalid call succeeded")
+            assert trace == converted + ["del-" + name for name in destroyed], trace
+
+    class TemporaryCurrentId(TemporaryId):
+        def __index__(self):
+            trace.append("id")
+            return _interpreters.get_current()[0]
+
+    for invoke, destroyed in (
+        (
+            lambda: _interpreters.is_running(
+                TemporaryCurrentId(), restrict=TemporaryFlag("restrict")
+            ),
+            ["restrict", "id"],
+        ),
+        (
+            lambda: _interpreters.is_running(
+                **dict(id=TemporaryCurrentId(), restrict=TemporaryFlag("restrict"))
+            ),
+            ["id", "restrict"],
+        ),
+    ):
+        trace.clear()
+        assert isinstance(invoke(), bool)
+        assert trace == ["restrict", "id"] + ["del-" + name for name in destroyed]
 
     check_error(
         _interpreters.call,
