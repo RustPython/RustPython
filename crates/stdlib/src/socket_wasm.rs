@@ -632,6 +632,12 @@ mod _socket {
             mut f: impl FnMut(&Socket) -> io::Result<T>,
         ) -> PyResult<T> {
             loop {
+                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    return Err(vm.new_exception_msg(
+                        vm.ctx.exceptions.timeout_error.to_owned(),
+                        "timed out".into(),
+                    ));
+                }
                 let guard = self.socket.lock();
                 let socket = guard
                     .as_ref()
