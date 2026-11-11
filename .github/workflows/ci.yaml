@@ -1135,6 +1135,46 @@ jobs:
         test_operator
         test_functools
         test_str
+        test_abc
+        test_base64
+        test_binascii
+        test_colorsys
+        test_copyreg
+        test_difflib
+        test_errno
+        test_fnmatch
+        test_fractions
+        test_html
+        test_ipaddress
+        test_keyword
+        test_numeric_tower
+        test_pprint
+        test_quopri
+        test_textwrap
+        test_urlparse
+        test_hmac
+        test_random
+        test_stringprep
+        test_weakref
+        test_reprlib
+        test_contains
+        test_unary
+        test_augassign
+        test_keywordonlyarg
+        test_positional_only_arg
+        test_scope
+        test_super
+        test_property
+        test_iter
+        test_iterlen
+        test_listcomps
+        test_dictcomps
+        test_setcomps
+        test_genexps
+        test_types
+        test_typechecks
+        test_richcmp
+        test_int_literal
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
