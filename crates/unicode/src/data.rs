@@ -192,6 +192,38 @@ fn lookup_table<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
         .map(|i| table[i].2)
 }
 
+fn lookup_table_range(table: &[(u32, u16, u16)], ch: char) -> Option<u16> {
+    let ch = ch as u32;
+    table
+        .binary_search_by(|&(start, offset, _)| {
+            let end = start + offset as u32;
+            if ch > end {
+                Ordering::Less
+            } else if ch < start {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        })
+        .ok()
+        .map(|i| table[i].2)
+}
+
+fn lookup_numeric_value(ch: char, modern: bool) -> Option<f64> {
+    let i = if modern {
+        lookup_table_range(NUMERIC_RANGES, ch)
+    } else {
+        cold_path();
+        lookup_table_range(NUMERIC_VALUES_DIFF, ch).or_else(|| {
+            membership_3_2(ch as u32)
+                .then(|| lookup_table_range(NUMERIC_RANGES, ch))
+                .flatten()
+        })
+    }?;
+
+    Some(NUMERIC_VALUES[i as usize])
+}
+
 #[cold]
 #[inline(never)]
 #[must_use]
@@ -207,24 +239,6 @@ pub fn membership_3_2(ch: u32) -> bool {
             }
         })
         .is_ok()
-}
-
-fn lookup_property_diff<T: Copy>(
-    table: &[(u32, u32, T)],
-    diff: &[(u32, u32, T)],
-    ch: char,
-    modern: bool,
-) -> Option<T> {
-    if modern {
-        lookup_table(table, ch)
-    } else {
-        cold_path();
-        lookup_table(diff, ch).or_else(|| {
-            membership_3_2(ch as u32)
-                .then(|| lookup_table(table, ch))
-                .flatten()
-        })
-    }
 }
 
 /// The version string of the latest Unicode database bundled with the standard
@@ -508,7 +522,7 @@ impl Ucd {
     pub fn digit(&self, c: CodePoint) -> Option<u64> {
         let expected = [NumericType::Decimal, NumericType::Digit];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
-            let value = lookup_property_diff(NUMERIC_VALUES, &[], ch, true)?;
+            let value = lookup_numeric_value(ch, true)?;
             let int = value as u64;
             (int as f64 == value).then_some(int)
         })
@@ -519,7 +533,7 @@ impl Ucd {
     pub fn decimal(&self, c: CodePoint) -> Option<u64> {
         let expected = [NumericType::Decimal];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
-            let value = lookup_property_diff(NUMERIC_VALUES, NUMERIC_VALUES_DIFF, ch, self.modern)?;
+            let value = lookup_numeric_value(ch, self.modern)?;
             let int = value as u64;
             (int as f64 == value).then_some(int)
         })
@@ -528,14 +542,9 @@ impl Ucd {
     /// The numeric value of `c` (`unicodedata.numeric`), if it has one.
     #[must_use]
     pub fn numeric(&self, c: CodePoint) -> Option<f64> {
-        // Both generated tables are complete numeric-value tables. Falling
-        // back to modern values would assign later numeric properties to 3.2.
-        let table = if self.modern {
-            NUMERIC_VALUES
-        } else {
-            NUMERIC_VALUES_3_2
-        };
-        c.to_char().and_then(|ch| lookup_table(table, ch))
+        let expected = &NumericType::ALL_VALUES[1..];
+        self.numeric_type_matches(c, expected)
+            .and_then(|ch| lookup_numeric_value(ch, self.modern))
     }
 
     #[must_use]

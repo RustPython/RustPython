@@ -3,6 +3,7 @@
 extern crate alloc;
 
 use core::{
+    cmp::Ordering,
     fmt::{Debug, Display},
     iter::Iterator,
     num::NonZeroUsize,
@@ -180,6 +181,11 @@ impl UnicodeLine {
     }
 }
 
+struct NumericTypeDiffs {
+    value_diffs: Vec<(u32, u32, f64)>,
+    none_diffs: Vec<(u32, u32)>,
+}
+
 /// Helper to write a vector of condensed start, end char pairs and the associated ICU prop.
 ///
 /// The values are impl Display because Debug would break the representation. For example, strs
@@ -198,19 +204,19 @@ fn write_slice_display(
     write_slice_post(writer);
 }
 
-fn write_slice_debug(
-    writer: &mut impl Write,
-    static_name: &str,
-    array_type: &str,
-    values: &mut [(u32, u32, impl Debug)],
-) {
-    write_slice_pre(writer, static_name, array_type);
-    values.sort_unstable_by_key(|(start, _, _)| *start);
-    for (start, end, id) in values {
-        write!(writer, "({start}, {end}, {id:?}),").unwrap();
-    }
-    write_slice_post(writer);
-}
+// fn write_slice_debug(
+//     writer: &mut impl Write,
+//     static_name: &str,
+//     array_type: &str,
+//     values: &mut [(u32, u32, impl Debug)],
+// ) {
+//     write_slice_pre(writer, static_name, array_type);
+//     values.sort_unstable_by_key(|(start, _, _)| *start);
+//     for (start, end, id) in values {
+//         write!(writer, "({start}, {end}, {id:?}),").unwrap();
+//     }
+//     write_slice_post(writer);
+// }
 
 /// Helper to write a vector of start, end char pairs.
 ///
@@ -231,18 +237,34 @@ fn write_slice_pairs(
 
 /// Helper to write a pre-sorted slice of strs.
 ///
-/// See: [`write_slice_display`]
+/// See: [`write_slice_display`].
 fn write_slice_unordered(
     writer: &mut impl Write,
     static_name: &str,
     array_type: &str,
-    values: &mut [impl Display],
+    values: &[impl Display],
 ) {
-    write_slice_pre(writer, static_name, array_type);
-    for v in values {
-        write!(writer, "{v},").unwrap();
-    }
-    write_slice_post(writer);
+    write_slice_raw(writer, static_name, array_type, values, |writer, values| {
+        for v in values {
+            write!(writer, "{v},").unwrap();
+        }
+    });
+}
+
+/// Helper to write a pre-sorted slice of impl Debug.
+///
+/// See: [`write_slice_display`].
+fn write_slice_dbg_unordered(
+    writer: &mut impl Write,
+    static_name: &str,
+    array_type: &str,
+    values: &[impl Debug],
+) {
+    write_slice_raw(writer, static_name, array_type, values, |writer, values| {
+        for v in values {
+            write!(writer, "{v:?},").unwrap();
+        }
+    });
 }
 
 /// Helper to write raw values for data sources that don't follow the common format.
@@ -390,9 +412,9 @@ fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
         &mut writer,
         "DECOMP_COMPAT",
         "(u32, DecompositionType, usize)",
-        &mut values,
+        &values,
     );
-    write_slice_unordered(&mut writer, "DECOMP_RANGE", "u32", &mut decomp_ranges);
+    write_slice_unordered(&mut writer, "DECOMP_RANGE", "u32", &decomp_ranges);
 }
 
 fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
@@ -516,7 +538,7 @@ fn generate_name_lookups() {
 /// Drive parsers that require the full 3.2.0 data.
 ///
 /// As the full data set is HUGE, it's more efficient to parse it once then delegate to subparsers.
-fn full_data_parsers_3_2(tx: mpsc::Sender<Vec<(u32, u32, f64)>>) {
+fn full_data_parsers_3_2(tx: mpsc::Sender<NumericTypeDiffs>) {
     let reader = UnicodeLineReader::from_file_name("UnicodeData-3.2.0.txt", false);
 
     // `DerivedNumericValues` writes the value rounded to a few digits, so the
@@ -559,9 +581,15 @@ fn full_data_parsers_3_2(tx: mpsc::Sender<Vec<(u32, u32, f64)>>) {
         }
     }
 
+    let mut assigned_ranges: Vec<(u32, u32)> = membership_set.iter().copied().collect();
+    let (chunks, &[]) = range_membership.as_chunks::<2>() else {
+        panic!("Range membership is always in pairs ('First>' and 'Last>'");
+    };
+    assigned_ranges.extend(chunks.iter().copied().map(<(u32, u32)>::from));
+
     // Now delegate to parsers that need the full data.
     generate_membership_3_2(membership_set, range_membership);
-    generate_numeric_value(ucd32_fractions, tx);
+    generate_numeric_value(ucd32_fractions, assigned_ranges, tx);
 }
 
 /// Generate a compressed array of Unicode 3.2 membership.
@@ -600,7 +628,8 @@ fn generate_membership_3_2(membership_set: BTreeSet<(u32, u32)>, range_membershi
 
 fn generate_numeric_value(
     ucd32_fractions: BTreeMap<u32, f64>,
-    tx: mpsc::Sender<Vec<(u32, u32, f64)>>,
+    assigned_ranges: Vec<(u32, u32)>,
+    tx: mpsc::Sender<NumericTypeDiffs>,
 ) {
     let mut ucd32_diffs = BTreeMap::new();
     let numeric_32 = UnicodeLineReader::from_file_name("DerivedNumericValues-3.2.0.txt", false);
@@ -620,10 +649,9 @@ fn generate_numeric_value(
         ucd32_diffs.insert((line.start, line.end), value);
     }
 
-    #[cfg(feature = "ucd_3_2_0")]
     let mut values_3_2 = ucd32_diffs.clone();
     let ucd_latest = UnicodeLineReader::from_file_name("DerivedNumericValues.txt", true);
-    let mut values_latest = Vec::new();
+    let mut ranges_latest = Vec::new();
     for line in ucd_latest {
         // Field 3 holds the fraction; field 1 rounds it to a few digits.
         let field = line.field(
@@ -642,7 +670,7 @@ fn generate_numeric_value(
         {
             ucd32_diffs.remove(&(line.start, line.end));
         }
-        values_latest.push((line.start, line.end, value));
+        ranges_latest.push((line.start, line.end, value));
     }
 
     // Han ideograph supplement. This data is huge but we don't need a separate thread for it
@@ -673,51 +701,115 @@ fn generate_numeric_value(
             let field = normalize_unihan_numeric(field);
             let value = parse_numeric_value(&field);
             ucd32_diffs.insert((line.start, line.end), value);
-            #[cfg(feature = "ucd_3_2_0")]
             values_3_2.insert((line.start, line.end), value);
         }
     }
 
+    // A character can be assigned in Unicode 3.2 without having a numeric
+    // value there. Preserve those cases as explicit NumericType::None diffs
+    // so the runtime does not fall back to a later numeric value.
+    let mut none_code_points = BTreeSet::new();
+    for &(start, end, _) in &ranges_latest {
+        for ch in start..=end {
+            let assigned = assigned_ranges
+                .iter()
+                .any(|&(assigned_start, assigned_end)| assigned_start <= ch && ch <= assigned_end);
+            let numeric = values_3_2
+                .keys()
+                .any(|&(numeric_start, numeric_end)| numeric_start <= ch && ch <= numeric_end);
+            if assigned && !numeric {
+                none_code_points.insert(ch);
+            }
+        }
+    }
+
+    let mut none_diffs = Vec::new();
+    let mut iter = none_code_points.into_iter();
+    if let Some(mut start) = iter.next() {
+        let mut end = start;
+        for ch in iter {
+            if ch == end + 1 {
+                end = ch;
+            } else {
+                none_diffs.push((start, end));
+                start = ch;
+                end = ch;
+            }
+        }
+        none_diffs.push((start, end));
+    }
+
+    // Compress the keys and values. There are two classes of tables: indices and values. Values are
+    // repetitive so they can compressed into a sorted vector. Indices can be stored in eight byte
+    // pairs instead of the 16 byte alignment that would be required to store (u32, u32, f64).
+    let values = ranges_latest
+        .iter()
+        .map(|&(_, _, v)| F64Ord(v))
+        .chain(ucd32_diffs.iter().map(|((_, _), v)| F64Ord(*v)))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|f| f.0)
+        .collect::<Vec<_>>();
     let mut writer = open_writer("numeric_value_3_2.rs");
-    write_slice_debug(
+    write_slice_dbg_unordered(&mut writer, "NUMERIC_VALUES", "f64", &values);
+
+    let mut numeric_ranges: Vec<_> = ranges_latest
+        .iter()
+        .copied()
+        .map(|(start, end, value)| {
+            let offset: u16 = (end - start).try_into().unwrap();
+            let index: u16 = values
+                .binary_search_by(|f| f.total_cmp(&value))
+                .unwrap()
+                .try_into()
+                .unwrap();
+            (start, offset, index)
+        })
+        .collect();
+    numeric_ranges.sort_unstable_by_key(|(start, _, _)| *start);
+    write_slice_dbg_unordered(
         &mut writer,
-        "NUMERIC_VALUES",
-        "(u32, u32, f64)",
-        &mut values_latest,
+        "NUMERIC_RANGES",
+        "(u32, u16, u16)",
+        &numeric_ranges,
     );
     #[cfg(feature = "ucd_3_2_0")]
-    let mut ucd32_diffs: Vec<_> = ucd32_diffs
-        .into_iter()
-        .map(|((start, end), value)| (start, end, value))
+    let numeric_vals_diff: Vec<_> = ucd32_diffs
+        .iter()
+        .map(|(&(start, end), &value)| {
+            let offset: u16 = (end - start).try_into().unwrap();
+            let index: u16 = values
+                .binary_search_by(|f| f.total_cmp(&value))
+                .unwrap()
+                .try_into()
+                .unwrap();
+            (start, offset, index)
+        })
         .collect();
-    #[cfg(not(feature = "ucd_3_2_0"))]
-    let mut ucd32_diffs = Vec::new();
 
-    write_slice_debug(
+    #[cfg(not(feature = "ucd_3_2_0"))]
+    let numeric_vals_diff: Vec<(u32, u16, u16)> = Vec::new();
+
+    write_slice_dbg_unordered(
         &mut writer,
         "NUMERIC_VALUES_DIFF",
-        "(u32, u32, f64)",
-        &mut ucd32_diffs,
+        "(u32, u16, u16)",
+        &numeric_vals_diff,
     );
 
-    // Unlike the diff, this table also represents the absence of numeric
-    // properties added after 3.2: a missing entry must not use a modern value.
     #[cfg(feature = "ucd_3_2_0")]
-    let mut values_3_2: Vec<_> = values_3_2
+    let value_diffs: Vec<(u32, u32, f64)> = ucd32_diffs
         .into_iter()
         .map(|((start, end), value)| (start, end, value))
         .collect();
     #[cfg(not(feature = "ucd_3_2_0"))]
-    let mut values_3_2: Vec<(u32, u32, f64)> = Vec::new();
-    write_slice_debug(
-        &mut writer,
-        "NUMERIC_VALUES_3_2",
-        "(u32, u32, f64)",
-        &mut values_3_2,
-    );
+    let value_diffs: Vec<(u32, u32, f64)> = Vec::new();
 
-    tx.send(ucd32_diffs)
-        .expect("sending numeric value diffs to numeric type thread should succeed");
+    tx.send(NumericTypeDiffs {
+        value_diffs,
+        none_diffs,
+    })
+    .expect("sending numeric value diffs to numeric type thread should succeed");
 }
 
 fn general_category_3_2() {
@@ -861,11 +953,11 @@ fn combining_class_3_2() {
     );
 }
 
-fn generate_numeric_type_3_2(rx: mpsc::Receiver<Vec<(u32, u32, f64)>>) {
+fn generate_numeric_type_3_2(rx: mpsc::Receiver<NumericTypeDiffs>) {
     let mut writer = open_writer("num_type_3_2.rs");
     let reader = UnicodeLineReader::from_file_name("DerivedNumericType-3.2.0.txt", false);
 
-    let mut values = Vec::new();
+    let mut values = BTreeMap::new();
     for line in reader {
         let field = line.field(
             NonZeroUsize::new(1).unwrap(),
@@ -884,24 +976,51 @@ fn generate_numeric_type_3_2(rx: mpsc::Receiver<Vec<(u32, u32, f64)>>) {
         });
 
         if differs {
-            values.push((line.start, line.end, id));
+            for ch in line.start..=line.end {
+                values.insert(ch, id);
+            }
         }
     }
 
     // Extend the 3.2.0 differences with the Unihan data. It's possible that the type matters but we
     // will treat them as Numeric for now.
-    let diffs = rx.recv_timeout(Duration::from_mins(10)).unwrap();
-    values.extend(
-        diffs
-            .into_iter()
-            .map(|(start, end, _)| (start, end, "NumericType::Numeric")),
-    );
+    let NumericTypeDiffs {
+        value_diffs,
+        none_diffs,
+    } = rx.recv_timeout(Duration::from_mins(10)).unwrap();
+    for (start, end, _) in value_diffs {
+        for ch in start..=end {
+            values.insert(ch, "NumericType::Numeric");
+        }
+    }
+    for (start, end) in none_diffs {
+        for ch in start..=end {
+            values.insert(ch, "NumericType::None");
+        }
+    }
+
+    let mut ranges = Vec::new();
+    let mut iter = values.into_iter();
+    if let Some((mut start, mut id)) = iter.next() {
+        let mut end = start;
+        for (ch, next_id) in iter {
+            if ch == end + 1 && next_id == id {
+                end = ch;
+            } else {
+                ranges.push((start, end, id));
+                start = ch;
+                end = ch;
+                id = next_id;
+            }
+        }
+        ranges.push((start, end, id));
+    }
 
     write_slice_display(
         &mut writer,
         "NUMERIC_TYPE_DIFF",
         "(u32, u32, NumericType)",
-        &mut values,
+        &mut ranges,
     );
 }
 
@@ -1096,6 +1215,31 @@ fn parse_numeric_value(text: &str) -> f64 {
         panic!("{e}: Unicode data contains valid properties\ndenominator: {text}")
     });
     numerator / denominator
+}
+
+#[derive(Clone, Copy)]
+struct F64Ord(pub f64);
+
+impl PartialEq for F64Ord {
+    fn eq(&self, other: &Self) -> bool {
+        assert!(!self.0.is_nan());
+        assert!(!other.0.is_nan());
+        self.0.total_cmp(&other.0) == Ordering::Equal
+    }
+}
+
+impl Eq for F64Ord {}
+
+impl PartialOrd for F64Ord {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for F64Ord {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
 }
 
 fn main() {
