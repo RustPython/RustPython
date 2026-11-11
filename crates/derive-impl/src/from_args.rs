@@ -638,6 +638,13 @@ fn parse_from_args_attr(attrs: &[Attribute]) -> Result<Option<LegacyFromArgs>> {
         return Ok(None);
     };
 
+    if attr
+        .parse_args::<Ident>()
+        .is_ok_and(|ident| ident == "borrowed")
+    {
+        return Ok(None);
+    }
+
     let mut legacy = false;
     let mut fname = None;
     attr.parse_nested_meta(|meta| {
@@ -768,7 +775,139 @@ fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     (min_arity, max_arity)
 }
 
+fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<TokenStream> {
+    let lifetimes = input.generics.lifetimes().collect::<Vec<_>>();
+    if lifetimes.len() != 1 || input.generics.params.len() != 1 {
+        bail_span!(
+            input.generics,
+            "borrowed FromArgs requires exactly one lifetime and no type or const parameters"
+        );
+    }
+    if parse_from_args_attr(&input.attrs)?.is_some() {
+        bail_span!(
+            input,
+            "borrowed FromArgs uses Clinic binding; legacy parsing requires owned arguments"
+        );
+    }
+    let lifetime = &lifetimes[0].lifetime;
+    let name = &input.ident;
+    let mut params = Vec::new();
+    let mut values = Vec::new();
+    let attrs = fields
+        .iter()
+        .filter(|field| !is_phantom(field))
+        .map(ArgAttribute::try_from)
+        .collect::<Result<Vec<_>>>()?;
+    let (min, max) = compute_arity_bounds(&attrs);
+    let mut slot = 0usize;
+    for (i, field) in fields.iter().enumerate() {
+        let attr = ArgAttribute::try_from(field)?;
+        if is_phantom(field) {
+            let member = &field.ident;
+            values.push(quote!(#member: ::core::marker::PhantomData,));
+            continue;
+        }
+        if attr.kind == ParameterKind::Flatten {
+            bail_span!(field, "borrowed FromArgs does not support flattened fields");
+        }
+        if attr.py_default.is_some() && attr.default.is_none() {
+            bail_span!(
+                field,
+                "a borrowed py_default requires optional or default omission handling"
+            );
+        }
+        params.push(param_token(field, &attr)?);
+        let member = field.ident.as_ref().map_or_else(
+            || syn::Index::from(i).into_token_stream(),
+            ToTokens::to_token_stream,
+        );
+        let pyname = attr
+            .name
+            .clone()
+            .or_else(|| field.ident.as_ref().map(|name| name.unraw().to_string()))
+            .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
+        let mut convert = quote! {
+            ::rustpython_vm::convert::TryFromBorrowedObject::try_from_borrowed_argument(vm, x)
+        };
+        if let Some(message) = &attr.error_msg {
+            convert = quote! {
+                #convert.map_err(|_| ::rustpython_vm::function::ArgumentError::from(vm.new_type_error(#message)))
+            };
+        } else if attr.kind != ParameterKind::PositionalOnly {
+            convert = quote! { #convert.map_err(|err| err.with_argument_name(#pyname)) };
+        }
+        let ending = if let Some(default) = attr.default {
+            let ty = &field.ty;
+            if let Some(expr) = &default
+                && !keeps_direct_literal(ty)
+                && !is_wrapped_arg_ty(ty)
+                && literal_object_expr(expr).is_some()
+            {
+                bail_span!(
+                    field,
+                    "a borrowed default cannot allocate an owned Python object; use OptionalArg with py_default or a Rust converter constant"
+                );
+            }
+            let default = match default {
+                Some(expr) => match absolute_const_ident(&expr)? {
+                    Some(name) => quote!(::core::convert::Into::into(#name)),
+                    None => quote!(#expr),
+                },
+                None => quote!(::core::default::Default::default()),
+            };
+            quote! {
+                .map(<#ty as ::rustpython_vm::function::FromBorrowedArgOptional<#lifetime>>::from_inner)
+                .unwrap_or_else(|| #default)
+            }
+        } else {
+            quote! { .expect("Clinic checked the required argument") }
+        };
+        let i = slot;
+        slot += 1;
+        let pos = i + 1;
+        values.push(quote! {
+            #member: slots[#i].map(|x| #convert)
+                .transpose()
+                .map_err(|error| error.into_exception(&(#min..=#max), args.args.len(), #pos, callee, vm))?
+                #ending,
+        });
+    }
+    let n = slot;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    Ok(quote! {
+        impl #impl_generics ::rustpython_vm::function::ArgsMetadata for #name #ty_generics #where_clause {
+            const DISPLAY_PARAMS: ::core::option::Option<&'static [::rustpython_vm::function::Param]> =
+                Some(&[#(#params),*]);
+        }
+
+        impl ::rustpython_vm::function::BorrowedArgs for #name<'static> {
+            type Bound<#lifetime> = #name<#lifetime>;
+
+            #[inline]
+            fn bind<#lifetime>(
+                args: &#lifetime ::rustpython_vm::function::FuncArgs,
+                vm: &::rustpython_vm::VirtualMachine,
+                callee: ::rustpython_vm::function::Callee,
+            ) -> ::rustpython_vm::PyResult<Self::Bound<#lifetime>> {
+                let slots = args.bind_borrowed::<#n, Self>(vm, callee)?;
+                Ok(#name { #(#values)* })
+            }
+        }
+    })
+}
+
 pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
+    if input.attrs.iter().any(|attr| {
+        attr.path().is_ident("from_args")
+            && attr
+                .parse_args::<Ident>()
+                .is_ok_and(|ident| ident == "borrowed")
+    }) {
+        let Data::Struct(data) = &input.data else {
+            bail_span!(input, "FromArgs input must be a struct");
+        };
+        return impl_borrowed_from_args(&input, &data.fields);
+    }
     let Data::Struct(syn::DataStruct {
         fields: struct_fields,
         ..
@@ -920,6 +1059,61 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrowed_codegen_uses_one_binding_and_no_owners() {
+        let input = parse_quote! {
+            #[from_args(borrowed)]
+            struct Args<'a> {
+                #[pyarg(any)]
+                value: &'a PyObject,
+                #[pyarg(named, optional, py_default = "None")]
+                optional: OptionalArg<&'a Py<PyDict>>,
+            }
+        };
+        let tokens = impl_from_args(input).unwrap().to_string();
+        assert_eq!(tokens.matches("bind_borrowed").count(), 1);
+        assert_eq!(tokens.matches("try_from_borrowed_argument").count(), 2);
+        for forbidden in [
+            "clone",
+            "Vec",
+            "ArgSpec",
+            "take_keyword",
+            "take_positional",
+            "check_before_convert",
+        ] {
+            assert!(!tokens.contains(forbidden), "{forbidden}: {tokens}");
+        }
+        assert!(tokens.contains("BorrowedArgs"));
+        assert!(tokens.contains("ArgsMetadata"));
+    }
+
+    #[test]
+    fn a_lifetime_alone_does_not_change_owned_binding() {
+        let input = parse_quote! {
+            struct Args<'a> {
+                #[pyarg(flatten)]
+                value: ExistingOwnedArgs<'a>,
+            }
+        };
+        let tokens = impl_from_args(input).unwrap().to_string();
+        assert!(tokens.contains("FromArgs for Args"));
+        assert!(!tokens.contains("BorrowedArgs"));
+    }
+
+    #[test]
+    fn borrowed_binding_rejects_unsupported_layouts_and_defaults() {
+        for input in [
+            parse_quote! { #[from_args(borrowed)] struct Args { value: PyObjectRef } },
+            parse_quote! { #[from_args(borrowed)] struct Args<'a> { #[pyarg(any, py_default = "None")] value: &'a PyObject } },
+            parse_quote! { #[from_args(borrowed)] struct Args<'a, T> { value: &'a T } },
+            parse_quote! { #[from_args(borrowed)] struct Args<'a> { #[pyarg(flatten)] value: &'a PyObject } },
+            parse_quote! { #[from_args(borrowed)] struct Args<'a> { #[pyarg(any, default = "x")] value: &'a Py<PyStr> } },
+            parse_quote! { #[from_args(borrowed)] #[from_args(legacy, fname = "f")] struct Args<'a> { value: &'a PyObject } },
+        ] {
+            assert!(impl_from_args(input).is_err());
+        }
+    }
 
     #[test]
     fn option_none_default_keeps_rust_value_and_metadata() {

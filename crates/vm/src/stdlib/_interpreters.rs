@@ -12,9 +12,14 @@ pub(crate) use _interpreters::{
 pub(crate) mod _interpreters {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyModule, PyStr},
+        builtins::{
+            PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyModule, PyStr, PyTuple,
+        },
         class::PyClassImpl,
-        function::{ArgSpec, ArgumentError, DefaultRepr, FromArgs, FuncArgs, Param, ParamKind},
+        function::{
+            ArgIntoBool, ArgumentError, DefaultRepr, FromArgs, FuncArgs, OptionalArg, Param,
+            ParamKind,
+        },
         protocol::{BufferMethods, PyBuffer},
         types::{AsBuffer, Constructor},
         vm::{
@@ -222,29 +227,6 @@ pub(crate) mod _interpreters {
         Ok(id)
     }
 
-    fn require_dict<'a>(
-        obj: &'a PyObject,
-        func: &str,
-        pos: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a Py<PyDict>> {
-        obj.downcast_ref::<PyDict>()
-            .ok_or_else(|| bad_argument(func, pos, "dict", obj, vm))
-    }
-
-    /// The `p` converter: a predicate that only reads truthiness.
-    fn flag(slot: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<bool> {
-        match slot {
-            Some(o) => o.to_owned().is_true(vm),
-            None => Ok(false),
-        }
-    }
-
-    /// The `O!` converter for `PyDict_Type`.
-    fn check_dict(obj: &PyObject, func: &str, pos: &str, vm: &VirtualMachine) -> PyResult<()> {
-        require_dict(obj, func, pos, vm).map(drop)
-    }
-
     /// `_config_dict_get_bool`: only exact `True` / `False` are accepted.
     fn config_bool(value: &PyObject, name: &str, vm: &VirtualMachine) -> PyResult<bool> {
         if value.is(&vm.ctx.true_value) {
@@ -415,17 +397,132 @@ pub(crate) mod _interpreters {
         }
     }
 
-    struct ListAllArgs(FuncArgs);
+    // These match the converters and their order in CPython's Clinic wrappers.
+    // IDs stay objects until the implementation resolves them, after flags.
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct ListAllArgs<'a> {
+        _phantom: core::marker::PhantomData<&'a ()>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        require_ready: ArgIntoBool,
+    }
 
-    impl FromArgs for ListAllArgs {
-        const PARAMS: Option<&'static [Param]> = Some(&[Param::keyword_only(
-            "require_ready",
-            Some(DefaultRepr::Bool(false)),
-        )]);
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct CreateArgs<'a> {
+        #[pyarg(any, optional, py_default = "'isolated'")]
+        config: OptionalArg<&'a PyObject>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        reqrefs: ArgIntoBool,
+    }
 
-        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            Ok(Self(core::mem::take(args)))
-        }
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct InterpreterIdArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct WhenceArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct ShareableArgs<'a> {
+        #[pyarg(any)]
+        obj: &'a PyObject,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct ExecArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(any)]
+        code: &'a PyObject,
+        #[pyarg(any, optional, py_default = "{}")]
+        shared: OptionalArg<&'a Py<PyDict>>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct RunStringArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(any)]
+        script: &'a Py<PyStr>,
+        #[pyarg(any, optional, py_default = "{}")]
+        shared: OptionalArg<&'a Py<PyDict>>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct RunFuncArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(any)]
+        func: &'a PyObject,
+        #[pyarg(any, optional, py_default = "{}")]
+        shared: OptionalArg<&'a Py<PyDict>>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct CallArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(any)]
+        callable: &'a PyObject,
+        #[pyarg(any, optional, py_default = "()")]
+        args: OptionalArg<&'a Py<PyTuple>>,
+        #[pyarg(any, optional, py_default = "{}")]
+        kwargs: OptionalArg<&'a Py<PyDict>>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        // Clinic converts this flag even though the implementation ignores it.
+        preserve_exc: ArgIntoBool,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct SetMainAttrsArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(any)]
+        updates: &'a Py<PyDict>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct IncrefArgs<'a> {
+        #[pyarg(any)]
+        id: &'a PyObject,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        implieslink: ArgIntoBool,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        restrict: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct CaptureExceptionArgs<'a> {
+        #[pyarg(any, optional, py_default = "None")]
+        exc: OptionalArg<&'a PyObject>,
     }
 
     #[pyfunction]
@@ -459,17 +556,10 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn create(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
-            fname: "create",
-            keywords: &["config", "reqrefs"],
-            required: 0,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let reqrefs = flag(parsed[1].as_deref(), vm)?;
-        let config = parse_config(parsed[0].as_deref(), vm)?;
-        new_interpreter(config, reqrefs, vm)
+    fn create(args: CreateArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let requires_refs = args.reqrefs.into_bool();
+        let config = parse_config(args.config.into_option(), vm)?;
+        new_interpreter(config, requires_refs, vm)
     }
 
     /// `_PyXI_NewInterpreter`, registered as a runtime-owned interpreter.
@@ -503,16 +593,9 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn destroy(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parsed = ArgSpec {
-            fname: "destroy",
-            keywords: &["id", "restrict"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
+    fn destroy(args: InterpreterIdArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
         resolve_interp(Some(id), restricted, false, "destroy", vm)?;
         if id == vm.state.interpreter_id {
             return Err(interpreter_error(
@@ -535,15 +618,8 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn list_all(ListAllArgs(args): ListAllArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
-            fname: "_interpreters.list_all",
-            keywords: &["require_ready"],
-            required: 0,
-            max_positional: 0,
-        }
-        .parse(&args, vm)?;
-        let reqready = flag(parsed[0].as_deref(), vm)?;
+    fn list_all(args: ListAllArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let reqready = args.require_ready.into_bool();
         let mut items = Vec::new();
         for info in runtime::list_interpreters() {
             if reqready
@@ -569,45 +645,24 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn is_running(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
-            fname: "is_running",
-            keywords: &["id", "restrict"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
+    fn is_running(args: InterpreterIdArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
         resolve_interp(Some(id), restricted, true, "check if running for", vm)?;
         Ok(vm.ctx.new_bool(crossinterp::is_running(id)).into())
     }
 
     #[pyfunction]
-    fn whence(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
-            fname: "whence",
-            keywords: &["id"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
+    fn whence(args: WhenceArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let id = parse_id(args.id, vm)?;
         let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         Ok(vm.ctx.new_int(state.whence.as_i32()).into())
     }
 
     #[pyfunction]
-    fn get_config(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
-            fname: "get_config",
-            keywords: &["id", "restrict"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_deref(), vm)?;
-        let id_obj = parsed[0].as_deref().unwrap();
+    fn get_config(args: InterpreterIdArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let restricted = args.restrict.into_bool();
+        let id_obj = args.id;
         let id = if vm.is_none(id_obj) {
             None
         } else {
@@ -619,15 +674,8 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn is_shareable(args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let parsed = ArgSpec {
-            fname: "is_shareable",
-            keywords: &["obj"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        Ok(crossinterp::is_shareable(parsed[0].as_deref().unwrap(), vm))
+    fn is_shareable(args: ShareableArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(crossinterp::is_shareable(args.obj, vm))
     }
 
     /// `_run_in_interpreter` for the script forms: `Ok(None)` on success,
@@ -685,149 +733,65 @@ pub(crate) mod _interpreters {
         Err(vm.new_runtime_error("isolated interpreters require threading"))
     }
 
-    /// The shared `(id, <second>, shared=None, *, restrict=False)` prologue.
-    /// `second_check` is the converter of the format string's second slot.
-    fn script_args(
-        args: &FuncArgs,
-        func: &'static str,
-        second_name: &'static str,
-        second_check: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
-        op: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<(i64, PyObjectRef, Option<PyRef<PyDict>>)> {
-        let parsed = ArgSpec {
-            fname: func,
-            keywords: &["id", second_name, "shared", "restrict"],
-            required: 2,
-            max_positional: 3,
-        }
-        .parse_with(
-            args,
-            |i, obj, vm| match i {
-                1 => second_check(obj, vm),
-                2 => check_dict(obj, func, "argument 'shared'", vm),
-                _ => Ok(()),
-            },
-            vm,
-        )?;
-        let restrict = flag(parsed[3].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
-        resolve_interp(Some(id), restrict, true, op, vm)?;
-        let shared = parsed[2].clone().map(|o| o.downcast::<PyDict>().unwrap());
-        Ok((id, parsed[1].clone().unwrap(), shared))
+    #[pyfunction]
+    fn exec(args: ExecArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
+        resolve_interp(Some(id), restricted, true, "exec code for", vm)?;
+        let code = crossinterp::script_code(args.code, vm)?;
+        run_code_in(id, code, args.shared.into_option(), vm)
     }
 
     #[pyfunction]
-    fn exec(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        const FUNCNAME: &str = "_interpreters.exec";
-        // The code need not be "pure": globals resolve against __main__.
-        let (id, code_obj, shared) =
-            script_args(&args, FUNCNAME, "code", |_, _| Ok(()), "exec code for", vm)?;
-        let code = crossinterp::script_code(&code_obj, vm)?;
-        run_code_in(id, code, shared.as_deref(), vm)
+    fn run_string(args: RunStringArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
+        resolve_interp(Some(id), restricted, true, "run a string in", vm)?;
+        let code = crossinterp::script_code(args.script.as_object(), vm)?;
+        run_code_in(id, code, args.shared.into_option(), vm)
     }
 
     #[pyfunction]
-    fn run_string(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        const FUNCNAME: &str = "_interpreters.run_string";
-        let (id, script, shared) = script_args(
-            &args,
-            FUNCNAME,
-            "script",
-            |obj, vm| {
-                // The `U` converter.
-                obj.downcastable::<PyStr>()
-                    .then_some(())
-                    .ok_or_else(|| bad_argument(FUNCNAME, "argument 2", "str", obj, vm))
-            },
-            "run a string in",
-            vm,
-        )?;
-        let code = crossinterp::script_code(&script, vm)?;
-        run_code_in(id, code, shared.as_deref(), vm)
-    }
-
-    #[pyfunction]
-    fn run_func(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn run_func(args: RunFuncArgs<'_>, vm: &VirtualMachine) -> PyResult {
         const FUNCNAME: &str = "_interpreters.run_func";
-        // Globals are not checked either; they resolve against __main__.
-        let (id, func, shared) = script_args(
-            &args,
-            FUNCNAME,
-            "func",
-            |_, _| Ok(()),
-            "run a function in",
-            vm,
-        )?;
-        if !func.downcastable::<PyFunction>() && !func.downcastable::<PyCode>() {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
+        resolve_interp(Some(id), restricted, true, "run a function in", vm)?;
+        if !args.func.downcastable::<PyFunction>() && !args.func.downcastable::<PyCode>() {
             return Err(bad_argument(
                 FUNCNAME,
                 "argument 2",
                 "a function",
-                &func,
+                args.func,
                 vm,
             ));
         }
-        let code = crossinterp::script_code(&func, vm)?;
-        run_code_in(id, code, shared.as_deref(), vm)
+        let code = crossinterp::script_code(args.func, vm)?;
+        run_code_in(id, code, args.shared.into_option(), vm)
     }
 
     #[pyfunction]
-    fn call(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        const FUNCNAME: &str = "_interpreters.call";
-        let parsed = ArgSpec {
-            fname: FUNCNAME,
-            keywords: &[
-                "id",
-                "callable",
-                "args",
-                "kwargs",
-                "preserve_exc",
-                "restrict",
-            ],
-            required: 2,
-            max_positional: 4,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| match i {
-                2 => obj
-                    .downcastable::<crate::builtins::PyTuple>()
-                    .then_some(())
-                    .ok_or_else(|| bad_argument(FUNCNAME, "argument 3", "tuple", obj, vm)),
-                3 => check_dict(obj, FUNCNAME, "argument 4", vm),
-                _ => Ok(()),
-            },
-            vm,
-        )?;
-        // Clinic converts preserve_exc even though the implementation ignores
-        // its value. Its truthiness must run before restrict and id resolution.
-        flag(parsed[4].as_deref(), vm)?;
-        let restrict = flag(parsed[5].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
-        resolve_interp(Some(id), restrict, true, "make a call in", vm)?;
+    fn call(args: CallArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let _ = args.preserve_exc;
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
+        resolve_interp(Some(id), restricted, true, "make a call in", vm)?;
 
-        let callable = parsed[1].as_deref().unwrap();
+        let callable = args.callable;
         if !callable.is_callable() {
             let repr = callable.repr(vm)?;
             return Err(vm.new_type_error(format!("expected a callable, got {repr}")));
         }
         let func = SharedValue::from_callable(callable, vm)?;
-        let packed_args = match parsed[2].as_deref() {
-            Some(o)
-                if !o
-                    .downcast_ref::<crate::builtins::PyTuple>()
-                    .unwrap()
-                    .as_slice()
-                    .is_empty() =>
-            {
-                Some(SharedValue::from_object(o, Fallback::Full, vm)?)
+        let packed_args = match args.args.as_ref().into_option() {
+            Some(o) if !o.as_slice().is_empty() => {
+                Some(SharedValue::from_object(o.as_object(), Fallback::Full, vm)?)
             }
             _ => None,
         };
-        let packed_kwargs = match parsed[3].as_deref() {
-            Some(o) if !o.downcast_ref::<PyDict>().unwrap().is_empty() => {
-                Some(SharedValue::from_object(o, Fallback::Full, vm)?)
+        let packed_kwargs = match args.kwargs.as_ref().into_option() {
+            Some(o) if !o.is_empty() => {
+                Some(SharedValue::from_object(o.as_object(), Fallback::Full, vm)?)
             }
             _ => None,
         };
@@ -933,30 +897,11 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction(name = "set___main___attrs")]
-    fn set_main_attrs(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        const FUNCNAME: &str = "_interpreters.set___main___attrs";
-        let parsed = ArgSpec {
-            fname: FUNCNAME,
-            keywords: &["id", "updates", "restrict"],
-            required: 2,
-            max_positional: 2,
-        }
-        .parse_with(
-            &args,
-            |i, obj, vm| match i {
-                1 => check_dict(obj, FUNCNAME, "argument 'updates'", vm),
-                _ => Ok(()),
-            },
-            vm,
-        )?;
-        let restrict = flag(parsed[2].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
-        resolve_interp(Some(id), restrict, true, "update __main__ for", vm)?;
-        let updates = parsed[1]
-            .as_deref()
-            .unwrap()
-            .downcast_ref::<PyDict>()
-            .unwrap();
+    fn set_main_attrs(args: SetMainAttrsArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
+        resolve_interp(Some(id), restricted, true, "update __main__ for", vm)?;
+        let updates = args.updates;
         if updates.is_empty() {
             return Err(vm.new_value_error("arg 2 must be a non-empty dict"));
         }
@@ -994,20 +939,13 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn incref(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parsed = ArgSpec {
-            fname: "incref",
-            keywords: &["id", "implieslink", "restrict"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let implieslink = flag(parsed[1].as_deref(), vm)?;
-        let restricted = flag(parsed[2].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
+    fn incref(args: IncrefArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let implies_link = args.implieslink.into_bool();
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
         resolve_interp(Some(id), restricted, true, "incref", vm)?;
         let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
-        if implieslink {
+        if implies_link {
             // Decref to 0 will destroy the interpreter.
             state.require_idref.store(true, Ordering::Release);
         }
@@ -1016,16 +954,9 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn decref(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parsed = ArgSpec {
-            fname: "decref",
-            keywords: &["id", "restrict"],
-            required: 1,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_deref(), vm)?;
-        let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
+    fn decref(args: InterpreterIdArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let restricted = args.restrict.into_bool();
+        let id = parse_id(args.id, vm)?;
         resolve_interp(Some(id), restricted, true, "decref", vm)?;
         let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         let prev = state.id_refcount.fetch_sub(1, Ordering::AcqRel);
@@ -1041,23 +972,11 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn capture_exception(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let parsed = ArgSpec {
-            fname: "capture_exception",
-            keywords: &["exc"],
-            required: 0,
-            max_positional: 1,
-        }
-        .parse(&args, vm)?;
-        let exc = match parsed
-            .into_iter()
-            .next()
-            .unwrap()
-            .filter(|e| !vm.is_none(e))
-        {
+    fn capture_exception(args: CaptureExceptionArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let exc = match args.exc.into_option().filter(|exc| !vm.is_none(exc)) {
             Some(e) => e
-                .downcast::<crate::builtins::PyBaseException>()
-                .map_err(|e| {
+                .downcast_ref::<crate::builtins::PyBaseException>()
+                .ok_or_else(|| {
                     let repr = e
                         .repr(vm)
                         .map_or_else(|_| e.class().name().to_string(), |s| s.to_string());
@@ -1067,6 +986,6 @@ pub(crate) mod _interpreters {
             // no Python code is running, so there is never one to capture here.
             None => return Ok(vm.ctx.none()),
         };
-        Ok(ExcInfo::capture(&exc, vm).into_namespace(vm))
+        Ok(ExcInfo::capture(exc, vm).into_namespace(vm))
     }
 }
