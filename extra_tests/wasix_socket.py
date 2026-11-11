@@ -59,6 +59,36 @@ class WasixSocketTests(unittest.TestCase):
             server_file.flush()
             self.assertEqual(client_file.readline(), b"reply\n")
 
+    def test_http_server_and_reverse_lookup_fallback(self):
+        import http.server
+
+        with self.assertRaises(OSError) as error:
+            socket.gethostbyaddr("127.0.0.1")
+        self.assertEqual(error.exception.errno, errno.ENOTSUP)
+        self.assertEqual(socket.getfqdn("127.0.0.1"), "127.0.0.1")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"HTTP loopback works\n"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        with http.server.HTTPServer(("127.0.0.1", 0), Handler) as server:
+            server.timeout = 2
+            with socket.create_connection(server.server_address, timeout=2) as client:
+                client.sendall(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n")
+                server.handle_request()
+                response = bytearray()
+                while chunk := client.recv(1024):
+                    response.extend(chunk)
+                self.assertTrue(response.startswith(b"HTTP/1.0 200 OK\r\n"))
+                self.assertTrue(response.endswith(b"HTTP loopback works\n"))
+
     def test_mutable_send_buffers(self):
         client, server = self.pair()
         data = bytearray(b"mutable")
