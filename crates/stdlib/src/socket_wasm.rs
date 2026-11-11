@@ -776,8 +776,9 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
+            let data = data.borrow_buf_unlocked(vm)?;
             zelf.operation(true, zelf.deadline(), vm, |socket| {
-                socket.send(&data.borrow_buf(), flags.unwrap_or(0))
+                socket.send(&data, flags.unwrap_or(0))
             })
         }
         #[pymethod]
@@ -787,7 +788,7 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let data = data.borrow_buf();
+            let data = data.borrow_buf_unlocked(vm)?;
             let deadline = zelf.deadline();
             let mut offset = 0;
             loop {
@@ -867,8 +868,9 @@ mod _socket {
                 )
             };
             let address = zelf.address(address, vm)?;
+            let data = data.borrow_buf_unlocked(vm)?;
             zelf.operation(true, zelf.deadline(), vm, |socket| {
-                socket.send_to(&data.borrow_buf(), flags, &address)
+                socket.send_to(&data, flags, &address)
             })
         }
         #[pymethod]
