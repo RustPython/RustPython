@@ -1525,7 +1525,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b = by("Hello, world")
         self.assertEqual(re.findall(br"\w+", b), [by("Hello"), by("world")])
 
-    @unittest.skip("TODO: RUSTPYTHON; segfault")
     def test_resize(self):
         ba = bytearray(b'abcdef')
         self.assertIsNone(ba.resize(3))
