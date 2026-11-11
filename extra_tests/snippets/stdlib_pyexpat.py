@@ -73,3 +73,26 @@ except expat.ExpatError:
     check_position_aliases(parser)
 else:
     raise AssertionError("incomplete XML accepted")
+
+# Unicode input overrides encoding declarations only before parsing starts.
+for declaration in ("iso-8859-1", "utf-16", "unknown-encoding"):
+    parser = expat.ParserCreate()
+    text = []
+    parser.CharacterDataHandler = text.append
+    parser.Parse(f'<?xml version="1.0" encoding="{declaration}"?><r>', False)
+    parser.Parse("£€</r>", True)
+    assert "".join(text) == "£€"
+
+for first, tail, expected in (
+    ("", '<?xml version="1.0" encoding="iso-8859-1"?><r>£</r>', "£"),
+    (b"", '<?xml version="1.0" encoding="iso-8859-1"?><r>£</r>', "Â£"),
+    ('<?xml version="1.0" encoding="iso-8859-1"?><r>', b"\xc2\xa3</r>", "£"),
+    (b'<?xml version="1.0" encoding="iso-8859-1"?><r>', "£</r>", "Â£"),
+    (b'<?xml version="1.0" encoding="iso-8859-1"?><r>', b"\xa3</r>", "£"),
+):
+    parser = expat.ParserCreate()
+    text = []
+    parser.CharacterDataHandler = text.append
+    parser.Parse(first, False)
+    parser.Parse(tail, True)
+    assert "".join(text) == expected
