@@ -1413,6 +1413,7 @@ where
             ),
             args.context.self_ty_subst.as_ref(),
             None,
+            item_meta.text_signature()?.as_ref(),
         );
         let doc_body_pending =
             doc_body_pending_expr(args.context.self_ty_subst.as_ref(), &py_name, rust_doc);
@@ -1823,7 +1824,7 @@ impl ToTokens for GetSetNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist", "text_signature"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

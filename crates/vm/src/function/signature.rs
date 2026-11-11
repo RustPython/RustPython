@@ -202,6 +202,160 @@ const fn flags_positional_count(params: &[Param]) -> usize {
     count
 }
 
+/// Check an explicit display signature against the actual argument binder.
+///
+/// Requiredness, arity, receiver markers, and keyword names must agree. A
+/// positional-only optional argument may be displayed as keyword-capable only
+/// when the binder also accepts arbitrary keywords (legacy wrappers such as
+/// `_csv` forward these to their subsequent parser). Defaults and names of
+/// positional-only arguments are presentation, not conversion instructions.
+/// Unknown/custom binders are deliberately rejected.
+///
+/// ```compile_fail
+/// use rustpython_vm::function::{Param, SigArg, validate_text_signature};
+/// const _: () = validate_text_signature(&[SigArg::marker("$self")], &[
+///     Param::positional_only("$self"), Param::positional_only("extra"),
+/// ]);
+/// ```
+///
+/// An override cannot make a required parameter optional:
+/// ```compile_fail
+/// use rustpython_vm::function::{DefaultRepr, Param, ParamKind, SigArg, validate_text_signature};
+/// const _: () = validate_text_signature(&[SigArg::marker("sub")], &[Param {
+///     name: "sub", kind: ParamKind::PositionalOnly, default: Some(DefaultRepr::None),
+/// }]);
+/// ```
+///
+/// Documenting a forwarded keyword requires a keyword-accepting binder:
+/// ```compile_fail
+/// use rustpython_vm::function::{DefaultRepr, Param, ParamKind, SigArg, validate_text_signature};
+/// const DIALECT: Param = Param {
+///     name: "dialect", kind: ParamKind::PositionalOnly,
+///     default: Some(DefaultRepr::Unrepresentable),
+/// };
+/// const _: () = validate_text_signature(&[SigArg {
+///     name: "options", params: Some(&[DIALECT]), binding_params: Some(&[DIALECT]),
+///     force_unpack_keywords: false,
+/// }], &[Param { kind: ParamKind::PositionalOrKeyword, ..DIALECT }]);
+/// ```
+///
+/// Unknown binders cannot establish that a display override is valid:
+/// ```compile_fail
+/// use rustpython_vm::function::{Param, SigArg, validate_text_signature};
+/// const _: () = validate_text_signature(&[SigArg {
+///     name: "custom", params: Some(&[Param::positional_only("value")]),
+///     binding_params: None, force_unpack_keywords: false,
+/// }], &[Param::positional_only("value")]);
+/// ```
+pub const fn validate_text_signature(args: &[SigArg], display: &[Param]) {
+    let mut count = 0;
+    let mut var_keyword = false;
+    let mut i = 0;
+    while i < args.len() {
+        let params = match args[i].binding_params {
+            Some(params) => params,
+            None => panic!("text_signature requires known binding metadata"),
+        };
+        binding_override_count(params, &mut count, &mut var_keyword);
+        i += 1;
+    }
+    assert!(
+        count == display.len(),
+        "text_signature parameter count differs from binding"
+    );
+    let mut index = 0;
+    i = 0;
+    while i < args.len() {
+        if let Some(params) = args[i].binding_params {
+            validate_override_params(params, args[i].name, display, &mut index, var_keyword);
+        }
+        i += 1;
+    }
+}
+
+const fn binding_override_count(params: &[Param], count: &mut usize, keywords: &mut bool) {
+    let mut i = 0;
+    while i < params.len() {
+        match params[i].kind {
+            ParamKind::Flatten(Some(inner)) => binding_override_count(inner, count, keywords),
+            ParamKind::Flatten(None) => panic!("text_signature requires known binding metadata"),
+            ParamKind::VarKeyword => {
+                *count += 1;
+                *keywords = true;
+            }
+            _ => *count += 1,
+        }
+        i += 1;
+    }
+}
+
+const fn validate_override_params(
+    params: &[Param],
+    fallback_name: &str,
+    display: &[Param],
+    index: &mut usize,
+    var_keyword: bool,
+) {
+    let mut i = 0;
+    while i < params.len() {
+        let binding = &params[i];
+        if let ParamKind::Flatten(Some(inner)) = binding.kind {
+            validate_override_params(inner, fallback_name, display, index, var_keyword);
+        } else {
+            let shown = &display[*index];
+            let name = if binding.name.is_empty() {
+                fallback_name
+            } else {
+                binding.name
+            };
+            assert!(
+                binding.default.is_some() == shown.default.is_some(),
+                "text_signature changes requiredness"
+            );
+            let same_name = name_eq(name, shown.name.as_bytes());
+            if (!name.is_empty() && name.as_bytes()[0] == b'$')
+                || (!shown.name.is_empty() && shown.name.as_bytes()[0] == b'$')
+            {
+                assert!(same_name, "text_signature changes receiver marker");
+            }
+            match (binding.kind, shown.kind) {
+                (ParamKind::PositionalOnly, ParamKind::PositionalOnly) => {}
+                (ParamKind::PositionalOnly, ParamKind::PositionalOrKeyword) => {
+                    assert!(
+                        var_keyword && binding.default.is_some() && same_name,
+                        "text_signature keyword is not accepted by binding"
+                    );
+                }
+                (ParamKind::PositionalOrKeyword, ParamKind::PositionalOrKeyword)
+                | (ParamKind::KeywordOnly, ParamKind::KeywordOnly) => {
+                    assert!(same_name, "text_signature changes keyword name");
+                }
+                (ParamKind::VarKeyword, ParamKind::VarKeyword)
+                | (ParamKind::VarPositional, ParamKind::VarPositional) => {}
+                _ => panic!("text_signature parameter kind differs from binding"),
+            }
+            *index += 1;
+        }
+        i += 1;
+    }
+}
+
+/// Compose an already validated override with the selected documentation body.
+#[must_use]
+pub const fn text_signature_doc_bytes<const N: usize>(
+    name: &str,
+    signature: &str,
+    doc: &str,
+) -> [u8; N] {
+    let mut buf = [0; N];
+    let n = put_str(&mut buf, 0, name);
+    let n = put_str(&mut buf, n, signature);
+    let n = put_str(&mut buf, n, "\n--\n\n");
+    let n = put_str(&mut buf, n, doc);
+    assert!(n == N);
+    buf
+}
+
 /// Calling-convention bits from each argument's binding metadata.
 ///
 /// Display signatures must not prevent a custom parser from receiving a call.
@@ -1043,5 +1197,144 @@ mod tests {
             keywords,
         );
         assert_eq!(native_call_flags(&[NESTED], false), keywords);
+    }
+    const OPTIONAL_START: Param = Param {
+        name: "start",
+        kind: ParamKind::PositionalOnly,
+        default: Some(DefaultRepr::None),
+    };
+    const OPTIONAL_END: Param = Param {
+        name: "end",
+        ..OPTIONAL_START
+    };
+    const SEARCH_BINDING: &[SigArg] = &[
+        SigArg::marker("$self"),
+        SigArg {
+            name: "options",
+            params: Some(&[]),
+            binding_params: Some(&[
+                Param::positional_only("affix"),
+                Param::flatten(Some(&[OPTIONAL_START, OPTIONAL_END])),
+            ]),
+            force_unpack_keywords: false,
+        },
+    ];
+    const SEARCH_DISPLAY: &[Param] = &[
+        Param::positional_only("$self"),
+        Param::positional_only("prefix"),
+        OPTIONAL_START,
+        OPTIONAL_END,
+    ];
+    const DIALECT: Param = Param {
+        name: "dialect",
+        default: Some(DefaultRepr::Unrepresentable),
+        ..OPTIONAL_START
+    };
+    const CSV_BINDING: &[SigArg] = &[
+        SigArg::marker("$module"),
+        SigArg::marker("iterable"),
+        SigArg {
+            name: "options",
+            params: Some(&[]),
+            binding_params: Some(&[
+                DIALECT,
+                Param::flatten(Some(&[Param::var_keyword("kwargs")])),
+            ]),
+            force_unpack_keywords: false,
+        },
+    ];
+    const CSV_DISPLAY: &[Param] = &[
+        Param::positional_only("$module"),
+        Param::positional_only("iterable"),
+        Param {
+            kind: ParamKind::PositionalOrKeyword,
+            default: Some(DefaultRepr::Str("excel")),
+            ..DIALECT
+        },
+        Param::var_keyword("fmtparams"),
+    ];
+    const _: () = super::validate_text_signature(SEARCH_BINDING, SEARCH_DISPLAY);
+    const _: () = super::validate_text_signature(CSV_BINDING, CSV_DISPLAY);
+
+    #[test]
+    fn text_signature_overrides_preserve_binding_and_doc_body() {
+        assert_eq!(
+            native_call_flags(SEARCH_BINDING, true),
+            PyMethodFlags::FASTCALL
+        );
+        assert_eq!(
+            native_call_flags(CSV_BINDING, false),
+            PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS)
+        );
+        const TEXT: &str = "($self, prefix[, start[, end]], /)";
+        const BODY: &str = "Return whether the string starts with prefix.\n";
+        const N: usize = "startswith".len() + TEXT.len() + 5 + BODY.len();
+        const DOC: [u8; N] = super::text_signature_doc_bytes::<N>("startswith", TEXT, BODY);
+        assert_eq!(
+            core::str::from_utf8(&DOC).unwrap(),
+            format!("startswith{TEXT}\n--\n\n{BODY}")
+        );
+        const PREFIX: [u8; N - BODY.len()] =
+            super::text_signature_doc_bytes::<{ N - BODY.len() }>("startswith", TEXT, "");
+        assert_eq!(
+            core::str::from_utf8(&PREFIX).unwrap(),
+            format!("startswith{TEXT}\n--\n\n")
+        );
+    }
+
+    #[test]
+    fn text_signature_overrides_reject_incompatible_binding() {
+        let rejected = |args: &[SigArg], display: &[Param]| {
+            assert!(
+                std::panic::catch_unwind(|| super::validate_text_signature(args, display)).is_err()
+            );
+        };
+        rejected(SEARCH_BINDING, &SEARCH_DISPLAY[..3]);
+        let mut display = SEARCH_DISPLAY.to_vec();
+        display.push(Param::positional_only("extra"));
+        rejected(SEARCH_BINDING, &display);
+        display.pop();
+        display[0] = Param::positional_only("$module");
+        rejected(SEARCH_BINDING, &display);
+        display[0] = SEARCH_DISPLAY[0];
+        display[1].default = Some(DefaultRepr::None);
+        rejected(SEARCH_BINDING, &display);
+        display[1] = SEARCH_DISPLAY[1];
+        display[2].default = None;
+        rejected(SEARCH_BINDING, &display);
+        display[2] = Param {
+            kind: ParamKind::PositionalOrKeyword,
+            ..OPTIONAL_START
+        };
+        rejected(SEARCH_BINDING, &display);
+        let mut display = CSV_DISPLAY.to_vec();
+        display[2].name = "wrong_keyword";
+        rejected(CSV_BINDING, &display);
+        display[2] = CSV_DISPLAY[2];
+        display[3] = Param::var_positional("args");
+        rejected(CSV_BINDING, &display);
+        const NAMED: SigArg = SigArg {
+            name: "options",
+            params: Some(&[]),
+            binding_params: Some(&[Param::positional_or_keyword("named")]),
+            force_unpack_keywords: false,
+        };
+        rejected(&[NAMED], &[Param::positional_or_keyword("renamed")]);
+        rejected(&[NAMED], &[Param::positional_only("named")]);
+        rejected(
+            &[SigArg {
+                binding_params: None,
+                ..NAMED
+            }],
+            &[Param::positional_or_keyword("named")],
+        );
+        const UNKNOWN: &[Param] = &[Param::flatten(None)];
+        rejected(
+            &[SigArg {
+                binding_params: Some(UNKNOWN),
+                ..NAMED
+            }],
+            &[Param::positional_or_keyword("named")],
+        );
     }
 }
