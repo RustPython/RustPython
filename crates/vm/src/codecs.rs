@@ -345,6 +345,24 @@ impl CodecsRegistry {
         })
     }
 
+    /// In development mode (`-X dev`), validate the `encoding` and `errors`
+    /// arguments even when the operation would never consult them.
+    fn check_encoding_errors(
+        &self,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if !vm.state.config.settings.dev_mode {
+            return Ok(());
+        }
+        self.lookup(encoding, vm)?;
+        if let Some(errors) = errors {
+            self.lookup_error(errors.as_str(), vm)?;
+        }
+        Ok(())
+    }
+
     pub fn encode_text(
         &self,
         obj: PyStrRef,
@@ -352,6 +370,7 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
+        self.check_encoding_errors(encoding, errors.as_deref(), vm)?;
         if let Some(b) =
             Self::encode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
                 Self::add_codec_note(exc, "encoding", encoding, vm);
@@ -386,6 +405,7 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
+        self.check_encoding_errors(encoding, errors.as_deref(), vm)?;
         let empty = if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
             bytes.as_bytes().is_empty()
         } else if let Some(bytes) = obj.downcast_ref::<PyByteArray>() {
