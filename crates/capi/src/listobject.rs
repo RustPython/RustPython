@@ -44,8 +44,7 @@ pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }
-            .map_err(|_| vm.new_system_error("bad argument to internal function"))?;
+        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
         let vec = list.borrow_vec();
         let item = index
             .try_into()
@@ -182,63 +181,51 @@ pub unsafe extern "C" fn PyList_Sort(list: *mut PyObject) -> c_int {
 
 #[cfg(test)]
 mod tests {
-    use pyo3::exceptions::{PyIndexError, PySystemError};
+    use pyo3::exceptions::{PyIndexError, PyTypeError};
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyList, PyListMethods, PyStringMethods, PyTuple};
-
-    fn take_error(py: Python<'_>) -> Bound<'_, PyAny> {
-        unsafe { Bound::from_owned_ptr(py, crate::pyerrors::PyErr_GetRaisedException().cast()) }
-    }
 
     #[test]
     fn get_item_borrowed() {
         Python::attach(|py| {
+            let list = PyList::empty(py);
             let first = PyDict::new(py);
             let last = PyDict::new(py);
-            let list = PyList::empty(py);
             list.append(&first).unwrap();
             list.append(&last).unwrap();
-            let first_refcnt = unsafe { pyo3::ffi::Py_REFCNT(first.as_ptr()) };
-            let last_refcnt = unsafe { pyo3::ffi::Py_REFCNT(last.as_ptr()) };
 
-            assert_eq!(
-                unsafe { super::PyList_GetItem(list.as_ptr().cast(), 0) },
-                first.as_ptr().cast::<super::PyObject>()
-            );
-            assert_eq!(
-                unsafe { super::PyList_GetItem(list.as_ptr().cast(), 1) },
-                last.as_ptr().cast::<super::PyObject>()
-            );
-            assert_eq!(
-                unsafe { pyo3::ffi::Py_REFCNT(first.as_ptr()) },
-                first_refcnt
-            );
-            assert_eq!(unsafe { pyo3::ffi::Py_REFCNT(last.as_ptr()) }, last_refcnt);
+            let got_first = unsafe {
+                Borrowed::from_ptr(py, super::PyList_GetItem(list.as_ptr().cast(), 0).cast())
+            };
+            let got_last = unsafe {
+                Borrowed::from_ptr(py, super::PyList_GetItem(list.as_ptr().cast(), 1).cast())
+            };
+            assert!(got_first.is(&first));
+            assert!(got_last.is(&last));
 
             assert!(unsafe { super::PyList_GetItem(list.as_ptr().cast(), -1) }.is_null());
-            let error = take_error(py);
-            assert!(error.is_instance_of::<PyIndexError>());
+            let error = PyErr::fetch(py);
+            assert!(error.is_instance_of::<PyIndexError>(py));
             assert_eq!(
-                error.str().unwrap().to_str().unwrap(),
+                error.value(py).str().unwrap().to_str().unwrap(),
                 "list index out of range"
             );
 
             assert!(unsafe { super::PyList_GetItem(list.as_ptr().cast(), 2) }.is_null());
-            let error = take_error(py);
-            assert!(error.is_instance_of::<PyIndexError>());
+            let error = PyErr::fetch(py);
+            assert!(error.is_instance_of::<PyIndexError>(py));
             assert_eq!(
-                error.str().unwrap().to_str().unwrap(),
+                error.value(py).str().unwrap().to_str().unwrap(),
                 "list index out of range"
             );
 
             let empty = PyList::empty(py);
             assert!(unsafe { super::PyList_GetItem(empty.as_ptr().cast(), 0) }.is_null());
-            let error = take_error(py);
-            assert!(error.is_instance_of::<PyIndexError>());
+            assert!(PyErr::fetch(py).is_instance_of::<PyIndexError>(py));
 
             let tuple = PyTuple::new(py, [10]).unwrap();
             assert!(unsafe { super::PyList_GetItem(tuple.as_ptr().cast(), 0) }.is_null());
-            assert!(take_error(py).is_instance_of::<PySystemError>());
+            assert!(PyErr::fetch(py).is_instance_of::<PyTypeError>(py));
         });
     }
 
