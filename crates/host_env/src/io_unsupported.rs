@@ -84,12 +84,14 @@ impl FileMode {
     }
 }
 
-pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError> {
+pub fn parse_fileio_mode(
+    mode_str: &str,
+    mut mode: FileMode,
+) -> Result<ParsedFileMode, FileModeError> {
     let mut flags = 0;
     let mut plus = false;
     let mut binary = false;
     let mut rwa = false;
-    let mut mode = FileMode::empty();
     for c in mode_str.bytes() {
         match c {
             b'x' => {

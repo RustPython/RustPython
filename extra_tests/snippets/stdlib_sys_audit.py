@@ -153,3 +153,71 @@ def check_open_audit():
 
 
 check_open_audit()
+
+
+def check_fileio_reinitialization_audit():
+    import io
+    import os
+    import tempfile
+
+    active = False
+    events = []
+    stream = None
+
+    class Denied(Exception):
+        pass
+
+    def hook(event, args):
+        if active and event == "open":
+            events.append(args)
+            if stream is not None:
+                assert stream.closed
+                assert stream.mode == "rb+"
+            raise Denied
+
+    sys.addaudithook(hook)
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "existing")
+        with open(path, "wb") as output:
+            output.write(b"retained")
+        try:
+            active = True
+            try:
+                io.FileIO(path)
+            except Denied:
+                pass
+            else:
+                raise AssertionError("omitted-mode audit denial ignored")
+            assert events[-1][1] == "r"
+            active = False
+            for closefd in (True, False):
+                fd = os.open(path, os.O_RDWR)
+                stream = io.FileIO(fd, "r+", closefd=closefd)
+                active = True
+                try:
+                    stream.__init__(path)
+                except Denied:
+                    pass
+                else:
+                    raise AssertionError("reinitialization audit denial ignored")
+                active = False
+                assert stream.closed
+                assert events[-1][1] == "r"
+                assert events[-1][2] & os.O_RDWR
+                try:
+                    os.fstat(fd)
+                except OSError:
+                    assert closefd
+                else:
+                    assert not closefd
+                    os.close(fd)
+                stream.close()
+                stream = None
+            assert open(path, "rb").read() == b"retained"
+        finally:
+            active = False
+            if stream is not None:
+                stream.close()
+
+
+check_fileio_reinitialization_audit()

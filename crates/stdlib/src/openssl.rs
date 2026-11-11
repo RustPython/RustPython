@@ -1771,8 +1771,13 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn load_dh_params(zelf: &Py<Self>, filepath: FsPath, vm: &VirtualMachine) -> PyResult<()> {
-            let path = filepath.to_path_buf(vm)?;
+        fn load_dh_params(
+            zelf: &Py<Self>,
+            filepath: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            vm.audit("open", || (filepath.clone(), "rb", 0))?;
+            let path = FsPath::try_from_object(vm, filepath)?.to_path_buf(vm)?;
 
             // Open the file using fopen (cross-platform)
             let fp =

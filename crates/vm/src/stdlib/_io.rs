@@ -6194,7 +6194,7 @@ mod fileio {
     pub(super) struct FileIOArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        // Omitted mode is stored as rb.
+        // The input default is r; the mode property normalizes it to rb.
         #[pyarg(any, default, py_default = "'r'")]
         mode: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
@@ -6223,6 +6223,13 @@ mod fileio {
         type Args = FileIOArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            // Reinitialization detaches the old descriptor before validation or audit.
+            if zelf.closefd.load() {
+                zelf.internal_close()
+                    .map_err(|err| err.to_pyexception(vm))?;
+            } else {
+                zelf.fd.store(-1);
+            }
             // TODO: let atomic_flag_works
             let name = args.file;
             let arg_fd = super::open_file_descriptor(&name, vm)?;
@@ -6235,9 +6242,9 @@ mod fileio {
 
             let mode_obj = args
                 .mode
-                .unwrap_or_else(|| PyUtf8Str::from("rb").into_ref(&vm.ctx));
+                .unwrap_or_else(|| PyUtf8Str::from("r").into_ref(&vm.ctx));
             let mode_str = mode_obj.as_str();
-            let parsed = host_io::parse_fileio_mode(mode_str)
+            let parsed = host_io::parse_fileio_mode(mode_str, zelf.mode.load())
                 .map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;
             let mode = parsed.mode;
             let flags = parsed.flags;
@@ -6348,6 +6355,14 @@ mod fileio {
     }
 
     impl FileIO {
+        fn internal_close(&self) -> std::io::Result<()> {
+            let fd = self.fd.swap(-1);
+            if fd >= 0 {
+                host_io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })?;
+            }
+            Ok(())
+        }
+
         fn io_error(
             zelf: &Py<Self>,
             error: std::io::Error,
@@ -6594,14 +6609,10 @@ mod fileio {
             if zelf.finalizing.load() {
                 FileIO::dealloc_warn(zelf, zelf.as_object(), vm);
             }
-            let fd = zelf.fd.swap(-1);
-            let close_err = if fd >= 0 {
-                host_io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })
-                    .map_err(|err| FileIO::io_error(zelf, err, vm))
-                    .err()
-            } else {
-                None
-            };
+            let close_err = zelf
+                .internal_close()
+                .map_err(|err| FileIO::io_error(zelf, err, vm))
+                .err();
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
                     ce.set_context(Some(fe));
