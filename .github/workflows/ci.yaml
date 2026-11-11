@@ -1051,9 +1051,7 @@ jobs:
       # every other snippet is discovered and run automatically.
       WASM_WASI_SNIPPET_EXCLUDE: >-
         builtin_bytearray
-        builtin_hash
         builtin_memoryview
-        builtin_open
         builtin_posixshmem
         builtin_thread
         cli_int_max_str_digits
@@ -1092,7 +1090,6 @@ jobs:
         stdlib_threading_set_repr
         stdlib_threading_type_cache
         stdlib_thread_native_id
-        stdlib_types
         stdlib_typing
         stdlib_urllib_https_misaligned_recv
         stdlib_zoneinfo_cache
@@ -1101,7 +1098,8 @@ jobs:
         syntax_deep_nesting
         vm_frame_locals
         xfail_assert
-      # Passing Lib/test files under wasm32-wasip1
+      # Passing Lib/test suites under wasm32-wasip1 with the default resource
+      # policy. CPU-heavy, network and other opt-in resources stay disabled.
       WASM_WASI_TEST_FILES: >-
         test_int
         test_dict
@@ -1174,6 +1172,13 @@ jobs:
         test_typechecks
         test_richcmp
         test_int_literal
+        test_unpack
+        test_unpack_ex
+        test_ntpath
+        test_calendar
+        test_math
+        test_hashlib
+        test_unicodedata
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
@@ -1241,7 +1246,9 @@ jobs:
         run: |
           for name in $WASM_WASI_TEST_FILES; do
             echo "::group::Lib/test/${name}.py"
-            wasmer run --volume "$(pwd)" --env "RUSTPYTHONPATH=$(pwd)/Lib" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
+            # Load the checkout's sources, including filenames and source lines
+            # used by traceback tests, rather than the frozen test modules.
+            extra_tests/rustpython_wasi.sh -X frozen_modules=off -m test -u none "$name"
             echo "::endgroup::"
           done
 
