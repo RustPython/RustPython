@@ -56,6 +56,32 @@ use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
 pub type FrameObjectRef = PyRef<FrameObject>;
 
+struct ExCallArgs {
+    values: Vec<PyObjectRef>,
+    kwnames: Vec<PyObjectRef>,
+    owners: Option<ExCallOwners>,
+}
+
+// CALL_FUNCTION_EX keeps its original containers until a non-Python callable
+// returns. Exact Python functions instead transfer their arguments to locals.
+// A converted iterable needs only its value storage, not a new tuple object.
+struct ExCallOwners {
+    kwargs: Option<PyObjectRef>,
+    positional: Either<PyObjectRef, Vec<PyObjectRef>>,
+}
+
+impl ExCallOwners {
+    fn release(self) {
+        // CPython closes kwargs before callargs. Tuple elements are released
+        // in reverse order, including the values of a normalized *iterable.
+        drop(self.kwargs);
+        match self.positional {
+            Either::A(tuple) => drop(tuple),
+            Either::B(values) => values.into_iter().rev().for_each(drop),
+        }
+    }
+}
+
 // -- Frame chain utilities --
 // The frame chain is a singly-linked list of `*const InterpreterFrame` stored
 // as `usize` values in `InterpreterFrame.previous` and the TLS
@@ -4637,8 +4663,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
-                let (args, kwnames) = self.collect_ex_args(vm)?;
-                self.execute_call_ex(args, kwnames, false, vm)
+                let args = self.collect_ex_args(false, vm)?;
+                self.execute_call_ex(args, false, vm)
             }
             Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
@@ -8328,8 +8354,8 @@ impl ExecutingFrame<'_> {
                 self.execute_call_instrumented(args, vm)
             }
             Instruction::InstrumentedCallFunctionEx => {
-                let (args, kwnames) = self.collect_ex_args(vm)?;
-                self.execute_call_ex(args, kwnames, true, vm)
+                let args = self.collect_ex_args(true, vm)?;
+                self.execute_call_ex(args, true, vm)
             }
             Instruction::InstrumentedLoadSuperAttr => {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
@@ -8995,17 +9021,21 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(
-        &mut self,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
+    fn collect_ex_args(&mut self, instrumented: bool, vm: &VirtualMachine) -> PyResult<ExCallArgs> {
         let kwargs_or_null = self.pop_value_opt();
+        // Only uninstrumented exact Python calls consume containers before
+        // executing the body. Other calls retain them through CALL/RETURN hooks.
+        let keep_owners = instrumented
+            || self
+                .nth_value(2)
+                .downcast_ref_if_exact::<PyFunction>(vm)
+                .is_none();
         let mut kwnames = Vec::new();
         let mut keyword_values = Vec::new();
-        if let Some(kw_obj) = kwargs_or_null {
+        if let Some(kw_obj) = &kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
-            Self::iterate_mapping_keys(vm, &kw_obj, callable, |key, value| {
+            Self::iterate_mapping_keys(vm, kw_obj, callable, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
                 key.downcast_ref::<PyStr>()
@@ -9018,27 +9048,45 @@ impl ExecutingFrame<'_> {
         };
 
         let args_obj = self.pop_value();
-        let mut args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
-            tuple.as_slice().to_vec()
-        } else {
-            // Single *arg passed directly; convert to sequence at runtime.
-            let not_iterable = args_obj.class().slots().iter.load().is_none()
-                && args_obj
-                    .get_class_attr(vm.ctx.intern_str("__getitem__"))
-                    .is_none();
-            args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
-                if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
-                    vm.new_type_error(format!(
-                        "Value after * must be an iterable, not {}",
-                        args_obj.class().slot_name()
-                    ))
+        let (mut args, positional_owner) =
+            if let Some(tuple) = args_obj.downcast_ref_if_exact::<PyTuple>(vm) {
+                let values = tuple.as_slice().to_vec();
+                (values, keep_owners.then_some(Either::A(args_obj)))
+            } else {
+                // Single *arg passed directly; convert to sequence at runtime.
+                let not_iterable = args_obj.class().slots().iter.load().is_none()
+                    && args_obj
+                        .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                        .is_none();
+                let values = args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
+                    if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error(format!(
+                            "Value after * must be an iterable, not {}",
+                            args_obj.class().slot_name()
+                        ))
+                    } else {
+                        e
+                    }
+                })?;
+                // Normalization releases tuple subclasses and iterables before the
+                // call, but the resulting positional values still have an owner.
+                drop(args_obj);
+                if keep_owners {
+                    (values.clone(), Some(Either::B(values)))
                 } else {
-                    e
+                    (values, None)
                 }
-            })?
-        };
+            };
         args.extend(keyword_values);
-        Ok((args, kwnames))
+        let owners = positional_owner.map(|positional| ExCallOwners {
+            kwargs: kwargs_or_null,
+            positional,
+        });
+        Ok(ExCallArgs {
+            values: args,
+            kwnames,
+            owners,
+        })
     }
 
     /// Returns a display string for a callable object for use in error messages.
@@ -9237,11 +9285,15 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn execute_call_ex(
         &mut self,
-        mut args: Vec<PyObjectRef>,
-        kwnames: Vec<PyObjectRef>,
+        args: ExCallArgs,
         instrumented: bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
+        let ExCallArgs {
+            values: mut args,
+            kwnames,
+            owners,
+        } = args;
         // Stack: [callable, self_or_null, ...]
         let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
         let callable = self.pop_value();
@@ -9256,13 +9308,18 @@ impl ExecutingFrame<'_> {
             None
         };
         let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
-        if instrumented {
+        let result = if instrumented {
             self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
         } else {
-            let value = invoke()?;
-            self.push_value(value);
-            Ok(None)
+            invoke().map(|value| {
+                self.push_value(value);
+                None
+            })
+        };
+        if let Some(owners) = owners {
+            owners.release();
         }
+        result
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
