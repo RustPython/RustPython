@@ -618,7 +618,7 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn list_all(args: ListAllArgs<'_>, vm: &VirtualMachine) -> PyResult {
+    fn list_all(args: ListAllArgs<'_>, vm: &VirtualMachine) -> PyObjectRef {
         let reqready = args.require_ready.into_bool();
         let mut items = Vec::new();
         for info in runtime::list_interpreters() {
@@ -630,7 +630,7 @@ pub(crate) mod _interpreters {
             }
             items.push(summary(info.id, info.whence, vm));
         }
-        Ok(vm.ctx.new_list(items).into())
+        vm.ctx.new_list(items).into()
     }
 
     #[pyfunction]
@@ -674,8 +674,8 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn is_shareable(args: ShareableArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(crossinterp::is_shareable(args.obj, vm))
+    fn is_shareable(args: ShareableArgs<'_>, vm: &VirtualMachine) -> bool {
+        crossinterp::is_shareable(args.obj, vm)
     }
 
     /// `_run_in_interpreter` for the script forms: `Ok(None)` on success,
