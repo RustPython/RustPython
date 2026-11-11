@@ -1246,8 +1246,8 @@ impl PyType {
                 if has_getattr {
                     // Must use wrapper to handle __getattr__
                     self.slots.getattro.store(Some(getattro_wrapper));
-                } else if ADD {
-                    match self.lookup_slot_in_mro(name, ctx, |sf| {
+                } else {
+                    match self.lookup_slot_in_mro(identifier!(ctx, __getattribute__), ctx, |sf| {
                         if let SlotFunc::GetAttro(f) = sf {
                             Some(*f)
                         } else {
@@ -1264,8 +1264,6 @@ impl PyType {
                             accessor.inherit_from_mro(self);
                         }
                     }
-                } else {
-                    accessor.inherit_from_mro(self);
                 }
             }
             SlotAccessor::TpSetattro => {
