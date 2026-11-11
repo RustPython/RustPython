@@ -348,3 +348,17 @@ for module_name, signatures in flags_signatures.items():
 
 # Ordinary Clinic functions keep their module marker and real parameter names.
 assert len.__text_signature__ == "($module, obj, /)"
+# Public positional-only names still matter to signature consumers.
+assert anext.__text_signature__ == (
+    "($module, async_iterator, default=<unrepresentable>, /)"
+)
+assert reversed.__setstate__.__text_signature__ == "($self, object, /)"
+assert str(inspect.signature(reversed.__setstate__)) == "(self, object, /)"
+
+try:
+    import _hashlib
+except ImportError:
+    pass
+else:
+    assert _hashlib.HASHXOF.update.__text_signature__ == "($self, obj, /)"
+    assert str(inspect.signature(_hashlib.HASHXOF.update)) == "(self, obj, /)"
