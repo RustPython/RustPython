@@ -14,6 +14,7 @@ license.workspace = true
 default = ["compiler", "host_env", "doc", "ucd_3_2_0"]
 ucd_3_2_0 = ["rustpython-unicode/ucd_3_2_0"]
 doc = ["rustpython-vm/doc"]
+wasix = ["host_env", "rustpython-host_env/wasix"]
 host_env = ["rustpython-vm/host_env"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
