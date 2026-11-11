@@ -2042,13 +2042,13 @@ mod _io {
         }
 
         #[pymethod]
-        fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+        fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
             if zelf.class().is(Self::static_type()) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
             }
-            let _ = proto;
+            let _ = protocol;
             reduce_ex_for_subclass(&zelf, vm)
         }
 
@@ -4275,13 +4275,13 @@ mod _io {
         }
 
         #[pymethod]
-        fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+        fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
             if zelf.class().is(TextIOWrapper::static_type()) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
             }
-            let _ = proto;
+            let _ = protocol;
             reduce_ex_for_subclass(&zelf, vm)
         }
     }
