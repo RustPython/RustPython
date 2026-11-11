@@ -40,6 +40,7 @@ mod decl {
         cancel: bool,
         fd: i32,
         timeout_us: u64,
+        max_threads: isize,
         repeat: bool,
         exit: bool,
         header: String,
@@ -683,6 +684,7 @@ mod decl {
             let repeat = guard.repeat;
             let exit = guard.exit;
             let fd = guard.fd;
+            let max_threads = guard.max_threads;
             let header = guard.header.clone();
             #[cfg(feature = "threading")]
             let thread_frame_slots = guard.thread_frame_slots.clone();
@@ -691,10 +693,22 @@ mod decl {
             // Timeout occurred, dump traceback
             cfg_select! {
                 target_arch = "wasm32" => {
-                    let _ = (exit, fd, &header);
+                    let _ = (exit, fd, max_threads, &header);
                 }
                 _ => {
                     puts_bytes(fd, header.as_bytes());
+                    let mut nthreads = 0;
+                    let mut begin_thread_dump = || {
+                        if nthreads != 0 {
+                            puts(fd, "\n");
+                        }
+                        if nthreads >= max_threads {
+                            puts(fd, "...\n");
+                            return false;
+                        }
+                        nthreads += 1;
+                        true
+                    };
 
                     // Use thread frame slots when threading is enabled (includes all threads).
                     // Fall back to live frame walking for non-threaded builds.
@@ -710,6 +724,9 @@ mod decl {
                             // frames are still alive because the target thread
                             // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
+                                if !begin_thread_dump() {
+                                    break;
+                                }
                                 let iframe_ptr =
                                     slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
                                         as *const rustpython_vm::frame::InterpreterFrame;
@@ -733,6 +750,9 @@ mod decl {
                         }
                         all(not(unix), feature = "threading") => {
                             for (tid, slot) in &thread_frame_slots {
+                                if !begin_thread_dump() {
+                                    break;
+                                }
                                 let iframe_ptr =
                                     slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
                                         as *const rustpython_vm::frame::InterpreterFrame;
@@ -755,8 +775,10 @@ mod decl {
                             }
                         }
                         _ => {
-                            write_thread_id(fd, current_thread_id(), false);
-                            dump_live_frames(fd);
+                            if begin_thread_dump() {
+                                write_thread_id(fd, current_thread_id(), false);
+                                dump_live_frames(fd);
+                            }
                         }
                     }
 
@@ -783,6 +805,8 @@ mod decl {
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::FALSE)]
         exit: ArgIntoBool,
+        #[pyarg(named, default = 100)]
+        max_threads: isize,
     }
 
     #[pyfunction]
@@ -822,6 +846,11 @@ mod decl {
                 cancel: false,
                 fd,
                 timeout_us,
+                max_threads: if args.max_threads == 0 {
+                    100
+                } else {
+                    args.max_threads
+                },
                 repeat: args.repeat.into_bool(),
                 exit: args.exit.into_bool(),
                 header,

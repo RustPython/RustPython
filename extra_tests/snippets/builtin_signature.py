@@ -72,6 +72,16 @@ assert str(inspect.signature(list.__dir__)) == "(self, /)"
 assert str(inspect.signature([].__dir__)) == "()"
 assert str(inspect.signature(float.fromhex)) == "(string, /)"
 
+import _socket
+
+if hasattr(_socket.socket, "sendmsg"):
+    assert _socket.socket.sendmsg.__text_signature__ == (
+        "($self, buffers, ancdata=(), flags=0, address=None, /)"
+    )
+    assert str(inspect.signature(_socket.socket.sendmsg)) == (
+        "(self, buffers, ancdata=(), flags=0, address=None, /)"
+    )
+
 # Functions whose arguments come from a FromArgs struct report the struct's
 # parameters.
 assert round.__text_signature__ == "($module, /, number, ndigits=None)"

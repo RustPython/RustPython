@@ -1,6 +1,51 @@
 import sqlite3 as sqlite
 import unittest
 
+assert sqlite.adapt.__text_signature__ == (
+    "($module, obj, proto=PrepareProtocolType, alt=<unrepresentable>, /)"
+)
+# Check the shared parameter metadata separately from Clinic's line wrapping.
+assert " ".join(sqlite.connect.__text_signature__.split()) == (
+    "($module, /, database, *, timeout=5.0, detect_types=0, "
+    "isolation_level='', check_same_thread=True, factory=ConnectionType, "
+    "cached_statements=128, uri=False, "
+    "autocommit=sqlite3.LEGACY_TRANSACTION_CONTROL)"
+)
+assert " ".join(sqlite.Connection.backup.__text_signature__.split()) == (
+    "($self, /, target, *, pages=-1, progress=None, name='main', sleep=0.25)"
+)
+
+
+def check_connect_factory_signature():
+    calls = []
+    result = object()
+    database = object()
+    timeout = object()
+
+    def factory(*args, **kwargs):
+        calls.append((args, kwargs))
+        return result
+
+    # The displayed Connection signature must not validate, convert, or add
+    # defaults to a custom factory's call. CPython forwards even missing or
+    # duplicate database arguments, unknown keywords, and unconverted values.
+    cases = [
+        ((), {}),
+        ((database,), {"timeout": timeout, "extra": result}),
+        ((), {"database": database}),
+        ((database,), {"database": database}),
+    ]
+    for args, kwargs in cases:
+        kwargs = {"factory": factory, **kwargs}
+        assert sqlite.connect(*args, **kwargs) is result
+        assert calls.pop() == (args, kwargs)
+    with unittest.TestCase().assertRaises(TypeError):
+        sqlite.connect(database, timeout, factory=factory)
+    assert not calls
+
+
+check_connect_factory_signature()
+
 rows = [(3,), (4,)]
 cx = sqlite.connect(":memory:")
 cx.execute(";")
