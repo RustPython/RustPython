@@ -1114,6 +1114,7 @@ mod decl {
                     cancel: false,
                     fd: 2,
                     timeout_us: 60_000_000,
+                    max_threads: 100,
                     repeat: false,
                     exit: false,
                     header: String::new(),
