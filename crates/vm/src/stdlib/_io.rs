@@ -6256,7 +6256,7 @@ mod fileio {
     use crate::host_env::{crt_fd, os::ErrorExt};
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
+        builtins::{PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
@@ -6454,20 +6454,6 @@ mod fileio {
             Ok(())
         }
 
-        fn io_error(
-            zelf: &Py<Self>,
-            error: std::io::Error,
-            vm: &VirtualMachine,
-        ) -> PyBaseExceptionRef {
-            let exc = error.to_pyexception(vm);
-            if let Ok(name) = zelf.as_object().get_attr("name", vm) {
-                exc.as_object()
-                    .set_attr("filename", name, vm)
-                    .expect("OSError.filename set must success");
-            }
-            exc
-        }
-
         fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
             let fd = self.fd.load();
             if fd >= 0 {
@@ -6484,7 +6470,6 @@ mod fileio {
 
         /// One `read()` into `buf`, retried on EINTR (PEP 475). `None` on EAGAIN.
         fn read_once_into(
-            zelf: &Py<Self>,
             handle: crt_fd::Borrowed<'_>,
             buf: &mut [u8],
             vm: &VirtualMachine,
@@ -6497,7 +6482,7 @@ mod fileio {
                     }
                     // Non-blocking mode: return None if EAGAIN
                     Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
-                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                    Err(e) => return Err(e.to_pyexception(vm)),
                 }
             }
         }
@@ -6576,7 +6561,7 @@ mod fileio {
                         Err(e) if host_io::is_would_block_error(&e) => {
                             return Ok(None);
                         }
-                        Err(e) => return Err(FileIO::io_error(zelf, e, vm)),
+                        Err(e) => return Err(e.to_pyexception(vm)),
                     }
                 };
                 bytes.truncate(n);
@@ -6601,7 +6586,7 @@ mod fileio {
                             .map_err(|_| vm.no_memory_error())?;
                         bytes.resize(size, 0);
                     }
-                    match FileIO::read_once_into(zelf, handle, &mut bytes[used..], vm)? {
+                    match FileIO::read_once_into(handle, &mut bytes[used..], vm)? {
                         Some(0) => break,
                         Some(n) => used += n,
                         None if used == 0 => return Ok(None),
@@ -6636,7 +6621,7 @@ mod fileio {
                 // waiting on anyone; write where the caller asked directly.
                 // Seekability is not the question -- a pipe on Windows seeks.
                 let mut buf = buffer.borrow_buf_mut();
-                return FileIO::read_once_into(zelf, handle, &mut buf, vm);
+                return FileIO::read_once_into(handle, &mut buf, vm);
             }
 
             // A pipe, socket or terminal answers only when the other end
@@ -6648,7 +6633,7 @@ mod fileio {
             // across the wait stops the world from being stopped at all. Read
             // aside and take the lock for the copy.
             let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
-            let ret = FileIO::read_once_into(zelf, handle, &mut scratch, vm)?;
+            let ret = FileIO::read_once_into(handle, &mut scratch, vm)?;
             if let Some(n) = ret {
                 buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
             }
@@ -6681,7 +6666,7 @@ mod fileio {
                     }
                     // Non-blocking mode: return None if EAGAIN
                     Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
-                    Err(e) => return Err(FileIO::io_error(zelf, e, vm)),
+                    Err(e) => return Err(e.to_pyexception(vm)),
                 }
             };
 
@@ -6702,7 +6687,7 @@ mod fileio {
             }
             let close_err = zelf
                 .internal_close()
-                .map_err(|err| FileIO::io_error(zelf, err, vm))
+                .map_err(|err| err.to_pyexception(vm))
                 .err();
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
