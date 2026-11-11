@@ -233,7 +233,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpTracebackArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         all_threads: ArgIntoBool,
@@ -266,7 +266,7 @@ mod decl {
     #[cfg(any(unix, windows))]
     #[derive(FromArgs)]
     struct DumpCStackArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
     }
 
@@ -368,7 +368,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct EnableArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         all_threads: ArgIntoBool,
@@ -777,11 +777,11 @@ mod decl {
     struct DumpTracebackLaterArgs {
         #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
         timeout: ArgIntoFloat,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
         repeat: ArgIntoBool,
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
         exit: ArgIntoBool,
     }
 
@@ -902,11 +902,11 @@ mod decl {
     struct RegisterArgs {
         #[pyarg(positional)]
         signum: i32,
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         all_threads: ArgIntoBool,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
         chain: ArgIntoBool,
     }
 
@@ -959,7 +959,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct SigsegvArgs {
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = ArgIntoBool::FALSE)]
         release_gil: ArgIntoBool,
     }
 

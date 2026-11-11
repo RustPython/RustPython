@@ -100,7 +100,7 @@ mod decl {
     struct DumpsArgs {
         #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(positional, default = 6)]
+        #[pyarg(positional, default = 6, py_default = "version")]
         version: i32,
         #[pyarg(named, default = ArgIntoBool::TRUE)]
         allow_code: ArgIntoBool,
@@ -525,7 +525,7 @@ mod decl {
         value: PyObjectRef,
         #[pyarg(positional)]
         file: PyObjectRef,
-        #[pyarg(positional, default = 6)]
+        #[pyarg(positional, default = 6, py_default = "version")]
         version: i32,
         #[pyarg(named, default = ArgIntoBool::TRUE)]
         allow_code: ArgIntoBool,
