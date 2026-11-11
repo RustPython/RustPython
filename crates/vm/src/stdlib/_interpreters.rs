@@ -397,12 +397,10 @@ pub(crate) mod _interpreters {
         }
     }
 
-    // These match the converters and their order in CPython's Clinic wrappers.
+    // These match the Clinic converters and their order.
     // IDs stay objects until the implementation resolves them, after flags.
     #[derive(FromArgs)]
-    #[from_args(borrowed)]
-    struct ListAllArgs<'a> {
-        _phantom: core::marker::PhantomData<&'a ()>,
+    struct ListAllArgs {
         #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
         require_ready: ArgIntoBool,
     }
@@ -618,7 +616,7 @@ pub(crate) mod _interpreters {
     }
 
     #[pyfunction]
-    fn list_all(args: ListAllArgs<'_>, vm: &VirtualMachine) -> PyObjectRef {
+    fn list_all(args: ListAllArgs, vm: &VirtualMachine) -> PyObjectRef {
         let reqready = args.require_ready.into_bool();
         let mut items = Vec::new();
         for info in runtime::list_interpreters() {

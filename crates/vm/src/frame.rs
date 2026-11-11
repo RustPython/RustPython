@@ -66,7 +66,7 @@ struct ExCallOwners {
 
 impl ExCallOwners {
     fn release(self) {
-        // CPython closes kwargs before callargs. Tuple elements are released
+        // Close kwargs before callargs. Tuple elements are released
         // in reverse order, including the values of a normalized *iterable.
         drop(self.kwargs);
         match self.positional {

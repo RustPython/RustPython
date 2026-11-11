@@ -623,7 +623,13 @@ struct LegacyFromArgs {
     fname: String,
 }
 
-fn parse_from_args_attr(attrs: &[Attribute]) -> Result<Option<LegacyFromArgs>> {
+enum FromArgsMode {
+    Owned,
+    Legacy(LegacyFromArgs),
+    Borrowed,
+}
+
+fn parse_from_args_attr(attrs: &[Attribute]) -> Result<FromArgsMode> {
     let mut found = None;
     for attr in attrs {
         if !attr.path().is_ident("from_args") {
@@ -635,20 +641,20 @@ fn parse_from_args_attr(attrs: &[Attribute]) -> Result<Option<LegacyFromArgs>> {
         found = Some(attr);
     }
     let Some(attr) = found else {
-        return Ok(None);
+        return Ok(FromArgsMode::Owned);
     };
 
-    if attr
-        .parse_args::<Ident>()
-        .is_ok_and(|ident| ident == "borrowed")
-    {
-        return Ok(None);
-    }
-
+    let mut borrowed = false;
     let mut legacy = false;
     let mut fname = None;
     attr.parse_nested_meta(|meta| {
-        if meta.path.is_ident("legacy") {
+        if meta.path.is_ident("borrowed") {
+            if borrowed {
+                return Err(meta.error("duplicate `borrowed`"));
+            }
+            borrowed = true;
+            Ok(())
+        } else if meta.path.is_ident("legacy") {
             if legacy {
                 return Err(meta.error("duplicate `legacy`"));
             }
@@ -662,21 +668,28 @@ fn parse_from_args_attr(attrs: &[Attribute]) -> Result<Option<LegacyFromArgs>> {
             fname = Some(val.value());
             Ok(())
         } else {
-            Err(meta.error("unknown #[from_args] key; expected `legacy` or `fname = \"...\"`"))
+            Err(meta.error(
+                "unknown #[from_args] key; expected `borrowed`, `legacy`, or `fname = \"...\"`",
+            ))
         }
     })?;
 
-    match (legacy, fname) {
-        (true, Some(fname)) => Ok(Some(LegacyFromArgs { fname })),
-        (true, None) => Err(err_span!(
+    match (borrowed, legacy, fname) {
+        (true, false, None) => Ok(FromArgsMode::Borrowed),
+        (false, true, Some(fname)) => Ok(FromArgsMode::Legacy(LegacyFromArgs { fname })),
+        (true, _, _) => Err(err_span!(
+            attr,
+            "borrowed FromArgs uses Clinic binding; legacy parsing requires owned arguments"
+        )),
+        (false, true, None) => Err(err_span!(
             attr,
             "#[from_args(legacy)] requires fname = \"...\""
         )),
-        (false, Some(_)) => Err(err_span!(
+        (false, false, Some(_)) => Err(err_span!(
             attr,
             "#[from_args(fname = \"...\")] requires `legacy`"
         )),
-        (false, None) => Err(err_span!(
+        (false, false, None) => Err(err_span!(
             attr,
             "#[from_args] requires `legacy` and fname = \"...\""
         )),
@@ -781,12 +794,6 @@ fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<
         bail_span!(
             input.generics,
             "borrowed FromArgs requires exactly one lifetime and no type or const parameters"
-        );
-    }
-    if parse_from_args_attr(&input.attrs)?.is_some() {
-        bail_span!(
-            input,
-            "borrowed FromArgs uses Clinic binding; legacy parsing requires owned arguments"
         );
     }
     let lifetime = &lifetimes[0].lifetime;
@@ -897,17 +904,16 @@ fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<
 }
 
 pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    if input.attrs.iter().any(|attr| {
-        attr.path().is_ident("from_args")
-            && attr
-                .parse_args::<Ident>()
-                .is_ok_and(|ident| ident == "borrowed")
-    }) {
-        let Data::Struct(data) = &input.data else {
-            bail_span!(input, "FromArgs input must be a struct");
-        };
-        return impl_borrowed_from_args(&input, &data.fields);
-    }
+    let legacy = match parse_from_args_attr(&input.attrs)? {
+        FromArgsMode::Borrowed => {
+            let Data::Struct(data) = &input.data else {
+                bail_span!(input, "FromArgs input must be a struct");
+            };
+            return impl_borrowed_from_args(&input, &data.fields);
+        }
+        FromArgsMode::Legacy(legacy) => Some(legacy),
+        FromArgsMode::Owned => None,
+    };
     let Data::Struct(syn::DataStruct {
         fields: struct_fields,
         ..
@@ -915,8 +921,6 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     else {
         bail_span!(input, "FromArgs input must be a struct")
     };
-
-    let legacy = parse_from_args_attr(&input.attrs)?;
     if legacy.is_some() {
         validate_legacy_fields(&struct_fields)?;
     }
@@ -1110,6 +1114,7 @@ mod tests {
             parse_quote! { #[from_args(borrowed)] struct Args<'a> { #[pyarg(flatten)] value: &'a PyObject } },
             parse_quote! { #[from_args(borrowed)] struct Args<'a> { #[pyarg(any, default = "x")] value: &'a Py<PyStr> } },
             parse_quote! { #[from_args(borrowed)] #[from_args(legacy, fname = "f")] struct Args<'a> { value: &'a PyObject } },
+            parse_quote! { #[from_args(borrowed, legacy)] struct Args<'a> { value: &'a PyObject } },
         ] {
             assert!(impl_from_args(input).is_err());
         }
