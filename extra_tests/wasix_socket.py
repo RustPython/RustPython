@@ -150,12 +150,13 @@ class WasixSocketTests(unittest.TestCase):
     def test_sendall_timeout_under_backpressure(self):
         client, server = self.pair()
         client.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        client.sendall(b"queued")
         client.settimeout(0.03)
         start = time.monotonic()
         with self.assertRaises(TimeoutError):
             client.sendall(bytes(4 * 1024 * 1024))
         self.assertLess(time.monotonic() - start, 2)
-        # A timed-out sendall may already have sent a prefix.
+        # A timeout does not discard data queued before the timed operation.
         self.assertTrue(server.recv(1))
 
     def test_accept_timeout(self):
