@@ -952,7 +952,7 @@ mod _socket {
         Ok(buffer)
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let socket = core::mem::ManuallyDrop::new(
             unsafe { Socket::from_raw_fd(fd) }.map_err(|e| e.to_pyexception(vm))?,
@@ -963,7 +963,7 @@ mod _socket {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn close(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
         unsafe { Socket::from_raw_fd(fd) }
             .and_then(Socket::close)
