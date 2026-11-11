@@ -9,6 +9,8 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+# Optional WASIX networking imports for wasm32-wasip1 hosts such as Wasmer.
+wasix = []
 # `ctypes` module: libffi (linked against the system library) and libloading.
 ctypes = ["dep:libffi", "dep:libloading"]
 native-certs = ["dep:rustls-native-certs"]
