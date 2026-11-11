@@ -101,3 +101,20 @@ assert re.fullmatch(r"\w+", "유", re.ASCII) is None
 assert re.fullmatch(r"straße", "STRAßE", re.IGNORECASE) is not None
 
 print("stdlib_unicode_shared: OK")
+
+# Surrogates retain their UCD properties even though they are not Rust chars.
+for database in (unicodedata, unicodedata.ucd_3_2_0):
+    for codepoint in (0xD800, 0xDBFF, 0xDC00, 0xDFFF):
+        assert database.bidirectional(chr(codepoint)) == "L"
+
+# Existing characters must not acquire numeric values introduced after 3.2.
+for character, value in (("\u09f8", 0.75), ("\u3405", 5.0), ("\u3483", 2.0)):
+    assert unicodedata.numeric(character) == value
+    assert unicodedata.ucd_3_2_0.numeric(character, None) is None
+    try:
+        unicodedata.ucd_3_2_0.numeric(character)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("modern numeric property leaked into Unicode 3.2")
+assert unicodedata.ucd_3_2_0.numeric("\u4e00") == 1.0

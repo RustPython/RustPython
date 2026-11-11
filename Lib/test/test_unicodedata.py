@@ -107,7 +107,6 @@ class UnicodeMethodsTest(unittest.TestCase):
 
 class BaseUnicodeFunctionsTest:
 
-    @unittest.skip("TODO: RUSTPYTHON; AssertionError: '7bda75e48a961a01ab328358980cefc5c0a1666d' != '68cd01e2c680b851c1fcab012efb5635'")
     def test_function_checksum(self):
         db = self.db
         data = []
@@ -1098,10 +1097,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.block, 120)
         self.assertRaises(TypeError, self.db.block, '')
         self.assertRaises(TypeError, self.db.block, 'xx')
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
-    def test_function_checksum(self):
-        return super().test_function_checksum()
 
 
 class Unicode_3_2_0_FunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
