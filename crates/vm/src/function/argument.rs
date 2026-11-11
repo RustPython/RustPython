@@ -110,6 +110,15 @@ impl FromArgs for FuncArgs {
 }
 
 impl FuncArgs {
+    /// Release a borrowed native call's owners in evaluation-stack order.
+    /// Keyword values follow positional values on that stack. Expanded calls
+    /// retain their tuple/dict owners at the call site instead.
+    #[inline(always)]
+    pub(super) fn drop_reverse(self) {
+        self.kwargs.into_iter().rev().for_each(drop);
+        self.args.into_iter().rev().for_each(drop);
+    }
+
     pub fn new<A, K>(args: A, kwargs: K) -> Self
     where
         A: Into<PosArgs>,
@@ -279,6 +288,91 @@ impl FuncArgs {
 
     pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (Wtf8Buf, PyObjectRef)> + '_ {
         self.kwargs.drain(..)
+    }
+
+    /// Bind a finite borrowed signature without moving, cloning, or allocating
+    /// any argument storage. Each named field is looked up once; conversion
+    /// starts only after all Clinic binding errors have been ruled out.
+    #[inline]
+    pub fn bind_borrowed<const N: usize, T: ArgsMetadata>(
+        &self,
+        vm: &VirtualMachine,
+        callee: Callee,
+    ) -> PyResult<[Option<&PyObject>; N]> {
+        let shape = const {
+            let shape = match BindingShape::for_parser(T::CLINIC_PARAMS, 0, T::UNPACK_KEYWORDS) {
+                Some(shape) => shape,
+                None => panic!("borrowed arguments require a known Clinic signature"),
+            };
+            assert!(shape.fixed == N && !shape.var_positional && !shape.var_keyword);
+            let params = T::CLINIC_PARAMS.unwrap();
+            assert!(
+                params.len() == N,
+                "borrowed arguments cannot flatten fields"
+            );
+            let mut i = 0;
+            while i < N {
+                assert!(matches!(
+                    params[i].kind,
+                    ParamKind::PositionalOnly
+                        | ParamKind::PositionalOrKeyword
+                        | ParamKind::KeywordOnly
+                ));
+                i += 1;
+            }
+            shape
+        };
+        if let Some(error) = shape.check_counts(self, 0, callee, vm) {
+            return Err(error);
+        }
+        let mut slots = [None; N];
+        if self.kwargs.is_empty()
+            && self.args.len() >= shape.required_positional
+            && !shape.required_keyword_only
+        {
+            for (slot, value) in slots.iter_mut().zip(&self.args) {
+                *slot = Some(&**value);
+            }
+            return Ok(slots);
+        }
+        let mut positional = 0;
+        let mut duplicate = None;
+        let mut matched = 0;
+        for (i, param) in T::CLINIC_PARAMS.unwrap().iter().enumerate() {
+            let value = match param.kind {
+                ParamKind::PositionalOnly => {
+                    let value = self.args.get(positional);
+                    positional += 1;
+                    value
+                }
+                ParamKind::PositionalOrKeyword | ParamKind::KeywordOnly => {
+                    let keyword = self.kwargs.get(param.name);
+                    matched += usize::from(keyword.is_some());
+                    if matches!(param.kind, ParamKind::PositionalOrKeyword) {
+                        let value = self.args.get(positional);
+                        positional += 1;
+                        if value.is_some() && keyword.is_some() && duplicate.is_none() {
+                            duplicate = Some((param.name, i + 1));
+                        }
+                        value.or(keyword)
+                    } else {
+                        keyword
+                    }
+                }
+                _ => unreachable!("borrowed signature was checked at compile time"),
+            };
+            if value.is_none() && param.default.is_none() {
+                return Err(callee.missing_argument(param.name, i + 1, vm));
+            }
+            slots[i] = value.map(|value| &**value);
+        }
+        if let Some((name, position)) = duplicate {
+            return Err(callee.given_by_name_and_position(name, position, vm));
+        }
+        if matched < self.kwargs.len() {
+            return Err(shape.unexpected_keyword(self, callee, vm).unwrap());
+        }
+        Ok(slots)
     }
 
     /// Binds these arguments to their respective values.
@@ -712,10 +806,12 @@ impl BindingShape {
         true
     }
 
-    fn check(
+    // Sharing the count checks must not add a call to the existing owned path,
+    // and borrowed signatures can fold the shape constants into these checks.
+    #[inline(always)]
+    fn check_counts(
         &self,
         args: &FuncArgs,
-        arity: &RangeInclusive<usize>,
         instance: usize,
         callee: Callee,
         vm: &VirtualMachine,
@@ -726,6 +822,9 @@ impl BindingShape {
         if !self.has_keywords {
             if nkwargs > 0 {
                 return Some(callee.no_keywords(vm));
+            }
+            if nargs >= self.required_positional && nargs <= *binding_arity.end() {
+                return None;
             }
             return Some(callee.wrong_arity(
                 &binding_arity,
@@ -794,6 +893,22 @@ impl BindingShape {
             )));
         }
 
+        None
+    }
+
+    fn check(
+        &self,
+        args: &FuncArgs,
+        arity: &RangeInclusive<usize>,
+        instance: usize,
+        callee: Callee,
+        vm: &VirtualMachine,
+    ) -> Option<PyBaseExceptionRef> {
+        if let Some(error) = self.check_counts(args, instance, callee, vm) {
+            return Some(error);
+        }
+        let nargs = args.args.len().saturating_sub(instance);
+        let nkwargs = args.kwargs.len();
         // Walk when a required argument may be missing, or when keywords need
         // matching. Optional-only calls with no keywords skip this.
         if !args.kwargs.is_empty()
@@ -1009,7 +1124,7 @@ impl ArgumentError {
         }
     }
 
-    fn into_exception(
+    pub fn into_exception(
         self,
         arity: &RangeInclusive<usize>,
         num_given: usize,
@@ -1038,6 +1153,55 @@ impl ArgumentError {
             }
             Self::Exception(ex) => ex,
         }
+    }
+}
+
+/// Binding and display metadata shared by owned and borrowed argument structs.
+/// Borrowed structs use the same strict Clinic signature as ordinary `FromArgs`.
+pub trait ArgsMetadata {
+    const DISPLAY_PARAMS: Option<&'static [Param]>;
+    const CLINIC_PARAMS: Option<&'static [Param]> = Self::DISPLAY_PARAMS;
+    const UNPACK_KEYWORDS: bool = false;
+}
+
+impl<T: FromArgs> ArgsMetadata for T {
+    const DISPLAY_PARAMS: Option<&'static [Param]> = T::PARAMS;
+    const CLINIC_PARAMS: Option<&'static [Param]> = T::BINDING_PARAMS;
+    const UNPACK_KEYWORDS: bool = T::FORCE_UNPACK_KEYWORDS;
+}
+
+/// A family of argument structs borrowing the native call's original storage.
+/// `#[from_args(borrowed)]` derives this for a struct with one lifetime. The static
+/// member selects the family; only `Bound` is constructed during a call.
+pub trait BorrowedArgs: ArgsMetadata + Sized + 'static {
+    type Bound<'a>;
+
+    fn bind<'a>(
+        args: &'a FuncArgs,
+        vm: &VirtualMachine,
+        callee: Callee,
+    ) -> PyResult<Self::Bound<'a>>;
+}
+
+/// Missing-state conversion for borrowed fields. This never creates an owner.
+pub trait FromBorrowedArgOptional<'a> {
+    type Inner: crate::convert::TryFromBorrowedObject<'a>;
+    fn from_inner(value: Self::Inner) -> Self;
+}
+
+impl<'a, T: crate::convert::TryFromBorrowedObject<'a>> FromBorrowedArgOptional<'a>
+    for OptionalArg<T>
+{
+    type Inner = T;
+    fn from_inner(value: T) -> Self {
+        Self::Present(value)
+    }
+}
+
+impl<'a, T: crate::convert::TryFromBorrowedObject<'a>> FromBorrowedArgOptional<'a> for T {
+    type Inner = Self;
+    fn from_inner(value: Self) -> Self {
+        value
     }
 }
 
@@ -1763,6 +1927,118 @@ mod tests {
     use super::{ArgumentError, FromArgs, KwArgs};
     use super::{BindingShape, Callee, FuncArgs, PosArgs};
     use crate::{PyObjectRef, VirtualMachine};
+
+    #[derive(FromArgs)]
+    #[from_args(borrowed)]
+    struct BorrowedNamed<'a> {
+        #[pyarg(any)]
+        first: &'a crate::PyObject,
+        #[pyarg(any)]
+        second: &'a crate::PyObject,
+        #[pyarg(named, optional, py_default = "None")]
+        optional: super::OptionalArg<&'a crate::PyObject>,
+    }
+
+    #[test]
+    fn borrowed_binding_matches_clinic_errors() {
+        use super::BorrowedArgs;
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for (nargs, names) in [
+                (0, vec![]),
+                (1, vec!["first"]),
+                (1, vec!["unknown"]),
+                (2, vec!["first"]),
+                (2, vec!["unknown"]),
+                (3, vec![]),
+                (2, vec!["optional", "unknown"]),
+                (0, vec!["second", "unknown"]),
+                (0, vec!["second", "first", "unknown"]),
+            ] {
+                let args = FuncArgs::new(
+                    vec![vm.ctx.none(); nargs],
+                    names
+                        .iter()
+                        .map(|&name| (name, vm.ctx.none()))
+                        .collect::<KwArgs>(),
+                );
+                let error = match BorrowedNamed::bind(&args, vm, Callee::named("example")) {
+                    Err(error) => error,
+                    Ok(_) => panic!("binding unexpectedly succeeded"),
+                };
+                let message: String = error.args().as_slice()[0].try_to_value(vm).unwrap();
+                assert_eq!(
+                    message,
+                    binding_error::<ClinicNamed>(nargs, &names, false, vm)
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn borrowed_argument_conversion_keeps_payload_validation() {
+        use crate::{AsObject, Py, builtins::PyUtf8Str, convert::TryFromBorrowedObject};
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let value = vm
+                .ctx
+                .new_str(crate::common::wtf8::CodePoint::from(0xd800u16));
+            let error = match <&Py<PyUtf8Str>>::try_from_borrowed_argument(vm, value.as_object()) {
+                Err(ArgumentError::Exception(error)) => error,
+                _ => panic!("a surrogate must fail the UTF-8 payload check"),
+            };
+            assert!(error.class().is(vm.ctx.exceptions.unicode_encode_error));
+        });
+    }
+
+    #[test]
+    fn borrowed_binding_preserves_storage_and_reference_counts() {
+        use super::BorrowedArgs;
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let args = FuncArgs::new(
+                vec![vm.new_pyobj("first")],
+                [
+                    ("optional", vm.new_pyobj("optional")),
+                    ("second", vm.new_pyobj("second")),
+                ]
+                .into_iter()
+                .collect::<KwArgs>(),
+            );
+            let positional = args.args.as_ptr();
+            let counts = [
+                args.args[0].strong_count(),
+                args.kwargs.get("second").unwrap().strong_count(),
+                args.kwargs.get("optional").unwrap().strong_count(),
+            ];
+            for _ in 0..100 {
+                let bound = BorrowedNamed::bind(&args, vm, Callee::named("example"))
+                    .unwrap_or_else(|_| panic!("valid binding"));
+                assert!(core::ptr::eq(bound.first, &*args.args[0]));
+                assert!(core::ptr::eq(
+                    bound.second,
+                    &**args.kwargs.get("second").unwrap()
+                ));
+                assert!(core::ptr::eq(
+                    bound.optional.into_option().unwrap(),
+                    &**args.kwargs.get("optional").unwrap()
+                ));
+                assert_eq!(positional, args.args.as_ptr());
+                assert_eq!(
+                    [
+                        args.args[0].strong_count(),
+                        args.kwargs.get("second").unwrap().strong_count(),
+                        args.kwargs.get("optional").unwrap().strong_count()
+                    ],
+                    counts
+                );
+            }
+            assert_eq!(
+                args.kwargs
+                    .keys()
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>(),
+                ["optional", "second"]
+            );
+        });
+    }
 
     #[test]
     fn duplicate_argument_messages_distinguish_unnamed_callees() {

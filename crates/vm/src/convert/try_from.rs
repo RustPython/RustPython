@@ -78,6 +78,21 @@ where
 {
     /// Attempt to convert a Python object to a value of this type.
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self>;
+
+    #[inline]
+    fn try_from_borrowed_argument(
+        vm: &VirtualMachine,
+        obj: &'a PyObject,
+    ) -> Result<Self, ArgumentError> {
+        Self::try_from_borrowed_object(vm, obj).map_err(Into::into)
+    }
+}
+
+impl<'a> TryFromBorrowedObject<'a> for &'a PyObject {
+    #[inline]
+    fn try_from_borrowed_object(_vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        Ok(obj)
+    }
 }
 
 impl<T> TryFromObject for PyRef<T>
@@ -153,6 +168,26 @@ impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
                 .ok_or_else(|| vm.new_downcast_runtime_error(class, &obj))
         } else {
             Err(vm.new_downcast_type_error(class, &obj))
+        }
+    }
+
+    #[inline]
+    fn try_from_borrowed_argument(
+        vm: &VirtualMachine,
+        obj: &'a PyObject,
+    ) -> Result<Self, ArgumentError> {
+        let class = T::class(&vm.ctx);
+        if obj.fast_isinstance(class) {
+            obj.try_downcast_ref::<T>(vm).map_err(Into::into)
+        } else {
+            Err(ArgumentError::BadArgument {
+                expected: class,
+                or_none: false,
+                // Only an error needs an owning diagnostic, never the call's
+                // successful borrowed conversion path.
+                found: obj.to_owned(),
+                name: None,
+            })
         }
     }
 }
