@@ -71,6 +71,14 @@ for name, encoded, decoded in (
     assert function(encoded) == decoded
     assert function.__text_signature__.startswith("($module, data, /, *")
 
+# The database supplies the full decoder documentation, not only its summary.
+for function in (binascii.a2b_base32, binascii.a2b_base64, binascii.a2b_base85):
+    assert "\n  ignorechars\n" in function.__doc__
+    assert "\n  canonical\n" in function.__doc__
+for function in (binascii.a2b_base32, binascii.a2b_base64):
+    assert "\n  padded\n" in function.__doc__
+assert "Set to True by default if ignorechars is specified" in dec_b64.__doc__
+
 # A Python-visible module argument must not be mistaken for a bound receiver.
 import _imp
 import sys
