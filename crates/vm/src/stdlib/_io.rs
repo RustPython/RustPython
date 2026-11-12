@@ -1835,6 +1835,14 @@ mod _io {
         wrap_fn: impl FnOnce(&dyn Fn()),
     ) -> Option<PyThreadMutexGuard<'_, T>> {
         use crate::common::lock::TryLockThreadError;
+        // Native loops may use these acquisitions as their only checkpoint.
+        // Keep the detached path when a stop or reclamation is requested.
+        #[cfg(feature = "threading")]
+        if crate::vm::thread::stop_requested_for_current_thread()
+            || (crate::signal::qsbr_bit_set() && crate::vm::thread::qsbr_break_requested())
+        {
+            return mutex.lock_wrapped(wrap_fn);
+        }
         match mutex.try_lock() {
             Ok(guard) => Some(guard),
             Err(TryLockThreadError::Current) => None,
@@ -6200,10 +6208,84 @@ mod _io {
                     .unwrap();
                     *guard = 1;
                 });
-                waiting_rx.recv().unwrap();
+                let invoked = waiting_rx
+                    .recv_timeout(core::time::Duration::from_secs(5))
+                    .is_ok();
                 drop(guard);
+                assert!(invoked, "contended lock did not invoke its wrapper");
             });
             assert_eq!(*mutex.lock().unwrap(), 1);
+        }
+
+        #[test]
+        #[cfg(feature = "threading")]
+        fn io_lock_honors_pending_stop() {
+            crate::Interpreter::without_stdlib(Default::default()).enter(|_| {
+                let _clear = scopeguard::guard((), |_| {
+                    crate::vm::thread::set_stop_requested_for_current_thread(false);
+                });
+                assert!(crate::vm::thread::set_stop_requested_for_current_thread(
+                    true
+                ));
+                let mutex = PyThreadMutex::new(0);
+                let invoked = core::cell::Cell::new(false);
+                let guard = lock_io(&mutex, |wait| {
+                    invoked.set(true);
+                    wait();
+                });
+                assert!(guard.is_some());
+                assert!(invoked.get());
+            });
+        }
+
+        #[test]
+        #[cfg(feature = "threading")]
+        fn io_lock_native_loop_cooperates_with_stop_the_world() {
+            use alloc::sync::Arc;
+            use core::{
+                sync::atomic::{AtomicBool, Ordering},
+                time::Duration,
+            };
+            use std::time::Instant;
+
+            let interpreter = crate::Interpreter::without_stdlib(Default::default());
+            let finish = Arc::new(AtomicBool::new(false));
+            let exited = Arc::new(AtomicBool::new(false));
+            let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+            let finish_worker = Arc::clone(&finish);
+            let exited_worker = Arc::clone(&exited);
+            let worker = interpreter.enter(|vm| {
+                let thread_vm = vm.new_thread();
+                std::thread::spawn(move || {
+                    thread_vm.run(|vm| {
+                        let mutex = PyThreadMutex::new(0);
+                        let deadline = Instant::now() + Duration::from_secs(30);
+                        let mut ready = Some(ready_tx);
+                        // Deliberately avoid bytecode and explicit signal polls:
+                        // the I/O lock is this native loop's only checkpoint.
+                        while !finish_worker.load(Ordering::Acquire) && Instant::now() < deadline {
+                            drop(lock_io(&mutex, |wait| vm.allow_threads(wait)).unwrap());
+                            if let Some(ready) = ready.take() {
+                                ready.send(()).unwrap();
+                            }
+                        }
+                        exited_worker.store(true, Ordering::Release);
+                    });
+                })
+            });
+            let ready = ready_rx.recv_timeout(Duration::from_secs(30)).is_ok();
+            let stopped_while_running = ready
+                && interpreter.enter(|vm| {
+                    vm.state.stop_the_world.stop_the_world(&vm.state);
+                    let _restart = scopeguard::guard((), |_| {
+                        vm.state.stop_the_world.start_the_world(&vm.state);
+                    });
+                    !exited.load(Ordering::Acquire)
+                });
+            finish.store(true, Ordering::Release);
+            worker.join().unwrap();
+            assert!(ready, "native I/O loop did not start");
+            assert!(stopped_while_running, "native I/O loop did not suspend");
         }
 
         #[test]
