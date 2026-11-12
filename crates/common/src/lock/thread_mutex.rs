@@ -30,6 +30,10 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
         get_thread_id: G::INIT,
     };
 
+    fn is_owned_by_current_thread(&self) -> bool {
+        self.owner.load(Ordering::Relaxed) == self.get_thread_id.nonzero_thread_id().get()
+    }
+
     #[inline]
     fn lock_internal<F: FnOnce() -> bool>(&self, try_lock: F) -> Option<bool> {
         let id = self.get_thread_id.nonzero_thread_id().get();
@@ -51,18 +55,6 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
             true
         })
         .is_some()
-    }
-
-    /// Like `lock()` but wraps the blocking wait in `wrap_fn`.
-    /// The caller can use this to detach thread state while waiting.
-    pub fn lock_wrapped<F: FnOnce(&dyn Fn())>(&self, wrap_fn: F) -> bool {
-        let id = self.get_thread_id.nonzero_thread_id().get();
-        if self.owner.load(Ordering::Relaxed) == id {
-            return false;
-        }
-        wrap_fn(&|| self.mutex.lock());
-        self.owner.store(id, Ordering::Relaxed);
-        true
     }
 
     /// Returns `Some(true)` if able to successfully lock without blocking, `Some(false)`
@@ -149,18 +141,16 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
 
     /// Like `lock()` but wraps the blocking wait in `wrap_fn`.
     /// The caller can use this to detach thread state while waiting.
-    pub fn lock_wrapped<F: FnOnce(&dyn Fn())>(
-        &self,
-        wrap_fn: F,
-    ) -> Option<ThreadMutexGuard<'_, R, G, T>> {
-        if self.raw.lock_wrapped(wrap_fn) {
-            Some(ThreadMutexGuard {
-                mu: self,
-                marker: PhantomData,
-            })
-        } else {
-            None
+    pub fn lock_wrapped<'a, F>(&'a self, wrap_fn: F) -> Option<ThreadMutexGuard<'a, R, G, T>>
+    where
+        F: FnOnce(
+            &dyn Fn() -> Option<ThreadMutexGuard<'a, R, G, T>>,
+        ) -> Option<ThreadMutexGuard<'a, R, G, T>>,
+    {
+        if self.raw.is_owned_by_current_thread() {
+            return None;
         }
+        wrap_fn(&|| self.lock())
     }
 
     pub fn try_lock(&self) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError> {
@@ -177,17 +167,23 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
 
 impl<R: RawMutexTimed, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
     /// Wait at most `timeout`, wrapping only the blocking acquisition.
-    pub fn try_lock_for_wrapped<F: FnOnce(&dyn Fn() -> bool) -> bool>(
-        &self,
+    pub fn try_lock_for_wrapped<'a, F>(
+        &'a self,
         timeout: R::Duration,
         wrap_fn: F,
-    ) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError>
+    ) -> Result<ThreadMutexGuard<'a, R, G, T>, TryLockThreadError>
     where
+        F: FnOnce(
+            &dyn Fn() -> Result<ThreadMutexGuard<'a, R, G, T>, TryLockThreadError>,
+        ) -> Result<ThreadMutexGuard<'a, R, G, T>, TryLockThreadError>,
         R::Duration: Copy,
     {
-        match self
+        if self.raw.is_owned_by_current_thread() {
+            return Err(TryLockThreadError::Current);
+        }
+        wrap_fn(&|| match self
             .raw
-            .lock_internal(|| wrap_fn(&|| self.raw.mutex.try_lock_for(timeout)))
+            .lock_internal(|| self.raw.mutex.try_lock_for(timeout))
         {
             Some(true) => Ok(ThreadMutexGuard {
                 mu: self,
@@ -195,7 +191,7 @@ impl<R: RawMutexTimed, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
             }),
             Some(false) => Err(TryLockThreadError::Other),
             None => Err(TryLockThreadError::Current),
-        }
+        })
     }
 }
 
@@ -408,5 +404,18 @@ mod tests {
         *guard = 1;
         drop(guard);
         assert_eq!(*mutex.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn wrapped_lock_releases_on_panic() {
+        let mutex = PyThreadMutex::new(0);
+        let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+            mutex.lock_wrapped(|wait| {
+                let _g = wait();
+                panic!()
+            })
+        }));
+        assert!(result.is_err());
+        assert!(mutex.try_lock().is_ok());
     }
 }
