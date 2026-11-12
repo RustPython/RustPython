@@ -124,25 +124,21 @@ impl AlgorithmicName {
     fn check_name(search_name: &str) -> Option<char> {
         // CPython compares derived-name prefixes case-insensitively
         // (`PyOS_strnicmp` in `_getcode`).
-        let folded: String = search_name
-            .chars()
-            .map(|c| c.to_ascii_uppercase())
-            .collect();
-        if let Some(without_base) = folded.strip_prefix(Self::TangutIdeograph.name_base()) {
-            // `parse_hex_code` does not skip spaces around the digits.
-            let hex = without_base.strip_prefix('-')?;
-            // `_getcode` / `parse_hex_code`: 4–6 digits, no leading zero.
-            if hex.len() < 4 || hex.len() > 6 || hex.starts_with('0') {
-                return None;
-            }
-            let cp = u32::from_str_radix(hex, 16).ok()?;
-            let ch = char::from_u32(cp)?;
-            if lookup_table(ALGO_NAMES, ch)? == Self::TangutIdeograph {
-                return Some(ch);
-            }
+        let tangut = Self::TangutIdeograph.name_base();
+        let (head, tail) = search_name.split_at_checked(tangut.len())?;
+        if !head.eq_ignore_ascii_case(tangut) {
+            return None;
         }
 
-        None
+        // `parse_hex_code` does not skip spaces around the digits.
+        let hex = tail.strip_prefix('-')?;
+        // `_getcode` / `parse_hex_code`: 4–6 digits, no leading zero.
+        if hex.len() < 4 || hex.len() > 6 || hex.starts_with('0') {
+            return None;
+        }
+        let cp = u32::from_str_radix(hex, 16).ok()?;
+        let ch = char::from_u32(cp)?;
+        (lookup_table(ALGO_NAMES, ch)? == Self::TangutIdeograph).then_some(ch)
     }
 }
 
