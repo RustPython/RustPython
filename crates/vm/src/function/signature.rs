@@ -1028,8 +1028,11 @@ const fn write_args(buf: &mut [u8], mut st: St, args: &[SigArg]) -> St {
 
 #[cfg(test)]
 mod tests {
-    use super::{DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, put_exp, write_one};
-    use crate::function::PyMethodFlags;
+    use super::{
+        DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, put_exp,
+        validate_text_signature, validate_text_signature_without_slash, write_one,
+    };
+    use crate::function::{FromArgs, PyMethodFlags};
 
     fn rendered(default: DefaultRepr) -> String {
         let mut buf = [0u8; 64];
