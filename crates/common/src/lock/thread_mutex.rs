@@ -436,7 +436,8 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
+#[cfg(feature = "std")]
 mod tests {
     use super::TryLockThreadError;
     use crate::lock::PyThreadMutex;
@@ -510,7 +511,8 @@ mod tests {
 
     #[test]
     fn wrapped_lock_releases_on_panic() {
-        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use core::panic::AssertUnwindSafe;
+        use std::panic::catch_unwind;
 
         for acquire in [false, true] {
             let mutex = PyThreadMutex::new(0);
@@ -622,7 +624,8 @@ mod tests {
     #[test]
     #[cfg(feature = "threading")]
     fn timed_wrapper_releases_on_panic() {
-        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use core::panic::AssertUnwindSafe;
+        use std::panic::catch_unwind;
 
         for acquire in [false, true] {
             let mutex = PyThreadMutex::new(0);
