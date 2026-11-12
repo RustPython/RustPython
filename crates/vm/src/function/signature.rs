@@ -148,9 +148,16 @@ impl SigArg {
             }),
             // A scalar receiver is already counted by the preceding marker.
             // Only parameters actually supplied by its type contribute more.
-            binding_params: match T::PARAMS {
-                Some(_) => T::BINDING_PARAMS,
-                None => Some(&[]),
+            binding_params: match (T::PARAMS, T::BINDING_PARAMS) {
+                (None, Some(params))
+                    if params.len() == 1
+                        && matches!(params[0].kind, ParamKind::PositionalOnly)
+                        && params[0].name.is_empty()
+                        && params[0].default.is_none() =>
+                {
+                    Some(&[])
+                }
+                (_, binding) => binding,
             },
             force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
@@ -1300,6 +1307,28 @@ mod tests {
                 Param::positional_only("bases"),
                 Param::var_keyword("kwds"),
             ],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "text_signature requires known binding metadata")]
+    fn implicit_unknown_receiver_is_still_rejected() {
+        struct UnknownReceiver;
+        impl FromArgs for UnknownReceiver {
+            const BINDING_PARAMS: Option<&'static [Param]> = None;
+            fn from_args(
+                _vm: &crate::VirtualMachine,
+                _args: &mut crate::function::FuncArgs,
+            ) -> Result<Self, crate::function::ArgumentError> {
+                unreachable!()
+            }
+        }
+        validate_text_signature(
+            &[
+                SigArg::marker("$self"),
+                SigArg::implicit::<UnknownReceiver>(),
+            ],
+            &[Param::positional_only("$self")],
         );
     }
 
