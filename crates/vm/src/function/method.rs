@@ -1,8 +1,8 @@
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, VirtualMachine,
     builtins::{
-        PyStaticMethod, PyType,
-        builtin_func::{PyNativeFunction, PyNativeMethod},
+        PyModule, PyStaticMethod, PyType,
+        builtin_func::{NativeFunctionSelf, PyNativeFunction, PyNativeMethod},
         descriptor::{PyClassMethodDescriptor, PyMethodDescriptor},
     },
     class::PyClassDef,
@@ -44,10 +44,6 @@ bitflags::bitflags! {
         // It uses PyCMethodObject instead of PyCFunctionObject.
         // May not be combined with METH_NOARGS, METH_O, METH_CLASS or METH_STATIC.
         const METHOD = 0x0200;
-
-        // Rust-only: the native function consumes its defining module as its
-        // first Rust argument. CPython always supplies this C-level receiver.
-        const BIND_MODULE = 0x10000;
     }
 }
 
@@ -62,12 +58,12 @@ impl PyMethodFlags {
         .union(Self::FASTCALL);
 
     /// Adds the calling convention inferred from `args` unless one is set.
-    /// For METHOD, CLASS and BIND_MODULE the first argument is the bound receiver.
+    /// For METHOD and CLASS the first argument is the bound receiver.
     pub(crate) const fn with_call_convention(self, args: &[SigArg]) -> Self {
         if self.intersects(Self::CALL_CONVENTION) {
             return self;
         }
-        let receiver = self.intersects(Self::METHOD.union(Self::CLASS).union(Self::BIND_MODULE));
+        let receiver = self.intersects(Self::METHOD.union(Self::CLASS));
         self.union(super::signature::native_call_flags(args, receiver))
     }
 }
@@ -200,10 +196,16 @@ impl PyMethodDef {
         PyNativeFunction {
             zelf: None,
             value: self,
-            module_object: None,
             module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         }
+    }
+
+    #[must_use]
+    pub fn to_module_function(&'static self, module: PyRef<PyModule>) -> PyNativeFunction {
+        let mut function = self.to_function();
+        function.zelf = Some(NativeFunctionSelf::Module(module));
+        function
     }
 
     pub fn to_method(
@@ -221,9 +223,8 @@ impl PyMethodDef {
     ) -> PyNativeMethod {
         PyNativeMethod {
             func: PyNativeFunction {
-                zelf: Some(obj),
+                zelf: Some(NativeFunctionSelf::Bound(obj)),
                 value: self,
-                module_object: None,
                 module: crate::object::PyAtomicRef::new_empty(),
                 _method_def_owner: None,
             },
@@ -250,9 +251,8 @@ impl PyMethodDef {
         owner: Option<PyObjectRef>,
     ) -> PyRef<PyNativeFunction> {
         let function = PyNativeFunction {
-            zelf: Some(obj),
+            zelf: Some(NativeFunctionSelf::Bound(obj)),
             value: self,
-            module_object: None,
             module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: owner,
         };
@@ -472,7 +472,10 @@ impl Py<HeapMethodDef> {
     ) -> PyRef<PyNativeFunction> {
         let mut function = unsafe { self.method() }.to_function();
         function._method_def_owner = Some(self.to_owned().into());
-        function.zelf = zelf;
+        function.zelf = zelf.map(|object| match object.downcast::<PyModule>() {
+            Ok(module) => NativeFunctionSelf::Module(module),
+            Err(object) => NativeFunctionSelf::Bound(object),
+        });
         PyRef::new_ref(
             function,
             vm.ctx.types.builtin_function_or_method_type.to_owned(),

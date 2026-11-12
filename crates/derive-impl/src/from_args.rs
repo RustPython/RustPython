@@ -894,7 +894,7 @@ fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<
             fn bind<#lifetime>(
                 args: &#lifetime ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
-                callee: ::rustpython_vm::function::Callee,
+                callee: ::rustpython_vm::function::Callee<'_>,
             ) -> ::rustpython_vm::PyResult<Self::Bound<#lifetime>> {
                 let slots = args.bind_borrowed::<#n, Self>(vm, callee)?;
                 Ok(#name { #(#values)* })
@@ -995,7 +995,7 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 _: &::std::ops::RangeInclusive<usize>,
                 _: usize,
                 _: usize,
-                _: ::rustpython_vm::function::Callee,
+                _: ::rustpython_vm::function::Callee<'_>,
                 _: &::rustpython_vm::VirtualMachine,
             ) -> ::core::option::Option<::rustpython_vm::builtins::PyBaseExceptionRef> {
                 None
