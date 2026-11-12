@@ -50,6 +50,35 @@ struct BufferInternal {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyBuffer_FillContiguousStrides(
+    ndim: c_int,
+    shape: *mut isize,
+    strides: *mut isize,
+    itemsize: c_int,
+    order: c_char,
+) {
+    if ndim <= 0 {
+        return;
+    }
+    let ndim = ndim as usize;
+    let mut stride = itemsize as isize;
+
+    if order == b'F' as c_char {
+        for index in 0..ndim {
+            unsafe { strides.add(index).write(stride) };
+            let dimension = unsafe { shape.add(index).read() };
+            stride = stride.wrapping_mul(dimension);
+        }
+    } else {
+        for index in (0..ndim).rev() {
+            unsafe { strides.add(index).write(stride) };
+            let dimension = unsafe { shape.add(index).read() };
+            stride = stride.wrapping_mul(dimension);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetBuffer(
     obj: *mut PyObject,
     view: *mut Py_buffer,
@@ -280,9 +309,105 @@ pub unsafe extern "C" fn PyBuffer_FromContiguous(
 
 #[cfg(test)]
 mod tests {
+    use super::PyBuffer_FillContiguousStrides;
     use pyo3::buffer::PyBuffer;
     use pyo3::prelude::*;
     use pyo3::types::{PyByteArray, PyBytes};
+
+    #[test]
+    fn fill_contiguous_strides() {
+        let shape = [2isize, 3, 4];
+        let mut strides = [0; 3];
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                shape.as_ptr() as *mut _,
+                strides.as_mut_ptr(),
+                2,
+                b'C' as _,
+            );
+        }
+        assert_eq!(strides, [24, 8, 2]);
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                shape.as_ptr() as *mut _,
+                strides.as_mut_ptr(),
+                2,
+                b'F' as _,
+            );
+        }
+        assert_eq!(strides, [2, 4, 12]);
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                shape.as_ptr() as *mut _,
+                strides.as_mut_ptr(),
+                2,
+                b'X' as _,
+            );
+        }
+        assert_eq!(strides, [24, 8, 2]);
+
+        let shape = [2isize, 0, 4];
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                shape.as_ptr() as *mut _,
+                strides.as_mut_ptr(),
+                2,
+                b'C' as _,
+            );
+        }
+        assert_eq!(strides, [0, 8, 2]);
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                shape.as_ptr() as *mut _,
+                strides.as_mut_ptr(),
+                2,
+                b'F' as _,
+            );
+        }
+        assert_eq!(strides, [2, 4, 0]);
+
+        let mut overlapping = [2isize, 3, 4];
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                3,
+                overlapping.as_mut_ptr(),
+                overlapping.as_mut_ptr(),
+                2,
+                b'C' as _,
+            );
+        }
+        assert_eq!(overlapping, [16, 4, 2]);
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                -1,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                2,
+                b'C' as _,
+            );
+        }
+
+        unsafe {
+            PyBuffer_FillContiguousStrides(
+                0,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                2,
+                b'C' as _,
+            );
+        }
+    }
 
     #[test]
     fn object_getbuffer_basic_and_release() {
