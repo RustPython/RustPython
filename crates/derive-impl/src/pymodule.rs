@@ -570,18 +570,18 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
-            let flags = if item.binds_module {
-                quote!(rustpython_vm::function::PyMethodFlags::BIND_MODULE)
+            let function = if item.binds_module {
+                quote!(rustpython_vm::function::ModuleFunction(#ident))
             } else {
-                quote!(rustpython_vm::function::PyMethodFlags::empty())
+                quote!(#ident)
             };
             for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
                 inner_tokens.extend(quote![
                     #cfgs
                     rustpython_vm::function::PyMethodDef::new_const(
                         #py_name,
-                        #ident,
-                        #flags,
+                        #function,
+                        rustpython_vm::function::PyMethodFlags::empty(),
                         #doc,
                     ),
                 ]);
@@ -684,7 +684,7 @@ impl ModuleItem for FunctionItem {
 
         let py_name = item_meta.simple_name()?;
         let mut flags_signatures = vec![item_meta.signature_from_flags()?];
-        let mut binds_module = item_meta.with_module()?;
+        let binds_module = crate::util::has_module_receiver(func.sig())?;
         let mut py_names = vec![py_name];
         for attr_index in self.py_attrs.iter().rev() {
             let mut loop_unit = || {
@@ -699,7 +699,6 @@ impl ModuleItem for FunctionItem {
                     ));
                 }
                 flags_signatures.push(item_meta.signature_from_flags()?);
-                binds_module |= item_meta.with_module()?;
                 py_names.push(py_name);
                 Ok(())
             };
@@ -707,12 +706,6 @@ impl ModuleItem for FunctionItem {
             args.context.errors.ok_or_push(r);
         }
 
-        if binds_module && !crate::util::has_module_receiver(func.sig()) {
-            return Err(self.new_syn_error(
-                ident.span(),
-                "with_module requires a leading PyRef<PyModule> or &Py<PyModule> argument",
-            ));
-        }
         let mut doc_signature = func.sig().clone();
         if binds_module {
             doc_signature.inputs = doc_signature.inputs.into_iter().skip(1).collect();

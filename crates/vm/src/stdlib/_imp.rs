@@ -404,12 +404,12 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn exec_dynamic(_mod: PyRef<PyModule>) -> i32 {
+    fn exec_dynamic(_imp: PyRef<PyModule>, _mod: PyRef<PyModule>) -> i32 {
         0
     }
 
     #[pyfunction]
-    fn exec_builtin(_mod: PyRef<PyModule>) -> i32 {
+    fn exec_builtin(_imp: PyRef<PyModule>, _mod: PyRef<PyModule>) -> i32 {
         // For multi-phase init modules, exec is already called in create_builtin
         0
     }

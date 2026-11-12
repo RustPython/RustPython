@@ -1,6 +1,6 @@
 use super::{BorrowedArgs, Callee, FromArgs, FuncArgs, SigArg};
 use crate::{
-    Py, PyPayload, PyRef, PyResult, VirtualMachine, convert::ToPyResult,
+    Py, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyResult,
     object::PyThreadingConstraint,
 };
 use core::marker::PhantomData;
@@ -8,12 +8,12 @@ use core::marker::PhantomData;
 /// A built-in Python function.
 // PyCFunction in CPython
 pub trait PyNativeFn:
-    Fn(&VirtualMachine, FuncArgs, Callee) -> PyResult + PyThreadingConstraint + 'static
+    Fn(&VirtualMachine, FuncArgs, Callee<'_>) -> PyResult + PyThreadingConstraint + 'static
 {
 }
 
 impl<F> PyNativeFn for F where
-    F: Fn(&VirtualMachine, FuncArgs, Callee) -> PyResult + PyThreadingConstraint + 'static
+    F: Fn(&VirtualMachine, FuncArgs, Callee<'_>) -> PyResult + PyThreadingConstraint + 'static
 {
 }
 
@@ -41,7 +41,7 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
     /// is inferred. A `&self` receiver is the `$self` marker.
     const ARGS: &'static [SigArg] = &[SigArg::from_arg::<FuncArgs>("args")];
 
-    fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult;
+    fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult;
 
     /// `IntoPyNativeFn::into_func()` generates a PyNativeFn that performs the
     /// appropriate type and arity checking, any requested conversions, and then if
@@ -96,7 +96,7 @@ where
     const ARGS: &'static [SigArg] = F::ARGS;
 
     #[inline(always)]
-    fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+    fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
         self.call_(vm, args, callee)
     }
 }
@@ -105,7 +105,7 @@ mod sealed {
     use super::*;
     pub trait PyNativeFnInternal<T, R, VM>: Sized + PyThreadingConstraint + 'static {
         const ARGS: &'static [SigArg];
-        fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult;
+        fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult;
     }
 }
 use sealed::PyNativeFnInternal;
@@ -133,7 +133,7 @@ where
 {
     const ARGS: &'static [SigArg] = &[SigArg::from_arg::<T>("")];
 
-    fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+    fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
         // The original owners outlive conversion, the body, and return-value
         // conversion, including every error path. No keepalive copy is needed.
         let result = T::bind(&args, vm, callee).and_then(|bound| (self)(bound, vm).to_pyresult(vm));
@@ -141,6 +141,14 @@ where
         result
     }
 }
+
+/// Adapter selected syntactically by `#[pyfunction]` for a leading module receiver.
+/// Its distinct kind keeps receiver injection separate from Python argument conversion.
+#[doc(hidden)]
+pub struct ModuleFunction<F>(pub F);
+
+#[doc(hidden)]
+pub struct ModuleFunctionKind<T, R, VM>(PhantomData<(T, R, VM)>);
 
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
@@ -156,7 +164,7 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
 
                 (self)($($n,)* vm).to_pyresult(vm)
@@ -173,7 +181,7 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)* vm).to_pyresult(vm)
@@ -190,7 +198,7 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)* vm).to_pyresult(vm)
@@ -205,7 +213,7 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
 
                 (self)($($n,)*).to_pyresult(vm)
@@ -222,7 +230,7 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)*).to_pyresult(vm)
@@ -239,12 +247,72 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)*).to_pyresult(vm)
             }
         }
+        impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(OwnedParam<PyModule>, $($T,)*), R, VirtualMachine>> for ModuleFunction<F>
+        where
+            F: Fn(PyRef<PyModule>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
+
+            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+                let module = callee.require_module(vm)?;
+                let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
+                (self.0)(module.to_owned(), $($n,)* vm).to_pyresult(vm)
+            }
+        }
+
+        impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(OwnedParam<PyModule>, $($T,)*), R, ()>> for ModuleFunction<F>
+        where
+            F: Fn(PyRef<PyModule>, $($T,)*) -> R + PyThreadingConstraint + 'static,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
+
+            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+                let module = callee.require_module(vm)?;
+                let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
+                (self.0)(module.to_owned(), $($n,)*).to_pyresult(vm)
+            }
+        }
+
+        impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(BorrowedParam<PyModule>, $($T,)*), R, VirtualMachine>> for ModuleFunction<F>
+        where
+            F: Fn(&Py<PyModule>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
+
+            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+                let module = callee.require_module(vm)?;
+                let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
+                (self.0)(module, $($n,)* vm).to_pyresult(vm)
+            }
+        }
+
+        impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(BorrowedParam<PyModule>, $($T,)*), R, ()>> for ModuleFunction<F>
+        where
+            F: Fn(&Py<PyModule>, $($T,)*) -> R + PyThreadingConstraint + 'static,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
+
+            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+                let module = callee.require_module(vm)?;
+                let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
+                (self.0)(module, $($n,)*).to_pyresult(vm)
+            }
+        }
+
     };
 }
 

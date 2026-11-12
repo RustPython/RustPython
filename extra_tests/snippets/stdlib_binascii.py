@@ -86,3 +86,28 @@ import sys
 assert _imp.exec_builtin(sys) == 0
 with assert_raises(TypeError):
     _imp.exec_builtin()
+
+# Receiver injection must not change the Python-facing callable metadata.
+import math
+
+for module, function in (
+    (math, math.sqrt),
+    (_imp, _imp.exec_builtin),
+    (_imp, _imp.exec_dynamic),
+    (binascii, binascii.a2b_base32),
+    (binascii, binascii.a2b_base64),
+    (binascii, binascii.a2b_base85),
+):
+    assert function.__self__ is module
+    assert function.__module__ == module.__name__
+    assert function.__qualname__ == function.__name__
+    assert repr(function) == f"<built-in function {function.__name__}>"
+    assert function.__reduce__() == function.__name__
+    alias = getattr(module, function.__name__)
+    assert function == alias
+    assert hash(function) == hash(alias)
+    assert function.__text_signature__.startswith("($module,")
+
+assert _imp.exec_dynamic(sys) == 0
+with assert_raises(TypeError):
+    _imp.exec_dynamic()

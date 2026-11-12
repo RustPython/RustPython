@@ -237,7 +237,7 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction(with_module)]
+    #[pyfunction]
     fn a2b_base64(
         module: PyRef<PyModule>,
         args: A2bBase64Args,
@@ -410,7 +410,7 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction(with_module)]
+    #[pyfunction]
     fn a2b_base32(
         module: PyRef<PyModule>,
         args: A2bBase32Args,
@@ -485,7 +485,7 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction(with_module)]
+    #[pyfunction]
     fn a2b_base85(
         module: &Py<PyModule>,
         args: A2bBase85Args,
