@@ -69,6 +69,102 @@ assert events == [
     ("end-cdata",),
 ]
 
+# A quoted system identifier may begin with the notation delimiter, and a
+# quoted external identifier equal to NDATA is not the NDATA keyword.
+declarations = []
+parser = expat.ParserCreate()
+parser.NotationDeclHandler = lambda *args: declarations.append(("notation", args))
+parser.UnparsedEntityDeclHandler = lambda *args: declarations.append(("entity", args))
+parser.Parse(
+    "<!DOCTYPE root ["
+    "<!NOTATION n PUBLIC 'public-id' '>system-id'>"
+    "<!ENTITY e SYSTEM 'NDATA' NDATA n>"
+    "]><root/>",
+    True,
+)
+assert declarations == [
+    ("notation", ("n", None, ">system-id", "public-id")),
+    ("entity", ("e", None, "NDATA", None, "n")),
+]
+
+parser = expat.ParserCreate()
+parser.NotStandaloneHandler = lambda: 0
+document = (
+    "<?xml version='1.0' encoding='ISO-8859-1'?>"
+    "<!DOCTYPE root [<!-- café --><!ENTITY % p 'value'>%p;]>"
+    "<root/>"
+).encode("iso-8859-1")
+with assert_raises(expat.ExpatError):
+    parser.Parse(document, True)
+
+contexts = []
+parser = expat.ParserCreate(namespace_separator=":")
+parser.ExternalEntityRefHandler = lambda context, base, system_id, public_id: (
+    contexts.append(context) or 1
+)
+parser.Parse(
+    "<!DOCTYPE root [<!ENTITY e SYSTEM 'external.xml'>]>"
+    "<root xmlns='urn:default' xmlns:p='urn:prefixed'>&e;</root>",
+    True,
+)
+context_parts = contexts[0].split("\x0c")
+assert context_parts[-1] == "e"
+assert "xml=http://www.w3.org/XML/1998/namespace" in context_parts
+assert "=urn:default" in context_parts
+assert "p=urn:prefixed" in context_parts
+
+positions = []
+parser = expat.ParserCreate()
+parser.ElementDeclHandler = lambda name, model: positions.append(
+    (
+        "element",
+        parser.CurrentLineNumber,
+        parser.CurrentColumnNumber,
+        parser.CurrentByteIndex,
+    )
+)
+parser.AttlistDeclHandler = lambda *args: positions.append(
+    (
+        "attlist",
+        parser.CurrentLineNumber,
+        parser.CurrentColumnNumber,
+        parser.CurrentByteIndex,
+    )
+)
+parser.EntityDeclHandler = lambda *args: positions.append(
+    (
+        "entity",
+        parser.CurrentLineNumber,
+        parser.CurrentColumnNumber,
+        parser.CurrentByteIndex,
+    )
+)
+parser.Parse(
+    "<!DOCTYPE root [\n"
+    "<!ELEMENT root EMPTY>\n"
+    "<!ATTLIST root id CDATA #IMPLIED>\n"
+    '<!ENTITY e "value">\n'
+    "]><root/>",
+    True,
+)
+assert positions == [
+    ("element", 2, 15, 32),
+    ("attlist", 3, 24, 63),
+    ("entity", 4, 11, 84),
+]
+
+external_parameter_calls = []
+parser = expat.ParserCreate()
+parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+parser.ExternalEntityRefHandler = lambda *args: (
+    external_parameter_calls.append(args) or 1
+)
+parser.Parse(
+    "<!DOCTYPE root [<!ENTITY % e SYSTEM 'external.dtd'>%e;]><root/>",
+    True,
+)
+assert external_parameter_calls == [(None, None, "external.dtd", None)]
+
 root = Element("root")
 for value, type_name in (
     (None, "None"),

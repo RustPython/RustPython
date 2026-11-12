@@ -476,7 +476,7 @@ mod _pyexpat {
         }
     }
 
-    fn dtd_declarations(syntax: &str) -> Vec<DtdDeclaration> {
+    fn dtd_declarations(syntax: &str) -> Vec<(usize, DtdDeclaration)> {
         let Some((subset_start, subset_end)) = internal_subset_bounds(syntax) else {
             return Vec::new();
         };
@@ -489,8 +489,9 @@ mod _pyexpat {
                 let Some(end) = subset[start + 4..].find("-->") else {
                     break;
                 };
-                declarations.push(DtdDeclaration::Comment(
-                    subset[start + 4..start + 4 + end].to_owned(),
+                declarations.push((
+                    subset_start + 1 + start + 4,
+                    DtdDeclaration::Comment(subset[start + 4..start + 4 + end].to_owned()),
                 ));
                 offset = start + 4 + end + 3;
                 continue;
@@ -503,7 +504,10 @@ mod _pyexpat {
                 let split = content.find(char::is_whitespace).unwrap_or(content.len());
                 let target = content[..split].to_owned();
                 let data = content[split..].to_owned();
-                declarations.push(DtdDeclaration::ProcessingInstruction(target, data));
+                declarations.push((
+                    subset_start + 1 + start + 2,
+                    DtdDeclaration::ProcessingInstruction(target, data),
+                ));
                 offset = start + 2 + end + 2;
                 continue;
             }
@@ -530,15 +534,18 @@ mod _pyexpat {
             let declaration = rest[..end].trim();
             let mut tokens = Vec::new();
             let mut quoted_tokens = Vec::new();
+            let mut token_offsets = Vec::new();
             let mut token = String::new();
             let mut token_quote = None;
+            let mut token_offset = 0;
             let mut group_depth = 0;
-            for character in declaration.chars() {
+            for (character_offset, character) in declaration.char_indices() {
                 if let Some(delimiter) = token_quote {
                     if character == delimiter {
                         token_quote = None;
                         tokens.push(core::mem::take(&mut token));
                         quoted_tokens.push(true);
+                        token_offsets.push(token_offset);
                     } else {
                         token.push(character);
                     }
@@ -546,9 +553,14 @@ mod _pyexpat {
                     if !token.is_empty() {
                         tokens.push(core::mem::take(&mut token));
                         quoted_tokens.push(false);
+                        token_offsets.push(token_offset);
                     }
                     token_quote = Some(character);
+                    token_offset = character_offset;
                 } else if character == '(' {
+                    if token.is_empty() {
+                        token_offset = character_offset;
+                    }
                     group_depth += 1;
                     token.push(character);
                 } else if character == ')' && group_depth > 0 {
@@ -558,19 +570,24 @@ mod _pyexpat {
                     if group_depth == 0 && !token.is_empty() {
                         tokens.push(core::mem::take(&mut token));
                         quoted_tokens.push(false);
+                        token_offsets.push(token_offset);
                     }
                 } else {
+                    if token.is_empty() {
+                        token_offset = character_offset;
+                    }
                     token.push(character);
                 }
             }
             if !token.is_empty() {
                 tokens.push(token);
                 quoted_tokens.push(false);
+                token_offsets.push(token_offset);
             }
             match tokens.first().map(String::as_str) {
-                Some("ELEMENT") if tokens.len() >= 3 => declarations.push(DtdDeclaration::Element(
-                    tokens[1].clone(),
-                    tokens[2].clone(),
+                Some("ELEMENT") if tokens.len() >= 3 => declarations.push((
+                    subset_start + 1 + start + 2 + token_offsets[2],
+                    DtdDeclaration::Element(tokens[1].clone(), tokens[2].clone()),
                 )),
                 Some("ATTLIST") if tokens.len() >= 5 => {
                     let element = tokens[1].clone();
@@ -613,12 +630,9 @@ mod _pyexpat {
                             ),
                             value => (Some(value.to_owned()), false, default_index + 1),
                         };
-                        declarations.push(DtdDeclaration::Attlist(
-                            element.clone(),
-                            name,
-                            kind,
-                            default,
-                            required,
+                        declarations.push((
+                            subset_start + 1 + start + 2 + token_offsets[default_index],
+                            DtdDeclaration::Attlist(element.clone(), name, kind, default, required),
                         ));
                         index = next;
                     }
@@ -631,12 +645,22 @@ mod _pyexpat {
                             Some(normalize_public_id(&tokens[3])),
                             tokens
                                 .get(4)
-                                .filter(|value| !value.starts_with('>'))
+                                .filter(|_| quoted_tokens.get(4) == Some(&true))
                                 .cloned(),
                         ),
                         _ => (None, None),
                     };
-                    declarations.push(DtdDeclaration::Notation(name, public_id, system_id));
+                    declarations.push((
+                        subset_start
+                            + 1
+                            + start
+                            + 2
+                            + token_offsets
+                                .get(if tokens.get(4).is_some() { 4 } else { 3 })
+                                .copied()
+                                .unwrap_or(0),
+                        DtdDeclaration::Notation(name, public_id, system_id),
+                    ));
                 }
                 Some("ENTITY") if tokens.len() >= 3 => {
                     let parameter = tokens.get(1).is_some_and(|value| value == "%");
@@ -650,45 +674,105 @@ mod _pyexpat {
                         && (quoted_tokens.get(value_index) == Some(&true)
                             || !matches!(value.as_str(), "SYSTEM" | "PUBLIC"))
                     {
-                        declarations.push(DtdDeclaration::Entity {
-                            name,
-                            parameter,
-                            value: Some(value.clone()),
-                            system_id: None,
-                            public_id: None,
-                            notation: None,
-                        });
+                        declarations.push((
+                            subset_start
+                                + 1
+                                + start
+                                + 2
+                                + token_offsets
+                                    .get(
+                                        if matches!(
+                                            tokens.get(value_index).map(String::as_str),
+                                            Some("SYSTEM")
+                                        ) {
+                                            value_index + 1
+                                        } else if matches!(
+                                            tokens.get(value_index).map(String::as_str),
+                                            Some("PUBLIC")
+                                        ) {
+                                            value_index + 2
+                                        } else {
+                                            value_index
+                                        },
+                                    )
+                                    .copied()
+                                    .unwrap_or(0),
+                            DtdDeclaration::Entity {
+                                name,
+                                parameter,
+                                value: Some(value.clone()),
+                                system_id: None,
+                                public_id: None,
+                                notation: None,
+                            },
+                        ));
                     } else {
-                        let (public_id, system_id, notation) =
-                            match tokens.get(value_index).map(String::as_str) {
-                                Some("SYSTEM") => (
-                                    None,
-                                    tokens.get(value_index + 1).cloned(),
-                                    tokens
-                                        .iter()
-                                        .position(|token| token == "NDATA")
-                                        .and_then(|position| tokens.get(position + 1).cloned()),
-                                ),
-                                Some("PUBLIC") => (
-                                    tokens
-                                        .get(value_index + 1)
-                                        .map(|value| normalize_public_id(value)),
-                                    tokens.get(value_index + 2).cloned(),
-                                    tokens
-                                        .iter()
-                                        .position(|token| token == "NDATA")
-                                        .and_then(|position| tokens.get(position + 1).cloned()),
-                                ),
-                                _ => (None, None, None),
-                            };
-                        declarations.push(DtdDeclaration::Entity {
-                            name,
-                            parameter,
-                            value: None,
-                            system_id,
-                            public_id,
-                            notation,
-                        });
+                        let (public_id, system_id, notation) = match tokens
+                            .get(value_index)
+                            .map(String::as_str)
+                        {
+                            Some("SYSTEM") => (
+                                None,
+                                tokens.get(value_index + 1).cloned(),
+                                tokens
+                                    .iter()
+                                    .enumerate()
+                                    .skip(value_index + 2)
+                                    .find(|(position, token)| {
+                                        token.as_str() == "NDATA"
+                                            && quoted_tokens.get(*position) != Some(&true)
+                                    })
+                                    .and_then(|(position, _)| tokens.get(position + 1).cloned()),
+                            ),
+                            Some("PUBLIC") => (
+                                tokens
+                                    .get(value_index + 1)
+                                    .map(|value| normalize_public_id(value)),
+                                tokens.get(value_index + 2).cloned(),
+                                tokens
+                                    .iter()
+                                    .enumerate()
+                                    .skip(value_index + 3)
+                                    .find(|(position, token)| {
+                                        token.as_str() == "NDATA"
+                                            && quoted_tokens.get(*position) != Some(&true)
+                                    })
+                                    .and_then(|(position, _)| tokens.get(position + 1).cloned()),
+                            ),
+                            _ => (None, None, None),
+                        };
+                        declarations.push((
+                            subset_start
+                                + 1
+                                + start
+                                + 2
+                                + token_offsets
+                                    .get(
+                                        if matches!(
+                                            tokens.get(value_index).map(String::as_str),
+                                            Some("SYSTEM")
+                                        ) {
+                                            value_index + 1
+                                        } else if matches!(
+                                            tokens.get(value_index).map(String::as_str),
+                                            Some("PUBLIC")
+                                        ) {
+                                            value_index + 2
+                                        } else {
+                                            value_index
+                                        },
+                                    )
+                                    .copied()
+                                    .unwrap_or(0),
+                            DtdDeclaration::Entity {
+                                name,
+                                parameter,
+                                value: None,
+                                system_id,
+                                public_id,
+                                notation,
+                            },
+                        ));
                     }
                 }
                 _ => {}
@@ -696,6 +780,65 @@ mod _pyexpat {
             offset = start + end + 3;
         }
         declarations
+    }
+
+    fn dtd_parameter_entity_references(syntax: &str) -> Vec<String> {
+        let Some((subset_start, subset_end)) = internal_subset_bounds(syntax) else {
+            return Vec::new();
+        };
+        let subset = &syntax[subset_start + 1..subset_end];
+        let bytes = subset.as_bytes();
+        let mut references = Vec::new();
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index..].starts_with(b"<!--") {
+                index = bytes[index + 4..]
+                    .windows(3)
+                    .position(|window| window == b"-->")
+                    .map_or(bytes.len(), |end| index + 4 + end + 3);
+            } else if bytes[index..].starts_with(b"<?") {
+                index = bytes[index + 2..]
+                    .windows(2)
+                    .position(|window| window == b"?>")
+                    .map_or(bytes.len(), |end| index + 2 + end + 2);
+            } else if bytes[index..].starts_with(b"<!") {
+                index += 2;
+                let mut quote = None;
+                while index < bytes.len() {
+                    let byte = bytes[index];
+                    if let Some(delimiter) = quote {
+                        if byte == delimiter {
+                            quote = None;
+                        }
+                    } else if matches!(byte, b'\'' | b'"') {
+                        quote = Some(byte);
+                    } else if byte == b'>' {
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
+            } else if bytes[index] == b'%' {
+                let start = index + 1;
+                let mut end = start;
+                while bytes.get(end).is_some_and(|byte| {
+                    byte.is_ascii_alphanumeric()
+                        || !byte.is_ascii()
+                        || matches!(byte, b'_' | b'-' | b'.' | b':')
+                }) {
+                    end += 1;
+                }
+                if end > start && bytes.get(end) == Some(&b';') {
+                    references.push(String::from_utf8_lossy(&bytes[start..end]).into_owned());
+                    index = end + 1;
+                } else {
+                    index += 1;
+                }
+            } else {
+                index += 1;
+            }
+        }
+        references
     }
 
     fn internal_subset_bounds(syntax: &str) -> Option<(usize, usize)> {
@@ -766,7 +909,7 @@ mod _pyexpat {
         let mut declared = std::collections::HashSet::new();
         let mut replacements = alloc::collections::BTreeMap::new();
         let mut references: Vec<String> = references.into_iter().collect();
-        for declaration in &declarations {
+        for (_, declaration) in &declarations {
             match declaration {
                 DtdDeclaration::Entity {
                     name,
@@ -853,8 +996,7 @@ mod _pyexpat {
         matches!(tokens.next(), Some("SYSTEM" | "PUBLIC"))
     }
 
-    fn has_parameter_entity_reference(syntax: &str) -> bool {
-        let bytes = syntax.as_bytes();
+    fn has_parameter_entity_reference(bytes: &[u8]) -> bool {
         let mut quote = None;
         let mut index = 0;
         while index < bytes.len() {
@@ -2022,8 +2164,7 @@ mod _pyexpat {
                         if let Some(doctype_end) = self.doctype_end(end) {
                             self.initialized = true;
                             self.has_parameter_entity_reference =
-                                core::str::from_utf8(&self.prefix[start..doctype_end])
-                                    .is_ok_and(has_parameter_entity_reference);
+                                has_parameter_entity_reference(&self.prefix[start..doctype_end]);
                             let declaration_start = self
                                 .prefix
                                 .strip_prefix(&[0xef, 0xbb, 0xbf])
@@ -2749,23 +2890,22 @@ mod _pyexpat {
         }
 
         fn external_entity_context(&self, name: &str) -> String {
-            let mut context = name.to_owned();
-            if self.namespace_separator.is_some()
-                && let Some((namespace, _)) = self.namespace_stack.read().last()
-            {
-                for (prefix, uri) in namespace {
-                    if (prefix == "xml" && uri == xml::namespace::NS_XML_URI)
-                        || (prefix == "xmlns" && uri == xml::namespace::NS_XMLNS_URI)
-                    {
-                        continue;
+            let mut bindings = Vec::new();
+            if self.namespace_separator.is_some() {
+                if let Some((namespace, _)) = self.namespace_stack.read().last() {
+                    for (prefix, uri) in namespace {
+                        if prefix == "xmlns" && uri == xml::namespace::NS_XMLNS_URI {
+                            continue;
+                        }
+                        bindings.push(format!("{prefix}={uri}"));
                     }
-                    context.push('\x0c');
-                    context.push_str(prefix);
-                    context.push('=');
-                    context.push_str(uri);
+                }
+                if !bindings.iter().any(|binding| binding.starts_with("xml=")) {
+                    bindings.push(format!("xml={}", xml::namespace::NS_XML_URI));
                 }
             }
-            context
+            bindings.push(name.to_owned());
+            bindings.join("\x0c")
         }
 
         /// Dispatch a single parser event to the registered handlers. Runs on
@@ -2842,7 +2982,32 @@ mod _pyexpat {
                             )?;
                         }
                         let mut seen_entity_declarations = std::collections::HashSet::new();
-                        for declaration in dtd_declarations(&doctype.syntax) {
+                        let mut external_parameter_entities = ExternalEntityMap::new();
+                        let base_line = *self.current_line.read();
+                        let base_column = *self.current_column.read();
+                        let base_byte_index = *self.current_byte_index.read();
+                        for (offset, declaration) in dtd_declarations(&doctype.syntax) {
+                            let source_prefix = &doctype.syntax[..offset];
+                            let line_offset =
+                                source_prefix.bytes().filter(|byte| *byte == b'\n').count();
+                            let (line, column) = if line_offset == 0 {
+                                (
+                                    base_line,
+                                    base_column + source_prefix.chars().count() as i64,
+                                )
+                            } else {
+                                (
+                                    base_line + line_offset as i64,
+                                    source_prefix
+                                        .rsplit('\n')
+                                        .next()
+                                        .map_or(0, |last_line| last_line.chars().count() as i64),
+                                )
+                            };
+                            *self.current_line.write() = line;
+                            *self.current_column.write() = column;
+                            *self.current_byte_index.write() =
+                                base_byte_index + source_prefix.len() as i64;
                             match declaration {
                                 DtdDeclaration::Comment(text) => {
                                     invoke_handler(vm, &self.comment, (vm.ctx.new_str(text),))?;
@@ -2957,6 +3122,17 @@ mod _pyexpat {
                                                 (Some(system_id.clone()), public_id.clone())
                                             });
                                     }
+                                    if parameter
+                                        && value.is_none()
+                                        && notation.is_none()
+                                        && let Some(system_id) = &system_id
+                                    {
+                                        external_parameter_entities
+                                            .entry(name.clone())
+                                            .or_insert_with(|| {
+                                                (Some(system_id.clone()), public_id.clone())
+                                            });
+                                    }
                                     if notation.is_some() {
                                         let base = self
                                             .base
@@ -3007,6 +3183,40 @@ mod _pyexpat {
                                             ],
                                         )?;
                                     }
+                                }
+                            }
+                        }
+                        if parse_entities {
+                            for name in dtd_parameter_entity_references(&doctype.syntax) {
+                                let Some((Some(system_id), public_id)) =
+                                    external_parameter_entities.get(&name)
+                                else {
+                                    continue;
+                                };
+                                let base = self
+                                    .base
+                                    .read()
+                                    .as_ref()
+                                    .map(|base| vm.ctx.new_str(base.clone()));
+                                if invoke_int_handler(
+                                    vm,
+                                    &self.external_entity_ref,
+                                    "ExternalEntityRef",
+                                    (
+                                        vm.ctx.none(),
+                                        base,
+                                        Some(vm.ctx.new_str(system_id.clone())),
+                                        public_id
+                                            .as_ref()
+                                            .map(|value| vm.ctx.new_str(value.clone())),
+                                    ),
+                                )? == Some(0)
+                                {
+                                    return Err(self.handler_error(
+                                        vm,
+                                        21,
+                                        "error in processing external entity reference",
+                                    )?);
                                 }
                             }
                         }
