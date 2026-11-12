@@ -279,7 +279,6 @@ class DictSetTest(unittest.TestCase):
         # Again.
         self.assertIsInstance(r, str)
 
-    @unittest.skip("TODO: RUSTPYTHON; segfault")
     @skip_if_huge_c_stack()
     @skip_wasi_stack_overflow()
     @skip_emscripten_stack_overflow()
