@@ -429,7 +429,7 @@ fn pickle_loads(data: &PickledData, vm: &VirtualMachine) -> PyResult {
             let original = unpickler.get_attr("find_class", vm)?;
             let state = vm.ctx.new_tuple(vec![isolated, original]);
             const FIND_CLASS: crate::function::PyMethodDef =
-                crate::function::PyMethodDef::new_const(
+                crate::function::PyMethodDef::new_method_const(
                     "find_class",
                     find_main_class,
                     crate::function::PyMethodFlags::empty(),
@@ -973,7 +973,7 @@ where
     }
     let _guard = RunningGuard(&state);
 
-    let tvm = crate::vm::runtime::owned_new_thread(id)
+    let tvm = crate::vm::runtime::new_interpreter_thread(id)
         .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(caller, id))?;
     tvm.run(f)
 }

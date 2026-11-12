@@ -685,7 +685,6 @@ class TestSupport(unittest.TestCase):
         """)
         script_helper.assert_python_ok("-c", code)
 
-    @unittest.skip("TODO: RUSTPYTHON; - causes segfault in debug builds")
     @support.skip_if_unlimited_stack_size
     def test_recursion(self):
         # Test infinite_recursion() and get_recursion_available() functions.

@@ -659,7 +659,7 @@ DEPENDENCIES = {
     },
     "zipfile": {
         "test": [
-            "test_zipfile.py",
+            "test_zipfile/",
             "test_zipfile64.py",
         ],
     },
@@ -687,7 +687,7 @@ DEPENDENCIES = {
             "test_popen.py",
         ],
     },
-    "pyrepl": {
+    "_pyrepl": {
         "test": [
             "test_pyrepl",
             "test_repl.py",
@@ -803,6 +803,9 @@ def resolve_test_to_lib(test_name: str) -> str | None:
 # - hard_deps: files to migrate (tightly coupled, must be migrated together)
 # - data: directories to copy without migration
 TEST_DEPENDENCIES = {
+    "test_datetime": {
+        "hard_deps": ["datetimetester.py"],
+    },
     # Audio tests
     "test_winsound": {
         "data": ["audiodata"],

@@ -31,7 +31,7 @@ use num_traits::ToPrimitive;
 /// hash value of an object returned by __hash__
 type HashValue = hash::PyHash;
 /// index calculated by resolving collision
-type HashIndex = hash::PyHash;
+type HashIndex = hash::PyUHash;
 /// index into dict.indices
 type IndexIndex = usize;
 /// index into dict.entries
@@ -282,13 +282,13 @@ pub(crate) struct DictChanged;
 
 struct GenIndexes {
     idx: HashIndex,
-    perturb: HashValue,
+    perturb: hash::PyUHash,
     mask: HashIndex,
 }
 
 impl GenIndexes {
     const fn new(hash: HashValue, mask: HashIndex) -> Self {
-        let hash = hash.abs();
+        let hash = hash as hash::PyUHash;
         Self {
             idx: hash,
             perturb: hash,
@@ -303,7 +303,7 @@ impl GenIndexes {
             .wrapping_add(self.perturb)
             .wrapping_add(1);
         self.perturb >>= 5;
-        (prev & self.mask) as usize
+        prev & self.mask
     }
 }
 
@@ -336,7 +336,7 @@ impl<T> DictInner<T> {
             self.entries = compacted;
         }
         self.indices = vec![IndexEntry::FREE; new_size];
-        let mask = (new_size - 1) as i64;
+        let mask = (new_size - 1) as HashIndex;
         for (entry_idx, entry) in self.entries.iter_mut().enumerate() {
             // SAFETY: compaction above removed every hole, so every slot is
             // occupied here.
@@ -1192,7 +1192,7 @@ impl<T: Clone> Dict<T> {
         loop {
             let (entry_key, ret, indices_ptr, indices_len) = {
                 let inner = lock.take().unwrap_or_else(|| self.read());
-                let mask = (inner.indices.len() - 1) as i64;
+                let mask = (inner.indices.len() - 1) as HashIndex;
                 let idxs = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
                 if idxs.mask != mask {
                     // Dict was resized since last probe, restart
@@ -1404,13 +1404,40 @@ impl<T: Clone> Dict<T> {
         let mut free_slot = None;
         let mut prefix = Vec::<ProbeWitness>::new();
         let mut compared: Option<(EntryIndex, IndexIndex, PyObjectRef, bool)> = None;
+        let mut initial_guard = Some(self.write());
+        {
+            let inner = initial_guard.as_mut().unwrap();
+            let mut probes = GenIndexes::new(hash_value, (inner.indices.len() - 1) as HashIndex);
+            // An identity-only update cannot run Python or invalidate a probe.
+            // Avoid allocating witnesses for unrelated bucket collisions. Once
+            // equality or key preparation may run Python, use the full path
+            // below, retaining the guard while restarting the probe.
+            loop {
+                let index_index = probes.next();
+                let index_entry = inner.indices[index_index];
+                match index_entry {
+                    IndexEntry::FREE => break,
+                    IndexEntry::DUMMY => continue,
+                    _ => {}
+                }
+                let entry = inner.entries[index_entry.index().unwrap()]
+                    .as_ref()
+                    .unwrap();
+                if key.key_is(&entry.key) {
+                    return Ok(update(inner, (index_entry, index_index), &mut prepared));
+                }
+                if entry.hash == hash_value {
+                    break;
+                }
+            }
+        }
         'lookup: loop {
             // Keep the compared key alive until after the guard is released,
             // including when equality cleared the dictionary and recycled its
             // entry and bucket for a different key.
             let comparison = compared.take();
-            let mut inner = self.write();
-            let mask = (inner.indices.len() - 1) as i64;
+            let mut inner = initial_guard.take().unwrap_or_else(|| self.write());
+            let mask = (inner.indices.len() - 1) as HashIndex;
             let probes = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
             if probes.mask != mask {
                 drop(inner);
@@ -1894,7 +1921,7 @@ impl DictKey for Wtf8 {
     #[inline]
     fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(crate::vm::hash_secret().hash_bytes(self.as_bytes()))
+        Ok(crate::vm::hash_secret().hash_wtf8(self))
     }
 
     #[inline(always)]
@@ -2048,6 +2075,27 @@ mod tests {
         key.key_hash(vm).unwrap()
     }
 
+    #[test]
+    fn unicode_key_adapters_match_python_strings() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for text in ["é", "∑", "𐀀"] {
+                let string = vm.ctx.new_str(text);
+                assert_eq!(hash_key(vm, text), string.hash(vm));
+                assert_eq!(hash_key(vm, <&Wtf8>::from(text)), string.hash(vm));
+            }
+        });
+    }
+
+    #[test]
+    fn minimum_hash_probing_terminates() {
+        let mut probes = GenIndexes::new(hash::PyHash::MIN, 7);
+        let mut seen = 0u8;
+        for _ in 0..usize::BITS + 8 {
+            seen |= 1 << probes.next();
+        }
+        assert_eq!(seen, u8::MAX);
+    }
+
     fn assert_table_invariants<T: Clone>(dict: &Dict<T>) {
         let inner = dict.read();
         assert_eq!(inner.entries.iter().flatten().count(), inner.used);
@@ -2070,7 +2118,7 @@ mod tests {
         for (index, entry) in inner.entries.iter().enumerate() {
             let Some(entry) = entry else { continue };
             assert_eq!(inner.indices[entry.index].index(), Some(index));
-            let mut probes = GenIndexes::new(entry.hash, (inner.indices.len() - 1) as i64);
+            let mut probes = GenIndexes::new(entry.hash, (inner.indices.len() - 1) as HashIndex);
             let mut reached = false;
             // After the finite perturb prefix, probing visits the entire table.
             for _ in 0..inner.indices.len() + 64 {
@@ -2116,6 +2164,32 @@ mod tests {
                 .unwrap();
             assert_eq!(value, 17);
             assert_eq!(dict.len(), 17);
+            assert_table_invariants(&dict);
+        });
+    }
+
+    #[test]
+    fn identity_update_across_bucket_collisions() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let first: PyObjectRef = vm.ctx.new_int(0).into();
+            let second: PyObjectRef = vm.ctx.new_int(8).into();
+            let first_hash = hash_key(vm, &*first);
+            let second_hash = hash_key(vm, &*second);
+            let mask = dict.read().indices.len() - 1;
+            assert_ne!(first_hash, second_hash);
+            assert_eq!(first_hash as usize & mask, second_hash as usize & mask);
+            dict.insert(vm, &*first, first_hash, 1).unwrap();
+            dict.insert(vm, &*second, second_hash, 2).unwrap();
+            dict.insert(vm, &*second, second_hash, 3).unwrap();
+            assert_eq!(dict.get(vm, &*second, second_hash).unwrap(), Some(3));
+            assert_eq!(dict.len(), 2);
+            assert_table_invariants(&dict);
+
+            dict.delete(vm, &*first, first_hash).unwrap();
+            dict.insert(vm, &*second, second_hash, 4).unwrap();
+            assert_eq!(dict.get(vm, &*second, second_hash).unwrap(), Some(4));
+            assert_eq!(dict.len(), 1);
             assert_table_invariants(&dict);
         });
     }

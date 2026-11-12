@@ -1,6 +1,51 @@
 import sqlite3 as sqlite
 import unittest
 
+assert sqlite.adapt.__text_signature__ == (
+    "($module, obj, proto=PrepareProtocolType, alt=<unrepresentable>, /)"
+)
+# Check the shared parameter metadata separately from Clinic's line wrapping.
+assert " ".join(sqlite.connect.__text_signature__.split()) == (
+    "($module, /, database, *, timeout=5.0, detect_types=0, "
+    "isolation_level='', check_same_thread=True, factory=ConnectionType, "
+    "cached_statements=128, uri=False, "
+    "autocommit=sqlite3.LEGACY_TRANSACTION_CONTROL)"
+)
+assert " ".join(sqlite.Connection.backup.__text_signature__.split()) == (
+    "($self, /, target, *, pages=-1, progress=None, name='main', sleep=0.25)"
+)
+
+
+def check_connect_factory_signature():
+    calls = []
+    result = object()
+    database = object()
+    timeout = object()
+
+    def factory(*args, **kwargs):
+        calls.append((args, kwargs))
+        return result
+
+    # The displayed Connection signature must not validate, convert, or add
+    # defaults to a custom factory's call. CPython forwards even missing or
+    # duplicate database arguments, unknown keywords, and unconverted values.
+    cases = [
+        ((), {}),
+        ((database,), {"timeout": timeout, "extra": result}),
+        ((), {"database": database}),
+        ((database,), {"database": database}),
+    ]
+    for args, kwargs in cases:
+        kwargs = {"factory": factory, **kwargs}
+        assert sqlite.connect(*args, **kwargs) is result
+        assert calls.pop() == (args, kwargs)
+    with unittest.TestCase().assertRaises(TypeError):
+        sqlite.connect(database, timeout, factory=factory)
+    assert not calls
+
+
+check_connect_factory_signature()
+
 rows = [(3,), (4,)]
 cx = sqlite.connect(":memory:")
 cx.execute(";")
@@ -1222,3 +1267,147 @@ def connection_teardown_disables_callbacks():
 
 
 connection_teardown_disables_callbacks()
+
+
+# Audit hooks observe the original path before filesystem conversion and an
+# unpublished connection before it can be used. Keep hooks inert after testing.
+def check_connection_audit():
+    import sys
+
+    events = []
+    mode = None
+    retained = []
+
+    class Denied(Exception):
+        pass
+
+    def hook(event, args):
+        nonlocal mode
+        if mode is None or not event.startswith("sqlite3.connect"):
+            return
+        events.append((event, args))
+        if event == "sqlite3.connect":
+            if mode == "deny_path":
+                raise Denied
+            return
+        connection = args[0]
+        if mode in ("reenter", "reenter_thread"):
+            threaded = mode == "reenter_thread"
+            mode = "record"
+            if threaded:
+                import threading
+
+                errors = []
+
+                def initialize():
+                    try:
+                        connection.__init__(":memory:", autocommit=True)
+                    except Exception as error:
+                        errors.append(error)
+
+                thread = threading.Thread(target=initialize)
+                thread.start()
+                thread.join()
+                assert not errors
+            else:
+                connection.__init__(":memory:", autocommit=True)
+                assert connection.execute("select 1").fetchone() == (1,)
+            return
+        if mode == "record":
+            return
+        assert connection.row_factory is None
+        assert connection.text_factory is str
+        operations = [
+            lambda: connection.execute("select 1"),
+            connection.cursor,
+            connection.close,
+            lambda: connection.in_transaction,
+            lambda: connection.isolation_level,
+            lambda: connection.autocommit,
+            lambda: connection.total_changes,
+        ]
+        for operation in operations:
+            try:
+                operation()
+            except sqlite.ProgrammingError as error:
+                assert str(error) == "Base Connection.__init__ not called."
+            else:
+                raise AssertionError("audit exposed initialized connection")
+        if mode == "deny_handle":
+            retained.append(connection)
+            raise Denied
+
+    sys.addaudithook(hook)
+    try:
+        connection = sqlite.connect(":memory:")
+        connection.execute("create table preserved(value)")
+
+        class Path:
+            def __fspath__(self):
+                raise AssertionError("filesystem conversion preceded audit")
+
+        class InvalidCacheSize:
+            def __index__(self):
+                raise Denied
+
+        mode = "record"
+        try:
+            sqlite.connect(":memory:", cached_statements=InvalidCacheSize())
+        except Denied:
+            pass
+        else:
+            raise AssertionError("argument conversion failure ignored")
+        assert not events
+
+        path = Path()
+        mode = "deny_path"
+        try:
+            connection.__init__(path)
+        except Denied:
+            pass
+        else:
+            raise AssertionError("audit denial ignored")
+        assert events == [("sqlite3.connect", (path,))]
+        connection.execute("select * from preserved")
+        connection.close()
+
+        mode = "deny_handle"
+        try:
+            sqlite.connect(":memory:")
+        except Denied:
+            pass
+        else:
+            raise AssertionError("handle audit denial ignored")
+        mode = None
+        denied = retained.pop()
+        try:
+            denied.execute("select 1")
+        except sqlite.ProgrammingError as error:
+            assert str(error) == "Base Connection.__init__ not called."
+        else:
+            raise AssertionError("denied connection is usable")
+        denied.__init__(":memory:")
+        denied.close()
+
+        mode = "inspect"
+        connection = sqlite.Connection(":memory:", autocommit=False)
+        assert connection.in_transaction
+        connection.close()
+
+        mode = "reenter"
+        connection = sqlite.connect(":memory:", autocommit=False)
+        assert connection.autocommit is True
+        assert connection.in_transaction
+        connection.close()
+
+        mode = "reenter_thread"
+        connection = sqlite.connect(":memory:", autocommit=False)
+        assert connection.in_transaction
+        mode = None
+        connection.__init__(":memory:")
+        connection.close()
+    finally:
+        mode = None
+
+
+check_connection_audit()

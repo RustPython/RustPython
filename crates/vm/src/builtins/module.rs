@@ -173,9 +173,8 @@ impl Py<PyModule> {
         debug_assert!(self.def.is_some());
         for method in self.def.unwrap().methods {
             let func = method
-                .to_function()
+                .to_module_function(self.to_owned())
                 .with_module(self.name.unwrap())
-                .with_module_object(self.to_owned().into())
                 .into_ref(&vm.ctx);
             vm.__module_set_attr(self, vm.ctx.intern_str(method.name), func)?;
         }

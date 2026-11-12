@@ -753,6 +753,9 @@ impl Decompressor {
 
     /// `Decompress.flush(length)`.
     pub fn flush(&mut self, length: usize) -> Result<Vec<u8>, String> {
+        if self.eof && self.decompress.is_none() {
+            return Ok(Vec::new());
+        }
         let data = core::mem::take(&mut self.unconsumed_tail);
         let (ret, stream_end) = self.decompress_inner(&data, length, None, true)?;
         self.eof |= stream_end;

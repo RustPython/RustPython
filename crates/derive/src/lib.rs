@@ -85,6 +85,35 @@ use syn::punctuated::Punctuated;
 /// | `Option<T>` | `None` or a value. A missing argument and an explicit `None` are the same | `= None` | `None` |
 /// | `OptionalOption<T>` (`OptionalArg<Option<T>>`) | missing, `None`, and a value are all distinct | `= NULL`, and `None` is accepted | `<unrepresentable>` |
 ///
+/// # Borrowed arguments
+/// `#[from_args(borrowed)]` selects borrowing with the same strict Clinic rules:
+///
+/// ```rust,ignore
+/// #[derive(FromArgs)]
+/// #[from_args(borrowed)]
+/// struct CallArgs<'a> {
+///     #[pyarg(any)]
+///     object: &'a PyObject,
+///     #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+///     flag: ArgIntoBool,
+/// }
+///
+/// #[pyfunction]
+/// fn call(args: CallArgs<'_>, vm: &VirtualMachine) -> PyResult { /* ... */ }
+/// ```
+///
+/// Binding uses stack slots and `TryFromBorrowedObject`, leaving the native
+/// call's original owners alive through the implementation and return conversion.
+/// It adds no owning copies or heap allocation. All Clinic binding errors are
+/// checked before converting fields in declaration order. `OptionalArg<&Py<T>>`
+/// distinguishes omission from an explicitly supplied value without constructing
+/// a default Python object. Rust converter constants can supply scalar defaults.
+/// A borrowed `py_default` requires `optional` or `default` omission handling.
+///
+/// Borrowed structs currently support fixed fields, one lifetime, and no other
+/// generic parameters. Flattened and legacy bindings remain owned. A borrowed
+/// struct is passed as the sole arguments struct followed by `&VirtualMachine`.
+///
 /// # `#[from_args(legacy, fname = "...")]`
 /// Bind arguments the way `PyArg_ParseTupleAndKeywords` does: convert each
 /// supplied value in parameter order, then report a missing argument, a leftover
@@ -373,6 +402,13 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// This is used to create a python function.
 /// #### Function signature
+/// A leading `&Py<PyModule>` receives the defining module, outside the Python
+/// argument list. No attribute option is needed. Qualified paths are supported,
+/// but type aliases are not resolved; a leading `PyRef<PyModule>` is rejected.
+/// Use the canonical form for module receivers. To
+/// accept a Python-visible module as the first argument, declare the
+/// defining-module receiver first and the target module second.
+///
 /// The last argument can optionally be of the type `&VirtualMachine` to access the VM.
 /// Refer to the `pymethod` documentation (located in the `pyclass` macro documentation)
 /// for more information on what regular argument types are permitted.

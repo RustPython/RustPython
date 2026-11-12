@@ -26,7 +26,7 @@ mod mmap {
     use num_traits::{Signed, ToPrimitive};
     use std::io::Write;
     #[cfg(windows)]
-    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions, std::io};
+    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions};
 
     #[cfg(unix)]
     use rustpython_host_env::crt_fd;
@@ -185,17 +185,19 @@ mod mmap {
 
     #[derive(Debug)]
     enum MmapObj {
+        #[cfg(unix)]
         Mapped(host_mmap::MappedFile),
         #[cfg(windows)]
-        Named(host_mmap::NamedMmap),
+        Windows(host_mmap::WindowsMmap),
     }
 
     impl MmapObj {
         fn as_slice(&self) -> &[u8] {
             match self {
+                #[cfg(unix)]
                 Self::Mapped(mmap) => mmap.as_slice(),
                 #[cfg(windows)]
-                Self::Named(named) => named.as_slice(),
+                Self::Windows(named) => named.as_slice(),
             }
         }
     }
@@ -540,12 +542,61 @@ mod mmap {
             } = args;
             let trackfd = trackfd.into_bool();
 
-            // Parse tagname: None or a string
+            // CPython historically accepts both -1 and 0 for anonymous maps.
+            let fh = if fileno != -1 && fileno != 0 {
+                let handle = host_nt::handle_from_fd(fileno);
+                if host_mmap::is_invalid_handle_value(handle as isize) {
+                    return Err(vm.new_os_error(format!("Invalid file descriptor: {fileno}")));
+                }
+                host_mmap::prepare_file_mapping(fileno);
+                handle as host_mmap::Handle
+            } else {
+                host_mmap::INVALID_HANDLE
+            };
+            let retained_handle = if fh != host_mmap::INVALID_HANDLE && trackfd {
+                host_mmap::duplicate_handle(fh).map_err(|err| err.to_pyexception(vm))?
+            } else {
+                host_mmap::INVALID_HANDLE
+            };
+            let fh = if retained_handle != host_mmap::INVALID_HANDLE {
+                retained_handle
+            } else {
+                fh
+            };
+            // From here on Self owns the retained handle, including error paths.
+            let result = Self {
+                closed: AtomicCell::new(false),
+                mmap: PyMutex::new(None),
+                handle: AtomicCell::new(retained_handle as isize),
+                offset,
+                size: AtomicCell::new(map_size),
+                pos: AtomicCell::new(0),
+                exports: AtomicCell::new(0),
+                access,
+                trackfd,
+            };
+            if fh != host_mmap::INVALID_HANDLE && map_size == 0 {
+                let file_len = host_mmap::get_file_len(fh).map_err(|err| err.to_pyexception(vm))?;
+                if file_len == 0 {
+                    return Err(vm.new_value_error("cannot mmap an empty file"));
+                }
+                if offset >= file_len {
+                    return Err(vm.new_value_error("mmap offset is greater than file size"));
+                }
+                if file_len - offset > isize::MAX as i64 {
+                    return Err(vm.new_value_error("mmap length is too large"));
+                }
+                map_size = (file_len - offset) as usize;
+                result.size.store(map_size);
+            }
             let tag_str: Option<String> = match tagname {
                 Some(ref obj) if !vm.is_none(obj) => {
-                    let s = obj
-                        .try_to_value::<String>(vm)
-                        .map_err(|_| vm.new_type_error("tagname must be a string or None"))?;
+                    let s = obj.try_to_value::<String>(vm).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "expected str or None for 'tagname', not {}",
+                            obj.class().slot_name()
+                        ))
+                    })?;
                     if memchr(b'\0', s.as_bytes()).is_some() {
                         cold_path();
                         return Err(exceptions::nul_char_error(vm));
@@ -554,140 +605,23 @@ mod mmap {
                 }
                 _ => None,
             };
-
-            // Get file handle from fileno. fileno -1 means anonymous mapping.
-            let fh: Option<host_mmap::Handle> = if fileno != -1 {
-                // Convert CRT file descriptor to a Windows file mapping handle.
-                // Use suppress_iph! to avoid crashes when the fd is invalid.
-                // This is critical because socket fds wrapped via _open_osfhandle
-                // may cause crashes in _get_osfhandle on Windows.
-                // See Python bug https://bugs.python.org/issue30114
-                let handle = host_nt::handle_from_fd(fileno);
-                // Check for invalid handle value (-1 on Windows)
-                if host_mmap::is_invalid_handle_value(handle as isize) {
-                    return Err(vm.new_os_error(format!("Invalid file descriptor: {fileno}")));
-                }
-                Some(handle as host_mmap::Handle)
-            } else {
-                None
-            };
-
-            // Get file size if we have a file handle and map_size is 0
-            let mut duplicated_handle: host_mmap::Handle = host_mmap::INVALID_HANDLE;
-            if let Some(fh) = fh {
-                // Duplicate handle so Python code can close the original
-                duplicated_handle =
-                    host_mmap::duplicate_handle(fh).map_err(|e| e.to_pyexception(vm))?;
-
-                // Get file size
-                let file_len = match host_mmap::get_file_len(fh) {
-                    Ok(len) => len,
-                    Err(err) => {
-                        host_mmap::close_handle(duplicated_handle);
-                        return Err(err.to_pyexception(vm));
-                    }
-                };
-
-                if map_size == 0 {
-                    if file_len == 0 {
-                        host_mmap::close_handle(duplicated_handle);
-                        return Err(vm.new_value_error("cannot mmap an empty file"));
-                    }
-                    if offset >= file_len {
-                        host_mmap::close_handle(duplicated_handle);
-                        return Err(vm.new_value_error("mmap offset is greater than file size"));
-                    }
-                    if file_len - offset > isize::MAX as i64 {
-                        host_mmap::close_handle(duplicated_handle);
-                        return Err(vm.new_value_error("mmap length is too large"));
-                    }
-                    map_size = (file_len - offset) as usize;
-                } else {
-                    // If map_size > file_len, extend the file (Windows behavior)
-                    let required_size = offset.checked_add(map_size as i64).ok_or_else(|| {
-                        host_mmap::close_handle(duplicated_handle);
-                        vm.new_overflow_error("mmap size would cause file size overflow")
-                    })?;
-                    if required_size > file_len
-                        && let Err(err) = host_mmap::extend_file(duplicated_handle, required_size)
-                    {
-                        host_mmap::close_handle(duplicated_handle);
-                        return Err(err.to_pyexception(vm));
-                    }
-                }
-            }
-
-            // memmap2 retains a duplicated file handle, so untracked mappings
-            // must use Win32 directly as well as named shared memory mappings.
-            if tag_str.is_some() || !trackfd {
-                let fh = if let Some(fh) = fh {
-                    // Close the duplicated handle - we'll use the original
-                    // file handle for CreateFileMappingW
-                    if duplicated_handle != host_mmap::INVALID_HANDLE {
-                        host_mmap::close_handle(duplicated_handle);
-                    }
-                    fh
-                } else {
-                    host_mmap::INVALID_HANDLE
-                };
-
-                let named = host_mmap::create_mapping(
-                    fh,
-                    tag_str.as_deref(),
-                    match access {
-                        AccessMode::Default => host_mmap::AccessMode::Default,
-                        AccessMode::Read => host_mmap::AccessMode::Read,
-                        AccessMode::Write => host_mmap::AccessMode::Write,
-                        AccessMode::Copy => host_mmap::AccessMode::Copy,
-                    },
-                    offset,
-                    map_size,
-                )
-                .map_err(|err| {
-                    if err.raw_os_error() == Some(host_mmap::EOVERFLOW) {
-                        vm.new_overflow_error("mmap offset plus size would overflow")
-                    } else {
-                        err.to_pyexception(vm)
-                    }
-                })?;
-
-                return Ok(Self {
-                    closed: AtomicCell::new(false),
-                    mmap: PyMutex::new(Some(MmapObj::Named(named))),
-                    handle: AtomicCell::new(host_mmap::INVALID_HANDLE as isize),
-                    offset,
-                    size: AtomicCell::new(map_size),
-                    pos: AtomicCell::new(0),
-                    exports: AtomicCell::new(0),
-                    access,
-                    trackfd,
-                });
-            }
-
-            let (handle, mmap) = if duplicated_handle != host_mmap::INVALID_HANDLE {
-                let mmap = Self::create_mmap_windows(duplicated_handle, offset, map_size, &access)
-                    .map_err(|e| {
-                        host_mmap::close_handle(duplicated_handle);
-                        e.to_pyexception(vm)
-                    })?;
-                (duplicated_handle as isize, mmap)
-            } else {
-                // Anonymous mapping
-                let mmap = host_mmap::map_anon(map_size).map_err(|e| e.to_pyexception(vm))?;
-                (host_mmap::INVALID_HANDLE as isize, MmapObj::Mapped(mmap))
-            };
-
-            Ok(Self {
-                closed: AtomicCell::new(false),
-                mmap: PyMutex::new(Some(mmap)),
-                handle: AtomicCell::new(handle),
+            // Let CreateFileMapping extend files, enforcing the requested access
+            // itself. Named and anonymous maps share exactly the same Win32 path.
+            let mapping = host_mmap::create_mapping(
+                fh,
+                tag_str.as_deref(),
+                match access {
+                    AccessMode::Default => host_mmap::AccessMode::Default,
+                    AccessMode::Read => host_mmap::AccessMode::Read,
+                    AccessMode::Write => host_mmap::AccessMode::Write,
+                    AccessMode::Copy => host_mmap::AccessMode::Copy,
+                },
                 offset,
-                size: AtomicCell::new(map_size),
-                pos: AtomicCell::new(0),
-                exports: AtomicCell::new(0),
-                access,
-                trackfd,
-            })
+                map_size,
+            )
+            .map_err(|err| err.to_pyexception(vm))?;
+            *result.mmap.lock() = Some(MmapObj::Windows(mapping));
+            Ok(result)
         }
     }
 
@@ -780,9 +714,10 @@ mod mmap {
         fn as_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
             PyMutexGuard::map(self.mmap.lock(), |m| {
                 match m.as_mut().expect("mmap closed or invalid") {
+                    #[cfg(unix)]
                     MmapObj::Mapped(mmap) => mmap.as_mut_slice(),
                     #[cfg(windows)]
-                    MmapObj::Named(named) => named.as_mut_slice(),
+                    MmapObj::Windows(named) => named.as_mut_slice(),
                 }
             })
             .into()
@@ -820,9 +755,10 @@ mod mmap {
             }
 
             match self.check_valid(vm)?.deref_mut().as_mut().unwrap() {
+                #[cfg(unix)]
                 MmapObj::Mapped(mmap) => Ok(f(mmap.as_mut_slice())),
                 #[cfg(windows)]
-                MmapObj::Named(named) => Ok(f(named.as_mut_slice())),
+                MmapObj::Windows(named) => Ok(f(named.as_mut_slice())),
             }
         }
 
@@ -877,10 +813,6 @@ mod mmap {
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
             let mut mmap = zelf.mmap.lock();
-            if Self::closed(zelf) {
-                return Ok(());
-            }
-
             if zelf.exports.load() > 0 {
                 drop(mmap);
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
@@ -1001,12 +933,14 @@ mod mmap {
             }
 
             match mmap.deref().as_ref().unwrap() {
+                #[cfg(unix)]
                 MmapObj::Mapped(mmap) => {
                     mmap.flush_range(offset, size, flags)
                         .map_err(|e| e.to_pyexception(vm))?;
                 }
                 #[cfg(windows)]
-                MmapObj::Named(named) => {
+                MmapObj::Windows(named) => {
+                    let _ = flags;
                     named
                         .flush_range(offset, size)
                         .map_err(|e| e.to_pyexception(vm))?;
@@ -1068,7 +1002,7 @@ mod mmap {
             match mmap {
                 MmapObj::Mapped(m) => m.madvise_range(start, length, option),
                 #[cfg(windows)]
-                MmapObj::Named(_) => unreachable!("unix-only method"),
+                MmapObj::Windows(_) => unreachable!("unix-only method"),
             }
             .map_err(|e| e.to_pyexception(vm))?;
 
@@ -1201,8 +1135,8 @@ mod mmap {
 
         #[cfg(target_os = "linux")]
         #[pymethod]
-        fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            let newsize: isize = newsize.try_to_primitive(vm).map_err(|_| {
+        fn resize(zelf: &Py<Self>, newsize: ArgIndex, vm: &VirtualMachine) -> PyResult<()> {
+            let newsize: isize = newsize.as_ref().try_to_primitive(vm).map_err(|_| {
                 vm.new_overflow_error("Python int too large to convert to C ssize_t")
             })?;
             // Reject exports before taking the data lock, and retain the guard
@@ -1235,100 +1169,31 @@ mod mmap {
 
         #[cfg(windows)]
         #[pymethod]
-        fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            let newsize = newsize.as_bigint().to_usize();
-
-            // Get the lock on mmap
-            // Keep the export check valid until resize ends.
-            let mut mmap_guard = zelf.check_resizeable(vm)?;
-            let Some(newsize) = newsize else {
-                drop(mmap_guard);
+        fn resize(zelf: &Py<Self>, newsize: ArgIndex, vm: &VirtualMachine) -> PyResult<()> {
+            let newsize: isize = newsize.as_ref().try_to_primitive(vm).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+            let mut mmap = zelf.check_resizeable(vm)?;
+            let file_size = i128::from(zelf.offset) + newsize as i128;
+            if newsize < 0 || file_size > isize::MAX as i128 {
                 return Err(vm.new_value_error("new size out of range"));
-            };
-            if newsize == 0 {
-                drop(mmap_guard);
-                return Err(vm.new_value_error("new size must be positive"));
             }
-            let handle = zelf.handle.load();
-
-            // Check if this is a Named mmap - these cannot be resized
-            if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {
-                drop(mmap_guard);
-                return Err(vm.new_os_error("mmap: cannot resize a named memory mapping"));
-            }
-
-            let is_anonymous = host_mmap::is_invalid_handle_value(handle);
-
-            if is_anonymous {
-                // For anonymous mmap, we need to:
-                // 1. Create a new anonymous mmap with the new size
-                // 2. Copy data from old mmap to new mmap
-                // 3. Replace the old mmap
-
-                let old_size = zelf.size.load();
-                let copy_size = core::cmp::min(old_size, newsize);
-
-                // Create new anonymous mmap
-                let mut new_mmap = match host_mmap::map_anon(newsize) {
-                    Ok(mmap) => mmap,
-                    Err(err) => {
-                        drop(mmap_guard);
-                        return Err(err.to_pyexception(vm));
-                    }
-                };
-
-                // Copy data from old mmap to new mmap
-                if let Some(old_mmap) = mmap_guard.as_ref() {
-                    let src = &old_mmap.as_slice()[..copy_size];
-                    new_mmap.as_mut_slice()[..copy_size].copy_from_slice(src);
-                }
-
-                *mmap_guard = Some(MmapObj::Mapped(new_mmap));
-                zelf.size.store(newsize);
-            } else {
-                // File-backed mmap resize
-
-                // Drop the current mmap to release the file mapping
-                *mmap_guard = None;
-
-                let required_size = zelf.offset + newsize as i64;
-                if let Err(err) = host_mmap::extend_file(handle as host_mmap::Handle, required_size)
-                {
-                    // Restore original mmap on error
-                    zelf.try_restore_mmap(
-                        &mut mmap_guard,
-                        handle as host_mmap::Handle,
-                        zelf.size.load(),
-                    );
-                    drop(mmap_guard);
-                    return Err(err.to_pyexception(vm));
-                }
-
-                // Create new mmap with the new size
-                let new_mmap = match Self::create_mmap_windows(
-                    handle as host_mmap::Handle,
+            let MmapObj::Windows(mapping) = mmap.as_mut().unwrap();
+            // The lock and export check keep all pointers private during remapping.
+            let result = unsafe {
+                mapping.resize(
+                    zelf.handle.load() as host_mmap::Handle,
                     zelf.offset,
-                    newsize,
-                    &zelf.access,
-                ) {
-                    Ok(mmap) => mmap,
-                    Err(err) => {
-                        drop(mmap_guard);
-                        return Err(err.to_pyexception(vm));
-                    }
-                };
-
-                *mmap_guard = Some(new_mmap);
-                zelf.size.store(newsize);
+                    newsize as usize,
+                )
+            };
+            if mapping.is_valid() {
+                zelf.size.store(mapping.size());
+            } else {
+                *mmap = None;
+                zelf.closed.store(true);
             }
-
-            // Adjust position if it's beyond the new size
-            let pos = zelf.pos.load();
-            if pos > newsize {
-                zelf.pos.store(newsize);
-            }
-
-            Ok(())
+            result.map_err(|err| err.to_pyexception(vm))
         }
 
         #[pymethod]
@@ -1498,43 +1363,6 @@ mod mmap {
     }
 
     impl PyMmap {
-        #[cfg(windows)]
-        fn create_mmap_windows(
-            handle: host_mmap::Handle,
-            offset: i64,
-            size: usize,
-            access: &AccessMode,
-        ) -> io::Result<MmapObj> {
-            host_mmap::map_handle(
-                handle,
-                offset,
-                size,
-                match access {
-                    AccessMode::Default => host_mmap::AccessMode::Default,
-                    AccessMode::Read => host_mmap::AccessMode::Read,
-                    AccessMode::Write => host_mmap::AccessMode::Write,
-                    AccessMode::Copy => host_mmap::AccessMode::Copy,
-                },
-            )
-            .map(MmapObj::Mapped)
-        }
-
-        /// Try to restore mmap after a failed resize operation.
-        /// Returns true if restoration succeeded, false otherwise.
-        /// If restoration fails, marks the mmap as closed.
-        #[cfg(windows)]
-        fn try_restore_mmap(
-            &self,
-            mmap_guard: &mut Option<MmapObj>,
-            handle: host_mmap::Handle,
-            size: usize,
-        ) {
-            match Self::create_mmap_windows(handle, self.offset, size, &self.access) {
-                Ok(mmap) => *mmap_guard = Some(mmap),
-                Err(_) => self.closed.store(true),
-            }
-        }
-
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let mmap = self.check_valid(vm)?;
             let i = i

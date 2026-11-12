@@ -20,8 +20,8 @@ pub struct Paths {
     pub base_exec_prefix: String,
     /// sys._stdlib_dir
     pub stdlib_dir: Option<String>,
-    /// Computed module_search_paths (complete sys.path)
-    pub module_search_paths: Vec<String>,
+    /// Computed native search paths, decoded with the filesystem codec into sys.path.
+    pub module_search_paths: Vec<OsString>,
 }
 
 /// Combined configuration: user settings + computed paths
@@ -160,8 +160,8 @@ pub struct Settings {
     // /* --- Path configuration inputs ------------ */
     // int pathconfig_warnings;
     // wchar_t *program_name;
-    /// Environment PYTHONPATH (and RUSTPYTHONPATH)
-    pub path_list: Vec<String>,
+    /// Native PYTHONPATH (and RUSTPYTHONPATH) entries, retained without Unicode loss.
+    pub path_list: Vec<OsString>,
 
     /// Standalone CLI ._pth path override; embedded applications do not discover these files.
     pub under_pth: Option<crate::getpath::UnderPth>,
@@ -199,7 +199,7 @@ pub enum CheckHashPycsMode {
 impl Settings {
     #[must_use]
     pub fn with_path(mut self, path: String) -> Self {
-        self.path_list.push(path);
+        self.path_list.push(path.into());
         self
     }
 }

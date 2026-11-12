@@ -91,7 +91,7 @@ impl Comparable for PyNone {
 
 impl Hashable for PyNone {
     fn hash(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
-        Ok(0xFCA86420)
+        Ok(0xFCA86420u32 as PyHash)
     }
 }
 

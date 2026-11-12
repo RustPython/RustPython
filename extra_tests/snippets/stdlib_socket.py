@@ -315,3 +315,13 @@ if hasattr(socket.socket, "recvmsg_into"):
     finally:
         reader.close()
         writer.close()
+
+# Interface names are filesystem-encoded, so a lone surrogate that
+# surrogateescape cannot produce is rejected before the lookup.
+if os.name == "posix":
+    with assert_raises(UnicodeEncodeError):
+        socket.if_nametoindex("\ud800")
+    with assert_raises(OSError):
+        socket.if_nametoindex("\udcff\udcfe")
+    name = socket.if_indextoname(1)
+    assert socket.if_nametoindex(name) == 1

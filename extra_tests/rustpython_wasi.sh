@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# RustPython uses PWD to set its working directory on WASI preview 1.
 exec wasmer run --volume "$repo_root" \
+  --env "PWD=$repo_root" \
   --env "RUSTPYTHONPATH=$repo_root/Lib" \
   "$repo_root/target/wasm32-wasip1/wasm-release/rustpython.wasm" -- "$@"

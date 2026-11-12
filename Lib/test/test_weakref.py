@@ -162,6 +162,17 @@ class ReferencesTestCase(TestBase):
         self.assertIn('MyConfig', repr(obj_weakref))
         self.assertIn('MyConfig', str(obj_weakref))
 
+    def test_repr_name_lookup_error(self):
+        # An error raised while looking up __name__ propagates.
+        class BadName:
+            @property
+            def __name__(self):
+                raise ZeroDivisionError
+
+        obj = BadName()
+        with self.assertRaises(ZeroDivisionError):
+            repr(weakref.ref(obj))
+
     def test_basic_callback(self):
         self.check_basic_callback(C)
         self.check_basic_callback(create_function)
@@ -594,6 +605,20 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(p + 1.0, 3.0)
         self.assertEqual(1.0 + p, 3.0)  # this used to SEGV
 
+    def test_dead_proxy_operand_does_not_leak(self):
+        dead = weakref.proxy(Object(2))
+        gc_collect()
+        for operation in (operator.add, operator.eq, lambda a, b: pow(a, 2, b)):
+            with self.subTest(operation=operation):
+                live = Object(1)
+                ref = weakref.ref(live)
+                proxy = weakref.proxy(live)
+                with self.assertRaises(ReferenceError):
+                    operation(proxy, dead)
+                del live
+                gc_collect()
+                self.assertIsNone(ref())
+
     def test_callbacks_protected(self):
         # Callbacks protected from already-set exceptions?
         # Regression test for SF bug #478534.
@@ -1024,8 +1049,8 @@ class ReferencesTestCase(TestBase):
         # gh-118331: Make sure we do not raise an exception from the destructor
         # when clearing weakrefs if allocating the intermediate tuple fails.
         code = textwrap.dedent("""
-        import _testcapi
         import weakref
+        from test import support
 
         class TestObj:
             pass
@@ -1037,7 +1062,7 @@ class ReferencesTestCase(TestBase):
         # The choice of 50 is arbitrary, but must be large enough to ensure
         # the allocation won't be serviced by the free list.
         wrs = [weakref.ref(obj, callback) for _ in range(50)]
-        _testcapi.set_nomemory(0)
+        support.inject_memory_error()
         del obj
         """).strip()
         res, _ = script_helper.run_python_until_end("-c", code)
@@ -1948,7 +1973,6 @@ class MappingTestCase(TestBase):
         dict = weakref.WeakKeyDictionary()
         self.assertRegex(repr(dict), '<WeakKeyDictionary at 0x.*>')
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_setdefault(self):
         d = weakref.WeakValueDictionary()
@@ -1967,7 +1991,6 @@ class MappingTestCase(TestBase):
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
 
-    @unittest.skip("TODO: RUSTPYTHON; race condition between GC and WeakValueDictionary callback")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_consistency(self):
         # Issue #28427: old keys should not remove new values from
@@ -2061,7 +2084,6 @@ class MappingTestCase(TestBase):
         if exc:
             raise exc[0]
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_key_dict_copy(self):
@@ -2069,7 +2091,6 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, False)
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_key_dict_deepcopy(self):
@@ -2077,7 +2098,6 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, True)
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_value_dict_copy(self):
@@ -2085,7 +2105,6 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakValueDictionary, False)
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_value_dict_deepcopy(self):

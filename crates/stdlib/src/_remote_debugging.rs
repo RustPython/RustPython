@@ -354,14 +354,20 @@ mod _remote_debugging {
             if !(-1..=31).contains(&args.capture_features) {
                 return Err(vm.new_value_error("invalid capture features"));
             }
-            let path =
-                FsPath::try_from_path_like(args.filename.clone(), true, vm)?.to_path_buf(vm)?;
             let old = {
                 let mut state = zelf.state.lock();
                 state.cached_total_samples = 0;
                 state.writer.take()
             };
             drop(old);
+            if args.compression == 1 {
+                return Err(vm.new_runtime_error(
+                    "zstd compression requested but not available (HAVE_ZSTD not defined)",
+                ));
+            }
+            vm.audit("open", || (args.filename.clone(), "wb", 0))?;
+            let path =
+                FsPath::try_from_path_like(args.filename.clone(), true, vm)?.to_path_buf(vm)?;
             let writer = binary::Writer::create(
                 &path,
                 args.sample_interval_us,
@@ -629,10 +635,11 @@ mod _remote_debugging {
     impl Initializer for BinaryReader {
         type Args = BinaryReaderArgs;
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let path =
-                FsPath::try_from_path_like(args.filename.clone(), true, vm)?.to_path_buf(vm)?;
             let old = zelf.state.lock().take();
             drop(old);
+            vm.audit("open", || (args.filename.clone(), "rb", 0))?;
+            let path =
+                FsPath::try_from_path_like(args.filename.clone(), true, vm)?.to_path_buf(vm)?;
             let reader = binary::Reader::open(&path)
                 .map_err(|error| codec_path_error(error, args.filename, vm))?;
             *zelf.state.lock() = Some(PyRc::new(ReaderOpen {

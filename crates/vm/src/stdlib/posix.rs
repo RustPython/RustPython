@@ -3163,7 +3163,7 @@ pub mod module {
 #[pymodule(sub, name = "posix")]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
         class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
@@ -3202,26 +3202,12 @@ mod posix_sched {
                 .map(Into::into)
         }
 
-        #[extend_class]
-        fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
-            // Override __reduce__ to return (type, (sched_priority,))
-            // instead of the generic structseq (type, ((sched_priority,),)).
-            // The trait's extend_class checks contains_key before setting default.
-            const SCHED_PARAM_REDUCE: crate::function::PyMethodDef =
-                crate::function::PyMethodDef::new_const(
-                    "__reduce__",
-                    |zelf: crate::PyRef<crate::builtins::PyTuple>,
-                     vm: &VirtualMachine|
-                     -> PyTupleRef {
-                        vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
-                    },
-                    crate::function::PyMethodFlags::METHOD,
-                    crate::function::ItemDoc::NONE,
-                );
-            class.set_attr(
-                ctx.intern_str("__reduce__"),
-                SCHED_PARAM_REDUCE.to_proper_method(class, ctx),
-            );
+        #[pymethod]
+        fn __reduce__(
+            zelf: crate::PyRef<crate::builtins::PyTuple>,
+            vm: &VirtualMachine,
+        ) -> PyTupleRef {
+            vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
         }
     }
 

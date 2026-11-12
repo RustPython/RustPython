@@ -1,10 +1,24 @@
 import pickle
+import struct
 import sys
 
 from testutils import assert_raises
 
 with assert_raises(MemoryError):
     bytearray(b"ab").resize(sys.maxsize)
+
+# The backing bytes header also excludes lengths just below sys.maxsize.
+for size in (sys.maxsize - 4 * struct.calcsize("n"), sys.maxsize - 1):
+    original = bytearray(b"unchanged")
+    with assert_raises(MemoryError):
+        original.resize(size)
+    assert original == b"unchanged"
+
+    # An existing export is rejected before the allocation limit is checked.
+    with memoryview(original):
+        with assert_raises(BufferError):
+            original.resize(size)
+    assert original == b"unchanged"
 
 # new
 assert bytearray([1, 2, 3])

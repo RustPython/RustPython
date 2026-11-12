@@ -1,0 +1,12 @@
+[package]
+name = "rustpython-wasi-host"
+description = "Capability-scoped WASI preview1 host operations for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+cap-std = "4.0.3"

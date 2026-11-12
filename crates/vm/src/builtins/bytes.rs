@@ -289,7 +289,7 @@ impl Py<PyBytes> {
     #[pymethod]
     fn __reduce_ex__(
         &self,
-        _proto: usize,
+        _protocol: usize,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         self.__reduce__(vm)

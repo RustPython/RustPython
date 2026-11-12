@@ -3,8 +3,6 @@
 //! See also:
 //!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
 
-use rustpython_common::wtf8::{Wtf8, wtf8_concat};
-
 mod async_exception;
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
@@ -89,6 +87,8 @@ pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 ///
 /// To construct the main VM of an interpreter, use [`Interpreter`].
 pub struct VirtualMachine {
+    #[cfg(feature = "threading")]
+    pub(crate) thread_factory: Option<alloc::sync::Arc<thread::InterpreterThreadFactory>>,
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
@@ -890,6 +890,7 @@ pub struct PyGlobalState {
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
     pub(crate) filesystem_codec_ready: AtomicBool,
+    pub(crate) unicode_names_loaded: AtomicBool,
     pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
@@ -1388,6 +1389,8 @@ impl VirtualMachine {
             use_tracing: Cell::new(false),
             what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
+            #[cfg(feature = "threading")]
+            thread_factory: None,
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
             signal_rx: None,
@@ -1442,11 +1445,11 @@ impl VirtualMachine {
             if self.state.config.settings.home.is_some() {
                 return import_err;
             }
-            let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
-            let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
+            let rustpythonpath_env = crate::host_env::os::var_os("RUSTPYTHONPATH");
+            let pythonpath_env = crate::host_env::os::var_os("PYTHONPATH");
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
             let path_contains_env = self.state.config.paths.module_search_paths.iter().any(|s| {
-                Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
+                Some(s.as_os_str()) == rustpythonpath_env.as_deref() || Some(s.as_os_str()) == pythonpath_env.as_deref()
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
@@ -1813,7 +1816,11 @@ impl VirtualMachine {
         eprintln!("  sys.exec_prefix = {}", repr(&paths.exec_prefix));
         eprintln!("  sys.path = [");
         for path in &paths.module_search_paths {
-            eprintln!("    {},", repr(path));
+            let value = self
+                .fsdecode(path.clone())
+                .and_then(|path| path.repr(self))
+                .unwrap_or_else(|_| "?".to_owned());
+            eprintln!("    {value},");
         }
         eprintln!("  ]");
         // A startup import failure is fatal even if the imported module raised
@@ -1907,17 +1914,7 @@ impl VirtualMachine {
         object: PyObjectRef,
     ) {
         let write_original = || {
-            let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
-            self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
-        };
-        // During finalization the hook may no longer exist.
-        if self.state.finalizing.load(Ordering::Acquire) {
-            write_original();
-            return;
-        }
-        let Some(unraisablehook) = self.sys_module.get_attr("unraisablehook", self).ok() else {
-            write_original();
-            return;
+            self.write_unraisable_to_stderr(&e, msg.clone(), &object);
         };
         let args = stdlib::sys::UnraisableHookArgsData {
             exc_type: e.class().to_owned(),
@@ -1927,12 +1924,27 @@ impl VirtualMachine {
             object: object.clone(),
         }
         .to_pyobject(self);
+        let unraisablehook = match self.sys_module.dict().get_item_opt("unraisablehook", self) {
+            Ok(Some(hook)) => hook,
+            Ok(None) => {
+                write_original();
+                return;
+            }
+            Err(error) => {
+                self.write_unraisable_to_stderr(
+                    &error,
+                    Some(self.ctx.new_str("Exception ignored in sys.unraisablehook")),
+                    &self.ctx.none(),
+                );
+                return;
+            }
+        };
         if let Err(error) = self.audit("sys.unraisablehook", || {
             (unraisablehook.clone(), args.clone())
         }) {
             self.write_unraisable_to_stderr(
                 &error,
-                Some("Exception ignored in audit hook"),
+                Some(self.ctx.new_str("Exception ignored in audit hook")),
                 &self.ctx.none(),
             );
             return;
@@ -1944,7 +1956,7 @@ impl VirtualMachine {
         if let Err(error) = unraisablehook.call((args,), self) {
             self.write_unraisable_to_stderr(
                 &error,
-                Some("Exception ignored in sys.unraisablehook"),
+                Some(self.ctx.new_str("Exception ignored in sys.unraisablehook")),
                 &unraisablehook,
             );
         }
@@ -1955,67 +1967,17 @@ impl VirtualMachine {
     fn write_unraisable_to_stderr(
         &self,
         e: &Py<PyBaseException>,
-        msg: Option<&str>,
+        msg: Option<PyStrRef>,
         object: &PyObject,
     ) {
-        // Get stderr once and reuse it
-        let stderr = crate::stdlib::sys::get_stderr(self).ok();
-
-        let write_to_stderr = |s: &Wtf8, stderr: &Option<PyObjectRef>, vm: &Self| {
-            if let Some(stderr) = stderr {
-                let _ = vm.call_method(stderr, "write", (s.to_owned(),));
-            } else {
-                eprint!("{s}");
-            }
+        let args = stdlib::sys::UnraisableHookArgsData {
+            exc_type: e.class().to_owned(),
+            exc_value: e.to_owned().into(),
+            exc_traceback: e.traceback().to_pyobject(self),
+            err_msg: msg.to_pyobject(self),
+            object: object.to_owned(),
         };
-
-        if self.is_none(object) {
-            if let Some(msg) = msg {
-                write_to_stderr(&wtf8_concat!(msg, ":\n"), &stderr, self);
-            }
-        } else {
-            let msg_str = if let Some(msg) = msg {
-                format!("{msg}: ")
-            } else {
-                "Exception ignored in: ".to_owned()
-            };
-            write_to_stderr(msg_str.as_str().into(), &stderr, self);
-
-            let repr_result = object.repr(self);
-            let repr_wtf8 = repr_result
-                .as_ref()
-                .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
-            write_to_stderr(&wtf8_concat!(repr_wtf8, "\n"), &stderr, self);
-        }
-
-        // Print the existing traceback without importing Python modules;
-        // this path must also work while the interpreter is finalizing.
-        if let Some(traceback) = e.traceback() {
-            if let Some(stderr) = &stderr {
-                let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
-            } else {
-                let mut writer = crate::py_io::IoWriter(std::io::stderr());
-                let _ = crate::exceptions::write_traceback(&mut writer, &traceback, self);
-            }
-        }
-        let exc_type_name = e
-            .class()
-            .fully_qualified_name(self)
-            .unwrap_or_else(|_| (&*e.class().name()).into());
-        let message = match e.as_object().str(self) {
-            Ok(value) if !value.as_wtf8().is_empty() => {
-                wtf8_concat!(exc_type_name, ": ", value.as_wtf8(), "\n")
-            }
-            Ok(_) => wtf8_concat!(exc_type_name, "\n"),
-            Err(_) => wtf8_concat!(exc_type_name, ": <exception str() failed>\n"),
-        };
-        write_to_stderr(&message, &stderr, self);
-
-        // Flush stderr to ensure output is visible
-        if let Some(ref stderr) = stderr {
-            let _ = self.call_method(stderr, "flush", ());
-        }
+        let _ = stdlib::sys::sys::write_unraisable(args, self);
     }
 
     /// Store a callee frame pointer for the trampoline to pick up after
@@ -2663,8 +2625,7 @@ impl VirtualMachine {
         for (key, value) in items {
             let name = key
                 .downcast_ref::<PyUtf8Str>()
-                .map(|s| s.as_str().to_owned())
-                .unwrap_or_default();
+                .map_or_default(|s| s.as_str().to_owned());
 
             // Save weakref to module (for later dict clearing)
             if value.downcast_ref::<PyModule>().is_some()
@@ -3407,6 +3368,21 @@ impl VirtualMachine {
         self.tracing_depth.get() != 0
     }
 
+    // _PyEval_CallTracing: suspend callback recursion suppression for an
+    // explicit call, then restore the surrounding callback's tracing state.
+    pub(crate) fn with_tracing_enabled(&self, f: impl FnOnce() -> PyResult) -> PyResult {
+        let depth = self.tracing_depth.replace(0);
+        let enabled =
+            !self.is_none(&self.trace_func.borrow()) || !self.is_none(&self.profile_func.borrow());
+        let previous_enabled = self.use_tracing.replace(enabled);
+        let result = f();
+        self.tracing_depth.set(depth);
+        if depth != 0 {
+            self.use_tracing.set(previous_enabled);
+        }
+        result
+    }
+
     /// `where_` is empty, or a suffix that already includes the leading space.
     #[cold]
     fn new_recursion_depth_error(&self, where_: &str) -> PyBaseExceptionRef {
@@ -3600,6 +3576,9 @@ impl VirtualMachine {
             return Ok(None);
         };
         if self.is_none(&found) || import::is_module_initializing(&found, self)? {
+            return Ok(None);
+        }
+        if !import::is_cached_module(&sys_modules, module, &found, self)? {
             return Ok(None);
         }
         crate::lazy_import::clear_submodule(module, true, self)?;

@@ -18,7 +18,7 @@ fn py_main(interp: &Interpreter) -> vm::PyResult<PyStrRef> {
 fn main() -> ExitCode {
     // Add standard library path
     let mut settings = vm::Settings::default();
-    settings.path_list.push("Lib".to_owned());
+    settings.path_list.push("Lib".into());
     let builder = vm::Interpreter::builder(settings);
     let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
     let interp = builder.add_native_modules(&defs).build();

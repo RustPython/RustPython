@@ -100,7 +100,7 @@ mod decl {
     struct DumpsArgs {
         #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(positional, default = 6)]
+        #[pyarg(positional, default = 6, py_default = "version")]
         version: i32,
         #[pyarg(named, default = ArgIntoBool::TRUE)]
         allow_code: ArgIntoBool,
@@ -411,10 +411,26 @@ mod decl {
             buf.write_u8(b'0'); // TYPE_NULL terminator
         } else if let Some(s) = obj.downcast_ref::<PySet>() {
             buf.write_u8(b'<');
-            write_set_elements(buf, &s.elements(), refs, version, allow_code, vm, depth)?;
+            let size = s.marshal_len();
+            let mut position = 0;
+            let elements = core::iter::from_fn(|| {
+                let (next, value) = s.next_entry(position)?;
+                position = next;
+                Some(value)
+            });
+            write_set_elements(buf, (size, elements), refs, version, allow_code, vm, depth)?;
         } else if let Some(s) = obj.downcast_ref::<PyFrozenSet>() {
             buf.write_u8(b'>');
-            write_set_elements(buf, &s.elements(), refs, version, allow_code, vm, depth)?;
+            let elements = s.elements();
+            write_set_elements(
+                buf,
+                (elements.len(), elements.into_iter()),
+                refs,
+                version,
+                allow_code,
+                vm,
+                depth,
+            )?;
         } else if let Some(co) = obj.downcast_ref::<PyCode>() {
             if !allow_code {
                 return Err(vm.new_value_error("marshalling code objects is disallowed"));
@@ -496,7 +512,7 @@ mod decl {
     /// Serialize set elements in `sorted(v, key=marshal.dumps)` order.
     fn write_set_elements(
         buf: &mut Vec<u8>,
-        elems: &[PyObjectRef],
+        (size, elems): (usize, impl Iterator<Item = PyObjectRef>),
         refs: &mut Option<WriterRefTable>,
         version: i32,
         allow_code: bool,
@@ -504,13 +520,21 @@ mod decl {
         depth: usize,
     ) -> PyResult<()> {
         use marshal::Write;
-        buf.write_u32(elems.len() as u32);
-        let mut pairs = Vec::with_capacity(elems.len());
+        buf.write_u32(size as u32);
+        let mut pairs = Vec::with_capacity(size);
+        // Take one owned entry at a time. Serializing it can invoke Python
+        // callbacks that mutate the set; no collection lock crosses that call.
         for elem in elems {
+            if pairs.len() == size {
+                return Err(vm.new_runtime_error("set changed size during iteration"));
+            }
             let mut dumped = Vec::new();
             let mut inner_refs = (version >= 3).then(WriterRefTable::new);
-            write_object(&mut dumped, elem, &mut inner_refs, version, allow_code, vm)?;
-            pairs.push((dumped, elem.clone()));
+            write_object(&mut dumped, &elem, &mut inner_refs, version, allow_code, vm)?;
+            pairs.push((dumped, elem));
+        }
+        if pairs.len() != size {
+            return Err(vm.new_runtime_error("set changed size during iteration"));
         }
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         for (_, elem) in &pairs {
@@ -525,7 +549,7 @@ mod decl {
         value: PyObjectRef,
         #[pyarg(positional)]
         file: PyObjectRef,
-        #[pyarg(positional, default = 6)]
+        #[pyarg(positional, default = 6, py_default = "version")]
         version: i32,
         #[pyarg(named, default = ArgIntoBool::TRUE)]
         allow_code: ArgIntoBool,

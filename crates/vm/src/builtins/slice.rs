@@ -280,17 +280,17 @@ impl Hashable for PySlice {
     #[inline]
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         const XXPRIME_1: PyUHash = if cfg!(target_pointer_width = "64") {
-            11400714785074694791
+            11400714785074694791u64 as PyUHash
         } else {
             2654435761
         };
         const XXPRIME_2: PyUHash = if cfg!(target_pointer_width = "64") {
-            14029467366897019727
+            14029467366897019727u64 as PyUHash
         } else {
             2246822519
         };
         const XXPRIME_5: PyUHash = if cfg!(target_pointer_width = "64") {
-            2870177450012600261
+            2870177450012600261u64 as PyUHash
         } else {
             374761393
         };

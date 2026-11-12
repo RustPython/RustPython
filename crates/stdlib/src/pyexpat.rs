@@ -47,11 +47,9 @@
 //!   consumed everything fed so far and it is safe to return control to
 //!   Python; `ParserMsg::Finished`/`Error` mean the thread has exited.
 //! - If a handler raises, `pump` stops dispatching and propagates the error
-//!   immediately, but leaves the parser thread and channel alone (any
-//!   already-produced events stay queued) so the *next* `Parse()` call
-//!   resumes exactly where dispatch left off, mirroring libexpat (a callback
-//!   exception aborts that `XML_Parse()` call without corrupting the
-//!   parser's internal state).
+//!   immediately, clears registered handlers, and stops the backend. Like
+//!   libexpat's non-resumable callback abort, later `Parse()` calls report
+//!   that parsing has finished.
 //! - Calling `Parse()`/`ParseFile()` reentrantly (e.g. from within a
 //!   handler) would deadlock waiting on a channel that same call is meant to
 //!   drain, so it is rejected with a `RuntimeError` via a `busy` flag
@@ -168,14 +166,15 @@ mod _pyexpat {
     use crate::vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
+        builtins::{PyException, PyInt, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
         function::{
-            ArgBytesLike, ArgIndex, ArgStrOrBytesLike, FuncArgs, IntoFuncArgs, OptionalArg,
-            OptionalOption,
+            ArgBytesLike, ArgIndex, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption,
+            FuncArgs, PySetterValue,
         },
         types::Constructor,
     };
+    use alloc::borrow::Cow;
     use alloc::collections::VecDeque;
     use alloc::rc::Rc;
     use core::cell::RefCell;
@@ -221,6 +220,107 @@ mod _pyexpat {
 
     type MutableObject = PyRwLock<PyObjectRef>;
 
+    // Do not use Encoding::from_str here: xml-rs also accepts name prefixes.
+    fn native_encoding(name: &str) -> Option<xml::Encoding> {
+        match name.to_ascii_uppercase().as_str() {
+            "UTF-8" => Some(xml::Encoding::Utf8),
+            "UTF-16" => Some(xml::Encoding::Utf16),
+            "UTF-16LE" => Some(xml::Encoding::Utf16Le),
+            "UTF-16BE" => Some(xml::Encoding::Utf16Be),
+            "ISO-8859-1" => Some(xml::Encoding::Latin1),
+            "US-ASCII" => Some(xml::Encoding::Ascii),
+            _ => None,
+        }
+    }
+
+    /// xml-rs emits StartDocument even without a declaration and fills in
+    /// omitted values. Retain only the initial declaration to recover that
+    /// information; the backend still validates it before any callback.
+    #[derive(Debug, Default)]
+    struct DeclarationPrefix {
+        bytes: Vec<u8>,
+        complete: bool,
+    }
+
+    impl DeclarationPrefix {
+        fn text(&self) -> String {
+            let bytes = &self.bytes;
+            let (little, offset) = if bytes.starts_with(&[0xff, 0xfe]) {
+                (true, 2)
+            } else if bytes.starts_with(&[0xfe, 0xff]) {
+                (false, 2)
+            } else if bytes.starts_with(&[b'<', 0]) {
+                (true, 0)
+            } else if bytes.starts_with(&[0, b'<']) {
+                (false, 0)
+            } else {
+                return String::from_utf8_lossy(
+                    bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes),
+                )
+                .into_owned();
+            };
+            let units = bytes[offset..].as_chunks::<2>().0.iter().map(|&pair| {
+                if little {
+                    u16::from_le_bytes(pair)
+                } else {
+                    u16::from_be_bytes(pair)
+                }
+            });
+            char::decode_utf16(units)
+                .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect()
+        }
+
+        fn record(&mut self, chunk: &[u8]) {
+            if self.complete {
+                return;
+            }
+            for &byte in chunk {
+                self.bytes.push(byte);
+                if self.bytes.len() >= 2
+                    && self.bytes.len() <= 16
+                    && ![0xef, 0xbb, 0xbf].starts_with(&self.bytes)
+                {
+                    let text = self.text();
+                    if (!"<?xml".starts_with(&text) && !text.starts_with("<?xml"))
+                        || text.strip_prefix("<?xml").is_some_and(|tail| {
+                            !tail.is_empty() && !tail.starts_with([' ', '\t', '\r', '\n'])
+                        })
+                    {
+                        self.bytes.clear();
+                        self.complete = true;
+                        break;
+                    }
+                }
+                if self.bytes.ends_with(b"?>")
+                    || (self.bytes.len().is_multiple_of(2)
+                        && (self.bytes.ends_with(&[b'?', 0, b'>', 0])
+                            || self.bytes.ends_with(&[0, b'?', 0, b'>'])))
+                {
+                    self.complete = true;
+                    break;
+                }
+            }
+        }
+
+        fn take(&mut self) -> Option<String> {
+            let text = self.text();
+            self.bytes.clear();
+            self.complete = true;
+            text.strip_prefix("<?xml")
+                .filter(|tail| tail.starts_with([' ', '\t', '\r', '\n']))
+                .map(str::to_owned)
+        }
+    }
+
+    // Called only after xml-rs validated the declaration's attribute grammar.
+    fn declaration_value<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+        let (_, value) = text.split_once(name)?;
+        let value = value.trim_start().strip_prefix('=')?.trim_start();
+        let quote = value.chars().next()?;
+        value.get(1..)?.split(quote).next()
+    }
+
     #[pyattr(name = "version_info")]
     pub(super) const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
@@ -238,6 +338,14 @@ mod _pyexpat {
     pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
         namespace_separator: Option<String>,
+        #[pytraverse(skip)]
+        encoding: Option<String>,
+        #[pytraverse(skip)]
+        declaration: PyRwLock<DeclarationPrefix>,
+        #[pytraverse(skip)]
+        initial_bytes: PyRwLock<Vec<u8>>,
+        #[pytraverse(skip)]
+        input_unicode: PyRwLock<Option<bool>>,
         #[pytraverse(skip)]
         base: PyRwLock<Option<String>>,
         // Position of the last event produced, exposed as CurrentLineNumber /
@@ -268,9 +376,10 @@ mod _pyexpat {
         // Prevent creating another backend after finalization or fork failure.
         #[pytraverse(skip)]
         finished: AtomicBool,
-        // Distinguish successful completion from the existing failure paths.
+        // Zero while active; otherwise the error returned on another Parse call.
+        // Successful completion and callback aborts use XML_ERROR_FINISHED.
         #[pytraverse(skip)]
-        completed: AtomicBool,
+        terminal_error_code: AtomicI32,
         #[pytraverse(skip)]
         namespace_stack: PyRwLock<Vec<(xml::namespace::Namespace, Vec<String>)>>,
         #[pytraverse(skip)]
@@ -294,7 +403,8 @@ mod _pyexpat {
         end_element: MutableObject,
         character_data: MutableObject,
         entity_decl: MutableObject,
-        buffer_text: MutableObject,
+        #[pytraverse(skip)]
+        character_buffer: PyRwLock<CharacterBuffer>,
         namespace_prefixes: MutableObject,
         ordered_attributes: MutableObject,
         specified_attributes: MutableObject,
@@ -320,6 +430,19 @@ mod _pyexpat {
         attlist_decl: MutableObject,
         skipped_entity: MutableObject,
     }
+    #[derive(Debug)]
+    struct CharacterBuffer {
+        size: usize,
+        data: Option<String>,
+    }
+
+    fn new_character_buffer(size: usize, vm: &VirtualMachine) -> PyResult<String> {
+        let mut data = String::new();
+        data.try_reserve_exact(size)
+            .map_err(|_| vm.new_memory_error(""))?;
+        Ok(data)
+    }
+
     type PyExpatLikeXmlParserRef = PyRef<PyExpatLikeXmlParser>;
 
     #[inline]
@@ -2433,6 +2556,7 @@ mod _pyexpat {
     #[pyclass]
     impl PyExpatLikeXmlParser {
         fn new(
+            encoding: Option<String>,
             namespace_separator: Option<String>,
             intern: OptionalOption<PyObjectRef>,
             parent: Option<PyExpatLikeXmlParserRef>,
@@ -2445,6 +2569,10 @@ mod _pyexpat {
                 OptionalArg::Present(None) => vm.ctx.none(),
             };
             Self {
+                encoding,
+                declaration: PyRwLock::new(DeclarationPrefix::default()),
+                initial_bytes: PyRwLock::new(Vec::new()),
+                input_unicode: PyRwLock::new(None),
                 namespace_separator,
                 base: PyRwLock::new(None),
                 current_line: PyRwLock::new(1),
@@ -2453,7 +2581,7 @@ mod _pyexpat {
                 backend: PyRwLock::new(None),
                 busy: AtomicBool::new(false),
                 finished: AtomicBool::new(false),
-                completed: AtomicBool::new(false),
+                terminal_error_code: AtomicI32::new(0),
                 namespace_stack: PyRwLock::new(Vec::new()),
                 external_entities: PyRwLock::new(alloc::collections::BTreeMap::new()),
                 reparse_deferral_enabled: AtomicBool::new(true),
@@ -2468,7 +2596,10 @@ mod _pyexpat {
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
                 entity_decl: MutableObject::new(vm.ctx.none()),
-                buffer_text: MutableObject::new(vm.ctx.new_bool(false).into()),
+                character_buffer: PyRwLock::new(CharacterBuffer {
+                    size: 8192,
+                    data: None,
+                }),
                 namespace_prefixes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 ordered_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 specified_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
@@ -2502,15 +2633,21 @@ mod _pyexpat {
 
             create_property!(ctx, attributes, "StartElementHandler", class, start_element);
             create_property!(ctx, attributes, "EndElementHandler", class, end_element);
-            create_property!(
-                ctx,
-                attributes,
+            let attr = ctx.new_static_getset(
                 "CharacterDataHandler",
                 class,
-                character_data
+                |this: &Py<Self>| this.character_data.read().clone(),
+                |this: &Py<Self>, value: PySetterValue<PyObjectRef>, vm: &VirtualMachine| {
+                    let PySetterValue::Assign(value) = value else {
+                        return Err(vm.new_runtime_error("Cannot delete attribute"));
+                    };
+                    this.flush_character_buffer(vm)?;
+                    let _old_handler = core::mem::replace(&mut *this.character_data.write(), value);
+                    Ok(())
+                },
             );
+            attributes.insert(ctx.intern_str("CharacterDataHandler"), attr.into());
             create_property!(ctx, attributes, "EntityDeclHandler", class, entity_decl);
-            create_bool_property!(ctx, attributes, "buffer_text", class, buffer_text);
             create_bool_property!(
                 ctx,
                 attributes,
@@ -2634,8 +2771,24 @@ mod _pyexpat {
             );
         }
 
-        fn create_config(&self) -> xml::ParserConfig {
+        fn create_config(
+            &self,
+            unicode_input: bool,
+            sniffed: Option<xml::Encoding>,
+        ) -> xml::ParserConfig {
+            let encoding = if unicode_input {
+                Some(xml::Encoding::Utf8)
+            } else {
+                self.encoding
+                    .as_deref()
+                    .and_then(native_encoding)
+                    .or(sniffed)
+            };
             xml::ParserConfig::new()
+                .override_encoding(encoding)
+                .ignore_invalid_encoding_declarations(
+                    unicode_input || self.encoding.as_deref().and_then(native_encoding).is_some(),
+                )
                 .cdata_to_characters(false)
                 .coalesce_characters(false)
                 .ignore_comments(false)
@@ -2699,6 +2852,7 @@ mod _pyexpat {
                 return Err(vm.new_value_error("embedded null character"));
             }
             let child = Self::new(
+                encoding.clone(),
                 zelf.namespace_separator.clone(),
                 OptionalArg::Present(Some(zelf.intern.clone())),
                 Some(zelf.clone()),
@@ -2713,8 +2867,18 @@ mod _pyexpat {
                 zelf.parameter_entity_parsing.load(Ordering::Relaxed),
                 Ordering::Relaxed,
             );
+            {
+                let parent = zelf.character_buffer.read();
+                *child.character_buffer.write() = CharacterBuffer {
+                    size: parent.size,
+                    data: parent
+                        .data
+                        .as_ref()
+                        .map(|_| new_character_buffer(parent.size, vm))
+                        .transpose()?,
+                };
+            }
             for (source, target) in [
-                (&zelf.buffer_text, &child.buffer_text),
                 (&zelf.namespace_prefixes, &child.namespace_prefixes),
                 (&zelf.ordered_attributes, &child.ordered_attributes),
                 (&zelf.specified_attributes, &child.specified_attributes),
@@ -2764,6 +2928,222 @@ mod _pyexpat {
                 || vm.ctx.none(),
                 |base| vm.ctx.new_str(base.as_str()).into(),
             )
+        }
+
+        #[pygetset]
+        fn buffer_text(zelf: &Py<Self>) -> bool {
+            zelf.character_buffer.read().data.is_some()
+        }
+
+        #[pygetset(setter)]
+        fn set_buffer_text(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_runtime_error("Cannot delete attribute"));
+            };
+            if value.is_true(vm)? {
+                let mut buffer = zelf.character_buffer.write();
+                if buffer.data.is_none() {
+                    buffer.data = Some(new_character_buffer(buffer.size, vm)?);
+                }
+            } else if zelf.character_buffer.read().data.is_some() {
+                zelf.flush_character_buffer(vm)?;
+                zelf.character_buffer.write().data = None;
+            }
+            Ok(())
+        }
+
+        #[pygetset]
+        fn buffer_size(zelf: &Py<Self>) -> usize {
+            zelf.character_buffer.read().size
+        }
+
+        #[pygetset(setter)]
+        fn set_buffer_size(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_runtime_error("Cannot delete attribute"));
+            };
+            if !value.fast_isinstance(PyInt::class(&vm.ctx)) {
+                return Err(vm.new_type_error("buffer_size must be an integer"));
+            }
+            let size = core::ffi::c_long::try_from_object(vm, value)?;
+            if size <= 0 {
+                return Err(vm.new_value_error("buffer_size must be greater than zero"));
+            }
+            if size as usize == zelf.character_buffer.read().size {
+                return Ok(());
+            }
+            if size > i32::MAX as core::ffi::c_long {
+                return Err(vm.new_value_error(format!(
+                    "buffer_size must not be greater than {}",
+                    i32::MAX
+                )));
+            }
+            zelf.flush_character_buffer(vm)?;
+            {
+                // Match CPython's release-before-allocation ordering: failure
+                // disables buffering while retaining the previous size.
+                let _old_data = zelf.character_buffer.write().data.take();
+            }
+            let data = new_character_buffer(size as usize, vm)?;
+            *zelf.character_buffer.write() = CharacterBuffer {
+                size: size as usize,
+                data: Some(data),
+            };
+            Ok(())
+        }
+
+        #[pygetset]
+        fn buffer_used(zelf: &Py<Self>) -> usize {
+            zelf.character_buffer
+                .read()
+                .data
+                .as_ref()
+                .map_or(0, String::len)
+        }
+
+        fn after_callback<T>(&self, result: PyResult<T>, vm: &VirtualMachine) -> PyResult<T> {
+            if result.is_err() {
+                // CPython call_with_frame/flag_error stops Expat without
+                // allowing resumption and clears every handler, not just the one
+                // which raised. Do not retain queued callbacks after failure.
+                self.terminal_error_code.store(36, Ordering::SeqCst);
+                self.finished.store(true, Ordering::SeqCst);
+                self.teardown_backend();
+                for handler in [
+                    &self.start_element,
+                    &self.end_element,
+                    &self.character_data,
+                    &self.entity_decl,
+                    &self.processing_instruction,
+                    &self.unparsed_entity_decl,
+                    &self.notation_decl,
+                    &self.start_namespace_decl,
+                    &self.end_namespace_decl,
+                    &self.comment,
+                    &self.start_cdata_section,
+                    &self.end_cdata_section,
+                    &self.default,
+                    &self.default_expand,
+                    &self.not_standalone,
+                    &self.external_entity_ref,
+                    &self.start_doctype_decl,
+                    &self.end_doctype_decl,
+                    &self.xml_decl,
+                    &self.element_decl,
+                    &self.attlist_decl,
+                    &self.skipped_entity,
+                ] {
+                    // Releasing a callable may execute Python; the table lock
+                    // must be gone before that callable is released.
+                    let _old_handler = core::mem::replace(&mut *handler.write(), vm.ctx.none());
+                }
+            }
+            result
+        }
+
+        fn flush_character_buffer(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let text = {
+                let mut buffer = self.character_buffer.write();
+                let Some(data) = buffer.data.as_mut().filter(|data| !data.is_empty()) else {
+                    return Ok(());
+                };
+                let text = data.clone();
+                data.clear();
+                text
+            };
+            // Clear used data before invoking Python: the callback can resize,
+            // disable buffering, or replace itself without flushing recursively.
+            self.after_callback(
+                invoke_handler(vm, &self.character_data, (vm.ctx.new_str(text),)),
+                vm,
+            )
+        }
+
+        fn character_data(&self, vm: &VirtualMachine, text: String) -> PyResult<()> {
+            if vm.is_none(&self.character_data.read()) {
+                return Ok(());
+            }
+            let needs_flush = {
+                let buffer = self.character_buffer.read();
+                buffer
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| text.len() > buffer.size - data.len())
+            };
+            if needs_flush {
+                self.flush_character_buffer(vm)?;
+                if vm.is_none(&self.character_data.read()) {
+                    return Ok(());
+                }
+            }
+            {
+                let mut buffer = self.character_buffer.write();
+                let size = buffer.size;
+                if let Some(data) = buffer.data.as_mut()
+                    && text.len() <= size - data.len()
+                {
+                    data.push_str(&text);
+                    return Ok(());
+                }
+            }
+            // An oversized backend event is delivered whole, not split into
+            // artificial chunks to imitate Expat's internal input conversion.
+            self.after_callback(
+                invoke_handler(vm, &self.character_data, (vm.ctx.new_str(text),)),
+                vm,
+            )
+        }
+
+        fn invoke_buffered_handler<T: IntoFuncArgs>(
+            &self,
+            vm: &VirtualMachine,
+            handler: &MutableObject,
+            args: T,
+        ) -> PyResult<()> {
+            if !vm.is_none(&handler.read()) {
+                self.flush_character_buffer(vm)?;
+            }
+            self.after_callback(invoke_handler(vm, handler, args), vm)
+        }
+
+        fn invoke_buffered_int_handler<T: IntoFuncArgs>(
+            &self,
+            vm: &VirtualMachine,
+            handler: &MutableObject,
+            name: &str,
+            args: T,
+        ) -> PyResult<Option<i32>> {
+            if !vm.is_none(&handler.read()) {
+                self.flush_character_buffer(vm)?;
+            }
+            let handler = handler.read().clone();
+            if vm.is_none(&handler) {
+                return Ok(None);
+            }
+            let result = self.after_callback(handler.call(args, vm), vm)?;
+            core::ffi::c_long::try_from_object(vm, result)
+                .map(|value| {
+                    // Expat callbacks convert C long to int. These types have the
+                    // same width on Windows, but differ on 64-bit Unix targets.
+                    #[allow(clippy::unnecessary_cast)]
+                    let value = value as i32;
+                    Some(value)
+                })
+                .inspect_err(|error| {
+                    let _ = error.add_note_str(
+                        vm.ctx
+                            .new_str(format!("invalid '{name}' event handler return value")),
+                        vm,
+                    );
+                })
         }
 
         /// Construct element name with namespace if separator is set
@@ -2915,32 +3295,29 @@ mod _pyexpat {
             vm: &VirtualMachine,
             event: XmlEvent,
             doctype: Option<Box<Doctype>>,
-            xml_declaration: Option<XmlDeclarationInfo>,
+            _xml_declaration: Option<XmlDeclarationInfo>,
         ) -> PyResult<()> {
             match event {
                 XmlEvent::StartDocument {
-                    version,
+                    version: _,
                     encoding: _,
                     standalone,
                 } => {
                     self.standalone
                         .store(standalone == Some(true), Ordering::Relaxed);
-                    if let Some(declaration) = xml_declaration {
-                        invoke_handler(
+                    let declaration = self.declaration.write().take();
+                    if let Some(declaration) = declaration {
+                        self.invoke_buffered_handler(
                             vm,
                             &self.xml_decl,
                             (
-                                vm.ctx.new_str(version.to_string()),
-                                declaration.encoding.map_or_else(
-                                    || vm.ctx.none(),
-                                    |encoding| vm.ctx.new_str(encoding).into(),
-                                ),
-                                declaration.standalone.map_or(-1, i32::from),
+                                declaration_value(&declaration, "version"),
+                                declaration_value(&declaration, "encoding"),
+                                standalone.map_or(-1, i32::from),
                             ),
-                        )
-                    } else {
-                        Ok(())
+                        )?;
                     }
+                    Ok(())
                 }
                 XmlEvent::Doctype { .. } => {
                     if let Some(doctype) = doctype {
@@ -2952,8 +3329,12 @@ mod _pyexpat {
                         if has_external_subset
                             && !parse_entities
                             && !self.standalone.load(Ordering::Relaxed)
-                            && invoke_int_handler(vm, &self.not_standalone, "NotStandalone", ())?
-                                == Some(0)
+                            && self.invoke_buffered_int_handler(
+                                vm,
+                                &self.not_standalone,
+                                "NotStandalone",
+                                (),
+                            )? == Some(0)
                         {
                             return Err(self.handler_error(
                                 vm,
@@ -2964,7 +3345,7 @@ mod _pyexpat {
                         let name = self.intern_name(vm, doctype.name);
                         let system_id = doctype.system_id.map(|s| vm.ctx.new_str(s));
                         let public_id = doctype.public_id.map(|s| vm.ctx.new_str(s));
-                        invoke_handler(
+                        self.invoke_buffered_handler(
                             vm,
                             &self.start_doctype_decl,
                             (
@@ -3237,7 +3618,7 @@ mod _pyexpat {
                         {
                             self.handle_external_subset(vm, system_id, public_id)?;
                         }
-                        invoke_handler(vm, &self.end_doctype_decl, ())?;
+                        self.invoke_buffered_handler(vm, &self.end_doctype_decl, ())?;
                     }
                     Ok(())
                 }
@@ -3307,7 +3688,11 @@ mod _pyexpat {
                         for (prefix, uri) in declarations {
                             let prefix = (!prefix.is_empty()).then(|| vm.ctx.new_str(prefix));
                             let uri = (!uri.is_empty()).then(|| vm.ctx.new_str(uri));
-                            invoke_handler(vm, &self.start_namespace_decl, (prefix, uri))?;
+                            self.invoke_buffered_handler(
+                                vm,
+                                &self.start_namespace_decl,
+                                (prefix, uri),
+                            )?;
                         }
                     }
                     let ordered = self.ordered_attributes.read().is(&vm.ctx.true_value);
@@ -3335,16 +3720,16 @@ mod _pyexpat {
                     };
 
                     let name_str = self.intern_name(vm, self.make_name(&name, vm));
-                    invoke_handler(vm, &self.start_element, (name_str, attrs))
+                    self.invoke_buffered_handler(vm, &self.start_element, (name_str, attrs))
                 }
                 XmlEvent::EndElement { name, .. } => {
                     let name_str = self.intern_name(vm, self.make_name(&name, vm));
-                    invoke_handler(vm, &self.end_element, (name_str,))?;
+                    self.invoke_buffered_handler(vm, &self.end_element, (name_str,))?;
                     let declarations = self.namespace_stack.write().pop();
                     if let Some((_, prefixes)) = declarations {
                         for prefix in prefixes.into_iter().rev() {
                             let prefix = (!prefix.is_empty()).then(|| vm.ctx.new_str(prefix));
-                            invoke_handler(vm, &self.end_namespace_decl, (prefix,))?;
+                            self.invoke_buffered_handler(vm, &self.end_namespace_decl, (prefix,))?;
                         }
                     }
                     Ok(())
@@ -3356,17 +3741,16 @@ mod _pyexpat {
                     // Expat skips XML S between the target and data, not trailing whitespace.
                     let data = PyStr::from(data.trim_start_matches([' ', '\t', '\r', '\n']))
                         .into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.processing_instruction, (name, data))
+                    self.invoke_buffered_handler(vm, &self.processing_instruction, (name, data))
                 }
                 XmlEvent::Comment(comment) => {
                     let comment = PyStr::from(comment).into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.comment, (comment,))
+                    self.invoke_buffered_handler(vm, &self.comment, (comment,))
                 }
                 XmlEvent::CData(chars) => {
-                    invoke_handler(vm, &self.start_cdata_section, ())?;
-                    let str = PyStr::from(chars).into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.character_data, (str,))?;
-                    invoke_handler(vm, &self.end_cdata_section, ())
+                    self.invoke_buffered_handler(vm, &self.start_cdata_section, ())?;
+                    self.character_data(vm, chars)?;
+                    self.invoke_buffered_handler(vm, &self.end_cdata_section, ())
                 }
                 _ => Ok(()),
             }
@@ -3396,7 +3780,7 @@ mod _pyexpat {
             public_id: Option<PyStrRef>,
         ) -> PyResult<()> {
             let base = self.base.read().as_ref().map(|s| vm.ctx.new_str(s.clone()));
-            let result = invoke_int_handler(
+            let result = self.invoke_buffered_int_handler(
                 vm,
                 &self.external_entity_ref,
                 "ExternalEntityRef",
@@ -3449,7 +3833,28 @@ mod _pyexpat {
             let (code, description) = match error.kind() {
                 xml::reader::ErrorKind::UnexpectedEof => (5, "unclosed token"),
                 xml::reader::ErrorKind::Syntax(message) => {
-                    if message.starts_with("Unexpected end of stream:") {
+                    if let Some(encoding) = message.strip_prefix("Unsupported encoding: ") {
+                        // CPython's PyUnknownEncodingHandler probes all bytes using
+                        // the text codec with replacement before libexpat validates
+                        // the resulting single-byte map. Preserve codec exceptions
+                        // instead of flattening them into an XML syntax error.
+                        self.terminal_error_code.store(18, Ordering::SeqCst);
+                        let template: Vec<u8> = (0..=u8::MAX).collect();
+                        let decoded = match vm.state.codec_registry.decode_text(
+                            vm.ctx.new_bytes(template).into(),
+                            encoding,
+                            Some(vm.ctx.new_utf8_str("replace")),
+                            vm,
+                        ) {
+                            Ok(decoded) => decoded,
+                            Err(error) => return Ok(error),
+                        };
+                        if decoded.as_wtf8().code_points().count() != 256 {
+                            return Ok(vm.new_value_error("multi-byte encodings are not supported"));
+                        }
+                        // xml-rs still cannot consume custom single-byte maps.
+                        (18, "unknown encoding")
+                    } else if message.starts_with("Unexpected end of stream:") {
                         (3, "no element found")
                     } else if message.starts_with("Unexpected end of stream") {
                         (5, "unclosed token")
@@ -3474,6 +3879,7 @@ mod _pyexpat {
                 xml::reader::ErrorKind::Utf8(_) => (4, "not well-formed (invalid token)"),
                 _ => (2, "syntax error"),
             };
+            self.terminal_error_code.store(code, Ordering::SeqCst);
             let message = format!("{description}: line {line}, column {column}");
             let error =
                 vm.new_exception_msg(PyExpatError::class(&vm.ctx).to_owned(), message.into());
@@ -3494,11 +3900,8 @@ mod _pyexpat {
         /// the parser thread reports it is blocked waiting for more input
         /// (`NeedMore`), has finished (`Finished`), or hit a parse error
         /// (`Error`, raised as `ExpatError`). If a handler raises, dispatching stops and
-        /// the error propagates, but the parser thread and any events it
-        /// already produced are kept around so a later `Parse()` call
-        /// resumes exactly where dispatch left off, mirroring libexpat
-        /// (a callback exception aborts that `XML_Parse()` call without
-        /// corrupting the parser's internal state). Only used by
+        /// the error propagates after clearing handlers and stopping the
+        /// backend, matching libexpat's non-resumable callback abort. Only used by
         /// `Backend::Threaded`.
         #[cfg(not(target_arch = "wasm32"))]
         fn pump(&self, vm: &VirtualMachine, min_pushes: u64) -> PyResult<()> {
@@ -3533,7 +3936,7 @@ mod _pyexpat {
                         continue;
                     }
                     ParserMsg::Finished => {
-                        self.completed.store(true, Ordering::SeqCst);
+                        self.terminal_error_code.store(36, Ordering::SeqCst);
                         self.finished.store(true, Ordering::SeqCst);
                         self.teardown_backend();
                         return Ok(());
@@ -3667,7 +4070,7 @@ mod _pyexpat {
                 // both close this backend, but only success means the parser
                 // should report XML_ERROR_FINISHED on a later call.
                 if result.is_ok() {
-                    self.completed.store(true, Ordering::SeqCst);
+                    self.terminal_error_code.store(36, Ordering::SeqCst);
                 }
                 self.finished.store(true, Ordering::SeqCst);
                 self.teardown_backend();
@@ -3675,9 +4078,11 @@ mod _pyexpat {
             result
         }
 
-        fn check_completed(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.completed.load(Ordering::SeqCst) {
-                return Err(self.handler_error(vm, 36, "parsing finished")?);
+        fn check_parse_state(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let code = self.terminal_error_code.load(Ordering::SeqCst);
+            if code != 0 {
+                let (_, description) = super::_errors::ERRORS[code as usize - 1];
+                return Err(self.handler_error(vm, code, description)?);
             }
             Ok(())
         }
@@ -3689,7 +4094,13 @@ mod _pyexpat {
         /// `xml.etree.ElementTree` reads and feeds a file 64KB at a time);
         /// see the module doc comment for how each backend stays consistent
         /// across those calls.
-        fn feed(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
+        fn feed(
+            &self,
+            vm: &VirtualMachine,
+            chunk: &[u8],
+            isfinal: bool,
+            unicode_input: bool,
+        ) -> PyResult<()> {
             if self.busy.swap(true, Ordering::SeqCst) {
                 // Reentrant call, e.g. a handler calling Parse() on the same
                 // parser. Draining our own channel (Threaded) or re-entering
@@ -3697,12 +4108,20 @@ mod _pyexpat {
                 // corrupt state, so reject it instead, mirroring CPython.
                 return Err(vm.new_runtime_error("Parse() called before Parse() returned"));
             }
-            let result = self.feed_inner(vm, chunk, isfinal);
+            let result = self
+                .feed_inner(vm, chunk, isfinal, unicode_input)
+                .and_then(|()| self.flush_character_buffer(vm));
             self.busy.store(false, Ordering::SeqCst);
             result
         }
 
-        fn feed_inner(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
+        fn feed_inner(
+            &self,
+            vm: &VirtualMachine,
+            chunk: &[u8],
+            isfinal: bool,
+            unicode_input: bool,
+        ) -> PyResult<()> {
             if let Some(entity) = &self.external_entity {
                 // xml-rs only parses complete documents. In particular, an
                 // external DTD is not a document, and a general external
@@ -3725,19 +4144,35 @@ mod _pyexpat {
                 )));
             }
             self.started.store(true, Ordering::Relaxed);
-            self.check_completed(vm)?;
+            self.check_parse_state(vm)?;
+            self.declaration.write().record(chunk);
             if self.finished.load(Ordering::SeqCst) {
                 return Ok(());
             }
-            {
-                let mut guard = self.backend.write();
-                if guard.is_none() {
-                    *guard = Some(Backend::new(
-                        self.create_config(),
+            let mut input = Cow::Borrowed(chunk);
+            if self.backend.read().is_none() {
+                let unicode_input = *self.input_unicode.write().get_or_insert(unicode_input);
+                let mut initial = self.initial_bytes.write();
+                if !initial.is_empty() {
+                    initial.extend_from_slice(chunk);
+                    input = Cow::Owned(core::mem::take(&mut *initial));
+                }
+                if !unicode_input && self.encoding.is_none() && input.len() < 2 && !isfinal {
+                    initial.extend_from_slice(&input);
+                    return Ok(());
+                }
+                let sniffed = match input.as_ref() {
+                    [0, _, ..] => Some(xml::Encoding::Utf16Be),
+                    [_, 0, ..] => Some(xml::Encoding::Utf16Le),
+                    _ => None,
+                };
+                *self.backend.write() =
+                    Some(Backend::new(
+                        self.create_config(unicode_input, sniffed),
                         self.parameter_entity_parsing.load(Ordering::Relaxed),
                     ));
-                }
             }
+            let chunk = input.as_ref();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let is_threaded = matches!(*self.backend.read(), Some(Backend::Threaded(_)));
@@ -3787,7 +4222,12 @@ mod _pyexpat {
             vm: &VirtualMachine,
         ) -> PyResult<i32> {
             let bytes = data.borrow_bytes().to_vec();
-            zelf.feed(vm, &bytes, isfinal.unwrap_or(false))?;
+            zelf.feed(
+                vm,
+                &bytes,
+                isfinal.unwrap_or(false),
+                matches!(data, ArgStrOrBytesLike::Str(_)),
+            )?;
             Ok(1)
         }
 
@@ -3796,13 +4236,13 @@ mod _pyexpat {
             let read = vm
                 .get_attribute_opt(&file, "read")?
                 .ok_or_else(|| vm.new_type_error("argument must have 'read' attribute"))?;
-            zelf.check_completed(vm)?;
+            zelf.check_parse_state(vm)?;
             let read_res = read.call((), vm)?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             // `file.read()` with no argument reads to EOF, so this chunk is
             // always the last one.
-            zelf.feed(vm, &buf, true)?;
+            zelf.feed(vm, &buf, true, false)?;
             Ok(1)
         }
     }
@@ -3867,10 +4307,8 @@ mod _pyexpat {
             return Err(vm.new_type_error("intern must be a dictionary"));
         }
 
-        // Encoding selection is still handled by the xml-rs backend.
-        let _ = encoding;
-
         Ok(PyExpatLikeXmlParser::new(
+            encoding.map(|encoding| encoding.as_str().to_owned()),
             ns_sep.map(|sep| sep.as_str().to_owned()),
             args.intern,
             None,
@@ -4010,7 +4448,7 @@ mod _errors {
         for (index, &(name, message)) in ERRORS.iter().enumerate() {
             let code = vm.ctx.new_int(index + 1);
             module.set_attr(name, vm.ctx.new_str(message), vm)?;
-            codes.set_item(message, code.clone().into(), vm)?;
+            codes.set_item(message, code.into(), vm)?;
             messages.set_item(&(index + 1), vm.ctx.new_str(message).into(), vm)?;
         }
         extend_module!(vm, module, {

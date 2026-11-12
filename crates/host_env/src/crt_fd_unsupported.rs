@@ -1,11 +1,10 @@
+use crate::errno::errors::EBADF;
 use alloc::fmt;
 use core::marker::PhantomData;
 use std::{ffi, io};
 
 pub type Offset = i64;
 pub type Raw = i32;
-
-const EBADF: i32 = 9;
 
 #[repr(transparent)]
 pub struct Owned {

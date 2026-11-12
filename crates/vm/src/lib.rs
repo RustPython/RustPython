@@ -60,6 +60,7 @@ pub mod convert;
 mod coroutine;
 pub mod datastack;
 mod dict_inner;
+mod unicode_names;
 
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;

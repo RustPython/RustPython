@@ -23,6 +23,7 @@ pub(super) struct InteractiveWarnings {
 
 #[derive(Debug)]
 pub enum VmCompileError {
+    Exception(PyBaseExceptionRef),
     Compile(CompileError),
     Warning(CompileWarningError),
 }
@@ -44,6 +45,12 @@ struct SyntaxErrorReplacement {
     end_offset: usize,
 }
 
+impl From<PyBaseExceptionRef> for VmCompileError {
+    fn from(error: PyBaseExceptionRef) -> Self {
+        Self::Exception(error)
+    }
+}
+
 impl From<CompileError> for VmCompileError {
     fn from(err: CompileError) -> Self {
         Self::Compile(err)
@@ -53,6 +60,7 @@ impl From<CompileError> for VmCompileError {
 impl fmt::Display for VmCompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Exception(_) => f.write_str("AST validation raised an exception"),
             Self::Compile(err) => err.fmt(f),
             Self::Warning(_) => f.write_str("compiler warning raised as an exception"),
         }
@@ -75,12 +83,15 @@ impl VmCompileError {
                 vm.new_syntax_error_maybe_incomplete(&err, source, allow_incomplete)
             }
             Self::Warning(err) => err.into_pyexception(vm, source),
+            Self::Exception(error) => error,
         }
     }
 }
 
 impl CompileWarningError {
     fn into_pyexception(self, vm: &VirtualMachine, source: Option<&str>) -> PyBaseExceptionRef {
+        let source = source.map(compiler::core::normalize_newlines);
+        let source = source.as_deref();
         if !self
             .exception
             .fast_isinstance(vm.ctx.exceptions.syntax_warning)
@@ -463,10 +474,9 @@ impl VirtualMachine {
         };
         // Normalize the source before parsing so literal values, warning ranges,
         // and diagnostic text all refer to the same universal-newline input.
-        Ok(if decoded.contains('\r') {
-            decoded.replace("\r\n", "\n").replace('\r', "\n")
-        } else {
-            decoded
+        Ok(match compiler::core::normalize_newlines(&decoded) {
+            alloc::borrow::Cow::Borrowed(_) => decoded,
+            alloc::borrow::Cow::Owned(normalized) => normalized,
         })
     }
 
@@ -722,6 +732,8 @@ impl VirtualMachine {
         original_filename: &Py<PyStr>,
         module: Option<&Py<PyStr>>,
     ) -> Result<compiler::codegen::symboltable::SymbolTable, VmCompileError> {
+        let source = compiler::core::normalize_newlines(source);
+        let source = source.as_ref();
         #[cfg(feature = "parser")]
         {
             let start = match mode {
@@ -801,6 +813,7 @@ impl VirtualMachine {
                 self.new_syntax_error_with_filename(&error, Some(source), false, Some(filename))
             }
             VmCompileError::Warning(error) => error.into_pyexception(self, Some(source)),
+            VmCompileError::Exception(error) => error,
         })
     }
 
@@ -815,6 +828,8 @@ impl VirtualMachine {
     ) -> Result<PyRef<PyCode>, VmCompileError> {
         #[cfg(not(feature = "parser"))]
         let _ = (module, emitted_escapes);
+        let source = compiler::core::normalize_newlines(source);
+        let source = source.as_ref();
         #[cfg(feature = "parser")]
         {
             self.emit_standard_parser_warnings(
@@ -2959,9 +2974,7 @@ mod escape_warnings {
                                 self,
                             )
                             .map_err(|mut error| {
-                                if interactive.is_some()
-                                    && let Some(column) = error_column
-                                {
+                                if let Some(column) = error_column {
                                     error.offset = column;
                                     if let Some(replacement) = &mut error.replacement {
                                         replacement.end_offset = column + 2;

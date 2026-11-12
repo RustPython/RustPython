@@ -74,6 +74,10 @@ impl PySet {
         Self::default().into_ref(ctx)
     }
 
+    pub(crate) fn marshal_len(&self) -> usize {
+        self.inner.len()
+    }
+
     #[must_use]
     pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef)> {
         self.inner
@@ -686,7 +690,11 @@ impl PySetInner {
                 elements
             } else {
                 // We want to remove duplicates in iterable
-                iterable_set = Self::from_object(iterable.clone(), vm)?;
+                // Keep the source alive through toggle_entries: its finalizer may mutate the set.
+                #[allow(clippy::redundant_clone)]
+                {
+                    iterable_set = Self::from_object(iterable.clone(), vm)?;
+                }
                 iterable_set.content.keys_with_hashes()
             };
             self.toggle_entries(elements, vm)?;

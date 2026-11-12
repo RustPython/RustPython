@@ -2085,6 +2085,11 @@ pub(crate) mod _elementtree {
             )?;
             parser.set_attr("EndElementHandler", this.get_attr("_expat_end", vm)?, vm)?;
             parser.set_attr(
+                "StartDoctypeDeclHandler",
+                this.get_attr("_expat_doctype", vm)?,
+                vm,
+            )?;
+            parser.set_attr(
                 "CharacterDataHandler",
                 this.get_attr("_expat_data", vm)?,
                 vm,
@@ -2217,8 +2222,7 @@ pub(crate) mod _elementtree {
             let info: Vec<PyObjectRef> = expat.get_attr("version_info", vm)?.try_to_value(vm)?;
             let part = |i: usize| -> String {
                 info.get(i)
-                    .map(|o| o.str(vm).map(|s| s.to_string()).unwrap_or_default())
-                    .unwrap_or_default()
+                    .map_or_default(|o| o.str(vm).map_or_default(|s| s.to_string()))
             };
             Ok(format!("Expat {}.{}.{}", part(0), part(1), part(2)))
         }
@@ -2301,6 +2305,38 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
+        fn _expat_doctype(
+            zelf: &Py<Self>,
+            name: PyObjectRef,
+            system: PyObjectRef,
+            public: PyObjectRef,
+            _has_internal_subset: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let name = zelf.make_universal(name, vm)?;
+            let system = zelf.make_universal(system, vm)?;
+            let public = zelf.make_universal(public, vm)?;
+            let handler = zelf.state.read().handle_doctype.clone();
+            if let Some(handler) = handler {
+                handler.call((name, public, system), vm)?;
+            } else if optional_handler(zelf.as_object(), "doctype", vm)?.is_some() {
+                crate::vm::warn::warn(
+                    vm.ctx
+                        .new_str(
+                            "The doctype() method of XMLParser is ignored.  \
+                         Define doctype() method on the TreeBuilder target.",
+                        )
+                        .into(),
+                    Some(vm.ctx.exceptions.runtime_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                )?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
         fn _expat_start(
             zelf: &Py<Self>,
             tag: PyObjectRef,
@@ -2310,8 +2346,7 @@ pub(crate) mod _elementtree {
             let tag = zelf.make_universal(tag, vm)?;
             let items = attr_list
                 .downcast_ref::<PyList>()
-                .map(|l| l.borrow_vec().to_vec())
-                .unwrap_or_default();
+                .map_or_default(|l| l.borrow_vec().to_vec());
             let attrib = if items.is_empty() {
                 None
             } else {

@@ -202,10 +202,10 @@ rustpython-wtf8 = { path = "crates/wtf8", version = "0.6.1" }
 rustpython-doc = { path = "crates/doc", version = "0.6.1" }
 
 # Use the RustPython Ruff fork for RustPython public `_ast` metadata.
-ruff_python_parser = { package = "rustpython-ruff_python_parser", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
-ruff_python_ast = { package = "rustpython-ruff_python_ast", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
-ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
-ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
+ruff_python_parser = { package = "rustpython-ruff_python_parser", features = ["stacker"], git = "https://github.com/RustPython/ruff.git", rev = "9f3e734cddfe628b89bb388b3e742a576a25932e" }
+ruff_python_ast = { package = "rustpython-ruff_python_ast", git = "https://github.com/RustPython/ruff.git", rev = "9f3e734cddfe628b89bb388b3e742a576a25932e" }
+ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.com/RustPython/ruff.git", rev = "9f3e734cddfe628b89bb388b3e742a576a25932e" }
+ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", rev = "9f3e734cddfe628b89bb388b3e742a576a25932e" }
 
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.14.0", default-features = false, features = ["macros"]}
@@ -220,9 +220,9 @@ bstr = { version = "1", default-features = false, features = ["unicode"] }
 bzip2 = "0.6"
 console_error_panic_hook = "0.1"
 constant_time_eq = "0.6"
-cranelift = "0.136.3"
-cranelift-jit = "0.136.3"
-cranelift-module = "0.136.3"
+cranelift = "0.137.1"
+cranelift-jit = "0.137.1"
+cranelift-module = "0.137.1"
 crc32fast = "1.3.2"
 criterion = { package = "codspeed-criterion-compat", version = "5.0.1", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"

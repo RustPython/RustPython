@@ -71,7 +71,6 @@ class AuditTest(unittest.TestCase):
     def test_monkeypatch(self):
         self.do_test("test_monkeypatch")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_open(self):
         self.do_test("test_open", os_helper.TESTFN)
 
@@ -139,7 +138,6 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(events[2][0], "socket.bind")
         self.assertEndsWith(events[2][2], "('127.0.0.1', 8080)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gc(self):
         returncode, events, stderr = self.run_python("test_gc")
         if returncode:
@@ -169,7 +167,6 @@ class AuditTest(unittest.TestCase):
             self.assertIn('HTTP', events[1][2])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite3(self):
         sqlite3 = import_helper.import_module("sqlite3")
         returncode, events, stderr = self.run_python("test_sqlite3")

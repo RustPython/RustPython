@@ -6,7 +6,8 @@ mod decl {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyInt,
-        function::{ArgIntoBool, ArgIntoFloat, OptionalArg},
+        function::{ArgIntoBool, OptionalArg},
+        stdlib::time::pytime,
     };
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -40,6 +41,7 @@ mod decl {
         cancel: bool,
         fd: i32,
         timeout_us: u64,
+        max_threads: isize,
         repeat: bool,
         exit: bool,
         header: String,
@@ -233,7 +235,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpTracebackArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         all_threads: ArgIntoBool,
@@ -266,7 +268,7 @@ mod decl {
     #[cfg(any(unix, windows))]
     #[derive(FromArgs)]
     struct DumpCStackArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
     }
 
@@ -368,7 +370,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct EnableArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         all_threads: ArgIntoBool,
@@ -672,7 +674,8 @@ mod decl {
                 return;
             }
             let timeout = Duration::from_micros(guard.timeout_us);
-            cvar.wait_for(&mut guard, timeout);
+            // A notification or spurious wake does not mean the deadline passed.
+            cvar.wait_while_for(&mut guard, |state| !state.cancel, timeout);
 
             // Check if cancelled after wait
             if guard.cancel {
@@ -683,6 +686,7 @@ mod decl {
             let repeat = guard.repeat;
             let exit = guard.exit;
             let fd = guard.fd;
+            let max_threads = guard.max_threads;
             let header = guard.header.clone();
             #[cfg(feature = "threading")]
             let thread_frame_slots = guard.thread_frame_slots.clone();
@@ -691,10 +695,22 @@ mod decl {
             // Timeout occurred, dump traceback
             cfg_select! {
                 target_arch = "wasm32" => {
-                    let _ = (exit, fd, &header);
+                    let _ = (exit, fd, max_threads, &header);
                 }
                 _ => {
                     puts_bytes(fd, header.as_bytes());
+                    let mut nthreads = 0;
+                    let mut begin_thread_dump = || {
+                        if nthreads != 0 {
+                            puts(fd, "\n");
+                        }
+                        if nthreads >= max_threads {
+                            puts(fd, "...\n");
+                            return false;
+                        }
+                        nthreads += 1;
+                        true
+                    };
 
                     // Use thread frame slots when threading is enabled (includes all threads).
                     // Fall back to live frame walking for non-threaded builds.
@@ -710,6 +726,9 @@ mod decl {
                             // frames are still alive because the target thread
                             // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
+                                if !begin_thread_dump() {
+                                    break;
+                                }
                                 let iframe_ptr =
                                     slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
                                         as *const rustpython_vm::frame::InterpreterFrame;
@@ -733,6 +752,9 @@ mod decl {
                         }
                         all(not(unix), feature = "threading") => {
                             for (tid, slot) in &thread_frame_slots {
+                                if !begin_thread_dump() {
+                                    break;
+                                }
                                 let iframe_ptr =
                                     slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
                                         as *const rustpython_vm::frame::InterpreterFrame;
@@ -755,8 +777,10 @@ mod decl {
                             }
                         }
                         _ => {
-                            write_thread_id(fd, current_thread_id(), false);
-                            dump_live_frames(fd);
+                            if begin_thread_dump() {
+                                write_thread_id(fd, current_thread_id(), false);
+                                dump_live_frames(fd);
+                            }
                         }
                     }
 
@@ -775,32 +799,36 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct DumpTracebackLaterArgs {
-        #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
-        timeout: ArgIntoFloat,
-        #[pyarg(any, default)]
+        // Clinic converts repeat/exit before interpreting the timeout object.
+        #[pyarg(any)]
+        timeout: PyObjectRef,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
         repeat: ArgIntoBool,
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
         exit: ArgIntoBool,
+        #[pyarg(named, default = 100)]
+        max_threads: isize,
     }
 
     #[pyfunction]
     fn dump_traceback_later(args: DumpTracebackLaterArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let timeout: f64 = args.timeout.into_float();
-
-        if timeout <= 0.0 {
+        let timeout = pytime::from_seconds_object(&args.timeout, pytime::Round::Up, vm)?;
+        let timeout_us = pytime::Round::Up.divide(timeout, 1_000);
+        if timeout_us <= 0 {
             return Err(vm.new_value_error("timeout must be greater than 0"));
         }
+        pytime::check_thread_timeout(timeout, vm)?;
+        // CPython also bounds the seconds passed to format_timeout by LONG_MAX.
+        #[allow(clippy::unnecessary_cast)] // c_long is i32 or i64.
+        let max_seconds = core::ffi::c_long::MAX as i64;
+        if timeout_us / 1_000_000 > max_seconds {
+            return Err(vm.new_overflow_error("timeout value is too large"));
+        }
+        let timeout_us = timeout_us as u64;
 
         let (fd, _file) = get_fd_from_file_opt(args.file, vm)?;
-
-        // Convert timeout to microseconds
-        let timeout_us = (timeout * 1_000_000.0) as u64;
-        if timeout_us == 0 {
-            return Err(vm.new_value_error("timeout must be greater than 0"));
-        }
-
         let header = format_timeout(timeout_us);
 
         // Snapshot thread frame slots so watchdog can dump tracebacks
@@ -822,6 +850,11 @@ mod decl {
                 cancel: false,
                 fd,
                 timeout_us,
+                max_threads: if args.max_threads == 0 {
+                    100
+                } else {
+                    args.max_threads
+                },
                 repeat: args.repeat.into_bool(),
                 exit: args.exit.into_bool(),
                 header,
@@ -900,13 +933,13 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct RegisterArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         signum: i32,
-        #[pyarg(any, default)]
+        #[pyarg(any, default, py_default = "sys.stderr")]
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         all_threads: ArgIntoBool,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
         chain: ArgIntoBool,
     }
 
@@ -959,7 +992,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct SigsegvArgs {
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = ArgIntoBool::FALSE)]
         release_gil: ArgIntoBool,
     }
 
@@ -1065,5 +1098,58 @@ mod decl {
     fn _raise_exception(args: RaiseExceptionArgs, _vm: &VirtualMachine) {
         suppress_crash_report();
         host_faulthandler::raise_exception(args.code, args.flags);
+    }
+
+    #[cfg(test)]
+    #[cfg(any(unix, windows))]
+    mod tests {
+        use super::*;
+        use std::sync::mpsc;
+        use std::time::Instant;
+
+        #[test]
+        fn watchdog_notification_does_not_expire_timeout() {
+            let state = Arc::new((
+                Mutex::new(WatchdogState {
+                    cancel: false,
+                    fd: 2,
+                    timeout_us: 60_000_000,
+                    max_threads: 100,
+                    repeat: false,
+                    exit: false,
+                    header: String::new(),
+                    #[cfg(feature = "threading")]
+                    thread_frame_slots: Vec::new(),
+                }),
+                Condvar::new(),
+            ));
+            let worker_state = Arc::clone(&state);
+            let (done_tx, done_rx) = mpsc::channel();
+            let worker = thread::spawn(move || {
+                watchdog_thread(worker_state);
+                done_tx.send(()).unwrap();
+            });
+
+            // Wait for a real waiter so the notification cannot be lost before
+            // the watchdog starts. No Python frames are exposed to this worker.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let notified = loop {
+                if state.1.notify_one() {
+                    break true;
+                }
+                if Instant::now() >= deadline {
+                    break false;
+                }
+                thread::sleep(Duration::from_millis(1));
+            };
+            let completed = done_rx.recv_timeout(Duration::from_millis(100));
+
+            // Always stop and join before asserting, including failure paths.
+            state.0.lock().cancel = true;
+            state.1.notify_all();
+            worker.join().unwrap();
+            assert!(notified, "watchdog did not start waiting");
+            assert!(matches!(completed, Err(mpsc::RecvTimeoutError::Timeout)));
+        }
     }
 }

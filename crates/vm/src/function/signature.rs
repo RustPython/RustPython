@@ -3,7 +3,7 @@
 //! The internal doc is `name(params)\n--\n\ndoc`, built in a const context from
 //! [`FromArgs`] metadata. Nothing here allocates.
 
-use super::argument::FromArgs;
+use super::argument::{ArgsMetadata, FromArgs};
 
 #[derive(Clone, Copy, Debug)]
 pub enum ParamKind {
@@ -116,12 +116,12 @@ const SCALAR_PARAMS: &[Param] = &[Param::positional_only("")];
 
 impl SigArg {
     #[must_use]
-    pub const fn from_arg<T: FromArgs>(name: &'static str) -> Self {
+    pub const fn from_arg<T: ArgsMetadata>(name: &'static str) -> Self {
         Self {
             name,
-            params: T::PARAMS,
-            binding_params: T::BINDING_PARAMS,
-            force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
+            params: T::DISPLAY_PARAMS,
+            binding_params: T::CLINIC_PARAMS,
+            force_unpack_keywords: T::UNPACK_KEYWORDS,
         }
     }
 
@@ -205,11 +205,10 @@ const fn flags_positional_count(params: &[Param]) -> usize {
 /// Calling-convention bits from each argument's binding metadata.
 ///
 /// Display signatures must not prevent a custom parser from receiving a call.
-/// With `receiver`, the first argument is the bound `$self` / `$type`; it
-/// contributes only the parameters its type supplies.
-/// A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
+/// Native receivers travel outside Python arguments and are excluded from this
+/// metadata. A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
 #[must_use]
-pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super::PyMethodFlags {
+pub(crate) const fn native_call_flags(args: &[SigArg]) -> super::PyMethodFlags {
     let mut has_keywords = false;
     let mut variable = false;
     let mut fixed = 0usize;
@@ -217,13 +216,6 @@ pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super:
     while i < args.len() {
         has_keywords |= args[i].force_unpack_keywords;
         match args[i].binding_params {
-            Some(params)
-                if receiver
-                    && i == 0
-                    && args[i].params.is_none()
-                    && params.len() == 1
-                    && matches!(params[0].kind, ParamKind::PositionalOnly)
-                    && params[0].default.is_none() => {}
             Some(params) => count_params(params, &mut has_keywords, &mut variable, &mut fixed),
             None => {
                 has_keywords = true;
@@ -414,6 +406,7 @@ pub const fn internal_doc_bytes<const N: usize>(name: &str, args: &[SigArg], doc
     buf
 }
 
+#[derive(Clone, Copy)]
 struct St {
     n: usize,
     emitted: bool,
@@ -421,20 +414,39 @@ struct St {
     var_pos_seen: bool,
     var_kw_seen: bool,
     star_emitted: bool,
+    // Layout is calculated only while constructing the static internal doc.
+    indent: usize,
+    column: usize,
+    tokens: usize,
+    total_tokens: usize,
 }
 
 const fn write_signature_prefix(buf: &mut [u8], name: &str, args: &[SigArg]) -> usize {
     let mut n = put_str(buf, 0, name);
     n = put_byte(buf, n, b'(');
+    let indent = char_len(name) + 1;
+    let initial = St {
+        n,
+        emitted: false,
+        po_left: count_po_args(args),
+        var_pos_seen: false,
+        var_kw_seen: false,
+        star_emitted: false,
+        indent,
+        column: indent,
+        tokens: 0,
+        total_tokens: usize::MAX,
+    };
+    // Clinic counts a token's trailing comma when deciding where to wrap.
+    // The renderer runs twice at compile time. The counting pass includes synthetic
+    // '/' and '*' tokens, without a separate traversal that could disagree with the
+    // actual renderer.
+    let total_tokens = write_args(&mut [], initial, args).tokens;
     let st = write_args(
         buf,
         St {
-            n,
-            emitted: false,
-            po_left: count_po_args(args),
-            var_pos_seen: false,
-            var_kw_seen: false,
-            star_emitted: false,
+            total_tokens,
+            ..initial
         },
         args,
     );
@@ -493,19 +505,60 @@ const fn count_po_args(args: &[SigArg]) -> usize {
     n
 }
 
-const fn emit_sep(buf: &mut [u8], st: St) -> St {
-    if st.emitted {
-        St {
-            n: put_str(buf, st.n, ", "),
-            ..st
+const fn char_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] & 0xc0 != 0x80 {
+            count += 1;
         }
-    } else {
-        st
+        i += 1;
+    }
+    count
+}
+
+const fn default_char_len(default: DefaultRepr) -> usize {
+    let bytes = put_default(&mut [], 0, default);
+    // Non-ASCII text is emitted verbatim for str/raw defaults; bytes defaults
+    // instead escape every non-ASCII byte. Count characters as Clinic's len().
+    match default {
+        DefaultRepr::Str(text) | DefaultRepr::Raw(text) => bytes - text.len() + char_len(text),
+        _ => bytes,
     }
 }
 
+const fn emit_sep(buf: &mut [u8], mut st: St, token_chars: usize) -> St {
+    // Tools/clinic/libclinic/dsl_parser.py:add_parameter: wrap at >=72,
+    // align with the first parameter, and never split a parameter/default.
+    let trailing_comma = if st.tokens + 1 < st.total_tokens {
+        1
+    } else {
+        0
+    };
+    if st.emitted {
+        st.n = put_byte(buf, st.n, b',');
+        st.column += 1;
+        if st.column + 1 + token_chars + trailing_comma >= 72 {
+            st.n = put_byte(buf, st.n, b'\n');
+            let mut i = 0;
+            while i < st.indent {
+                st.n = put_byte(buf, st.n, b' ');
+                i += 1;
+            }
+            st.column = st.indent;
+        } else {
+            st.n = put_byte(buf, st.n, b' ');
+            st.column += 1;
+        }
+    }
+    st.column += token_chars;
+    st.tokens += 1;
+    st
+}
+
 const fn emit_text(buf: &mut [u8], st: St, text: &str) -> St {
-    let st = emit_sep(buf, st);
+    let st = emit_sep(buf, st, char_len(text));
     St {
         n: put_str(buf, st.n, text),
         emitted: true,
@@ -520,7 +573,13 @@ const fn emit_named(
     name: &str,
     default: Option<DefaultRepr>,
 ) -> St {
-    let st = emit_sep(buf, st);
+    let token_chars = char_len(prefix)
+        + char_len(name)
+        + match default {
+            Some(value) => 1 + default_char_len(value),
+            None => 0,
+        };
+    let st = emit_sep(buf, st, token_chars);
     let n = put_str(buf, st.n, prefix);
     let n = put_str(buf, n, name);
     let n = if let Some(default) = default {
@@ -818,6 +877,10 @@ mod tests {
                 var_pos_seen: false,
                 var_kw_seen: false,
                 star_emitted: true,
+                indent: 0,
+                column: 0,
+                tokens: 0,
+                total_tokens: 1,
             },
             Param {
                 name: "x",
@@ -828,6 +891,134 @@ mod tests {
         );
         let text = core::str::from_utf8(&buf[..st.n]).unwrap();
         text.split_once('=').unwrap().1.to_owned()
+    }
+
+    fn layout(name: &str, params: &'static [Param]) -> String {
+        let args = [SigArg {
+            name: "options",
+            params: Some(params),
+            binding_params: Some(params),
+            force_unpack_keywords: false,
+        }];
+        let mut buf = vec![0; super::signature_prefix_len(name, &args)];
+        let written = super::write_signature_prefix(&mut buf, name, &args);
+        assert_eq!(written, buf.len());
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn clinic_wraps_at_72_including_a_tokens_trailing_comma() {
+        const A65: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const A66: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        assert_eq!(
+            layout(
+                "f",
+                const {
+                    &[
+                        Param::positional_or_keyword(A65),
+                        Param::positional_or_keyword("bb"),
+                    ]
+                }
+            ),
+            format!("f({A65}, bb)\n--\n\n")
+        );
+        assert_eq!(
+            layout(
+                "f",
+                const {
+                    &[
+                        Param::positional_or_keyword(A66),
+                        Param::positional_or_keyword("bb"),
+                    ]
+                }
+            ),
+            format!("f({A66},\n  bb)\n--\n\n")
+        );
+        // The comma after bb moves the candidate from 71 to 72 columns.
+        assert_eq!(
+            layout(
+                "f",
+                const {
+                    &[
+                        Param::positional_or_keyword(A65),
+                        Param::positional_or_keyword("bb"),
+                        Param::positional_or_keyword("c"),
+                    ]
+                }
+            ),
+            format!("f({A65},\n  bb, c)\n--\n\n")
+        );
+        // The first parameter is never wrapped, even if already over width.
+        assert_eq!(
+            layout(
+                "long_name",
+                const {
+                    &[
+                        Param::positional_or_keyword(A66),
+                        Param::positional_or_keyword("bb"),
+                    ]
+                }
+            ),
+            format!("long_name({A66},\n          bb)\n--\n\n")
+        );
+    }
+
+    #[test]
+    fn clinic_layout_preserves_default_contents_and_counts_unicode_characters() {
+        // cspell:disable-next-line
+        const UNICODE: &str = "ééééééééééééééééééééééééééééééééé";
+        const ASCII: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        assert_eq!(
+            layout(
+                "f",
+                const {
+                    &[
+                        Param::positional_or_keyword(UNICODE),
+                        Param::positional_or_keyword(ASCII),
+                    ]
+                }
+            ),
+            format!("f({UNICODE}, {ASCII})\n--\n\n")
+        );
+        const TEXT: &str = "é,  space, \"quoted\", \\slash";
+        const DEFAULT: Param = Param {
+            name: "text",
+            kind: ParamKind::PositionalOrKeyword,
+            default: Some(DefaultRepr::Str(TEXT)),
+        };
+        assert_eq!(
+            layout(
+                "f",
+                const {
+                    &[
+                        Param::positional_or_keyword(
+                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        ),
+                        DEFAULT,
+                    ]
+                }
+            ),
+            "f(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n  text='é,  space, \"quoted\", \\\\slash')\n--\n\n"
+        );
+        assert_eq!(super::default_char_len(DefaultRepr::Str("éé")), 4);
+        assert_eq!(super::default_char_len(DefaultRepr::Raw("('é,  ', 1)")), 11);
+    }
+
+    #[test]
+    fn clinic_layout_treats_slash_as_a_separate_token() {
+        const ARGS: &[SigArg] = &[
+            SigArg::marker("$module"),
+            SigArg::marker("arraytype"),
+            SigArg::marker("typecode"),
+            SigArg::marker("mformat_code"),
+            SigArg::marker("items"),
+        ];
+        const N: usize = super::signature_prefix_len("_array_reconstructor", ARGS);
+        const TEXT: [u8; N] = super::signature_prefix_bytes::<N>("_array_reconstructor", ARGS);
+        assert_eq!(
+            core::str::from_utf8(&TEXT).unwrap(),
+            "_array_reconstructor($module, arraytype, typecode, mformat_code, items,\n                     /)\n--\n\n"
+        );
     }
 
     #[test]
@@ -944,18 +1135,12 @@ mod tests {
             }
         }
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
-        assert_eq!(native_call_flags(&[], false), PyMethodFlags::NOARGS);
-        assert_eq!(native_call_flags(&[arg(None)], false), PyMethodFlags::O);
+        assert_eq!(native_call_flags(&[]), PyMethodFlags::NOARGS);
+        assert_eq!(native_call_flags(&[arg(None)]), PyMethodFlags::O);
         assert_eq!(
-            native_call_flags(&[arg(None), arg(None)], false),
+            native_call_flags(&[arg(None), arg(None)]),
             PyMethodFlags::FASTCALL
         );
-        // The receiver is not a Python argument.
-        assert_eq!(
-            native_call_flags(&[SigArg::marker("$self"), arg(None)], true),
-            PyMethodFlags::O
-        );
-        assert_eq!(native_call_flags(&[arg(None)], true), PyMethodFlags::NOARGS);
 
         const OPTIONAL: &[Param] = &[Param {
             name: "",
@@ -963,21 +1148,19 @@ mod tests {
             default: Some(DefaultRepr::Unrepresentable),
         }];
         assert_eq!(
-            native_call_flags(&[arg(Some(OPTIONAL))], false),
+            native_call_flags(&[arg(Some(OPTIONAL))]),
             PyMethodFlags::FASTCALL
         );
 
         const KW: &[Param] = &[Param::positional_or_keyword("exp")];
-        assert_eq!(native_call_flags(&[arg(Some(KW))], false), keywords);
+        assert_eq!(native_call_flags(&[arg(Some(KW))]), keywords);
 
         const FUNCARGS: &[Param] = &[Param::var_positional("args"), Param::var_keyword("kwargs")];
-        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))], false), keywords);
-        // A receiver that binds the whole call keeps its parameters.
-        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))], true), keywords);
+        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))]), keywords);
 
         const POSARGS: &[Param] = &[Param::var_positional("args")];
         assert_eq!(
-            native_call_flags(&[arg(Some(POSARGS))], false),
+            native_call_flags(&[arg(Some(POSARGS))]),
             PyMethodFlags::FASTCALL
         );
 
@@ -986,7 +1169,7 @@ mod tests {
             Some(DefaultRepr::Bool(false)),
         )];
         const FLAT: &[Param] = &[Param::flatten(Some(INNER))];
-        assert_eq!(native_call_flags(&[arg(Some(FLAT))], false), keywords);
+        assert_eq!(native_call_flags(&[arg(Some(FLAT))]), keywords);
     }
 
     #[test]
@@ -996,7 +1179,7 @@ mod tests {
             SigArg::marker("$self"),
             SigArg::from_arg::<Wrapped>("callback"),
         ];
-        const FLAGS: PyMethodFlags = native_call_flags(ARGS, true);
+        const FLAGS: PyMethodFlags = native_call_flags(&[SigArg::from_arg::<Wrapped>("callback")]);
         assert_eq!(
             FLAGS,
             PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS)
@@ -1015,8 +1198,7 @@ mod tests {
             force_unpack_keywords: false,
         }];
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
-        assert_eq!(native_call_flags(ARGS, false), keywords);
-        assert_eq!(native_call_flags(ARGS, true), keywords);
+        assert_eq!(native_call_flags(ARGS), keywords);
         const N: usize = super::signature_prefix_len("example", ARGS);
         const TEXT: [u8; N] = super::signature_prefix_bytes::<N>("example", ARGS);
         assert_eq!(&TEXT, b"example()\n--\n\n");
@@ -1037,11 +1219,7 @@ mod tests {
             force_unpack_keywords: false,
         };
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
-        assert_eq!(native_call_flags(&[CUSTOM], false), keywords);
-        assert_eq!(
-            native_call_flags(&[SigArg::marker("$self"), CUSTOM], true),
-            keywords,
-        );
-        assert_eq!(native_call_flags(&[NESTED], false), keywords);
+        assert_eq!(native_call_flags(&[CUSTOM]), keywords);
+        assert_eq!(native_call_flags(&[NESTED]), keywords);
     }
 }

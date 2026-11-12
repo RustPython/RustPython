@@ -7,7 +7,10 @@
 use std::{
     ffi::OsString,
     io,
-    os::windows::{ffi::OsStringExt, io::AsRawHandle},
+    os::windows::{
+        ffi::{OsStrExt, OsStringExt},
+        io::AsRawHandle,
+    },
     path::Path,
 };
 
@@ -248,8 +251,8 @@ fn win32_attribute_data_to_stat(
     }
 }
 
-pub fn visible_env_vars() -> impl Iterator<Item = (String, String)> {
-    crate::os::vars().filter(|(key, _)| !key.starts_with('='))
+pub fn visible_env_vars() -> impl Iterator<Item = (OsString, OsString)> {
+    crate::os::vars_os().filter(|(key, _)| key.encode_wide().next() != Some(u16::from(b'=')))
 }
 
 #[derive(Debug)]

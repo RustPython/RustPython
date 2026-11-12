@@ -1,46 +1,100 @@
-use rustpython_vm::Interpreter;
+use rustpython_vm::{Interpreter, Settings, pymodule};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
-    fn kv_get(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
-
-    /// kp and kl are the key pointer and length in wasm memory, vp and vl are for the value
-    fn kv_put(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
-
     fn print(p: i32, l: i32) -> i32;
+    fn kv_put(key_ptr: i32, key_len: i32, value_ptr: i32, value_len: i32) -> i32;
+    fn kv_get(key_ptr: i32, key_len: i32, buf_ptr: i32, buf_len: i32) -> i32;
 }
 
+// The host writes source into guest-owned memory before calling eval.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> i32 {
-    // let src = unsafe { std::slice::from_raw_parts(s, l) };
-    // let src = std::str::from_utf8(src).unwrap();
-    // TODO: use src
-    let src = "1 + 3";
+pub extern "C" fn alloc_source(len: usize) -> *mut u8 {
+    Box::into_raw(vec![0u8; len].into_boxed_slice()).cast::<u8>()
+}
 
-    // 2. Execute Python code
-    let interpreter = Interpreter::without_stdlib(Default::default());
-    let result = interpreter.enter(|vm| {
-        let scope = vm.new_scope_with_builtins();
-        let res = match vm.run_block_expr(scope, src) {
-            Ok(val) => val,
-            Err(_) => return Err(-1), // Python execution error
-        };
-        let repr_str = match res.repr(vm) {
-            Ok(repr) => repr.to_string(),
-            Err(_) => return Err(-1), // Failed to get string representation
-        };
-        Ok(repr_str)
-    });
-    let result = match result {
-        Ok(r) => r,
-        Err(code) => return code,
+fn report(message: &str) {
+    unsafe { print(message.as_ptr() as i32, message.len() as i32) };
+}
+
+#[pymodule]
+mod kv {
+    use rustpython_vm::builtins::PyBytesRef;
+
+    #[pyfunction]
+    fn put(key: PyBytesRef, value: PyBytesRef) {
+        let key = key.as_bytes();
+        let value = value.as_bytes();
+        unsafe {
+            super::kv_put(
+                key.as_ptr() as i32,
+                key.len() as i32,
+                value.as_ptr() as i32,
+                value.len() as i32,
+            );
+        }
+    }
+
+    #[pyfunction]
+    fn get(key: PyBytesRef) -> Option<Vec<u8>> {
+        let key = key.as_bytes();
+        let key_ptr = key.as_ptr() as i32;
+        let key_len = key.len() as i32;
+        let mut buf = vec![0u8; 64];
+        loop {
+            let len = unsafe {
+                super::kv_get(key_ptr, key_len, buf.as_mut_ptr() as i32, buf.len() as i32)
+            };
+            // A negative length means the key is missing.
+            let len = usize::try_from(len).ok()?;
+            if len <= buf.len() {
+                buf.truncate(len);
+                return Some(buf);
+            }
+            buf.resize(len, 0);
+        }
+    }
+}
+
+/// Execute UTF-8 Python source. Return 0 on success, 1 for a Python exception,
+/// or 2 for invalid UTF-8. The result or exception is sent to env.print.
+///
+/// # Safety
+/// `source` must be the pointer returned by `alloc_source` for `len` bytes.
+/// This function takes ownership of that buffer and frees it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn eval(source: *mut u8, len: usize) -> i32 {
+    let bytes = unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(source, len)) };
+    let Ok(source) = std::str::from_utf8(&bytes) else {
+        report("source is not valid UTF-8");
+        return 2;
     };
 
-    let msg = format!("eval result: {result}");
-
-    unsafe { print(msg.as_str().as_ptr() as usize as i32, msg.len() as i32) };
-
-    0
+    // This no-OS example has no entropy provider. Use a deterministic hash seed
+    // rather than pretending that the custom getrandom backend produced bytes.
+    let mut settings = Settings::default();
+    settings.hash_seed = Some(0);
+    let builder = Interpreter::builder(settings);
+    let def = kv::module_def(&builder.ctx);
+    let interpreter = builder.add_native_module(def).build();
+    interpreter.enter(|vm| {
+        let scope = vm.new_scope_with_builtins();
+        match vm
+            .run_block_expr(scope, source)
+            .and_then(|value| value.repr_utf8(vm))
+        {
+            Ok(value) => {
+                report(value.as_str());
+                0
+            }
+            Err(exc) => {
+                let mut message = String::new();
+                vm.write_exception(&mut message, &exc).unwrap();
+                report(&message);
+                1
+            }
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -48,8 +102,5 @@ unsafe extern "Rust" fn __getrandom_v03_custom(
     _dest: *mut u8,
     _len: usize,
 ) -> Result<(), getrandom::Error> {
-    // Err(getrandom::Error::UNSUPPORTED)
-
-    // WARNING: This function **MUST** perform proper getrandom
-    Ok(())
+    Err(getrandom::Error::UNSUPPORTED)
 }

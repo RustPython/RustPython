@@ -22,6 +22,46 @@ subprocess.run(
     timeout=10,
 )
 
+# An omitted callback context captures registration context; an explicit None
+# delegates context selection to call_soon at completion. These are different
+# states even though an Option-based Rust argument used to collapse them.
+import asyncio
+import contextvars
+
+callback_value = contextvars.ContextVar("callback_value", default="unset")
+callback_loop = asyncio.new_event_loop()
+try:
+    for already_done in (False, True):
+        callback_events = []
+        callback_future = callback_loop.create_future()
+        if already_done:
+            callback_future.set_result(None)
+        callback_value.set("registration")
+        callback_future.add_done_callback(
+            lambda f: callback_events.append(("omitted", callback_value.get()))
+        )
+        callback_future.add_done_callback(
+            lambda f: callback_events.append(("none", callback_value.get())),
+            context=None,
+        )
+        explicit_context = contextvars.copy_context()
+        explicit_context.run(callback_value.set, "explicit")
+        callback_future.add_done_callback(
+            lambda f: callback_events.append(("explicit", callback_value.get())),
+            context=explicit_context,
+        )
+        callback_value.set("completion")
+        if not already_done:
+            callback_future.set_result(None)
+        callback_loop.run_until_complete(asyncio.sleep(0))
+        assert callback_events == [
+            ("omitted", "registration"),
+            ("none", "registration" if already_done else "completion"),
+            ("explicit", "explicit"),
+        ], callback_events
+finally:
+    callback_loop.close()
+
 if sys.implementation.name != "rustpython":
     sys.exit(0)
 

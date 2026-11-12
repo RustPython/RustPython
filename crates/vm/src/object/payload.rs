@@ -106,6 +106,10 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// Cyclic GC still calls tp_clear; freelists also require a cleared payload.
     const CLEAR_ON_DEALLOC: bool = true;
 
+    /// Release the references extracted by tp_clear in reverse order during
+    /// reference-counted destruction, as required by tuple deallocation.
+    const REVERSE_DEALLOC: bool = false;
+
     /// Whether this type has a freelist. Types with freelists require
     /// immediate (non-deferred) GC untracking during dealloc to prevent
     /// race conditions when the object is reused.

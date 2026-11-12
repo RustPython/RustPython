@@ -125,7 +125,7 @@ mod _symtable {
         let filename_obj = match &filename {
             FsPath::Str(filename) => filename.clone(),
             FsPath::Bytes(filename) => {
-                let filename = FsPath::bytes_as_os_str(filename.as_bytes(), vm)?.to_owned();
+                let filename = FsPath::bytes_as_os_str(filename.as_bytes(), vm)?.into_owned();
                 vm.fsdecode(filename)?
             }
         };
@@ -162,6 +162,7 @@ mod _symtable {
                 module.as_deref(),
             )
             .map_err(|err| match err {
+                VmCompileError::Exception(error) => error,
                 VmCompileError::Compile(err) => {
                     let err = vm.new_syntax_error(&err, Some(&source));
                     set_syntax_error_filename(err, &filename_obj, vm)

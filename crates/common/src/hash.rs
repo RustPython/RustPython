@@ -3,8 +3,8 @@ use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
 
-pub type PyHash = i64;
-pub type PyUHash = u64;
+pub type PyHash = isize;
+pub type PyUHash = usize;
 
 /// A PyHash value used to represent a missing hash value, e.g. means "not yet computed" for
 /// `str`'s hash cache
@@ -13,13 +13,14 @@ pub const SENTINEL: PyHash = -1;
 /// Prime multiplier used in string and various other hashes.
 pub const MULTIPLIER: PyHash = 1_000_003; // 0xf4243
 /// Numeric hashes are based on reduction modulo the prime 2**_BITS - 1
-pub const BITS: usize = 61;
+pub const BITS: usize = if usize::BITS >= 64 { 61 } else { 31 };
 pub const MODULUS: PyUHash = (1 << BITS) - 1;
 pub const INF: PyHash = 314_159;
 pub const NAN: PyHash = 0;
 pub const IMAG: PyHash = MULTIPLIER;
 pub const ALGO: &str = "siphash24";
-pub const HASH_BITS: usize = core::mem::size_of::<PyHash>() * 8;
+// SipHash24 produces 64 bits before conversion to the platform hash width.
+pub const HASH_BITS: usize = 64;
 // SipHasher24 takes 2 u64s as a seed
 pub const SEED_BITS: usize = core::mem::size_of::<u64>() * 2 * 8;
 
@@ -43,7 +44,10 @@ impl HashSecret {
     #[must_use]
     pub fn new(seed: u32) -> Self {
         let mut buf = [0u8; 16];
-        lcg_urandom(seed, &mut buf);
+        // CPython disables hash randomization with an all-zero secret.
+        if seed != 0 {
+            lcg_urandom(seed, &mut buf);
+        }
         let (left, right) = buf.split_at(8);
         let k0 = u64::from_le_bytes(left.try_into().unwrap());
         let k1 = u64::from_le_bytes(right.try_into().unwrap());
@@ -72,7 +76,7 @@ impl HashSecret {
             let item_hash = hash_func(element)?;
             item_hash.hash(&mut hasher);
         }
-        Ok(fix_sentinel(mod_int(hasher.finish() as PyHash)))
+        Ok(fix_sentinel(mod_int(hasher.finish() as i64)))
     }
 
     #[must_use]
@@ -81,17 +85,47 @@ impl HashSecret {
             0
         } else {
             let mut hasher = self.build_hasher();
-            // Keep the slice length prefix consistent with the 64-bit hash
-            // representation, including on 32-bit targets.
-            hasher.write_u64(value.len() as u64);
+            // Py_HashBuffer hashes the buffer directly, without Rust's slice
+            // length prefix or the modulus used for numeric hashes.
             hasher.write(value);
-            fix_sentinel(mod_int(hasher.finish() as PyHash))
+            fix_sentinel(hasher.finish() as PyHash)
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn hash_str(&self, value: &str) -> PyHash {
-        self.hash_bytes(value.as_bytes())
+        self.hash_wtf8(value.into())
+    }
+
+    /// Hash CPython's canonical native-endian Unicode storage, including surrogates.
+    #[inline]
+    #[must_use]
+    pub fn hash_wtf8(&self, value: &crate::wtf8::Wtf8) -> PyHash {
+        if value.as_bytes().is_ascii() {
+            return self.hash_bytes(value.as_bytes());
+        }
+        self.hash_non_ascii(value)
+    }
+
+    #[cold]
+    fn hash_non_ascii(&self, value: &crate::wtf8::Wtf8) -> PyHash {
+        let max = value.code_points().map(|cp| cp.to_u32()).max().unwrap_or(0);
+        let mut hasher = self.build_hasher();
+        if max <= 0xff {
+            for cp in value.code_points() {
+                hasher.write_u8(cp.to_u32() as u8);
+            }
+        } else if max <= 0xffff {
+            for cp in value.code_points() {
+                hasher.write(&(cp.to_u32() as u16).to_ne_bytes());
+            }
+        } else {
+            for cp in value.code_points() {
+                hasher.write(&cp.to_u32().to_ne_bytes());
+            }
+        }
+        fix_sentinel(hasher.finish() as PyHash)
     }
 }
 
@@ -154,8 +188,8 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
         mod_int(v)
     } else {
         // SAFETY:
-        // MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
-        unsafe { (value % MODULUS).to_i64().unwrap_unchecked() }
+        // MODULUS < isize::MAX, so the signed remainder fits in PyHash.
+        unsafe { (value % MODULUS).to_isize().unwrap_unchecked() }
     };
 
     fix_sentinel(ret)
@@ -164,7 +198,7 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
 #[inline]
 #[must_use]
 pub const fn hash_usize(data: usize) -> PyHash {
-    fix_sentinel(mod_int(data as i64))
+    fix_sentinel((data % MODULUS) as PyHash)
 }
 
 #[inline(always)]
@@ -176,7 +210,7 @@ pub const fn fix_sentinel(x: PyHash) -> PyHash {
 #[inline]
 #[must_use]
 pub const fn mod_int(value: i64) -> PyHash {
-    value % MODULUS as i64
+    (value % MODULUS as i64) as PyHash
 }
 
 pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
@@ -219,12 +253,23 @@ pub fn keyed_hash(key: u64, buf: &[u8]) -> u64 {
 pub fn hash_tuple<E>(
     element_hashes: impl IntoIterator<Item = Result<PyHash, E>>,
 ) -> Result<PyHash, E> {
-    // PyHash is 64-bit even on 32-bit targets, so the xxHash parameters
-    // must follow the hash width rather than the pointer width.
+    // CPython selects xxHash's constants and rotation by Py_hash_t width.
+    #[cfg(target_pointer_width = "64")]
     const PRIME1: PyUHash = 11400714785074694791;
+    #[cfg(target_pointer_width = "64")]
     const PRIME2: PyUHash = 14029467366897019727;
+    #[cfg(target_pointer_width = "64")]
     const PRIME5: PyUHash = 2870177450012600261;
+    #[cfg(target_pointer_width = "64")]
     const ROTATE: u32 = 31;
+    #[cfg(target_pointer_width = "32")]
+    const PRIME1: PyUHash = 2654435761;
+    #[cfg(target_pointer_width = "32")]
+    const PRIME2: PyUHash = 2246822519;
+    #[cfg(target_pointer_width = "32")]
+    const PRIME5: PyUHash = 374761393;
+    #[cfg(target_pointer_width = "32")]
+    const ROTATE: u32 = 13;
 
     let mut acc = PRIME5;
     let mut len: PyUHash = 0;
@@ -254,8 +299,7 @@ pub fn hash_tuple<E>(
 /// each element hash fallibly). The fold is commutative, so element order does
 /// not affect the result.
 pub struct FrozenSetHash {
-    // collections.abc.Set._hash uses sys.maxsize to mask this algorithm,
-    // even when PyHash is wider than the native pointer size.
+    // collections.abc.Set._hash uses sys.maxsize to mask this algorithm.
     hash: usize,
 }
 
@@ -291,7 +335,7 @@ impl FrozenSetHash {
         if hash == usize::MAX {
             hash = 590923713;
         }
-        hash as isize as PyHash
+        hash as PyHash
     }
 }
 
@@ -300,13 +344,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unicode_hash_uses_canonical_code_units() {
+        let secret = HashSecret::new(42);
+        for text in ["", "abc", "éÿ", "äú∑ℇ", "a𐀀b"] {
+            let max = text.chars().map(u32::from).max().unwrap_or(0);
+            let mut storage = alloc::vec::Vec::new();
+            for ch in text.chars() {
+                if max <= 0xff {
+                    storage.push(ch as u8);
+                } else if max <= 0xffff {
+                    storage.extend_from_slice(&(ch as u16).to_ne_bytes());
+                } else {
+                    storage.extend_from_slice(&(ch as u32).to_ne_bytes());
+                }
+            }
+            assert_eq!(secret.hash_str(text), secret.hash_bytes(&storage));
+        }
+        let surrogate = crate::wtf8::Wtf8Buf::from_wide(&[0xd800]);
+        assert_eq!(
+            secret.hash_wtf8(&surrogate),
+            secret.hash_bytes(&0xd800u16.to_ne_bytes())
+        );
+    }
+
+    #[test]
+    fn native_integer_key_hash_matches_bigint() {
+        for value in [0, 1, isize::MAX as usize, usize::MAX] {
+            assert_eq!(hash_usize(value), hash_bigint(&BigInt::from(value)));
+        }
+    }
+
+    #[test]
     fn frozenset_hash_matches_set_mixin_width() {
         for elements in [
             &[][..],
             &[0][..],
             &[-1, 1][..],
             &[1, 2, 3][..],
-            &[i64::MIN, i64::MAX][..],
+            &[PyHash::MIN, PyHash::MAX][..],
         ] {
             let mut hasher = FrozenSetHash::new(elements.len());
             let mask = usize::MAX as u128;
@@ -319,7 +394,7 @@ mod tests {
             }
             expected ^= (expected >> 11) ^ (expected >> 25);
             expected = (expected * 69069 + 907133923) & mask;
-            let expected = expected as usize as isize as PyHash;
+            let expected = expected as usize as PyHash;
             let expected = if expected == -1 { 590923713 } else { expected };
             assert_eq!(hasher.finish(), expected);
         }
@@ -327,11 +402,16 @@ mod tests {
 
     #[test]
     fn tuple_hash_uses_the_declared_hash_width() {
-        for (elements, expected) in [
-            (&[][..], 5740354900026072187),
-            (&[0][..], -8753497827991233192),
-            (&[0, 0][..], -8458139203682520985),
+        for (elements, expected64, expected32) in [
+            (&[][..], 5740354900026072187i64, 750394483),
+            (&[0][..], -8753497827991233192, 1214856301),
+            (&[0, 0][..], -8458139203682520985, -168982784),
         ] {
+            let expected = if usize::BITS == 64 {
+                expected64 as PyHash
+            } else {
+                expected32
+            };
             let actual = hash_tuple(elements.iter().copied().map(Ok::<_, ()>)).unwrap();
             assert_eq!(actual, expected);
         }
@@ -341,7 +421,7 @@ mod tests {
     fn from_keys_is_stable_and_seed_independent() {
         const K0: u64 = 0x0706_0504_0302_0100;
         const K1: u64 = 0x0f0e_0d0c_0b0a_0908;
-        const LOCKED_DIGEST: PyHash = -1862661396243998188;
+        const LOCKED_DIGEST: PyHash = 424532722944612153u64 as PyHash;
 
         // Two secrets built from the same explicit keys hash identically, and
         // the digest does not depend on the seed-derivation path.

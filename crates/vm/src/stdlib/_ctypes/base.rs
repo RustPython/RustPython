@@ -1234,8 +1234,7 @@ impl CDataValue {
                         .as_slice()
                         .first()
                         .and_then(|arg| arg.downcast_ref::<PyStr>())
-                        .map(|s| s.to_string())
-                        .unwrap_or_default();
+                        .map_or_default(|s| s.to_string());
                     vm.new_runtime_error(format!(
                         "({}) {}: {message}",
                         proto.name(),

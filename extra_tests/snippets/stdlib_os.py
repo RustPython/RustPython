@@ -817,3 +817,82 @@ def nonblocking_windows_pipe():
 
 if os.name == "nt":
     nonblocking_windows_pipe()
+
+
+if os.name == "nt":
+    # Windows filesystem bytes preserve lone surrogates via surrogatepass.
+    import nt
+
+    for character in ("\ud800", "\udcff", "\udfff"):
+        path = "C:\\" + character + "\\leaf"
+        encoded = os.fsencode(path)
+        assert nt._path_splitroot_ex(encoded) == (
+            b"C:",
+            b"\\",
+            os.fsencode(character + "\\leaf"),
+        )
+        assert nt._path_normpath(encoded) == encoded
+    for operation in (nt._path_splitroot_ex, nt._path_normpath):
+        with assert_raises(UnicodeDecodeError):
+            operation(b"\xff")
+
+    # Exercise the shared bytes-to-native-path converter, not only nt helpers.
+    # A surrogate pair encoded as two surrogatepass sequences must also become
+    # the same native UTF-16 path as its non-BMP character spelling.
+    with tempfile.TemporaryDirectory() as directory:
+        for character in ("\ud800", "\udcff", "\udfff", "\ud800\udc00"):
+            path = os.path.join(directory, character)
+            encoded = os.fsencode(path)
+            os.mkdir(encoded)
+            try:
+                native_path = (
+                    os.path.join(directory, "\U00010000")
+                    if character == "\ud800\udc00"
+                    else path
+                )
+                assert stat.S_ISDIR(os.stat(native_path).st_mode)
+                assert stat.S_ISDIR(os.stat(encoded).st_mode)
+            finally:
+                os.rmdir(encoded)
+        for invalid in (b"\xff", b"\xed\xa0", b"\xc0\x80"):
+            with assert_raises(UnicodeDecodeError):
+                os.mkdir(os.fsencode(directory) + b"\\" + invalid)
+
+    # CreateProcess must preserve UTF-16 environment keys and values, including
+    # lone surrogates. Valid pairs become a single code point on import.
+    # Normalization keeps the last caseless key; CRT environ hides drive entries.
+    import subprocess
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "RUSTPYTHON_SURROGATE_VALUE": "\ud800\udcff\udfff",
+            "RUSTPYTHON_\ud800_KEY": "surrogate key",
+            "\u00e9_FIRST": "non-ASCII initial",
+            "RustPython_Case_Test": "first",
+            "RUSTPYTHON_CASE_TEST": "last",
+            "=Z:": "Z:\\",
+        }
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            "import os; "
+            "assert os.environ['RUSTPYTHON_SURROGATE_VALUE'] == '\\U000100ff\\udfff'; "
+            "assert os.environ['RUSTPYTHON_\\ud800_KEY'] == 'surrogate key'; "
+            "assert os.environ['\\u00e9_FIRST'] == 'non-ASCII initial'; "
+            "assert os.environ['RUSTPYTHON_CASE_TEST'] == 'last'; "
+            "assert '=Z:' not in os.environ",
+        ],
+        env=environment,
+        check=True,
+    )
+    # Key normalization reaches LCMapStringEx before the validation pass.
+    with assert_raises(OSError) as error:
+        subprocess.run([sys.executable, "-S", "-c", "pass"], env={"": "x"})
+    assert error.exception.winerror == 87
+    for key, value in (("a=b", "x"), ("a\0b", "x"), ("a", "b\0c")):
+        with assert_raises(ValueError):
+            subprocess.run([sys.executable, "-S", "-c", "pass"], env={key: value})

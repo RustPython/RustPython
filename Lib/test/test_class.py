@@ -555,7 +555,6 @@ class ClassTests(unittest.TestCase):
         self.assertFalse(hasattr(o, "__call__"))
         self.assertFalse(hasattr(c, "__call__"))
 
-    @unittest.skip("TODO: RUSTPYTHON; segmentation fault")
     @support.skip_if_huge_c_stack()
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
@@ -1018,8 +1017,6 @@ class TestInlineValues(unittest.TestCase):
     @support.nomemtest
     @isolation.runInSubprocess()
     def test_detach_materialized_dict_no_memory(self):
-        import _testcapi
-
         class A:
             def __init__(self):
                 self.a = 1
@@ -1034,11 +1031,8 @@ class TestInlineValues(unittest.TestCase):
             d = a.__dict__
             try:
                 with support.catch_unraisable_exception() as ex:
-                    _testcapi.set_nomemory(n, n + 1)
-                    try:
+                    with support.inject_memory_error_cm(n, n + 1):
                         del a
-                    finally:
-                        _testcapi.remove_mem_hooks()
                     exc_type = ex.unraisable and ex.unraisable.exc_type
             except MemoryError:
                 # The failing allocation was not in the deallocation code.

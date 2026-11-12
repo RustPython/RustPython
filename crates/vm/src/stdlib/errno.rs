@@ -25,7 +25,6 @@ mod errno_mod {
 
 pub use rustpython_host_env::errno::errors;
 
-#[cfg(any(unix, windows, target_os = "wasi"))]
 macro_rules! e {
     ($name:ident) => {
         (stringify!($name), errors::$name as _)
@@ -722,7 +721,10 @@ const ERROR_CODES: &[(&str, i32)] = &[
     ),
     e!(cfg(target_vendor = "apple"), EPWROFF),
     e!(cfg(target_vendor = "apple"), EQFULL),
-    e!(cfg(target_vendor = "apple"), ENOTCAPABLE),
+    e!(
+        cfg(any(target_vendor = "apple", target_os = "wasi")),
+        ENOTCAPABLE
+    ),
     e!(
         cfg(any(
             target_os = "dragonfly",
@@ -749,4 +751,36 @@ const ERROR_CODES: &[(&str, i32)] = &[
 ];
 
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
-const ERROR_CODES: &[(&str, i32)] = &[];
+const ERROR_CODES: &[(&str, i32)] = &[
+    e!(EPERM),
+    e!(ENOENT),
+    e!(ESRCH),
+    e!(EINTR),
+    e!(EIO),
+    e!(EBADF),
+    e!(ECHILD),
+    e!(EACCES),
+    e!(EEXIST),
+    e!(ENOTDIR),
+    e!(EISDIR),
+    e!(EINVAL),
+    e!(EMFILE),
+    e!(EFBIG),
+    e!(ENOSPC),
+    e!(ESPIPE),
+    e!(EROFS),
+    e!(EPIPE),
+    e!(EAGAIN),
+    e!(EWOULDBLOCK),
+    e!(EINPROGRESS),
+    e!(EALREADY),
+    e!(ENOTSUP),
+    e!(EAFNOSUPPORT),
+    e!(ECONNABORTED),
+    e!(ECONNRESET),
+    e!(ETIMEDOUT),
+    e!(ECONNREFUSED),
+    e!(ENAMETOOLONG),
+    e!(EOVERFLOW),
+    e!(ENOTCAPABLE),
+];

@@ -665,6 +665,12 @@ def test_non_ascii_dialect_chars():
 test_non_ascii_dialect_chars()
 
 
+# Reject the name before validating conflicting dialect arguments.
+with assert_raises(TypeError) as error:
+    _csv.register_dialect(1, None, dialect=None)
+assert str(error.exception) == "dialect name must be a string"
+
+
 def test_dialect_name_hashing():
     class UnhashableName:
         def __hash__(self):

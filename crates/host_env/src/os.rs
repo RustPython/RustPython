@@ -74,7 +74,7 @@ pub const AT_EACCESS: i32 = 0x200;
 pub use libc::{ST_NOSUID, ST_RDONLY};
 
 /// `open(2)` flags. libc on hosts that bind them; Darwin/BSD numbers on
-/// `wasm32-unknown-unknown`, matching the guest errno table.
+/// `wasm32-unknown-unknown`. These flags are independent of errno values.
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
@@ -846,7 +846,17 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(std::ffi::OsStr::from_bytes(b))
 }
 
-#[cfg(not(any(unix, all(target_os = "wasi", not(target_env = "p2")))))]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
+    // SAFETY: this target stores OsStr as an unvalidated byte string.
+    Ok(unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(b) })
+}
+
+#[cfg(not(any(
+    unix,
+    all(target_os = "wasi", not(target_env = "p2")),
+    all(target_arch = "wasm32", target_os = "unknown"),
+)))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(core::str::from_utf8(b)?.as_ref())
 }

@@ -1618,49 +1618,128 @@ impl VirtualMachine {
 
     #[cfg(feature = "threading")]
     pub(super) fn new_thread_vm(&self) -> Self {
-        let global_trace = self.state.global_trace_func.lock().clone();
-        let global_profile = self.state.global_profile_func.lock().clone();
-        let use_tracing = global_trace.is_some() || global_profile.is_some();
+        InterpreterThreadRoots::new(self).into_vm(
+            self.state.clone(),
+            self.recursion_limit.get(),
+            self.thread_factory.clone(),
+        )
+    }
+}
 
+/// Shared roots needed to create a thread state, without sharing any mutable
+/// thread-local VM fields. VMs own this factory; the runtime registry is weak.
+#[cfg(feature = "threading")]
+pub(crate) struct InterpreterThreadFactory {
+    roots: InterpreterThreadRoots,
+    pub(crate) recursion_limit: crossbeam_utils::atomic::AtomicCell<usize>,
+}
+
+#[cfg(feature = "threading")]
+#[derive(Clone)]
+struct InterpreterThreadRoots {
+    builtins: crate::PyRef<crate::builtins::PyModule>,
+    sys_module: crate::PyRef<crate::builtins::PyModule>,
+    ctx: crate::common::rc::PyRc<crate::Context>,
+    wasm_id: Option<String>,
+    import_func: PyObjectRef,
+    importlib: PyObjectRef,
+    initialized: bool,
+    import_bootstrap_complete: bool,
+    callable_cache: super::CallableCache,
+    startup_error: Option<PyBaseExceptionRef>,
+}
+
+#[cfg(feature = "threading")]
+impl InterpreterThreadRoots {
+    fn new(vm: &VirtualMachine) -> Self {
         Self {
-            builtins: self.builtins.clone(),
-            sys_module: self.sys_module.clone(),
-            ctx: self.ctx.clone(),
+            builtins: vm.builtins.clone(),
+            sys_module: vm.sys_module.clone(),
+            ctx: vm.ctx.clone(),
+            wasm_id: vm.wasm_id.clone(),
+            import_func: vm.import_func.clone(),
+            importlib: vm.importlib.clone(),
+            initialized: vm.initialized,
+            import_bootstrap_complete: vm.import_bootstrap_complete,
+            callable_cache: vm.callable_cache.clone(),
+            startup_error: vm.startup_error.clone(),
+        }
+    }
+
+    fn into_vm(
+        self,
+        state: crate::common::rc::PyRc<PyGlobalState>,
+        recursion_limit: usize,
+        factory: Option<Arc<InterpreterThreadFactory>>,
+    ) -> VirtualMachine {
+        let global_trace = state.global_trace_func.lock().clone();
+        let global_profile = state.global_profile_func.lock().clone();
+        let use_tracing = global_trace.is_some() || global_profile.is_some();
+        let profile_func = RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none()));
+        let trace_func = RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none()));
+
+        VirtualMachine {
+            thread_factory: factory,
+            builtins: self.builtins,
+            sys_module: self.sys_module,
+            ctx: self.ctx,
             datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
-            wasm_id: self.wasm_id.clone(),
+            wasm_id: self.wasm_id,
             exceptions: RefCell::default(),
-            import_func: self.import_func.clone(),
-            importlib: self.importlib.clone(),
+            import_func: self.import_func,
+            importlib: self.importlib,
             import_timing: Cell::default(),
-            profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
-            trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
+            profile_func,
+            trace_func,
             use_tracing: Cell::new(use_tracing),
             what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
-            recursion_limit: self.recursion_limit.clone(),
+            recursion_limit: Cell::new(recursion_limit),
             signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,
             repr_guards: RefCell::default(),
             lazy_imports_resolving: RefCell::default(),
-            state: self.state.clone(),
+            state,
             initialized: self.initialized,
             import_bootstrap_complete: self.import_bootstrap_complete,
-            startup_error: self.startup_error.clone(),
+            startup_error: self.startup_error,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl", target_arch = "wasm32"))]
             native_recursion_depth: Cell::new(0),
-            c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
+            c_stack_soft_limit: Cell::new(VirtualMachine::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             context_stack: RefCell::default(),
-            callable_cache: self.callable_cache.clone(),
+            callable_cache: self.callable_cache,
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
             async_exception: super::async_exception::PendingAsyncException::default(),
+        }
+    }
+}
+
+#[cfg(feature = "threading")]
+impl InterpreterThreadFactory {
+    pub(super) fn new(vm: &VirtualMachine) -> Self {
+        Self {
+            roots: InterpreterThreadRoots::new(vm),
+            recursion_limit: crossbeam_utils::atomic::AtomicCell::new(vm.recursion_limit.get()),
+        }
+    }
+
+    pub(crate) fn new_thread(
+        self: &Arc<Self>,
+        state: crate::common::rc::PyRc<PyGlobalState>,
+    ) -> ThreadedVirtualMachine {
+        ThreadedVirtualMachine {
+            vm: self
+                .roots
+                .clone()
+                .into_vm(state, self.recursion_limit.load(), Some(self.clone())),
         }
     }
 }

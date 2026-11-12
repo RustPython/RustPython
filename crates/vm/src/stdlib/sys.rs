@@ -45,7 +45,7 @@ pub mod sys {
         },
         convert::ToPyObject,
         frame::FrameObjectRef,
-        function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
+        function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::_warnings::warn,
         types::PyStructSequence,
         version,
@@ -258,8 +258,7 @@ pub mod sys {
     fn vpath(vm: &VirtualMachine) -> String {
         crate::getpath::source_directory(&vm.state.config.paths)
             .and_then(|source| std::path::absolute(source).ok())
-            .map(|source| source.to_string_lossy().into_owned())
-            .unwrap_or_default()
+            .map_or_default(|source| source.to_string_lossy().into_owned())
     }
 
     #[cfg(windows)]
@@ -706,14 +705,13 @@ pub mod sys {
             .collect()
     }
 
-    #[pyattr]
-    fn path(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    pub(super) fn path(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         vm.state
             .config
             .paths
             .module_search_paths
             .iter()
-            .map(|path| vm.ctx.new_str(path.clone()).into())
+            .map(|path| vm.fsdecode(path.clone()).map(Into::into))
             .collect()
     }
 
@@ -838,10 +836,7 @@ pub mod sys {
 
     #[pyfunction]
     fn call_tracing(func: PyObjectRef, args: PyTupleRef, vm: &VirtualMachine) -> PyResult {
-        // CPython temporarily enables tracing state around this call.
-        // RustPython does not currently model the full C-level tracing toggles,
-        // but call semantics (func(*args)) are matched.
-        func.call(PosArgs::new(args.as_slice().to_vec()), vm)
+        vm.with_tracing_enabled(|| func.call(PosArgs::new(args.as_slice().to_vec()), vm))
     }
 
     #[pyfunction]
@@ -1327,110 +1322,100 @@ pub mod sys {
         Ok(PyWindowsVersion::from_data(winver, vm))
     }
 
-    fn _unraisablehook(unraisable: UnraisableHookArgsData, vm: &VirtualMachine) -> PyResult<()> {
-        use super::PyStderr;
-
-        let stderr = PyStderr(vm);
-        if !vm.is_none(&unraisable.object) {
-            if !vm.is_none(&unraisable.err_msg) {
-                write!(stderr, "{}: ", unraisable.err_msg.str(vm)?);
-            } else {
-                write!(stderr, "Exception ignored in: ");
-            }
-            // exception in del will be ignored but printed
-            let repr = &unraisable.object.repr(vm);
-            let str = match repr {
-                Ok(v) => v.to_string(),
-                Err(_) => format!(
-                    "<object {} repr() failed>",
-                    unraisable.object.class().name()
-                ),
-            };
-            writeln!(stderr, "{str}");
-        } else if !vm.is_none(&unraisable.err_msg) {
-            writeln!(stderr, "{}:", unraisable.err_msg.str(vm)?);
-        }
-
-        // Print traceback (using actual exc_traceback, not current stack)
-        if !vm.is_none(&unraisable.exc_traceback) {
-            let tb_module = vm.import("traceback", 0)?;
-            let print_tb = tb_module.get_attr("print_tb", vm)?;
-            let stderr_obj = super::get_stderr(vm)?;
-            let kwargs: KwArgs = core::iter::once(("file".to_string(), stderr_obj)).collect();
-            let _ = print_tb.call(
-                FuncArgs::new(vec![unraisable.exc_traceback.clone()], kwargs),
-                vm,
-            );
-        }
-
-        // Check exc_type
-        if vm.is_none(unraisable.exc_type.as_object()) {
+    /// Shared by sys.__unraisablehook__ and the fallback when a user hook fails.
+    /// Only the outer unraisable dispatcher discards reporting failures.
+    pub(crate) fn write_unraisable(
+        unraisable: UnraisableHookArgsData,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let Some(file) = vm.sys_module.dict().get_item_opt("stderr", vm)? else {
+            return Ok(());
+        };
+        if vm.is_none(&file) {
             return Ok(());
         }
-        assert!(
-            unraisable
-                .exc_type
-                .fast_issubclass(vm.ctx.exceptions.base_exception_type)
-        );
+        let write = |value: PyObjectRef| vm.call_method(&file, "write", (value,)).map(drop);
+        let text = |value: &str| write(vm.ctx.new_str(value).into());
 
-        // Print module name (if not builtins or __main__).
-        // A failed lookup or a non-str `__module__` is discarded: print
-        // `<unknown>` with no trailing `.`, then the qualname.
-        let module_name = unraisable.exc_type.__module__(vm).ok();
+        if !vm.is_none(&unraisable.object) {
+            if !vm.is_none(&unraisable.err_msg) {
+                write(unraisable.err_msg.str(vm)?.into())?;
+                text(": ")?;
+            } else {
+                text("Exception ignored in: ")?;
+            }
+            if unraisable
+                .object
+                .repr(vm)
+                .and_then(|value| write(value.into()))
+                .is_err()
+            {
+                text("<object repr() failed>")?;
+            }
+            text("\n")?;
+        } else if !vm.is_none(&unraisable.err_msg) {
+            write(unraisable.err_msg.str(vm)?.into())?;
+            text(":\n")?;
+        }
+
+        if vm.try_display_exception_to(&file, &unraisable.exc_value) {
+            return Ok(());
+        }
+
+        // Imports can fail during teardown. Keep a native fallback, and keep
+        // printing the exception even if writing its traceback fails.
+        if let Ok(traceback) = unraisable
+            .exc_traceback
+            .downcast::<crate::builtins::PyTraceback>()
+        {
+            let mut writer = crate::py_io::PyWriter(file.clone(), vm);
+            let _ = crate::exceptions::write_traceback(&mut writer, &traceback, vm);
+        }
+
+        let module_name = unraisable
+            .exc_type
+            .as_object()
+            .get_attr("__module__", vm)
+            .ok();
         if let Some(module_str) = module_name
             .as_ref()
             .and_then(|name| name.downcast_ref::<PyStr>())
         {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {
-                write!(stderr, "{module}.");
+                write(module_str.to_owned().into())?;
+                text(".")?;
             }
         } else {
-            write!(stderr, "<unknown>");
+            text("<unknown>")?;
         }
 
-        // Print qualname
         let qualname = unraisable.exc_type.__qualname__(vm);
         if let Ok(qualname_str) = qualname.downcast::<PyStr>() {
-            write!(stderr, "{}", qualname_str.as_wtf8());
+            write(qualname_str.into())?;
         } else {
-            write!(stderr, "{}", unraisable.exc_type.name());
+            text("<unknown>")?;
         }
 
-        // Print exception value
         if !vm.is_none(&unraisable.exc_value) {
-            write!(stderr, ": ");
-            if let Ok(str) = unraisable.exc_value.str(vm) {
-                write!(stderr, "{}", str.as_wtf8());
-            } else {
-                write!(stderr, "<exception str() failed>");
+            text(": ")?;
+            if unraisable
+                .exc_value
+                .str(vm)
+                .and_then(|value| write(value.into()))
+                .is_err()
+            {
+                text("<exception str() failed>")?;
             }
         }
-        writeln!(stderr);
-
-        // Flush stderr
-        if let Ok(stderr_obj) = super::get_stderr(vm)
-            && let Ok(flush) = stderr_obj.get_attr("flush", vm)
-        {
-            let _ = flush.call((), vm);
-        }
-
-        Ok(())
+        text("\n")?;
+        vm.call_method(&file, "flush", ()).map(drop)
     }
 
     #[pyattr]
     #[pyfunction(name = "__unraisablehook__")]
-    fn unraisablehook(unraisable: UnraisableHookArgsData, vm: &VirtualMachine) {
-        if let Err(e) = _unraisablehook(unraisable, vm) {
-            let stderr = super::PyStderr(vm);
-            writeln!(
-                stderr,
-                "{}",
-                e.as_object()
-                    .repr(vm)
-                    .unwrap_or_else(|_| vm.ctx.empty_str.to_owned())
-            );
-        }
+    fn unraisablehook(unraisable: UnraisableHookArgsData, vm: &VirtualMachine) -> PyResult<()> {
+        write_unraisable(unraisable, vm)
     }
 
     #[pyattr]
@@ -1504,6 +1489,10 @@ pub mod sys {
 
         if limit > recursion_depth {
             vm.recursion_limit.set(limit);
+            #[cfg(feature = "threading")]
+            if let Some(factory) = &vm.thread_factory {
+                factory.recursion_limit.store(limit);
+            }
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(
@@ -2212,6 +2201,7 @@ pub(crate) fn init_module(
     sys::module_exec(vm, module)?;
     // These values decode OS bytes and can fail before the codec registry is ready.
     // Initialize them outside infallible #[pyattr] functions so startup can report errors.
+    module.set_attr("path", vm.ctx.new_list(sys::path(vm)?), vm)?;
     module.set_attr("argv", vm.ctx.new_list(sys::argv(vm)?), vm)?;
     module.set_attr("orig_argv", vm.ctx.new_list(sys::orig_argv(vm)?), vm)?;
     module.set_attr(

@@ -16,5 +16,8 @@ pub mod grapheme;
 pub mod identifier;
 pub mod normalize;
 
-pub use data::{LookupResult, Ucd, character_name, lookup_character, lookup_name, unicode_version};
+pub use data::{
+    LookupResult, UNICODE_VERSION, UNICODE_VERSION_LEGACY, Ucd, character_name, lookup_character,
+    lookup_name,
+};
 pub use normalize::{NormalizeForm, is_normalized, normalize};

@@ -16,8 +16,8 @@ use rustpython_common::{
 };
 
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef,
         PyTuple, PyTupleRef, PyUtf8Str, PyUtf8StrRef,
@@ -1240,6 +1240,15 @@ impl DecodeContext for PyDecodeContext<'_> {
         Ok(())
     }
 
+    fn load_unicode_names(&self) -> Result<(), Self::Error> {
+        self.vm.load_unicode_names().map_err(|_| {
+            self.vm.new_exception_msg(
+                self.vm.ctx.exceptions.unicode_error.to_owned(),
+                "\\N escapes not supported (can't load unicodedata module)".into(),
+            )
+        })
+    }
+
     fn error_decoding(&self, byte_range: Range<usize>, reason: Option<&str>) -> Self::Error {
         let vm = self.vm;
 
@@ -1426,18 +1435,24 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
             Some([replace, restart]) => (replace.clone(), restart),
             _ => return Err(tuple_err()),
         };
+        let restart = isize::try_from(restart.try_index(vm)?.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))?;
         let replace = match_class!(match replace {
             s @ PyStr => EncodeReplace::Str(s),
             b @ PyBytes => EncodeReplace::Bytes(b),
             _ => return Err(tuple_err()),
         });
-        let restart = isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
         let restart = if restart < 0 {
-            // will still be out of bounds if it underflows ¯\_(ツ)_/¯
-            ctx.data.char_len().wrapping_sub(restart.unsigned_abs())
+            ctx.data.char_len() as isize + restart
         } else {
-            restart as usize
+            restart
         };
+        if restart < 0 || restart as usize > ctx.data.char_len() {
+            return Err(vm.new_index_error(format!(
+                "position {restart} from error handler out of bounds"
+            )));
+        }
+        let restart = restart as usize;
         let restart = if restart == range.end.chars {
             range.end
         } else {
@@ -1730,6 +1745,7 @@ fn backslashreplace_errors(
 
 fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_err(&err, vm) {
+        vm.load_unicode_names()?;
         call_native_encode_error(errors::NameReplace, err, vm)
     } else {
         Err(bad_err_type(&err, vm))

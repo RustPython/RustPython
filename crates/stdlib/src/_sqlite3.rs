@@ -66,8 +66,8 @@ mod _sqlite3 {
         },
         function::{
             ArgCallable, ArgIntoBool, ArgIntoFloat, ArgIterable, ArgStrOrBytesLike, ArgStrictInt,
-            FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue,
-            UnpackKeywords,
+            ArgumentError, FromArgs, FsPath, FuncArgs, KwArgs, OptionalArg, Param,
+            PyComparisonValue, PySetterValue, UnpackKeywords,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -410,7 +410,7 @@ mod _sqlite3 {
         cached_statements: c_int,
         #[pyarg(named, default = ArgIntoBool::FALSE)]
         uri: ArgIntoBool,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "sqlite3.LEGACY_TRANSACTION_CONTROL")]
         autocommit: AutocommitMode,
     }
 
@@ -432,7 +432,7 @@ mod _sqlite3 {
         progress: Option<PyObjectRef>,
         #[pyarg(named, default = "main")]
         name: SqliteStringArg,
-        #[pyarg(named, default = 0.250)]
+        #[pyarg(named, default = 0.25)]
         sleep: ArgIntoFloat,
     }
 
@@ -943,8 +943,21 @@ mod _sqlite3 {
         }
     }
 
+    // CPython displays the Connection parameters but forwards the original call
+    // to a custom factory without validating or converting those parameters.
+    struct ConnectForwardArgs(FuncArgs);
+
+    impl FromArgs for ConnectForwardArgs {
+        const PARAMS: Option<&'static [Param]> = ConnectArgs::PARAMS;
+        const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            FuncArgs::from_args(vm, args).map(Self)
+        }
+    }
+
     #[pyfunction]
-    fn connect(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn connect(ConnectForwardArgs(args): ConnectForwardArgs, vm: &VirtualMachine) -> PyResult {
         if args.args.len() > 1 {
             return Err(vm.new_type_error(format!(
                 "connect() takes at most 1 positional arguments ({} given)",
@@ -1043,13 +1056,18 @@ mod _sqlite3 {
         alt(obj)
     }
 
-    #[pyfunction]
-    fn adapt(
+    #[derive(FromArgs)]
+    struct AdaptArgs {
+        #[pyarg(positional)]
         obj: PyObjectRef,
+        #[pyarg(positional, default, py_default = "PrepareProtocolType")]
         proto: OptionalArg<Option<PyTypeRef>>,
+        #[pyarg(positional, optional)]
         alt: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    }
+
+    #[pyfunction]
+    fn adapt(AdaptArgs { obj, proto, alt }: AdaptArgs, vm: &VirtualMachine) -> PyResult {
         if matches!(proto, OptionalArg::Present(None)) {
             return if let OptionalArg::Present(alt) = alt {
                 Ok(alt)
@@ -1206,6 +1224,7 @@ mod _sqlite3 {
         type Args = ConnectArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            vm.audit("sqlite3.connect", || (args.database.clone(),))?;
             // Finish filesystem conversion before invalidating an existing connection.
             let database = FsPath::try_from_object(vm, args.database.clone())?;
             let path = database.to_cstring(vm)?;
@@ -1280,8 +1299,7 @@ mod _sqlite3 {
                     *zelf.autocommit.lock() = autocommit;
                     *zelf.thread_ident.lock() = std::thread::current().id();
                     *current = Some(db);
-                    Radium::store(&zelf.initialized, true, Ordering::Release);
-                    return Ok(());
+                    break;
                 }
                 drop(current);
 
@@ -1293,6 +1311,12 @@ mod _sqlite3 {
                     zelf.drop_db(vm)
                 })?;
             }
+            vm.audit("sqlite3.connect/handle", || (zelf.to_owned(),))?;
+            Radium::store(&zelf.initialized, true, Ordering::Release);
+            if autocommit == AutocommitMode::Disabled {
+                zelf._db_lock(vm)?._exec(c"BEGIN", vm)?;
+            }
+            Ok(())
         }
     }
 
@@ -1443,9 +1467,6 @@ mod _sqlite3 {
             if let Some(isolation_level) = &args.isolation_level.0 {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
-            if args.autocommit == AutocommitMode::Disabled {
-                db._exec(c"BEGIN", vm)?;
-            }
             Ok(db)
         }
 
@@ -1455,18 +1476,19 @@ mod _sqlite3 {
         }
 
         fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<SqliteOperation> {
+            if !self.initialized.load(Ordering::Acquire) {
+                return Err(new_programming_error(
+                    vm,
+                    "Base Connection.__init__ not called.".to_owned(),
+                ));
+            }
             let guard = self.db.lock();
             if let Some(db) = guard.as_ref() {
                 Ok(SqliteOperation(db.clone()))
-            } else if self.initialized.load(Ordering::Acquire) {
-                Err(new_programming_error(
-                    vm,
-                    "Cannot operate on a closed database.".to_owned(),
-                ))
             } else {
                 Err(new_programming_error(
                     vm,
-                    "Base Connection.__init__ not called.".to_owned(),
+                    "Cannot operate on a closed database.".to_owned(),
                 ))
             }
         }
@@ -2207,8 +2229,9 @@ mod _sqlite3 {
         }
 
         #[pygetset]
-        fn isolation_level(zelf: &Py<Self>) -> Option<PyStrRef> {
-            zelf.isolation_level.deref().map(|x| x.to_owned())
+        fn isolation_level(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+            zelf._db_lock(vm)?;
+            Ok(zelf.isolation_level.deref().map(|x| x.to_owned()))
         }
         #[pygetset(setter)]
         fn set_isolation_level(
@@ -2236,13 +2259,14 @@ mod _sqlite3 {
         }
 
         #[pygetset]
-        fn autocommit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        fn autocommit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.check_open(vm)?;
             let mode = *zelf.autocommit.lock();
-            match mode {
+            Ok(match mode {
                 AutocommitMode::Enabled => vm.ctx.true_value.clone().into(),
                 AutocommitMode::Disabled => vm.ctx.false_value.clone().into(),
                 AutocommitMode::Legacy => vm.ctx.new_int(LEGACY_TRANSACTION_CONTROL).into(),
-            }
+            })
         }
         #[pygetset(setter)]
         fn set_autocommit(zelf: &Py<Self>, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

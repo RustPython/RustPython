@@ -3,7 +3,6 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyListRef, PyStrInterned, pystr::AsPyStr},
     function::IntoFuncArgs,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    stdlib::sys,
     vm::VirtualMachine,
 };
 
@@ -68,23 +67,29 @@ impl VirtualMachine {
     }
 
     pub(crate) fn flush_std(&self) -> i32 {
-        let vm = self;
-        let status = if let Ok(stdout) = sys::get_stdout(vm)
-            && !vm.is_none(&stdout)
-            && !vm.file_is_closed(&stdout)
-            && let Err(e) = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ())
-        {
-            vm.run_unraisable(e, None, stdout);
-            -1
-        } else {
-            0
-        };
-
-        if let Ok(stderr) = sys::get_stderr(vm)
-            && !vm.is_none(&stderr)
-            && !vm.file_is_closed(&stderr)
-        {
-            let _ = vm.call_method(&stderr, identifier!(vm, flush).as_str(), ());
+        let mut status = 0;
+        for name in ["stdout", "stderr"] {
+            // Keep the stream alive until its failure has been reported: a
+            // flush or hook can replace the reference stored in sys.__dict__.
+            let file = self.sys_module.dict().get_item_opt(name, self);
+            let result = match &file {
+                Ok(Some(file)) if !self.is_none(file) && !self.file_is_closed(file) => {
+                    self.call_method(file, "flush", ()).map(drop)
+                }
+                Ok(_) => Ok(()),
+                Err(error) => Err(error.clone()),
+            };
+            if let Err(error) = result {
+                status = -1;
+                if name == "stdout" {
+                    self.run_unraisable(
+                        error,
+                        Some("Exception ignored while flushing sys.stdout".to_owned()),
+                        self.ctx.none(),
+                    );
+                }
+                // Reporting a stderr failure could require the broken stream.
+            }
         }
         status
     }

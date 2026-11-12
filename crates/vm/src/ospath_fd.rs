@@ -3,7 +3,6 @@ use crate::{
     class::StaticType,
     convert::{IntoPyException, ToPyObject, TryFromObject},
     exceptions::OSErrorBuilder,
-    function::FsPath,
     ospath::{OsPath, PathConverter},
 };
 use rustpython_host_env::crt_fd;
@@ -69,28 +68,6 @@ impl PathConverter {
                 .map(|fd| Some(OsPathOrFd::Fd(fd)))
                 .map_err(|e| e.into_pyexception(vm))
         })())
-    }
-}
-
-impl OsPath {
-    pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<Self> {
-        let path = fspath.as_os_str(vm)?.into_owned();
-        let origin = match fspath {
-            FsPath::Str(s) => s.into(),
-            FsPath::Bytes(b) => b.into(),
-        };
-        Ok(Self {
-            path,
-            origin: Some(origin),
-        })
-    }
-
-    /// Convert an object to OsPath using the os.fspath-style error message.
-    /// Used by open(), which should report "expected str, bytes or os.PathLike object, not"
-    /// instead of "should be string, bytes or os.PathLike, not".
-    pub(crate) fn try_from_fspath(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let fspath = FsPath::try_from_path_like(obj, true, vm)?;
-        Self::from_fspath(fspath, vm)
     }
 }
 

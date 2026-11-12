@@ -460,7 +460,6 @@ class ThreadTests(BaseTestCase):
 
         self.assertIsInstance(caught_exception, InjectedException)
 
-    @unittest.skip("TODO: RUSTPYTHON; threading._start_new_thread not exposed")
     def test_limbo_cleanup(self):
         # Issue 7481: Failure to start thread should cleanup the limbo map.
         def fail_new_thread(*args, **kwargs):

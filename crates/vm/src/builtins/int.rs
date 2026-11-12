@@ -22,7 +22,7 @@ use alloc::fmt;
 use core::cell::Cell;
 use core::ops::{Neg, Not};
 use core::ptr::NonNull;
-use malachite_bigint::{BigInt, Sign};
+use malachite_bigint::{BigInt, BigUint, Sign};
 use num_integer::{ExtendedGcd, Integer};
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use rustpython_common::wtf8::wtf8_concat;
@@ -211,8 +211,14 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
         bits,
         |base, bits| base << bits,
         |bits, vm| {
-            // CPython's limit: `(i64::MAX - 1) / 30` digits of 30 bits.
-            const MAX_DIGITS: u128 = (i64::MAX as u128 - 1) / 30;
+            // Match CPython's MAX_LONG_DIGITS for 30-bit, u32 digits. On
+            // 32-bit platforms the allocation, including the reference count,
+            // type pointer and digit-count tag, must fit in Py_ssize_t.
+            const MAX_DIGITS: u128 = if usize::BITS < 64 {
+                (isize::MAX as u128 - 3 * size_of::<usize>() as u128) / size_of::<u32>() as u128
+            } else {
+                (i64::MAX as u128 - 1) / 30
+            };
             let digits = bits.to_u128().map(|shift| {
                 u128::from(base.bits().div_ceil(30)) + shift / 30 + u128::from(shift % 30 != 0)
             });
@@ -220,8 +226,9 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
                 return Err(vm.new_overflow_error("too many digits in integer"));
             }
             let shift = bits.to_u64().ok_or_else(|| vm.no_memory_error())?;
+            let shift_bits = usize::try_from(shift).map_err(|_| vm.no_memory_error())?;
             reserve_result_bits(base.bits().checked_add(shift), vm)?;
-            usize::try_from(shift).map_err(|_| vm.no_memory_error())
+            Ok(shift_bits)
         },
         vm,
     )
@@ -826,24 +833,29 @@ impl Comparable for PyInt {
 }
 
 /// Pre-format check enforcing `sys.get_int_max_str_digits()` on int → str conversions.
-/// Mirrors CPython's PEP 644 DoS mitigation. Cheap fast-path for small values via
-/// bit-count upper bound on decimal digits.
+/// Like CPython's long_to_decimal_string_internal, reject definitely oversized
+/// values from their bit length before doing any allocation or conversion.
 pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> PyResult<()> {
     let limit = vm.state.int_max_str_digits.load();
     if limit == 0 {
         return Ok(());
     }
     let bits = value.bits();
-    // Below ~452 decimal digits: definitely under any reasonable limit.
+    // Below ~452 decimal digits: definitely under any permitted nonzero limit.
     if bits < 1500 {
         return Ok(());
     }
-    // Upper bound on decimal digit count: ⌈bits × log10(2)⌉ + 1, with log10(2) ≈ 0.30103.
-    // Multiply with the u64 bit count: `bits as usize * 30103` wraps on
-    // 32-bit (wasm32) once bits ≳ 142_500, which silently accepts over-limit
-    // conversions.
-    let digits_upper = bits.saturating_mul(30103) / 100_000 + 1;
-    if digits_upper > u64::try_from(limit).unwrap_or(u64::MAX) {
+    // 30102 / 100000 < log10(2) < 30103 / 100000. An n-bit magnitude is
+    // in [2^(n-1), 2^n), so these bounds can accept/reject without allocating.
+    // Use u128 products to avoid overflow, including on 32-bit targets.
+    let digits_upper = u128::from(bits) * 30103 / 100_000 + 1;
+    if digits_upper <= limit as u128 {
+        return Ok(());
+    }
+    let digits_lower = u128::from(bits - 1) * 30102 / 100_000 + 1;
+    // Only the narrow uncertain band needs an exact power-of-ten comparison.
+    // Borrow the magnitude: abs() would copy the entire integer, even positives.
+    if digits_lower > limit as u128 || value.magnitude() >= &Pow::pow(BigUint::from(10u8), limit) {
         return Err(vm.new_value_error(format!(
             "Exceeds the limit ({limit} digits) for integer string conversion; \
              use sys.set_int_max_str_digits() to increase the limit"

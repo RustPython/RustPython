@@ -213,12 +213,7 @@ impl VirtualMachine {
     /// Display `exc` through `traceback._print_exception_bltin`, falling back
     /// to the native printer writing to `file`.
     pub(crate) fn display_exception_to(&self, file: &PyObject, exc: &Py<PyBaseException>) {
-        if let Ok(print_exception) = self
-            .import("traceback", 0)
-            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
-            && print_exception.is_callable()
-            && print_exception.call((exc.to_owned(),), self).is_ok()
-        {
+        if self.try_display_exception_to(file, exc.as_object()) {
             return;
         }
         if self
@@ -229,6 +224,19 @@ impl VirtualMachine {
             eprintln!("lost sys.stderr");
         }
         let _ = self.call_method(file, "flush", ());
+    }
+
+    /// Try the shared Python formatter with the caller's retained output file.
+    /// Reporting paths provide their own native fallback if it is unavailable.
+    pub(crate) fn try_display_exception_to(&self, file: &PyObject, exc: &PyObject) -> bool {
+        self.import("traceback", 0)
+            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
+            .is_ok_and(|print_exception| {
+                print_exception.is_callable()
+                    && print_exception
+                        .call((exc.to_owned(), file.to_owned()), self)
+                        .is_ok()
+            })
     }
 
     pub fn write_exception<W: Write>(
@@ -1539,7 +1547,12 @@ impl<C> ToPyException for widestring::error::NulError<C> {
     }
 }
 
-#[cfg(any(unix, windows, target_os = "wasi"))]
+#[cfg(any(
+    unix,
+    windows,
+    target_os = "wasi",
+    all(target_arch = "wasm32", target_os = "unknown")
+))]
 pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'static Py<PyType>> {
     use crate::stdlib::errno::errors;
     let excs = &vm.ctx.exceptions;
@@ -1549,7 +1562,7 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
         errors::EALREADY => Some(excs.blocking_io_error),
         errors::EINPROGRESS => Some(excs.blocking_io_error),
         errors::EPIPE => Some(excs.broken_pipe_error),
-        #[cfg(not(target_os = "wasi"))]
+        #[cfg(any(unix, windows))]
         errors::ESHUTDOWN => Some(excs.broken_pipe_error),
         errors::ECHILD => Some(excs.child_process_error),
         errors::ECONNABORTED => Some(excs.connection_aborted_error),
@@ -1563,17 +1576,16 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
         errors::EACCES => Some(excs.permission_error),
         errors::EPERM => Some(excs.permission_error),
         // A process without the capability to reach a resource.
-        #[cfg(target_vendor = "apple")]
+        #[cfg(any(
+            target_vendor = "apple",
+            target_os = "wasi",
+            all(target_arch = "wasm32", target_os = "unknown")
+        ))]
         errors::ENOTCAPABLE => Some(excs.permission_error),
         errors::ESRCH => Some(excs.process_lookup_error),
         errors::ETIMEDOUT => Some(excs.timeout_error),
         _ => None,
     }
-}
-
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub(crate) fn errno_to_exc_type(_errno: i32, _vm: &VirtualMachine) -> Option<&'static Py<PyType>> {
-    None
 }
 
 pub(crate) trait ToOSErrorBuilder {
@@ -1755,9 +1767,34 @@ impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
         match self {
             Self::ItemTooLarge => vm.new_os_error("ancillary data item too large"),
             Self::TooMuchData => vm.new_os_error("too much ancillary data"),
-            Self::UnexpectedNullHeader => {
-                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR")
+            Self::UnexpectedNullFirstHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR()")
             }
+            Self::UnexpectedNullNextHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_NXTHDR()")
+            }
+            Self::ItemSizeOutOfRange => vm.new_runtime_error("item size out of range"),
+            Self::DoesNotFit => {
+                vm.new_runtime_error("ancillary data does not fit in calculated space")
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl ToPyException for rustpython_host_env::socket::AfAlgControlError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::UnexpectedNullFirstHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR")
+            }
+            Self::UnexpectedNullNextHeaderIv => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_NXTHDR(iv)")
+            }
+            Self::UnexpectedNullNextHeaderAssoc => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_NXTHDR(assoc)")
+            }
+            Self::NoMemory => vm.no_memory_error(),
         }
     }
 }
@@ -1795,6 +1832,7 @@ impl ToPyException for rustpython_host_env::time::CheckedTmError {
 impl ToPyException for rustpython_host_env::winapi::BuildEnvironmentBlockError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
+            Self::Os(error) => error.to_pyexception(vm),
             Self::ContainsNul => vm.new_value_error("embedded null character"),
             Self::IllegalName => vm.new_value_error("illegal environment variable name"),
         }

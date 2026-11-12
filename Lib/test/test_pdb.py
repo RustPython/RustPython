@@ -4449,7 +4449,6 @@ def bœr():
         stdout, _ = self._run_pdb(['-m', self.module_name + '.runme'], commands)
         self.assertTrue(any("VAR from module" in l for l in stdout.splitlines()), stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_errors_in_command(self):
         commands = "\n".join([
             'print(]',

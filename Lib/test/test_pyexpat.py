@@ -327,7 +327,6 @@ class ParseTest(unittest.TestCase):
             "End element: 'корінь'",
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     @support.subTests('encoding', [
         'UTF-7',
         "Big5-HKSCS", "Big5",
@@ -351,7 +350,6 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ExpatError not raised
     @support.subTests('encoding', [
         'cp037', 'cp273', 'cp424', 'cp500', 'cp864', 'cp875',
         'cp1026', 'cp1140',
@@ -370,7 +368,6 @@ class ParseTest(unittest.TestCase):
         with self.assertRaisesRegex(expat.ExpatError, 'unknown encoding'):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
     @support.subTests('encoding', [
         'hex_codec', 'rot_13',
     ])
@@ -381,14 +378,12 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(LookupError):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeError not raised
     def test_undefined_encoding(self):
         parser = expat.ParserCreate()
         data = b'<?xml version="1.0" encoding="undefined"?>\n<root></root>'
         with self.assertRaises(UnicodeError):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
     def test_unknown_encoding(self):
         parser = expat.ParserCreate()
         data = b'<?xml version="1.0" encoding="xyz"?>\n<root></root>'
@@ -503,7 +498,6 @@ class BufferTextTest(unittest.TestCase):
         parser = expat.ParserCreate()
         self.assertFalse(parser.buffer_text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffering_enabled(self):
         # Make sure buffering is turned on
         self.assertTrue(self.parser.buffer_text)
@@ -521,7 +515,6 @@ class BufferTextTest(unittest.TestCase):
                          ["<a>", "1", "<b>", "2", "\n", "3", "<c>", "4\n5"],
                          "buffering control not reacting as expected")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test2(self):
         self.parser.Parse(b"<a>1<b/>&lt;2&gt;<c/>&#32;\n&#x20;3</a>", True)
         self.assertEqual(self.stuff, ["1<2> \n 3"],
@@ -729,7 +722,6 @@ class ChardataBufferTest(unittest.TestCase):
     def test_1000_bytes(self):
         self.assertEqual(self.small_buffer_test(1000), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_wrong_size(self):
         parser = expat.ParserCreate()
         parser.buffer_text = 1

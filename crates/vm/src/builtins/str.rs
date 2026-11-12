@@ -710,7 +710,12 @@ impl PyStr {
 
     #[cold]
     fn _compute_hash(&self, _vm: &VirtualMachine) -> hash::PyHash {
-        let hash_val = crate::vm::hash_secret().hash_bytes(self.as_bytes());
+        let secret = crate::vm::hash_secret();
+        let hash_val = if self.kind().is_ascii() {
+            secret.hash_bytes(self.as_bytes())
+        } else {
+            secret.hash_wtf8(self.as_wtf8())
+        };
         debug_assert_ne!(hash_val, hash::SENTINEL);
         // spell-checker:ignore cmpxchg
         // like with char_len, we don't need a cmpxchg loop, since it'll always be the same value
@@ -913,8 +918,8 @@ impl Py<PyStr> {
     fn lower(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
-            PyKindStr::Utf8(s) => s.to_lowercase().into(),
-            PyKindStr::Wtf8(w) => w.to_lowercase().into(),
+            PyKindStr::Utf8(s) => case::lowercase_str(s).into(),
+            PyKindStr::Wtf8(w) => case::lowercase_wtf8(w).into(),
         }
     }
 
@@ -936,8 +941,8 @@ impl Py<PyStr> {
     fn upper(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_uppercase().into(),
-            PyKindStr::Utf8(s) => s.to_uppercase().into(),
-            PyKindStr::Wtf8(w) => w.to_uppercase().into(),
+            PyKindStr::Utf8(s) => case::uppercase_str(s).into(),
+            PyKindStr::Wtf8(w) => case::uppercase_wtf8(w).into(),
         }
     }
 
@@ -1426,13 +1431,13 @@ impl Py<PyStr> {
         let mut cased = false;
         let mut previous_is_cased = false;
         for c in self.as_wtf8().code_points().map(CodePoint::to_char_lossy) {
-            if c.is_uppercase() || case::is_titlecase(c) {
+            if case::is_uppercase(c) || case::is_titlecase(c) {
                 if previous_is_cased {
                     return false;
                 }
                 previous_is_cased = true;
                 cased = true;
-            } else if c.is_lowercase() {
+            } else if case::is_lowercase(c) {
                 if !previous_is_cased {
                     return false;
                 }

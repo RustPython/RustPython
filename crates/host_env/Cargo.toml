@@ -9,6 +9,9 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+# On wasm32-unknown-unknown this makes the io/crt_fd backends import the WASI
+# preview1 subset; on other targets it has no effect.
+host_io = []
 # `ctypes` module: libffi (linked against the system library) and libloading.
 ctypes = ["dep:libffi", "dep:libloading"]
 native-certs = ["dep:rustls-native-certs"]
@@ -37,7 +40,6 @@ getrandom = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
-paste = { workspace = true }
 pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
 rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
 rustls-pemfile = { workspace = true, optional = true }
@@ -84,7 +86,7 @@ system-configuration = { workspace = true }
 object = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-memchr.workspace = true
+paste = { workspace = true }
 junction = { workspace = true }
 schannel = { workspace = true }
 windows-sys = { workspace = true, features = [

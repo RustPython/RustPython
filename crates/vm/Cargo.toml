@@ -12,7 +12,9 @@ license.workspace = true
 [features]
 default = ["compiler", "wasmbind", "gc", "host_env", "stdio", "doc"]
 doc = ["dep:rustpython-doc", "dep:xz"]
-host_env = ["rustpython-host_env/ctypes"]
+host_env = ["host_io", "rustpython-host_env/ctypes"]
+# FileIO without unrelated host modules such as ctypes, subprocess and signals.
+host_io = ["rustpython-host_env/host_io"]
 stdio = []
 importlib = []
 encodings = ["importlib"]
@@ -59,7 +61,6 @@ indexmap = { workspace = true }
 itertools = { workspace = true }
 itoa = { workspace = true }
 is-macro = { workspace = true }
-jiff = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 malachite-bigint = { workspace = true }
@@ -92,6 +93,9 @@ widestring = { workspace = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
+
+[target.'cfg(not(unix))'.dependencies]
+jiff = { workspace = true }
 
 [build-dependencies]
 glob = { workspace = true }

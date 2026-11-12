@@ -198,7 +198,7 @@ mod _csv {
     fn register_dialect(name: PyObjectRef, opts: DialectArg, vm: &VirtualMachine) -> PyResult<()> {
         let name = name
             .downcast::<PyStr>()
-            .map_err(|_| vm.new_type_error("argument 0 must be a string"))?;
+            .map_err(|_| vm.new_type_error("dialect name must be a string"))?;
 
         let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;

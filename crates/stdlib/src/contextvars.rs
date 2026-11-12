@@ -21,7 +21,7 @@ mod _contextvars {
             Representable,
         },
     };
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
     use indexmap::IndexMap;
 
     // TODO: Real hamt implementation
@@ -371,7 +371,7 @@ mod _contextvars {
         #[pytraverse(skip)]
         cached_id: AtomicUsize, // non-reused Context cache identity
         #[pytraverse(skip)]
-        hash: AtomicI64,
+        hash: AtomicIsize,
     }
 
     impl core::fmt::Debug for ContextVar {
@@ -579,7 +579,7 @@ mod _contextvars {
                 default,
                 cached_id: 0.into(),
                 cached: PyMutex::new(None),
-                hash: AtomicI64::new(0),
+                hash: AtomicIsize::new(0),
             };
             let py_var = var.into_ref_with_type(vm, cls)?;
             let hash = Self::generate_hash(&py_var, name_hash);

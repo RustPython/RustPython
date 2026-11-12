@@ -197,6 +197,84 @@ impl<H: Helper> Readline<H> {
     }
 }
 
+/// A nested readline must fail rather than consume the outer call's input.
+#[derive(Debug)]
+pub struct ReentrantReadline;
+
+#[derive(PartialEq, Eq)]
+struct TerminalIdentity {
+    streams: StreamIdentity,
+}
+
+#[cfg(unix)]
+type StreamIdentity = (libc::dev_t, libc::ino_t, libc::dev_t);
+#[cfg(windows)]
+type StreamIdentity = [usize; 2];
+#[cfg(not(any(unix, windows)))]
+type StreamIdentity = ();
+
+impl TerminalIdentity {
+    fn current() -> io::Result<Self> {
+        #[cfg(unix)]
+        let streams = {
+            let mut stat = core::mem::MaybeUninit::<libc::stat>::uninit();
+            // Only an input change invalidates read-ahead. Unix rustyline uses
+            // fd 1 directly, so an output-only change needs no new editor.
+            if unsafe { libc::fstat(0, stat.as_mut_ptr()) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let stat = unsafe { stat.assume_init() };
+            (stat.st_dev, stat.st_ino, stat.st_rdev)
+        };
+        #[cfg(windows)]
+        let streams = {
+            use windows_sys::Win32::System::Console::{STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+            // Windows rustyline caches both handles, but has no read-ahead
+            // buffer (ConsoleRawReader::unbuffer returns None).
+            [
+                crate::winapi::get_std_handle(STD_INPUT_HANDLE)?.unwrap_or_default() as usize,
+                crate::winapi::get_std_handle(STD_OUTPUT_HANDLE)?.unwrap_or_default() as usize,
+            ]
+        };
+        #[cfg(not(any(unix, windows)))]
+        let streams = ();
+        Ok(Self { streams })
+    }
+}
+
+struct InputReader {
+    identity: TerminalIdentity,
+    reader: Readline<()>,
+}
+
+// stdin is process-wide, not thread-local. Retain read-ahead when the next
+// input() runs on another thread, and serialize the terminal's raw-mode guards.
+// A reentrant mutex plus a fallible borrow rejects same-thread recursion without
+// deadlocking. The reader contains no Python references or interpreter helper.
+static INPUT_READER: parking_lot::ReentrantMutex<core::cell::RefCell<Option<InputReader>>> =
+    parking_lot::ReentrantMutex::new(core::cell::RefCell::new(None));
+
+/// Read an interactive input line with the process's retained terminal reader.
+/// The VM must detach while waiting for both the lock and terminal input.
+pub fn input_readline(prompt: &str) -> Result<ReadlineResult, ReentrantReadline> {
+    let guard = INPUT_READER.lock();
+    let mut slot = guard.try_borrow_mut().map_err(|_| ReentrantReadline)?;
+    let identity = match TerminalIdentity::current() {
+        Ok(identity) => identity,
+        Err(error) => return Ok(ReadlineResult::Io(error)),
+    };
+    if slot
+        .as_ref()
+        .is_none_or(|reader| reader.identity != identity)
+    {
+        *slot = Some(InputReader {
+            identity,
+            reader: Readline::new(()),
+        });
+    }
+    Ok(slot.as_mut().unwrap().reader.readline(prompt))
+}
+
 /// Borrow the shared buffered stdin for one physical read. The caller retains
 /// partial bytes across EINTR and checks signals after this lock is released.
 pub fn stdio_readline_bytes(prompt: &str, line: &mut Vec<u8>) -> io::Result<usize> {
@@ -229,6 +307,16 @@ fn read_line_bytes(reader: &mut impl io::BufRead, line: &mut Vec<u8>) -> io::Res
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn nested_input_is_rejected_before_touching_the_terminal() {
+        let guard = super::INPUT_READER.lock();
+        let _active_reader = guard.borrow_mut();
+        assert!(matches!(
+            super::input_readline(""),
+            Err(super::ReentrantReadline)
+        ));
+    }
+
     use super::read_line_bytes;
     use std::io::{self, BufRead, Read};
 

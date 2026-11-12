@@ -9,10 +9,12 @@ pub mod bytecode;
 pub mod frozen;
 pub mod marshal;
 mod mode;
+mod source;
 mod source_location;
 pub mod varint;
 
 pub use mode::Mode;
+pub use source::normalize_newlines;
 pub use source_location::{AstLocationError, AstLocations, SourceLocationRange};
 
 pub use ruff_source_file::{

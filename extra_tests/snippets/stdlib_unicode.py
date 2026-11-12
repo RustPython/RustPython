@@ -1,3 +1,55 @@
+# Check provider acquisition before any successful Unicode-name use.
+# Keep named-escape literals inside runtime eval calls below so compiling this
+# file does not prime the provider cache before these failed-import checks.
+import codecs
+import sys
+
+sys.modules["unicodedata"] = None
+try:
+    codecs.namereplace_errors(ValueError())
+except TypeError:
+    pass
+else:
+    raise AssertionError("exception type must be checked before import")
+decoder = codecs.getincrementaldecoder("unicode_escape")("ignore")
+try:
+    decoder.decode(rb"\N", final=False)
+except UnicodeError as exc:
+    assert str(exc) == "\\N escapes not supported (can't load unicodedata module)"
+else:
+    raise AssertionError("incomplete named escape must acquire the provider")
+for data in (rb"\N", rb"\N{INVALID}", rb"\N{LATIN CAPITAL LETTER A}"):
+    try:
+        data.decode("unicode_escape", "ignore")
+    except UnicodeError as exc:
+        assert (
+            str(exc) == "\\N escapes not supported (can't load unicodedata module)"
+        ), str(exc)
+    else:
+        raise AssertionError("the import failure must precede name validation")
+try:
+    codecs.namereplace_errors(UnicodeEncodeError("ascii", "", 0, 0, "reason"))
+except ImportError as exc:
+    assert str(exc) == 'PyCapsule_Import could not import module "unicodedata"'
+else:
+    raise AssertionError("even an empty namereplace range acquires the provider")
+import types
+
+sys.modules["unicodedata"] = types.SimpleNamespace(_ucnhash_CAPI=42)
+try:
+    codecs.namereplace_errors(UnicodeEncodeError("ascii", "", 0, 0, "reason"))
+except AttributeError as exc:
+    assert str(exc) == 'PyCapsule_Import "unicodedata._ucnhash_CAPI" is not valid'
+else:
+    raise AssertionError("an invalid provider must not be cached")
+del sys.modules["unicodedata"]
+assert rb"\N{LATIN CAPITAL LETTER A}".decode("unicode_escape") == "A"
+assert "unicodedata" in sys.modules
+# A cached provider is shared with namereplace and remains valid after unload.
+del sys.modules["unicodedata"]
+assert chr(0x2603).encode("ascii", "namereplace") == rb"\N{SNOWMAN}"
+assert "unicodedata" not in sys.modules
+
 # Exercises the Unicode semantics routed through the shared rustpython-unicode
 # crate: str predicates, casefold, identifier rules, unicodedata queries,
 # normalization, \N{} escapes, and re character classes.
@@ -82,8 +134,8 @@ assert not unicodedata.is_normalized("NFD", composed)
 
 # --- \N{} escapes (compiler) ---------------------------------------------
 
-assert "\N{SNOWMAN}" == "☃"
-assert "\N{GREEK SMALL LETTER ALPHA}" == "α"
+assert eval(r'"\N{SNOWMAN}"') == "☃"
+assert eval(r'"\N{GREEK SMALL LETTER ALPHA}"') == "α"
 
 # --- re character classes -------------------------------------------------
 
@@ -100,4 +152,27 @@ assert re.fullmatch(r"\w+", "유", re.ASCII) is None
 # case-insensitive matching routes through the shared case helpers
 assert re.fullmatch(r"straße", "STRAßE", re.IGNORECASE) is not None
 
-print("stdlib_unicode_shared: OK")
+# Surrogates retain their UCD properties even though they are not Rust chars.
+for database in (unicodedata, unicodedata.ucd_3_2_0):
+    for codepoint in (0xD800, 0xDBFF, 0xDC00, 0xDFFF):
+        assert database.bidirectional(chr(codepoint)) == "L"
+
+# Existing characters must not acquire numeric values introduced after 3.2.
+for character, value in (("\u09f8", 0.75), ("\u3405", 5.0), ("\u3483", 2.0)):
+    assert unicodedata.numeric(character) == value
+    assert unicodedata.ucd_3_2_0.numeric(character, None) is None
+    try:
+        unicodedata.ucd_3_2_0.numeric(character)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("modern numeric property leaked into Unicode 3.2")
+assert unicodedata.ucd_3_2_0.numeric("\u4e00") == 1.0
+
+# Native name consumers use the UCD file-order private alias/sequence records.
+assert chr(0xF0000).encode("ascii", "namereplace") == rb"\N{NULL}"
+assert chr(0xF0200).encode("ascii", "namereplace") == rb"\N{KEYCAP NUMBER SIGN}"
+assert unicodedata.name(chr(0xF0000), None) is None
+assert unicodedata.name(chr(0xF0200), None) is None
+
+print("stdlib_unicode: OK")

@@ -237,11 +237,6 @@ impl Writer {
         if !(-1..=31).contains(&features) {
             return Err(invalid("invalid capture features"));
         }
-        if compression == 1 {
-            return Err(Error::Runtime(
-                "zstd compression requested but not available (HAVE_ZSTD not defined)",
-            ));
-        }
         let mut buffer = Vec::new();
         reserve(&mut buffer, WRITE_BUFFER_SIZE)?;
         let mut file = rustpython_host_env::fs::create(path)?;

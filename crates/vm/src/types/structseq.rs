@@ -16,7 +16,7 @@ use crate::{
     vm::Context,
 };
 
-const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
+const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_method_const(
     "__reduce__",
     |zelf: PyRef<PyTuple>, vm: &VirtualMachine| -> PyTupleRef {
         vm.new_tuple((
@@ -372,11 +372,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pymethod]
-    fn __getitem__(zelf: PyRef<PyTuple>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: PyRef<PyTuple>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let n_seq = get_visible_len(zelf.as_ref(), vm)?;
         let visible_elements = &zelf.as_slice()[..n_seq];
 
-        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, &needle)? {
+        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, &key)? {
             SequenceIndex::Int(i) => visible_elements.getitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => visible_elements
                 .getitem_by_slice(vm, slice)
@@ -460,15 +460,12 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             .richcompare
             .store(Some(struct_sequence_richcompare));
 
-        // Default __reduce__: only set if not already overridden by the impl's extend_class.
-        // This allows struct sequences like sched_param to provide a custom __reduce__
-        // (equivalent to METH_COEXIST in structseq.c).
-        if !class.attributes.contains(ctx.intern_str("__reduce__")) {
-            class.set_attr(
-                ctx.intern_str("__reduce__"),
-                DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),
-            );
-        }
+        // An impl's own __reduce__ method replaces this default, because method
+        // definitions are installed after class extension.
+        class.set_attr(
+            ctx.intern_str("__reduce__"),
+            DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),
+        );
     }
 }
 

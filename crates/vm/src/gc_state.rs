@@ -9,7 +9,7 @@ use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_REACHABLE, GC_UNTRACKED, GcLin
 use crate::vm::stop_the_world::StopTheWorldGroup;
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicUsize, Ordering};
 
 fn elapsed_secs(
     #[cfg(target_arch = "wasm32")] _start: (),
@@ -64,16 +64,16 @@ pub struct GcStats {
 /// what its own collections have done.
 pub struct GcGeneration {
     /// Threshold for triggering collection
-    threshold: AtomicU32,
+    threshold: AtomicI32,
     /// Collection statistics
     stats: PyMutex<GcStats>,
 }
 
 impl GcGeneration {
     #[must_use]
-    pub const fn new(threshold: u32) -> Self {
+    pub const fn new(threshold: i32) -> Self {
         Self {
-            threshold: AtomicU32::new(threshold),
+            threshold: AtomicI32::new(threshold),
             stats: PyMutex::new(GcStats {
                 collections: 0,
                 collected: 0,
@@ -86,11 +86,11 @@ impl GcGeneration {
 
     /// Relaxed: this is policy read once per allocation, and a collection
     /// racing `gc.set_threshold()` may use either value.
-    pub fn threshold(&self) -> u32 {
+    pub fn threshold(&self) -> i32 {
         self.threshold.load(Ordering::Relaxed)
     }
 
-    pub fn set_threshold(&self, value: u32) {
+    pub fn set_threshold(&self, value: i32) {
         self.threshold.store(value, Ordering::Relaxed);
     }
 
@@ -408,6 +408,15 @@ impl GcState {
     /// If generation is None, returns all such objects.
     /// If generation is Some(n), returns those in generation n only.
     pub fn get_objects(&self, generation: Option<i32>, owner: GcOwner) -> Vec<PyObjectRef> {
+        self.get_objects_impl(generation, owner, true)
+    }
+
+    fn get_objects_impl(
+        &self,
+        generation: Option<i32>,
+        owner: GcOwner,
+        include_permanent: bool,
+    ) -> Vec<PyObjectRef> {
         fn collect_from_list(
             list: &LinkedList<GcLink>,
             owner: GcOwner,
@@ -424,7 +433,9 @@ impl GcState {
                 for gen_list in &self.generation_lists {
                     result.extend(collect_from_list(&gen_list.read(), owner));
                 }
-                result.extend(collect_from_list(&self.permanent_list.read(), owner));
+                if include_permanent {
+                    result.extend(collect_from_list(&self.permanent_list.read(), owner));
+                }
                 result
             }
             Some(g) if (0..=2).contains(&g) => {
@@ -446,7 +457,7 @@ impl GcState {
         // Check gen0 threshold
         let count0 = self.counts[0].load(Ordering::Relaxed) as u32;
         let threshold0 = gc.generations[0].threshold();
-        if threshold0 > 0 && count0 >= threshold0 {
+        if threshold0 != 0 && i64::from(count0) > i64::from(threshold0) {
             #[cfg(feature = "threading")]
             {
                 // Defer to the next bytecode safepoint. Collecting here would
@@ -475,6 +486,17 @@ impl GcState {
         generation: usize,
         force: bool,
     ) -> CollectResult {
+        self.collect_with_callbacks(gc, generation, force, || {}, |_| {})
+    }
+
+    fn collect_with_callbacks(
+        &self,
+        gc: &GcInterpreterState,
+        generation: usize,
+        force: bool,
+        before: impl FnOnce(),
+        after: impl FnOnce(&CollectResult),
+    ) -> CollectResult {
         if !force && !gc.is_enabled() {
             #[cfg(feature = "threading")]
             gc.scheduled.store(false, Ordering::Relaxed);
@@ -492,6 +514,15 @@ impl GcState {
         #[cfg(feature = "threading")]
         gc.scheduled.store(false, Ordering::Relaxed);
 
+        before();
+        // Drop the body's generation locks, STW guards and temporary roots
+        // before Python callbacks run, but retain the collecting lock.
+        let result = self.collect_locked(gc, generation);
+        after(&result);
+        result
+    }
+
+    fn collect_locked(&self, gc: &GcInterpreterState, generation: usize) -> CollectResult {
         let start_time = cfg_select! {
             target_arch = "wasm32" => (),
             _ => std::time::Instant::now(),
@@ -1270,7 +1301,7 @@ impl GcInterpreterState {
 
     /// Get debug flags
     pub fn get_debug(&self) -> GcDebugFlags {
-        GcDebugFlags::from_bits_truncate(self.debug.load(Ordering::SeqCst))
+        GcDebugFlags::from_bits_retain(self.debug.load(Ordering::SeqCst))
     }
 
     /// Set debug flags
@@ -1279,7 +1310,7 @@ impl GcInterpreterState {
     }
 
     /// Get thresholds for all generations
-    pub fn get_threshold(&self) -> (u32, u32, u32) {
+    pub fn get_threshold(&self) -> (i32, i32, i32) {
         (
             self.generations[0].threshold(),
             self.generations[1].threshold(),
@@ -1288,7 +1319,7 @@ impl GcInterpreterState {
     }
 
     /// Set thresholds
-    pub fn set_threshold(&self, t0: u32, t1: Option<u32>, t2: Option<u32>) {
+    pub fn set_threshold(&self, t0: i32, t1: Option<i32>, t2: Option<i32>) {
         self.generations[0].set_threshold(t0);
         if let Some(t1) = t1 {
             self.generations[1].set_threshold(t1);
@@ -1317,9 +1348,28 @@ impl GcInterpreterState {
         gc_state().collect_inner(self, generation, true)
     }
 
+    /// Keep the existing collector exclusion active through Python callbacks.
+    pub(crate) fn collect_force_with_callbacks(
+        &self,
+        generation: usize,
+        before: impl FnOnce(),
+        after: impl FnOnce(&CollectResult),
+    ) -> CollectResult {
+        gc_state().collect_with_callbacks(self, generation, true, before, after)
+    }
+
     /// The tracked objects this interpreter can reach (for gc.get_objects).
     pub fn get_objects(&self, generation: Option<i32>) -> Vec<PyObjectRef> {
         gc_state().get_objects(generation, self.owner)
+    }
+
+    /// Public introspection excludes permanent objects, unlike shutdown's
+    /// internal snapshot, which must still be able to reach frozen objects.
+    pub(crate) fn get_objects_for_introspection(
+        &self,
+        generation: Option<i32>,
+    ) -> Vec<PyObjectRef> {
+        gc_state().get_objects_impl(generation, self.owner, false)
     }
 
     /// Move the objects this interpreter could collect into the permanent
@@ -1505,6 +1555,9 @@ mod tests {
         allocations.counts[0].store(1, Ordering::Relaxed);
         first.enter(|vm| {
             vm.state.gc.set_threshold(1, None, None);
+            assert!(!allocations.maybe_collect(&vm.state.gc));
+            assert!(!vm.state.gc.scheduled.load(Ordering::Relaxed));
+            allocations.counts[0].store(2, Ordering::Relaxed);
             assert!(!allocations.maybe_collect(&vm.state.gc));
         });
         second.enter(|vm| {

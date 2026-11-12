@@ -8,7 +8,6 @@ use std::{io, path::Path};
 
 use crate::windows::{CheckWin32Bool, CheckWin32Handle};
 
-use memchr::memchr;
 pub use windows_sys::Win32::{
     Foundation::{
         DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
@@ -156,6 +155,7 @@ pub enum BatchedWaitError {
 }
 
 pub enum BuildEnvironmentBlockError {
+    Os(io::Error),
     ContainsNul,
     IllegalName,
 }
@@ -338,34 +338,47 @@ pub fn create_junction(src: &Path, dst: &Path) -> io::Result<()> {
 }
 
 pub fn build_environment_block(
-    entries: Vec<(String, String)>,
+    entries: Vec<(Vec<u16>, Vec<u16>)>,
 ) -> Result<Vec<u16>, BuildEnvironmentBlockError> {
-    use std::collections::HashMap;
-
-    let mut last_entry: HashMap<String, Vec<u16>> = HashMap::new();
+    let invariant = widestring::WideCStr::from_slice(&[0]).unwrap();
+    let mut normalized = Vec::with_capacity(entries.len());
     for (key, value) in entries {
-        if memchr(b'\0', key.as_bytes()).is_some() || memchr(b'\0', value.as_bytes()).is_some() {
+        let uppercase = lc_map_string_ex(invariant, LCMAP_UPPERCASE, &key)
+            .map_err(BuildEnvironmentBlockError::Os)?;
+        // CPython sorts the mapped Python strings by code point, preserving
+        // lone surrogates rather than replacing them or requiring UTF-8.
+        let sort_key: Vec<u32> = char::decode_utf16(uppercase)
+            .map(|c| c.map_or_else(|e| u32::from(e.unpaired_surrogate()), u32::from))
+            .collect();
+        normalized.push((sort_key, key, value));
+    }
+    normalized.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut out = Vec::new();
+    for (index, (_, key, value)) in normalized.iter().enumerate() {
+        if let Some((_, next_key, _)) = normalized.get(index + 1) {
+            let comparison = compare_string_ordinal(key, next_key, true);
+            if comparison == 0 {
+                return Err(BuildEnvironmentBlockError::Os(io::Error::last_os_error()));
+            }
+            if comparison == CSTR_EQUAL {
+                // Stable sorting retains insertion order: keep the last key.
+                continue;
+            }
+        }
+        // CPython normalizes and deduplicates before validating retained entries.
+        if key.contains(&0) || value.contains(&0) {
             cold_path();
             return Err(BuildEnvironmentBlockError::ContainsNul);
         }
-        if key.is_empty() || key[1..].contains('=') {
+        // Windows permits a leading '=' for hidden drive variables.
+        if key.is_empty() || key[1..].contains(&(b'=' as u16)) {
             return Err(BuildEnvironmentBlockError::IllegalName);
         }
-
-        let key_upper = key.to_uppercase();
-        let mut entry: Vec<u16> = key.encode_utf16().collect();
-        entry.push(b'=' as u16);
-        entry.extend(value.encode_utf16());
-        entry.push(0);
-        last_entry.insert(key_upper, entry);
-    }
-
-    let mut entries: Vec<(String, Vec<u16>)> = last_entry.into_iter().collect();
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut out = Vec::new();
-    for (_, entry) in entries {
-        out.extend(entry);
+        out.extend_from_slice(key);
+        out.push(b'=' as u16);
+        out.extend_from_slice(value);
+        out.push(0);
     }
     if out.is_empty() {
         out.push(0);

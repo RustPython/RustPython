@@ -56,6 +56,26 @@ use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
 pub type FrameObjectRef = PyRef<FrameObject>;
 
+// CALL_FUNCTION_EX keeps its original containers until a non-Python callable
+// returns. Exact Python functions instead transfer their arguments to locals.
+// A converted iterable needs only its value storage, not a new tuple object.
+struct ExCallOwners {
+    kwargs: Option<PyObjectRef>,
+    positional: Either<PyObjectRef, Vec<PyObjectRef>>,
+}
+
+impl ExCallOwners {
+    fn release(self) {
+        // Close kwargs before callargs. Tuple elements are released
+        // in reverse order, including the values of a normalized *iterable.
+        drop(self.kwargs);
+        match self.positional {
+            Either::A(tuple) => drop(tuple),
+            Either::B(values) => values.into_iter().rev().for_each(drop),
+        }
+    }
+}
+
 // -- Frame chain utilities --
 // The frame chain is a singly-linked list of `*const InterpreterFrame` stored
 // as `usize` values in `InterpreterFrame.previous` and the TLS
@@ -4637,8 +4657,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
-                let (args, kwnames) = self.collect_ex_args(vm)?;
-                self.execute_call_ex(args, kwnames, false, vm)
+                self.execute_call_ex::<false>(vm)
             }
             Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
@@ -7236,126 +7255,13 @@ impl ExecutingFrame<'_> {
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorNoargs => {
-                let nargs: u32 = arg.into();
-                let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self
-                    .localsplus
-                    .stack_index(stack_len - nargs as usize - 1)
-                    .is_some();
-                let total_nargs = nargs + u32::from(self_or_null_is_some);
-                if total_nargs == 1 {
-                    let callable = self.nth_value(nargs + 1);
-                    let self_index =
-                        stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
-                    if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        && (descr.method.flags
-                            & (PyMethodFlags::VARARGS
-                                | PyMethodFlags::FASTCALL
-                                | PyMethodFlags::NOARGS
-                                | PyMethodFlags::O
-                                | PyMethodFlags::KEYWORDS))
-                            == PyMethodFlags::NOARGS
-                        && self
-                            .localsplus
-                            .stack_index(self_index)
-                            .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
-                    {
-                        let func = descr.method.func;
-                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                        let (_callable, all_args) = self.take_call_args(nargs as usize);
-                        debug_assert_eq!(all_args.len(), total_nargs as usize);
-                        let args = FuncArgs {
-                            args: all_args,
-                            kwargs: Default::default(),
-                        };
-                        let result = func(vm, args, callee)?;
-                        self.push_value(result);
-                        return Ok(None);
-                    }
-                }
-                self.execute_call_vectorcall(nargs, vm)
+                self.execute_call_method_descriptor(arg.into(), PyMethodFlags::NOARGS, Some(1), vm)
             }
             Instruction::CallMethodDescriptorO => {
-                let nargs: u32 = arg.into();
-                let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self
-                    .localsplus
-                    .stack_index(stack_len - nargs as usize - 1)
-                    .is_some();
-                let total_nargs = nargs + u32::from(self_or_null_is_some);
-                if total_nargs == 2 {
-                    let callable = self.nth_value(nargs + 1);
-                    let self_index =
-                        stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
-                    if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        && (descr.method.flags
-                            & (PyMethodFlags::VARARGS
-                                | PyMethodFlags::FASTCALL
-                                | PyMethodFlags::NOARGS
-                                | PyMethodFlags::O
-                                | PyMethodFlags::KEYWORDS))
-                            == PyMethodFlags::O
-                        && self
-                            .localsplus
-                            .stack_index(self_index)
-                            .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
-                    {
-                        let func = descr.method.func;
-                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                        let (_callable, all_args) = self.take_call_args(nargs as usize);
-                        debug_assert_eq!(all_args.len(), total_nargs as usize);
-                        let args = FuncArgs {
-                            args: all_args,
-                            kwargs: Default::default(),
-                        };
-                        let result = func(vm, args, callee)?;
-                        self.push_value(result);
-                        return Ok(None);
-                    }
-                }
-                self.execute_call_vectorcall(nargs, vm)
+                self.execute_call_method_descriptor(arg.into(), PyMethodFlags::O, Some(2), vm)
             }
             Instruction::CallMethodDescriptorFast => {
-                let nargs: u32 = arg.into();
-                let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self
-                    .localsplus
-                    .stack_index(stack_len - nargs as usize - 1)
-                    .is_some();
-                let total_nargs = nargs + u32::from(self_or_null_is_some);
-                let callable = self.nth_value(nargs + 1);
-                let self_index =
-                    stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
-                if total_nargs > 0
-                    && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    && (descr.method.flags
-                        & (PyMethodFlags::VARARGS
-                            | PyMethodFlags::FASTCALL
-                            | PyMethodFlags::NOARGS
-                            | PyMethodFlags::O
-                            | PyMethodFlags::KEYWORDS))
-                        == PyMethodFlags::FASTCALL
-                    && self
-                        .localsplus
-                        .stack_index(self_index)
-                        .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
-                {
-                    let func = descr.method.func;
-                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                    let (_callable, all_args) = self.take_call_args(nargs as usize);
-                    debug_assert_eq!(all_args.len(), total_nargs as usize);
-                    let args = FuncArgs {
-                        args: all_args,
-                        kwargs: Default::default(),
-                    };
-                    let result = func(vm, args, callee)?;
-                    self.push_value(result);
-                    return Ok(None);
-                }
-                self.execute_call_vectorcall(nargs, vm)
+                self.execute_call_method_descriptor(arg.into(), PyMethodFlags::FASTCALL, None, vm)
             }
             Instruction::CallBuiltinClass => {
                 let nargs: u32 = arg.into();
@@ -7425,44 +7331,12 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
-                let nargs: u32 = arg.into();
-                let stack_len = self.localsplus.stack_len();
-                let self_or_null_is_some = self
-                    .localsplus
-                    .stack_index(stack_len - nargs as usize - 1)
-                    .is_some();
-                let total_nargs = nargs + u32::from(self_or_null_is_some);
-                let callable = self.nth_value(nargs + 1);
-                let self_index =
-                    stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
-                if total_nargs > 0
-                    && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    && (descr.method.flags
-                        & (PyMethodFlags::VARARGS
-                            | PyMethodFlags::FASTCALL
-                            | PyMethodFlags::NOARGS
-                            | PyMethodFlags::O
-                            | PyMethodFlags::KEYWORDS))
-                        == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS)
-                    && self
-                        .localsplus
-                        .stack_index(self_index)
-                        .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
-                {
-                    let func = descr.method.func;
-                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                    let (_callable, all_args) = self.take_call_args(nargs as usize);
-                    debug_assert_eq!(all_args.len(), total_nargs as usize);
-                    let args = FuncArgs {
-                        args: all_args,
-                        kwargs: Default::default(),
-                    };
-                    let result = func(vm, args, callee)?;
-                    self.push_value(result);
-                    return Ok(None);
-                }
-                self.execute_call_vectorcall(nargs, vm)
+                self.execute_call_method_descriptor(
+                    arg.into(),
+                    PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS,
+                    None,
+                    vm,
+                )
             }
             Instruction::CallBuiltinFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
@@ -8327,10 +8201,7 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_keyword_args(u32::from(arg));
                 self.execute_call_instrumented(args, vm)
             }
-            Instruction::InstrumentedCallFunctionEx => {
-                let (args, kwnames) = self.collect_ex_args(vm)?;
-                self.execute_call_ex(args, kwnames, true, vm)
-            }
+            Instruction::InstrumentedCallFunctionEx => self.execute_call_ex::<true>(vm),
             Instruction::InstrumentedLoadSuperAttr => {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
                 let offset = (self.lasti() - 1) * 2;
@@ -8995,17 +8866,21 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(
-        &mut self,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
+    fn execute_call_ex<const INSTRUMENTED: bool>(&mut self, vm: &VirtualMachine) -> FrameResult {
         let kwargs_or_null = self.pop_value_opt();
+        // Only uninstrumented exact Python calls consume containers before
+        // executing the body. Other calls retain them through CALL/RETURN hooks.
+        let keep_owners = INSTRUMENTED
+            || self
+                .nth_value(2)
+                .downcast_ref_if_exact::<PyFunction>(vm)
+                .is_none();
         let mut kwnames = Vec::new();
         let mut keyword_values = Vec::new();
-        if let Some(kw_obj) = kwargs_or_null {
+        if let Some(kw_obj) = &kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
-            Self::iterate_mapping_keys(vm, &kw_obj, callable, |key, value| {
+            Self::iterate_mapping_keys(vm, kw_obj, callable, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
                 key.downcast_ref::<PyStr>()
@@ -9018,27 +8893,68 @@ impl ExecutingFrame<'_> {
         };
 
         let args_obj = self.pop_value();
-        let mut args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
-            tuple.as_slice().to_vec()
-        } else {
-            // Single *arg passed directly; convert to sequence at runtime.
-            let not_iterable = args_obj.class().slots().iter.load().is_none()
-                && args_obj
-                    .get_class_attr(vm.ctx.intern_str("__getitem__"))
-                    .is_none();
-            args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
-                if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
-                    vm.new_type_error(format!(
-                        "Value after * must be an iterable, not {}",
-                        args_obj.class().slot_name()
-                    ))
+        let (mut args, positional_owner) =
+            if let Some(tuple) = args_obj.downcast_ref_if_exact::<PyTuple>(vm) {
+                let mut values = Vec::with_capacity(tuple.len() + keyword_values.len());
+                values.extend_from_slice(tuple.as_slice());
+                (values, keep_owners.then_some(Either::A(args_obj)))
+            } else {
+                // Single *arg passed directly; convert to sequence at runtime.
+                let not_iterable = args_obj.class().slots().iter.load().is_none()
+                    && args_obj
+                        .get_class_attr(vm.ctx.intern_str("__getitem__"))
+                        .is_none();
+                let values = args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
+                    if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error(format!(
+                            "Value after * must be an iterable, not {}",
+                            args_obj.class().slot_name()
+                        ))
+                    } else {
+                        e
+                    }
+                })?;
+                // Normalization releases tuple subclasses and iterables before the
+                // call, but the resulting positional values still have an owner.
+                drop(args_obj);
+                if keep_owners {
+                    let mut call_values = Vec::with_capacity(values.len() + keyword_values.len());
+                    call_values.extend_from_slice(&values);
+                    (call_values, Some(Either::B(values)))
                 } else {
-                    e
+                    (values, None)
                 }
-            })?
-        };
+            };
         args.extend(keyword_values);
-        Ok((args, kwnames))
+        let owners = positional_owner.map(|positional| ExCallOwners {
+            kwargs: kwargs_or_null,
+            positional,
+        });
+        // Stack: [callable, self_or_null]
+        let self_or_null = self.pop_value_opt();
+        let callable = self.pop_value();
+        if let Some(self_val) = self_or_null {
+            args.insert(0, self_val);
+        }
+        let nargs = args.len() - kwnames.len();
+        let arg0 = if INSTRUMENTED {
+            args[..nargs].first().cloned()
+        } else {
+            None
+        };
+        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        let result = if INSTRUMENTED {
+            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+        } else {
+            invoke().map(|value| {
+                self.push_value(value);
+                None
+            })
+        };
+        if let Some(owners) = owners {
+            owners.release();
+        }
+        result
     }
 
     /// Returns a display string for a callable object for use in error messages.
@@ -9111,6 +9027,61 @@ impl ExecutingFrame<'_> {
             key_handler(key, value)?;
         }
         Ok(())
+    }
+
+    // Keep descriptor-only argument handling out of the main opcode dispatch.
+    #[inline(never)]
+    fn execute_call_method_descriptor(
+        &mut self,
+        nargs: u32,
+        expected_flags: PyMethodFlags,
+        expected_nargs: Option<u32>,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
+        let stack_len = self.localsplus.stack_len();
+        let has_bound_receiver = self
+            .localsplus
+            .stack_index(stack_len - nargs as usize - 1)
+            .is_some();
+        let total_nargs = nargs + u32::from(has_bound_receiver);
+        if total_nargs == 0 || expected_nargs.is_some_and(|expected| total_nargs != expected) {
+            return self.execute_call_vectorcall(nargs, vm);
+        }
+        let callable = self.nth_value(nargs + 1);
+        let receiver_index = stack_len - nargs as usize - 1 + usize::from(!has_bound_receiver);
+        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
+            && (descr.method.flags
+                & (PyMethodFlags::VARARGS
+                    | PyMethodFlags::FASTCALL
+                    | PyMethodFlags::NOARGS
+                    | PyMethodFlags::O
+                    | PyMethodFlags::KEYWORDS))
+                == expected_flags
+            && self
+                .localsplus
+                .stack_index(receiver_index)
+                .as_ref()
+                .is_some_and(|receiver| receiver.class().is(descr.common.typ))
+        {
+            let func = descr.method.func;
+            let callee = Callee::named(descr.method.name);
+            let (_callable, receiver, args) =
+                self.take_native_method_args(nargs as usize, has_bound_receiver);
+            debug_assert_eq!(args.len() + 1, total_nargs as usize);
+            let result = func(
+                vm,
+                Some(&receiver),
+                FuncArgs {
+                    args,
+                    kwargs: Default::default(),
+                },
+                callee,
+            )?;
+            self.push_value(result);
+            Ok(None)
+        } else {
+            self.execute_call_vectorcall(nargs, vm)
+        }
     }
 
     /// Vectorcall dispatch for Instruction::Call (positional args only).
@@ -9232,37 +9203,6 @@ impl ExecutingFrame<'_> {
         let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
         self.push_value(result);
         Ok(None)
-    }
-
-    #[inline]
-    fn execute_call_ex(
-        &mut self,
-        mut args: Vec<PyObjectRef>,
-        kwnames: Vec<PyObjectRef>,
-        instrumented: bool,
-        vm: &VirtualMachine,
-    ) -> FrameResult {
-        // Stack: [callable, self_or_null, ...]
-        let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
-        let callable = self.pop_value();
-
-        if let Some(self_val) = self_or_null {
-            args.insert(0, self_val);
-        }
-        let nargs = args.len() - kwnames.len();
-        let arg0 = if instrumented {
-            args[..nargs].first().cloned()
-        } else {
-            None
-        };
-        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
-        if instrumented {
-            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
-        } else {
-            let value = invoke()?;
-            self.push_value(value);
-            Ok(None)
-        }
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
@@ -12714,6 +12654,44 @@ impl ExecutingFrame<'_> {
             .to_pyobj();
         self.localsplus.stack_truncate(callable_idx);
         (callable, args)
+    }
+
+    // A checked native method's receiver stays out of the argument vector.
+    // Bound calls keep it in self_or_null; unbound calls pass it as arg1.
+    fn take_native_method_args(
+        &mut self,
+        nargs: usize,
+        has_bound_receiver: bool,
+    ) -> (PyObjectRef, PyObjectRef, Vec<PyObjectRef>) {
+        let stack_len = self.localsplus.stack_len();
+        debug_assert!(stack_len >= nargs + 2);
+        debug_assert!(has_bound_receiver || nargs > 0);
+        let callable_idx = stack_len - nargs - 2;
+        let receiver_idx = callable_idx + 1 + usize::from(!has_bound_receiver);
+        let receiver = self
+            .localsplus
+            .stack_index_mut(receiver_idx)
+            .take()
+            .expect("native method receiver was checked")
+            .to_pyobj();
+        let mut args = Vec::with_capacity(stack_len - receiver_idx - 1);
+        for stack_idx in receiver_idx + 1..stack_len {
+            args.push(
+                self.localsplus
+                    .stack_index_mut(stack_idx)
+                    .take()
+                    .unwrap()
+                    .to_pyobj(),
+            );
+        }
+        let callable = self
+            .localsplus
+            .stack_index_mut(callable_idx)
+            .take()
+            .unwrap()
+            .to_pyobj();
+        self.localsplus.stack_truncate(callable_idx);
+        (callable, receiver, args)
     }
 
     /// Pop multiple values from the stack. Panics if any slot is NULL.

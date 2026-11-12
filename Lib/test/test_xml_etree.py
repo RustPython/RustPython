@@ -4151,7 +4151,6 @@ class XMLParserTest(unittest.TestCase):
             parser.feed(self.sample2)
             parser.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_string(self):
         parser = ET.XMLParser(target=ET.TreeBuilder())
         parser.feed(self.sample3)

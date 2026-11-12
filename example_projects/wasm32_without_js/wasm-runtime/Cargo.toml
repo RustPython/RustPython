@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wasmer = "6.1.0"
+rustpython-wasi-host = { path = "../../../crates/wasi_host" }
+wasmer = "7.5.0"
 
 [workspace]

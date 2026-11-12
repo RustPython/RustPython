@@ -4,7 +4,7 @@
 
 use crate::{AsObject, PyObject, PyResult, VirtualMachine, builtins::PyFloat};
 use num_traits::ToPrimitive;
-use rustpython_host_env::time::SEC_TO_NS;
+use rustpython_host_env::time::{SEC_TO_NS, SEC_TO_US, US_TO_NS};
 
 #[cfg(any(unix, windows))]
 pub(crate) use rustpython_host_env::time::TimeT;
@@ -147,7 +147,7 @@ fn from_object(object: &PyObject, scale: i64, round: Round, vm: &VirtualMachine)
 
 /// Check the platform wait limit after the caller has handled negative values
 /// and any API-specific indefinite-wait sentinel.
-pub(crate) fn check_thread_timeout(nanoseconds: i64, vm: &VirtualMachine) -> PyResult<()> {
+pub fn check_thread_timeout(nanoseconds: i64, vm: &VirtualMachine) -> PyResult<()> {
     if Round::Up.divide(nanoseconds, 1_000) > THREAD_TIMEOUT_MAX_MICROSECONDS {
         Err(vm.new_overflow_error("timeout value is too large"))
     } else {
@@ -206,6 +206,47 @@ pub(crate) fn object_to_denominator(
         seconds -= 1.0;
     }
     Ok((float_to_time_t(seconds, vm)?, numerator as i64))
+}
+
+fn as_time_pair(value: i64, denominator: i64, minimum: i64, maximum: i64) -> (i64, i64) {
+    let seconds = value.div_euclid(denominator);
+    if seconds < minimum {
+        (minimum, 0)
+    } else if seconds > maximum {
+        (maximum, 0)
+    } else {
+        (seconds, value.rem_euclid(denominator))
+    }
+}
+
+pub(crate) fn as_timespec(
+    nanoseconds: i64,
+    clamp: bool,
+    vm: &VirtualMachine,
+) -> PyResult<(i64, i64)> {
+    if !clamp {
+        check_time_t(nanoseconds.div_euclid(SEC_TO_NS), vm)?;
+    }
+    Ok(as_time_pair(nanoseconds, SEC_TO_NS, TIME_T_MIN, TIME_T_MAX))
+}
+
+pub(crate) fn as_timeval(
+    nanoseconds: i64,
+    round: Round,
+    clamp: bool,
+    vm: &VirtualMachine,
+) -> PyResult<(i64, i64)> {
+    // Windows uses C long for timeval.tv_sec even when time_t is 64-bit.
+    #[cfg(windows)]
+    let (minimum, maximum) = (i64::from(i32::MIN), i64::from(i32::MAX));
+    #[cfg(not(windows))]
+    let (minimum, maximum) = (TIME_T_MIN, TIME_T_MAX);
+    let microseconds = round.divide(nanoseconds, US_TO_NS);
+    let seconds = microseconds.div_euclid(SEC_TO_US);
+    if !clamp && !(minimum..=maximum).contains(&seconds) {
+        return Err(vm.new_overflow_error(TIME_T_OVERFLOW));
+    }
+    Ok(as_time_pair(microseconds, SEC_TO_US, minimum, maximum))
 }
 
 #[cfg(test)]

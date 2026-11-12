@@ -215,7 +215,7 @@ pub fn configure_under_pth(settings: &mut Settings) -> io::Result<()> {
             return Ok(());
         }
         settings.under_pth = Some(UnderPth::Isolated);
-        settings.path_list = search_paths;
+        settings.path_list = search_paths.into_iter().map(OsString::from).collect();
         settings.isolated = true;
         settings.ignore_environment = true;
         settings.user_site_directory = false;
@@ -240,8 +240,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     let executable = get_executable_path();
     let real_executable = executable
         .as_ref()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|p| p.to_string_lossy().into_owned());
 
     // Step 1: Check for PYTHONEXECUTABLE / __PYVENV_LAUNCHER__
     // When set, these are used as sys.executable and when searching for venvs.
@@ -536,9 +535,7 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&Pat
     }
 
     // Otherwise, base_executable == executable
-    executable
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    executable.map_or_default(|p| p.to_string_lossy().into_owned())
 }
 
 /// Calculate stdlib_dir (sys._stdlib_dir)
@@ -570,11 +567,17 @@ pub fn add_build_time_paths(settings: &Settings, paths: &mut Paths, extra: Vec<S
     } else {
         paths.module_search_paths.len()
     };
-    paths.module_search_paths.splice(index..index, extra);
+    paths
+        .module_search_paths
+        .splice(index..index, extra.into_iter().map(OsString::from));
 }
 
 /// Build the complete module_search_paths (sys.path)
-fn build_module_search_paths(settings: &Settings, prefix: &str, exec_prefix: &str) -> Vec<String> {
+fn build_module_search_paths(
+    settings: &Settings,
+    prefix: &str,
+    exec_prefix: &str,
+) -> Vec<OsString> {
     let mut paths = Vec::new();
 
     // 1. PYTHONPATH/RUSTPYTHONPATH from settings
@@ -582,27 +585,27 @@ fn build_module_search_paths(settings: &Settings, prefix: &str, exec_prefix: &st
 
     // 2. ZIP file path
     let zip_path = PathBuf::from(prefix).join(platform::zip_landmark());
-    paths.push(zip_path.to_string_lossy().into_owned());
+    paths.push(zip_path.into_os_string());
 
     // 3. stdlib and platstdlib directories
     #[cfg(not(windows))]
     {
         // POSIX: stdlib first, then lib-dynload
         let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir());
-        paths.push(stdlib_dir.to_string_lossy().into_owned());
+        paths.push(stdlib_dir.into_os_string());
 
         let platstdlib = PathBuf::from(exec_prefix).join(platform::platstdlib_landmark());
-        paths.push(platstdlib.to_string_lossy().into_owned());
+        paths.push(platstdlib.into_os_string());
     }
 
     #[cfg(windows)]
     {
         // Windows: DLLs first, then Lib
         let platstdlib = PathBuf::from(exec_prefix).join(platform::platstdlib_landmark());
-        paths.push(platstdlib.to_string_lossy().into_owned());
+        paths.push(platstdlib.into_os_string());
 
         let stdlib_dir = PathBuf::from(prefix).join(platform::STDLIB_SUBDIR);
-        paths.push(stdlib_dir.to_string_lossy().into_owned());
+        paths.push(stdlib_dir.into_os_string());
     }
 
     paths
@@ -694,7 +697,10 @@ mod tests {
 
     #[test]
     fn build_time_paths_follow_configured_paths_and_zip() {
-        for configured in [vec![], vec!["first".to_owned(), "second".to_owned()]] {
+        for configured in [
+            vec![],
+            vec![OsString::from("first"), OsString::from("second")],
+        ] {
             let settings = Settings {
                 path_list: configured,
                 ..Settings::default()
@@ -710,7 +716,7 @@ mod tests {
             add_build_time_paths(&settings, &mut paths, extra.clone());
             let boundary = settings.path_list.len() + 1;
             let mut expected = calculated[..boundary].to_vec();
-            expected.extend(extra);
+            expected.extend(extra.into_iter().map(OsString::from));
             expected.extend_from_slice(&calculated[boundary..]);
             assert_eq!(paths.module_search_paths, expected);
         }
@@ -719,11 +725,11 @@ mod tests {
     #[test]
     fn build_time_paths_preserve_custom_search_order() {
         let settings = Settings {
-            path_list: vec!["configured".to_owned()],
+            path_list: vec!["configured".into()],
             ..Settings::default()
         };
         let mut modified = build_module_search_paths(&settings, "prefix", "exec-prefix");
-        modified.push("custom".to_owned());
+        modified.push("custom".into());
         for custom in [vec![], modified] {
             let mut paths = Paths {
                 base_prefix: "prefix".to_owned(),
@@ -733,7 +739,7 @@ mod tests {
             };
             add_build_time_paths(&settings, &mut paths, vec!["build".to_owned()]);
             let mut expected = custom;
-            expected.push("build".to_owned());
+            expected.push("build".into());
             assert_eq!(paths.module_search_paths, expected);
         }
     }

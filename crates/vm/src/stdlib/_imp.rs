@@ -199,7 +199,7 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock, resources::resources))]
 mod _imp {
     use crate::{
-        AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
         builtins::{
             PyBytesRef, PyCode, PyDict, PyImportError, PyMemoryView, PyModule, PyStrRef,
             PyUtf8StrRef,
@@ -335,7 +335,8 @@ mod _imp {
         #[pyarg(positional)]
         spec: PyObjectRef,
         #[pyarg(positional, optional)]
-        _file: crate::function::OptionalArg<PyObjectRef>,
+        #[allow(dead_code)]
+        file: crate::function::OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -403,12 +404,12 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn exec_dynamic(_mod: PyRef<PyModule>) -> i32 {
+    fn exec_dynamic(_imp: &Py<PyModule>, _mod: PyRef<PyModule>) -> i32 {
         0
     }
 
     #[pyfunction]
-    fn exec_builtin(_mod: PyRef<PyModule>) -> i32 {
+    fn exec_builtin(_imp: &Py<PyModule>, _mod: PyRef<PyModule>) -> i32 {
         // For multi-phase init modules, exec is already called in create_builtin
         0
     }

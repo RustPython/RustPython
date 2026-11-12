@@ -172,6 +172,7 @@ where
         audit_hooks: PyMutex::default(),
         codec_registry,
         filesystem_codec_ready: AtomicBool::new(false),
+        unicode_names_loaded: AtomicBool::new(false),
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
@@ -244,12 +245,21 @@ where
     // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
     // and `encodings`) before any `enter_vm` scope exists, so attach this
     // thread for the duration so type cache reads see it as ATTACHED.
-    let vm_guard = thread::VmBootstrapGuard::new(&vm);
-    vm.initialize();
-    vm.state
-        .ready
-        .store(vm.startup_error.is_none(), Ordering::Release);
-    drop(vm_guard);
+    if whence != InterpreterWhence::Unknown {
+        let _vm_guard = thread::VmBootstrapGuard::new(&vm);
+        vm.initialize();
+    }
+
+    if whence != InterpreterWhence::Unknown && vm.startup_error.is_none() {
+        #[cfg(feature = "threading")]
+        {
+            let factory = alloc::sync::Arc::new(thread::InterpreterThreadFactory::new(&vm));
+            vm.thread_factory = Some(factory.clone());
+            runtime::publish_thread_factory(vm.state.interpreter_id, &factory);
+        }
+        // Publish readiness only after arbitrary-ID thread creation is available.
+        vm.state.ready.store(true, Ordering::Release);
+    }
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
@@ -260,6 +270,7 @@ where
 fn create_subinterpreter_from_parent(
     parent: &VirtualMachine,
     config: runtime::InterpreterConfig,
+    whence: InterpreterWhence,
 ) -> Result<Interpreter, &'static str> {
     config.check()?;
     // Suspend the caller's current VM attachment (if any) for the duration
@@ -286,7 +297,7 @@ fn create_subinterpreter_from_parent(
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
             is_main: false,
-            whence: InterpreterWhence::Stdlib,
+            whence,
             parent_state: Some(&parent.state),
             interp_config: config,
         },
@@ -297,10 +308,12 @@ fn create_subinterpreter_from_parent(
         return Err("subinterpreter initialization failed");
     }
     // Every interpreter has a `__main__` module once it is initialized.
-    interp.enter(|vm| {
-        let _ = vm.ensure_main_module();
-        vm.apply_startup_lazy_imports();
-    });
+    if whence != InterpreterWhence::Unknown {
+        interp.enter(|vm| {
+            let _ = vm.ensure_main_module();
+            vm.apply_startup_lazy_imports();
+        });
+    }
     Ok(interp)
 }
 
@@ -627,7 +640,16 @@ impl Interpreter {
         parent: &VirtualMachine,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(parent, config)
+        create_subinterpreter_from_parent(parent, config, InterpreterWhence::Stdlib)
+    }
+
+    #[cfg(feature = "threading")]
+    pub(crate) fn create_subinterpreter_from_vm_with_whence(
+        parent: &VirtualMachine,
+        config: runtime::InterpreterConfig,
+        whence: InterpreterWhence,
+    ) -> Result<Self, &'static str> {
+        create_subinterpreter_from_parent(parent, config, whence)
     }
 
     /// Create a subinterpreter with an explicit PEP 734 / `PyInterpreterConfig`.
@@ -635,7 +657,7 @@ impl Interpreter {
         &self,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(&self.vm, config)
+        create_subinterpreter_from_parent(&self.vm, config, InterpreterWhence::Stdlib)
     }
 
     /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
@@ -732,11 +754,11 @@ impl Interpreter {
     /// Finalize vm and turns an exception to exit code.
     ///
     /// Finalization steps (matching Py_FinalizeEx):
-    /// 1. Flush stdout and stderr.
     /// 1. Handle exit exception and turn it to exit code.
     /// 1. Call threading._shutdown() to join non-daemon threads.
     /// 1. Run atexit exit functions.
     /// 1. Set finalizing flag and hang remaining daemon threads.
+    /// 1. Flush stdout and stderr.
     /// 1. Forced GC collection pass (collect cycles while builtins are available).
     /// 1. Module finalization (finalize_modules).
     /// 1. Clear interpreter-owned cross-interpreter data.
@@ -755,14 +777,17 @@ impl Interpreter {
     }
 
     fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
+        // A PyInterpreterState_New-style state has never run Python and has
+        // no modules, streams or shutdown callbacks to finalize.
+        if self.whence() == InterpreterWhence::Unknown {
+            return exit_code(&self.vm);
+        }
         self.enter(|vm| {
-            let flush_status = vm.flush_std();
-
             // See if any exception leaked out:
             let exit_code = exit_code(vm);
 
-            // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
-            if vm.finalize_ex(flush_status) < 0 && exit_code == 0 {
+            // A failed shutdown flush overrides even an explicit nonzero exit code.
+            if vm.finalize_ex() < 0 {
                 EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
@@ -779,7 +804,7 @@ impl VirtualMachine {
         if self.state.thread_is_running_main() {
             self.state.set_not_running_main();
         }
-        let status = if self.finalize_ex(self.flush_std()) < 0 {
+        let status = if self.finalize_ex() < 0 {
             EXITCODE_FLUSH_FAILURE
         } else {
             status
@@ -787,9 +812,9 @@ impl VirtualMachine {
         crate::host_env::os::exit(status as i32)
     }
 
-    /// The steps of Py_FinalizeEx after the first flush of stdout and stderr.
+    /// The steps of Py_FinalizeEx.
     /// Return a negative value if any flush failed.
-    fn finalize_ex(&self, mut flush_status: i32) -> i32 {
+    fn finalize_ex(&self) -> i32 {
         let vm = self;
         // Wait for thread shutdown - call threading._shutdown() if available.
         // This waits for all non-daemon threads to complete.
@@ -842,6 +867,10 @@ impl VirtualMachine {
             atexit::_run_exitfuncs(vm);
             vm.state.finalizing.store(true, Ordering::Release);
         }
+
+        // Exit callbacks have finished, but modules and the user unraisable
+        // hook are still available to report a failed stream flush.
+        let mut flush_status = vm.flush_std();
 
         // GC pass - collect cycles before module cleanup
         vm.state.gc.collect_force(2);
@@ -1030,6 +1059,19 @@ mod tests {
             let value = res.downcast_ref::<PyStr>().unwrap();
             assert_eq!(value.as_wtf8(), "Hello Hello Hello Hello ")
         })
+    }
+
+    #[test]
+    fn uninitialized_interpreter_preserves_exit_code() {
+        let parent = Interpreter::without_stdlib(Default::default());
+        let raw = create_subinterpreter_from_parent(
+            &parent.vm,
+            runtime::InterpreterConfig::ISOLATED,
+            InterpreterWhence::Unknown,
+        )
+        .unwrap();
+        assert!(!raw.vm.initialized);
+        assert_eq!(raw.finalize_with_exit_code(23), 23);
     }
 
     /// Main interpreter is marked main with Runtime whence and is registered.

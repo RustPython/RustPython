@@ -380,7 +380,7 @@ pub unsafe extern "C" fn PyObject_Not(obj: *mut PyObject) -> c_int {
 pub unsafe extern "C" fn PyObject_Hash(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
         let obj = unsafe { obj.assume_borrowed() };
-        obj.hash(vm).map(|hash| hash as isize)
+        obj.hash(vm)
     })
 }
 
@@ -388,7 +388,7 @@ pub unsafe extern "C" fn PyObject_Hash(obj: *mut PyObject) -> isize {
 pub unsafe extern "C" fn PyObject_HashNotImplemented(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
         let obj = unsafe { obj.assume_borrowed() };
-        hash_not_implemented(obj, vm).map(|hash| hash as isize)
+        hash_not_implemented(obj, vm)
     })
 }
 

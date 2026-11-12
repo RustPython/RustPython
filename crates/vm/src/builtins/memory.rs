@@ -890,7 +890,7 @@ impl Py<PyMemoryView> {
     }
 
     #[pymethod]
-    fn __reduce_ex__(&self, _proto: usize, vm: &VirtualMachine) -> PyResult {
+    fn __reduce_ex__(&self, _protocol: usize, vm: &VirtualMachine) -> PyResult {
         self.__reduce__(vm)
     }
 

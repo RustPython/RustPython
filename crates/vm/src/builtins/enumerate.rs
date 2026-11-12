@@ -249,8 +249,8 @@ impl Py<PyReverseSequenceIterator> {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.set_state(&state, vm)
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.internal.set_state(&object, vm)
     }
 
     #[pymethod]
