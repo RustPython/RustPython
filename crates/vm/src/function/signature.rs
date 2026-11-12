@@ -146,7 +146,12 @@ impl SigArg {
                 Some(ps) => ps,
                 None => &[],
             }),
-            binding_params: T::BINDING_PARAMS,
+            // A scalar receiver is already counted by the preceding marker.
+            // Only parameters actually supplied by its type contribute more.
+            binding_params: match T::PARAMS {
+                Some(_) => T::BINDING_PARAMS,
+                None => Some(&[]),
+            },
             force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
     }
@@ -209,7 +214,8 @@ const fn flags_positional_count(params: &[Param]) -> usize {
 /// when the binder also accepts arbitrary keywords (legacy wrappers such as
 /// `_csv` forward these to their subsequent parser). Defaults and names of
 /// positional-only arguments are presentation, not conversion instructions.
-/// Unknown/custom binders are deliberately rejected.
+/// Unknown binders are rejected. A known unrestricted binder retains its
+/// separately declared display contract, as with `type.__prepare__`.
 ///
 /// ```compile_fail
 /// use rustpython_vm::function::{Param, SigArg, validate_text_signature};
@@ -1271,6 +1277,7 @@ mod tests {
         validate_text_signature_without_slash(CLASS, &[OPTIONAL]);
         const PREPARE: &[SigArg] = &[
             SigArg::marker("$type"),
+            SigArg::implicit::<crate::builtins::PyTypeRef>(),
             SigArg {
                 name: "args",
                 params: Some(&[
