@@ -2199,7 +2199,7 @@ impl PyObject {
                             .repr(vm)
                             .ok()
                             .map(|r| format!("Exception ignored while calling deallocator {r}"));
-                        vm.run_unraisable(e, msg, del_method);
+                        vm.run_unraisable(e, msg, vm.ctx.none());
                     }
                 }
 
@@ -2372,7 +2372,7 @@ impl PyObject {
                         .repr(vm)
                         .ok()
                         .map(|r| format!("Exception ignored while calling deallocator {r}"));
-                    vm.run_unraisable(e, msg, del_method);
+                    vm.run_unraisable(e, msg, vm.ctx.none());
                 }
             });
             let _ = result;
