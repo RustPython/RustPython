@@ -1889,9 +1889,15 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[derive(FromArgs)]
-    struct SendmsgAddr {
+    struct SendmsgArgs {
+        #[pyarg(positional)]
+        buffers: PyObjectRef,
+        #[pyarg(positional, default, py_default = "()")]
+        ancdata: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, default = 0)]
+        flags: i32,
         #[pyarg(positional, optional)]
-        addr: Option<PyObjectRef>,
+        address: Option<PyObjectRef>,
     }
 
     struct ReceiveIntoArgs {
@@ -2394,19 +2400,17 @@ mod _socket {
 
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
-        fn sendmsg(
-            zelf: &Py<Self>,
-            buffers: PyObjectRef,
-            ancdata: OptionalArg<PyObjectRef>,
-            flags: OptionalArg<i32>,
-            addr: SendmsgAddr,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
-            let flags = flags.unwrap_or(0);
+        fn sendmsg(zelf: &Py<Self>, args: SendmsgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            let SendmsgArgs {
+                buffers,
+                ancdata,
+                flags,
+                address,
+            } = args;
             let mut msg = host_socket::raw::MsgHdr::new();
 
             let sockaddr;
-            if let Some(addr) = addr.addr {
+            if let Some(addr) = address {
                 sockaddr = zelf
                     .extract_address(addr, "sendmsg", vm)
                     .map_err(|e| e.into_pyexception(vm))?;

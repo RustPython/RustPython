@@ -66,8 +66,8 @@ mod _sqlite3 {
         },
         function::{
             ArgCallable, ArgIntoBool, ArgIntoFloat, ArgIterable, ArgStrOrBytesLike, ArgStrictInt,
-            FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue,
-            UnpackKeywords,
+            ArgumentError, FromArgs, FsPath, FuncArgs, KwArgs, OptionalArg, Param,
+            PyComparisonValue, PySetterValue, UnpackKeywords,
         },
         object::{Traverse, TraverseFn},
         protocol::{
@@ -410,7 +410,7 @@ mod _sqlite3 {
         cached_statements: c_int,
         #[pyarg(named, default = ArgIntoBool::FALSE)]
         uri: ArgIntoBool,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "sqlite3.LEGACY_TRANSACTION_CONTROL")]
         autocommit: AutocommitMode,
     }
 
@@ -432,7 +432,7 @@ mod _sqlite3 {
         progress: Option<PyObjectRef>,
         #[pyarg(named, default = "main")]
         name: SqliteStringArg,
-        #[pyarg(named, default = 0.250)]
+        #[pyarg(named, default = 0.25)]
         sleep: ArgIntoFloat,
     }
 
@@ -943,8 +943,21 @@ mod _sqlite3 {
         }
     }
 
+    // CPython displays the Connection parameters but forwards the original call
+    // to a custom factory without validating or converting those parameters.
+    struct ConnectForwardArgs(FuncArgs);
+
+    impl FromArgs for ConnectForwardArgs {
+        const PARAMS: Option<&'static [Param]> = ConnectArgs::PARAMS;
+        const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            FuncArgs::from_args(vm, args).map(Self)
+        }
+    }
+
     #[pyfunction]
-    fn connect(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn connect(ConnectForwardArgs(args): ConnectForwardArgs, vm: &VirtualMachine) -> PyResult {
         if args.args.len() > 1 {
             return Err(vm.new_type_error(format!(
                 "connect() takes at most 1 positional arguments ({} given)",
@@ -1043,13 +1056,18 @@ mod _sqlite3 {
         alt(obj)
     }
 
-    #[pyfunction]
-    fn adapt(
+    #[derive(FromArgs)]
+    struct AdaptArgs {
+        #[pyarg(positional)]
         obj: PyObjectRef,
+        #[pyarg(positional, default, py_default = "PrepareProtocolType")]
         proto: OptionalArg<Option<PyTypeRef>>,
+        #[pyarg(positional, optional)]
         alt: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    }
+
+    #[pyfunction]
+    fn adapt(AdaptArgs { obj, proto, alt }: AdaptArgs, vm: &VirtualMachine) -> PyResult {
         if matches!(proto, OptionalArg::Present(None)) {
             return if let OptionalArg::Present(alt) = alt {
                 Ok(alt)

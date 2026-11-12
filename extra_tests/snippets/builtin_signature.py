@@ -2,6 +2,8 @@ import builtins
 import inspect
 import os
 
+from testutils import assert_raises
+
 # __text_signature__ is generated from the Rust parameter list, so it must not
 # describe parameters the function does not actually take, and must mark the
 # ones it does take as positional-only.
@@ -71,6 +73,24 @@ assert str(inspect.signature(os.getcwd)) == "()"
 assert str(inspect.signature(list.__dir__)) == "(self, /)"
 assert str(inspect.signature([].__dir__)) == "()"
 assert str(inspect.signature(float.fromhex)) == "(string, /)"
+
+import _socket
+
+if hasattr(_socket.socket, "sendmsg"):
+    # CPython 3.15.0 used unrepresentable defaults; 3.15.1 corrected them.
+    if sys.implementation.name == "cpython" and sys.version_info[:3] == (3, 15, 0):
+        assert _socket.socket.sendmsg.__text_signature__ == (
+            "($self, buffers, ancdata=<unrepresentable>, flags=0,\n"
+            "        address=<unrepresentable>, /)"
+        )
+        assert_raises(ValueError, inspect.signature, _socket.socket.sendmsg)
+    else:
+        assert _socket.socket.sendmsg.__text_signature__ == (
+            "($self, buffers, ancdata=(), flags=0, address=None, /)"
+        )
+        assert str(inspect.signature(_socket.socket.sendmsg)) == (
+            "(self, buffers, ancdata=(), flags=0, address=None, /)"
+        )
 
 # Functions whose arguments come from a FromArgs struct report the struct's
 # parameters.
