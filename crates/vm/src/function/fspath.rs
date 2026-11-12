@@ -114,7 +114,16 @@ impl FsPath {
     }
 
     pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
-        alloc::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
+        #[cfg(any(unix, all(target_os = "wasi", not(target_env = "p2"))))]
+        let os_str = self.as_os_str(vm)?;
+        #[cfg(any(unix, all(target_os = "wasi", not(target_env = "p2"))))]
+        let bytes = {
+            use rustpython_host_env::os::ffi::OsStrExt;
+            os_str.as_bytes()
+        };
+        #[cfg(not(any(unix, all(target_os = "wasi", not(target_env = "p2")))))]
+        let bytes = self.as_bytes();
+        alloc::ffi::CString::new(bytes).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(windows)]
