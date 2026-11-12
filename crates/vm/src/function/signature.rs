@@ -248,14 +248,39 @@ const fn flags_positional_count(params: &[Param]) -> usize {
 /// }], &[Param::positional_only("value")]);
 /// ```
 pub const fn validate_text_signature(args: &[SigArg], display: &[Param]) {
+    validate_text_signature_impl(args, display, false);
+}
+
+/// Validate older bracket notation that does not spell positional-only `/`.
+/// Omission and names are checked; the binder remains authoritative for kinds.
+pub const fn validate_text_signature_without_slash(args: &[SigArg], display: &[Param]) {
+    validate_text_signature_impl(args, display, true);
+}
+
+// Some CPython entry points (notably type.__prepare__) deliberately accept and
+// ignore arbitrary arguments while publishing a more specific display signature.
+// Preserve that declared PARAMS contract only for the known *args/**kwargs
+// binder; never turn missing binding metadata into permission to override it.
+const fn override_params(arg: &SigArg) -> &[Param] {
+    let binding = match arg.binding_params {
+        Some(params) => params,
+        None => panic!("text_signature requires known binding metadata"),
+    };
+    if is_bare_funcargs(binding)
+        && let Some(params) = arg.params
+        && !is_bare_funcargs(params)
+    {
+        return params;
+    }
+    binding
+}
+
+const fn validate_text_signature_impl(args: &[SigArg], display: &[Param], omitted_slash: bool) {
     let mut count = 0;
     let mut var_keyword = false;
     let mut i = 0;
     while i < args.len() {
-        let params = match args[i].binding_params {
-            Some(params) => params,
-            None => panic!("text_signature requires known binding metadata"),
-        };
+        let params = override_params(&args[i]);
         binding_override_count(params, &mut count, &mut var_keyword);
         i += 1;
     }
@@ -266,8 +291,16 @@ pub const fn validate_text_signature(args: &[SigArg], display: &[Param]) {
     let mut index = 0;
     i = 0;
     while i < args.len() {
-        if let Some(params) = args[i].binding_params {
-            validate_override_params(params, args[i].name, display, &mut index, var_keyword);
+        {
+            let params = override_params(&args[i]);
+            validate_override_params(
+                params,
+                args[i].name,
+                display,
+                &mut index,
+                var_keyword,
+                omitted_slash,
+            );
         }
         i += 1;
     }
@@ -295,12 +328,20 @@ const fn validate_override_params(
     display: &[Param],
     index: &mut usize,
     var_keyword: bool,
+    omitted_slash: bool,
 ) {
     let mut i = 0;
     while i < params.len() {
         let binding = &params[i];
         if let ParamKind::Flatten(Some(inner)) = binding.kind {
-            validate_override_params(inner, fallback_name, display, index, var_keyword);
+            validate_override_params(
+                inner,
+                fallback_name,
+                display,
+                index,
+                var_keyword,
+                omitted_slash,
+            );
         } else {
             let shown = &display[*index];
             let name = if binding.name.is_empty() {
@@ -316,9 +357,25 @@ const fn validate_override_params(
             if (!name.is_empty() && name.as_bytes()[0] == b'$')
                 || (!shown.name.is_empty() && shown.name.as_bytes()[0] == b'$')
             {
-                assert!(same_name, "text_signature changes receiver marker");
+                let class_alias = name_eq(name, b"$type") && name_eq(shown.name, b"$cls");
+                assert!(
+                    same_name || class_alias,
+                    "text_signature changes receiver marker"
+                );
             }
-            match (binding.kind, shown.kind) {
+            let shown_kind = if omitted_slash {
+                assert!(
+                    matches!(
+                        binding.kind,
+                        ParamKind::PositionalOnly | ParamKind::PositionalOrKeyword
+                    ),
+                    "bracket notation requires positional parameters"
+                );
+                binding.kind
+            } else {
+                shown.kind
+            };
+            match (binding.kind, shown_kind) {
                 (ParamKind::PositionalOnly, ParamKind::PositionalOnly) => {}
                 (ParamKind::PositionalOnly, ParamKind::PositionalOrKeyword) => {
                     assert!(
@@ -1198,6 +1255,61 @@ mod tests {
         );
         assert_eq!(native_call_flags(&[NESTED], false), keywords);
     }
+    #[test]
+    fn explicit_class_and_unrestricted_parser_signatures() {
+        const OPTIONAL: Param = Param {
+            name: "iterable",
+            kind: ParamKind::PositionalOrKeyword,
+            default: Some(DefaultRepr::Unrepresentable),
+        };
+        const CLASS: &[SigArg] = &[SigArg {
+            name: "",
+            params: Some(&[OPTIONAL]),
+            binding_params: Some(&[OPTIONAL]),
+            force_unpack_keywords: false,
+        }];
+        validate_text_signature_without_slash(CLASS, &[OPTIONAL]);
+        const PREPARE: &[SigArg] = &[
+            SigArg::marker("$type"),
+            SigArg {
+                name: "args",
+                params: Some(&[
+                    Param::positional_only("name"),
+                    Param::positional_only("bases"),
+                    Param::var_keyword("kwds"),
+                ]),
+                binding_params: Some(&[
+                    Param::var_positional("args"),
+                    Param::var_keyword("kwargs"),
+                ]),
+                force_unpack_keywords: false,
+            },
+        ];
+        validate_text_signature(
+            PREPARE,
+            &[
+                Param::positional_only("$cls"),
+                Param::positional_only("name"),
+                Param::positional_only("bases"),
+                Param::var_keyword("kwds"),
+            ],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "text_signature changes keyword name")]
+    fn bracket_override_cannot_rename_keyword() {
+        validate_text_signature_without_slash(
+            &[SigArg {
+                name: "",
+                params: None,
+                binding_params: Some(&[Param::positional_or_keyword("actual")]),
+                force_unpack_keywords: false,
+            }],
+            &[Param::positional_or_keyword("wrong")],
+        );
+    }
+
     const OPTIONAL_START: Param = Param {
         name: "start",
         kind: ParamKind::PositionalOnly,

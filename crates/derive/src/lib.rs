@@ -176,6 +176,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///     - `BASETYPE`: allows the class to be inheritable.
 ///     - `IMMUTABLETYPE`: class attributes are immutable.
 /// - `with`: which trait implementations are to be included in the python class.
+/// - `text_signature = "(...)"`: checked display signature for the class,
+///   using its `Initializer` (or `Constructor` when there is no initializer).
+///   Uses the same grammar as method overrides and keeps the stored doc body.
 /// ```rust, ignore
 /// #[pyclass(module = "my_module", name = "MyClass", base = BaseClass)]
 /// struct MyStruct {
@@ -223,6 +226,12 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///   Optional positional parameters may be documented as keyword-capable when
 ///   a legacy wrapper accepts and forwards arbitrary keywords; the name must
 ///   match the binding metadata. Unknown binders are rejected.
+///   CPython bracket notation without `/` (for example `([iterable[, maxlen]])`)
+///   leaves parameter kinds to the binder; arity, omission, and keyword names
+///   are still checked. `$cls` is a display alias for the `$type` class receiver.
+///   A known unrestricted `*args, **kwargs` binder may retain a separate declared
+///   display contract, as with `type.__prepare__`; overrides must match that
+///   contract rather than imposing new runtime restrictions.
 /// ### pygetset
 /// This is used to mark a getter/setter pair.
 /// #### Arguments

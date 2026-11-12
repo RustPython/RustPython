@@ -2582,7 +2582,10 @@ mod _datetime {
         }
     }
 
-    #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
+    #[pyclass(
+        text_signature = "(offset, name=<unrepresentable>)",
+        with(Constructor, Comparable, Hashable, Representable)
+    )]
     impl PyTimeZone {
         #[pymethod]
         fn tzname(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {

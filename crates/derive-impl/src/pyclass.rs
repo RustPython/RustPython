@@ -186,6 +186,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 sig_initializer,
                 sig_constructor,
                 sig_structseq,
+                text_signature,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
             let method_def = &context.method_items;
@@ -254,6 +255,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                     sig_initializer,
                     sig_constructor,
                     sig_structseq,
+                    text_signature.as_ref(),
                 );
                 // The table names `Self`, so it has to be an associated const on the
                 // payload, not a `static` item inside `extend_slots`.
@@ -321,8 +323,15 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             let ExtractedImplAttrs {
                 with_impl,
                 with_slots,
+                text_signature,
                 ..
             } = extract_impl_attrs(attr, &trai.ident)?;
+            if text_signature.is_some() {
+                bail_span!(
+                    trai.ident,
+                    "text_signature belongs on the concrete class impl"
+                )
+            }
 
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
@@ -2579,6 +2588,7 @@ struct ExtractedImplAttrs {
     sig_initializer: bool,
     sig_constructor: bool,
     sig_structseq: bool,
+    text_signature: Option<crate::text_signature::TextSignature>,
 }
 
 fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<ExtractedImplAttrs> {
@@ -2591,6 +2601,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     let mut has_initializer = false;
     let mut has_constructor = false;
     let mut has_structseq = false;
+    let mut text_signature = None;
 
     for attr in attr {
         match attr {
@@ -2688,6 +2699,21 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                     } else {
                         bail_span!(value, "payload must be a string literal")
                     }
+                } else if path.is_ident("text_signature") {
+                    if text_signature.is_some() {
+                        bail_span!(path, "duplicate text_signature")
+                    }
+                    let syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(lit),
+                        ..
+                    }) = value
+                    else {
+                        bail_span!(value, "text_signature must be a string literal")
+                    };
+                    text_signature = Some(crate::text_signature::TextSignature::parse(
+                        lit.value(),
+                        lit.span(),
+                    )?);
                 } else if path.is_ident("itemsize") {
                     itemsize = Some(value);
                 } else {
@@ -2718,6 +2744,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
         sig_initializer: has_initializer,
         sig_constructor: has_constructor,
         sig_structseq: has_structseq,
+        text_signature,
     })
 }
 
@@ -2726,9 +2753,32 @@ fn class_internal_doc(
     has_initializer: bool,
     has_constructor: bool,
     has_structseq: bool,
+    text_signature: Option<&crate::text_signature::TextSignature>,
 ) -> TokenStream {
     let init_params = quote!(<<#payload as ::rustpython_vm::types::Initializer>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
     let ctor_params = quote!(<<#payload as ::rustpython_vm::types::Constructor>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
+    if let Some(signature) = text_signature {
+        // An explicit class signature can contain an unrepresentable default.
+        // Check the actual constructor/initializer binder, not real_signature's
+        // filtered display metadata.
+        let args = if has_initializer {
+            quote!(<#payload as ::rustpython_vm::types::Initializer>::Args)
+        } else if has_constructor {
+            quote!(<#payload as ::rustpython_vm::types::Constructor>::Args)
+        } else {
+            return quote!(compile_error!(
+                "class text_signature requires Constructor or Initializer"
+            ));
+        };
+        let name = quote!(<#payload as ::rustpython_vm::class::PyClassDef>::NAME);
+        let doc = quote!(<#payload as ::rustpython_vm::class::PyClassDef>::DOC);
+        let args_const = quote! {
+            const ARGS: &[::rustpython_vm::function::SigArg] = &[
+                ::rustpython_vm::function::SigArg::from_arg::<#args>(""),
+            ];
+        };
+        return crate::util::doc_from_signature_args(&name, doc, args_const, Some(signature));
+    }
     let chosen = match (has_initializer, has_constructor) {
         (true, true) => quote! {
             ::rustpython_vm::function::choose_class_params(#init_params, #ctor_params)

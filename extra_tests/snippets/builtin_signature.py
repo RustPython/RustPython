@@ -553,3 +553,60 @@ for _function, _first in (
     assert str(inspect.signature(_function)) == (
         f"({_first}, /, dialect='excel', **fmtparams)"
     )
+
+
+# Explicit display signatures are useful raw metadata even when their optional groups
+# or sentinel defaults cannot be represented by inspect.Signature.
+import collections
+import datetime
+
+for obj, raw, doc in (
+    (
+        collections.deque,
+        "([iterable[, maxlen]])",
+        "A list-like sequence optimized for data accesses near its endpoints.",
+    ),
+    (
+        collections.deque.index,
+        "($self, value, [start, [stop]])",
+        "Return first index of value.\n\n"
+        "Raises ValueError if the value is not present.",
+    ),
+    (
+        collections.deque().index,
+        "($self, value, [start, [stop]])",
+        "Return first index of value.\n\n"
+        "Raises ValueError if the value is not present.",
+    ),
+    (
+        datetime.timezone,
+        "(offset, name=<unrepresentable>)",
+        "Fixed offset from UTC implementation of tzinfo.",
+    ),
+):
+    assert obj.__text_signature__ == raw
+    assert obj.__doc__ == doc
+    try:
+        inspect.signature(obj)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"signature should remain unrepresentable: {obj}")
+
+# __prepare__ uses $cls, unlike the $type receiver of most native classmethods.
+# The descriptor and its bound form must expose the same header but strip the
+# bound receiver only from the latter's inspected signature.
+prepare = type.__dict__["__prepare__"]
+assert prepare.__text_signature__ == "($cls, name, bases, /, **kwds)"
+assert str(inspect.signature(prepare)) == "(cls, name, bases, /, **kwds)"
+assert type.__prepare__.__text_signature__ == prepare.__text_signature__
+assert str(inspect.signature(type.__prepare__)) == "(name, bases, /, **kwds)"
+assert type.__prepare__.__doc__ == "Create the namespace for the class statement"
+assert type.__prepare__.__self__ is type
+
+# A display signature must not impose Clinic binding on __prepare__: CPython's
+# implementation ignores every supplied argument and returns a fresh namespace.
+for arguments in ((), (object(),), (object(), object(), object())):
+    namespace = type.__prepare__(*arguments, unexpected=object())
+    assert namespace == {}
+    assert namespace is not type.__prepare__(*arguments, unexpected=object())

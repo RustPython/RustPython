@@ -3303,7 +3303,7 @@ impl Py<PyType> {
         Ok(())
     }
 
-    #[pyclassmethod]
+    #[pyclassmethod(text_signature = "($cls, name, bases, /, **kwds)")]
     fn __prepare__(_cls: PyTypeRef, _args: PrepareArgs, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }

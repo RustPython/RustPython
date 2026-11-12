@@ -952,8 +952,8 @@ pub(crate) fn flags_signature_doc_tokens(
     doc_from_signature_args(py_name, doc, args, None)
 }
 
-fn doc_from_signature_args(
-    py_name: &str,
+pub(crate) fn doc_from_signature_args(
+    py_name: &(impl ToTokens + ?Sized),
     doc: TokenStream,
     args_const: TokenStream,
     text_signature: Option<&crate::text_signature::TextSignature>,
@@ -964,8 +964,13 @@ fn doc_from_signature_args(
     {
         let text = &signature.text;
         let params = signature.params_tokens();
+        let validator = if signature.omitted_slash {
+            quote!(::rustpython_vm::function::validate_text_signature_without_slash)
+        } else {
+            quote!(::rustpython_vm::function::validate_text_signature)
+        };
         (
-            quote! { const _: () = ::rustpython_vm::function::validate_text_signature(ARGS, &[#(#params),*]); },
+            quote! { const _: () = #validator(ARGS, &[#(#params),*]); },
             quote! { #py_name.len() + #text.len() + 5 },
             quote! { ::rustpython_vm::function::text_signature_doc_bytes::<N>(#py_name, #text, "") },
             quote! { #py_name.len() + #text.len() + 5 + BODY.len() },
