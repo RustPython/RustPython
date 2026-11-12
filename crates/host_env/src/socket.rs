@@ -884,6 +884,17 @@ pub struct AncillaryMessage {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AncillaryDataStatus {
+    /// Every control message in `ancdata` is complete.
+    Complete,
+    /// The last message in `ancdata` holds only the part of its payload that fit.
+    Truncated,
+    /// Parsing stopped at a header that is not included in `ancdata`.
+    Malformed,
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
 pub type SocketAddressBytes = [u8; core::mem::size_of::<libc::sockaddr_storage>()];
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -898,6 +909,7 @@ pub struct RawSocketAddress {
 pub struct RecvMsgResult {
     pub data: Vec<u8>,
     pub ancdata: Vec<AncillaryMessage>,
+    pub ancdata_status: AncillaryDataStatus,
     pub msg_flags: i32,
     pub address: Option<RawSocketAddress>,
 }
@@ -907,8 +919,59 @@ pub struct RecvMsgResult {
 pub struct RecvMsgIntoResult {
     pub bytes_read: usize,
     pub ancdata: Vec<AncillaryMessage>,
+    pub ancdata_status: AncillaryDataStatus,
     pub msg_flags: i32,
     pub address: Option<RawSocketAddress>,
+}
+
+// Owned, zero-initialized msg_control storage aligned to 16 bytes.
+#[cfg(all(unix, not(target_os = "redox")))]
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
+struct ControlBufferUnit([u8; 16]);
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub struct ControlBuffer {
+    storage: Vec<ControlBufferUnit>,
+    len: usize,
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl ControlBuffer {
+    pub fn new(len: usize) -> Option<Self> {
+        const UNIT: usize = 16;
+        let n_units = len.div_ceil(UNIT);
+        let alloc_size = n_units.checked_mul(UNIT)?;
+        if isize::try_from(alloc_size).is_err() {
+            return None;
+        }
+        Some(Self {
+            storage: vec![ControlBufferUnit([0; UNIT]); n_units],
+            len,
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.storage.as_mut_ptr().cast()
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl core::ops::Deref for ControlBuffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        // SAFETY: `storage` is zero-initialized and contains at least `len` bytes.
+        unsafe { core::slice::from_raw_parts(self.storage.as_ptr().cast(), self.len) }
+    }
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -916,17 +979,32 @@ pub struct RecvMsgIntoResult {
 pub enum AncillaryPackError {
     ItemTooLarge,
     TooMuchData,
-    UnexpectedNullHeader,
+    UnexpectedNullFirstHeader,
+    UnexpectedNullNextHeader,
+    ItemSizeOutOfRange,
+    DoesNotFit,
 }
+
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+pub enum AfAlgControlError {
+    UnexpectedNullFirstHeader,
+    UnexpectedNullNextHeaderIv,
+    UnexpectedNullNextHeaderAssoc,
+    NoMemory,
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub const SOCKLEN_T_LIMIT: usize = i32::MAX as usize;
 
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn checked_cmsg_len(len: usize) -> Option<usize> {
     let cmsg_len = |length| unsafe { libc::CMSG_LEN(length) };
-    if len as u64 > (i32::MAX as u64 - cmsg_len(0) as u64) {
+    if len as u64 > (SOCKLEN_T_LIMIT as u64 - cmsg_len(0) as u64) {
         return None;
     }
     let res = cmsg_len(len as _) as usize;
-    if res > i32::MAX as usize || res < len {
+    if res > SOCKLEN_T_LIMIT || res < len {
         return None;
     }
     Some(res)
@@ -935,261 +1013,420 @@ pub fn checked_cmsg_len(len: usize) -> Option<usize> {
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn checked_cmsg_space(len: usize) -> Option<usize> {
     let cmsg_space = |length| unsafe { libc::CMSG_SPACE(length) };
-    if len as u64 > (i32::MAX as u64 - cmsg_space(1) as u64) {
+    if len as u64 > (SOCKLEN_T_LIMIT as u64 - cmsg_space(1) as u64) {
         return None;
     }
     let res = cmsg_space(len as _) as usize;
-    if res > i32::MAX as usize || res < len {
+    if res > SOCKLEN_T_LIMIT || res < len {
         return None;
     }
     Some(res)
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-pub fn pack_ancillary_messages(cmsgs: &[(i32, i32, &[u8])]) -> Result<Vec<u8>, AncillaryPackError> {
+fn cmsg_min_space(msg: &libc::msghdr, cmsgh: *mut libc::cmsghdr, mut space: usize) -> bool {
+    if cmsgh.is_null() || msg.msg_control.is_null() {
+        return false;
+    }
+    #[allow(
+        clippy::useless_conversion,
+        reason = "msg_controllen is not usize on all platforms"
+    )]
+    let Some(controllen) = usize::try_from(msg.msg_controllen).ok() else {
+        return false;
+    };
+    // SAFETY: `cmsghdr` contains only integer fields; zero is a valid bit pattern.
+    let dummy: libc::cmsghdr = unsafe { core::mem::zeroed() };
+    let cmsg_len_end =
+        core::mem::offset_of!(libc::cmsghdr, cmsg_len) + core::mem::size_of_val(&dummy.cmsg_len);
+    if space < cmsg_len_end {
+        space = cmsg_len_end;
+    }
+    let cmsg_offset = cmsgh.addr().wrapping_sub(msg.msg_control.addr());
+    cmsg_offset <= usize::MAX - space && cmsg_offset + space <= controllen
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn get_cmsg_data_space(msg: &libc::msghdr, cmsgh: *mut libc::cmsghdr, space: &mut usize) -> bool {
+    // SAFETY: `cmsgh` is a control header associated with `msg`.
+    let data_ptr = unsafe { libc::CMSG_DATA(cmsgh) };
+    if data_ptr.is_null() {
+        return false;
+    }
+    let data_offset = data_ptr.addr().wrapping_sub(msg.msg_control.addr());
+    #[allow(
+        clippy::useless_conversion,
+        reason = "msg_controllen is not usize on all platforms"
+    )]
+    let Some(controllen) = usize::try_from(msg.msg_controllen).ok() else {
+        return false;
+    };
+    if data_offset > controllen {
+        return false;
+    }
+    *space = controllen - data_offset;
+    true
+}
+
+/// Returns -1 if `cmsgh` is invalid, 0 if its payload is fully contained, and 1
+/// if only part of the payload is in the buffer. `data_len` is the contained
+/// payload length when the result is 0 or 1.
+#[cfg(all(unix, not(target_os = "redox")))]
+fn get_cmsg_data_len(msg: &libc::msghdr, cmsgh: *mut libc::cmsghdr, data_len: &mut usize) -> i32 {
+    // SAFETY: `CMSG_LEN` is a length macro over integer fields.
+    let cmsg_len_0 = unsafe { libc::CMSG_LEN(0) };
+    if !cmsg_min_space(msg, cmsgh, cmsg_len_0 as usize) {
+        return -1;
+    }
+    // SAFETY: `cmsg_min_space` with `CMSG_LEN(0)` confirmed the `cmsg_len`
+    // field lies in the control buffer.
+    let cmsg_len = unsafe { (*cmsgh).cmsg_len };
+    if (cmsg_len as u64) < (cmsg_len_0 as u64) {
+        return -1;
+    }
+    let cmsg_data_len = (cmsg_len as u64 - cmsg_len_0 as u64) as usize;
+    let mut space = 0usize;
+    if !get_cmsg_data_space(msg, cmsgh, &mut space) {
+        return -1;
+    }
+    if space >= cmsg_data_len {
+        *data_len = cmsg_data_len;
+        0
+    } else {
+        *data_len = space;
+        1
+    }
+}
+
+/// Walk `CMSG_FIRSTHDR` / `CMSG_NXTHDR` on the `msghdr` returned by recvmsg.
+#[cfg(all(unix, not(target_os = "redox")))]
+fn parse_ancillary_from_msg(msg: &libc::msghdr) -> (Vec<AncillaryMessage>, AncillaryDataStatus) {
+    let mut result = Vec::new();
+    // POSIX allows a signed `msg_controllen`; skip `CMSG_FIRSTHDR` when empty.
+    #[allow(
+        clippy::useless_conversion,
+        reason = "msg_controllen is not usize on all platforms"
+    )]
+    let has_control = usize::try_from(msg.msg_controllen).is_ok_and(|n| n > 0);
+    let mut cmsgh = if has_control {
+        // SAFETY: `msg.msg_control` is the aligned control buffer of
+        // `msg.msg_controllen` bytes filled by recvmsg or a pack helper.
+        unsafe { libc::CMSG_FIRSTHDR(msg) }
+    } else {
+        core::ptr::null_mut()
+    };
+    while !cmsgh.is_null() {
+        let mut cmsgdatalen = 0usize;
+        let cmsg_status = get_cmsg_data_len(msg, cmsgh, &mut cmsgdatalen);
+        if cmsg_status < 0 {
+            return (result, AncillaryDataStatus::Malformed);
+        }
+        // SAFETY: status 0 or 1 means `CMSG_DATA` and `cmsgdatalen` bytes lie
+        // in the control buffer, and the header fields are readable.
+        let (level, kind, data) = unsafe {
+            let src = libc::CMSG_DATA(cmsgh);
+            (
+                (*cmsgh).cmsg_level,
+                (*cmsgh).cmsg_type,
+                core::slice::from_raw_parts(src, cmsgdatalen).to_vec(),
+            )
+        };
+        result.push(AncillaryMessage { level, kind, data });
+        if cmsg_status != 0 {
+            return (result, AncillaryDataStatus::Truncated);
+        }
+        // SAFETY: `cmsgh` came from `CMSG_FIRSTHDR`/`CMSG_NXTHDR` on `msg`.
+        cmsgh = unsafe { libc::CMSG_NXTHDR(msg, cmsgh) };
+    }
+    (result, AncillaryDataStatus::Complete)
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn pack_ancillary_messages(
+    cmsgs: &[(i32, i32, &[u8])],
+) -> Result<ControlBuffer, AncillaryPackError> {
     use core::{mem, ptr};
 
-    if cmsgs.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let capacity = cmsgs
+    let controllen = cmsgs
         .iter()
         .map(|(_, _, buf)| buf.len())
         .try_fold(0usize, |sum, len| {
             let space = checked_cmsg_space(len).ok_or(AncillaryPackError::ItemTooLarge)?;
-            usize::checked_add(sum, space).ok_or(AncillaryPackError::TooMuchData)
+            match usize::checked_add(sum, space) {
+                Some(next) if next <= SOCKLEN_T_LIMIT => Ok(next),
+                _ => Err(AncillaryPackError::TooMuchData),
+            }
         })?;
 
-    let mut cmsg_buffer = vec![0u8; capacity];
-    let mut mhdr = unsafe { mem::zeroed::<libc::msghdr>() };
-    mhdr.msg_control = cmsg_buffer.as_mut_ptr().cast();
-    mhdr.msg_controllen = capacity as _;
+    let mut control_buf = ControlBuffer::new(controllen).ok_or(AncillaryPackError::TooMuchData)?;
 
-    let mut pmhdr: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(&mhdr) };
-    for (lvl, typ, data) in cmsgs {
-        if pmhdr.is_null() {
-            return Err(AncillaryPackError::UnexpectedNullHeader);
-        }
-        let cmsg_len = checked_cmsg_len(data.len()).ok_or(AncillaryPackError::ItemTooLarge)?;
-        unsafe {
-            (*pmhdr).cmsg_level = *lvl;
-            (*pmhdr).cmsg_type = *typ;
-            (*pmhdr).cmsg_len = cmsg_len as _;
-            ptr::copy_nonoverlapping(data.as_ptr(), libc::CMSG_DATA(pmhdr), data.len());
-            pmhdr = libc::CMSG_NXTHDR(&mhdr, pmhdr);
-        }
-    }
+    // SAFETY: `msghdr` is a POD of pointers and integers; zero is a valid bit pattern.
+    let mut msg = unsafe { mem::zeroed::<libc::msghdr>() };
+    msg.msg_control = control_buf.as_mut_ptr().cast();
+    msg.msg_controllen = controllen as _;
 
-    Ok(cmsg_buffer)
-}
-
-#[cfg(all(unix, not(target_os = "redox")))]
-pub fn parse_ancillary_messages(control: &[u8]) -> Vec<AncillaryMessage> {
-    let header_size = core::mem::size_of::<libc::cmsghdr>();
-    let data_offset = unsafe { libc::CMSG_LEN(0) } as usize;
-    let mut result = Vec::new();
-    let mut offset = 0usize;
-
-    while let Some(remaining) = control.get(offset..) {
-        if remaining.len() < header_size || remaining.len() < data_offset {
-            break;
-        }
-        // SAFETY: A complete header is present. The input may be unaligned,
-        // so read the integer fields with an unaligned load.
-        let header = unsafe { remaining.as_ptr().cast::<libc::cmsghdr>().read_unaligned() };
-        #[allow(
-            clippy::unnecessary_cast,
-            reason = "cmsg_len is not usize on all platforms"
-        )]
-        let declared_len = header.cmsg_len as usize;
-        let Some(payload_len) = declared_len.checked_sub(data_offset) else {
-            break;
-        };
-        #[cfg(target_os = "hurd")]
-        if offset != 0
-            && checked_cmsg_space(payload_len).is_none_or(|space| space > remaining.len())
-        {
-            // Hurd's CMSG_NXTHDR requires the next message to fit in full.
-            break;
-        }
-        let available = remaining.len() - data_offset;
-        let data_len = payload_len.min(available);
-        result.push(AncillaryMessage {
-            level: header.cmsg_level,
-            kind: header.cmsg_type,
-            data: remaining[data_offset..data_offset + data_len].to_vec(),
-        });
-        // A truncated final message has no complete next header.
-        if payload_len > available {
-            break;
-        }
-        #[cfg(any(target_os = "solaris", target_os = "illumos"))]
-        {
-            // These platforms also round the end of the following header
-            // before deciding whether CMSG_NXTHDR may return it.
-            let Some(next_header_end) = payload_len
-                .checked_add(header_size)
-                .and_then(checked_cmsg_space)
-            else {
-                break;
-            };
-            if next_header_end > remaining.len() {
-                break;
+    let mut cmsgh: *mut libc::cmsghdr = ptr::null_mut();
+    for (i, (lvl, typ, data)) in cmsgs.iter().enumerate() {
+        // SAFETY: `msg.msg_control` points at `control_buf`'s aligned, zeroed
+        // storage of `msg.msg_controllen` bytes. After the first header,
+        // `cmsgh` is a previous CMSG_* result in that buffer; remaining
+        // bytes stay zero so CMSG_NXTHDR can inspect the next header.
+        cmsgh = unsafe {
+            if i == 0 {
+                libc::CMSG_FIRSTHDR(&msg)
+            } else {
+                libc::CMSG_NXTHDR(&msg, cmsgh)
             }
-        }
-        let Some(space) = checked_cmsg_space(payload_len) else {
-            break;
         };
-        let Some(next) = offset.checked_add(space) else {
-            break;
+        if cmsgh.is_null() {
+            return Err(if i == 0 {
+                AncillaryPackError::UnexpectedNullFirstHeader
+            } else {
+                AncillaryPackError::UnexpectedNullNextHeader
+            });
+        }
+        let msg_len = checked_cmsg_len(data.len()).ok_or(AncillaryPackError::ItemSizeOutOfRange)?;
+        let enough_space = if cmsg_min_space(&msg, cmsgh, msg_len) {
+            // SAFETY: `cmsg_min_space` confirmed `cmsgh` lies in the control
+            // buffer with room for the `cmsg_len` field.
+            unsafe {
+                #[allow(
+                    clippy::unnecessary_cast,
+                    reason = "cmsg_len is not usize on all platforms"
+                )]
+                {
+                    (*cmsgh).cmsg_len = msg_len as _;
+                }
+            }
+            let mut space = 0usize;
+            get_cmsg_data_space(&msg, cmsgh, &mut space) && space >= data.len()
+        } else {
+            false
         };
-        if next <= offset {
-            break;
+        if !enough_space {
+            return Err(AncillaryPackError::DoesNotFit);
         }
-        // These CMSG_NXTHDR variants require a byte beyond the next header.
-        #[cfg(any(
-            target_os = "emscripten",
-            all(target_os = "linux", any(target_env = "musl", target_env = "ohos"))
-        ))]
-        if next
-            .checked_add(header_size)
-            .is_none_or(|end| end >= control.len())
-        {
-            break;
+        // SAFETY: `enough_space` means the header and `data.len()` payload
+        // bytes fit in the control buffer. `CMSG_DATA` yields the payload
+        // pointer for this header.
+        unsafe {
+            (*cmsgh).cmsg_level = *lvl;
+            (*cmsgh).cmsg_type = *typ;
+            ptr::copy_nonoverlapping(data.as_ptr(), libc::CMSG_DATA(cmsgh), data.len());
         }
-        offset = next;
     }
 
-    result
+    Ok(control_buf)
 }
 
 #[cfg(test)]
 #[cfg(all(unix, not(target_os = "redox")))]
 mod ancillary_parse_tests {
-    use super::{checked_cmsg_len, checked_cmsg_space, parse_ancillary_messages};
+    use super::{
+        AncillaryDataStatus, ControlBuffer, checked_cmsg_len, pack_ancillary_messages,
+        parse_ancillary_from_msg, recvmsg,
+    };
+    use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 
-    fn write_header(bytes: &mut [u8], length: usize, level: i32, kind: i32) {
-        let header = bytes.as_mut_ptr().cast::<libc::cmsghdr>();
-        // SAFETY: Tests provide enough bytes for a header. They deliberately
-        // use unaligned storage, so each field is written without alignment.
-        unsafe {
-            core::ptr::addr_of_mut!((*header).cmsg_len).write_unaligned(length as _);
-            core::ptr::addr_of_mut!((*header).cmsg_level).write_unaligned(level);
-            core::ptr::addr_of_mut!((*header).cmsg_type).write_unaligned(kind);
-        }
-    }
-
-    #[test]
-    fn parses_unaligned_headers_and_payloads() {
-        let first_space = checked_cmsg_space(3).unwrap();
-        let second_space = checked_cmsg_space(1).unwrap();
-        let data_offset = checked_cmsg_len(0).unwrap();
-        let align = core::mem::align_of::<libc::cmsghdr>();
-        let mut storage = vec![0u8; first_space + second_space + align];
-        let shift = (0..align)
-            .find(|&n| !(storage.as_ptr() as usize + n).is_multiple_of(align))
-            .unwrap_or(0);
-        let control = &mut storage[shift..shift + first_space + second_space];
-        write_header(control, checked_cmsg_len(3).unwrap(), 7, 8);
-        control[data_offset..data_offset + 3].copy_from_slice(b"abc");
-        write_header(
-            &mut control[first_space..],
-            checked_cmsg_len(1).unwrap(),
-            9,
-            10,
-        );
-        control[first_space + data_offset] = b'z';
-
-        let messages = parse_ancillary_messages(control);
-        assert_eq!(messages.len(), 2);
-        assert_eq!((messages[0].level, messages[0].kind), (7, 8));
-        assert_eq!(messages[0].data.as_slice(), b"abc");
-        assert_eq!((messages[1].level, messages[1].kind), (9, 10));
-        assert_eq!(messages[1].data.as_slice(), b"z");
-    }
-
-    #[test]
-    fn handles_short_and_truncated_control_data() {
-        let data_offset = checked_cmsg_len(0).unwrap();
-        let mut control = vec![0u8; data_offset + 2];
-        write_header(&mut control, data_offset - 1, 1, 2);
-        assert!(parse_ancillary_messages(&control).is_empty());
-
-        write_header(&mut control, checked_cmsg_len(10).unwrap(), 1, 2);
-        control[data_offset..].copy_from_slice(b"xy");
-        let messages = parse_ancillary_messages(&control);
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].data.as_slice(), b"xy");
-        assert!(parse_ancillary_messages(&control[..data_offset - 1]).is_empty());
-    }
-
-    #[test]
-    fn handles_maximal_declared_length() {
-        let data_offset = checked_cmsg_len(0).unwrap();
-        let mut control = vec![0u8; data_offset + 1];
-        write_header(&mut control, usize::MAX, 1, 2);
-        control[data_offset] = b'x';
-        let messages = parse_ancillary_messages(&control);
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].data.as_slice(), b"x");
-    }
-
-    #[test]
-    fn zero_payload_and_exact_trailing_header_follow_platform_macro() {
-        #[repr(align(16))]
-        struct Aligned([u8; 128]);
-
-        let first_space = checked_cmsg_space(0).unwrap();
-        let data_offset = checked_cmsg_len(0).unwrap();
-        let mut storage = Aligned([0; 128]);
-        let control = &mut storage.0[..first_space + data_offset];
-        write_header(control, data_offset, 1, 2);
-        write_header(&mut control[first_space..], data_offset, 3, 4);
-
-        // SAFETY: Both headers and the msghdr are aligned and initialized.
-        // The macro may inspect the second header but not its payload.
-        let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
-        msg.msg_control = control.as_mut_ptr().cast();
+    fn msghdr_for_control(control: &ControlBuffer) -> libc::msghdr {
+        // SAFETY: `msghdr` is a POD of pointers and integers.
+        let mut msg = unsafe { core::mem::zeroed::<libc::msghdr>() };
+        msg.msg_control = control.as_ptr() as *mut _;
         msg.msg_controllen = control.len() as _;
-        let next = unsafe { libc::CMSG_NXTHDR(&msg, control.as_ptr().cast()) };
-        let messages = parse_ancillary_messages(control);
-        assert_eq!(messages.len(), if next.is_null() { 1 } else { 2 });
+        msg
+    }
+
+    #[test]
+    fn parses_packed_messages_from_msghdr() {
+        let packed = pack_ancillary_messages(&[
+            (1, 2, b"".as_slice()),
+            (7, 8, b"abc".as_slice()),
+            (9, 10, b"z".as_slice()),
+        ])
+        .unwrap();
+        let msg = msghdr_for_control(&packed);
+        let (messages, status) = parse_ancillary_from_msg(&msg);
+        assert_eq!(status, AncillaryDataStatus::Complete);
+        assert_eq!(messages.len(), 3);
+        assert_eq!((messages[0].level, messages[0].kind), (1, 2));
         assert!(messages[0].data.is_empty());
-        if let Some(second) = messages.get(1) {
-            assert_eq!((second.level, second.kind), (3, 4));
-            assert!(second.data.is_empty());
-        }
+        assert_eq!((messages[1].level, messages[1].kind), (7, 8));
+        assert_eq!(messages[1].data.as_slice(), b"abc");
+        assert_eq!((messages[2].level, messages[2].kind), (9, 10));
+        assert_eq!(messages[2].data.as_slice(), b"z");
     }
 
     #[test]
-    fn truncated_next_message_follows_platform_macro() {
-        #[repr(align(16))]
-        struct Aligned([u8; 128]);
-
-        let first_space = checked_cmsg_space(0).unwrap();
+    fn truncated_payload_returns_truncated() {
+        let packed = pack_ancillary_messages(&[(1, 2, b"abcdef".as_slice())]).unwrap();
         let data_offset = checked_cmsg_len(0).unwrap();
-        let mut storage = Aligned([0; 128]);
-        let control = &mut storage.0[..=first_space + data_offset];
-        write_header(control, data_offset, 1, 2);
-        write_header(
-            &mut control[first_space..],
-            checked_cmsg_len(10).unwrap(),
-            3,
-            4,
-        );
-        control[first_space + data_offset] = b'x';
+        let mut msg = msghdr_for_control(&packed);
+        msg.msg_controllen = (data_offset + 2) as _;
+        let (messages, status) = parse_ancillary_from_msg(&msg);
+        assert_eq!(status, AncillaryDataStatus::Truncated);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].data.as_slice(), b"ab");
+    }
 
-        // SAFETY: Both headers are aligned and initialized; CMSG_NXTHDR may
-        // inspect the second header, but it does not access its payload.
-        let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
-        msg.msg_control = control.as_mut_ptr().cast();
-        msg.msg_controllen = control.len() as _;
-        let next = unsafe { libc::CMSG_NXTHDR(&msg, control.as_ptr().cast()) };
-        let messages = parse_ancillary_messages(control);
-        assert_eq!(messages.len(), if next.is_null() { 1 } else { 2 });
-        if let Some(second) = messages.get(1) {
-            assert_eq!(second.data.as_slice(), b"x");
+    #[test]
+    fn undersized_cmsg_len_returns_malformed() {
+        let mut packed = pack_ancillary_messages(&[(1, 2, b"x".as_slice())]).unwrap();
+        // SAFETY: `msghdr` is a POD of pointers and integers.
+        let mut msg = unsafe { core::mem::zeroed::<libc::msghdr>() };
+        msg.msg_control = packed.as_mut_ptr().cast();
+        msg.msg_controllen = packed.len() as _;
+        // SAFETY: `CMSG_FIRSTHDR` returns the packed header in `packed`.
+        let cmsgh = unsafe { libc::CMSG_FIRSTHDR(&msg) };
+        assert!(!cmsgh.is_null());
+        // SAFETY: `cmsgh` is the aligned first header in `packed`.
+        unsafe {
+            (*cmsgh).cmsg_len = 1;
+        }
+        let (messages, status) = parse_ancillary_from_msg(&msg);
+        assert_eq!(status, AncillaryDataStatus::Malformed);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn recvmsg_round_trips_scm_rights() {
+        let mut pair = [0i32; 2];
+        // SAFETY: `pair` has room for two descriptors.
+        let rc =
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, pair.as_mut_ptr()) };
+        assert_eq!(rc, 0);
+        // SAFETY: `socketpair` filled both slots with owned descriptors.
+        let send = unsafe { OwnedFd::from_raw_fd(pair[0]) };
+        let recv = unsafe { OwnedFd::from_raw_fd(pair[1]) };
+
+        let mut payload = [0i32; 2];
+        // SAFETY: `payload` has room for the read and write ends.
+        let rc = unsafe { libc::pipe(payload.as_mut_ptr()) };
+        assert_eq!(rc, 0);
+        // SAFETY: `pipe` filled both slots with owned descriptors.
+        let pipe_r = unsafe { OwnedFd::from_raw_fd(payload[0]) };
+        let pipe_w = unsafe { OwnedFd::from_raw_fd(payload[1]) };
+
+        let fd_bytes = pipe_r.as_raw_fd().to_ne_bytes();
+        let packed =
+            pack_ancillary_messages(&[(libc::SOL_SOCKET, libc::SCM_RIGHTS, fd_bytes.as_slice())])
+                .unwrap();
+
+        let mut iov_buf = *b"x";
+        let mut iov = [libc::iovec {
+            iov_base: iov_buf.as_mut_ptr().cast(),
+            iov_len: 1,
+        }];
+        // SAFETY: `msghdr` is a POD of pointers and integers.
+        let mut msg = unsafe { core::mem::zeroed::<libc::msghdr>() };
+        msg.msg_iov = iov.as_mut_ptr();
+        msg.msg_iovlen = 1;
+        msg.msg_control = packed.as_ptr() as *mut _;
+        msg.msg_controllen = packed.len() as _;
+        // SAFETY: `iov` and `packed` live until `sendmsg` returns.
+        let n = unsafe { libc::sendmsg(send.as_raw_fd(), &msg, 0) };
+        assert!(n >= 0);
+
+        let result = recvmsg(recv.as_fd(), 16, packed.len() + 64, 0).unwrap();
+        assert_eq!(result.data.as_slice(), b"x");
+        assert_eq!(result.ancdata_status, AncillaryDataStatus::Complete);
+        assert_eq!(result.ancdata.len(), 1);
+        assert_eq!(result.ancdata[0].level, libc::SOL_SOCKET);
+        assert_eq!(result.ancdata[0].kind, libc::SCM_RIGHTS);
+        let received = i32::from_ne_bytes(result.ancdata[0].data[..4].try_into().unwrap());
+        assert!(received >= 0);
+        // SAFETY: recvmsg transferred this descriptor.
+        drop(unsafe { OwnedFd::from_raw_fd(received) });
+        drop(pipe_w);
+    }
+}
+
+#[cfg(test)]
+#[cfg(all(unix, not(target_os = "redox")))]
+mod ancillary_pack_tests {
+    use super::{
+        AncillaryDataStatus, ControlBuffer, pack_ancillary_messages, parse_ancillary_from_msg,
+    };
+
+    #[test]
+    fn packs_messages_aligned_and_round_trips() {
+        let packed = pack_ancillary_messages(&[
+            (1, 2, b"".as_slice()),
+            (7, 8, b"abc".as_slice()),
+            (9, 10, b"z".as_slice()),
+        ])
+        .unwrap();
+        assert!((packed.as_ptr() as usize).is_multiple_of(16));
+        // SAFETY: `msghdr` is a POD of pointers and integers.
+        let mut msg = unsafe { core::mem::zeroed::<libc::msghdr>() };
+        msg.msg_control = packed.as_ptr() as *mut _;
+        msg.msg_controllen = packed.len() as _;
+        let (messages, status) = parse_ancillary_from_msg(&msg);
+        assert_eq!(status, AncillaryDataStatus::Complete);
+        assert_eq!(messages.len(), 3);
+        assert_eq!((messages[0].level, messages[0].kind), (1, 2));
+        assert!(messages[0].data.is_empty());
+        assert_eq!((messages[1].level, messages[1].kind), (7, 8));
+        assert_eq!(messages[1].data.as_slice(), b"abc");
+        assert_eq!((messages[2].level, messages[2].kind), (9, 10));
+        assert_eq!(messages[2].data.as_slice(), b"z");
+    }
+
+    #[test]
+    fn pack_empty_input_is_empty() {
+        let packed = pack_ancillary_messages(&[]).unwrap();
+        assert!(packed.is_empty());
+    }
+
+    #[test]
+    fn control_buffer_rejects_overflow_len() {
+        assert!(ControlBuffer::new(usize::MAX).is_none());
+    }
+}
+
+#[cfg(test)]
+#[cfg(target_os = "linux")]
+mod sendmsg_afalg_tests {
+    use super::pack_sendmsg_afalg;
+
+    #[test]
+    fn packs_op_iv_and_assoc_headers() {
+        let iv = b"iviv";
+        let mut packed = pack_sendmsg_afalg(1, Some(iv.as_slice()), Some(4)).unwrap();
+        // SAFETY: `msghdr` is a POD of pointers and integers.
+        let mut msg = unsafe { core::mem::zeroed::<libc::msghdr>() };
+        msg.msg_control = packed.as_mut_ptr().cast();
+        msg.msg_controllen = packed.len() as _;
+        // SAFETY: `packed` is an aligned, zeroed control buffer.
+        let first = unsafe { libc::CMSG_FIRSTHDR(&msg) };
+        assert!(!first.is_null());
+        // SAFETY: `first` is the OP header in `packed`.
+        unsafe {
+            assert_eq!((*first).cmsg_level, libc::SOL_ALG);
+            assert_eq!((*first).cmsg_type, libc::ALG_SET_OP);
+            assert_eq!((*first).cmsg_len, libc::CMSG_LEN(4) as _);
+            assert_eq!(libc::CMSG_DATA(first).cast::<u32>().read(), 1);
+        }
+        // SAFETY: `first` is a CMSG header in `packed`.
+        let iv_hdr = unsafe { libc::CMSG_NXTHDR(&msg, first) };
+        assert!(!iv_hdr.is_null());
+        let iv_payload = core::mem::size_of::<u32>() + iv.len();
+        // SAFETY: `iv_hdr` is the IV header in `packed`.
+        unsafe {
+            assert_eq!((*iv_hdr).cmsg_type, libc::ALG_SET_IV);
+            assert_eq!((*iv_hdr).cmsg_len, libc::CMSG_SPACE(iv_payload as _) as _);
+            assert_eq!(
+                libc::CMSG_DATA(iv_hdr).cast::<u32>().read(),
+                iv.len() as u32
+            );
+        }
+        // SAFETY: `iv_hdr` is a CMSG header in `packed`.
+        let assoc = unsafe { libc::CMSG_NXTHDR(&msg, iv_hdr) };
+        assert!(!assoc.is_null());
+        // SAFETY: `assoc` is the assoclen header in `packed`.
+        unsafe {
+            assert_eq!((*assoc).cmsg_type, libc::ALG_SET_AEAD_ASSOCLEN);
+            assert_eq!((*assoc).cmsg_len, libc::CMSG_LEN(4) as _);
+            assert_eq!(libc::CMSG_DATA(assoc).cast::<u32>().read(), 4);
         }
     }
 }
@@ -1219,6 +1456,7 @@ pub fn recvmsg(
     Ok(RecvMsgResult {
         data,
         ancdata: result.ancdata,
+        ancdata_status: result.ancdata_status,
         msg_flags: result.msg_flags,
         address: result.address,
     })
@@ -1249,11 +1487,8 @@ pub fn recvmsg_into(
             .collect::<Vec<_>>();
         &mut multiple
     };
-    // CMSG_* requires aligned headers; initialize padding before exposing bytes.
-    let mut anc_buf = vec![
-        MaybeUninit::<libc::cmsghdr>::zeroed();
-        ancbufsize.div_ceil(core::mem::size_of::<libc::cmsghdr>())
-    ];
+    let mut anc_buf = ControlBuffer::new(ancbufsize)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))?;
     let mut addr_storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
     let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
     msg.msg_name = (&mut addr_storage as *mut libc::sockaddr_storage).cast();
@@ -1278,13 +1513,7 @@ pub fn recvmsg_into(
     // SAFETY: all iovecs refer to disjoint writable slices; the control and address
     // buffers are aligned and live until the syscall returns.
     let ret = unsafe { libc::recvmsg(fd.as_raw_fd(), &mut msg, flags) }.check_libc_neg()?;
-    let control = unsafe {
-        core::slice::from_raw_parts(
-            anc_buf.as_ptr().cast::<u8>(),
-            (msg.msg_controllen as usize).min(ancbufsize),
-        )
-    };
-    let ancdata = parse_ancillary_messages(control);
+    let (ancdata, ancdata_status) = parse_ancillary_from_msg(&msg);
     let address = if msg.msg_namelen > 0 {
         let storage = unsafe {
             core::mem::transmute::<libc::sockaddr_storage, SocketAddressBytes>(addr_storage)
@@ -1299,112 +1528,97 @@ pub fn recvmsg_into(
     Ok(RecvMsgIntoResult {
         bytes_read: ret as usize,
         ancdata,
+        ancdata_status,
         msg_flags: msg.msg_flags,
         address,
     })
 }
 
+/// Build the AF_ALG control buffer: OP, then optional IV, then optional assoclen.
 #[cfg(target_os = "linux")]
-pub fn sendmsg_afalg(
-    fd: BorrowedFd<'_>,
-    buffers: &[io::IoSlice<'_>],
+pub fn pack_sendmsg_afalg(
     op: u32,
     iv: Option<&[u8]>,
     assoclen: Option<u32>,
-    flags: i32,
-) -> io::Result<usize> {
-    use core::mem::MaybeUninit;
+) -> Result<ControlBuffer, AfAlgControlError> {
+    use core::mem;
 
-    let invalid_size =
-        || io::Error::new(io::ErrorKind::InvalidInput, "AF_ALG control data too large");
-    let word_size = core::mem::size_of::<u32>();
-    let word_space = checked_cmsg_space(word_size).ok_or_else(invalid_size)?;
-    let word_len = checked_cmsg_len(word_size).ok_or_else(invalid_size)?;
-    let iv_size = iv
-        .map(|iv| iv.len().checked_add(word_size).ok_or_else(invalid_size))
-        .transpose()?;
-    let iv_space = iv_size
-        .map(|size| checked_cmsg_space(size).ok_or_else(invalid_size))
-        .transpose()?;
-    let iv_len = iv_size
-        .map(|size| checked_cmsg_len(size).ok_or_else(invalid_size))
-        .transpose()?;
-    let control_len = word_space
-        .checked_add(iv_space.unwrap_or(0))
-        .and_then(|len| len.checked_add(if assoclen.is_some() { word_space } else { 0 }))
-        .filter(|&len| isize::try_from(len).is_ok())
-        .ok_or_else(invalid_size)?;
-    let storage_len = control_len.div_ceil(core::mem::size_of::<libc::cmsghdr>());
-    storage_len
-        .checked_mul(core::mem::size_of::<libc::cmsghdr>())
-        .filter(|&len| isize::try_from(len).is_ok())
-        .ok_or_else(invalid_size)?;
-    let mut control_buf = Vec::new();
-    control_buf.try_reserve_exact(storage_len).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::OutOfMemory,
-            "AF_ALG control allocation failed",
-        )
-    })?;
-    control_buf.resize_with(storage_len, MaybeUninit::<libc::cmsghdr>::uninit);
-    let control = control_buf.as_mut_ptr().cast::<u8>();
-    // SAFETY: The allocation is aligned for cmsghdr and contains control_len
-    // bytes. Initialize all bytes, including header and alignment padding.
-    unsafe { core::ptr::write_bytes(control, 0, control_len) };
+    // SAFETY: `CMSG_SPACE` is a length macro over integer fields.
+    let word_space = unsafe { libc::CMSG_SPACE(4) } as usize;
+    let mut controllen = word_space;
+    if let Some(iv) = iv {
+        let iv_payload = mem::size_of::<u32>()
+            .checked_add(iv.len())
+            .ok_or(AfAlgControlError::NoMemory)?;
+        // SAFETY: `CMSG_SPACE` is a length macro over integer fields.
+        let iv_space = unsafe { libc::CMSG_SPACE(iv_payload as _) } as usize;
+        controllen = controllen
+            .checked_add(iv_space)
+            .ok_or(AfAlgControlError::NoMemory)?;
+    }
+    if assoclen.is_some() {
+        controllen = controllen
+            .checked_add(word_space)
+            .ok_or(AfAlgControlError::NoMemory)?;
+    }
 
-    let mut offset = 0;
-    let mut write_header = |kind: i32, length: usize, space: usize| {
-        // SAFETY: Each offset is a sum of CMSG_SPACE lengths, so the header is
-        // aligned. Checked lengths and the precomputed allocation bound it.
-        let header = unsafe { control.add(offset).cast::<libc::cmsghdr>() };
-        unsafe {
-            (*header).cmsg_len = length as _;
-            (*header).cmsg_level = libc::SOL_ALG;
-            (*header).cmsg_type = kind;
+    let mut control_buf = ControlBuffer::new(controllen).ok_or(AfAlgControlError::NoMemory)?;
+
+    // SAFETY: `msghdr` is a POD of pointers and integers; zero is a valid bit pattern.
+    let mut msg = unsafe { mem::zeroed::<libc::msghdr>() };
+    msg.msg_control = control_buf.as_mut_ptr().cast();
+    msg.msg_controllen = controllen as _;
+
+    // SAFETY: `msg.msg_control` points at `control_buf`'s aligned, zeroed
+    // storage of `msg.msg_controllen` bytes.
+    let mut header = unsafe { libc::CMSG_FIRSTHDR(&msg) };
+    if header.is_null() {
+        return Err(AfAlgControlError::UnexpectedNullFirstHeader);
+    }
+    // SAFETY: `CMSG_FIRSTHDR` returned a header in the zeroed control buffer.
+    unsafe {
+        (*header).cmsg_level = libc::SOL_ALG;
+        (*header).cmsg_type = libc::ALG_SET_OP;
+        (*header).cmsg_len = libc::CMSG_LEN(4) as _;
+        libc::CMSG_DATA(header).cast::<u32>().write(op);
+    }
+
+    if let Some(iv) = iv {
+        // SAFETY: `header` is a previous CMSG_* result in the zeroed buffer.
+        header = unsafe { libc::CMSG_NXTHDR(&msg, header) };
+        if header.is_null() {
+            return Err(AfAlgControlError::UnexpectedNullNextHeaderIv);
         }
-        offset += space;
-        unsafe { libc::CMSG_DATA(header) }
-    };
-
-    let op_data = write_header(libc::ALG_SET_OP, word_len, word_space);
-    // SAFETY: The header reserves word_size bytes for the operation.
-    unsafe { core::ptr::copy_nonoverlapping(op.to_ne_bytes().as_ptr(), op_data, word_size) };
-
-    if let (Some(iv_bytes), Some(length), Some(space)) = (iv, iv_len, iv_space) {
-        let data = write_header(libc::ALG_SET_IV, length, space);
-        // SAFETY: size is the checked sum of the length word and IV bytes.
+        let iv_payload = mem::size_of::<u32>()
+            .checked_add(iv.len())
+            .ok_or(AfAlgControlError::NoMemory)?;
+        // SAFETY: `CMSG_NXTHDR` returned the IV header in the control buffer.
         unsafe {
-            core::ptr::copy_nonoverlapping(
-                (iv_bytes.len() as u32).to_ne_bytes().as_ptr(),
-                data,
-                word_size,
-            );
-            core::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(word_size), iv_bytes.len());
+            (*header).cmsg_level = libc::SOL_ALG;
+            (*header).cmsg_type = libc::ALG_SET_IV;
+            (*header).cmsg_len = libc::CMSG_SPACE(iv_payload as _) as _;
+            let data = libc::CMSG_DATA(header);
+            data.cast::<u32>().write(iv.len() as u32);
+            core::ptr::copy_nonoverlapping(iv.as_ptr(), data.add(mem::size_of::<u32>()), iv.len());
         }
     }
 
     if let Some(assoclen) = assoclen {
-        let data = write_header(libc::ALG_SET_AEAD_ASSOCLEN, word_len, word_space);
-        // SAFETY: The header reserves word_size bytes for the associated length.
-        unsafe { core::ptr::copy_nonoverlapping(assoclen.to_ne_bytes().as_ptr(), data, word_size) };
+        // SAFETY: `header` is a previous CMSG_* result in the zeroed buffer.
+        header = unsafe { libc::CMSG_NXTHDR(&msg, header) };
+        if header.is_null() {
+            return Err(AfAlgControlError::UnexpectedNullNextHeaderAssoc);
+        }
+        // SAFETY: `CMSG_NXTHDR` returned the assoclen header in the control buffer.
+        unsafe {
+            (*header).cmsg_level = libc::SOL_ALG;
+            (*header).cmsg_type = libc::ALG_SET_AEAD_ASSOCLEN;
+            (*header).cmsg_len = libc::CMSG_LEN(4) as _;
+            libc::CMSG_DATA(header).cast::<u32>().write(assoclen);
+        }
     }
 
-    let iovecs: Vec<libc::iovec> = buffers
-        .iter()
-        .map(|buf| libc::iovec {
-            iov_base: buf.as_ptr() as *mut _,
-            iov_len: buf.len(),
-        })
-        .collect();
-
-    let mut msghdr: libc::msghdr = unsafe { core::mem::zeroed() };
-    msghdr.msg_iov = iovecs.as_ptr() as *mut _;
-    msghdr.msg_iovlen = iovecs.len() as _;
-    msghdr.msg_control = control.cast();
-    msghdr.msg_controllen = control_len as _;
-
-    let ret = unsafe { libc::sendmsg(fd.as_raw_fd(), &msghdr, flags) }.check_libc_neg()?;
-    Ok(ret as usize)
+    Ok(control_buf)
 }
 
 #[cfg(windows)]

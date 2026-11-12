@@ -1763,9 +1763,34 @@ impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
         match self {
             Self::ItemTooLarge => vm.new_os_error("ancillary data item too large"),
             Self::TooMuchData => vm.new_os_error("too much ancillary data"),
-            Self::UnexpectedNullHeader => {
-                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR")
+            Self::UnexpectedNullFirstHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR()")
             }
+            Self::UnexpectedNullNextHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_NXTHDR()")
+            }
+            Self::ItemSizeOutOfRange => vm.new_runtime_error("item size out of range"),
+            Self::DoesNotFit => {
+                vm.new_runtime_error("ancillary data does not fit in calculated space")
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl ToPyException for rustpython_host_env::socket::AfAlgControlError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::UnexpectedNullFirstHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR")
+            }
+            Self::UnexpectedNullNextHeaderIv => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_NXTHDR(iv)")
+            }
+            Self::UnexpectedNullNextHeaderAssoc => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_NXTHDR(assoc)")
+            }
+            Self::NoMemory => vm.no_memory_error(),
         }
     }
 }
