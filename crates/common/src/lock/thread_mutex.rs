@@ -2,7 +2,7 @@
 
 use alloc::fmt;
 use core::{
-    cell::{OnceCell, UnsafeCell},
+    cell::UnsafeCell,
     marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -30,6 +30,10 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
         get_thread_id: G::INIT,
     };
 
+    fn is_owned_by_current_thread(&self) -> bool {
+        self.owner.load(Ordering::Relaxed) == self.get_thread_id.nonzero_thread_id().get()
+    }
+
     #[inline]
     fn lock_internal<F: FnOnce() -> bool>(&self, try_lock: F) -> Option<bool> {
         let id = self.get_thread_id.nonzero_thread_id().get();
@@ -51,59 +55,6 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
             true
         })
         .is_some()
-    }
-
-    fn lock_wrapped_internal(
-        &self,
-        try_lock: impl Fn() -> bool,
-        wrap_fn: impl FnOnce(&dyn Fn() -> bool) -> bool,
-    ) -> Option<bool> {
-        let id = self.get_thread_id.nonzero_thread_id().get();
-        if self.owner.load(Ordering::Relaxed) == id {
-            return None;
-        }
-        // Keep ownership across the rest of the wrapper, including unwinding.
-        // Cache the result so repeated callback calls cannot acquire twice.
-        let result = OnceCell::new();
-        let keep_lock = wrap_fn(&|| {
-            result
-                .get_or_init(|| match self.lock_internal(&try_lock) {
-                    Some(true) => Ok(RawThreadMutexGuard {
-                        mutex: self,
-                        marker: PhantomData,
-                    }),
-                    Some(false) => Err(TryLockThreadError::Other),
-                    None => Err(TryLockThreadError::Current),
-                })
-                .is_ok()
-        });
-        match result.into_inner() {
-            Some(Ok(guard)) if keep_lock => {
-                core::mem::forget(guard);
-                Some(true)
-            }
-            Some(Err(TryLockThreadError::Current)) => None,
-            _ => Some(false),
-        }
-    }
-
-    /// Like `lock()` but wraps the blocking wait in `wrap_fn`.
-    /// The caller can use this to detach thread state while waiting.
-    /// Skipping the callback returns false; repeated calls reuse its result.
-    /// If the wrapper panics after acquisition, the mutex is unlocked.
-    pub fn lock_wrapped<F: FnOnce(&dyn Fn())>(&self, wrap_fn: F) -> bool {
-        self.lock_wrapped_internal(
-            || {
-                self.mutex.lock();
-                true
-            },
-            |wait| {
-                wrap_fn(&|| {
-                    wait();
-                });
-                true
-            },
-        ) == Some(true)
     }
 
     /// Returns `Some(true)` if able to successfully lock without blocking, `Some(false)`
@@ -143,18 +94,6 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
 
 unsafe impl<R: RawMutex + Send, G: GetThreadId + Send> Send for RawThreadMutex<R, G> {}
 unsafe impl<R: RawMutex + Sync, G: GetThreadId + Sync> Sync for RawThreadMutex<R, G> {}
-
-struct RawThreadMutexGuard<'a, R: RawMutex, G: GetThreadId> {
-    mutex: &'a RawThreadMutex<R, G>,
-    marker: PhantomData<GuardNoSend>,
-}
-
-impl<R: RawMutex, G: GetThreadId> Drop for RawThreadMutexGuard<'_, R, G> {
-    fn drop(&mut self) {
-        // SAFETY: This guard is created only after acquiring the mutex.
-        unsafe { self.mutex.unlock() }
-    }
-}
 
 pub struct ThreadMutex<R: RawMutex, G: GetThreadId, T: ?Sized> {
     raw: RawThreadMutex<R, G>,
@@ -202,20 +141,16 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
 
     /// Like `lock()` but wraps the blocking wait in `wrap_fn`.
     /// The caller can use this to detach thread state while waiting.
-    /// Skipping the callback returns None; repeated calls reuse its result.
-    /// If the wrapper panics after acquisition, the mutex is unlocked.
-    pub fn lock_wrapped<F: FnOnce(&dyn Fn())>(
-        &self,
-        wrap_fn: F,
-    ) -> Option<ThreadMutexGuard<'_, R, G, T>> {
-        if self.raw.lock_wrapped(wrap_fn) {
-            Some(ThreadMutexGuard {
-                mu: self,
-                marker: PhantomData,
-            })
-        } else {
-            None
+    pub fn lock_wrapped<'a, F>(&'a self, wrap_fn: F) -> Option<ThreadMutexGuard<'a, R, G, T>>
+    where
+        F: FnOnce(
+            &dyn Fn() -> Option<ThreadMutexGuard<'a, R, G, T>>,
+        ) -> Option<ThreadMutexGuard<'a, R, G, T>>,
+    {
+        if self.raw.is_owned_by_current_thread() {
+            return None;
         }
+        wrap_fn(&|| self.lock())
     }
 
     pub fn try_lock(&self) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError> {
@@ -232,20 +167,23 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
 
 impl<R: RawMutexTimed, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
     /// Wait at most `timeout`, wrapping only the blocking acquisition.
-    /// The callback attempts acquisition once; repeated calls reuse its result.
-    /// Both the callback and wrapper must return true to retain the lock.
-    /// Skipping the callback returns an error, and unwinding unlocks the mutex.
-    pub fn try_lock_for_wrapped<F: FnOnce(&dyn Fn() -> bool) -> bool>(
-        &self,
+    pub fn try_lock_for_wrapped<'a, F>(
+        &'a self,
         timeout: R::Duration,
         wrap_fn: F,
-    ) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError>
+    ) -> Result<ThreadMutexGuard<'a, R, G, T>, TryLockThreadError>
     where
+        F: FnOnce(
+            &dyn Fn() -> Result<ThreadMutexGuard<'a, R, G, T>, TryLockThreadError>,
+        ) -> Result<ThreadMutexGuard<'a, R, G, T>, TryLockThreadError>,
         R::Duration: Copy,
     {
-        match self
+        if self.raw.is_owned_by_current_thread() {
+            return Err(TryLockThreadError::Current);
+        }
+        wrap_fn(&|| match self
             .raw
-            .lock_wrapped_internal(|| self.raw.mutex.try_lock_for(timeout), wrap_fn)
+            .lock_internal(|| self.raw.mutex.try_lock_for(timeout))
         {
             Some(true) => Ok(ThreadMutexGuard {
                 mu: self,
@@ -253,13 +191,13 @@ impl<R: RawMutexTimed, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
             }),
             Some(false) => Err(TryLockThreadError::Other),
             None => Err(TryLockThreadError::Current),
-        }
+        })
     }
 }
 
 #[derive(Clone, Copy)]
 pub enum TryLockThreadError {
-    /// Acquisition failed, or the wrapper skipped or rejected it.
+    /// Failed to lock because mutex was already locked on another thread.
     Other,
     /// Failed to lock because mutex was already locked on current thread.
     Current,
@@ -437,15 +375,13 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
 }
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "threading")]
 mod tests {
     use super::TryLockThreadError;
     use crate::lock::PyThreadMutex;
-    #[cfg(feature = "threading")]
     use core::time::Duration;
 
     #[test]
-    #[cfg(feature = "threading")]
     fn timed_lock_preserves_ownership() {
         let mutex = PyThreadMutex::new(0);
         let guard = mutex.lock().unwrap();
@@ -470,175 +406,16 @@ mod tests {
         assert_eq!(*mutex.lock().unwrap(), 1);
     }
 
-    #[cfg(feature = "threading")]
-    fn assert_other<T>(result: Result<T, TryLockThreadError>) {
-        match result {
-            Err(TryLockThreadError::Other) => {}
-            Err(TryLockThreadError::Current) => panic!("unexpected reentrant acquisition"),
-            Ok(guard) => {
-                // A regression may fabricate a guard without acquiring the raw
-                // mutex. Do not unlock through that guard while reporting it.
-                core::mem::forget(guard);
-                panic!("unexpected successful acquisition");
-            }
-        }
-    }
-
-    #[test]
-    fn wrapped_lock_requires_callback() {
-        let mutex = PyThreadMutex::new(0);
-        assert!(!mutex.raw().lock_wrapped(|_| {}));
-        assert!(mutex.try_lock().is_ok());
-    }
-
-    #[test]
-    fn wrapped_lock_reuses_acquisition() {
-        let mutex = PyThreadMutex::new(0);
-        let guard = mutex.lock_wrapped(|wait| {
-            wait();
-            assert!(matches!(mutex.try_lock(), Err(TryLockThreadError::Current)));
-            assert!(
-                mutex
-                    .lock_wrapped(|_| panic!("reentrant wrapper"))
-                    .is_none()
-            );
-            wait();
-        });
-        assert!(guard.is_some());
-        drop(guard);
-        assert!(mutex.try_lock().is_ok());
-    }
-
     #[test]
     fn wrapped_lock_releases_on_panic() {
-        use core::panic::AssertUnwindSafe;
-        use std::panic::catch_unwind;
-
-        for acquire in [false, true] {
-            let mutex = PyThreadMutex::new(0);
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                mutex.lock_wrapped(|wait| {
-                    if acquire {
-                        wait();
-                    }
-                    panic!("wrapper panic");
-                })
-            }));
-            assert!(result.is_err());
-            assert!(mutex.try_lock().is_ok());
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "threading")]
-    fn timed_wrapper_cannot_fabricate_acquisition() {
         let mutex = PyThreadMutex::new(0);
-        for reported_success in [false, true] {
-            assert_other(mutex.try_lock_for_wrapped(Duration::ZERO, |_| reported_success));
-            assert!(mutex.try_lock().is_ok());
-        }
-        let guard = mutex.lock().unwrap();
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                assert_other(mutex.try_lock_for_wrapped(Duration::ZERO, |wait| {
-                    assert!(!wait());
-                    true
-                }));
-                assert_other(mutex.try_lock());
-            });
-        });
-        drop(guard);
-        assert!(mutex.try_lock().is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "threading")]
-    fn timed_wrapper_reuses_acquisition() {
-        let mutex = PyThreadMutex::new(0);
-        let guard = mutex
-            .try_lock_for_wrapped(Duration::ZERO, |wait| {
-                assert!(wait());
-                assert!(matches!(mutex.try_lock(), Err(TryLockThreadError::Current)));
-                assert!(wait());
-                true
+        let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+            mutex.lock_wrapped(|wait| {
+                let _g = wait();
+                panic!()
             })
-            .unwrap_or_else(|_| panic!("unlocked mutex"));
-        drop(guard);
-        assert!(mutex.try_lock().is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "threading")]
-    fn timed_wrapper_reuses_timeout() {
-        let mutex = PyThreadMutex::new(0);
-        let guard = mutex.lock().unwrap();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        let (released_tx, released_rx) = std::sync::mpsc::channel();
-        std::thread::scope(|scope| {
-            let mutex = &mutex;
-            scope.spawn(move || {
-                assert_other(mutex.try_lock_for_wrapped(Duration::ZERO, |wait| {
-                    assert!(!wait());
-                    release_tx.send(()).unwrap();
-                    released_rx.recv().unwrap();
-                    assert!(!wait());
-                    false
-                }));
-                assert!(mutex.try_lock().is_ok());
-            });
-            release_rx.recv().unwrap();
-            drop(guard);
-            released_tx.send(()).unwrap();
-        });
-    }
-
-    #[test]
-    #[cfg(feature = "threading")]
-    fn timed_wrapper_rechecks_ownership() {
-        let mutex = PyThreadMutex::new(0);
-        let mut guard = None;
-        let result = mutex.try_lock_for_wrapped(Duration::ZERO, |wait| {
-            guard = mutex.lock();
-            assert!(!wait());
-            true
-        });
-        let reentrant = matches!(result, Err(TryLockThreadError::Current));
-        // Do not drop a fabricated guard on the unfixed implementation.
-        core::mem::forget(result);
-        assert!(reentrant);
-        drop(guard);
-        assert!(mutex.try_lock().is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "threading")]
-    fn timed_wrapper_releases_rejected_acquisition() {
-        let mutex = PyThreadMutex::new(0);
-        assert_other(mutex.try_lock_for_wrapped(Duration::ZERO, |wait| {
-            assert!(wait());
-            false
         }));
+        assert!(result.is_err());
         assert!(mutex.try_lock().is_ok());
-    }
-
-    #[test]
-    #[cfg(feature = "threading")]
-    fn timed_wrapper_releases_on_panic() {
-        use core::panic::AssertUnwindSafe;
-        use std::panic::catch_unwind;
-
-        for acquire in [false, true] {
-            let mutex = PyThreadMutex::new(0);
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                mutex.try_lock_for_wrapped(Duration::ZERO, |wait| {
-                    if acquire {
-                        assert!(wait());
-                    }
-                    panic!("wrapper panic");
-                })
-            }));
-            assert!(result.is_err());
-            assert!(mutex.try_lock().is_ok());
-        }
     }
 }
