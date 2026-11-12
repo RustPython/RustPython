@@ -6235,6 +6235,7 @@ mod _io {
                 });
                 assert!(guard.is_some());
                 assert!(invoked.get());
+                assert!(lock_io(&mutex, |_| panic!("reentrant wait")).is_none());
             });
         }
 
