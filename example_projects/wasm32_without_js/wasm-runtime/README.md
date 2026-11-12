@@ -19,3 +19,10 @@ The guest must export:
 Other values are protocol errors, not successes. Host allocation, execution,
 and deallocation traps result in a nonzero process exit. The host deadline also
 terminates guests that never return, independently of their Python capabilities.
+
+## Runtime dependency
+
+The host uses Wasmer 7.5 or newer, including its atomic-memory bounds fixes.
+The contract suite checks in-bounds and out-of-bounds atomic wait/notify on
+small WAT fixtures. These engine checks do not enable threading or OS services
+in the RustPython guest.

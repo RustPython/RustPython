@@ -154,10 +154,10 @@ f'guest:{sum(values)}:한글'
             return self.run_guest(*args, module=module, **kwargs)
 
     @staticmethod
-    def module_with_eval(body, imports="", *, alloc="i32.const 0", free=""):
+    def module_with_eval(body, imports="", *, alloc="i32.const 0", free="", memory="1"):
         return f"""(module
             {imports}
-            (memory (export "memory") 1)
+            (memory (export "memory") {memory})
             (func (export "alloc_source") (param i32) (result i32) {alloc})
             (func (export "free_source") (param i32 i32) {free})
             (func (export "eval") (param i32 i32) (result i32) {body})
@@ -168,6 +168,41 @@ f'guest:{sum(values)}:한글'
             self.module_with_eval("unreachable"), exit_code=2, status="runtime_error"
         )
         self.assertIn("unreachable", output.lower())
+
+    def test_atomic_memory_bounds(self):
+        # Engine regressions must not turn out-of-bounds atomic operations into
+        # success, even in a module with no host/OS imports beyond reporting.
+        operations = (
+            ("memory.atomic.notify", "i32.const 1", 65532),
+            ("memory.atomic.wait32", "i32.const 0 i64.const 0", 65532),
+            ("memory.atomic.wait64", "i64.const 0 i64.const 0", 65528),
+        )
+        report = '(import "env" "print" (func $print (param i32 i32) (result i32)))'
+        for instruction, operands, last_address in operations:
+            with self.subTest(instruction=instruction, in_bounds=True):
+                body = (
+                    f"i32.const {last_address} {operands} {instruction} drop "
+                    "i32.const 0 i32.const 0 call $print"
+                )
+                self.assertEqual(
+                    self.run_module(
+                        self.module_with_eval(body, report, memory="1 1 shared")
+                    ),
+                    "",
+                )
+            for address in (65536, 65535, -1):
+                with self.subTest(instruction=instruction, address=address):
+                    body = f"i32.const {address} {operands} {instruction}"
+                    output = self.run_module(
+                        self.module_with_eval(body, memory="1 1 shared"),
+                        exit_code=2,
+                        status="runtime_error",
+                    )
+                    self.assertTrue(
+                        "out of bounds" in output.lower()
+                        or "unaligned" in output.lower(),
+                        output,
+                    )
 
     def test_source_allocation_errors(self):
         for alloc in ("unreachable", "i32.const 65535"):
