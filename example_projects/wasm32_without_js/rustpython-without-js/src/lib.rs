@@ -1,46 +1,66 @@
-use rustpython_vm::Interpreter;
+use rustpython_vm::{Interpreter, Settings};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
-    fn kv_get(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
-
-    /// kp and kl are the key pointer and length in wasm memory, vp and vl are for the value
-    fn kv_put(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
-
     fn print(p: i32, l: i32) -> i32;
 }
 
+// The host writes source into guest-owned memory before calling eval.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> i32 {
-    // let src = unsafe { std::slice::from_raw_parts(s, l) };
-    // let src = std::str::from_utf8(src).unwrap();
-    // TODO: use src
-    let src = "1 + 3";
+pub extern "C" fn alloc_source(len: usize) -> *mut u8 {
+    Box::into_raw(vec![0u8; len].into_boxed_slice()).cast::<u8>()
+}
 
-    // 2. Execute Python code
-    let interpreter = Interpreter::without_stdlib(Default::default());
-    let result = interpreter.enter(|vm| {
-        let scope = vm.new_scope_with_builtins();
-        let res = match vm.run_block_expr(scope, src) {
-            Ok(val) => val,
-            Err(_) => return Err(-1), // Python execution error
-        };
-        let repr_str = match res.repr(vm) {
-            Ok(repr) => repr.to_string(),
-            Err(_) => return Err(-1), // Failed to get string representation
-        };
-        Ok(repr_str)
-    });
-    let result = match result {
-        Ok(r) => r,
-        Err(code) => return code,
+/// Release a source buffer allocated by alloc_source.
+///
+/// # Safety
+/// The pointer and length must match a live allocation returned by alloc_source,
+/// and the buffer must not be in use by eval.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_source(ptr: *mut u8, len: usize) {
+    unsafe { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len))) };
+}
+
+fn report(message: &str) {
+    unsafe { print(message.as_ptr() as i32, message.len() as i32) };
+}
+
+/// Execute UTF-8 Python source. Return 0 on success, 1 for a Python exception,
+/// or 2 for invalid UTF-8. The result or exception is sent to env.print.
+///
+/// # Safety
+/// The source must point to a live alloc_source buffer containing len bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn eval(source: *const u8, len: usize) -> i32 {
+    let source = unsafe { std::slice::from_raw_parts(source, len) };
+    let Ok(source) = std::str::from_utf8(source) else {
+        report("source is not valid UTF-8");
+        return 2;
     };
 
-    let msg = format!("eval result: {result}");
-
-    unsafe { print(msg.as_str().as_ptr() as usize as i32, msg.len() as i32) };
-
-    0
+    // This no-OS example has no entropy provider. Use a deterministic hash seed
+    // rather than pretending that the custom getrandom backend produced bytes.
+    let mut settings = Settings::default();
+    settings.hash_seed = Some(0);
+    let interpreter = Interpreter::without_stdlib(settings);
+    interpreter.enter(|vm| {
+        let scope = vm.new_scope_with_builtins();
+        match vm
+            .run_block_expr(scope, source)
+            .and_then(|value| value.repr_utf8(vm))
+        {
+            Ok(value) => {
+                report(value.as_str());
+                0
+            }
+            Err(exc) => {
+                let mut message = String::new();
+                vm.write_exception(&mut message, &exc).unwrap();
+                report(&message);
+                1
+            }
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -48,8 +68,5 @@ unsafe extern "Rust" fn __getrandom_v03_custom(
     _dest: *mut u8,
     _len: usize,
 ) -> Result<(), getrandom::Error> {
-    // Err(getrandom::Error::UNSUPPORTED)
-
-    // WARNING: This function **MUST** perform proper getrandom
-    Ok(())
+    Err(getrandom::Error::UNSUPPORTED)
 }

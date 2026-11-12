@@ -989,10 +989,6 @@ jobs:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
 
-      - uses: mwilliamson/setup-wabt-action@427f2fdd70bc4dbc2e53c2eb4f19f66162d71bd2 # v4.0.0
-        with:
-          wabt-version: "1.0.36"
-
       - name: Build wasm32-unknown without js
         working-directory: example_projects/wasm32_without_js/rustpython-without-js
         run: cargo build
@@ -1003,10 +999,9 @@ jobs:
       - name: Check wasm32-unknown without js
         working-directory: example_projects/wasm32_without_js
         run: |
-          if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
-            echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
-          fi
-          wasm-runtime/target/release/wasm-runtime rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+          python3 test_runtime.py -v \
+            --runtime wasm-runtime/target/release/wasm-runtime \
+            --module rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
 
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
