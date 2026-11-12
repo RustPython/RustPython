@@ -452,7 +452,7 @@ pub mod array {
                             if v.is_empty() {
                                 format!("{}('{}')", class_name, $c)
                             } else {
-                                format!("{}('{}', [{}])", class_name, $c, v.iter().format(", "))
+                                format!("{}('{}', [{}])", class_name, $c, v.iter().map(|x| x.repr_item()).format(", "))
                             }
                         })*
                     };
@@ -531,6 +531,13 @@ pub mod array {
         fn byteswap(self) -> Self;
         fn to_object(self, vm: &VirtualMachine) -> PyObjectRef;
 
+        fn repr_item(&self) -> String
+        where
+            Self: fmt::Display,
+        {
+            self.to_string()
+        }
+
         fn validate_slice(_items: &[Self], _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
@@ -564,6 +571,10 @@ pub mod array {
 
         fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
             self.0.to_f64().to_pyobject(vm)
+        }
+
+        fn repr_item(&self) -> String {
+            crate::vm::literal::float::to_string(self.0.to_f64())
         }
     }
 
@@ -674,6 +685,9 @@ pub mod array {
                 }
                 fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
                     $f_to(self).into_pyobject(vm)
+                }
+                fn repr_item(&self) -> String {
+                    crate::vm::literal::float::to_string(*self as f64)
                 }
             }
         )*};
