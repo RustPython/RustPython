@@ -1062,12 +1062,12 @@ mod _socket {
     struct SendmsgAfalgArgs {
         #[pyarg(any, default)]
         msg: Vec<ArgBytesLike>,
-        #[pyarg(named)]
-        op: u32,
+        #[pyarg(named, default)]
+        op: OptionalArg<PyObjectRef>,
         #[pyarg(named, default)]
         iv: Option<ArgBytesLike>,
         #[pyarg(named, default)]
-        assoclen: OptionalArg<isize>,
+        assoclen: OptionalArg<PyObjectRef>,
         #[pyarg(named, default)]
         flags: i32,
     }
@@ -2417,19 +2417,12 @@ mod _socket {
                 msg = msg.with_addr(&sockaddr);
             }
 
-            let collect_iterable =
-                |obj: &PyObject, msg: &'static str| -> PyResult<Vec<PyObjectRef>> {
-                    match vm.extract_elements_with(obj, Ok) {
-                        Ok(items) => Ok(items),
-                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.type_error) => {
-                            Err(vm.new_type_error(msg))
-                        }
-                        Err(e) => Err(e),
-                    }
-                };
-
-            let buffer_items =
-                collect_iterable(&buffers, "sendmsg() argument 1 must be an iterable")?;
+            let buffer_items = Self::collect_socket_iterable(
+                &buffers,
+                "sendmsg() argument 1 must be an iterable",
+                Some("sendmsg() argument 1 is too long"),
+                vm,
+            )?;
             let buffers = buffer_items
                 .into_iter()
                 .map(|obj| ArgBytesLike::try_from_object(vm, obj))
@@ -2446,21 +2439,15 @@ mod _socket {
 
             let control_buf;
             if let OptionalArg::Present(ancdata) = ancdata {
-                let cmsg_fast =
-                    collect_iterable(&ancdata, "sendmsg() argument 2 must be an iterable")?;
+                let cmsg_fast = Self::collect_socket_iterable(
+                    &ancdata,
+                    "sendmsg() argument 2 must be an iterable",
+                    None,
+                    vm,
+                )?;
                 let cmsgs = cmsg_fast
                     .into_iter()
-                    .map(|item| -> PyResult<(i32, i32, ArgBytesLike)> {
-                        let seq: Vec<PyObjectRef> = item.try_into_value(vm)?;
-                        let [lvl, typ, data]: [PyObjectRef; 3] = seq
-                            .try_into()
-                            .map_err(|_| vm.new_type_error("[sendmsg() ancillary data items]"))?;
-                        Ok((
-                            lvl.try_index(vm)?.try_to_primitive::<i32>(vm)?,
-                            typ.try_index(vm)?.try_to_primitive::<i32>(vm)?,
-                            ArgBytesLike::try_from_object(vm, data)?,
-                        ))
-                    })
+                    .map(|item| Self::parse_sendmsg_cmsg_item(item, vm))
                     .collect::<PyResult<Vec<_>>>()?;
                 control_buf = Self::pack_cmsgs_to_send(&cmsgs, vm)?;
                 if !control_buf.is_empty() {
@@ -2482,36 +2469,37 @@ mod _socket {
             args: SendmsgAfalgArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            use std::os::fd::BorrowedFd;
+            if zelf.family.load(Ordering::Relaxed) != c::AF_ALG {
+                return Err(vm.new_os_error("algset is only supported for AF_ALG"));
+            }
 
-            let msg = args.msg;
-            let op = args.op;
-            let iv = args.iv;
-            let flags = args.flags;
-
-            // Validate assoclen - must be non-negative if provided
-            let assoclen: Option<u32> = match args.assoclen {
-                OptionalArg::Present(val) if val < 0 => {
-                    return Err(vm.new_type_error("assoclen must be non-negative"));
+            let op = match args.op {
+                OptionalArg::Present(obj) => match obj
+                    .try_index(vm)
+                    .and_then(|i| i.try_to_primitive::<i32>(vm))
+                {
+                    Ok(op) if op >= 0 => op as u32,
+                    _ => return Err(vm.new_type_error("Invalid or missing argument 'op'")),
+                },
+                OptionalArg::Missing => {
+                    return Err(vm.new_type_error("Invalid or missing argument 'op'"));
                 }
-                OptionalArg::Present(val) => Some(val as u32),
+            };
+
+            let assoclen = match args.assoclen {
+                OptionalArg::Present(obj) => {
+                    let val = obj.try_index(vm)?.try_to_primitive::<i32>(vm)?;
+                    if val < 0 {
+                        return Err(vm.new_type_error("assoclen must be positive"));
+                    }
+                    Some(val as u32)
+                }
                 OptionalArg::Missing => None,
             };
 
-            if iv.as_ref().is_some_and(|iv| {
-                iv.len()
-                    .checked_add(core::mem::size_of::<u32>())
-                    .and_then(host_socket::checked_cmsg_space)
-                    .is_none()
-            }) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "AF_ALG control data too large",
-                )
-                .into_pyexception(vm));
-            }
-
-            let buffers = msg
+            let flags = args.flags;
+            let buffers = args
+                .msg
                 .iter()
                 .map(|buf| buf.borrow_buf_unlocked(vm))
                 .collect::<PyResult<Vec<_>>>()?;
@@ -2519,12 +2507,19 @@ mod _socket {
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
                 .collect::<Vec<_>>();
-            let iv = iv.map(|iv| iv.borrow_buf().to_vec());
+            let iv = args.iv.map(|iv| iv.borrow_buf().to_vec());
+            let control_buf = host_socket::pack_sendmsg_afalg(op, iv.as_deref(), assoclen)
+                .map_err(|err| err.to_pyexception(vm))?;
+
+            let mut msg = host_socket::raw::MsgHdr::new();
+            msg = msg.with_buffers(&buffers);
+            if !control_buf.is_empty() {
+                msg = msg.with_control(&control_buf);
+            }
 
             zelf.sock_op(vm, SockWaitKind::Write, || {
                 let sock = zelf.sock_snapshot()?;
-                let fd = unsafe { BorrowedFd::borrow_raw(sock_fileno(&sock)) };
-                host_socket::sendmsg_afalg(fd, &buffers, op, iv.as_deref(), assoclen, flags)
+                sock.sendmsg(&msg, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
         }
@@ -2539,15 +2534,11 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
             if bufsize < 0 {
-                return Err(vm.new_value_error("negative buffer size in recvmsg"));
+                return Err(vm.new_value_error("negative buffer size in recvmsg()"));
             }
             let bufsize = bufsize as usize;
 
-            let ancbufsize = ancbufsize.unwrap_or(0);
-            if ancbufsize < 0 {
-                return Err(vm.new_value_error("negative ancillary buffer size in recvmsg"));
-            }
-            let ancbufsize = ancbufsize as usize;
+            let ancbufsize = Self::check_ancbufsize(ancbufsize.unwrap_or(0), vm)?;
             let flags = flags.unwrap_or(0);
 
             let mut msg = zelf
@@ -2560,19 +2551,13 @@ mod _socket {
 
             msg.data.shrink_to_fit();
 
-            // Build address tuple
-            let address = if let Some(address) = msg.address {
-                let storage: host_socket::raw::SockAddrStorage =
-                    unsafe { core::mem::transmute(address.storage) };
-                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
-                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm).inspect_err(|_| {
-                    Self::close_ancillary_fds(&msg.ancdata);
-                })?
-            } else {
-                vm.ctx.none()
-            };
-
-            let ancdata = Self::parse_ancillary_data(msg.ancdata, vm);
+            let (ancdata, address) = Self::recvmsg_ancillary_and_address(
+                msg.ancdata,
+                msg.ancdata_status,
+                msg.address,
+                zelf.proto.load(Ordering::Relaxed),
+                vm,
+            )?;
             Ok(vm.ctx.new_tuple(vec![
                 vm.ctx.new_bytes(msg.data).into(),
                 ancdata,
@@ -2590,17 +2575,17 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
-            let buffer_items = vm
-                .extract_elements_with(&buffers, Ok)
-                .map_err(|_| vm.new_type_error("recvmsg_into() argument 1 must be an iterable"))?;
+            let buffer_items = Self::collect_socket_iterable(
+                &buffers,
+                "recvmsg_into() argument 1 must be an iterable",
+                Some("recvmsg_into() argument 1 is too long"),
+                vm,
+            )?;
             let buffers = buffer_items
                 .iter()
                 .map(|obj| ArgMemoryBuffer::try_from_object(vm, obj.clone()))
                 .collect::<PyResult<Vec<_>>>()?;
-            let ancbufsize = ancbufsize.unwrap_or(0);
-            if !(0..=i32::MAX as isize).contains(&ancbufsize) {
-                return Err(vm.new_value_error("invalid ancillary data buffer length"));
-            }
+            let ancbufsize = Self::check_ancbufsize(ancbufsize.unwrap_or(0), vm)?;
             let flags = flags.unwrap_or(0);
             let total = buffers
                 .iter()
@@ -2622,7 +2607,7 @@ mod _socket {
                         .collect();
                     let sock = zelf.sock_snapshot()?;
                     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
-                    host_socket::recvmsg_into(fd, &mut slices, ancbufsize as usize, flags)
+                    host_socket::recvmsg_into(fd, &mut slices, ancbufsize, flags)
                 })
                 .map_err(|e| e.into_pyexception(vm))?;
             // MSG_TRUNC can report a larger datagram or consume TCP data without
@@ -2639,17 +2624,13 @@ mod _socket {
                     remaining = &remaining[written..];
                 }
             }
-            let address = if let Some(address) = msg.address {
-                let storage: host_socket::raw::SockAddrStorage =
-                    unsafe { core::mem::transmute(address.storage) };
-                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
-                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm).inspect_err(|_| {
-                    Self::close_ancillary_fds(&msg.ancdata);
-                })?
-            } else {
-                vm.ctx.none()
-            };
-            let ancdata = Self::parse_ancillary_data(msg.ancdata, vm);
+            let (ancdata, address) = Self::recvmsg_ancillary_and_address(
+                msg.ancdata,
+                msg.ancdata_status,
+                msg.address,
+                zelf.proto.load(Ordering::Relaxed),
+                vm,
+            )?;
             Ok(vm.ctx.new_tuple(vec![
                 vm.ctx.new_int(msg.bytes_read).into(),
                 ancdata,
@@ -2658,23 +2639,157 @@ mod _socket {
             ]))
         }
 
+        #[cfg(all(unix, not(target_os = "redox")))]
+        fn check_ancbufsize(ancbufsize: isize, vm: &VirtualMachine) -> PyResult<usize> {
+            if ancbufsize < 0 || ancbufsize as usize > host_socket::SOCKLEN_T_LIMIT {
+                Err(vm.new_value_error("invalid ancillary data buffer length"))
+            } else {
+                Ok(ancbufsize as usize)
+            }
+        }
+
+        #[cfg(all(unix, not(target_os = "redox")))]
+        fn collect_socket_iterable(
+            obj: &PyObject,
+            not_iterable: &'static str,
+            too_long: Option<&'static str>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<PyObjectRef>> {
+            let items = match vm.extract_elements_with(obj, Ok) {
+                Ok(items) => items,
+                Err(_) => return Err(vm.new_type_error(not_iterable)),
+            };
+            if let Some(too_long) = too_long
+                && items.len() > i32::MAX as usize
+            {
+                return Err(vm.new_os_error(too_long));
+            }
+            Ok(items)
+        }
+
+        #[cfg(all(unix, not(target_os = "redox")))]
+        fn parse_sendmsg_cmsg_item(
+            item: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<(i32, i32, ArgBytesLike)> {
+            use crate::vm::builtins::{PyByteArray, PyBytes, PyStr, PyTuple};
+
+            const FNAME: &str = "[sendmsg() ancillary data items]";
+            let type_name = if vm.is_none(&item) {
+                "None".to_owned()
+            } else {
+                item.class().name().to_string()
+            };
+            let bad_type = || {
+                vm.new_type_error(format!(
+                    "{FNAME}() argument 1 must be 3-item tuple, not {type_name}"
+                ))
+            };
+
+            let (lvl, typ, data) = if let Some(tuple) = item.downcast_ref::<PyTuple>() {
+                if tuple.len() != 3 {
+                    return Err(vm.new_type_error(format!(
+                        "{FNAME}() argument 1 must be tuple of length 3, not {}",
+                        tuple.len()
+                    )));
+                }
+                let slice = tuple.as_slice();
+                (slice[0].clone(), slice[1].clone(), slice[2].clone())
+            } else if item.downcast_ref::<PyStr>().is_some()
+                || item.downcast_ref::<PyBytes>().is_some()
+                || item.downcast_ref::<PyByteArray>().is_some()
+            {
+                return Err(bad_type());
+            } else {
+                let seq = vm
+                    .extract_elements_with(&item, Ok)
+                    .map_err(|_| bad_type())?;
+                if seq.len() != 3 {
+                    return Err(vm.new_type_error(format!(
+                        "{FNAME}() argument 1 must be sequence of length 3, not {}",
+                        seq.len()
+                    )));
+                }
+                (seq[0].clone(), seq[1].clone(), seq[2].clone())
+            };
+
+            Ok((
+                lvl.try_index(vm)?.try_to_primitive::<i32>(vm)?,
+                typ.try_index(vm)?.try_to_primitive::<i32>(vm)?,
+                ArgBytesLike::try_from_object(vm, data)?,
+            ))
+        }
+
+        #[cfg(all(unix, not(target_os = "redox")))]
+        fn recvmsg_ancillary_and_address(
+            ancdata: Vec<host_socket::AncillaryMessage>,
+            ancdata_status: host_socket::AncillaryDataStatus,
+            address: Option<host_socket::RawSocketAddress>,
+            proto: i32,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            let list = match Self::parse_ancillary_data(&ancdata, ancdata_status, vm) {
+                Ok(list) => list,
+                Err(e) => {
+                    Self::close_ancillary_fds(&ancdata);
+                    return Err(e);
+                }
+            };
+            let address = if let Some(address) = address {
+                // SAFETY: `SocketAddressBytes` and `SockAddrStorage` share the
+                // sockaddr_storage layout filled by recvmsg.
+                let storage: host_socket::raw::SockAddrStorage =
+                    unsafe { core::mem::transmute(address.storage) };
+                // SAFETY: `storage` holds `address.len` bytes of a socket address.
+                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
+                match get_addr_tuple(&addr, proto, vm) {
+                    Ok(address) => address,
+                    Err(e) => {
+                        Self::close_ancillary_fds(&ancdata);
+                        return Err(e);
+                    }
+                }
+            } else {
+                vm.ctx.none()
+            };
+            Ok((list, address))
+        }
+
         /// Parse ancillary data from a received message header
         #[cfg(all(unix, not(target_os = "redox")))]
         fn parse_ancillary_data(
-            control: Vec<host_socket::AncillaryMessage>,
+            control: &[host_socket::AncillaryMessage],
+            status: host_socket::AncillaryDataStatus,
             vm: &VirtualMachine,
-        ) -> PyObjectRef {
+        ) -> PyResult<PyObjectRef> {
+            let warn_malformed = || {
+                crate::vm::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.runtime_warning,
+                    "received malformed or improperly-truncated ancillary data",
+                    1,
+                    vm,
+                )
+            };
             let mut result = Vec::new();
-            for cmsg in control {
+            for (i, cmsg) in control.iter().enumerate() {
+                if status == host_socket::AncillaryDataStatus::Truncated && i + 1 == control.len() {
+                    warn_malformed()?;
+                }
+                if cmsg.data.len() > isize::MAX as usize {
+                    return Err(vm.new_os_error("control message too long"));
+                }
                 let tuple = vm.ctx.new_tuple(vec![
                     vm.ctx.new_int(cmsg.level).into(),
                     vm.ctx.new_int(cmsg.kind).into(),
-                    vm.ctx.new_bytes(cmsg.data).into(),
+                    vm.ctx.new_bytes(cmsg.data.clone()).into(),
                 ]);
                 result.push(tuple.into());
             }
+            if status == host_socket::AncillaryDataStatus::Malformed {
+                warn_malformed()?;
+            }
 
-            vm.ctx.new_list(result).into()
+            Ok(vm.ctx.new_list(result).into())
         }
 
         #[cfg(all(unix, not(target_os = "redox")))]
@@ -2703,10 +2818,7 @@ mod _socket {
         fn pack_cmsgs_to_send(
             cmsgs: &[(i32, i32, ArgBytesLike)],
             vm: &VirtualMachine,
-        ) -> PyResult<Vec<u8>> {
-            if cmsgs.is_empty() {
-                return Ok(vec![]);
-            }
+        ) -> PyResult<host_socket::ControlBuffer> {
             let data = cmsgs
                 .iter()
                 .map(|(lvl, typ, buf)| {
