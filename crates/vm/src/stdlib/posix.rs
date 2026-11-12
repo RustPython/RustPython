@@ -3183,12 +3183,7 @@ mod posix_sched {
     }
 
     #[pyattr]
-    #[pystruct_sequence(
-        name = "sched_param",
-        module = "posix",
-        data = "SchedParamData",
-        constructor_args = "SchedParamArgs"
-    )]
+    #[pystruct_sequence(name = "sched_param", module = "posix", data = "SchedParamData")]
     struct PySchedParam;
 
     #[pyclass(with(PyStructSequence))]

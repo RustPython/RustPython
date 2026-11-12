@@ -28,7 +28,7 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
 );
 
-/// Default text signature `(iterable=(), /)` for struct sequences.
+/// Text signature `(iterable=(), /)` shared by every struct sequence.
 pub const STRUCT_SEQUENCE_PARAMS: Option<&'static [crate::function::Param]> =
     Some(&[crate::function::Param {
         name: "iterable",
@@ -260,10 +260,6 @@ pub trait PyStructSequenceData: Sized {
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     /// The Data struct that provides field definitions.
     type Data: PyStructSequenceData;
-
-    /// Signature metadata for the constructor, including custom `slot_new` binders.
-    /// This does not change the constructor slot or tuple payload.
-    const CONSTRUCTOR_PARAMS: Option<&'static [crate::function::Param]> = STRUCT_SEQUENCE_PARAMS;
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -531,63 +527,4 @@ fn struct_sequence_richcompare(
         .iter()
         .map(|o| &**o)
         .richcompare(other_visible.iter().map(|o| &**o), op, vm)
-}
-
-#[cfg(test)]
-mod signature_metadata_tests {
-    use super::PyStructSequence;
-    use crate::{PyObjectRef, class::PyClassImpl};
-
-    #[pystruct_sequence_data]
-    struct DefaultData {
-        value: PyObjectRef,
-    }
-
-    #[pystruct_sequence(name = "metadata_default", data = "DefaultData")]
-    struct MetadataDefault;
-
-    #[pyclass(with(PyStructSequence))]
-    impl MetadataDefault {}
-
-    #[allow(dead_code)]
-    #[derive(FromArgs)]
-    struct CustomArgs {
-        #[pyarg(any)]
-        value: PyObjectRef,
-    }
-
-    #[pystruct_sequence_data]
-    struct CustomData {
-        value: PyObjectRef,
-    }
-
-    #[pystruct_sequence(
-        name = "metadata_custom",
-        data = "CustomData",
-        constructor_args = "CustomArgs"
-    )]
-    struct MetadataCustom;
-
-    #[pyclass(with(PyStructSequence))]
-    impl MetadataCustom {}
-
-    #[test]
-    fn ordinary_struct_sequence_signature_keeps_its_fallback() {
-        assert!(
-            MetadataDefault::INTERNAL_DOC
-                .text
-                .unwrap()
-                .starts_with("metadata_default(iterable=(), /)\n--\n\n")
-        );
-    }
-
-    #[test]
-    fn custom_constructor_args_signature_uses_fromargs_params() {
-        assert!(
-            MetadataCustom::INTERNAL_DOC
-                .text
-                .unwrap()
-                .starts_with("metadata_custom(value)\n--\n\n")
-        );
-    }
 }

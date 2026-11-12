@@ -386,8 +386,7 @@ pub(crate) struct PyStructSequenceMeta {
 }
 
 impl ItemMeta for PyStructSequenceMeta {
-    const ALLOWED_NAMES: &'static [&'static str] =
-        &["name", "module", "data", "no_attr", "constructor_args"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "module", "data", "no_attr"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self { inner }
@@ -471,22 +470,12 @@ impl PyStructSequenceMeta {
         )
     }
 
-    fn constructor_args_type(&self) -> Result<Option<syn::Type>> {
-        self.inner()
-            ._optional_str("constructor_args")?
-            .map(|name| syn::parse_str(&name))
-            .transpose()
-    }
-
     pub(crate) fn no_attr(&self) -> Result<bool> {
         self.inner()._bool("no_attr")
     }
 }
 
 /// Attribute macro for struct sequences.
-///
-/// `constructor_args = "ArgsType"` connects the signature to the `FromArgs`
-/// type used by a custom `slot_new`. It does not change runtime construction.
 ///
 /// Usage:
 /// ```ignore
@@ -511,12 +500,6 @@ pub(crate) fn impl_pystruct_sequence(
     let pytype_ident = struct_item.ident.clone();
     let pytype_vis = struct_item.vis.clone();
     let data_ident = meta.data_type()?;
-    let constructor_params = meta.constructor_args_type()?.map(|args| {
-        quote! {
-            const CONSTRUCTOR_PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
-                <#args as ::rustpython_vm::function::FromArgs>::PARAMS;
-        }
-    });
 
     let class_name = meta.class_name()?.ok_or_else(|| {
         syn::Error::new_spanned(
@@ -628,7 +611,6 @@ pub(crate) fn impl_pystruct_sequence(
         // PyStructSequence trait for Python type
         impl ::rustpython_vm::types::PyStructSequence for #pytype_ident {
             type Data = #data_ident;
-            #constructor_params
         }
 
         // ToPyObject for Data struct - uses PyStructSequence::from_data
