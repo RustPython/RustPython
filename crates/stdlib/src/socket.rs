@@ -23,8 +23,8 @@ mod _socket {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyListRef, PyModule, PyOSError, PyStr,
-            PyStrRef, PyTuple, PyTupleRef, PyTypeRef, PyUtf8StrRef,
+            PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
+            PyUtf8StrRef,
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
@@ -2672,6 +2672,8 @@ mod _socket {
             item: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<(i32, i32, ArgBytesLike)> {
+            use crate::vm::builtins::{PyByteArray, PyBytes, PyStr, PyTuple};
+
             const FNAME: &str = "[sendmsg() ancillary data items]";
             let type_name = if vm.is_none(&item) {
                 "None".to_owned()
