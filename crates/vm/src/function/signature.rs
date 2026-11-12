@@ -205,8 +205,9 @@ const fn flags_positional_count(params: &[Param]) -> usize {
 /// Calling-convention bits from each argument's binding metadata.
 ///
 /// Display signatures must not prevent a custom parser from receiving a call.
-/// With `receiver`, the first argument is the bound `$self` / `$type` / `$module`; it
-/// contributes only the parameters its type supplies.
+/// With `receiver`, the first argument is the bound `$self` / `$type`; it
+/// contributes only the parameters its type supplies. Module receivers travel
+/// outside Python arguments and are already excluded from this metadata.
 /// A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
 #[must_use]
 pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super::PyMethodFlags {
@@ -446,8 +447,9 @@ const fn write_signature_prefix(buf: &mut [u8], name: &str, args: &[SigArg]) -> 
         total_tokens: usize::MAX,
     };
     // Clinic counts a token's trailing comma when deciding where to wrap.
-    // The renderer runs twice at compile time. The counting pass includes synthetic '/' and '*' tokens, without a
-    // separate traversal that could disagree with the actual renderer.
+    // The renderer runs twice at compile time. The counting pass includes synthetic
+    // '/' and '*' tokens, without a separate traversal that could disagree with the
+    // actual renderer.
     let total_tokens = write_args(&mut [], initial, args).tokens;
     let st = write_args(
         buf,

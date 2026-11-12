@@ -3,9 +3,10 @@ use crate::object::PyTypeObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
+use alloc::borrow::Cow;
 use core::ffi::{c_char, c_int};
 use core::fmt::Debug;
-use rustpython_vm::function::{FuncArgs, HeapMethodDef, ItemDoc, PosArgs, PyMethodFlags};
+use rustpython_vm::function::{Callee, FuncArgs, HeapMethodDef, ItemDoc, PosArgs, PyMethodFlags};
 use rustpython_vm::types::c_slots::{kwargs_ptr, split_args};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
@@ -68,57 +69,52 @@ impl PyMethodDef {
 
         bitflags::bitflags_match!(call_flags, {
             PyMethodFlags::NOARGS => {
-                if has_self {
-                    let callable = move |zelf: PyObjectRef, vm: &VirtualMachine| unsafe {
-                        let f = method.PyCFunction;
-                        f(zelf.as_raw().cast_mut(), core::ptr::null_mut()).assume_owned_or_err(vm)
-                    };
-                    Ok(vm.ctx.new_method_def(name, callable, flags, doc))
-                } else {
-                    let callable = move |vm: &VirtualMachine| unsafe {
-                        let f = method.PyCFunction;
-                        f(core::ptr::null_mut(), core::ptr::null_mut()).assume_owned_or_err(vm)
-                    };
-                    Ok(vm.ctx.new_method_def(name, callable, flags, doc))
-                }
+                let callable = move |vm: &VirtualMachine, mut args: FuncArgs, callee: Callee<'_>| {
+                    let slf = take_self_arg(&mut args, has_self, callee);
+                    args.bind_for::<()>(vm, callee.with_instance_arg(false))?;
+                    let slf_ptr = self_ptr(slf.as_deref());
+                    unsafe {
+                        (method.PyCFunction)(slf_ptr, core::ptr::null_mut()).assume_owned_or_err(vm)
+                    }
+                };
+                Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::VARARGS => {
-                let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
-                    call_function(vm, method, has_self, Some(args))
+                let callable = move |vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>| {
+                    let (args,) = args.bind_for::<(PosArgs,)>(vm, callee)?;
+                    unsafe { call_function(vm, method, has_self, args.into(), callee) }
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
+                Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
-                let callable = move | args: FuncArgs, vm: &VirtualMachine| unsafe {
-                    call_function_with_keywords(vm, method, has_self, args)
+                let callable = move |vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>| unsafe {
+                    call_function_with_keywords(vm, method, has_self, args, callee)
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
+                Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
-                let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
-                    call_fast_function_with_keywords(vm, method, has_self, args)
+                let callable = move |vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>| unsafe {
+                    call_fast_function_with_keywords(vm, method, has_self, args, callee)
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
+                Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::FASTCALL => {
-                let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
-                    call_fast_function(vm, method, has_self, args)
+                let callable = move |vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>| {
+                    let (args,) = args.bind_for::<(PosArgs,)>(vm, callee)?;
+                    unsafe { call_fast_function(vm, method, has_self, args, callee) }
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
+                Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::O => {
-                let f = unsafe { method.PyCFunction };
-                if has_self {
-                    let callable = move |zelf: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                        unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()).assume_owned_or_err(vm) }
-                    };
-                    Ok(vm.ctx.new_method_def(name, callable, flags, doc))
-                } else {
-                    let callable = move |arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                        unsafe { f(core::ptr::null_mut(), arg.as_raw().cast_mut()).assume_owned_or_err(vm) }
-                    };
-                    Ok(vm.ctx.new_method_def(name, callable, flags, doc))
-                }
+                let callable = move |vm: &VirtualMachine, mut args: FuncArgs, callee: Callee<'_>| {
+                    let slf = take_self_arg(&mut args, has_self, callee);
+                    let (arg,) = args.bind_for::<(PyObjectRef,)>(vm, callee.with_instance_arg(false))?;
+                    let slf_ptr = self_ptr(slf.as_deref());
+                    unsafe {
+                        (method.PyCFunction)(slf_ptr, arg.as_raw().cast_mut()).assume_owned_or_err(vm)
+                    }
+                };
+                Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             _ => {
                 Err(vm.new_system_error(format!(
@@ -167,30 +163,18 @@ impl Debug for PyMethodPointer {
     }
 }
 
-unsafe fn call_function<A: Into<FuncArgs>>(
+unsafe fn call_function(
     vm: &VirtualMachine,
     method: PyMethodPointer,
     has_self: bool,
-    args: Option<A>,
+    mut args: FuncArgs,
+    callee: Callee<'_>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunction };
-    let (slf, arg_tuple) = if let Some(mut args) = args.map(Into::into) {
-        let slf = take_self_arg(&mut args, has_self);
-        let arg_tuple = vm.ctx.new_tuple(args.args);
-        (slf, Some(arg_tuple))
-    } else {
-        (None, None)
-    };
-
-    let slf_ptr = slf
-        .as_ref()
-        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
-
-    let arg_ptr = arg_tuple
-        .as_ref()
-        .map_or_default(|tuple| tuple.as_object().as_raw().cast_mut());
-
-    unsafe { f(slf_ptr, arg_ptr).assume_owned_or_err(vm) }
+    let slf = take_self_arg(&mut args, has_self, callee);
+    let arg_tuple = vm.ctx.new_tuple(args.args);
+    let slf_ptr = self_ptr(slf.as_deref());
+    unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()).assume_owned_or_err(vm) }
 }
 
 unsafe fn call_function_with_keywords(
@@ -198,12 +182,11 @@ unsafe fn call_function_with_keywords(
     method: PyMethodPointer,
     has_self: bool,
     mut args: FuncArgs,
+    callee: Callee<'_>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunctionWithKeywords };
-    let slf = take_self_arg(&mut args, has_self);
-    let slf_ptr = slf
-        .as_ref()
-        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
+    let slf = take_self_arg(&mut args, has_self, callee);
+    let slf_ptr = self_ptr(slf.as_deref());
     let (arg_tuple, kwargs) = split_args(vm, args)?;
     unsafe {
         f(
@@ -220,12 +203,11 @@ unsafe fn call_fast_function_with_keywords(
     method: PyMethodPointer,
     has_self: bool,
     mut args: FuncArgs,
+    callee: Callee<'_>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunctionFastWithKeywords };
-    let slf = take_self_arg(&mut args, has_self);
-    let slf_ptr = slf
-        .as_ref()
-        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
+    let slf = take_self_arg(&mut args, has_self, callee);
+    let slf_ptr = self_ptr(slf.as_deref());
     let nargs = args.args.len();
     let mut fastcall_args = args.args;
     let kwnames_tuple = if !args.kwargs.is_empty() {
@@ -253,13 +235,12 @@ unsafe fn call_fast_function(
     method: PyMethodPointer,
     has_self: bool,
     args: PosArgs,
+    callee: Callee<'_>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunctionFast };
     let mut args: FuncArgs = args.into();
-    let slf = take_self_arg(&mut args, has_self);
-    let slf_ptr = slf
-        .as_ref()
-        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
+    let slf = take_self_arg(&mut args, has_self, callee);
+    let slf_ptr = self_ptr(slf.as_deref());
     // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
@@ -267,12 +248,22 @@ unsafe fn call_fast_function(
     unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize).assume_owned_or_err(vm) }
 }
 
-fn take_self_arg(args: &mut FuncArgs, has_self: bool) -> Option<PyObjectRef> {
+fn take_self_arg<'a>(
+    args: &mut FuncArgs,
+    has_self: bool,
+    callee: Callee<'a>,
+) -> Option<Cow<'a, rustpython_vm::PyObject>> {
     if !has_self {
         None
+    } else if let Some(module) = callee.module() {
+        Some(Cow::Borrowed(module.as_object()))
     } else {
-        args.take_positional()
+        args.take_positional().map(Cow::Owned)
     }
+}
+
+fn self_ptr(slf: Option<&rustpython_vm::PyObject>) -> *mut PyObject {
+    slf.map_or(core::ptr::null_mut(), |obj| obj.as_raw().cast_mut())
 }
 
 #[unsafe(no_mangle)]
@@ -397,6 +388,59 @@ mod tests {
         Python::attach(|py| {
             let func = wrap_pyfunction!(one_arg, py).unwrap();
             func.call1((7,)).unwrap();
+        });
+    }
+
+    #[test]
+    fn module_receiver_is_not_a_python_argument() {
+        #[pyfunction(pass_module)]
+        fn module_noargs(module: &Bound<'_, PyModule>) -> Py<PyModule> {
+            module.clone().unbind()
+        }
+
+        #[pyfunction(pass_module, signature = (value, /))]
+        fn module_one(module: &Bound<'_, PyModule>, value: i64) -> (Py<PyModule>, i64) {
+            (module.clone().unbind(), value)
+        }
+
+        #[pyfunction(pass_module, signature = (*args, **kwargs))]
+        fn module_variadic(
+            module: &Bound<'_, PyModule>,
+            args: &Bound<'_, pyo3::types::PyTuple>,
+            kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
+        ) -> (Py<PyModule>, usize, usize) {
+            (
+                module.clone().unbind(),
+                args.len(),
+                kwargs.map_or(0, |kwargs| kwargs.len()),
+            )
+        }
+
+        Python::attach(|py| {
+            let module = PyModule::new(py, "receiver_module").unwrap();
+            let noargs = wrap_pyfunction!(module_noargs, &module).unwrap();
+            assert!(noargs.getattr("__self__").unwrap().is(&module));
+            assert!(noargs.call0().unwrap().is(&module));
+            assert!(noargs.call1((1,)).is_err());
+
+            let one = wrap_pyfunction!(module_one, &module).unwrap();
+            let (receiver, value): (Py<PyModule>, i64) =
+                one.call1((7,)).unwrap().extract().unwrap();
+            assert!(receiver.bind(py).is(&module));
+            assert_eq!(value, 7);
+            assert!(one.call0().is_err());
+            assert!(one.call1((7, 8)).is_err());
+
+            let variadic = wrap_pyfunction!(module_variadic, &module).unwrap();
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("keyword", 3).unwrap();
+            let (receiver, positional, keywords): (Py<PyModule>, usize, usize) = variadic
+                .call((1, 2), Some(&kwargs))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(receiver.bind(py).is(&module));
+            assert_eq!((positional, keywords), (2, 1));
         });
     }
 

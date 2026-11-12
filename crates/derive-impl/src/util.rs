@@ -323,7 +323,7 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct FunctionItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for FunctionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "signature_from_flags", "with_module"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "signature_from_flags"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -334,10 +334,6 @@ impl ItemMeta for FunctionItemMeta {
 }
 
 impl FunctionItemMeta {
-    pub(crate) fn with_module(&self) -> Result<bool> {
-        self.inner()._bool("with_module")
-    }
-
     pub(crate) fn signature_from_flags(&self) -> Result<bool> {
         self.inner()._bool("signature_from_flags")
     }
@@ -798,41 +794,64 @@ enum SigPiece {
     Implicit(Type),
 }
 
-/// Validate the receiver requested by `#[pyfunction(with_module)]`.
-/// Do not infer binding from this type alone: `_imp.exec_builtin`, for example,
-/// takes an ordinary Python-visible module argument of the same type.
-pub(crate) fn has_module_receiver(sig: &Signature) -> bool {
+/// A leading module payload is injected by the module function adapter.
+/// This is syntax-based: Rust aliases cannot be resolved by a procedural macro.
+pub(crate) fn has_module_receiver(sig: &Signature) -> Result<bool> {
     let Some(FnArg::Typed(arg)) = sig.inputs.first() else {
-        return false;
+        return Ok(false);
     };
-    let (ty, wrapper) = match &*arg.ty {
-        Type::Reference(reference) => (&*reference.elem, "Py"),
-        ty => (ty, "PyRef"),
+    let (ty, wrapper, mutable) = match &*arg.ty {
+        Type::Reference(reference) => (&*reference.elem, "Py", reference.mutability.is_some()),
+        ty => (ty, "PyRef", false),
     };
-    let Type::Path(path) = ty else { return false };
+    let Type::Path(path) = ty else {
+        return Ok(false);
+    };
     let Some(segment) = path.path.segments.last() else {
-        return false;
+        return Ok(false);
     };
+    if segment.ident == "PyModuleRef" {
+        return Err(syn::Error::new_spanned(
+            &arg.ty,
+            "write the module receiver as PyRef<PyModule> or &Py<PyModule>, not PyModuleRef",
+        ));
+    }
     if segment.ident != wrapper {
-        return false;
+        return Ok(false);
     }
     let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-        return false;
+        return Ok(false);
     };
     let Some(syn::GenericArgument::Type(Type::Path(payload))) = arguments.args.first() else {
-        return false;
+        return Ok(false);
     };
-    arguments.args.len() == 1
+    let is_module = arguments.args.len() == 1
         && payload
             .path
             .segments
             .last()
-            .is_some_and(|segment| segment.ident == "PyModule")
+            .is_some_and(|segment| segment.ident == "PyModule");
+    if is_module && mutable {
+        return Err(syn::Error::new_spanned(
+            &arg.ty,
+            "module receivers must be PyRef<PyModule> or an immutable &Py<PyModule>",
+        ));
+    }
+    Ok(is_module)
 }
 
 fn is_vm_or_callee(ty: &Type) -> bool {
+    if let Type::Path(path) = ty
+        && path
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "Callee")
+    {
+        return true;
+    }
     let ty = quote!(#ty).to_string().replace(' ', "");
-    (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee")
+    ty.starts_with('&') && ty.ends_with("VirtualMachine")
 }
 
 fn arg_name(pat: &syn::Pat) -> String {
@@ -1038,21 +1057,20 @@ mod metadata_tests {
     use syn::{parse::Parser, parse_quote};
 
     #[test]
-    fn module_receiver_requires_an_explicit_opt_in() {
-        let ordinary = parse_quote!(#[pyfunction]);
-        assert!(
-            !FunctionItemMeta::from_attr(parse_quote!(f), &ordinary)
-                .unwrap()
-                .with_module()
-                .unwrap()
-        );
-        let bound = parse_quote!(#[pyfunction(with_module)]);
-        assert!(
-            FunctionItemMeta::from_attr(parse_quote!(f), &bound)
-                .unwrap()
-                .with_module()
-                .unwrap()
-        );
+    fn module_receiver_has_no_opt_in() {
+        let attr = parse_quote!(#[pyfunction(with_module)]);
+        assert!(FunctionItemMeta::from_attr(parse_quote!(f), &attr).is_err());
+    }
+
+    #[test]
+    fn module_receiver_rejects_ambiguous_alias_and_mutable_borrow() {
+        for signature in [
+            parse_quote!(fn f(module: PyModuleRef)),
+            parse_quote!(fn f(module: crate::PyModuleRef)),
+            parse_quote!(fn f(module: &mut Py<PyModule>)),
+        ] {
+            assert!(has_module_receiver(&signature).is_err());
+        }
     }
 
     #[test]
@@ -1062,7 +1080,7 @@ mod metadata_tests {
             parse_quote!(fn f(module: &Py<PyModule>, value: u8)),
             parse_quote!(fn f(module: crate::PyRef<crate::builtins::PyModule>)),
         ] {
-            assert!(has_module_receiver(&signature));
+            assert!(has_module_receiver(&signature).unwrap());
         }
         for signature in [
             parse_quote!(fn f(value: PyRef<PyType>)),
@@ -1070,7 +1088,7 @@ mod metadata_tests {
             parse_quote!(fn f(value: u8, module: PyRef<PyModule>)),
             parse_quote!(fn f()),
         ] {
-            assert!(!has_module_receiver(&signature));
+            assert!(!has_module_receiver(&signature).unwrap());
         }
     }
 

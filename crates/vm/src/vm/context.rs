@@ -668,6 +668,17 @@ impl Context {
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 
+    pub fn new_raw_method_def(
+        &self,
+        name: &'static str,
+        f: impl crate::function::PyNativeFn,
+        flags: PyMethodFlags,
+        doc: ItemDoc,
+    ) -> PyRef<HeapMethodDef> {
+        let payload = HeapMethodDef::with_owned_function(name, Box::new(f), flags, doc);
+        PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
+    }
+
     #[inline]
     pub fn new_member(
         &self,

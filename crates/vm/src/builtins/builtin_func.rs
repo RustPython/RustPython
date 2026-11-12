@@ -1,13 +1,43 @@
-use super::{PyStrInterned, PyStrRef, PyType, type_};
+use super::{PyModule, PyStrInterned, PyStrRef, PyType, type_};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{Callee, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
+    object::{Traverse, TraverseFn},
     types::{Callable, Comparable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
+
+/// The receiver's transport is fixed when the callable is constructed.
+/// Modules travel outside FuncArgs; bound methods retain positional binding.
+#[derive(Debug)]
+pub(crate) enum NativeFunctionSelf {
+    Module(PyRef<PyModule>),
+    Bound(PyObjectRef),
+}
+
+// SAFETY: each variant owns exactly one receiver, visited once without cloning.
+unsafe impl Traverse for NativeFunctionSelf {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        match self {
+            Self::Module(module) => module.traverse(tracer),
+            Self::Bound(object) => object.traverse(tracer),
+        }
+    }
+}
+
+impl core::ops::Deref for NativeFunctionSelf {
+    type Target = PyObject;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Module(module) => module.as_object(),
+            Self::Bound(object) => object,
+        }
+    }
+}
 
 // PyCFunctionObject in CPython
 #[repr(C)]
@@ -15,9 +45,7 @@ use alloc::fmt;
 pub struct PyNativeFunction {
     #[pytraverse(skip)]
     pub(crate) value: &'static PyMethodDef,
-    pub(crate) zelf: Option<PyObjectRef>,
-    // Module that owns this function. Not passed as a call argument.
-    pub(crate) module_object: Option<PyObjectRef>,
+    pub(crate) zelf: Option<NativeFunctionSelf>,
     #[pymember(name = "__module__", writable)]
     pub(crate) module: crate::object::PyAtomicRef<Option<PyObject>>,
     /// Prevent HeapMethodDef from being freed while this function references it
@@ -57,11 +85,6 @@ impl PyNativeFunction {
         self
     }
 
-    pub fn with_module_object(mut self, module: PyObjectRef) -> Self {
-        self.module_object = Some(module);
-        self
-    }
-
     pub fn into_ref(self, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
             self,
@@ -75,7 +98,7 @@ impl PyNativeFunction {
         if self.value.flags.contains(PyMethodFlags::STATIC) {
             return None;
         }
-        self.zelf.as_deref().or(self.module_object.as_deref())
+        self.zelf.as_deref()
     }
 
     pub const fn as_func(&self) -> &dyn PyNativeFn {
@@ -91,13 +114,16 @@ impl Callable for PyNativeFunction {
             return Err(native_no_keywords_error(zelf, vm)?);
         }
         let mut callee = Callee::named(zelf.value.name);
-        if let Some(z) = &zelf.zelf {
-            // STATIC methods store the class in zelf for qualname/repr purposes,
-            // but should not prepend it to args (the Rust function doesn't expect it).
-            if !zelf.value.flags.contains(PyMethodFlags::STATIC) {
-                args.prepend_arg(z.clone());
+        match &zelf.zelf {
+            Some(NativeFunctionSelf::Module(module)) => callee = callee.with_module(module),
+            // STATIC methods keep their class for metadata, not argument binding.
+            Some(NativeFunctionSelf::Bound(receiver))
+                if !zelf.value.flags.contains(PyMethodFlags::STATIC) =>
+            {
+                args.prepend_arg(receiver.clone());
                 callee = callee.with_instance_arg(true);
             }
+            _ => {}
         }
         (zelf.value.func)(vm, args, callee)
     }
@@ -113,17 +139,11 @@ impl Comparable for PyNativeFunction {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             if let Some(other) = other.downcast_ref::<Self>() {
-                let eq = match (zelf.zelf.as_ref(), other.zelf.as_ref()) {
+                let eq = match (zelf.zelf.as_deref(), other.zelf.as_deref()) {
                     (Some(z), Some(o)) => z.is(o),
                     (None, None) => true,
                     _ => false,
                 };
-                let eq = eq
-                    && match (zelf.module_object.as_ref(), other.module_object.as_ref()) {
-                        (Some(z), Some(o)) => z.is(o),
-                        (None, None) => true,
-                        _ => false,
-                    };
                 let eq = eq && core::ptr::eq(zelf.value, other.value);
                 Ok(eq.into())
             } else {
@@ -139,7 +159,7 @@ impl Representable for PyNativeFunction {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         if let Some(bound) = zelf
             .zelf
-            .as_ref()
+            .as_deref()
             .filter(|b| !b.class().is_subtype(vm.ctx.types.module_type))
         {
             Ok(format!(
@@ -168,7 +188,7 @@ impl PyNativeFunction {
     #[pygetset]
     fn __qualname__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let zelf = zelf.0;
-        let qualname = if let Some(bound) = &zelf.zelf {
+        let qualname = if let Some(bound) = zelf.zelf.as_deref() {
             if bound.class().is_subtype(vm.ctx.types.module_type) {
                 return Ok(vm.ctx.intern_str(zelf.value.name).to_owned());
             }
@@ -208,12 +228,12 @@ impl PyNativeFunction {
         // PyModule_Check: the type or a subtype, same as meth_reduce.
         if let Some(bound) = zelf
             .zelf
-            .as_ref()
+            .as_deref()
             .filter(|bound| !bound.class().is_subtype(vm.ctx.types.module_type))
         {
             let getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
             Ok(vm
-                .new_tuple((getattr, (bound.clone(), zelf.value.name)))
+                .new_tuple((getattr, (bound.to_owned(), zelf.value.name)))
                 .into())
         } else {
             Ok(vm.ctx.new_str(zelf.value.name).into())
@@ -279,23 +299,25 @@ fn vectorcall_native_function(
         return Err(native_no_keywords_error(zelf, vm)?);
     }
 
-    // Build FuncArgs with self already at position 0 (no insert(0) needed)
-    let needs_self = zelf
-        .zelf
-        .as_ref()
-        .is_some_and(|_| !zelf.value.flags.contains(PyMethodFlags::STATIC));
-
-    let func_args = if needs_self {
-        let self_obj = zelf.zelf.as_ref().unwrap().clone();
-        let mut all_args = Vec::with_capacity(args.len() + 1);
-        all_args.push(self_obj);
-        all_args.extend(args);
-        FuncArgs::from_vectorcall_owned(all_args, nargs + 1, kwnames)
-    } else {
-        FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
+    let mut callee = Callee::named(zelf.value.name);
+    let func_args = match &zelf.zelf {
+        Some(NativeFunctionSelf::Module(module)) => {
+            callee = callee.with_module(module);
+            FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
+        }
+        Some(NativeFunctionSelf::Bound(receiver))
+            if !zelf.value.flags.contains(PyMethodFlags::STATIC) =>
+        {
+            // Build method args with self already at position 0, avoiding insert(0).
+            let mut all_args = Vec::with_capacity(args.len() + 1);
+            all_args.push(receiver.clone());
+            all_args.extend(args);
+            callee = callee.with_instance_arg(true);
+            FuncArgs::from_vectorcall_owned(all_args, nargs + 1, kwnames)
+        }
+        _ => FuncArgs::from_vectorcall_owned(args, nargs, kwnames),
     };
 
-    let callee = Callee::named(zelf.value.name).with_instance_arg(needs_self);
     (zelf.value.func)(vm, func_args, callee)
 }
 
@@ -363,6 +385,94 @@ mod tests {
         Interpreter, PyObjectRef,
         function::{PyMethodDef, PyMethodFlags},
     };
+
+    #[pymodule(name = "receiver_test")]
+    mod receiver_test {
+        use crate::{Py, PyRef, VirtualMachine, builtins::PyModule};
+
+        #[pyfunction]
+        fn owned(module: PyRef<PyModule>) -> PyRef<PyModule> {
+            module
+        }
+
+        #[pyfunction]
+        fn borrowed(module: &Py<PyModule>) -> PyRef<PyModule> {
+            module.to_owned()
+        }
+
+        #[pyfunction]
+        fn owned_vm(module: PyRef<PyModule>, _vm: &VirtualMachine) -> PyRef<PyModule> {
+            module
+        }
+
+        #[pyfunction]
+        fn borrowed_vm(module: &Py<PyModule>, _vm: &VirtualMachine) -> PyRef<PyModule> {
+            module.to_owned()
+        }
+
+        #[pyfunction]
+        fn ordinary(value: u32) -> u32 {
+            value
+        }
+
+        #[pyfunction]
+        fn target(_module: PyRef<PyModule>, target: PyRef<PyModule>) -> PyRef<PyModule> {
+            target
+        }
+    }
+
+    #[test]
+    fn module_receiver_is_injected_outside_python_arguments() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let definition = receiver_test::module_def(&vm.ctx);
+            let module = definition.create_module(vm).unwrap();
+            let other_module = definition.create_module(vm).unwrap();
+            for name in ["owned", "borrowed", "owned_vm", "borrowed_vm"] {
+                let function = module
+                    .get_attr(name, vm)
+                    .unwrap()
+                    .downcast::<PyNativeFunction>()
+                    .unwrap();
+                assert!(function.get_self().unwrap().is(module.as_object()));
+                let result = PyNativeFunction::call(&function, FuncArgs::default(), vm).unwrap();
+                assert!(result.is(module.as_object()));
+                let result =
+                    vectorcall_native_function(function.as_object(), vec![], 0, None, vm).unwrap();
+                assert!(result.is(module.as_object()));
+                let signature = function
+                    .as_object()
+                    .get_attr("__text_signature__", vm)
+                    .unwrap();
+                assert_eq!(signature.str(vm).unwrap().to_string(), "($module, /)");
+            }
+            let ordinary = module.get_attr("ordinary", vm).unwrap();
+            let value: PyObjectRef = vm.ctx.new_int(42).into();
+            for vectorcall in [false, true] {
+                let function = ordinary.downcast_ref::<PyNativeFunction>().unwrap();
+                let result = if vectorcall {
+                    vectorcall_native_function(
+                        ordinary.as_object(),
+                        vec![value.clone()],
+                        1,
+                        None,
+                        vm,
+                    )
+                } else {
+                    PyNativeFunction::call(function, FuncArgs::from(vec![value.clone()]), vm)
+                }
+                .unwrap();
+                assert_eq!(result.try_into_value::<u32>(vm).unwrap(), 42);
+            }
+            let target = module.get_attr("target", vm).unwrap();
+            assert!(
+                target
+                    .call((other_module.clone(),), vm)
+                    .unwrap()
+                    .is(other_module.as_object())
+            );
+            assert!(target.call((), vm).is_err());
+        });
+    }
 
     #[test]
     fn builtin_method_is_subclass_of_builtin_function() {
