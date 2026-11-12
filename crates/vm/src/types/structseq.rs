@@ -464,15 +464,12 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             .richcompare
             .store(Some(struct_sequence_richcompare));
 
-        // Keep an override already installed by the impl's class extension.
-        // Custom method definitions are applied after this fallback by
-        // PyClassImpl::extend_class (equivalent to METH_COEXIST in structseq.c).
-        if !class.attributes.contains(ctx.intern_str("__reduce__")) {
-            class.set_attr(
-                ctx.intern_str("__reduce__"),
-                DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),
-            );
-        }
+        // An impl's own __reduce__ method replaces this default, because method
+        // definitions are installed after class extension.
+        class.set_attr(
+            ctx.intern_str("__reduce__"),
+            DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),
+        );
     }
 }
 
@@ -552,6 +549,28 @@ mod signature_metadata_tests {
     #[pyclass(with(PyStructSequence))]
     impl MetadataDefault {}
 
+    #[allow(dead_code)]
+    #[derive(FromArgs)]
+    struct CustomArgs {
+        #[pyarg(any)]
+        value: PyObjectRef,
+    }
+
+    #[pystruct_sequence_data]
+    struct CustomData {
+        value: PyObjectRef,
+    }
+
+    #[pystruct_sequence(
+        name = "metadata_custom",
+        data = "CustomData",
+        constructor_args = "CustomArgs"
+    )]
+    struct MetadataCustom;
+
+    #[pyclass(with(PyStructSequence))]
+    impl MetadataCustom {}
+
     #[test]
     fn ordinary_struct_sequence_signature_keeps_its_fallback() {
         assert!(
@@ -559,6 +578,16 @@ mod signature_metadata_tests {
                 .text
                 .unwrap()
                 .starts_with("metadata_default(iterable=(), /)\n--\n\n")
+        );
+    }
+
+    #[test]
+    fn custom_constructor_args_signature_uses_fromargs_params() {
+        assert!(
+            MetadataCustom::INTERNAL_DOC
+                .text
+                .unwrap()
+                .starts_with("metadata_custom(value)\n--\n\n")
         );
     }
 }
