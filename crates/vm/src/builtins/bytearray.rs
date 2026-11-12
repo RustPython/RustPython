@@ -1250,6 +1250,13 @@ impl Py<PyByteArray> {
         let ResizeAccess::Exclusive(mut inner) = access else {
             return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
         };
+        // CPython 3.15's PyByteArray_SIZE_MAX subtracts _PyBytesObject_SIZE.
+        // The normal GIL build has four pointer-sized header fields and a
+        // trailing null byte. Vec accepts larger lengths on 32-bit targets.
+        const MAX_SIZE: usize = isize::MAX as usize - size_of::<[usize; 4]>() - 1;
+        if size > MAX_SIZE {
+            return Err(vm.no_memory_error());
+        }
         if size == 0 {
             let _old = core::mem::take(&mut inner.elements);
             drop(inner);
