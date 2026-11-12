@@ -1827,6 +1827,21 @@ mod _io {
         }
     }
 
+    // Match CPython's ENTER_BUFFERED fast path: detach only if acquisition
+    // actually needs to wait, rather than on every I/O operation.
+    #[inline]
+    fn lock_io<T>(
+        mutex: &PyThreadMutex<T>,
+        wrap_fn: impl FnOnce(&dyn Fn()),
+    ) -> Option<PyThreadMutexGuard<'_, T>> {
+        use crate::common::lock::TryLockThreadError;
+        match mutex.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(TryLockThreadError::Current) => None,
+            Err(TryLockThreadError::Other) => mutex.lock_wrapped(wrap_fn),
+        }
+    }
+
     #[cfg(feature = "threading")]
     fn shutdown_io_lock<'a, T>(
         mutex: &'a PyThreadMutex<T>,
@@ -1882,8 +1897,7 @@ mod _io {
                     },
                 );
             }
-            self.data()
-                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
+            lock_io(self.data(), |do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io"))
         }
 
@@ -3309,8 +3323,7 @@ mod _io {
                     shutdown_buffer_description(class_name, raw, vm)
                 });
             }
-            self.data
-                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
+            lock_io(&self.data, |do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio"))
         }
 
@@ -4562,7 +4575,7 @@ mod _io {
             // Detach while blocked, like `lock_opt`: another thread can be
             // stopped holding this mutex, and blocking on it while attached
             // would leave no safepoint for that stop to complete at.
-            let Some(data) = zelf.data.lock_wrapped(|do_lock| vm.allow_threads(do_lock)) else {
+            let Some(data) = lock_io(&zelf.data, |do_lock| vm.allow_threads(do_lock)) else {
                 // Reentrant call
                 return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
             };
@@ -4742,8 +4755,7 @@ mod _io {
             &self,
             vm: &VirtualMachine,
         ) -> PyResult<PyThreadMutexGuard<'_, Option<IncrementalNewlineDecoderData>>> {
-            self.data
-                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
+            lock_io(&self.data, |do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside nldecoder"))
         }
 
@@ -6163,6 +6175,36 @@ mod _io {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn io_lock_avoids_unnecessary_waits() {
+            let mutex = PyThreadMutex::new(0);
+            let guard = lock_io(&mutex, |_| panic!("unexpected wait")).unwrap();
+            assert!(lock_io(&mutex, |_| panic!("reentrant wait")).is_none());
+            drop(guard);
+            assert!(lock_io(&mutex, |_| panic!("unexpected wait")).is_some());
+        }
+
+        #[test]
+        #[cfg(feature = "threading")]
+        fn io_lock_waits_when_contended() {
+            let mutex = PyThreadMutex::new(0);
+            let guard = mutex.lock().unwrap();
+            let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    let mut guard = lock_io(&mutex, |wait| {
+                        waiting_tx.send(()).unwrap();
+                        wait();
+                    })
+                    .unwrap();
+                    *guard = 1;
+                });
+                waiting_rx.recv().unwrap();
+                drop(guard);
+            });
+            assert_eq!(*mutex.lock().unwrap(), 1);
+        }
 
         #[test]
         fn closed_memory_streams_release_storage() {
