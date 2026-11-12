@@ -1338,11 +1338,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "text_signature changes keyword name")]
     fn bracket_override_cannot_rename_keyword() {
+        const ACTUAL: &[Param] = &[Param::positional_or_keyword("actual")];
         validate_text_signature_without_slash(
             &[SigArg {
                 name: "",
                 params: None,
-                binding_params: Some(&[Param::positional_or_keyword("actual")]),
+                binding_params: Some(ACTUAL),
                 force_unpack_keywords: false,
             }],
             &[Param::positional_or_keyword("wrong")],
