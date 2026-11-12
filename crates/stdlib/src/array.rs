@@ -953,7 +953,7 @@ pub mod array {
     struct ArrayIndexArgs {
         #[pyarg(positional, optional, py_default = "0")]
         start: OptionalArg<ArgIndex>,
-        #[pyarg(positional, optional, py_default = "9223372036854775807")]
+        #[pyarg(positional, optional, py_default = "sys.maxsize")]
         stop: OptionalArg<ArgIndex>,
     }
 

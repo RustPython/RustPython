@@ -100,3 +100,34 @@ assert not (float("inf"), float("inf")) > (float("inf"), float("inf"))
 # that product must raise instead of wrapping into a short allocation.
 with assert_raises(MemoryError):
     (1,) * sys.maxsize
+
+
+# Releasing a tuple visits its elements backwards, including nested tuples and
+# tuple subclasses. Observe finalizers rather than implementation refcounts.
+tuple_events = []
+
+
+class TupleItem:
+    def __init__(self, name):
+        self.name = name
+
+    def __del__(self):
+        tuple_events.append(self.name)
+
+
+class DestructibleTuple(tuple):
+    def __del__(self):
+        tuple_events.append("tuple")
+
+
+for tuple_type in (tuple, DestructibleTuple):
+    tuple_events.clear()
+    items = tuple_type(
+        (TupleItem("a"), (TupleItem("b"), TupleItem("c")), TupleItem("d"))
+    )
+    assert tuple_events == []
+    del items
+    expected = ["d", "c", "b", "a"]
+    if tuple_type is DestructibleTuple:
+        expected.insert(0, "tuple")
+    assert tuple_events == expected, tuple_events

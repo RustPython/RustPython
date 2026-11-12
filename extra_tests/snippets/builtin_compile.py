@@ -250,3 +250,61 @@ for source, line, column in (
             raise AssertionError("initial eval indentation was accepted")
 
 assert eval(compile("(\n  1\n)", "<test>", "eval")) == 1
+
+# Physical CR and CRLF are translated before lexing, even inside literals.
+# Keep explicit backslash-r escapes distinct from physical line endings.
+for ending in ("\r", "\r\n", "\n\r", "\r\r\n"):
+    normalized = ending.replace("\r\n", "\n").replace("\r", "\n")
+    for prefix in ("", "r", "b", "f"):
+        source = prefix + '"""a' + ending + 'b"""'
+        expected = "a" + normalized + "b"
+        if prefix == "b":
+            expected = expected.encode()
+        assert eval(source) == expected
+        assert eval(source.encode()) == expected
+        assert eval(compile(source, "<newlines>", "eval")) == expected
+        tree = ast.parse(source, mode="eval")
+        assert eval(compile(tree, "<newlines>", "eval")) == expected
+        namespace = {}
+        exec("value = " + source, namespace)
+        assert namespace["value"] == expected
+    assert eval('t"""a' + ending + 'b"""').strings == ("a" + normalized + "b",)
+    namespace = {}
+    exec('def f():\r    """a' + ending + '    b"""\r    pass', namespace)
+    assert namespace["f"].__doc__ == "a" + normalized + "b"
+    assert eval('"a\\' + ending[:1] + 'b"') == "ab"
+assert eval(r'"a\rb"') == "a\rb"
+assert eval(r'r"a\rb"') == r"a\rb"
+
+# Warnings and SyntaxError text must use the same source as the parser.
+import warnings
+
+for source in ('"""a\r\\q"""', '"""a\r\\q""" + )', "1\r+", '"a\rb"'):
+    results = []
+    for text in (source, source.replace("\r", "\n")):
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            try:
+                eval(text)
+            except SyntaxError as exc:
+                result = (exc.msg, exc.lineno, exc.offset, exc.text)
+            else:
+                result = None
+            results.append((result, [(str(w.message), w.lineno) for w in captured]))
+    assert results[0] == results[1], (source, results)
+
+# Audit hooks see the caller's bytes, not the parser's translated buffer.
+import sys
+
+newline_audit_events = []
+newline_audit_source = '"""audit\rsource"""'
+
+
+def record_newline_compile(event, args):
+    if event == "compile" and args[0] == newline_audit_source.encode():
+        newline_audit_events.append(args[0])
+
+
+sys.addaudithook(record_newline_compile)
+assert eval(newline_audit_source) == "audit\nsource"
+assert newline_audit_events == [newline_audit_source.encode()]

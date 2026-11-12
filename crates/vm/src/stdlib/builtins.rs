@@ -27,7 +27,7 @@ mod builtins {
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
-        readline::{Readline, ReadlineResult},
+        readline::ReadlineResult,
         types::PyComparisonOp,
         vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
@@ -921,8 +921,10 @@ mod builtins {
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();
-            let mut readline = Readline::new(());
-            match readline.readline(prompt) {
+            let result = vm
+                .allow_threads(|| crate::readline::input_readline(prompt))
+                .map_err(|_| vm.new_runtime_error("can't re-enter readline"))?;
+            match result {
                 ReadlineResult::Line(s) => {
                     let result = vm.ctx.new_str(s);
                     vm.audit("builtins.input/result", || (result.clone(),))?;
@@ -1007,23 +1009,23 @@ mod builtins {
 
     #[pyfunction]
     fn anext(
-        aiter: PyObjectRef,
-        default_value: OptionalArg<PyObjectRef>,
+        async_iterator: PyObjectRef,
+        default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         use crate::builtins::asyncgenerator::PyAnextAwaitable;
 
         // Check if object is an async iterator (has __anext__ method)
-        if !aiter.class().has_attr(identifier!(vm, __anext__)) {
+        if !async_iterator.class().has_attr(identifier!(vm, __anext__)) {
             return Err(vm.new_type_error(format!(
                 "'{}' object is not an async iterator",
-                aiter.class().name()
+                async_iterator.class().name()
             )));
         }
 
-        let awaitable = vm.call_method(&aiter, "__anext__", ())?;
+        let awaitable = vm.call_method(&async_iterator, "__anext__", ())?;
 
-        if let OptionalArg::Present(default) = default_value {
+        if let OptionalArg::Present(default) = default {
             Ok(PyAnextAwaitable::new(awaitable, default)
                 .into_ref(&vm.ctx)
                 .into())

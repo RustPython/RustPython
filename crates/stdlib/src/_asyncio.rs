@@ -64,8 +64,9 @@ pub(crate) mod _asyncio {
     struct AddDoneCallbackArgs {
         #[pyarg(positional)]
         r#fn: PyObjectRef,
+        // Omission copies the context now; explicit None is forwarded to call_soon.
         #[pyarg(named, optional)]
-        context: Option<PyObjectRef>,
+        context: OptionalArg<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -364,8 +365,8 @@ pub(crate) mod _asyncio {
                 return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             let ctx = match args.context {
-                Some(c) => c,
-                None => get_copy_context(vm)?,
+                OptionalArg::Present(c) => c,
+                OptionalArg::Missing => get_copy_context(vm)?,
             };
 
             if self.fut_state.load() != FutureState::Pending {

@@ -132,6 +132,7 @@ thread_local! {
 impl PyPayload for PyTuple {
     const MAX_FREELIST: usize = 2000;
     const HAS_FREELIST: bool = true;
+    const REVERSE_DEALLOC: bool = true;
 
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {

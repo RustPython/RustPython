@@ -133,7 +133,6 @@ class ParseTest(unittest.TestCase):
         parse(f, XMLGenerator(result, 'utf-8'))
         self.assertEqual(result.getvalue(), xml_str(self.data, 'utf-8'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parse_text(self):
         encodings = ('us-ascii', 'iso-8859-1', 'utf-8',
                      'utf-16', 'utf-16le', 'utf-16be')
@@ -226,7 +225,6 @@ class ParseTest(unittest.TestCase):
         parseString(s, XMLGenerator(result, 'utf-8'))
         self.assertEqual(result.getvalue(), xml_str(self.data, 'utf-8'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parseString_text(self):
         encodings = ('us-ascii', 'iso-8859-1', 'utf-8',
                      'utf-16', 'utf-16le', 'utf-16be')

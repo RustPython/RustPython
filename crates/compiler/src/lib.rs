@@ -2111,13 +2111,7 @@ pub fn compile(
     source_path: &str,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    // TODO: do this less hacky; ruff's parser should translate a CRLF line
-    //       break in a multiline string into just an LF in the parsed value
-    #[cfg(windows)]
-    let source = source.replace("\r\n", "\n");
-    #[cfg(windows)]
-    let source = source.as_str();
-
+    let source = core::normalize_newlines(source);
     let source_file = SourceFileBuilder::new(source_path, source).finish();
     _compile(source_file, mode, opts)
     // let index = LineIndex::from_source_text(source);
@@ -2448,9 +2442,7 @@ pub fn compile_with_syntax_warning_handler<'a>(
     opts: CompileOpts,
     syntax_warning_handler: &'a mut compile::SyntaxWarningHandler<'a>,
 ) -> Result<CodeObject, CompileError> {
-    let source = source.replace("\r\n", "\n");
-    #[cfg(windows)]
-    let source = source.as_str();
+    let source = core::normalize_newlines(source);
 
     let source_file = SourceFileBuilder::new(source_path, source).finish();
     _compile_with_syntax_warning_handler(source_file, mode, opts, Some(syntax_warning_handler))
@@ -2461,6 +2453,7 @@ pub fn compile_symtable(
     mode: Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let source = core::normalize_newlines(source);
     let source_file = SourceFileBuilder::new(source_path, source).finish();
     _compile_symtable(source_file, mode)
 }

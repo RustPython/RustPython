@@ -620,6 +620,8 @@ fn generate_numeric_value(
         ucd32_diffs.insert((line.start, line.end), value);
     }
 
+    #[cfg(feature = "ucd_3_2_0")]
+    let mut values_3_2 = ucd32_diffs.clone();
     let ucd_latest = UnicodeLineReader::from_file_name("DerivedNumericValues.txt", true);
     let mut values_latest = Vec::new();
     for line in ucd_latest {
@@ -671,6 +673,8 @@ fn generate_numeric_value(
             let field = normalize_unihan_numeric(field);
             let value = parse_numeric_value(&field);
             ucd32_diffs.insert((line.start, line.end), value);
+            #[cfg(feature = "ucd_3_2_0")]
+            values_3_2.insert((line.start, line.end), value);
         }
     }
 
@@ -694,6 +698,22 @@ fn generate_numeric_value(
         "NUMERIC_VALUES_DIFF",
         "(u32, u32, f64)",
         &mut ucd32_diffs,
+    );
+
+    // Unlike the diff, this table also represents the absence of numeric
+    // properties added after 3.2: a missing entry must not use a modern value.
+    #[cfg(feature = "ucd_3_2_0")]
+    let mut values_3_2: Vec<_> = values_3_2
+        .into_iter()
+        .map(|((start, end), value)| (start, end, value))
+        .collect();
+    #[cfg(not(feature = "ucd_3_2_0"))]
+    let mut values_3_2: Vec<(u32, u32, f64)> = Vec::new();
+    write_slice_debug(
+        &mut writer,
+        "NUMERIC_VALUES_3_2",
+        "(u32, u32, f64)",
+        &mut values_3_2,
     );
 
     tx.send(ucd32_diffs)

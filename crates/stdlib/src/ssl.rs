@@ -1642,6 +1642,8 @@ mod _ssl {
             path: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            // Py_fopen audits before filesystem conversion or opening.
+            vm.audit("open", || (path.clone(), "rb", 0))?;
             // Validate filepath is not None
             if vm.is_none(&path) {
                 return Err(vm.new_type_error("DH params filepath cannot be None"));

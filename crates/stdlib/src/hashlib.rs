@@ -138,8 +138,8 @@ pub(crate) mod _hashlib {
         };
     }
 
-    blake_args!(Blake2bArgs, 64, "64");
-    blake_args!(Blake2sArgs, 32, "32");
+    blake_args!(Blake2bArgs, 64, "_blake2.blake2b.MAX_DIGEST_SIZE");
+    blake_args!(Blake2sArgs, 32, "_blake2.blake2s.MAX_DIGEST_SIZE");
 
     #[derive(FromArgs)]
     struct BlakeOptions {
@@ -894,8 +894,8 @@ pub(crate) mod _hashlib {
         }
 
         #[pymethod]
-        fn update(zelf: &Py<Self>, data: ArgBytesLike) {
-            data.with_ref(|bytes| zelf.ctx.update(bytes));
+        fn update(zelf: &Py<Self>, obj: ArgBytesLike) {
+            obj.with_ref(|bytes| zelf.ctx.update(bytes));
         }
 
         #[pymethod]

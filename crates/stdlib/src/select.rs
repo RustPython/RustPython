@@ -476,7 +476,11 @@ mod decl {
         struct EpollRegisterArgs {
             #[pyarg(any)]
             fd: PyObjectRef,
-            #[pyarg(any, optional)]
+            #[pyarg(
+                any,
+                optional,
+                py_default = "select.EPOLLIN | select.EPOLLPRI | select.EPOLLOUT"
+            )]
             eventmask: OptionalArg<PyObjectRef>,
         }
 

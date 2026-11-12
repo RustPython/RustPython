@@ -3,7 +3,7 @@
 //! The internal doc is `name(params)\n--\n\ndoc`, built in a const context from
 //! [`FromArgs`] metadata. Nothing here allocates.
 
-use super::argument::FromArgs;
+use super::argument::{ArgsMetadata, FromArgs};
 
 #[derive(Clone, Copy, Debug)]
 pub enum ParamKind {
@@ -116,12 +116,12 @@ const SCALAR_PARAMS: &[Param] = &[Param::positional_only("")];
 
 impl SigArg {
     #[must_use]
-    pub const fn from_arg<T: FromArgs>(name: &'static str) -> Self {
+    pub const fn from_arg<T: ArgsMetadata>(name: &'static str) -> Self {
         Self {
             name,
-            params: T::PARAMS,
-            binding_params: T::BINDING_PARAMS,
-            force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
+            params: T::DISPLAY_PARAMS,
+            binding_params: T::CLINIC_PARAMS,
+            force_unpack_keywords: T::UNPACK_KEYWORDS,
         }
     }
 

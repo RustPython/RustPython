@@ -255,3 +255,368 @@ def check_preserve_exc_conversion():
 
 
 check_preserve_exc_conversion()
+
+
+# Clinic binding must finish before module-specific id/config interpretation.
+def check_interpreter_clinic():
+    import inspect
+
+    signatures = {
+        "list_all": "(*, require_ready=False)",
+        "create": "(config='isolated', *, reqrefs=False)",
+        "destroy": "(id, *, restrict=False)",
+        "is_running": "(id, *, restrict=False)",
+        "whence": "(id)",
+        "get_config": "(id, *, restrict=False)",
+        "is_shareable": "(obj)",
+        "exec": "(id, code, shared={}, *, restrict=False)",
+        "run_string": "(id, script, shared={}, *, restrict=False)",
+        "run_func": "(id, func, shared={}, *, restrict=False)",
+        "call": "(id, callable, args=(), kwargs={}, *, preserve_exc=False, restrict=False)",
+        "set___main___attrs": "(id, updates, *, restrict=False)",
+        "incref": "(id, *, implieslink=False, restrict=False)",
+        "decref": "(id, *, restrict=False)",
+        "capture_exception": "(exc=None)",
+    }
+    for name, expected in signatures.items():
+        func = getattr(_interpreters, name)
+        assert str(inspect.signature(func)) == expected, name
+        raw = " ".join(func.__text_signature__.split())
+        assert raw == "($module, /, " + expected[1:], (name, raw)
+
+    trace = []
+
+    class Flag:
+        def __init__(self, label, raises=False):
+            self.label = label
+            self.raises = raises
+
+        def __bool__(self):
+            trace.append(self.label)
+            if self.raises:
+                raise RuntimeError(self.label)
+            return False
+
+    class Id:
+        def __index__(self):
+            trace.append("id")
+            return -1
+
+        def __repr__(self):
+            return "negative-id"
+
+    def check_error(func, args, kwargs, error, message, expected_trace=()):
+        trace.clear()
+        try:
+            func(*args, **kwargs)
+        except error as exc:
+            assert str(exc) == message, (func.__name__, str(exc), message)
+        else:
+            raise AssertionError(func.__name__)
+        assert trace == list(expected_trace), (func.__name__, trace, expected_trace)
+
+    for name, missing in [
+        ("exec", "code"),
+        ("run_string", "script"),
+        ("run_func", "func"),
+        ("call", "callable"),
+        ("set___main___attrs", "updates"),
+    ]:
+        check_error(
+            getattr(_interpreters, name),
+            (),
+            {"id": -1},
+            TypeError,
+            f"{name}() missing required argument '{missing}' (pos 2)",
+        )
+
+    # The unused preserve_exc flag still runs its Clinic bool converter, before id.
+    check_error(
+        _interpreters.call,
+        (Id(), None),
+        {"preserve_exc": Flag("preserve", True)},
+        RuntimeError,
+        "preserve",
+        ["preserve"],
+    )
+    check_error(
+        _interpreters.call,
+        (Id(), None),
+        {"preserve_exc": Flag("preserve"), "restrict": Flag("restrict", True)},
+        RuntimeError,
+        "restrict",
+        ["preserve", "restrict"],
+    )
+    check_error(
+        _interpreters.incref,
+        (Id(),),
+        {"implieslink": Flag("implieslink"), "restrict": Flag("restrict")},
+        ValueError,
+        "interpreter ID must be a non-negative int, got negative-id",
+        ["implieslink", "restrict", "id"],
+    )
+
+    # Real typed arguments are checked in Clinic order, before later flags and id.
+    for name, args, kwargs, parameter, expected_type in [
+        ("exec", (Id(), None), {"shared": None}, "shared", "dict"),
+        ("run_func", (Id(), None), {"shared": None}, "shared", "dict"),
+        ("run_string", (Id(), None), {"shared": None}, "script", "str"),
+        ("call", (Id(), None), {"args": None, "kwargs": None}, "args", "tuple"),
+        ("call", (Id(), None), {"kwargs": None}, "kwargs", "dict"),
+        ("set___main___attrs", (Id(), None), {}, "updates", "dict"),
+    ]:
+        kwargs["restrict"] = Flag("restrict", True)
+        check_error(
+            getattr(_interpreters, name),
+            args,
+            kwargs,
+            TypeError,
+            f"{name}() argument '{parameter}' must be {expected_type}, not None",
+        )
+
+    # Full keyword binding rejects duplicates/unknown names before conversion.
+    check_error(
+        _interpreters.call,
+        (-1, None),
+        {"id": 2, "preserve_exc": Flag("preserve", True)},
+        TypeError,
+        "argument for call() given by name ('id') and position (1)",
+    )
+    check_error(
+        _interpreters.call,
+        (-1, None),
+        {"unexpected": 1, "preserve_exc": Flag("preserve", True)},
+        TypeError,
+        "call() got an unexpected keyword argument 'unexpected'",
+    )
+
+    # O! accepts subclasses without invoking user conversion protocols.
+    class TupleSubclass(tuple):
+        pass
+
+    class DictSubclass(dict):
+        pass
+
+    class StrSubclass(str):
+        pass
+
+    for name, args, kwargs in [
+        ("call", (-1, None), {"args": TupleSubclass(), "kwargs": DictSubclass()}),
+        ("run_string", (-1, StrSubclass("pass")), {"shared": DictSubclass()}),
+        ("exec", (-1, None), {"shared": DictSubclass()}),
+        ("set___main___attrs", (-1, DictSubclass()), {}),
+    ]:
+        check_error(
+            getattr(_interpreters, name),
+            args,
+            kwargs,
+            ValueError,
+            "interpreter ID must be a non-negative int, got -1",
+        )
+    assert _interpreters.capture_exception() is None
+    assert _interpreters.capture_exception(None) is None
+    assert _interpreters.is_shareable(obj=None)
+
+    # The native wrapper keeps original owners, including failed conversions.
+    class TemporaryFlag(Flag):
+        def __del__(self):
+            trace.append("del-" + self.label)
+
+    for raises in (False, True):
+        for mode in range(4):
+            trace.clear()
+            try:
+                if mode == 0:
+                    _interpreters.call(
+                        Id(),
+                        None,
+                        preserve_exc=TemporaryFlag("preserve"),
+                        restrict=TemporaryFlag("restrict", raises),
+                    )
+                elif mode == 1:
+                    _interpreters.call(
+                        Id(),
+                        None,
+                        restrict=TemporaryFlag("restrict", raises),
+                        preserve_exc=TemporaryFlag("preserve"),
+                    )
+                elif mode == 2:
+                    _interpreters.call(
+                        Id(),
+                        None,
+                        **{
+                            "preserve_exc": TemporaryFlag("preserve"),
+                            "restrict": TemporaryFlag("restrict", raises),
+                        },
+                    )
+                else:
+                    _interpreters.call(
+                        Id(),
+                        None,
+                        **{
+                            "restrict": TemporaryFlag("restrict", raises),
+                            "preserve_exc": TemporaryFlag("preserve"),
+                        },
+                    )
+            except (ValueError, RuntimeError):
+                pass
+            else:
+                raise AssertionError(mode)
+            expected = ["preserve", "restrict"] + ([] if raises else ["id"])
+            # Direct calls release the evaluation stack in reverse, whereas
+            # expanded calls release the keyword mapping in insertion order.
+            reverse = mode % 2 == 1
+            if mode < 2:
+                reverse = not reverse
+            if raises:
+                # The __bool__ traceback owns restrict until exception cleanup.
+                reverse = False
+            expected += (
+                ["del-restrict", "del-preserve"]
+                if reverse
+                else ["del-preserve", "del-restrict"]
+            )
+            assert trace == expected, (mode, raises, trace)
+
+    class TemporaryId(Id):
+        def __del__(self):
+            trace.append("del-id")
+
+    class TemporaryValue:
+        def __init__(self, name):
+            self.name = name
+
+        def __del__(self):
+            trace.append("del-" + self.name)
+
+    class TemporaryTuple(tuple):
+        def __del__(self):
+            trace.append("del-args")
+
+    class TemporaryDict(dict):
+        def __del__(self):
+            trace.append("del-kwargs")
+
+    # Positional values and borrowed payloads have the same owners as flags.
+    # Binding failures must also release those owners without any conversion.
+    for invoke, converted, destroyed in (
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                TemporaryTuple(),
+                TemporaryDict(),
+                preserve_exc=TemporaryFlag("preserve"),
+                restrict=TemporaryFlag("restrict"),
+            ),
+            ["preserve", "restrict", "id"],
+            ["restrict", "preserve", "kwargs", "args", "callable", "id"],
+        ),
+        (
+            lambda: _interpreters.call(
+                restrict=TemporaryFlag("restrict"),
+                callable=TemporaryValue("callable"),
+                id=TemporaryId(),
+                kwargs=TemporaryDict(),
+                preserve_exc=TemporaryFlag("preserve"),
+                args=TemporaryTuple(),
+            ),
+            ["preserve", "restrict", "id"],
+            ["args", "preserve", "kwargs", "id", "callable", "restrict"],
+        ),
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                TemporaryTuple(),
+                TemporaryDict(),
+                **dict(
+                    restrict=TemporaryFlag("restrict"),
+                    preserve_exc=TemporaryFlag("preserve"),
+                ),
+            ),
+            ["preserve", "restrict", "id"],
+            ["restrict", "preserve", "kwargs", "args", "callable", "id"],
+        ),
+        (
+            lambda: _interpreters.call(
+                **dict(
+                    id=TemporaryId(),
+                    callable=TemporaryValue("callable"),
+                    args=TemporaryTuple(),
+                    kwargs=TemporaryDict(),
+                    preserve_exc=TemporaryFlag("preserve"),
+                    restrict=TemporaryFlag("restrict"),
+                )
+            ),
+            ["preserve", "restrict", "id"],
+            ["id", "callable", "args", "kwargs", "preserve", "restrict"],
+        ),
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                preserve_exc=TemporaryFlag("preserve"),
+                restrict=TemporaryFlag("restrict"),
+                unexpected=TemporaryValue("unexpected"),
+            ),
+            [],
+            ["unexpected", "restrict", "preserve", "callable", "id"],
+        ),
+        (
+            lambda: _interpreters.call(
+                TemporaryId(),
+                TemporaryValue("callable"),
+                **dict(
+                    preserve_exc=TemporaryFlag("preserve"),
+                    restrict=TemporaryFlag("restrict"),
+                    unexpected=TemporaryValue("unexpected"),
+                ),
+            ),
+            [],
+            ["preserve", "restrict", "unexpected", "callable", "id"],
+        ),
+    ):
+        for _ in range(32):
+            trace.clear()
+            try:
+                invoke()
+            except (TypeError, ValueError):
+                pass
+            else:
+                raise AssertionError("invalid call succeeded")
+            assert trace == converted + ["del-" + name for name in destroyed], trace
+
+    class TemporaryCurrentId(TemporaryId):
+        def __index__(self):
+            trace.append("id")
+            return _interpreters.get_current()[0]
+
+    for invoke, destroyed in (
+        (
+            lambda: _interpreters.is_running(
+                TemporaryCurrentId(), restrict=TemporaryFlag("restrict")
+            ),
+            ["restrict", "id"],
+        ),
+        (
+            lambda: _interpreters.is_running(
+                **dict(id=TemporaryCurrentId(), restrict=TemporaryFlag("restrict"))
+            ),
+            ["id", "restrict"],
+        ),
+    ):
+        trace.clear()
+        assert isinstance(invoke(), bool)
+        assert trace == ["restrict", "id"] + ["del-" + name for name in destroyed]
+
+    check_error(
+        _interpreters.call,
+        (-1, None),
+        {"args": None, "unexpected": 1},
+        TypeError,
+        "call() got an unexpected keyword argument 'unexpected'",
+    )
+
+
+check_interpreter_clinic()

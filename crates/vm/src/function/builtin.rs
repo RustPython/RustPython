@@ -1,4 +1,4 @@
-use super::{Callee, FromArgs, FuncArgs, SigArg};
+use super::{BorrowedArgs, Callee, FromArgs, FuncArgs, SigArg};
 use crate::{
     Py, PyPayload, PyRef, PyResult, VirtualMachine, convert::ToPyResult,
     object::PyThreadingConstraint,
@@ -118,6 +118,29 @@ pub struct BorrowedParam<T>(PhantomData<T>);
 
 #[doc(hidden)]
 pub struct RefParam<T>(PhantomData<T>);
+
+#[doc(hidden)]
+pub struct BorrowedArgsParam<T>(PhantomData<T>);
+
+impl<F, T, R> PyNativeFnInternal<BorrowedArgsParam<T>, R, VirtualMachine> for F
+where
+    T: BorrowedArgs,
+    F: Fn(T, &VirtualMachine) -> R
+        + for<'a> Fn(T::Bound<'a>, &VirtualMachine) -> R
+        + PyThreadingConstraint
+        + 'static,
+    R: ToPyResult,
+{
+    const ARGS: &'static [SigArg] = &[SigArg::from_arg::<T>("")];
+
+    fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
+        // The original owners outlive conversion, the body, and return-value
+        // conversion, including every error path. No keepalive copy is needed.
+        let result = T::bind(&args, vm, callee).and_then(|bound| (self)(bound, vm).to_pyresult(vm));
+        args.drop_reverse();
+        result
+    }
+}
 
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.

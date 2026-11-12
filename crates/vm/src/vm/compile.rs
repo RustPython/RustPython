@@ -81,6 +81,8 @@ impl VmCompileError {
 
 impl CompileWarningError {
     fn into_pyexception(self, vm: &VirtualMachine, source: Option<&str>) -> PyBaseExceptionRef {
+        let source = source.map(compiler::core::normalize_newlines);
+        let source = source.as_deref();
         if !self
             .exception
             .fast_isinstance(vm.ctx.exceptions.syntax_warning)
@@ -463,10 +465,9 @@ impl VirtualMachine {
         };
         // Normalize the source before parsing so literal values, warning ranges,
         // and diagnostic text all refer to the same universal-newline input.
-        Ok(if decoded.contains('\r') {
-            decoded.replace("\r\n", "\n").replace('\r', "\n")
-        } else {
-            decoded
+        Ok(match compiler::core::normalize_newlines(&decoded) {
+            alloc::borrow::Cow::Borrowed(_) => decoded,
+            alloc::borrow::Cow::Owned(normalized) => normalized,
         })
     }
 
@@ -722,6 +723,8 @@ impl VirtualMachine {
         original_filename: &Py<PyStr>,
         module: Option<&Py<PyStr>>,
     ) -> Result<compiler::codegen::symboltable::SymbolTable, VmCompileError> {
+        let source = compiler::core::normalize_newlines(source);
+        let source = source.as_ref();
         #[cfg(feature = "parser")]
         {
             let start = match mode {
@@ -815,6 +818,8 @@ impl VirtualMachine {
     ) -> Result<PyRef<PyCode>, VmCompileError> {
         #[cfg(not(feature = "parser"))]
         let _ = (module, emitted_escapes);
+        let source = compiler::core::normalize_newlines(source);
+        let source = source.as_ref();
         #[cfg(feature = "parser")]
         {
             self.emit_standard_parser_warnings(

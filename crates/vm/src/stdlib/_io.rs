@@ -310,10 +310,10 @@ mod _io {
         pub whence: i32,
     }
 
+    // IOBase and TextIOWrapper spell the same zero default symbolically.
     #[derive(FromArgs)]
-    #[allow(dead_code)]
-    struct IgnoredWhence {
-        #[pyarg(positional, default)]
+    struct SeekWhenceArg {
+        #[pyarg(positional, default, py_default = "os.SEEK_SET")]
         whence: i32,
     }
 
@@ -547,7 +547,7 @@ mod _io {
         fn seek(
             zelf: PyObjectRef,
             _offset: PyObjectRef,
-            _whence: IgnoredWhence,
+            _whence: SeekWhenceArg,
             vm: &VirtualMachine,
         ) -> PyResult {
             _unsupported(vm, &zelf, "seek")
@@ -1797,6 +1797,63 @@ mod _io {
         }
     }
 
+    #[cfg(feature = "threading")]
+    fn shutdown_buffer_description(
+        class_name: &str,
+        raw: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> String {
+        // Fatal diagnostics must not acquire an I/O lock or invoke user code.
+        // Inspect dictionary entries directly, avoiding custom attribute,
+        // equality, and repr implementations even on unusual raw streams.
+        // Limit diagnostic metadata; standard stream names are short and are
+        // among the first attributes installed on their FileIO objects.
+        let name = raw.and_then(|raw| raw.dict()).and_then(|dict| {
+            dict.into_iter().take(16).find_map(|(key, value)| {
+                let key = key.downcast_ref::<PyStr>()?;
+                if key.as_wtf8() != "name" || !value.class().is(vm.ctx.types.str_type) {
+                    return None;
+                }
+                let name = value.downcast_ref::<PyStr>()?;
+                if name.byte_len() > 1024 {
+                    return None;
+                }
+                PyStr::repr(name, vm).ok()
+            })
+        });
+        match name {
+            Some(name) => format!("<_io.{class_name} name={name}>"),
+            None => format!("<_io.{class_name}>"),
+        }
+    }
+
+    #[cfg(feature = "threading")]
+    fn shutdown_io_lock<'a, T>(
+        mutex: &'a PyThreadMutex<T>,
+        vm: &VirtualMachine,
+        reentrant_error: &'static str,
+        describe: impl FnOnce() -> String,
+    ) -> PyResult<PyThreadMutexGuard<'a, T>> {
+        use crate::common::lock::TryLockThreadError;
+        // Daemon threads may have parked permanently while owning this lock.
+        // Match _enter_buffered_busy's one-second grace period, including for
+        // RustPython's additional TextIOWrapper lock.
+        match mutex.try_lock_for_wrapped(core::time::Duration::from_secs(1), |wait| {
+            vm.allow_threads(wait)
+        }) {
+            Ok(guard) => Ok(guard),
+            Err(TryLockThreadError::Current) => Err(vm.new_runtime_error(reentrant_error)),
+            Err(TryLockThreadError::Other) => {
+                let message = format!(
+                    "Fatal Python error: _enter_buffered_busy: could not acquire lock for {} at interpreter shutdown, possibly due to daemon threads\n",
+                    describe()
+                );
+                let _ = crate::host_env::crt_fd::write_noraise(2, message.as_bytes());
+                crate::host_env::os::abort()
+            }
+        }
+    }
+
     #[pyclass]
     trait BufferedMixin: PyPayload + StaticType {
         const CLASS_NAME: &'static str;
@@ -1810,6 +1867,21 @@ mod _io {
         fn finalizing(&self) -> &AtomicBool;
 
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
+            #[cfg(feature = "threading")]
+            if vm.state.finalizing.load(Ordering::Acquire) {
+                return shutdown_io_lock(
+                    self.data(),
+                    vm,
+                    "reentrant call inside buffered io",
+                    || {
+                        shutdown_buffer_description(
+                            Self::CLASS_NAME,
+                            self.raw_cell().load_owned(),
+                            vm,
+                        )
+                    },
+                );
+            }
             self.data()
                 .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io"))
@@ -2042,13 +2114,13 @@ mod _io {
         }
 
         #[pymethod]
-        fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+        fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
             if zelf.class().is(Self::static_type()) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
             }
-            let _ = proto;
+            let _ = protocol;
             reduce_ex_for_subclass(&zelf, vm)
         }
 
@@ -3218,6 +3290,25 @@ mod _io {
             &self,
             vm: &VirtualMachine,
         ) -> PyResult<PyThreadMutexGuard<'_, Option<TextIOData>>> {
+            #[cfg(feature = "threading")]
+            if vm.state.finalizing.load(Ordering::Acquire) {
+                return shutdown_io_lock(&self.data, vm, "reentrant call inside textio", || {
+                    let Some(buffer) = self.buffer.load_owned() else {
+                        return "<_io.TextIOWrapper>".to_owned();
+                    };
+                    let (class_name, raw) =
+                        if let Some(buffer) = buffer.downcast_ref::<BufferedWriter>() {
+                            (BufferedWriter::CLASS_NAME, buffer.raw.load_owned())
+                        } else if let Some(buffer) = buffer.downcast_ref::<BufferedReader>() {
+                            (BufferedReader::CLASS_NAME, buffer.raw.load_owned())
+                        } else if let Some(buffer) = buffer.downcast_ref::<BufferedRandom>() {
+                            (BufferedRandom::CLASS_NAME, buffer.raw.load_owned())
+                        } else {
+                            return format!("<{}>", buffer.class().slot_name());
+                        };
+                    shutdown_buffer_description(class_name, raw, vm)
+                });
+            }
             self.data
                 .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio"))
@@ -3633,7 +3724,7 @@ mod _io {
         fn seek(
             zelf: PyRef<TextIOWrapper>,
             cookie: PyObjectRef,
-            whence: HowArg,
+            whence: SeekWhenceArg,
             vm: &VirtualMachine,
         ) -> PyResult {
             let how = whence.whence;
@@ -4275,13 +4366,13 @@ mod _io {
         }
 
         #[pymethod]
-        fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+        fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
             if zelf.class().is(TextIOWrapper::static_type()) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
             }
-            let _ = proto;
+            let _ = protocol;
             reduce_ex_for_subclass(&zelf, vm)
         }
     }
@@ -5704,14 +5795,14 @@ mod _io {
     impl Mode {
         const fn rawmode(&self) -> &'static str {
             match (&self.file, self.plus) {
-                (FileMode::Read, true) => "rb+",
-                (FileMode::Read, false) => "rb",
-                (FileMode::Write, true) => "wb+",
-                (FileMode::Write, false) => "wb",
-                (FileMode::Exclusive, true) => "xb+",
-                (FileMode::Exclusive, false) => "xb",
-                (FileMode::Append, true) => "ab+",
-                (FileMode::Append, false) => "ab",
+                (FileMode::Read, true) => "r+",
+                (FileMode::Read, false) => "r",
+                (FileMode::Write, true) => "w+",
+                (FileMode::Write, false) => "w",
+                (FileMode::Exclusive, true) => "x+",
+                (FileMode::Exclusive, false) => "x",
+                (FileMode::Append, true) => "a+",
+                (FileMode::Append, false) => "a",
             }
         }
     }
@@ -6165,7 +6256,7 @@ mod fileio {
     use crate::host_env::{crt_fd, os::ErrorExt};
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
+        builtins::{PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
@@ -6194,7 +6285,7 @@ mod fileio {
     pub(super) struct FileIOArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        // Omitted mode is stored as rb.
+        // The input default is r; the mode property normalizes it to rb.
         #[pyarg(any, default, py_default = "'r'")]
         mode: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
@@ -6223,6 +6314,13 @@ mod fileio {
         type Args = FileIOArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            // Reinitialization detaches the old descriptor before validation or audit.
+            if zelf.closefd.load() {
+                zelf.internal_close()
+                    .map_err(|err| err.to_pyexception(vm))?;
+            } else {
+                zelf.fd.store(-1);
+            }
             // TODO: let atomic_flag_works
             let name = args.file;
             let arg_fd = super::open_file_descriptor(&name, vm)?;
@@ -6235,13 +6333,14 @@ mod fileio {
 
             let mode_obj = args
                 .mode
-                .unwrap_or_else(|| PyUtf8Str::from("rb").into_ref(&vm.ctx));
+                .unwrap_or_else(|| PyUtf8Str::from("r").into_ref(&vm.ctx));
             let mode_str = mode_obj.as_str();
-            let parsed = host_io::parse_fileio_mode(mode_str)
+            let parsed = host_io::parse_fileio_mode(mode_str, zelf.mode.load())
                 .map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;
             let mode = parsed.mode;
             let flags = parsed.flags;
             zelf.mode.store(mode);
+            vm.audit("open", || (name.clone(), mode_str, flags))?;
 
             let (fd, _filename) = if let Some(fd) = arg_fd {
                 zelf.closefd.store(args.closefd);
@@ -6347,18 +6446,12 @@ mod fileio {
     }
 
     impl FileIO {
-        fn io_error(
-            zelf: &Py<Self>,
-            error: std::io::Error,
-            vm: &VirtualMachine,
-        ) -> PyBaseExceptionRef {
-            let exc = error.to_pyexception(vm);
-            if let Ok(name) = zelf.as_object().get_attr("name", vm) {
-                exc.as_object()
-                    .set_attr("filename", name, vm)
-                    .expect("OSError.filename set must success");
+        fn internal_close(&self) -> std::io::Result<()> {
+            let fd = self.fd.swap(-1);
+            if fd >= 0 {
+                host_io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })?;
             }
-            exc
+            Ok(())
         }
 
         fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
@@ -6377,7 +6470,6 @@ mod fileio {
 
         /// One `read()` into `buf`, retried on EINTR (PEP 475). `None` on EAGAIN.
         fn read_once_into(
-            zelf: &Py<Self>,
             handle: crt_fd::Borrowed<'_>,
             buf: &mut [u8],
             vm: &VirtualMachine,
@@ -6390,7 +6482,7 @@ mod fileio {
                     }
                     // Non-blocking mode: return None if EAGAIN
                     Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
-                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                    Err(e) => return Err(e.to_pyexception(vm)),
                 }
             }
         }
@@ -6469,7 +6561,7 @@ mod fileio {
                         Err(e) if host_io::is_would_block_error(&e) => {
                             return Ok(None);
                         }
-                        Err(e) => return Err(FileIO::io_error(zelf, e, vm)),
+                        Err(e) => return Err(e.to_pyexception(vm)),
                     }
                 };
                 bytes.truncate(n);
@@ -6494,7 +6586,7 @@ mod fileio {
                             .map_err(|_| vm.no_memory_error())?;
                         bytes.resize(size, 0);
                     }
-                    match FileIO::read_once_into(zelf, handle, &mut bytes[used..], vm)? {
+                    match FileIO::read_once_into(handle, &mut bytes[used..], vm)? {
                         Some(0) => break,
                         Some(n) => used += n,
                         None if used == 0 => return Ok(None),
@@ -6529,7 +6621,7 @@ mod fileio {
                 // waiting on anyone; write where the caller asked directly.
                 // Seekability is not the question -- a pipe on Windows seeks.
                 let mut buf = buffer.borrow_buf_mut();
-                return FileIO::read_once_into(zelf, handle, &mut buf, vm);
+                return FileIO::read_once_into(handle, &mut buf, vm);
             }
 
             // A pipe, socket or terminal answers only when the other end
@@ -6541,7 +6633,7 @@ mod fileio {
             // across the wait stops the world from being stopped at all. Read
             // aside and take the lock for the copy.
             let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
-            let ret = FileIO::read_once_into(zelf, handle, &mut scratch, vm)?;
+            let ret = FileIO::read_once_into(handle, &mut scratch, vm)?;
             if let Some(n) = ret {
                 buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
             }
@@ -6574,7 +6666,7 @@ mod fileio {
                     }
                     // Non-blocking mode: return None if EAGAIN
                     Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
-                    Err(e) => return Err(FileIO::io_error(zelf, e, vm)),
+                    Err(e) => return Err(e.to_pyexception(vm)),
                 }
             };
 
@@ -6593,14 +6685,10 @@ mod fileio {
             if zelf.finalizing.load() {
                 FileIO::dealloc_warn(zelf, zelf.as_object(), vm);
             }
-            let fd = zelf.fd.swap(-1);
-            let close_err = if fd >= 0 {
-                host_io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })
-                    .map_err(|err| FileIO::io_error(zelf, err, vm))
-                    .err()
-            } else {
-                None
-            };
+            let close_err = zelf
+                .internal_close()
+                .map_err(|err| err.to_pyexception(vm))
+                .err();
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
                     ce.set_context(Some(fe));

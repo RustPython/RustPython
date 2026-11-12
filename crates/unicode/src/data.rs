@@ -361,16 +361,18 @@ impl Ucd {
 
     #[must_use]
     pub fn bidirectional(&self, c: CodePoint) -> &'static str {
-        c.to_char()
-            .and_then(|c| {
-                if self.modern {
-                    Some(BidiClass::for_char(c))
-                } else {
-                    cold_path();
-                    lookup_table(BIDI_CLASS_DIFF, c)
-                        .or_else(|| membership_3_2(c as u32).then(|| BidiClass::for_char(c)))
-                }
-            })
+        let Some(c) = c.to_char() else {
+            // Surrogates have bidi class L in both the current and 3.2 UCD.
+            return "L";
+        };
+        let class = if self.modern {
+            Some(BidiClass::for_char(c))
+        } else {
+            cold_path();
+            lookup_table(BIDI_CLASS_DIFF, c)
+                .or_else(|| membership_3_2(c as u32).then(|| BidiClass::for_char(c)))
+        };
+        class
             .as_ref()
             .map(BidiClass::short_name)
             .unwrap_or_default()
@@ -526,10 +528,14 @@ impl Ucd {
     /// The numeric value of `c` (`unicodedata.numeric`), if it has one.
     #[must_use]
     pub fn numeric(&self, c: CodePoint) -> Option<f64> {
-        let expected = &NumericType::ALL_VALUES[1..];
-        self.numeric_type_matches(c, expected).and_then(|ch| {
-            lookup_property_diff(NUMERIC_VALUES, NUMERIC_VALUES_DIFF, ch, self.modern)
-        })
+        // Both generated tables are complete numeric-value tables. Falling
+        // back to modern values would assign later numeric properties to 3.2.
+        let table = if self.modern {
+            NUMERIC_VALUES
+        } else {
+            NUMERIC_VALUES_3_2
+        };
+        c.to_char().and_then(|ch| lookup_table(table, ch))
     }
 
     #[must_use]

@@ -673,7 +673,7 @@ mod _codecs {
     struct CharmapDecodeArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, optional, py_default = "None")]
         errors: OptionalOption<PyUtf8StrRef>,
         #[pyarg(positional, optional)]
         mapping: Option<PyObjectRef>,
