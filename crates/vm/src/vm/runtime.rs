@@ -296,6 +296,10 @@ pub(crate) fn alloc_interpreter_id() -> i64 {
     registry().next_id.fetch_add(1, Ordering::Relaxed)
 }
 
+pub(crate) fn next_interpreter_id() -> i64 {
+    registry().next_id.load(Ordering::Relaxed)
+}
+
 /// Gate between registering an interpreter and a collection's stop-the-world.
 ///
 /// A collection snapshots the registry, stops every interpreter in the

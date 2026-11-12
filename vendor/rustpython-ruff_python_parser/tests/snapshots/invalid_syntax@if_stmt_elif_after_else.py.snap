@@ -1,0 +1,113 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/if_stmt_elif_after_else.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..47,
+        body: [
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 0..29,
+                    test: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 3..4,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 10..14,
+                            },
+                        ),
+                    ],
+                    elif_else_clauses: [
+                        ElifElseClause {
+                            range: 15..29,
+                            node_index: NodeIndex(None),
+                            test: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 25..29,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                            runtime_orelse: None,
+                        },
+                    ],
+                    runtime_body: None,
+                },
+            ),
+            AnnAssign(
+                StmtAnnAssign {
+                    node_index: NodeIndex(None),
+                    range: 35..37,
+                    target: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 35..36,
+                            id: Name("y"),
+                            ctx: Store,
+                        },
+                    ),
+                    annotation: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 37..37,
+                            id: Name(""),
+                            ctx: Invalid,
+                        },
+                    ),
+                    value: None,
+                    simple: true,
+                    runtime_simple: None,
+                },
+            ),
+            Pass(
+                StmtPass {
+                    node_index: NodeIndex(None),
+                    range: 42..46,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+3 | else:
+4 |     pass
+5 | elif y:
+  | ^^^^ Syntax Error: 'elif' block follows an 'else' block
+6 |     pass
+  |
+
+
+  |
+3 | else:
+4 |     pass
+5 | elif y:
+  |        ^ Syntax Error: invalid syntax
+6 |     pass
+  |
+
+
+  |
+4 |     pass
+5 | elif y:
+6 |     pass
+  |    ^ Syntax Error: unexpected indent

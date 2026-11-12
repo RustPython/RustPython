@@ -1,0 +1,44 @@
+--- a/src/parser/statement.rs
++++ b/src/parser/statement.rs
+@@ -929,6 +929,10 @@
+             return None;
+         }
+         let checkpoint = self.checkpoint();
++        // Diagnostic-only speculation must not leak recovery state outside its checkpoint.
++        let unclosed_bracket = self.first_unclosed_bracket_recovery;
++        let escape_error = self.interpolated_string_escape_error.clone();
++        let replacement_field = self.replacement_field;
+         let errors_before = self.errors.len();
+         let lazy_range = self.current_token_range();
+         self.bump(TokenKind::Lazy);
+@@ -946,6 +950,9 @@
+             && (!names.iter().any(|alias| alias.name.id == "*")
+                 || (names.len() == 1 && !parenthesized.is_yes()));
+         self.rewind(checkpoint);
++        self.first_unclosed_bracket_recovery = unclosed_bracket;
++        self.interpolated_string_escape_error = escape_error;
++        self.replacement_field = replacement_field;
+         valid.then_some(lazy_range)
+     }
+ 
+@@ -1181,6 +1188,10 @@
+         }
+ 
+         let checkpoint = self.checkpoint();
++        // Diagnostic-only speculation must not leak recovery state outside its checkpoint.
++        let unclosed_bracket = self.first_unclosed_bracket_recovery;
++        let escape_error = self.interpolated_string_escape_error.clone();
++        let replacement_field = self.replacement_field;
+         let errors_start = self.errors.len();
+         self.bump(operator);
+         let value_end = if self.at_expr() {
+@@ -1190,6 +1201,9 @@
+             None
+         };
+         self.rewind(checkpoint);
++        self.first_unclosed_bracket_recovery = unclosed_bracket;
++        self.interpolated_string_escape_error = escape_error;
++        self.replacement_field = replacement_field;
+ 
+         if let Some(value_end) = value_end {
+             let error = if operator == TokenKind::ColonEqual {

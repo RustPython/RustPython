@@ -110,6 +110,43 @@ class TestGetTestPaths(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertEqual(paths[0], pathlib.Path("cpython/Lib/test/test_regrtest"))
 
+    def test_concurrent_helpers_are_dependencies_not_test_targets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpython_dir = pathlib.Path(tmpdir)
+            test_dir = cpython_dir / "Lib" / "test"
+            test_dir.mkdir(parents=True)
+            test_file = test_dir / "test_crossinterp.py"
+            code_helper = test_dir / "_code_definitions.py"
+            crossinterp_helper = test_dir / "_crossinterp_definitions.py"
+            test_file.write_text(
+                "import _testinternalcapi\n"
+                "from test import _code_definitions as code_defs\n"
+                "from test import _crossinterp_definitions as defs\n"
+                "raise AssertionError('source must not be executed')\n",
+                encoding="utf-8",
+            )
+            code_helper.write_text(
+                "raise AssertionError('helper must not be imported')\n",
+                encoding="utf-8",
+            )
+            crossinterp_helper.write_text(
+                "from test._code_definitions import *\n"
+                "raise AssertionError('helper must not be imported')\n",
+                encoding="utf-8",
+            )
+
+            targets = get_test_paths("concurrent", str(cpython_dir))
+            self.assertIn(test_file, targets)
+            self.assertNotIn(code_helper, targets)
+            self.assertNotIn(crossinterp_helper, targets)
+
+            dependencies = get_test_dependencies(test_file)
+            self.assertEqual(
+                set(dependencies["hard_deps"]),
+                {code_helper, crossinterp_helper},
+            )
+            self.assertEqual(dependencies["data"], [])
+
     def test_io_package(self):
         self.assertEqual(
             get_test_paths("io", "cpython"),

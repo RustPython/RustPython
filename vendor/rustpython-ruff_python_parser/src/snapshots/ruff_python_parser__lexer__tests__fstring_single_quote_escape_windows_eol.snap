@@ -1,0 +1,13 @@
+---
+source: crates/ruff_python_parser/src/lexer.rs
+expression: fstring_single_quote_escape_eol(WINDOWS_EOL)
+---
+## Tokens
+```
+[
+    FStringStart 0..2 (flags = F_STRING),
+    FStringMiddle 2..20 (flags = F_STRING),
+    FStringEnd 20..21 (flags = F_STRING),
+    Newline 21..21,
+]
+```

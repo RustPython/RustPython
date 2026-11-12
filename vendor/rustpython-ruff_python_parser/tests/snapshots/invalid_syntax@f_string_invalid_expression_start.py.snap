@@ -1,0 +1,377 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/f_string_invalid_expression_start.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..36,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..6,
+                    value: FString(
+                        ExprFString {
+                            node_index: NodeIndex(None),
+                            range: 0..6,
+                            value: FStringValue {
+                                inner: Single(
+                                    FString {
+                                        range: 0..6,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 2..5,
+                                                    node_index: NodeIndex(None),
+                                                    expression: Attribute(
+                                                        ExprAttribute {
+                                                            node_index: NodeIndex(None),
+                                                            range: 3..4,
+                                                            value: Name(
+                                                                ExprName {
+                                                                    node_index: NodeIndex(None),
+                                                                    range: 3..3,
+                                                                    id: Name(""),
+                                                                    ctx: Invalid,
+                                                                },
+                                                            ),
+                                                            attr: Identifier {
+                                                                id: Name(""),
+                                                                range: 4..4,
+                                                                node_index: NodeIndex(None),
+                                                            },
+                                                            ctx: Load,
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                        ],
+                                        flags: FStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_joined_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 7..15,
+                    value: FString(
+                        ExprFString {
+                            node_index: NodeIndex(None),
+                            range: 7..15,
+                            value: FStringValue {
+                                inner: Single(
+                                    FString {
+                                        range: 7..15,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 9..14,
+                                                    node_index: NodeIndex(None),
+                                                    expression: BinOp(
+                                                        ExprBinOp {
+                                                            node_index: NodeIndex(None),
+                                                            range: 10..13,
+                                                            left: Name(
+                                                                ExprName {
+                                                                    node_index: NodeIndex(None),
+                                                                    range: 10..10,
+                                                                    id: Name(""),
+                                                                    ctx: Invalid,
+                                                                },
+                                                            ),
+                                                            op: Pow,
+                                                            right: Name(
+                                                                ExprName {
+                                                                    node_index: NodeIndex(None),
+                                                                    range: 12..13,
+                                                                    id: Name("x"),
+                                                                    ctx: Load,
+                                                                },
+                                                            ),
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                        ],
+                                        flags: FStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_joined_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 16..23,
+                    value: FString(
+                        ExprFString {
+                            node_index: NodeIndex(None),
+                            range: 16..23,
+                            value: FStringValue {
+                                inner: Single(
+                                    FString {
+                                        range: 16..23,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 18..20,
+                                                    node_index: NodeIndex(None),
+                                                    expression: UnaryOp(
+                                                        ExprUnaryOp {
+                                                            node_index: NodeIndex(None),
+                                                            range: 19..20,
+                                                            op: UAdd,
+                                                            operand: Name(
+                                                                ExprName {
+                                                                    node_index: NodeIndex(None),
+                                                                    range: 20..20,
+                                                                    id: Name(""),
+                                                                    ctx: Invalid,
+                                                                },
+                                                            ),
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                        ],
+                                        flags: FStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_joined_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 24..35,
+                    value: TString(
+                        ExprTString {
+                            node_index: NodeIndex(None),
+                            range: 24..35,
+                            value: TStringValue {
+                                inner: Single(
+                                    TString {
+                                        range: 24..35,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 26..34,
+                                                    node_index: NodeIndex(None),
+                                                    expression: Name(
+                                                        ExprName {
+                                                            node_index: NodeIndex(None),
+                                                            range: 27..28,
+                                                            id: Name("x"),
+                                                            ctx: Load,
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: Some(
+                                                        InterpolatedStringFormatSpec {
+                                                            range: 29..33,
+                                                            node_index: NodeIndex(None),
+                                                            elements: [
+                                                                Interpolation(
+                                                                    InterpolatedElement {
+                                                                        range: 29..33,
+                                                                        node_index: NodeIndex(None),
+                                                                        expression: BinOp(
+                                                                            ExprBinOp {
+                                                                                node_index: NodeIndex(None),
+                                                                                range: 30..32,
+                                                                                left: Name(
+                                                                                    ExprName {
+                                                                                        node_index: NodeIndex(None),
+                                                                                        range: 30..30,
+                                                                                        id: Name(""),
+                                                                                        ctx: Invalid,
+                                                                                    },
+                                                                                ),
+                                                                                op: Div,
+                                                                                right: NumberLiteral(
+                                                                                    ExprNumberLiteral {
+                                                                                        node_index: NodeIndex(None),
+                                                                                        range: 31..32,
+                                                                                        value: Int(
+                                                                                            5,
+                                                                                        ),
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        ),
+                                                                        debug_text: None,
+                                                                        conversion: None,
+                                                                        format_spec: None,
+                                                                        runtime_str: None,
+                                                                        runtime_interpolation_format_spec: None,
+                                                                        runtime_formatted_value_format_spec: None,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                        },
+                                                    ),
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                        ],
+                                        flags: TStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_template_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | f"{.}"
+  |    ^ Syntax Error: f-string: expecting a valid expression after '{'
+2 | f"{**x}"
+3 | f"{+;}"
+  |
+
+
+  |
+1 | f"{.}"
+  |    ^ Syntax Error: invalid syntax
+2 | f"{**x}"
+3 | f"{+;}"
+  |
+
+
+  |
+1 | f"{.}"
+  |     ^ Syntax Error: invalid syntax
+2 | f"{**x}"
+3 | f"{+;}"
+  |
+
+
+  |
+1 | f"{.}"
+2 | f"{**x}"
+  |    ^^ Syntax Error: f-string: expecting a valid expression after '{'
+3 | f"{+;}"
+4 | t"{x:{/5}}"
+  |
+
+
+  |
+1 | f"{.}"
+2 | f"{**x}"
+  |    ^^ Syntax Error: invalid syntax
+3 | f"{+;}"
+4 | t"{x:{/5}}"
+  |
+
+
+  |
+1 | f"{.}"
+2 | f"{**x}"
+3 | f"{+;}"
+  |    ^ Syntax Error: f-string: expecting a valid expression after '{'
+4 | t"{x:{/5}}"
+  |
+
+
+  |
+1 | f"{.}"
+2 | f"{**x}"
+3 | f"{+;}"
+  |     ^ Syntax Error: invalid syntax
+4 | t"{x:{/5}}"
+  |
+
+
+  |
+1 | f"{.}"
+2 | f"{**x}"
+3 | f"{+;}"
+  |      ^ Syntax Error: expected an element of or the end of the f-string
+4 | t"{x:{/5}}"
+  |
+
+
+  |
+2 | f"{**x}"
+3 | f"{+;}"
+4 | t"{x:{/5}}"
+  |       ^ Syntax Error: t-string: expecting a valid expression after '{'
+
+
+  |
+2 | f"{**x}"
+3 | f"{+;}"
+4 | t"{x:{/5}}"
+  |       ^ Syntax Error: invalid syntax

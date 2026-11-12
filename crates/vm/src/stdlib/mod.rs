@@ -5,7 +5,7 @@ mod _codecs;
 mod _collections;
 pub(crate) use _collections::ordered_dict::ordered_dict::PyOrderedDict;
 mod _functools;
-mod _imp;
+pub(crate) mod _imp;
 pub mod _io;
 mod _lsprof;
 mod _operator;
@@ -16,6 +16,8 @@ mod _string;
 mod _symtable;
 mod _sysconfig;
 mod _sysconfigdata;
+#[cfg(all(feature = "capi", feature = "host_env"))]
+mod _testcapi;
 pub(crate) mod _testinternalcapi;
 mod _types;
 pub mod _typing;
@@ -100,6 +102,14 @@ pub(crate) fn is_borrowed_ctypes_buffer(_obj: &crate::PyObject) -> bool {
         return true;
     }
     false
+}
+
+// Register this only from an executable or embedding library that actually
+// links the C API. Cargo feature unification alone does not establish that.
+#[cfg(all(feature = "capi", feature = "host_env"))]
+#[must_use]
+pub fn capi_test_module_def(ctx: &Context) -> &'static PyModuleDef {
+    _testcapi::module_def(ctx)
 }
 
 /// Returns module definitions for multi-phase init modules.

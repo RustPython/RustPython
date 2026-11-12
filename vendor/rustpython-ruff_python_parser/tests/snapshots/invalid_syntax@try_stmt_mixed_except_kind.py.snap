@@ -1,0 +1,297 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/try_stmt_mixed_except_kind.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..242,
+        body: [
+            Try(
+                StmtTry {
+                    node_index: NodeIndex(None),
+                    range: 0..63,
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 9..13,
+                            },
+                        ),
+                    ],
+                    handlers: [
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 14..30,
+                                node_index: NodeIndex(None),
+                                type_: None,
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 26..30,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 31..63,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 39..53,
+                                            id: Name("ExceptionGroup"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 59..63,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    finalbody: [],
+                    is_star: false,
+                    runtime_body: None,
+                    runtime_handlers: None,
+                    runtime_orelse: None,
+                    runtime_finalbody: None,
+                },
+            ),
+            Try(
+                StmtTry {
+                    node_index: NodeIndex(None),
+                    range: 64..127,
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 73..77,
+                            },
+                        ),
+                    ],
+                    handlers: [
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 78..110,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 86..100,
+                                            id: Name("ExceptionGroup"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 106..110,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 111..127,
+                                node_index: NodeIndex(None),
+                                type_: None,
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 123..127,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    finalbody: [],
+                    is_star: true,
+                    runtime_body: None,
+                    runtime_handlers: None,
+                    runtime_orelse: None,
+                    runtime_finalbody: None,
+                },
+            ),
+            Try(
+                StmtTry {
+                    node_index: NodeIndex(None),
+                    range: 128..241,
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 137..141,
+                            },
+                        ),
+                    ],
+                    handlers: [
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 142..158,
+                                node_index: NodeIndex(None),
+                                type_: None,
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 154..158,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 159..175,
+                                node_index: NodeIndex(None),
+                                type_: None,
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 171..175,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 176..208,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 184..198,
+                                            id: Name("ExceptionGroup"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 204..208,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                        ExceptHandler(
+                            ExceptHandlerExceptHandler {
+                                range: 209..241,
+                                node_index: NodeIndex(None),
+                                type_: Some(
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 217..231,
+                                            id: Name("ExceptionGroup"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ),
+                                name: None,
+                                body: [
+                                    Pass(
+                                        StmtPass {
+                                            node_index: NodeIndex(None),
+                                            range: 237..241,
+                                        },
+                                    ),
+                                ],
+                                runtime_body: None,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    finalbody: [],
+                    is_star: false,
+                    runtime_body: None,
+                    runtime_handlers: None,
+                    runtime_orelse: None,
+                    runtime_finalbody: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+3 | except:
+4 |     pass
+5 | except* ExceptionGroup:
+  | ^^^^^^^ Syntax Error: cannot have both 'except' and 'except*' on the same 'try'
+6 |     pass
+7 | try:
+  |
+
+
+   |
+ 9 | except* ExceptionGroup:
+10 |     pass
+11 | except:
+   | ^^^^^^ Syntax Error: cannot have both 'except' and 'except*' on the same 'try'
+12 |     pass
+13 | try:
+   |
+
+
+   |
+17 | except:
+18 |     pass
+19 | except* ExceptionGroup:
+   | ^^^^^^^ Syntax Error: cannot have both 'except' and 'except*' on the same 'try'
+20 |     pass
+21 | except* ExceptionGroup:
+   |
+
+
+   |
+19 | except* ExceptionGroup:
+20 |     pass
+21 | except* ExceptionGroup:
+   | ^^^^^^^ Syntax Error: cannot have both 'except' and 'except*' on the same 'try'
+22 |     pass
+   |

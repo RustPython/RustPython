@@ -1,0 +1,152 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/expressions/emoji_identifiers.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..64,
+        body: [
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 0..1,
+                                id: Name("a"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 5..5,
+                            id: Name(""),
+                            ctx: Invalid,
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 32..37,
+                    targets: [
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 32..33,
+                                id: Name("a"),
+                                ctx: Store,
+                            },
+                        ),
+                    ],
+                    value: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 37..37,
+                            id: Name(""),
+                            ctx: Invalid,
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 42..43,
+                    value: UnaryOp(
+                        ExprUnaryOp {
+                            node_index: NodeIndex(None),
+                            range: 42..43,
+                            op: UAdd,
+                            operand: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 43..43,
+                                    id: Name(""),
+                                    ctx: Invalid,
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | a = (🐶
+  |      ^^ Syntax Error: invalid character '🐶' (U+1F436)
+2 |     # comment 🐶
+3 | )
+  |
+
+
+  |
+1 | a = (🐶
+2 |     # comment 🐶
+3 | )
+  | ^ Syntax Error: invalid syntax
+4 |
+5 | a = (🐶 +
+  |
+
+
+  |
+1 | a = (🐶
+2 |     # comment 🐶
+3 | )
+  |  ^ Syntax Error: invalid syntax
+4 |
+5 | a = (🐶 +
+6 |     # comment
+  |
+
+
+  |
+3 | )
+4 |
+5 | a = (🐶 +
+  |      ^^ Syntax Error: invalid character '🐶' (U+1F436)
+6 |     # comment
+7 | 🐶)
+  |
+
+
+  |
+5 | a = (🐶 +
+6 |     # comment
+7 | 🐶)
+  | ^^ Syntax Error: invalid character '🐶' (U+1F436)
+
+
+  |
+5 | a = (🐶 +
+6 |     # comment
+7 | 🐶)
+  |   ^ Syntax Error: invalid syntax
+
+
+  |
+5 | a = (🐶 +
+6 |     # comment
+7 | 🐶)
+  |    ^ Syntax Error: invalid syntax
