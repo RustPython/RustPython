@@ -11,16 +11,6 @@ pub extern "C" fn alloc_source(len: usize) -> *mut u8 {
     Box::into_raw(vec![0u8; len].into_boxed_slice()).cast::<u8>()
 }
 
-/// Release a source buffer allocated by alloc_source.
-///
-/// # Safety
-/// The pointer and length must match a live allocation returned by alloc_source,
-/// and the buffer must not be in use by eval.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_source(ptr: *mut u8, len: usize) {
-    unsafe { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len))) };
-}
-
 fn report(message: &str) {
     unsafe { print(message.as_ptr() as i32, message.len() as i32) };
 }
@@ -29,11 +19,12 @@ fn report(message: &str) {
 /// or 2 for invalid UTF-8. The result or exception is sent to env.print.
 ///
 /// # Safety
-/// The source must point to a live alloc_source buffer containing len bytes.
+/// `source` must be the pointer returned by `alloc_source` for `len` bytes.
+/// This function takes ownership of that buffer and frees it.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn eval(source: *const u8, len: usize) -> i32 {
-    let source = unsafe { std::slice::from_raw_parts(source, len) };
-    let Ok(source) = std::str::from_utf8(source) else {
+pub unsafe extern "C" fn eval(source: *mut u8, len: usize) -> i32 {
+    let bytes = unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(source, len)) };
+    let Ok(source) = std::str::from_utf8(&bytes) else {
         report("source is not valid UTF-8");
         return 2;
     };
