@@ -19,6 +19,9 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
+pub const UNICODE_VERSION: &str = env!("UNICODE_VERSION");
+pub const UNICODE_VERSION_LEGACY: &str = "3.2.0";
+
 // Latest Unicode
 include!(concat!(env!("OUT_DIR"), "/generated/blocks.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
@@ -235,20 +238,6 @@ pub fn membership_3_2(ch: u32) -> bool {
             }
         })
         .is_ok()
-}
-
-/// The version string of the latest Unicode database bundled with the standard
-/// library (`unicodedata.unidata_version`).
-#[must_use]
-pub fn unicode_version() -> String {
-    // Report the vendored database version, not the compiler's Unicode version.
-    include_str!("../unicode/latest/NameAliases.txt")
-        .lines()
-        .next()
-        .and_then(|header| header.strip_prefix("# NameAliases-"))
-        .and_then(|header| header.strip_suffix(".txt"))
-        .expect("vendored NameAliases.txt must start with its Unicode version")
-        .into()
 }
 
 /// Look up a name in the latest UCD (`unicodedata.lookup`).
@@ -540,9 +529,9 @@ impl Ucd {
     #[must_use]
     pub fn unidata_version(&self) -> String {
         if self.modern {
-            unicode_version()
+            UNICODE_VERSION.into()
         } else {
-            "3.2.0".into()
+            UNICODE_VERSION_LEGACY.into()
         }
     }
 }
@@ -559,7 +548,7 @@ mod tests {
 
     #[test]
     fn version_matches_vendored_database() {
-        assert_eq!(super::unicode_version(), "17.0.0");
+        assert_eq!(super::UNICODE_VERSION, "17.0.0");
         assert_eq!(Ucd::new(true).unidata_version(), "17.0.0");
     }
 
