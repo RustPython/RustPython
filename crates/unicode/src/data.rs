@@ -152,22 +152,22 @@ pub enum LookupResult {
     Sequence(&'static str),
 }
 
-fn fold_lookup_name(name: &str) -> String {
-    name.chars().map(|c| c.to_ascii_uppercase()).collect()
+fn cmp_caseless(a: &str, b: &str) -> Ordering {
+    a.bytes()
+        .map(|b| b.to_ascii_uppercase())
+        .cmp(b.bytes().map(|b| b.to_ascii_uppercase()))
 }
 
 fn lookup_alias(name: &str) -> Option<char> {
-    let key = fold_lookup_name(name);
     NAME_ALIASES
-        .binary_search_by_key(&key.as_str(), |(n, _)| *n)
+        .binary_search_by(|(a, _)| cmp_caseless(a, name))
         .ok()
         .map(|i| NAME_ALIASES[i].1)
 }
 
 fn lookup_named_sequence(name: &str) -> Option<&'static str> {
-    let key = fold_lookup_name(name);
     NAMED_SEQUENCES
-        .binary_search_by_key(&key.as_str(), |(n, _)| *n)
+        .binary_search_by(|(a, _)| cmp_caseless(a, name))
         .ok()
         .map(|i| NAMED_SEQUENCES[i].1)
 }
