@@ -960,6 +960,7 @@ impl CodeUnits {
     ///
     /// # Panics
     /// Panics if `index + 1` is out of bounds.
+    #[inline(always)]
     pub fn read_cache_u32(&self, index: usize) -> u32 {
         let lo = self.read_cache_u16(index) as u32;
         let hi = self.read_cache_u16(index + 1) as u32;
