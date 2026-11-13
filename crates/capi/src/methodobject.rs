@@ -440,58 +440,107 @@ mod tests {
     }
     #[test]
     fn native_methods_receive_self_separately_from_user_arguments() {
-        use pyo3::types::{PyDict, PyTuple, PyType};
+        use pyo3::ffi;
+        use pyo3::types::{PyDict, PyTuple};
 
-        #[pyclass(frozen)]
-        struct Receiver {
-            value: i64,
+        unsafe extern "C" fn receiver(slf: *mut PyObject, _args: *mut PyObject) -> *mut PyObject {
+            unsafe { ffi::Py_NewRef(slf) }
         }
-
-        #[pymethods]
-        impl Receiver {
-            fn noargs(&self) -> i64 {
-                self.value
+        unsafe extern "C" fn one(_slf: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
+            unsafe { ffi::Py_NewRef(arg) }
+        }
+        unsafe extern "C" fn variadic(
+            slf: *mut PyObject,
+            args: *mut PyObject,
+            kwargs: *mut PyObject,
+        ) -> *mut PyObject {
+            unsafe {
+                let result = ffi::PyTuple_New(3);
+                if result.is_null() {
+                    return result;
+                }
+                let kwargs = if kwargs.is_null() {
+                    ffi::Py_None()
+                } else {
+                    kwargs
+                };
+                ffi::PyTuple_SetItem(result, 0, ffi::Py_NewRef(slf));
+                ffi::PyTuple_SetItem(result, 1, ffi::Py_NewRef(args));
+                ffi::PyTuple_SetItem(result, 2, ffi::Py_NewRef(kwargs));
+                result
             }
-
-            fn one(&self, value: i64) -> i64 {
-                self.value + value
-            }
-
-            #[pyo3(signature = (*args, **kwargs))]
-            fn variadic(
-                &self,
-                args: &Bound<'_, PyTuple>,
-                kwargs: Option<&Bound<'_, PyDict>>,
-            ) -> (i64, usize, usize) {
-                (
-                    self.value,
-                    args.len(),
-                    kwargs.map_or(0, |kwargs| kwargs.len()),
-                )
-            }
-
-            #[classmethod]
-            fn class_receiver(cls: &Bound<'_, PyType>) -> bool {
-                cls.is_subclass_of::<Self>().unwrap()
-            }
-
-            #[staticmethod]
-            fn static_noargs() -> i64 {
-                42
-            }
-
-            #[staticmethod]
-            fn explicit_type_argument(cls: &Bound<'_, PyType>) -> bool {
-                cls.is_subclass_of::<Self>().unwrap()
-            }
+        }
+        unsafe extern "C" fn static_noargs(
+            _slf: *mut PyObject,
+            _args: *mut PyObject,
+        ) -> *mut PyObject {
+            unsafe { PyLong_FromLong(42) }
         }
 
         Python::attach(|py| {
-            let obj = Bound::new(py, Receiver { value: 40 }).unwrap();
-            let class = obj.get_type();
+            let method = |name: &'static core::ffi::CStr, function, flags| ffi::PyMethodDef {
+                ml_name: name.as_ptr(),
+                ml_meth: ffi::PyMethodDefPointer {
+                    PyCFunction: function,
+                },
+                ml_flags: flags,
+                ml_doc: c"".as_ptr(),
+            };
+            let mut methods = [
+                method(c"noargs", receiver as ffi::PyCFunction, ffi::METH_NOARGS),
+                method(c"one", one as ffi::PyCFunction, ffi::METH_O),
+                ffi::PyMethodDef {
+                    ml_name: c"variadic".as_ptr(),
+                    ml_meth: ffi::PyMethodDefPointer {
+                        PyCFunctionWithKeywords: variadic,
+                    },
+                    ml_flags: ffi::METH_VARARGS | ffi::METH_KEYWORDS,
+                    ml_doc: c"".as_ptr(),
+                },
+                method(
+                    c"class_receiver",
+                    receiver as ffi::PyCFunction,
+                    ffi::METH_CLASS | ffi::METH_NOARGS,
+                ),
+                method(
+                    c"static_noargs",
+                    static_noargs as ffi::PyCFunction,
+                    ffi::METH_STATIC | ffi::METH_NOARGS,
+                ),
+                method(
+                    c"explicit_type_argument",
+                    one as ffi::PyCFunction,
+                    ffi::METH_STATIC | ffi::METH_O,
+                ),
+                ffi::PyMethodDef::zeroed(),
+            ];
+            // This boundary does not need a Rust payload. Use a zero-sized C
+            // type spec instead of PyO3's currently unsupported payload layout.
+            let mut slots = [
+                ffi::PyType_Slot {
+                    slot: ffi::Py_tp_methods,
+                    pfunc: methods.as_mut_ptr().cast(),
+                },
+                ffi::PyType_Slot {
+                    slot: 0,
+                    pfunc: core::ptr::null_mut(),
+                },
+            ];
+            let mut spec = ffi::PyType_Spec {
+                name: c"test.Receiver".as_ptr(),
+                basicsize: 0,
+                itemsize: 0,
+                flags: ffi::Py_TPFLAGS_DEFAULT as _,
+                slots: slots.as_mut_ptr(),
+            };
+            let class = unsafe {
+                Bound::<PyAny>::from_owned_ptr_or_err(py, ffi::PyType_FromSpec(&mut spec))
+            }
+            .unwrap();
+            let obj = class.call0().unwrap();
             let bound = obj.getattr("one").unwrap();
             assert!(bound.getattr("__self__").unwrap().is(&obj));
-            assert_eq!(bound.call1((2,)).unwrap().extract::<i64>().unwrap(), 42);
+            assert_eq!(bound.call1((2,)).unwrap().extract::<i64>().unwrap(), 2);
             assert_eq!(
                 class
                     .getattr("one")
@@ -500,34 +549,42 @@ mod tests {
                     .unwrap()
                     .extract::<i64>()
                     .unwrap(),
-                42
+                2
             );
             assert!(bound.call0().is_err());
             assert!(bound.call1((1, 2)).is_err());
             assert!(class.getattr("one").unwrap().call0().is_err());
             assert!(class.getattr("one").unwrap().call1((1, 2)).is_err());
+            assert!(obj.call_method0("noargs").unwrap().is(&obj));
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("named", 3).unwrap();
+            let result = obj.call_method("variadic", (1, 2), Some(&kwargs)).unwrap();
+            let result = result.cast::<PyTuple>().unwrap();
+            assert!(result.get_item(0).unwrap().is(&obj));
             assert_eq!(
-                obj.call_method0("noargs")
+                result.get_item(1).unwrap().extract::<(i64, i64)>().unwrap(),
+                (1, 2)
+            );
+            assert_eq!(
+                result
+                    .get_item(2)
+                    .unwrap()
+                    .get_item("named")
                     .unwrap()
                     .extract::<i64>()
                     .unwrap(),
-                40
+                3
             );
-            let kwargs = PyDict::new(py);
-            kwargs.set_item("named", 3).unwrap();
-            assert_eq!(
-                obj.call_method("variadic", (1, 2), Some(&kwargs))
-                    .unwrap()
-                    .extract::<(i64, usize, usize)>()
-                    .unwrap(),
-                (40, 2, 1)
-            );
+            let without_keywords = obj.call_method1("variadic", (1, 2)).unwrap();
             assert!(
-                obj.call_method0("class_receiver")
+                without_keywords
+                    .cast::<PyTuple>()
                     .unwrap()
-                    .extract::<bool>()
+                    .get_item(2)
                     .unwrap()
+                    .is_none()
             );
+            assert!(obj.call_method0("class_receiver").unwrap().is(&class));
             assert_eq!(
                 class
                     .call_method0("static_noargs")
@@ -560,29 +617,12 @@ mod tests {
                 .setattr("__module__", "changed_after_registration")
                 .unwrap();
             assert!(static_function.getattr("__module__").unwrap().is(&module));
-            assert!(
-                static_function
-                    .call1((&class,))
-                    .unwrap()
-                    .extract::<bool>()
-                    .unwrap()
-            );
-            assert!(
-                class
-                    .getattr("__dict__")
-                    .unwrap()
-                    .get_item("explicit_type_argument")
-                    .unwrap()
-                    .call1((&class,))
-                    .unwrap()
-                    .extract::<bool>()
-                    .unwrap()
-            );
+            assert!(static_function.call1((&class,)).unwrap().is(&class));
+            assert!(wrapper.call1((&class,)).unwrap().is(&class));
             assert!(
                 obj.call_method1("explicit_type_argument", (&class,))
                     .unwrap()
-                    .extract::<bool>()
-                    .unwrap()
+                    .is(&class)
             );
             assert!(obj.call_method0("explicit_type_argument").is_err());
         });
