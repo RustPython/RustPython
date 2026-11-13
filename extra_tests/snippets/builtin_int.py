@@ -414,10 +414,10 @@ try:
         if max_digits == 4300:
             assert len(str(2**14284)) == 4300
 
-        too_many = 10**max_digits
-        for formatter in (str, repr, lambda n: format(n, "d"), lambda n: "%d" % n):
-            with assert_raises(ValueError):
-                formatter(too_many)
+        for too_many in (10**max_digits, -(10**max_digits)):
+            for formatter in (str, repr, lambda n: format(n, "d"), lambda n: "%d" % n):
+                with assert_raises(ValueError):
+                    formatter(too_many)
 
     sys.set_int_max_str_digits(0)
     assert str(huge)
