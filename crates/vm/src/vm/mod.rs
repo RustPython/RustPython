@@ -2616,8 +2616,7 @@ impl VirtualMachine {
         for (key, value) in items {
             let name = key
                 .downcast_ref::<PyUtf8Str>()
-                .map(|s| s.as_str().to_owned())
-                .unwrap_or_default();
+                .map_or_default(|s| s.as_str().to_owned());
 
             // Save weakref to module (for later dict clearing)
             if value.downcast_ref::<PyModule>().is_some()

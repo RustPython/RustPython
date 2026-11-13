@@ -874,8 +874,7 @@ pub fn read_array_element(
         Some("u") => {
             let value = wchar_from_bytes(rest)
                 .and_then(char::from_u32)
-                .map(|c| c.to_string())
-                .unwrap_or_default();
+                .map_or_default(|c| c.to_string());
             DecodedValue::String(value)
         }
         Some("z") => {

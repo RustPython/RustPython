@@ -96,10 +96,22 @@ pub(crate) fn is_borrowed_ctypes_buffer(_obj: &crate::PyObject) -> bool {
         ),
         not(any(target_env = "musl", target_env = "sgx"))
     ))]
-    if _ctypes::is_borrowed_buffer(_obj) {
-        return true;
+    {
+        _ctypes::is_borrowed_buffer(_obj)
     }
-    false
+    #[cfg(not(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    )))]
+    {
+        false
+    }
 }
 
 /// Returns module definitions for multi-phase init modules.

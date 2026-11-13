@@ -184,13 +184,11 @@ unsafe fn call_function<A: Into<FuncArgs>>(
 
     let slf_ptr = slf
         .as_ref()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .unwrap_or_default();
+        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
 
     let arg_ptr = arg_tuple
         .as_ref()
-        .map(|tuple| tuple.as_object().as_raw().cast_mut())
-        .unwrap_or_default();
+        .map_or_default(|tuple| tuple.as_object().as_raw().cast_mut());
 
     unsafe { f(slf_ptr, arg_ptr).assume_owned_or_err(vm) }
 }
@@ -205,8 +203,7 @@ unsafe fn call_function_with_keywords(
     let slf = take_self_arg(&mut args, has_self);
     let slf_ptr = slf
         .as_ref()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .unwrap_or_default();
+        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
     let (arg_tuple, kwargs) = split_args(vm, args)?;
     unsafe {
         f(
@@ -228,8 +225,7 @@ unsafe fn call_fast_function_with_keywords(
     let slf = take_self_arg(&mut args, has_self);
     let slf_ptr = slf
         .as_ref()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .unwrap_or_default();
+        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
     let nargs = args.args.len();
     let mut fastcall_args = args.args;
     let kwnames_tuple = if !args.kwargs.is_empty() {
@@ -244,8 +240,7 @@ unsafe fn call_fast_function_with_keywords(
     };
     let kwnames_ptr = kwnames_tuple
         .as_ref()
-        .map(|tuple| tuple.as_object().as_raw().cast_mut())
-        .unwrap_or_default();
+        .map_or_default(|tuple| tuple.as_object().as_raw().cast_mut());
     // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
@@ -264,8 +259,7 @@ unsafe fn call_fast_function(
     let slf = take_self_arg(&mut args, has_self);
     let slf_ptr = slf
         .as_ref()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .unwrap_or_default();
+        .map_or_default(|obj| obj.as_object().as_raw().cast_mut());
     // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.

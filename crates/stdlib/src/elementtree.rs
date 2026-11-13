@@ -2217,8 +2217,7 @@ pub(crate) mod _elementtree {
             let info: Vec<PyObjectRef> = expat.get_attr("version_info", vm)?.try_to_value(vm)?;
             let part = |i: usize| -> String {
                 info.get(i)
-                    .map(|o| o.str(vm).map(|s| s.to_string()).unwrap_or_default())
-                    .unwrap_or_default()
+                    .map_or_default(|o| o.str(vm).map_or_default(|s| s.to_string()))
             };
             Ok(format!("Expat {}.{}.{}", part(0), part(1), part(2)))
         }
@@ -2310,8 +2309,7 @@ pub(crate) mod _elementtree {
             let tag = zelf.make_universal(tag, vm)?;
             let items = attr_list
                 .downcast_ref::<PyList>()
-                .map(|l| l.borrow_vec().to_vec())
-                .unwrap_or_default();
+                .map_or_default(|l| l.borrow_vec().to_vec());
             let attrib = if items.is_empty() {
                 None
             } else {

@@ -813,8 +813,7 @@ fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyS
         {
             let parent_repr = parent
                 .repr_utf8(vm)
-                .map(|s| s.as_str().to_owned())
-                .unwrap_or_default();
+                .map_or_default(|s| s.as_str().to_owned());
             let msg = format!(
                 "__package__ != __spec__.parent ('{}' != {})",
                 pkg_str.as_wtf8(),

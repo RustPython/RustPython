@@ -2112,7 +2112,7 @@ mod _errors {
         for (index, &(name, message)) in ERRORS.iter().enumerate() {
             let code = vm.ctx.new_int(index + 1);
             module.set_attr(name, vm.ctx.new_str(message), vm)?;
-            codes.set_item(message, code.clone().into(), vm)?;
+            codes.set_item(message, code.into(), vm)?;
             messages.set_item(&(index + 1), vm.ctx.new_str(message).into(), vm)?;
         }
         extend_module!(vm, module, {

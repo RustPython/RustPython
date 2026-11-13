@@ -102,8 +102,7 @@ define_py_check!(fn PyExceptionInstance_Check, exceptions.base_exception_type);
 pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
     with_vm(|vm| {
         vm.raised_exception()
-            .map(|exc| exc.class().as_object().as_raw())
-            .unwrap_or_default()
+            .map_or_default(|exc| exc.class().as_object().as_raw())
     })
 }
 
@@ -111,8 +110,7 @@ pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
     with_vm(|vm| {
         vm.take_raised_exception()
-            .map(|exc| exc.into_object().into_raw().as_ptr())
-            .unwrap_or_default()
+            .map_or_default(|exc| exc.into_object().into_raw().as_ptr())
     })
 }
 
@@ -268,8 +266,7 @@ pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut Py
         let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
         let tb = exc
             .traceback()
-            .map(|tb| tb.into_object().into_raw().as_ptr())
-            .unwrap_or_default();
+            .map_or_default(|tb| tb.into_object().into_raw().as_ptr());
         Ok(tb)
     })
 }
@@ -280,8 +277,7 @@ pub unsafe extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObje
         let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
         let cause = exc
             .__cause__()
-            .map(|cause| cause.into_object().into_raw().as_ptr())
-            .unwrap_or_default();
+            .map_or_default(|cause| cause.into_object().into_raw().as_ptr());
         Ok(cause)
     })
 }
@@ -292,8 +288,7 @@ pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyOb
         let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
         let context = exc
             .__context__()
-            .map(|context| context.into_object().into_raw().as_ptr())
-            .unwrap_or_default();
+            .map_or_default(|context| context.into_object().into_raw().as_ptr());
         Ok(context)
     })
 }

@@ -975,16 +975,14 @@ impl Constructor for PyCFuncPtr {
         // Check if first argument is a Python callable (callback creation)
         if first_arg.is_callable() {
             // Get argument types and result type from the class
-            let (class_argtypes, class_restype, class_checker) = cls
-                .stg_info_opt()
-                .map(|info| {
+            let (class_argtypes, class_restype, class_checker) =
+                cls.stg_info_opt().map_or_default(|info| {
                     (
                         info.argtypes.clone(),
                         info.restype.clone(),
                         info.checker.clone(),
                     )
-                })
-                .unwrap_or_default();
+                });
             if class_argtypes.is_none() {
                 return Err(
                     vm.new_type_error("cannot construct instance of this class: no argtypes")
