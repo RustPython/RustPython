@@ -2,7 +2,7 @@
    See also: https://docs.python.org/3/library/unicodedata.html
 */
 
-// spell-checker:ignore nfkc unistr unidata
+// spell-checker:ignore nfkc unistr unidata ucnhash
 
 pub(crate) use unicodedata::module_def;
 
@@ -504,6 +504,12 @@ mod unicodedata {
     #[pyattr]
     fn ucd_3_2_0(vm: &VirtualMachine) -> crate::vm::PyRef<Ucd> {
         Ucd::new(false).into_ref(&vm.ctx)
+    }
+
+    #[pyattr]
+    #[allow(non_snake_case)]
+    fn _ucnhash_CAPI(vm: &VirtualMachine) -> crate::vm::PyRef<crate::vm::builtins::PyCapsule> {
+        vm.new_unicode_name_capsule()
     }
 
     #[pyattr]

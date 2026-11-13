@@ -7,7 +7,7 @@ use rustpython_common::{
     ascii,
     borrow::BorrowedValue,
     encodings::{
-        CodecContext, DecodeContext, DecodeErrorHandler, EncodeContext, EncodeErrorHandler,
+        self, CodecContext, DecodeContext, DecodeErrorHandler, EncodeContext, EncodeErrorHandler,
         EncodeReplace, StrBuffer, StrSize, errors,
     },
     lock::{OnceCell, PyRwLock},
@@ -1211,6 +1211,17 @@ impl CodecContext for PyDecodeContext<'_> {
     fn bytes(&self, b: Vec<u8>) -> Self::BytesBuf {
         self.vm.ctx.new_bytes(b)
     }
+    fn unicode_names(&self) -> PyResult<&dyn encodings::UnicodeNames> {
+        self.vm
+            .unicode_names()
+            .map(|names| names as &dyn encodings::UnicodeNames)
+            .map_err(|_| {
+                self.vm.new_exception_msg(
+                    self.vm.ctx.exceptions.unicode_error.to_owned(),
+                    "\\N escapes not supported (can't load unicodedata module)".into(),
+                )
+            })
+    }
 }
 
 impl DecodeContext for PyDecodeContext<'_> {
@@ -1730,7 +1741,8 @@ fn backslashreplace_errors(
 
 fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_err(&err, vm) {
-        call_native_encode_error(errors::NameReplace, err, vm)
+        let names = vm.unicode_names()?;
+        call_native_encode_error(errors::NameReplace(names), err, vm)
     } else {
         Err(bad_err_type(&err, vm))
     }

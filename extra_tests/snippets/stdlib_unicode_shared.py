@@ -124,3 +124,62 @@ assert chr(0xF0000).encode("ascii", "namereplace") == rb"\N{NULL}"
 assert chr(0xF0200).encode("ascii", "namereplace") == rb"\N{KEYCAP NUMBER SIGN}"
 assert unicodedata.name(chr(0xF0000), None) is None
 assert unicodedata.name(chr(0xF0200), None) is None
+
+# A fresh process is required because a successful native lookup caches the
+# provider for the interpreter, independently of subsequent module imports.
+import subprocess
+import sys
+
+subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        r"""
+import codecs
+import sys
+sys.modules['unicodedata'] = None
+try:
+    codecs.namereplace_errors(ValueError())
+except TypeError:
+    pass
+else:
+    raise AssertionError('exception type must be checked before import')
+decoder = codecs.getincrementaldecoder('unicode_escape')('ignore')
+try:
+    decoder.decode(br'\N', final=False)
+except UnicodeError as exc:
+    assert str(exc) == "\\N escapes not supported (can't load unicodedata module)"
+else:
+    raise AssertionError('incomplete named escape must acquire the provider')
+for data in (br'\N', br'\N{INVALID}', br'\N{LATIN CAPITAL LETTER A}'):
+    try:
+        data.decode('unicode_escape', 'ignore')
+    except UnicodeError as exc:
+        assert str(exc) == "\\N escapes not supported (can't load unicodedata module)", str(exc)
+    else:
+        raise AssertionError('the import failure must precede name validation')
+try:
+    codecs.namereplace_errors(UnicodeEncodeError('ascii', '', 0, 0, 'reason'))
+except ImportError as exc:
+    assert str(exc) == 'PyCapsule_Import could not import module "unicodedata"'
+else:
+    raise AssertionError('even an empty namereplace range acquires the provider')
+import types
+sys.modules['unicodedata'] = types.SimpleNamespace(_ucnhash_CAPI=42)
+try:
+    codecs.namereplace_errors(UnicodeEncodeError('ascii', '', 0, 0, 'reason'))
+except AttributeError as exc:
+    assert str(exc) == 'PyCapsule_Import "unicodedata._ucnhash_CAPI" is not valid'
+else:
+    raise AssertionError('an invalid provider must not be cached')
+del sys.modules['unicodedata']
+assert br'\N{LATIN CAPITAL LETTER A}'.decode('unicode_escape') == 'A'
+assert 'unicodedata' in sys.modules
+# A cached provider is shared with namereplace and remains valid after unload.
+del sys.modules['unicodedata']
+assert chr(0x2603).encode('ascii', 'namereplace') == br'\N{SNOWMAN}'
+assert 'unicodedata' not in sys.modules
+""",
+    ],
+    check=True,
+)

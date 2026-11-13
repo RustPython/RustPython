@@ -26,7 +26,15 @@ impl PyPayload for PyCapsule {
 
 #[pyclass(with(Representable, Destructor), flags(DISALLOW_INSTANTIATION))]
 impl PyCapsule {
-    pub fn new(
+    /// Construct a capsule carrying a native protocol value.
+    ///
+    /// # Safety
+    /// `ptr`, `context` (initially null), and `destructor` must satisfy the
+    /// protocol identified by `name` or by the receiving API, including valid
+    /// pointed-to data, callback signatures, synchronization and required lifetimes.
+    /// This also applies to unnamed capsules. Consumers may retain imported
+    /// pointers beyond the capsule lifetime when their protocol permits it.
+    pub unsafe fn new(
         ptr: *mut c_void,
         name: Option<&'static CStr>,
         destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
@@ -43,7 +51,10 @@ impl PyCapsule {
         self.ptr.load(core::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn set_pointer(&self, pointer: *mut c_void) {
+    /// # Safety
+    /// The replacement must preserve the capsule protocol and destructor
+    /// invariants, including any previously exported pointer lifetimes.
+    pub unsafe fn set_pointer(&self, pointer: *mut c_void) {
         self.ptr
             .store(pointer, core::sync::atomic::Ordering::Relaxed);
     }
@@ -52,7 +63,10 @@ impl PyCapsule {
         self.context.load(core::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn set_context(&self, context: *mut c_void) {
+    /// # Safety
+    /// The context must preserve the capsule protocol and destructor invariants.
+    /// It can identify the pointee's type even for an unnamed capsule.
+    pub unsafe fn set_context(&self, context: *mut c_void) {
         self.context
             .store(context, core::sync::atomic::Ordering::Relaxed);
     }
