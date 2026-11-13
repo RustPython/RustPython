@@ -606,9 +606,7 @@ mod tests {
                 Some(receiver.as_object()),
                 FuncArgs::new(
                     vec![value],
-                    [("named", vm.ctx.none())]
-                        .into_iter()
-                        .collect::<super::super::KwArgs>(),
+                    core::iter::once(("named", vm.ctx.none())).collect::<super::super::KwArgs>(),
                 ),
                 Callee::named("borrowed"),
             )

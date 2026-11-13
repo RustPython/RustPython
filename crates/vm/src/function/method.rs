@@ -608,8 +608,7 @@ mod tests {
                         .call(
                             FuncArgs::new(
                                 vec![vm.ctx.none()],
-                                [("named", vm.ctx.none())]
-                                    .into_iter()
+                                core::iter::once(("named", vm.ctx.none()))
                                     .collect::<crate::function::KwArgs>(),
                             ),
                             vm,
