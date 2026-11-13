@@ -395,18 +395,8 @@ mod tests {
         use crate::{Py, PyRef, VirtualMachine, builtins::PyModule};
 
         #[pyfunction]
-        fn owned(module: PyRef<PyModule>) -> PyRef<PyModule> {
-            module
-        }
-
-        #[pyfunction]
         fn borrowed(module: &Py<PyModule>) -> PyRef<PyModule> {
             module.to_owned()
-        }
-
-        #[pyfunction]
-        fn owned_vm(module: PyRef<PyModule>, _vm: &VirtualMachine) -> PyRef<PyModule> {
-            module
         }
 
         #[pyfunction]
@@ -420,7 +410,7 @@ mod tests {
         }
 
         #[pyfunction]
-        fn target(_module: PyRef<PyModule>, target: PyRef<PyModule>) -> PyRef<PyModule> {
+        fn target(_module: &Py<PyModule>, target: PyRef<PyModule>) -> PyRef<PyModule> {
             target
         }
     }
@@ -431,7 +421,7 @@ mod tests {
             let definition = receiver_test::module_def(&vm.ctx);
             let module = definition.create_module(vm).unwrap();
             let other_module = definition.create_module(vm).unwrap();
-            for name in ["owned", "borrowed", "owned_vm", "borrowed_vm"] {
+            for name in ["borrowed", "borrowed_vm"] {
                 let function = module
                     .get_attr(name, vm)
                     .unwrap()

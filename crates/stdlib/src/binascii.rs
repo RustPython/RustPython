@@ -12,7 +12,7 @@ use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 mod decl {
     use super::{base_n, new_binascii_error};
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyBytesRef, PyDict, PyModule, PyStr, PyTypeRef},
         function::{ArgAsciiBuffer, ArgBytesLike, ArgIndex, ArgIntoBool, OptionalArg},
     };
@@ -239,7 +239,7 @@ mod decl {
 
     #[pyfunction]
     fn a2b_base64(
-        module: PyRef<PyModule>,
+        module: &Py<PyModule>,
         args: A2bBase64Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -264,7 +264,7 @@ mod decl {
             const DEFAULT_TABLE: [u8; 256] =
                 binascii::base64_reverse_table(binascii::BASE64_ALPHABET);
             let table = match &alphabet {
-                OptionalArg::Present(value) => reverse_table(&module, value, 64, Some(b'='), vm)?,
+                OptionalArg::Present(value) => reverse_table(module, value, 64, Some(b'='), vm)?,
                 OptionalArg::Missing => DEFAULT_TABLE,
             };
             let mut ignored = [false; 256];
@@ -412,7 +412,7 @@ mod decl {
 
     #[pyfunction]
     fn a2b_base32(
-        module: PyRef<PyModule>,
+        module: &Py<PyModule>,
         args: A2bBase32Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -428,7 +428,7 @@ mod decl {
             // and reach ordered cleanup even when __bool__ raises.
             let canonical = canonical_argument(&canonical, vm)?;
             let table = match &alphabet {
-                OptionalArg::Present(value) => reverse_table(&module, value, 32, Some(b'='), vm)?,
+                OptionalArg::Present(value) => reverse_table(module, value, 32, Some(b'='), vm)?,
                 OptionalArg::Missing => base_n::reverse_table(base_n::BASE32, Some(b'=')),
             };
             let ignore = ignored_argument(&ignorechars);

@@ -794,8 +794,10 @@ enum SigPiece {
     Implicit(Type),
 }
 
-/// A leading module payload is injected by the module function adapter.
-/// This is syntax-based: Rust aliases cannot be resolved by a procedural macro.
+/// A leading `&Py<PyModule>` is injected by the module function adapter.
+/// A leading `PyRef<PyModule>` or `PyModuleRef` is rejected; later positions
+/// remain ordinary Python arguments. This is syntax-based: Rust aliases cannot
+/// be resolved by a procedural macro.
 pub(crate) fn has_module_receiver(sig: &Signature) -> Result<bool> {
     let Some(FnArg::Typed(arg)) = sig.inputs.first() else {
         return Ok(false);
@@ -813,7 +815,7 @@ pub(crate) fn has_module_receiver(sig: &Signature) -> Result<bool> {
     if segment.ident == "PyModuleRef" {
         return Err(syn::Error::new_spanned(
             &arg.ty,
-            "write the module receiver as PyRef<PyModule> or &Py<PyModule>, not PyModuleRef",
+            "the module receiver must be &Py<PyModule>",
         ));
     }
     if segment.ident != wrapper {
@@ -831,10 +833,10 @@ pub(crate) fn has_module_receiver(sig: &Signature) -> Result<bool> {
             .segments
             .last()
             .is_some_and(|segment| segment.ident == "PyModule");
-    if is_module && mutable {
+    if is_module && (mutable || wrapper == "PyRef") {
         return Err(syn::Error::new_spanned(
             &arg.ty,
-            "module receivers must be PyRef<PyModule> or an immutable &Py<PyModule>",
+            "the module receiver must be &Py<PyModule>",
         ));
     }
     Ok(is_module)
@@ -1068,6 +1070,8 @@ mod metadata_tests {
             parse_quote!(fn f(module: PyModuleRef)),
             parse_quote!(fn f(module: crate::PyModuleRef)),
             parse_quote!(fn f(module: &mut Py<PyModule>)),
+            parse_quote!(fn f(module: PyRef<PyModule>, value: u8)),
+            parse_quote!(fn f(module: crate::PyRef<crate::builtins::PyModule>)),
         ] {
             assert!(has_module_receiver(&signature).is_err());
         }
@@ -1076,9 +1080,8 @@ mod metadata_tests {
     #[test]
     fn module_receiver_is_a_leading_module_payload() {
         for signature in [
-            parse_quote!(fn f(module: PyRef<PyModule>, value: u8)),
             parse_quote!(fn f(module: &Py<PyModule>, value: u8)),
-            parse_quote!(fn f(module: crate::PyRef<crate::builtins::PyModule>)),
+            parse_quote!(fn f(module: &crate::Py<crate::builtins::PyModule>)),
         ] {
             assert!(has_module_receiver(&signature).unwrap());
         }
