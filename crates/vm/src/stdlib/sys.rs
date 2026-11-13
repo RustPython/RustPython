@@ -258,8 +258,7 @@ pub mod sys {
     fn vpath(vm: &VirtualMachine) -> String {
         crate::getpath::source_directory(&vm.state.config.paths)
             .and_then(|source| std::path::absolute(source).ok())
-            .map(|source| source.to_string_lossy().into_owned())
-            .unwrap_or_default()
+            .map_or_default(|source| source.to_string_lossy().into_owned())
     }
 
     #[cfg(windows)]
