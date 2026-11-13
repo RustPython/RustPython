@@ -1228,41 +1228,39 @@ impl PyType {
             }
             SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),
             SlotAccessor::TpGetattro => {
-                // __getattribute__ and __getattr__ both map to TpGetattro.
-                // If __getattr__ is defined anywhere in MRO, we must use the wrapper
-                // because the native slot won't call __getattr__.
-                let __getattr__ = identifier!(ctx, __getattr__);
-                let has_getattr = {
-                    // mro[0] is self, so skip it
-                    self.attributes.contains(__getattr__)
-                        || self
-                            .mro
-                            .read()
-                            .iter()
-                            .skip(1)
-                            .any(|cls| cls.attributes.contains(__getattr__))
+                // __getattribute__ and __getattr__ share the same slot, so both
+                // names must be resolved together: a Python-level definition of
+                // either one forces the dispatching wrapper, and the native
+                // slot is only usable when every resolved name agrees on it.
+                // __getattr__ has no native wrapper, so finding it anywhere in
+                // the MRO always selects the wrapper.
+                // This resolution reads the current attribute dicts, so it
+                // applies the same whether a name was just added or removed.
+                let extract = |sf: &SlotFunc| match sf {
+                    SlotFunc::GetAttro(f) => Some(*f),
+                    _ => None,
                 };
-
-                if has_getattr {
-                    // Must use wrapper to handle __getattr__
-                    self.slots.getattro.store(Some(getattro_wrapper));
-                } else {
-                    match self.lookup_slot_in_mro(identifier!(ctx, __getattribute__), ctx, |sf| {
-                        if let SlotFunc::GetAttro(f) = sf {
-                            Some(*f)
+                let getattribute =
+                    self.lookup_slot_in_mro(identifier!(ctx, __getattribute__), ctx, extract);
+                let getattr = self.lookup_slot_in_mro(identifier!(ctx, __getattr__), ctx, extract);
+                use SlotLookupResult::{NativeSlot, NotFound, PythonMethod};
+                match (getattribute, getattr) {
+                    (PythonMethod, _) | (_, PythonMethod) => {
+                        self.slots.getattro.store(Some(getattro_wrapper));
+                    }
+                    (NativeSlot(getattribute), NativeSlot(getattr)) => {
+                        let func = if fn_addr(getattribute) == fn_addr(getattr) {
+                            getattribute
                         } else {
-                            None
-                        }
-                    }) {
-                        SlotLookupResult::NativeSlot(func) => {
-                            self.slots.getattro.store(Some(func));
-                        }
-                        SlotLookupResult::PythonMethod => {
-                            self.slots.getattro.store(Some(getattro_wrapper));
-                        }
-                        SlotLookupResult::NotFound => {
-                            accessor.inherit_from_mro(self);
-                        }
+                            getattro_wrapper
+                        };
+                        self.slots.getattro.store(Some(func));
+                    }
+                    (NativeSlot(func), NotFound) | (NotFound, NativeSlot(func)) => {
+                        self.slots.getattro.store(Some(func));
+                    }
+                    (NotFound, NotFound) => {
+                        accessor.inherit_from_mro(self);
                     }
                 }
             }
