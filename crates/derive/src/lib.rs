@@ -402,12 +402,12 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// This is used to create a python function.
 /// #### Function signature
-/// A leading `PyRef<PyModule>` or `&Py<PyModule>` receives the defining module,
-/// outside the Python argument list. No attribute option is needed. Qualified
-/// paths are supported, but type aliases are not resolved; `PyModuleRef` is
-/// rejected explicitly. Use the canonical forms for module receivers. To accept
-/// a Python-visible module as the first argument, declare the defining-module
-/// receiver first and the target module second.
+/// A leading `&Py<PyModule>` receives the defining module, outside the Python
+/// argument list. No attribute option is needed. Qualified paths are supported,
+/// but type aliases are not resolved; a leading `PyRef<PyModule>` or
+/// `PyModuleRef` is rejected. Use the canonical form for module receivers. To
+/// accept a Python-visible module as the first argument, declare the
+/// defining-module receiver first and the target module second.
 ///
 /// The last argument can optionally be of the type `&VirtualMachine` to access the VM.
 /// Refer to the `pymethod` documentation (located in the `pyclass` macro documentation)
