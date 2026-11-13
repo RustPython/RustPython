@@ -852,14 +852,13 @@ pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> Py
     let digits_upper = bits.saturating_mul(30103) / 100_000 + 1;
     let limit_u64 = u64::try_from(limit).unwrap_or(u64::MAX);
     if digits_upper > limit_u64 {
-        // An estimate one digit over the limit may still represent a valid
-        // number. Comparing against 10**limit is cheaper than formatting
-        // the integer a second time just to count its decimal digits.
-        let over_limit = digits_upper > limit_u64.saturating_add(1)
-            || match u32::try_from(limit) {
-                Ok(exponent) => value.abs() >= BigInt::from(10).pow(exponent),
-                Err(_) => format!("{value}").len() - usize::from(value.is_negative()) > limit,
-            };
+        // The bit-count estimate can exceed the actual decimal length by
+        // more than one digit for very large values. Compare with the exact
+        // boundary instead of rejecting based on the estimate alone.
+        let over_limit = match u32::try_from(limit) {
+            Ok(exponent) => value.abs() >= BigInt::from(10).pow(exponent),
+            Err(_) => format!("{value}").len() - usize::from(value.is_negative()) > limit,
+        };
         if over_limit {
             return Err(vm.new_value_error(format!(
                 "Exceeds the limit ({limit} digits) for integer string conversion; \
