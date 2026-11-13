@@ -12868,7 +12868,7 @@ impl ExecutingFrame<'_> {
     /// # Safety
     /// The object must remain alive until the borrowed ref is consumed.
     /// The compiler guarantees consumption within the same basic block.
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     unsafe fn push_borrowed(&mut self, obj: &PyObject) {
         self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
