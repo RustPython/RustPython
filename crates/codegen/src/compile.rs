@@ -11117,13 +11117,15 @@ impl<'warnings> Compiler<'warnings> {
                 // Genexpr creation has already left the acquired iterator on the stack.
                 if comprehension_type != ComprehensionType::Generator {
                     emit!(self, Instruction::LoadFast { var_num: arg0 });
+                    // BUILD_LIST_FROM_ARG keeps the iterable on top, under which
+                    // GET_ITER pushes the iterator and its index slot.
+                    if use_build_list_from_arg {
+                        emit!(self, Instruction::BuildListFromArg);
+                    }
                     if generator.is_async {
                         emit!(self, Instruction::GetAiter);
                     } else {
                         emit!(self, Instruction::GetIter { mode: 0 });
-                    }
-                    if use_build_list_from_arg {
-                        emit!(self, Instruction::BuildListFromArg);
                     }
                 }
             } else {
@@ -18021,6 +18023,34 @@ def f(self):
         ] {
             assert_eq!(has(source, true), (false, true), "source={source:?}");
         }
+
+        // Non-inlined path: a type alias in a class body can see class scope,
+        // so the list comprehension is compiled as its own code object.
+        let code = compile_exec_with_options(
+            "\
+class C:
+    type A = [i for i in range(3)]
+",
+            CompileOpts {
+                build_list_from_arg: true,
+                ..CompileOpts::default()
+            },
+        );
+        let listcomp = find_code(&code, "<listcomp>").expect("missing non-inlined listcomp");
+        let build_idx = listcomp
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::BuildListFromArg))
+            .expect("missing BUILD_LIST_FROM_ARG");
+        let next = listcomp.instructions[build_idx + 1..]
+            .iter()
+            .find(|unit| !matches!(unit.op, Instruction::Cache))
+            .expect("missing instruction after BUILD_LIST_FROM_ARG");
+        assert!(
+            matches!(next.op, Instruction::GetIter { .. }),
+            "BUILD_LIST_FROM_ARG must precede GET_ITER, got instructions={:?}",
+            listcomp.instructions
+        );
     }
 
     #[test]
