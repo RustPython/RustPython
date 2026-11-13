@@ -850,7 +850,14 @@ pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> Py
     // 32-bit (wasm32) once bits ≳ 142_500, which silently accepts over-limit
     // conversions.
     let digits_upper = bits.saturating_mul(30103) / 100_000 + 1;
-    if digits_upper > u64::try_from(limit).unwrap_or(u64::MAX) {
+    let limit_u64 = u64::try_from(limit).unwrap_or(u64::MAX);
+    // The bit-count estimate may be one digit higher than the actual count.
+    // Only turn the boundary value into decimal text; reject larger values
+    // immediately without performing an expensive conversion.
+    if digits_upper > limit_u64
+        && (digits_upper > limit_u64.saturating_add(1)
+            || format!("{value}").len() - usize::from(value.is_negative()) > limit)
+    {
         return Err(vm.new_value_error(format!(
             "Exceeds the limit ({limit} digits) for integer string conversion; \
              use sys.set_int_max_str_digits() to increase the limit"
