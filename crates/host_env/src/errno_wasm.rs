@@ -25,6 +25,9 @@ pub mod errors {
     pub const EISDIR: i32 = 21;
     pub const EINVAL: i32 = 22;
     pub const EMFILE: i32 = 24;
+    pub const EFBIG: i32 = 27;
+    pub const ENOSPC: i32 = 28;
+    pub const EOVERFLOW: i32 = 84;
     pub const ESPIPE: i32 = 29;
     pub const EROFS: i32 = 30;
     pub const EACCES: i32 = 13;
@@ -62,6 +65,9 @@ pub mod errors {
             EBADF => "Bad file descriptor",
             EINVAL => "Invalid argument",
             EMFILE => "Too many open files",
+            EFBIG => "File too large",
+            ENOSPC => "No space left on device",
+            EOVERFLOW => "Value too large to be stored in data type",
             ESPIPE => "Illegal seek",
             EROFS => "Read-only file system",
             ESHUTDOWN => "Can't send after socket shutdown",

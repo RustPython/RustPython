@@ -5,5 +5,9 @@ edition = "2024"
 
 [dependencies]
 wasmer = "7.5.0"
+rustpython-host_env = { path = "../../../crates/host_env" }
+
+[target.'cfg(windows)'.dependencies]
+widestring = "1"
 
 [workspace]

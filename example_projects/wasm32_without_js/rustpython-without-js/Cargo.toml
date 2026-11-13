@@ -6,7 +6,11 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+host-io = ["rustpython-vm/host_io", "rustpython-host_env/wasm-host-io"]
+
 [dependencies]
+rustpython-host_env = { path = "../../../crates/host_env", optional = true }
 getrandom = "0.4"
 rustpython-vm = { path = "../../../crates/vm", default-features = false, features = ["compiler"] }
 

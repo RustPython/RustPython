@@ -1007,6 +1007,20 @@ jobs:
             --runtime wasm-runtime/target/release/wasm-runtime \
             --module rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
 
+      - name: Test host descriptor ABI
+        run: cargo test --release --manifest-path example_projects/wasm32_without_js/wasm-runtime/Cargo.toml
+
+      - name: Build wasm32-unknown with explicit host descriptors
+        working-directory: example_projects/wasm32_without_js/rustpython-without-js
+        run: cargo build --features host-io
+
+      - name: Check real WASM FileIO
+        working-directory: example_projects/wasm32_without_js
+        run: |
+          python3 test_host_io.py -v \
+            --runtime wasm-runtime/target/release/wasm-runtime \
+            --module rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |
