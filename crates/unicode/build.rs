@@ -553,6 +553,7 @@ fn generate_blocks() {
 /// `lookup_character`.
 fn generate_name_lookups() {
     let mut aliases = BTreeMap::new();
+    let mut alias_names = Vec::new();
     for line in UnicodeLineReader::from_file_name("NameAliases.txt", true) {
         let name = line
             .field(
@@ -563,10 +564,12 @@ fn generate_name_lookups() {
                 )),
             )
             .to_ascii_uppercase();
+        alias_names.push(name.clone());
         aliases.insert(name, line.start);
     }
 
     let mut sequences = BTreeMap::new();
+    let mut sequence_names = Vec::new();
     let mut sequences_reader = UnicodeLineReader::from_file_name("NamedSequences.txt", true);
     for line in sequences_reader.raw_iter() {
         let (name, codes) = line
@@ -582,10 +585,25 @@ fn generate_name_lookups() {
             escaped.push_str(&format!("{cp:X}"));
             escaped.push('}');
         }
+        sequence_names.push(name.clone());
         sequences.insert(name, escaped);
     }
 
     let mut writer = open_writer("name_lookups.rs");
+    // CPython's makeunicodedata.py reserves these private code points in UCD
+    // file order, not in the alphabetic order used by the lookup maps.
+    assert!(alias_names.len() < 0x200);
+    for (constant, names) in [
+        ("CAPI_ALIAS_NAMES", alias_names),
+        ("CAPI_SEQUENCE_NAMES", sequence_names),
+    ] {
+        write_slice_raw(&mut writer, constant, "&str", names, |writer, names| {
+            for name in names {
+                writeln!(writer, "{name:?},").unwrap();
+            }
+        });
+    }
+
     write_slice_raw(
         &mut writer,
         "NAME_ALIASES",
