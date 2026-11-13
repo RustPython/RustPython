@@ -7288,7 +7288,7 @@ impl ExecutingFrame<'_> {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, args, callee)?;
+                        let result = func(vm, None, args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -7329,7 +7329,7 @@ impl ExecutingFrame<'_> {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, args, callee)?;
+                        let result = func(vm, None, args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -7370,7 +7370,7 @@ impl ExecutingFrame<'_> {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, args, callee)?;
+                    let result = func(vm, None, args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -7477,7 +7477,7 @@ impl ExecutingFrame<'_> {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, args, callee)?;
+                    let result = func(vm, None, args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }

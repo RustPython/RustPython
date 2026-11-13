@@ -119,6 +119,7 @@ impl Callable for PyMethodDescriptor {
         }
         (zelf.method.func)(
             vm,
+            None,
             args,
             Callee::named(zelf.method.name).with_instance_arg(true),
         )
@@ -1618,6 +1619,7 @@ fn vectorcall_method_descriptor(
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     (zelf.method.func)(
         vm,
+        None,
         func_args,
         Callee::named(zelf.method.name).with_instance_arg(true),
     )
