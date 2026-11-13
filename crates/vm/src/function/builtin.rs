@@ -317,48 +317,6 @@ macro_rules! into_py_native_fn_tuple {
                 (self)(&zelf, $($n,)*).to_pyresult(vm)
             }
         }
-        impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(OwnedParam<PyModule>, $($T,)*), R, VirtualMachine>> for ModuleFunction<F>
-        where
-            F: Fn(PyRef<PyModule>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
-            $($T: FromArgs,)*
-            R: ToPyResult,
-        {
-            const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
-
-            fn call(
-                &self,
-                vm: &VirtualMachine,
-                module: Option<&Py<PyModule>>,
-                args: FuncArgs,
-                callee: Callee,
-            ) -> PyResult {
-                let module = module.expect("module function called without its defining module");
-                let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
-                (self.0)(module.to_owned(), $($n,)* vm).to_pyresult(vm)
-            }
-        }
-
-        impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(OwnedParam<PyModule>, $($T,)*), R, ()>> for ModuleFunction<F>
-        where
-            F: Fn(PyRef<PyModule>, $($T,)*) -> R + PyThreadingConstraint + 'static,
-            $($T: FromArgs,)*
-            R: ToPyResult,
-        {
-            const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
-
-            fn call(
-                &self,
-                vm: &VirtualMachine,
-                module: Option<&Py<PyModule>>,
-                args: FuncArgs,
-                callee: Callee,
-            ) -> PyResult {
-                let module = module.expect("module function called without its defining module");
-                let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
-                (self.0)(module.to_owned(), $($n,)*).to_pyresult(vm)
-            }
-        }
-
         impl<F, $($T,)* R> IntoPyNativeFn<ModuleFunctionKind<(BorrowedParam<PyModule>, $($T,)*), R, VirtualMachine>> for ModuleFunction<F>
         where
             F: Fn(&Py<PyModule>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
