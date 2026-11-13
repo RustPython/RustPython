@@ -189,11 +189,11 @@ impl VirtualMachine {
         f: F,
     ) -> PyRef<PyMethodDescriptor>
     where
-        F: IntoPyNativeFn<FKind>,
+        crate::function::MethodFunction<F>: IntoPyNativeFn<FKind>,
     {
         let def = self.ctx.new_method_def(
             name,
-            f,
+            crate::function::MethodFunction(f),
             PyMethodFlags::METHOD,
             crate::function::ItemDoc::NONE,
         );

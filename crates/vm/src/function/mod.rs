@@ -28,7 +28,9 @@ pub use buffer::{
     ArgAsciiBuffer, ArgBytesLike, ArgBytesOrStr, ArgContiguousBytesLike, ArgMemoryBuffer,
     ArgStrOrBytesLike,
 };
-pub use builtin::{IntoPyNativeFn, ModuleFunction, PyNativeFn, static_func, static_raw_func};
+pub use builtin::{
+    IntoPyNativeFn, MethodFunction, ModuleFunction, PyNativeFn, static_func, static_raw_func,
+};
 pub use doctext::{ItemDoc, db_doc, plain_doc};
 pub use either::Either;
 pub use fspath::FsPath;

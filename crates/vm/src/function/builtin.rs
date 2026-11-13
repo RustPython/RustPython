@@ -1,6 +1,8 @@
 use super::{BorrowedArgs, Callee, FromArgs, FuncArgs, SigArg};
 use crate::{
-    Py, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyResult,
+    Py, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::PyModule,
+    convert::{ToPyResult, TryFromObject},
     object::PyThreadingConstraint,
 };
 use core::marker::PhantomData;
@@ -8,14 +10,14 @@ use core::marker::PhantomData;
 /// A built-in Python function.
 // PyCFunction in CPython
 pub trait PyNativeFn:
-    Fn(&VirtualMachine, Option<&Py<PyModule>>, FuncArgs, Callee) -> PyResult
+    Fn(&VirtualMachine, Option<&PyObject>, FuncArgs, Callee) -> PyResult
     + PyThreadingConstraint
     + 'static
 {
 }
 
 impl<F> PyNativeFn for F where
-    F: Fn(&VirtualMachine, Option<&Py<PyModule>>, FuncArgs, Callee) -> PyResult
+    F: Fn(&VirtualMachine, Option<&PyObject>, FuncArgs, Callee) -> PyResult
         + PyThreadingConstraint
         + 'static
 {
@@ -48,7 +50,7 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
     fn call(
         &self,
         vm: &VirtualMachine,
-        module: Option<&Py<PyModule>>,
+        receiver: Option<&PyObject>,
         args: FuncArgs,
         callee: Callee,
     ) -> PyResult;
@@ -62,7 +64,7 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
 }
 
 const fn into_func<F: IntoPyNativeFn<Kind>, Kind>(f: F) -> impl PyNativeFn {
-    move |vm: &VirtualMachine, module, args, callee| f.call(vm, module, args, callee)
+    move |vm: &VirtualMachine, receiver, args, callee| f.call(vm, receiver, args, callee)
 }
 
 const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
@@ -109,11 +111,11 @@ where
     fn call(
         &self,
         vm: &VirtualMachine,
-        module: Option<&Py<PyModule>>,
+        receiver: Option<&PyObject>,
         args: FuncArgs,
         callee: Callee,
     ) -> PyResult {
-        self.call_(vm, module, args, callee)
+        self.call_(vm, receiver, args, callee)
     }
 }
 
@@ -124,7 +126,7 @@ mod sealed {
         fn call_(
             &self,
             vm: &VirtualMachine,
-            module: Option<&Py<PyModule>>,
+            receiver: Option<&PyObject>,
             args: FuncArgs,
             callee: Callee,
         ) -> PyResult;
@@ -158,7 +160,7 @@ where
     fn call_(
         &self,
         vm: &VirtualMachine,
-        _module: Option<&Py<PyModule>>,
+        _receiver: Option<&PyObject>,
         args: FuncArgs,
         callee: Callee,
     ) -> PyResult {
@@ -178,6 +180,43 @@ pub struct ModuleFunction<F>(pub F);
 #[doc(hidden)]
 pub struct ModuleFunctionKind<T, R, VM>(PhantomData<(T, R, VM)>);
 
+/// Adapter for methods whose first Rust parameter is the native receiver.
+/// Ordinary functions keep binding every Rust parameter from Python arguments.
+#[doc(hidden)]
+pub struct MethodFunction<F>(pub F);
+
+#[doc(hidden)]
+pub struct MethodFunctionKind<T, R, VM>(PhantomData<(T, R, VM)>);
+
+// A method validates its complete argument list before handing it to a
+// custom parser. Keep that outer check even with one remaining Rust argument:
+// `(T,)` alone delegates its check to T, which legacy parsers can override.
+struct MethodArgs<T>(T);
+
+impl<T: FromArgs> FromArgs for MethodArgs<T> {
+    const PARAMS: Option<&'static [super::Param]> = T::PARAMS;
+    const BINDING_PARAMS: Option<&'static [super::Param]> = T::BINDING_PARAMS;
+    const FORCE_UNPACK_KEYWORDS: bool = T::FORCE_UNPACK_KEYWORDS;
+    const TAKES_NO_KEYWORDS: bool = T::TAKES_NO_KEYWORDS;
+
+    fn arity() -> core::ops::RangeInclusive<usize> {
+        T::arity()
+    }
+
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, super::ArgumentError> {
+        T::from_args(vm, args).map(Self)
+    }
+}
+
+#[inline]
+fn native_receiver<'a>(
+    receiver: Option<&'a PyObject>,
+    callee: Callee,
+    vm: &VirtualMachine,
+) -> PyResult<&'a PyObject> {
+    receiver.ok_or_else(|| callee.missing_receiver(vm))
+}
+
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
 //
@@ -195,7 +234,7 @@ macro_rules! into_py_native_fn_tuple {
             fn call_(
                 &self,
                 vm: &VirtualMachine,
-                _module: Option<&Py<PyModule>>,
+                _receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
@@ -218,7 +257,7 @@ macro_rules! into_py_native_fn_tuple {
             fn call_(
                 &self,
                 vm: &VirtualMachine,
-                _module: Option<&Py<PyModule>>,
+                _receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
@@ -241,7 +280,7 @@ macro_rules! into_py_native_fn_tuple {
             fn call_(
                 &self,
                 vm: &VirtualMachine,
-                _module: Option<&Py<PyModule>>,
+                _receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
@@ -262,7 +301,7 @@ macro_rules! into_py_native_fn_tuple {
             fn call_(
                 &self,
                 vm: &VirtualMachine,
-                _module: Option<&Py<PyModule>>,
+                _receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
@@ -285,7 +324,7 @@ macro_rules! into_py_native_fn_tuple {
             fn call_(
                 &self,
                 vm: &VirtualMachine,
-                _module: Option<&Py<PyModule>>,
+                _receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
@@ -308,7 +347,7 @@ macro_rules! into_py_native_fn_tuple {
             fn call_(
                 &self,
                 vm: &VirtualMachine,
-                _module: Option<&Py<PyModule>>,
+                _receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
@@ -328,11 +367,11 @@ macro_rules! into_py_native_fn_tuple {
             fn call(
                 &self,
                 vm: &VirtualMachine,
-                module: Option<&Py<PyModule>>,
+                receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
-                let module = module.expect("module function called without its defining module");
+                let module = native_receiver(receiver, callee, vm)?.try_downcast_ref::<PyModule>(vm)?;
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
                 (self.0)(module, $($n,)* vm).to_pyresult(vm)
             }
@@ -349,13 +388,169 @@ macro_rules! into_py_native_fn_tuple {
             fn call(
                 &self,
                 vm: &VirtualMachine,
-                module: Option<&Py<PyModule>>,
+                receiver: Option<&PyObject>,
                 args: FuncArgs,
                 callee: Callee,
             ) -> PyResult {
-                let module = module.expect("module function called without its defining module");
+                let module = native_receiver(receiver, callee, vm)?.try_downcast_ref::<PyModule>(vm)?;
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
                 (self.0)(module, $($n,)*).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFn<MethodFunctionKind<(OwnedParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine>> for MethodFunction<F>
+        where
+            F: Fn(S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
+            S: TryFromObject,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] =
+                &[SigArg::from_arg::<S>("") $(, SigArg::from_arg::<$T>(""))*];
+
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                receiver: Option<&PyObject>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let receiver = native_receiver(receiver, callee, vm)?;
+                // Descriptor binding checks the Python class. The payload check
+                // remains necessary for safe, manually constructed method definitions.
+                let zelf = S::try_from_method_receiver(vm, receiver)?;
+                let MethodArgs(($($n,)*)) = args.bind_for::<MethodArgs<($($T,)*)>>(vm, callee)?;
+                (self.0)(zelf, $($n,)* vm).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFn<MethodFunctionKind<(BorrowedParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine>> for MethodFunction<F>
+        where
+            F: Fn(&Py<S>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
+            S: PyPayload,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] =
+                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
+
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                receiver: Option<&PyObject>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let receiver = native_receiver(receiver, callee, vm)?;
+                // Descriptor binding checks the Python class. The payload check
+                // remains necessary for safe, manually constructed method definitions.
+                let zelf = receiver.try_downcast_ref::<S>(vm)?;
+                let MethodArgs(($($n,)*)) = args.bind_for::<MethodArgs<($($T,)*)>>(vm, callee)?;
+                (self.0)(zelf, $($n,)* vm).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFn<MethodFunctionKind<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine>> for MethodFunction<F>
+        where
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
+            S: PyPayload,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] =
+                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
+
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                receiver: Option<&PyObject>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let receiver = native_receiver(receiver, callee, vm)?;
+                // Descriptor binding checks the Python class. The payload check
+                // remains necessary for safe, manually constructed method definitions.
+                let zelf = receiver.try_downcast_ref::<S>(vm)?;
+                let MethodArgs(($($n,)*)) = args.bind_for::<MethodArgs<($($T,)*)>>(vm, callee)?;
+                (self.0)(zelf, $($n,)* vm).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFn<MethodFunctionKind<(OwnedParam<S>, $(OwnedParam<$T>,)*), R, ()>> for MethodFunction<F>
+        where
+            F: Fn(S, $($T,)* ) -> R + PyThreadingConstraint + 'static,
+            S: TryFromObject,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] =
+                &[SigArg::from_arg::<S>("") $(, SigArg::from_arg::<$T>(""))*];
+
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                receiver: Option<&PyObject>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let receiver = native_receiver(receiver, callee, vm)?;
+                // Descriptor binding checks the Python class. The payload check
+                // remains necessary for safe, manually constructed method definitions.
+                let zelf = S::try_from_method_receiver(vm, receiver)?;
+                let MethodArgs(($($n,)*)) = args.bind_for::<MethodArgs<($($T,)*)>>(vm, callee)?;
+                (self.0)(zelf, $($n,)* ).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFn<MethodFunctionKind<(BorrowedParam<S>, $(OwnedParam<$T>,)*), R, ()>> for MethodFunction<F>
+        where
+            F: Fn(&Py<S>, $($T,)* ) -> R + PyThreadingConstraint + 'static,
+            S: PyPayload,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] =
+                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
+
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                receiver: Option<&PyObject>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let receiver = native_receiver(receiver, callee, vm)?;
+                // Descriptor binding checks the Python class. The payload check
+                // remains necessary for safe, manually constructed method definitions.
+                let zelf = receiver.try_downcast_ref::<S>(vm)?;
+                let MethodArgs(($($n,)*)) = args.bind_for::<MethodArgs<($($T,)*)>>(vm, callee)?;
+                (self.0)(zelf, $($n,)* ).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFn<MethodFunctionKind<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()>> for MethodFunction<F>
+        where
+            F: Fn(&S, $($T,)* ) -> R + PyThreadingConstraint + 'static,
+            S: PyPayload,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            const ARGS: &'static [SigArg] =
+                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
+
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                receiver: Option<&PyObject>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let receiver = native_receiver(receiver, callee, vm)?;
+                // Descriptor binding checks the Python class. The payload check
+                // remains necessary for safe, manually constructed method definitions.
+                let zelf = receiver.try_downcast_ref::<S>(vm)?;
+                let MethodArgs(($($n,)*)) = args.bind_for::<MethodArgs<($($T,)*)>>(vm, callee)?;
+                (self.0)(zelf, $($n,)* ).to_pyresult(vm)
             }
         }
 
@@ -393,5 +588,117 @@ mod tests {
         let empty_closure = || "foo".to_owned();
         assert_eq!(size_of_val(&empty_closure.into_func()), 0);
         assert_eq!(size_of_val(static_func(empty_closure)), 0);
+    }
+    #[test]
+    fn method_receivers_are_borrowed_outside_python_arguments() {
+        use crate::{AsObject, PyObjectRef, builtins::PyList};
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let receiver = vm.ctx.new_list(vec![]);
+            let count = receiver.as_object().strong_count();
+            let value = vm.ctx.new_int(42).into();
+            MethodFunction(move |zelf: &Py<PyList>, args: FuncArgs| {
+                assert_eq!(zelf.as_object().strong_count(), count);
+                assert_eq!(args.args.len(), 1);
+                assert_eq!(args.kwargs.len(), 1);
+            })
+            .call(
+                vm,
+                Some(receiver.as_object()),
+                FuncArgs::new(
+                    vec![value],
+                    [("named", vm.ctx.none())]
+                        .into_iter()
+                        .collect::<super::super::KwArgs>(),
+                ),
+                Callee::named("borrowed"),
+            )
+            .unwrap();
+            let payload = core::ptr::from_ref(&**receiver) as usize;
+            MethodFunction(move |zelf: &PyList, _vm: &VirtualMachine| {
+                assert_eq!(core::ptr::from_ref(zelf) as usize, payload);
+            })
+            .call(
+                vm,
+                Some(receiver.as_object()),
+                FuncArgs::default(),
+                Callee::named("payload"),
+            )
+            .unwrap();
+            MethodFunction(move |zelf: PyRef<PyList>| {
+                assert_eq!(zelf.as_object().strong_count(), count + 1);
+            })
+            .call(
+                vm,
+                Some(receiver.as_object()),
+                FuncArgs::default(),
+                Callee::named("owned"),
+            )
+            .unwrap();
+            let result = MethodFunction(|zelf: PyObjectRef| zelf)
+                .call(
+                    vm,
+                    Some(receiver.as_object()),
+                    FuncArgs::default(),
+                    Callee::named("object"),
+                )
+                .unwrap();
+            assert!(result.is(receiver.as_object()));
+        });
+    }
+
+    #[test]
+    fn ordinary_functions_ignore_native_receivers() {
+        use crate::{AsObject, builtins::PyList};
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let receiver = vm.ctx.new_str("not the Python argument");
+            let argument = vm.ctx.new_list(vec![]);
+            let function = |value: &Py<PyList>| value.to_owned();
+            let result = IntoPyNativeFn::call(
+                &function,
+                vm,
+                Some(receiver.as_object()),
+                FuncArgs::from(vec![argument.clone().into()]),
+                Callee::named("ordinary"),
+            )
+            .unwrap();
+            assert!(result.is(argument.as_object()));
+        });
+    }
+
+    #[test]
+    fn method_adapters_validate_missing_and_mismatched_payloads() {
+        use crate::{
+            AsObject,
+            builtins::PyList,
+            function::{ItemDoc, PyMethodFlags},
+        };
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let method = MethodFunction(|_zelf: &PyList| ());
+            let error = method
+                .call(vm, None, FuncArgs::default(), Callee::named("example"))
+                .unwrap_err();
+            assert_eq!(
+                error.args().as_slice()[0]
+                    .try_to_value::<String>(vm)
+                    .unwrap(),
+                "unbound method example needs an argument"
+            );
+
+            // This is a safe public construction API. A descriptor class check
+            // alone cannot prove the Rust receiver payload matches the adapter.
+            let definition =
+                vm.ctx
+                    .new_method_def("example", method, PyMethodFlags::METHOD, ItemDoc::NONE);
+            let descriptor = definition.build_method(vm.ctx.types.object_type, vm);
+            let wrong_receiver = vm.ctx.new_str("wrong payload");
+            let error = descriptor
+                .as_object()
+                .call((wrong_receiver.clone(),), vm)
+                .unwrap_err();
+            assert!(error.class().is(vm.ctx.exceptions.type_error));
+            let bound = descriptor.bind(wrong_receiver.into(), &vm.ctx);
+            let error = bound.as_object().call((), vm).unwrap_err();
+            assert!(error.class().is(vm.ctx.exceptions.type_error));
+        });
     }
 }
