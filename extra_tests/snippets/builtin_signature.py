@@ -487,3 +487,126 @@ for pickle_type in (
     parameters = inspect.signature(reduce_ex).parameters
     assert list(parameters) == ["self", "protocol"]
     assert parameters["protocol"].kind == inspect.Parameter.POSITIONAL_ONLY
+
+# Legacy optional groups are public text, not Python parameter-list syntax.
+for sequence_type in (str, bytes, bytearray):
+    value = sequence_type("abc", "ascii") if sequence_type is not str else "abc"
+    needle = sequence_type("b", "ascii") if sequence_type is not str else "b"
+    for method_name in (
+        "count",
+        "find",
+        "index",
+        "rfind",
+        "rindex",
+        "startswith",
+        "endswith",
+    ):
+        parameter = {"startswith": "prefix", "endswith": "suffix"}.get(
+            method_name, "sub"
+        )
+        method = getattr(sequence_type, method_name)
+        assert method.__text_signature__ == f"($self, {parameter}[, start[, end]], /)"
+        bound = getattr(value, method_name)
+        for target in (method, bound):
+            try:
+                inspect.signature(target)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("optional group should not be inspect-parsable")
+        assert bound(needle) == bound(needle, None, None)
+        assert bound(needle, 1) == bound(needle, 1, None)
+        events = []
+
+        class Index:
+            def __init__(self, name, value):
+                self.name, self.value = name, value
+
+            def __index__(self):
+                events.append(self.name)
+                return self.value
+
+        assert bound(needle, Index("start", 0), Index("end", 3)) == bound(needle)
+        assert events == ["start", "end"]
+        for args, kwargs in (
+            ((needle,), {"start": 0}),
+            ((), {}),
+            ((needle, 0, 3, 4), {}),
+        ):
+            try:
+                bound(*args, **kwargs)
+            except TypeError:
+                pass
+            else:
+                raise AssertionError("positional-only argument validation changed")
+
+import _csv
+
+for _function, _first in (
+    (_csv.reader, "iterable"),
+    (_csv.writer, "fileobj"),
+    (_csv.register_dialect, "name"),
+):
+    assert _function.__text_signature__ == (
+        f"($module, {_first}, /, dialect='excel', **fmtparams)"
+    )
+    assert str(inspect.signature(_function)) == (
+        f"({_first}, /, dialect='excel', **fmtparams)"
+    )
+
+
+# Explicit display signatures are useful raw metadata even when their optional groups
+# or sentinel defaults cannot be represented by inspect.Signature.
+import collections
+import datetime
+
+for obj, raw, doc in (
+    (
+        collections.deque,
+        "([iterable[, maxlen]])",
+        "A list-like sequence optimized for data accesses near its endpoints.",
+    ),
+    (
+        collections.deque.index,
+        "($self, value, [start, [stop]])",
+        "Return first index of value.\n\n"
+        "Raises ValueError if the value is not present.",
+    ),
+    (
+        collections.deque().index,
+        "($self, value, [start, [stop]])",
+        "Return first index of value.\n\n"
+        "Raises ValueError if the value is not present.",
+    ),
+    (
+        datetime.timezone,
+        "(offset, name=<unrepresentable>)",
+        "Fixed offset from UTC implementation of tzinfo.",
+    ),
+):
+    assert obj.__text_signature__ == raw
+    assert obj.__doc__ == doc
+    try:
+        inspect.signature(obj)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"signature should remain unrepresentable: {obj}")
+
+# __prepare__ uses $cls, unlike the $type receiver of most native classmethods.
+# The descriptor and its bound form must expose the same header but strip the
+# bound receiver only from the latter's inspected signature.
+prepare = type.__dict__["__prepare__"]
+assert prepare.__text_signature__ == "($cls, name, bases, /, **kwds)"
+assert str(inspect.signature(prepare)) == "(cls, name, bases, /, **kwds)"
+assert type.__prepare__.__text_signature__ == prepare.__text_signature__
+assert str(inspect.signature(type.__prepare__)) == "(name, bases, /, **kwds)"
+assert type.__prepare__.__doc__ == "Create the namespace for the class statement"
+assert type.__prepare__.__self__ is type
+
+# A display signature must not impose Clinic binding on __prepare__: CPython's
+# implementation ignores every supplied argument and returns a fresh namespace.
+for arguments in ((), (object(),), (object(), object(), object())):
+    namespace = type.__prepare__(*arguments, unexpected=object())
+    assert namespace == {}
+    assert namespace is not type.__prepare__(*arguments, unexpected=object())

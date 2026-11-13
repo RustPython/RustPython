@@ -146,7 +146,19 @@ impl SigArg {
                 Some(ps) => ps,
                 None => &[],
             }),
-            binding_params: T::BINDING_PARAMS,
+            // A scalar receiver is already counted by the preceding marker.
+            // Only parameters actually supplied by its type contribute more.
+            binding_params: match (T::PARAMS, T::BINDING_PARAMS) {
+                (None, Some(params))
+                    if params.len() == 1
+                        && matches!(params[0].kind, ParamKind::PositionalOnly)
+                        && params[0].name.is_empty()
+                        && params[0].default.is_none() =>
+                {
+                    Some(&[])
+                }
+                (_, binding) => binding,
+            },
             force_unpack_keywords: T::FORCE_UNPACK_KEYWORDS,
         }
     }
@@ -200,6 +212,218 @@ const fn flags_positional_count(params: &[Param]) -> usize {
         i += 1;
     }
     count
+}
+
+/// Check an explicit display signature against the actual argument binder.
+///
+/// Requiredness, arity, receiver markers, and keyword names must agree. A
+/// positional-only optional argument may be displayed as keyword-capable only
+/// when the binder also accepts arbitrary keywords (legacy wrappers such as
+/// `_csv` forward these to their subsequent parser). Defaults and names of
+/// positional-only arguments are presentation, not conversion instructions.
+/// Unknown binders are rejected. A known unrestricted binder retains its
+/// separately declared display contract, as with `type.__prepare__`.
+///
+/// ```compile_fail
+/// use rustpython_vm::function::{Param, SigArg, validate_text_signature};
+/// const _: () = validate_text_signature(&[SigArg::marker("$self")], &[
+///     Param::positional_only("$self"), Param::positional_only("extra"),
+/// ]);
+/// ```
+///
+/// An override cannot make a required parameter optional:
+/// ```compile_fail
+/// use rustpython_vm::function::{DefaultRepr, Param, ParamKind, SigArg, validate_text_signature};
+/// const _: () = validate_text_signature(&[SigArg::marker("sub")], &[Param {
+///     name: "sub", kind: ParamKind::PositionalOnly, default: Some(DefaultRepr::None),
+/// }]);
+/// ```
+///
+/// Documenting a forwarded keyword requires a keyword-accepting binder:
+/// ```compile_fail
+/// use rustpython_vm::function::{DefaultRepr, Param, ParamKind, SigArg, validate_text_signature};
+/// const DIALECT: Param = Param {
+///     name: "dialect", kind: ParamKind::PositionalOnly,
+///     default: Some(DefaultRepr::Unrepresentable),
+/// };
+/// const _: () = validate_text_signature(&[SigArg {
+///     name: "options", params: Some(&[DIALECT]), binding_params: Some(&[DIALECT]),
+///     force_unpack_keywords: false,
+/// }], &[Param { kind: ParamKind::PositionalOrKeyword, ..DIALECT }]);
+/// ```
+///
+/// Unknown binders cannot establish that a display override is valid:
+/// ```compile_fail
+/// use rustpython_vm::function::{Param, SigArg, validate_text_signature};
+/// const _: () = validate_text_signature(&[SigArg {
+///     name: "custom", params: Some(&[Param::positional_only("value")]),
+///     binding_params: None, force_unpack_keywords: false,
+/// }], &[Param::positional_only("value")]);
+/// ```
+pub const fn validate_text_signature(args: &[SigArg], display: &[Param]) {
+    validate_text_signature_impl(args, display, false);
+}
+
+/// Validate older bracket notation that does not spell positional-only `/`.
+/// Omission and names are checked; the binder remains authoritative for kinds.
+pub const fn validate_text_signature_without_slash(args: &[SigArg], display: &[Param]) {
+    validate_text_signature_impl(args, display, true);
+}
+
+// Some CPython entry points (notably type.__prepare__) deliberately accept and
+// ignore arbitrary arguments while publishing a more specific display signature.
+// Preserve that declared PARAMS contract only for the known *args/**kwargs
+// binder; never turn missing binding metadata into permission to override it.
+const fn override_params(arg: &SigArg) -> &[Param] {
+    let binding = match arg.binding_params {
+        Some(params) => params,
+        None => panic!("text_signature requires known binding metadata"),
+    };
+    if is_bare_funcargs(binding)
+        && let Some(params) = arg.params
+        && !is_bare_funcargs(params)
+    {
+        return params;
+    }
+    binding
+}
+
+const fn validate_text_signature_impl(args: &[SigArg], display: &[Param], omitted_slash: bool) {
+    let mut count = 0;
+    let mut var_keyword = false;
+    let mut i = 0;
+    while i < args.len() {
+        let params = override_params(&args[i]);
+        binding_override_count(params, &mut count, &mut var_keyword);
+        i += 1;
+    }
+    assert!(
+        count == display.len(),
+        "text_signature parameter count differs from binding"
+    );
+    let mut index = 0;
+    i = 0;
+    while i < args.len() {
+        {
+            let params = override_params(&args[i]);
+            validate_override_params(
+                params,
+                args[i].name,
+                display,
+                &mut index,
+                var_keyword,
+                omitted_slash,
+            );
+        }
+        i += 1;
+    }
+}
+
+const fn binding_override_count(params: &[Param], count: &mut usize, keywords: &mut bool) {
+    let mut i = 0;
+    while i < params.len() {
+        match params[i].kind {
+            ParamKind::Flatten(Some(inner)) => binding_override_count(inner, count, keywords),
+            ParamKind::Flatten(None) => panic!("text_signature requires known binding metadata"),
+            ParamKind::VarKeyword => {
+                *count += 1;
+                *keywords = true;
+            }
+            _ => *count += 1,
+        }
+        i += 1;
+    }
+}
+
+const fn validate_override_params(
+    params: &[Param],
+    fallback_name: &str,
+    display: &[Param],
+    index: &mut usize,
+    var_keyword: bool,
+    omitted_slash: bool,
+) {
+    let mut i = 0;
+    while i < params.len() {
+        let binding = &params[i];
+        if let ParamKind::Flatten(Some(inner)) = binding.kind {
+            validate_override_params(
+                inner,
+                fallback_name,
+                display,
+                index,
+                var_keyword,
+                omitted_slash,
+            );
+        } else {
+            let shown = &display[*index];
+            let name = if binding.name.is_empty() {
+                fallback_name
+            } else {
+                binding.name
+            };
+            assert!(
+                binding.default.is_some() == shown.default.is_some(),
+                "text_signature changes requiredness"
+            );
+            let same_name = name_eq(name, shown.name.as_bytes());
+            if (!name.is_empty() && name.as_bytes()[0] == b'$')
+                || (!shown.name.is_empty() && shown.name.as_bytes()[0] == b'$')
+            {
+                let class_alias = name_eq(name, b"$type") && name_eq(shown.name, b"$cls");
+                assert!(
+                    same_name || class_alias,
+                    "text_signature changes receiver marker"
+                );
+            }
+            let shown_kind = if omitted_slash {
+                assert!(
+                    matches!(
+                        binding.kind,
+                        ParamKind::PositionalOnly | ParamKind::PositionalOrKeyword
+                    ),
+                    "bracket notation requires positional parameters"
+                );
+                binding.kind
+            } else {
+                shown.kind
+            };
+            match (binding.kind, shown_kind) {
+                (ParamKind::PositionalOnly, ParamKind::PositionalOnly) => {}
+                (ParamKind::PositionalOnly, ParamKind::PositionalOrKeyword) => {
+                    assert!(
+                        var_keyword && binding.default.is_some() && same_name,
+                        "text_signature keyword is not accepted by binding"
+                    );
+                }
+                (ParamKind::PositionalOrKeyword, ParamKind::PositionalOrKeyword)
+                | (ParamKind::KeywordOnly, ParamKind::KeywordOnly) => {
+                    assert!(same_name, "text_signature changes keyword name");
+                }
+                (ParamKind::VarKeyword, ParamKind::VarKeyword)
+                | (ParamKind::VarPositional, ParamKind::VarPositional) => {}
+                _ => panic!("text_signature parameter kind differs from binding"),
+            }
+            *index += 1;
+        }
+        i += 1;
+    }
+}
+
+/// Compose an already validated override with the selected documentation body.
+#[must_use]
+pub const fn text_signature_doc_bytes<const N: usize>(
+    name: &str,
+    signature: &str,
+    doc: &str,
+) -> [u8; N] {
+    let mut buf = [0; N];
+    let n = put_str(&mut buf, 0, name);
+    let n = put_str(&mut buf, n, signature);
+    let n = put_str(&mut buf, n, "\n--\n\n");
+    let n = put_str(&mut buf, n, doc);
+    assert!(n == N);
+    buf
 }
 
 /// Calling-convention bits from each argument's binding metadata.
@@ -804,8 +1028,11 @@ const fn write_args(buf: &mut [u8], mut st: St, args: &[SigArg]) -> St {
 
 #[cfg(test)]
 mod tests {
-    use super::{DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, put_exp, write_one};
-    use crate::function::PyMethodFlags;
+    use super::{
+        DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, put_exp,
+        validate_text_signature, validate_text_signature_without_slash, write_one,
+    };
+    use crate::function::{FromArgs, PyMethodFlags};
 
     fn rendered(default: DefaultRepr) -> String {
         let mut buf = [0u8; 64];
@@ -1043,5 +1270,223 @@ mod tests {
             keywords,
         );
         assert_eq!(native_call_flags(&[NESTED], false), keywords);
+    }
+    #[test]
+    fn explicit_class_and_unrestricted_parser_signatures() {
+        const OPTIONAL: Param = Param {
+            name: "iterable",
+            kind: ParamKind::PositionalOrKeyword,
+            default: Some(DefaultRepr::Unrepresentable),
+        };
+        const CLASS: &[SigArg] = &[SigArg {
+            name: "",
+            params: Some(&[OPTIONAL]),
+            binding_params: Some(&[OPTIONAL]),
+            force_unpack_keywords: false,
+        }];
+        validate_text_signature_without_slash(CLASS, &[OPTIONAL]);
+        const PREPARE: &[SigArg] = &[
+            SigArg::marker("$type"),
+            SigArg::implicit::<crate::builtins::PyTypeRef>(),
+            SigArg {
+                name: "args",
+                params: Some(&[
+                    Param::positional_only("name"),
+                    Param::positional_only("bases"),
+                    Param::var_keyword("kwds"),
+                ]),
+                binding_params: Some(&[
+                    Param::var_positional("args"),
+                    Param::var_keyword("kwargs"),
+                ]),
+                force_unpack_keywords: false,
+            },
+        ];
+        validate_text_signature(
+            PREPARE,
+            &[
+                Param::positional_only("$cls"),
+                Param::positional_only("name"),
+                Param::positional_only("bases"),
+                Param::var_keyword("kwds"),
+            ],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "text_signature requires known binding metadata")]
+    fn implicit_unknown_receiver_is_still_rejected() {
+        struct UnknownReceiver;
+        impl FromArgs for UnknownReceiver {
+            const BINDING_PARAMS: Option<&'static [Param]> = None;
+            fn from_args(
+                _vm: &crate::VirtualMachine,
+                _args: &mut crate::function::FuncArgs,
+            ) -> Result<Self, crate::function::ArgumentError> {
+                unreachable!()
+            }
+        }
+        validate_text_signature(
+            &[
+                SigArg::marker("$self"),
+                SigArg::implicit::<UnknownReceiver>(),
+            ],
+            &[Param::positional_only("$self")],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "text_signature changes keyword name")]
+    fn bracket_override_cannot_rename_keyword() {
+        const ACTUAL: &[Param] = &[Param::positional_or_keyword("actual")];
+        validate_text_signature_without_slash(
+            &[SigArg {
+                name: "",
+                params: None,
+                binding_params: Some(ACTUAL),
+                force_unpack_keywords: false,
+            }],
+            &[Param::positional_or_keyword("wrong")],
+        );
+    }
+
+    const OPTIONAL_START: Param = Param {
+        name: "start",
+        kind: ParamKind::PositionalOnly,
+        default: Some(DefaultRepr::None),
+    };
+    const OPTIONAL_END: Param = Param {
+        name: "end",
+        ..OPTIONAL_START
+    };
+    const SEARCH_BINDING: &[SigArg] = &[
+        SigArg::marker("$self"),
+        SigArg {
+            name: "options",
+            params: Some(&[]),
+            binding_params: Some(&[
+                Param::positional_only("affix"),
+                Param::flatten(Some(&[OPTIONAL_START, OPTIONAL_END])),
+            ]),
+            force_unpack_keywords: false,
+        },
+    ];
+    const SEARCH_DISPLAY: &[Param] = &[
+        Param::positional_only("$self"),
+        Param::positional_only("prefix"),
+        OPTIONAL_START,
+        OPTIONAL_END,
+    ];
+    const DIALECT: Param = Param {
+        name: "dialect",
+        default: Some(DefaultRepr::Unrepresentable),
+        ..OPTIONAL_START
+    };
+    const CSV_BINDING: &[SigArg] = &[
+        SigArg::marker("$module"),
+        SigArg::marker("iterable"),
+        SigArg {
+            name: "options",
+            params: Some(&[]),
+            binding_params: Some(&[
+                DIALECT,
+                Param::flatten(Some(&[Param::var_keyword("kwargs")])),
+            ]),
+            force_unpack_keywords: false,
+        },
+    ];
+    const CSV_DISPLAY: &[Param] = &[
+        Param::positional_only("$module"),
+        Param::positional_only("iterable"),
+        Param {
+            kind: ParamKind::PositionalOrKeyword,
+            default: Some(DefaultRepr::Str("excel")),
+            ..DIALECT
+        },
+        Param::var_keyword("fmtparams"),
+    ];
+    const _: () = super::validate_text_signature(SEARCH_BINDING, SEARCH_DISPLAY);
+    const _: () = super::validate_text_signature(CSV_BINDING, CSV_DISPLAY);
+
+    #[test]
+    fn text_signature_overrides_preserve_binding_and_doc_body() {
+        assert_eq!(
+            native_call_flags(SEARCH_BINDING, true),
+            PyMethodFlags::FASTCALL
+        );
+        assert_eq!(
+            native_call_flags(CSV_BINDING, false),
+            PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS)
+        );
+        const TEXT: &str = "($self, prefix[, start[, end]], /)";
+        const BODY: &str = "Return whether the string starts with prefix.\n";
+        const N: usize = "startswith".len() + TEXT.len() + 5 + BODY.len();
+        const DOC: [u8; N] = super::text_signature_doc_bytes::<N>("startswith", TEXT, BODY);
+        assert_eq!(
+            core::str::from_utf8(&DOC).unwrap(),
+            format!("startswith{TEXT}\n--\n\n{BODY}")
+        );
+        const PREFIX: [u8; N - BODY.len()] =
+            super::text_signature_doc_bytes::<{ N - BODY.len() }>("startswith", TEXT, "");
+        assert_eq!(
+            core::str::from_utf8(&PREFIX).unwrap(),
+            format!("startswith{TEXT}\n--\n\n")
+        );
+    }
+
+    #[test]
+    fn text_signature_overrides_reject_incompatible_binding() {
+        let rejected = |args: &[SigArg], display: &[Param]| {
+            assert!(
+                std::panic::catch_unwind(|| super::validate_text_signature(args, display)).is_err()
+            );
+        };
+        rejected(SEARCH_BINDING, &SEARCH_DISPLAY[..3]);
+        let mut display = SEARCH_DISPLAY.to_vec();
+        display.push(Param::positional_only("extra"));
+        rejected(SEARCH_BINDING, &display);
+        display.pop();
+        display[0] = Param::positional_only("$module");
+        rejected(SEARCH_BINDING, &display);
+        display[0] = SEARCH_DISPLAY[0];
+        display[1].default = Some(DefaultRepr::None);
+        rejected(SEARCH_BINDING, &display);
+        display[1] = SEARCH_DISPLAY[1];
+        display[2].default = None;
+        rejected(SEARCH_BINDING, &display);
+        display[2] = Param {
+            kind: ParamKind::PositionalOrKeyword,
+            ..OPTIONAL_START
+        };
+        rejected(SEARCH_BINDING, &display);
+        let mut display = CSV_DISPLAY.to_vec();
+        display[2].name = "wrong_keyword";
+        rejected(CSV_BINDING, &display);
+        display[2] = CSV_DISPLAY[2];
+        display[3] = Param::var_positional("args");
+        rejected(CSV_BINDING, &display);
+        const NAMED: SigArg = SigArg {
+            name: "options",
+            params: Some(&[]),
+            binding_params: Some(&[Param::positional_or_keyword("named")]),
+            force_unpack_keywords: false,
+        };
+        rejected(&[NAMED], &[Param::positional_or_keyword("renamed")]);
+        rejected(&[NAMED], &[Param::positional_only("named")]);
+        rejected(
+            &[SigArg {
+                binding_params: None,
+                ..NAMED
+            }],
+            &[Param::positional_or_keyword("named")],
+        );
+        const UNKNOWN: &[Param] = &[Param::flatten(None)];
+        rejected(
+            &[SigArg {
+                binding_params: Some(UNKNOWN),
+                ..NAMED
+            }],
+            &[Param::positional_or_keyword("named")],
+        );
     }
 }

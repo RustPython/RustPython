@@ -497,6 +497,7 @@ mod _collections {
     }
 
     #[pyclass(
+        text_signature = "([iterable[, maxlen]])",
         flags(BASETYPE, HAS_WEAKREF),
         with(
             Constructor,
@@ -599,7 +600,7 @@ mod _collections {
             self._extend(&iterable, true, vm)
         }
 
-        #[pymethod]
+        #[pymethod(text_signature = "($self, value, [start, [stop]])")]
         fn index(
             &self,
             needle: PyObjectRef,

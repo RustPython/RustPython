@@ -1018,7 +1018,7 @@ impl Py<PyByteArray> {
             .into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         self.search_exported(
             options,
@@ -1039,12 +1039,12 @@ impl Py<PyByteArray> {
             .into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix[, start[, end]], /)")]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.starts_ends_with(options, true, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix[, start[, end]], /)")]
     fn startswith(
         &self,
         options: anystr::StartsEndsWithArgs,
@@ -1071,25 +1071,25 @@ impl Py<PyByteArray> {
         )
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let index = self.find_exported(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.find_exported(options, |h, n| h.find(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let index = self.find_exported(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.find_exported(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))

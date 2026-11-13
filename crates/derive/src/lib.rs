@@ -176,6 +176,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///     - `BASETYPE`: allows the class to be inheritable.
 ///     - `IMMUTABLETYPE`: class attributes are immutable.
 /// - `with`: which trait implementations are to be included in the python class.
+/// - `text_signature = "(...)"`: checked display signature for the class,
+///   using its `Initializer` (or `Constructor` when there is no initializer).
+///   Uses the same grammar as method overrides and keeps the stored doc body.
 /// ```rust, ignore
 /// #[pyclass(module = "my_module", name = "MyClass", base = BaseClass)]
 /// struct MyStruct {
@@ -215,6 +218,20 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `name`: the name of the method in Python,
 ///   by default it is the same as the Rust method, or surrounded by double underscores if magic is present.
 ///   This overrides `magic` and the default name and cannot be used with `magic` to prevent ambiguity.
+/// - `text_signature = "(...)"`: an explicit legacy display signature, checked
+///   at compile time against binding metadata. Supports positional parameters,
+///   `/`, literal defaults, `**kwargs`, and nested trailing optional groups
+///   such as `($self, sub[, start[, end]], /)`. Display-only aliases for
+///   positional parameters and literal defaults do not change argument parsing.
+///   Optional positional parameters may be documented as keyword-capable when
+///   a legacy wrapper accepts and forwards arbitrary keywords; the name must
+///   match the binding metadata. Unknown binders are rejected.
+///   CPython bracket notation without `/` (for example `([iterable[, maxlen]])`)
+///   leaves parameter kinds to the binder; arity, omission, and keyword names
+///   are still checked. `$cls` is a display alias for the `$type` class receiver.
+///   A known unrestricted `*args, **kwargs` binder may retain a separate declared
+///   display contract, as with `type.__prepare__`; overrides must match that
+///   contract rather than imposing new runtime restrictions.
 /// ### pygetset
 /// This is used to mark a getter/setter pair.
 /// #### Arguments
@@ -392,6 +409,10 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// ### pyfunction
+///
+/// `#[pyfunction(text_signature = "(...)")]` supports the same checked legacy
+/// display overrides as `pymethod`. It cannot be combined with
+/// `signature_from_flags`.
 ///
 /// `#[pyfunction(signature_from_flags)]` displays CPython's non-Clinic
 /// `METH_NOARGS` / `METH_O` signature (`$self`, and `object` for one argument).
