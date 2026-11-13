@@ -7281,14 +7281,15 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
-                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        let callee = Callee::named(descr.method.name);
+                        let (_callable, mut all_args) = self.take_call_args(nargs as usize);
                         debug_assert_eq!(all_args.len(), total_nargs as usize);
+                        let receiver = all_args.remove(0);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, None, args, callee)?;
+                        let result = func(vm, Some(&receiver), args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -7322,14 +7323,15 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
-                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        let callee = Callee::named(descr.method.name);
+                        let (_callable, mut all_args) = self.take_call_args(nargs as usize);
                         debug_assert_eq!(all_args.len(), total_nargs as usize);
+                        let receiver = all_args.remove(0);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, None, args, callee)?;
+                        let result = func(vm, Some(&receiver), args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -7363,14 +7365,15 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
-                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    let callee = Callee::named(descr.method.name);
+                    let (_callable, mut all_args) = self.take_call_args(nargs as usize);
                     debug_assert_eq!(all_args.len(), total_nargs as usize);
+                    let receiver = all_args.remove(0);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, None, args, callee)?;
+                    let result = func(vm, Some(&receiver), args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -7470,14 +7473,15 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
-                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
-                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    let callee = Callee::named(descr.method.name);
+                    let (_callable, mut all_args) = self.take_call_args(nargs as usize);
                     debug_assert_eq!(all_args.len(), total_nargs as usize);
+                    let receiver = all_args.remove(0);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, None, args, callee)?;
+                    let result = func(vm, Some(&receiver), args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }

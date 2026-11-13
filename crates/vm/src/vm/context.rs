@@ -356,7 +356,7 @@ impl Context {
 
         let names = unsafe { ConstName::new(&string_pool, types.str_type) };
 
-        let slot_new_wrapper = PyMethodDef::new_const(
+        let slot_new_wrapper = PyMethodDef::new_method_const(
             names.__new__.as_str(),
             PyType::__new__,
             PyMethodFlags::METHOD,

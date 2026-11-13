@@ -2806,7 +2806,7 @@ impl Py<PyType> {
     }
 
     #[pyclassmethod]
-    fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn __subclasshook__(_cls: &Py<PyType>, _args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
