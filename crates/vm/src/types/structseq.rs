@@ -16,7 +16,7 @@ use crate::{
     vm::Context,
 };
 
-const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
+const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_method_const(
     "__reduce__",
     |zelf: PyRef<PyTuple>, vm: &VirtualMachine| -> PyTupleRef {
         vm.new_tuple((

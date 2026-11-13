@@ -3,13 +3,11 @@ use crate::object::PyTypeObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
-use alloc::borrow::Cow;
 use core::ffi::{c_char, c_int};
 use core::fmt::Debug;
-use rustpython_vm::builtins::PyModule;
 use rustpython_vm::function::{Callee, FuncArgs, HeapMethodDef, ItemDoc, PosArgs, PyMethodFlags};
 use rustpython_vm::types::c_slots::{kwargs_ptr, split_args};
-use rustpython_vm::{AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
 define_py_check!(exact fn PyCFunction_CheckExact, types.builtin_function_or_method_type);
@@ -36,11 +34,7 @@ impl PyMethodDef {
         })
     }
 
-    pub(crate) fn build_method_def(
-        &self,
-        vm: &VirtualMachine,
-        has_self: bool,
-    ) -> PyResult<PyRef<HeapMethodDef>> {
+    pub(crate) fn build_method_def(&self, vm: &VirtualMachine) -> PyResult<PyRef<HeapMethodDef>> {
         let name = unsafe { self.ml_name.try_as_str(vm) }?;
 
         let doc = unsafe { self.ml_doc.try_as_str_opt(vm) }?;
@@ -53,7 +47,6 @@ impl PyMethodDef {
 
         let flags = PyMethodFlags::from_bits(self.ml_flags as u32)
             .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;
-        let has_self = has_self && !flags.contains(PyMethodFlags::STATIC);
 
         let method = self.ml_meth;
 
@@ -70,10 +63,10 @@ impl PyMethodDef {
 
         bitflags::bitflags_match!(call_flags, {
             PyMethodFlags::NOARGS => {
-                let callable = move |vm: &VirtualMachine, module: Option<&Py<PyModule>>, mut args: FuncArgs, callee: Callee| {
-                    let slf = take_self_arg(&mut args, has_self, module);
-                    args.bind_for::<()>(vm, callee.with_instance_arg(false))?;
-                    let slf_ptr = self_ptr(slf.as_deref());
+                let callable = move |vm: &VirtualMachine, receiver: Option<&rustpython_vm::PyObject>, args: FuncArgs, callee: Callee| {
+                    let receiver = receiver.filter(|_| !flags.contains(PyMethodFlags::STATIC));
+                    args.bind_for::<()>(vm, callee)?;
+                    let slf_ptr = self_ptr(receiver);
                     unsafe {
                         (method.PyCFunction)(slf_ptr, core::ptr::null_mut()).assume_owned_or_err(vm)
                     }
@@ -81,36 +74,40 @@ impl PyMethodDef {
                 Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::VARARGS => {
-                let callable = move |vm: &VirtualMachine, module: Option<&Py<PyModule>>, args: FuncArgs, callee: Callee| {
+                let callable = move |vm: &VirtualMachine, receiver: Option<&rustpython_vm::PyObject>, args: FuncArgs, callee: Callee| {
+                    let receiver = receiver.filter(|_| !flags.contains(PyMethodFlags::STATIC));
                     let (args,) = args.bind_for::<(PosArgs,)>(vm, callee)?;
-                    unsafe { call_function(vm, method, has_self, args.into(), module) }
+                    unsafe { call_function(vm, method, args.into(), receiver) }
                 };
                 Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
-                let callable = move |vm: &VirtualMachine, module: Option<&Py<PyModule>>, args: FuncArgs, _callee: Callee| unsafe {
-                    call_function_with_keywords(vm, method, has_self, args, module)
+                let callable = move |vm: &VirtualMachine, receiver: Option<&rustpython_vm::PyObject>, args: FuncArgs, _callee: Callee| unsafe {
+                    let receiver = receiver.filter(|_| !flags.contains(PyMethodFlags::STATIC));
+                    call_function_with_keywords(vm, method, args, receiver)
                 };
                 Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
-                let callable = move |vm: &VirtualMachine, module: Option<&Py<PyModule>>, args: FuncArgs, _callee: Callee| unsafe {
-                    call_fast_function_with_keywords(vm, method, has_self, args, module)
+                let callable = move |vm: &VirtualMachine, receiver: Option<&rustpython_vm::PyObject>, args: FuncArgs, _callee: Callee| unsafe {
+                    let receiver = receiver.filter(|_| !flags.contains(PyMethodFlags::STATIC));
+                    call_fast_function_with_keywords(vm, method, args, receiver)
                 };
                 Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::FASTCALL => {
-                let callable = move |vm: &VirtualMachine, module: Option<&Py<PyModule>>, args: FuncArgs, callee: Callee| {
+                let callable = move |vm: &VirtualMachine, receiver: Option<&rustpython_vm::PyObject>, args: FuncArgs, callee: Callee| {
+                    let receiver = receiver.filter(|_| !flags.contains(PyMethodFlags::STATIC));
                     let (args,) = args.bind_for::<(PosArgs,)>(vm, callee)?;
-                    unsafe { call_fast_function(vm, method, has_self, args, module) }
+                    unsafe { call_fast_function(vm, method, args, receiver) }
                 };
                 Ok(vm.ctx.new_raw_method_def(name, callable, flags, doc))
             },
             PyMethodFlags::O => {
-                let callable = move |vm: &VirtualMachine, module: Option<&Py<PyModule>>, mut args: FuncArgs, callee: Callee| {
-                    let slf = take_self_arg(&mut args, has_self, module);
-                    let (arg,) = args.bind_for::<(PyObjectRef,)>(vm, callee.with_instance_arg(false))?;
-                    let slf_ptr = self_ptr(slf.as_deref());
+                let callable = move |vm: &VirtualMachine, receiver: Option<&rustpython_vm::PyObject>, args: FuncArgs, callee: Callee| {
+                    let receiver = receiver.filter(|_| !flags.contains(PyMethodFlags::STATIC));
+                    let (arg,) = args.bind_for::<(PyObjectRef,)>(vm, callee)?;
+                    let slf_ptr = self_ptr(receiver);
                     unsafe {
                         (method.PyCFunction)(slf_ptr, arg.as_raw().cast_mut()).assume_owned_or_err(vm)
                     }
@@ -167,27 +164,23 @@ impl Debug for PyMethodPointer {
 unsafe fn call_function(
     vm: &VirtualMachine,
     method: PyMethodPointer,
-    has_self: bool,
-    mut args: FuncArgs,
-    module: Option<&Py<PyModule>>,
+    args: FuncArgs,
+    receiver: Option<&rustpython_vm::PyObject>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunction };
-    let slf = take_self_arg(&mut args, has_self, module);
     let arg_tuple = vm.ctx.new_tuple(args.args);
-    let slf_ptr = self_ptr(slf.as_deref());
+    let slf_ptr = self_ptr(receiver);
     unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()).assume_owned_or_err(vm) }
 }
 
 unsafe fn call_function_with_keywords(
     vm: &VirtualMachine,
     method: PyMethodPointer,
-    has_self: bool,
-    mut args: FuncArgs,
-    module: Option<&Py<PyModule>>,
+    args: FuncArgs,
+    receiver: Option<&rustpython_vm::PyObject>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunctionWithKeywords };
-    let slf = take_self_arg(&mut args, has_self, module);
-    let slf_ptr = self_ptr(slf.as_deref());
+    let slf_ptr = self_ptr(receiver);
     let (arg_tuple, kwargs) = split_args(vm, args)?;
     unsafe {
         f(
@@ -202,13 +195,11 @@ unsafe fn call_function_with_keywords(
 unsafe fn call_fast_function_with_keywords(
     vm: &VirtualMachine,
     method: PyMethodPointer,
-    has_self: bool,
-    mut args: FuncArgs,
-    module: Option<&Py<PyModule>>,
+    args: FuncArgs,
+    receiver: Option<&rustpython_vm::PyObject>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunctionFastWithKeywords };
-    let slf = take_self_arg(&mut args, has_self, module);
-    let slf_ptr = self_ptr(slf.as_deref());
+    let slf_ptr = self_ptr(receiver);
     let nargs = args.args.len();
     let mut fastcall_args = args.args;
     let kwnames_tuple = if !args.kwargs.is_empty() {
@@ -234,33 +225,17 @@ unsafe fn call_fast_function_with_keywords(
 unsafe fn call_fast_function(
     vm: &VirtualMachine,
     method: PyMethodPointer,
-    has_self: bool,
     args: PosArgs,
-    module: Option<&Py<PyModule>>,
+    receiver: Option<&rustpython_vm::PyObject>,
 ) -> PyResult {
     let f = unsafe { method.PyCFunctionFast };
-    let mut args: FuncArgs = args.into();
-    let slf = take_self_arg(&mut args, has_self, module);
-    let slf_ptr = self_ptr(slf.as_deref());
+    let args: FuncArgs = args.into();
+    let slf_ptr = self_ptr(receiver);
     // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
-    let fastcall_arg_ptrs = args.args.as_mut_ptr().cast::<*mut PyObject>();
+    let fastcall_arg_ptrs = args.args.as_ptr().cast::<*mut PyObject>();
     unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize).assume_owned_or_err(vm) }
-}
-
-fn take_self_arg<'a>(
-    args: &mut FuncArgs,
-    has_self: bool,
-    module: Option<&'a Py<PyModule>>,
-) -> Option<Cow<'a, rustpython_vm::PyObject>> {
-    if !has_self {
-        None
-    } else if let Some(module) = module {
-        Some(Cow::Borrowed(module.as_object()))
-    } else {
-        args.take_positional().map(Cow::Owned)
-    }
 }
 
 fn self_ptr(slf: Option<&rustpython_vm::PyObject>) -> *mut PyObject {
@@ -281,10 +256,7 @@ pub unsafe extern "C" fn PyCMethod_New(
         );
         let ml = unsafe { &*ml };
         let zelf = unsafe { slf.assume_borrowed_or_opt() }.map(ToOwned::to_owned);
-        Ok(ml
-            .build_method_def(vm, zelf.is_some())?
-            .build_function(vm, zelf)
-            .into())
+        Ok(ml.build_method_def(vm)?.build_function(vm, zelf).into())
     })
 }
 
@@ -464,6 +436,186 @@ mod tests {
                 f.call((), Some(&kwargs)).unwrap().extract::<i32>().unwrap(),
                 42
             );
+        });
+    }
+    #[test]
+    fn native_methods_receive_self_separately_from_user_arguments() {
+        use pyo3::types::{PyDict, PyTuple, PyType};
+
+        #[pyclass(frozen)]
+        struct Receiver {
+            value: i64,
+        }
+
+        #[pymethods]
+        impl Receiver {
+            fn noargs(&self) -> i64 {
+                self.value
+            }
+
+            fn one(&self, value: i64) -> i64 {
+                self.value + value
+            }
+
+            #[pyo3(signature = (*args, **kwargs))]
+            fn variadic(
+                &self,
+                args: &Bound<'_, PyTuple>,
+                kwargs: Option<&Bound<'_, PyDict>>,
+            ) -> (i64, usize, usize) {
+                (
+                    self.value,
+                    args.len(),
+                    kwargs.map_or(0, |kwargs| kwargs.len()),
+                )
+            }
+
+            #[classmethod]
+            fn class_receiver(cls: &Bound<'_, PyType>) -> bool {
+                cls.is_subclass_of::<Self>().unwrap()
+            }
+
+            #[staticmethod]
+            fn static_noargs() -> i64 {
+                42
+            }
+
+            #[staticmethod]
+            fn explicit_type_argument(cls: &Bound<'_, PyType>) -> bool {
+                cls.is_subclass_of::<Self>().unwrap()
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, Receiver { value: 40 }).unwrap();
+            let class = obj.get_type();
+            let bound = obj.getattr("one").unwrap();
+            assert!(bound.getattr("__self__").unwrap().is(&obj));
+            assert_eq!(bound.call1((2,)).unwrap().extract::<i64>().unwrap(), 42);
+            assert_eq!(
+                class
+                    .getattr("one")
+                    .unwrap()
+                    .call1((&obj, 2))
+                    .unwrap()
+                    .extract::<i64>()
+                    .unwrap(),
+                42
+            );
+            assert!(bound.call0().is_err());
+            assert!(bound.call1((1, 2)).is_err());
+            assert!(class.getattr("one").unwrap().call0().is_err());
+            assert!(class.getattr("one").unwrap().call1((1, 2)).is_err());
+            assert_eq!(
+                obj.call_method0("noargs")
+                    .unwrap()
+                    .extract::<i64>()
+                    .unwrap(),
+                40
+            );
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("named", 3).unwrap();
+            assert_eq!(
+                obj.call_method("variadic", (1, 2), Some(&kwargs))
+                    .unwrap()
+                    .extract::<(i64, usize, usize)>()
+                    .unwrap(),
+                (40, 2, 1)
+            );
+            assert!(
+                obj.call_method0("class_receiver")
+                    .unwrap()
+                    .extract::<bool>()
+                    .unwrap()
+            );
+            assert_eq!(
+                class
+                    .call_method0("static_noargs")
+                    .unwrap()
+                    .extract::<i64>()
+                    .unwrap(),
+                42
+            );
+            assert_eq!(
+                obj.call_method0("static_noargs")
+                    .unwrap()
+                    .extract::<i64>()
+                    .unwrap(),
+                42
+            );
+            let static_function = class.getattr("explicit_type_argument").unwrap();
+            assert!(static_function.getattr("__self__").unwrap().is_none());
+            let wrapper = class
+                .getattr("__dict__")
+                .unwrap()
+                .get_item("explicit_type_argument")
+                .unwrap();
+            assert_eq!(
+                wrapper.get_type().name().unwrap().to_str().unwrap(),
+                "staticmethod"
+            );
+            assert!(wrapper.getattr("__func__").unwrap().is(&static_function));
+            let module = static_function.getattr("__module__").unwrap();
+            class
+                .setattr("__module__", "changed_after_registration")
+                .unwrap();
+            assert!(static_function.getattr("__module__").unwrap().is(&module));
+            assert!(
+                static_function
+                    .call1((&class,))
+                    .unwrap()
+                    .extract::<bool>()
+                    .unwrap()
+            );
+            assert!(
+                class
+                    .getattr("__dict__")
+                    .unwrap()
+                    .get_item("explicit_type_argument")
+                    .unwrap()
+                    .call1((&class,))
+                    .unwrap()
+                    .extract::<bool>()
+                    .unwrap()
+            );
+            assert!(
+                obj.call_method1("explicit_type_argument", (&class,))
+                    .unwrap()
+                    .extract::<bool>()
+                    .unwrap()
+            );
+            assert!(obj.call_method0("explicit_type_argument").is_err());
+        });
+    }
+    #[test]
+    fn static_c_adapter_ignores_its_bound_class() {
+        unsafe extern "C" fn check_self(
+            slf: *mut crate::PyObject,
+            args: *mut crate::PyObject,
+        ) -> *mut crate::PyObject {
+            unsafe { PyLong_FromLong((slf.is_null() && args.is_null()).into()).cast() }
+        }
+        Python::attach(|py| {
+            let mut definition = super::PyMethodDef {
+                ml_name: c"static_noargs".as_ptr(),
+                ml_meth: super::PyMethodPointer {
+                    PyCFunction: check_self,
+                },
+                ml_flags: pyo3::ffi::METH_STATIC | pyo3::ffi::METH_NOARGS,
+                ml_doc: c"".as_ptr(),
+            };
+            // The safe PyO3 wrapper owns the function; only construction crosses
+            // the C boundary so the callback can observe its actual self pointer.
+            let function = unsafe {
+                Bound::<PyAny>::from_owned_ptr_or_err(
+                    py,
+                    super::PyCFunction_New(&mut definition, py.get_type::<PyAny>().as_ptr().cast())
+                        .cast(),
+                )
+            }
+            .unwrap();
+            assert!(function.getattr("__self__").unwrap().is_none());
+            assert_eq!(function.call0().unwrap().extract::<i64>().unwrap(), 1);
         });
     }
 }
