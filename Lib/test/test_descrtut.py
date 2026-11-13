@@ -474,8 +474,7 @@ __test__ = {"tut1": test_1,
             "tut8": test_8}
 
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
-    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite())
     return tests
 
 

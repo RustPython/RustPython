@@ -9,10 +9,7 @@ from enum import StrEnum, _test_simple_enum
 import os
 import pstats
 import tempfile
-try:
-    import cProfile # XXX: RUSTPYTHON
-except ImportError:
-    cProfile = None
+import cProfile
 
 class LazyImportTest(unittest.TestCase):
     @support.cpython_only
