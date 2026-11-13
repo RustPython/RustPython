@@ -29,7 +29,7 @@ pub use _io::{OpenArgs, io_open as open};
 use rustpython_host_env::io as host_io;
 
 /// Mirror the file descriptor conversion used by FileIO and WindowsConsoleIO.
-#[cfg(feature = "host_env")]
+#[cfg(feature = "host_io")]
 fn open_file_descriptor(name: &PyObject, vm: &VirtualMachine) -> PyResult<Option<i32>> {
     if name.class().is(vm.ctx.types.bool_type) {
         crate::stdlib::_warnings::warn(
@@ -344,7 +344,7 @@ mod _io {
         pos: Option<PyObjectRef>,
     }
 
-    #[cfg(feature = "host_env")]
+    #[cfg(feature = "host_io")]
     #[derive(FromArgs)]
     pub(super) struct ObjLen {
         #[pyarg(positional, optional)]
@@ -5995,7 +5995,7 @@ mod _io {
                     Some(super::fileio::FileIO::static_type())
                 }
             }
-            feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+            feature = "host_io" => Some(super::fileio::FileIO::static_type()),
             _ => None,
         }
         .ok_or_else(|| {
@@ -6225,15 +6225,15 @@ mod _io {
     }
 
     #[cfg_attr(
-        not(feature = "host_env"),
+        not(feature = "host_io"),
         expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")
     )]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         // Call auto-generated initialization first
         __module_exec(vm, module);
 
-        // Initialize FileIO types (requires host_env for filesystem access)
-        #[cfg(feature = "host_env")]
+        // Initialize FileIO types (requires host_io for descriptor access)
+        #[cfg(feature = "host_io")]
         super::fileio::module_exec(vm, module)?;
 
         // Initialize WindowsConsoleIO type (Windows only)
@@ -6248,8 +6248,8 @@ mod _io {
         Ok(())
     }
 }
-// FileIO requires host environment for filesystem access
-#[cfg(feature = "host_env")]
+// FileIO requires host descriptor access, not the full Python OS module.
+#[cfg(feature = "host_io")]
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
@@ -6262,7 +6262,6 @@ mod fileio {
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgBytesLike, ArgMemoryBuffer},
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6363,7 +6362,7 @@ mod fileio {
                     (fd, None)
                 } else {
                     let path = path.take().expect("a filename was resolved above");
-                    #[cfg(any(unix, target_os = "wasi"))]
+                    #[cfg(not(windows))]
                     let raw_path = path.clone().into_cstring(vm)?;
                     #[cfg(windows)]
                     let raw_path = path.to_wide_cstring(vm)?;
@@ -6371,7 +6370,9 @@ mod fileio {
                     loop {
                         match vm.allow_threads(|| host_io::open_path(&raw_path, flags, 0o666)) {
                             Ok(fd) => break (fd.into_raw(), Some(filename)),
-                            Err(e) if e.posix_errno() == libc::EINTR => vm.check_signals()?,
+                            Err(e) if e.posix_errno() == crate::host_env::errno::errors::EINTR => {
+                                vm.check_signals()?;
+                            }
                             Err(e) => {
                                 return Err(OSErrorBuilder::with_filename_from_errno(
                                     &e, filename, vm,
@@ -6396,7 +6397,7 @@ mod fileio {
                     if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {
                         zelf.fd.store(-1);
                     }
-                    if err.posix_errno() == libc::EBADF {
+                    if err.posix_errno() == crate::host_env::errno::errors::EBADF {
                         return Err(err.to_pyexception(vm));
                     }
                     // Keep the original name alive through error construction and local cleanup.
@@ -6408,7 +6409,7 @@ mod fileio {
             }
 
             #[cfg(windows)]
-            crate::stdlib::msvcrt::setmode_binary(fd);
+            crate::host_env::msvcrt::setmode_binary(fd);
             if let Err(e) = zelf.as_object().set_attr("name", name, vm) {
                 // If fd was passed by user, don't close it on error
                 if !fd_is_own {
@@ -6731,7 +6732,7 @@ mod fileio {
                 Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
-            os::ftruncate_borrowed(fd, len).map_err(|e| e.into_pyexception(vm))?;
+            crt_fd::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
         }
 

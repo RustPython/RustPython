@@ -12,7 +12,9 @@ license.workspace = true
 [features]
 default = ["compiler", "wasmbind", "gc", "host_env", "stdio", "doc"]
 doc = ["dep:rustpython-doc", "dep:xz"]
-host_env = ["rustpython-host_env/ctypes"]
+host_env = ["host_io", "rustpython-host_env/ctypes"]
+# FileIO without unrelated host modules such as ctypes, subprocess and signals.
+host_io = []
 stdio = []
 importlib = []
 encodings = ["importlib"]

@@ -76,6 +76,20 @@ For each of the three components, the entry point is as follows:
 - Compiler: `compile`, located in [`crates/vm/src/vm/compile.rs`][11], this eventually forwards a call to [`compiler::compile`][12].
 - VM: `run_code_obj`, located in [`crates/vm/src/vm/mod.rs`][13]. This creates a new frame in which the bytecode is executed.
 
+## Embedded file I/O
+
+The `rustpython-vm` feature `host_io` enables `_io.FileIO` and file-descriptor
+path conversion without enabling the Python OS, subprocess, signal or ctypes
+modules. The existing `host_env` feature includes `host_io`, so default builds
+retain their existing behavior. `host_io` does not install standard streams by
+itself.
+
+This feature is **not a sandbox**: on native platforms, it uses the existing
+host file-descriptor backend, including access to host paths. On
+`wasm32-unknown-unknown`, the current backend still reports unsupported file
+operations. Merely enabling `host_io` does not provide host imports or make
+CPython's `-m test` runner usable.
+
 ## Components
 
 Here we give a brief overview of each component and its function. For more details for the separate crates please take a look at their respective READMEs.

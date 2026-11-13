@@ -122,6 +122,7 @@ impl OsPathOrFd<'_> {
 }
 
 impl OSErrorBuilder {
+    #[cfg(feature = "host_env")]
     #[must_use]
     pub(crate) fn with_filename<'a>(
         error: &std::io::Error,
@@ -139,6 +140,7 @@ impl OSErrorBuilder {
         builder.build(vm).upcast()
     }
 
+    #[cfg(feature = "host_env")]
     pub(crate) fn with_filenames(
         error: &std::io::Error,
         first: &OsPath,
