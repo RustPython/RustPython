@@ -240,8 +240,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     let executable = get_executable_path();
     let real_executable = executable
         .as_ref()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|p| p.to_string_lossy().into_owned());
 
     // Step 1: Check for PYTHONEXECUTABLE / __PYVENV_LAUNCHER__
     // When set, these are used as sys.executable and when searching for venvs.
@@ -536,9 +535,7 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&Pat
     }
 
     // Otherwise, base_executable == executable
-    executable
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    executable.map_or_default(|p| p.to_string_lossy().into_owned())
 }
 
 /// Calculate stdlib_dir (sys._stdlib_dir)

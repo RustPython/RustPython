@@ -2107,18 +2107,15 @@ impl<'warnings> Compiler<'warnings> {
 
         // Build freevars using dictbytype (FREE scope, offset by cellvars size)
         let mut freevar_cache = IndexSet::default();
-        let annotation_free_names: IndexSet<Name> = ste
-            .annotation_block
-            .as_ref()
-            .map(|annotation| {
+        let annotation_free_names: IndexSet<Name> =
+            ste.annotation_block.as_ref().map_or_default(|annotation| {
                 annotation
                     .symbols
                     .iter()
                     .filter(|(_, s)| s.scope == SymbolScope::Free)
                     .map(|(name, _)| name.clone())
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         let mut free_names: Vec<_> = ste
             .symbols
             .iter()
@@ -6253,8 +6250,7 @@ impl<'warnings> Compiler<'warnings> {
                 .unwrap()
                 .static_attributes
                 .as_ref()
-                .map(|s| s.iter().cloned().collect())
-                .unwrap_or_default();
+                .map_or_default(|s| s.iter().cloned().collect());
             attrs.sort();
             self.emit_load_const(ConstantData::Tuple {
                 elements: attrs

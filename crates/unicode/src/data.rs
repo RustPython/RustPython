@@ -382,10 +382,7 @@ impl Ucd {
             lookup_table(BIDI_CLASS_DIFF, c)
                 .or_else(|| membership_3_2(c as u32).then(|| BidiClass::for_char(c)))
         };
-        class
-            .as_ref()
-            .map(BidiClass::short_name)
-            .unwrap_or_default()
+        class.as_ref().map_or_default(BidiClass::short_name)
     }
 
     #[must_use]
@@ -474,10 +471,7 @@ impl Ucd {
             // have to do it manually for now.
             let tag = DECOMP_COMPAT[i].1.type_tag();
             let end = DECOMP_COMPAT[i].2;
-            let start = i
-                .checked_sub(1)
-                .map(|i| DECOMP_COMPAT[i].2)
-                .unwrap_or_default();
+            let start = i.checked_sub(1).map_or_default(|i| DECOMP_COMPAT[i].2);
 
             let decomp = &DECOMP_RANGE[start..end];
             let cap = decomp.len() * 10 + decomp.len() + tag.len() + 1;

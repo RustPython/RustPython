@@ -45,8 +45,7 @@ fn type_params_from_values(
     let runtime_type_params = values.iter().any(Option::is_none).then(|| values.clone());
     let type_params = lower_nullable_type_params(&values);
     let range = Option::zip(type_params.first(), type_params.last())
-        .map(|(first, last)| first.range().cover(last.range()))
-        .unwrap_or_default();
+        .map_or_default(|(first, last)| first.range().cover(last.range()));
     ast::TypeParams {
         node_index: Default::default(),
         type_params,

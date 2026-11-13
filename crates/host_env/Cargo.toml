@@ -37,7 +37,6 @@ getrandom = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
-paste = { workspace = true }
 pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
 rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
 rustls-pemfile = { workspace = true, optional = true }
@@ -84,6 +83,7 @@ system-configuration = { workspace = true }
 object = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+paste = { workspace = true }
 memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }

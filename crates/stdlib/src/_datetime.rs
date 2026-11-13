@@ -1131,9 +1131,7 @@ mod _datetime {
         arg: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        Ok(call_utcoffset(tzinfo, arg, vm)?
-            .map(|offset| format_offset(&offset, sep))
-            .unwrap_or_default())
+        Ok(call_utcoffset(tzinfo, arg, vm)?.map_or_default(|offset| format_offset(&offset, sep)))
     }
 
     fn append_keyword_tzinfo(

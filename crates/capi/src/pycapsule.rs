@@ -38,7 +38,7 @@ pub unsafe extern "C" fn PyCapsule_GetName(capsule: *mut PyObject) -> *const c_c
         let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
-        Ok(capsule.name().map(CStr::as_ptr).unwrap_or_default())
+        Ok(capsule.name().map_or_default(CStr::as_ptr))
     })
 }
 
@@ -135,7 +135,7 @@ fn checked_capsule<'a>(
         .downcast_ref_if_exact::<PyCapsule>(vm)
         .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
 
-    if !names_match(capsule.name().map(CStr::as_ptr).unwrap_or_default(), name) {
+    if !names_match(capsule.name().map_or_default(CStr::as_ptr), name) {
         return Err(vm.new_value_error("Capsule name does not match"));
     }
 

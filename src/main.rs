@@ -4,7 +4,6 @@ use rustpython::{InterpreterBuilder, InterpreterBuilderExt};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[must_use]
 pub fn main() -> std::process::ExitCode {
     let mut config = InterpreterBuilder::new();
     #[cfg(feature = "stdlib")]
