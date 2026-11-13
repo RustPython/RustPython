@@ -16,8 +16,19 @@ pub mod errno;
 mod file_mode;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod io;
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+#[cfg(all(
+    target_arch = "wasm32",
+    not(target_os = "wasi"),
+    not(all(target_os = "unknown", feature = "wasm-host-io"))
+))]
 #[path = "io_unsupported.rs"]
+pub mod io;
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-host-io"
+))]
+#[path = "io_wasm.rs"]
 pub mod io;
 pub mod os;
 #[cfg(any(unix, windows))]
@@ -25,8 +36,19 @@ pub mod thread;
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+#[cfg(all(
+    target_arch = "wasm32",
+    not(target_os = "wasi"),
+    not(all(target_os = "unknown", feature = "wasm-host-io"))
+))]
 #[path = "crt_fd_unsupported.rs"]
+pub mod crt_fd;
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-host-io"
+))]
+#[path = "crt_fd_wasm.rs"]
 pub mod crt_fd;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
@@ -110,3 +132,10 @@ pub mod winreg;
 pub mod winsound;
 #[cfg(windows)]
 pub mod wmi;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    feature = "wasm-host-io"
+))]
+mod wasm_host_io;
