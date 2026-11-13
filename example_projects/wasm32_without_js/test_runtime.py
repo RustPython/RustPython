@@ -46,6 +46,20 @@ f'guest:{sum(values)}:한글'
 """
         self.assertEqual(self.run_guest("-c", source), "'guest:55:한글'\n")
 
+    def test_host_storage(self):
+        source = """
+import kv
+assert kv.get(b'missing') is None
+kv.put(b'k', b'v')
+assert kv.get(b'k') == b'v'
+kv.put(b'k', b'replaced')
+big = bytes(range(256)) * 64
+kv.put(b'big', big)
+assert kv.get(b'big') == big
+(kv.get(b'k'), len(kv.get(b'big')))
+"""
+        self.assertEqual(self.run_guest("-c", source), "(b'replaced', 16384)\n")
+
     def test_file_source(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source with spaces.py"

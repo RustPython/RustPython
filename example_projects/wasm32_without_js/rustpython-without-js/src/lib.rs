@@ -1,8 +1,10 @@
-use rustpython_vm::{Interpreter, Settings};
+use rustpython_vm::{Interpreter, Settings, pymodule};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn print(p: i32, l: i32) -> i32;
+    fn kv_put(key_ptr: i32, key_len: i32, value_ptr: i32, value_len: i32) -> i32;
+    fn kv_get(key_ptr: i32, key_len: i32, buf_ptr: i32, buf_len: i32) -> i32;
 }
 
 // The host writes source into guest-owned memory before calling eval.
@@ -13,6 +15,45 @@ pub extern "C" fn alloc_source(len: usize) -> *mut u8 {
 
 fn report(message: &str) {
     unsafe { print(message.as_ptr() as i32, message.len() as i32) };
+}
+
+#[pymodule]
+mod kv {
+    use rustpython_vm::builtins::PyBytesRef;
+
+    #[pyfunction]
+    fn put(key: PyBytesRef, value: PyBytesRef) {
+        let key = key.as_bytes();
+        let value = value.as_bytes();
+        unsafe {
+            super::kv_put(
+                key.as_ptr() as i32,
+                key.len() as i32,
+                value.as_ptr() as i32,
+                value.len() as i32,
+            );
+        }
+    }
+
+    #[pyfunction]
+    fn get(key: PyBytesRef) -> Option<Vec<u8>> {
+        let key = key.as_bytes();
+        let key_ptr = key.as_ptr() as i32;
+        let key_len = key.len() as i32;
+        let mut buf = vec![0u8; 64];
+        loop {
+            let len = unsafe {
+                super::kv_get(key_ptr, key_len, buf.as_mut_ptr() as i32, buf.len() as i32)
+            };
+            // A negative length means the key is missing.
+            let len = usize::try_from(len).ok()?;
+            if len <= buf.len() {
+                buf.truncate(len);
+                return Some(buf);
+            }
+            buf.resize(len, 0);
+        }
+    }
 }
 
 /// Execute UTF-8 Python source. Return 0 on success, 1 for a Python exception,
@@ -33,7 +74,9 @@ pub unsafe extern "C" fn eval(source: *mut u8, len: usize) -> i32 {
     // rather than pretending that the custom getrandom backend produced bytes.
     let mut settings = Settings::default();
     settings.hash_seed = Some(0);
-    let interpreter = Interpreter::without_stdlib(settings);
+    let builder = Interpreter::builder(settings);
+    let def = kv::module_def(&builder.ctx);
+    let interpreter = builder.add_native_module(def).build();
     interpreter.enter(|vm| {
         let scope = vm.new_scope_with_builtins();
         match vm

@@ -1,29 +1,83 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{collections::HashMap, path::PathBuf, process::ExitCode};
 
 use wasmer::{
-    Function, FunctionEnv, FunctionEnvMut, Instance, Memory, Module, RuntimeError, Store, imports,
+    AsStoreRef, Function, FunctionEnv, FunctionEnvMut, Instance, Memory, Module, RuntimeError,
+    Store, imports,
 };
 
 const USAGE: &str = "usage: wasm-runtime MODULE.wasm (-c CODE | FILE.py)";
 
 struct Context {
     memory: Option<Memory>,
+    kv: HashMap<Vec<u8>, Vec<u8>>,
+}
+
+impl Context {
+    fn memory(&self) -> Result<&Memory, RuntimeError> {
+        self.memory
+            .as_ref()
+            .ok_or_else(|| RuntimeError::new("guest memory is not initialized"))
+    }
+}
+
+fn read_memory(
+    context: &Context,
+    store: &impl AsStoreRef,
+    ptr: u32,
+    len: u32,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut bytes = vec![0; len as usize];
+    context
+        .memory()?
+        .view(store)
+        .read(u64::from(ptr), &mut bytes)
+        .map_err(|err| RuntimeError::new(err.to_string()))?;
+    Ok(bytes)
 }
 
 fn print(mut ctx: FunctionEnvMut<Context>, ptr: u32, len: u32) -> Result<i32, RuntimeError> {
     let (context, store) = ctx.data_and_store_mut();
-    let memory = context
-        .memory
-        .as_ref()
-        .ok_or_else(|| RuntimeError::new("guest memory is not initialized"))?
-        .view(&store);
-    let mut bytes = vec![0; len as usize];
-    memory
-        .read(u64::from(ptr), &mut bytes)
-        .map_err(|err| RuntimeError::new(err.to_string()))?;
+    let bytes = read_memory(context, &store, ptr, len)?;
     let message = std::str::from_utf8(&bytes).map_err(|err| RuntimeError::new(err.to_string()))?;
     println!("{message}");
     Ok(0)
+}
+
+fn kv_put(
+    mut ctx: FunctionEnvMut<Context>,
+    key_ptr: u32,
+    key_len: u32,
+    value_ptr: u32,
+    value_len: u32,
+) -> Result<i32, RuntimeError> {
+    let (context, store) = ctx.data_and_store_mut();
+    let key = read_memory(context, &store, key_ptr, key_len)?;
+    let value = read_memory(context, &store, value_ptr, value_len)?;
+    context.kv.insert(key, value);
+    Ok(0)
+}
+
+fn kv_get(
+    mut ctx: FunctionEnvMut<Context>,
+    key_ptr: u32,
+    key_len: u32,
+    buf_ptr: u32,
+    buf_len: u32,
+) -> Result<i32, RuntimeError> {
+    let (context, store) = ctx.data_and_store_mut();
+    let key = read_memory(context, &store, key_ptr, key_len)?;
+    let Some(value) = context.kv.get(&key) else {
+        return Ok(-1);
+    };
+    let len = i32::try_from(value.len()).map_err(|err| RuntimeError::new(err.to_string()))?;
+    if value.len() <= buf_len as usize {
+        context
+            .memory()?
+            .view(&store)
+            .write(u64::from(buf_ptr), value)
+            .map_err(|err| RuntimeError::new(err.to_string()))?;
+    }
+    Ok(len)
 }
 
 fn run() -> Result<i32, Box<dyn std::error::Error>> {
@@ -48,14 +102,22 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let module = Module::new(&store, std::fs::read(&module_path)?)?;
     // Fail closed if a future build accidentally acquires OS or JS imports.
     for import in module.imports() {
-        if import.module() != "env" || import.name() != "print" {
+        if import.module() != "env" || !matches!(import.name(), "print" | "kv_get" | "kv_put") {
             return Err(format!("unexpected import: {}.{}", import.module(), import.name()).into());
         }
     }
-    let env = FunctionEnv::new(&mut store, Context { memory: None });
+    let env = FunctionEnv::new(
+        &mut store,
+        Context {
+            memory: None,
+            kv: HashMap::new(),
+        },
+    );
     let imports = imports! {
         "env" => {
             "print" => Function::new_typed_with_env(&mut store, &env, print),
+            "kv_get" => Function::new_typed_with_env(&mut store, &env, kv_get),
+            "kv_put" => Function::new_typed_with_env(&mut store, &env, kv_put),
         }
     };
     let instance = Instance::new(&mut store, &module, &imports)?;

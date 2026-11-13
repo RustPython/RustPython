@@ -2,7 +2,9 @@
 
 This example runs Python source on `wasm32-unknown-unknown` in a native Wasmer
 host. The guest has no JavaScript or WASI dependency and no operating-system
-services. It imports only `env.print`. The host rejects any other import.
+services. It imports `env.print`, `env.kv_get`, and `env.kv_put`. The host
+rejects any other import. The `kv` module (`kv.get` / `kv.put`) reads and
+writes byte storage owned by the host; the map is empty for each run.
 
 ## Build and run
 
@@ -37,5 +39,5 @@ python3 test_runtime.py -v \
 
 The existing WASM CI job runs these checks.
 
-This is a no-OS build: `Interpreter::without_stdlib`, only `env.print`, a fixed
-hash seed, and unsupported entropy.
+This is a no-OS build: `Interpreter::builder` with a native `kv` module, host-lent
+storage, a fixed hash seed, and unsupported entropy.
