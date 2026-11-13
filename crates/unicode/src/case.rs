@@ -7,10 +7,8 @@
 //! predicates expose the derived properties that `str.islower`/`isupper`/
 //! `istitle` need.
 //!
-//! Plain `str.lower`/`str.upper` have no such context beyond the final-sigma
-//! rule that `str::to_lowercase` already applies, so they stay on
-//! `rustpython_wtf8::Wtf8::to_lowercase`/`to_uppercase` rather than being
-//! duplicated here.
+//! All Unicode mappings use ICU data, matching the rest of this crate rather
+//! than the Unicode version bundled with the Rust compiler.
 
 // spell-checker:ignore ΟΔΟΣ Οδος
 
@@ -22,11 +20,17 @@ use alloc::{
 use icu_casemap::options::{LeadingAdjustment, TitlecaseOptions};
 use icu_casemap::{CaseMapper, TitlecaseMapper};
 use icu_locale::LanguageIdentifier;
-use icu_properties::props::{
-    BinaryProperty, CaseIgnorable, Cased, EnumeratedProperty, GeneralCategory, Lowercase, Uppercase,
-};
+use icu_properties::props::{EnumeratedProperty, GeneralCategory};
 use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk};
 use writeable::Writeable;
+
+include!(concat!(env!("OUT_DIR"), "/generated/case_mappings.rs"));
+
+#[inline(always)]
+fn lookup_page(ch: char, index: &[u16], pages: &[u16]) -> usize {
+    let n = ch as usize;
+    usize::from(pages[usize::from(index[n >> 8]) * 256 + (n & 255)])
+}
 
 // Code-point mappings
 
@@ -65,13 +69,13 @@ pub fn simple_fold(c: char) -> char {
 /// Whether `c` has the `Lowercase` property.
 #[must_use]
 pub fn is_lowercase(c: char) -> bool {
-    Lowercase::for_char(c)
+    lookup_page(c, CASE_FLAGS_INDEX, CASE_FLAGS_PAGES) & 4 != 0
 }
 
 /// Whether `c` has the `Uppercase` property.
 #[must_use]
 pub fn is_uppercase(c: char) -> bool {
-    Uppercase::for_char(c)
+    lookup_page(c, CASE_FLAGS_INDEX, CASE_FLAGS_PAGES) & 8 != 0
 }
 
 /// Whether `c` is a titlecase letter (general category `Lt`).
@@ -83,16 +87,92 @@ pub fn is_titlecase(c: char) -> bool {
 /// Whether `c` has the `Cased` property.
 #[must_use]
 pub fn is_cased(c: char) -> bool {
-    Cased::for_char(c)
+    lookup_page(c, CASE_FLAGS_INDEX, CASE_FLAGS_PAGES) & 1 != 0
 }
 
 /// Whether `c` has the `Case_Ignorable` property.
 #[must_use]
 pub fn is_case_ignorable(c: char) -> bool {
-    CaseIgnorable::for_char(c)
+    lookup_page(c, CASE_FLAGS_INDEX, CASE_FLAGS_PAGES) & 2 != 0
 }
 
 // String-level mappings
+
+#[inline]
+fn ascii_prefix<const UPPERCASE: bool>(text: &str) -> (usize, String) {
+    let end = text
+        .bytes()
+        .position(|b| !b.is_ascii())
+        .unwrap_or(text.len());
+    let mut out = Vec::with_capacity(text.len());
+    if UPPERCASE {
+        out.extend(text.as_bytes()[..end].iter().map(u8::to_ascii_uppercase));
+    } else {
+        out.extend(text.as_bytes()[..end].iter().map(u8::to_ascii_lowercase));
+    }
+    // SAFETY: the converted prefix contains only ASCII.
+    (end, unsafe { String::from_utf8_unchecked(out) })
+}
+
+/// Lowercase `text` using the root locale and final-sigma context.
+#[must_use]
+pub fn lowercase_str(text: &str) -> String {
+    let (prefix, mut out) = ascii_prefix::<false>(text);
+    let mut chars = text[prefix..].chars();
+    while let Some(ch) = chars.next() {
+        if ch.is_ascii() {
+            out.push(ch.to_ascii_lowercase());
+        } else if ch == 'Σ' {
+            out.push(handle_capital_sigma(
+                text,
+                text.len() - chars.as_str().len() - ch.len_utf8(),
+            ));
+        } else {
+            let index = lookup_page(ch, LOWER_INDEX, LOWER_PAGES);
+            push_mapping(ch, index, LOWER_MAPPINGS, |ch| out.push(ch));
+        }
+    }
+    out
+}
+
+fn lowercase_utf8(text: &str, out: &mut FmtWriter<'_>) {
+    for (i, ch) in text.char_indices() {
+        lowercase_or_sigma(ch, text, i, out);
+    }
+}
+
+/// Lowercase `text`, passing lone surrogates through unchanged.
+#[must_use]
+pub fn lowercase_wtf8(text: &Wtf8) -> Wtf8Buf {
+    map_wtf8(text, lowercase_utf8)
+}
+
+/// Uppercase `text` using the root locale.
+#[must_use]
+pub fn uppercase_str(text: &str) -> String {
+    let (prefix, mut out) = ascii_prefix::<true>(text);
+    for ch in text[prefix..].chars() {
+        if ch.is_ascii() {
+            out.push(ch.to_ascii_uppercase());
+        } else {
+            let index = lookup_page(ch, UPPER_INDEX, UPPER_PAGES);
+            push_mapping(ch, index, UPPER_MAPPINGS, |ch| out.push(ch));
+        }
+    }
+    out
+}
+
+fn uppercase_utf8(text: &str, out: &mut FmtWriter<'_>) {
+    for ch in text.chars() {
+        uppercase_char(ch, out);
+    }
+}
+
+/// Uppercase `text`, passing lone surrogates through unchanged.
+#[must_use]
+pub fn uppercase_wtf8(text: &Wtf8) -> Wtf8Buf {
+    map_wtf8(text, uppercase_utf8)
+}
 
 /// Full Unicode case fold of `text` (`str.casefold`).
 #[must_use]
@@ -257,22 +337,23 @@ fn titlecase_segment(s: &str, out: &mut FmtWriter<'_>) {
         .expect("writing to an in-memory buffer cannot fail");
 }
 
+#[inline]
 fn lowercase_or_sigma(ch: char, s: &str, i: usize, out: &mut FmtWriter<'_>) {
     let sigma = 'Σ';
-    if ch == sigma {
+    if ch.is_ascii() {
+        push_char(ch.to_ascii_lowercase(), out);
+    } else if ch == sigma {
         push_char(handle_capital_sigma(s, i), out);
     } else {
-        for ch in ch.to_lowercase() {
-            push_char(ch, out);
-        }
+        let index = lookup_page(ch, LOWER_INDEX, LOWER_PAGES);
+        push_mapping(ch, index, LOWER_MAPPINGS, |ch| push_char(ch, out));
     }
 }
 
 // Handle context-sensitive sigma.
 //
-// Sigma is handled as a special case. This is more efficient than using icu4x
-// to scan the entire string with CaseMapper because CaseMapper would allocate
-// to produce a new string.
+// Character-by-character title/capitalize/swapcase mappings need the context
+// from the original string, as in CPython's lower_ucs4.
 fn handle_capital_sigma(s: &str, i: usize) -> char {
     let (left, rest) = s.split_at(i);
     let right = &rest['Σ'.len_utf8()..];
@@ -292,19 +373,59 @@ fn handle_capital_sigma(s: &str, i: usize) -> char {
 
 fn swapcase_utf8(s: &str, out: &mut FmtWriter<'_>) {
     for (i, ch) in s.char_indices() {
-        if ch.is_uppercase() {
+        if ch.is_ascii() {
+            let mapped = if ch.is_ascii_uppercase() {
+                ch.to_ascii_lowercase()
+            } else {
+                ch.to_ascii_uppercase()
+            };
+            push_char(mapped, out);
+        } else if is_uppercase(ch) {
             lowercase_or_sigma(ch, s, i, out);
-        } else if ch.is_lowercase() {
-            for ch in ch.to_uppercase() {
-                push_char(ch, out);
-            }
+        } else if is_lowercase(ch) {
+            uppercase_char(ch, out);
         } else {
             push_char(ch, out);
         }
     }
 }
 
+#[inline]
+fn uppercase_char(ch: char, out: &mut FmtWriter<'_>) {
+    if ch.is_ascii() {
+        push_char(ch.to_ascii_uppercase(), out);
+    } else {
+        let index = lookup_page(ch, UPPER_INDEX, UPPER_PAGES);
+        push_mapping(ch, index, UPPER_MAPPINGS, |ch| push_char(ch, out));
+    }
+}
+
+#[inline(always)]
+fn push_mapping(ch: char, index: usize, mappings: &[[char; 3]], mut push: impl FnMut(char)) {
+    if index == 0 {
+        push(ch);
+        return;
+    }
+    match mappings[index] {
+        [a, '\0', _] => push(a),
+        [a, b, '\0'] => {
+            push(a);
+            push(b);
+        }
+        [a, b, c] => {
+            push(a);
+            push(b);
+            push(c);
+        }
+    }
+}
+
+#[inline]
 fn push_char(ch: char, out: &mut FmtWriter<'_>) {
+    if ch.is_ascii() {
+        out.0.push(ch as u8);
+        return;
+    }
     let mut buf = [0u8; 4];
     out.0.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
 }
@@ -321,12 +442,52 @@ impl core::fmt::Write for FmtWriter<'_> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::{format, string::ToString};
     use rustpython_wtf8::{CodePoint, Wtf8Buf};
 
     use super::{
         capitalize_str, casefold_str, is_case_ignorable, is_cased, is_lowercase, is_titlecase,
-        is_uppercase, simple_lowercase, simple_uppercase, swapcase_str, title_str, title_wtf8,
+        is_uppercase, lowercase_str, lowercase_wtf8, simple_lowercase, simple_uppercase,
+        swapcase_str, title_str, title_wtf8, uppercase_str, uppercase_wtf8,
     };
+
+    #[test]
+    fn full_case_mappings_use_unicode_database() {
+        // These characters acquired mappings in Unicode 18. Rust's Unicode
+        // data can be newer than the Unicode 17 database used by Python 3.15.
+        for c in ['\u{0277}', '\u{027c}', '\u{ab4b}', '\u{ab4c}'] {
+            let s = c.to_string();
+            assert_eq!(uppercase_str(&s), s);
+            assert_eq!(swapcase_str(&s), s);
+        }
+        for c in ['\u{a7dd}', '\u{a7e2}', '\u{ab6c}', '\u{ab6d}'] {
+            let s = c.to_string();
+            assert_eq!(lowercase_str(&s), s);
+            assert_eq!(capitalize_str(&format!("a{s}")), format!("A{s}"));
+            assert_eq!(title_str(&format!("A{s}")), format!("A{s}"));
+            assert_eq!(swapcase_str(&s), s);
+            assert!(!is_uppercase(c));
+        }
+        assert_eq!(lowercase_str("ΟΔΟΣ"), "οδος");
+        assert_eq!(lowercase_str("AΣ\u{0301}"), "aς\u{0301}");
+        assert_eq!(lowercase_str("AΣ\u{0301}A"), "aσ\u{0301}a");
+        assert_eq!(uppercase_str("ß"), "SS");
+    }
+
+    #[test]
+    fn full_case_mappings_preserve_surrogates_and_sigma_boundaries() {
+        let mut text = Wtf8Buf::from("AΣ");
+        text.push(CodePoint::from_u32(0xd800).unwrap());
+        text.push_str("ΣAß");
+        let mut lower = Wtf8Buf::from("aς");
+        lower.push(CodePoint::from_u32(0xd800).unwrap());
+        lower.push_str("σaß");
+        let mut upper = Wtf8Buf::from("AΣ");
+        upper.push(CodePoint::from_u32(0xd800).unwrap());
+        upper.push_str("\u{03a3}ASS");
+        assert_eq!(lowercase_wtf8(&text), lower);
+        assert_eq!(uppercase_wtf8(&text), upper);
+    }
 
     #[test]
     fn casefold_full_mappings() {
@@ -345,6 +506,31 @@ mod tests {
         // ǅ (U+01C5) simple-titlecases to itself but upper/lowercases away.
         assert_eq!(simple_uppercase('ǅ'), 'Ǆ');
         assert_eq!(simple_lowercase('ǅ'), 'ǆ');
+    }
+
+    #[test]
+    fn generated_case_data_matches_icu() {
+        use icu_properties::props::{BinaryProperty, CaseIgnorable, Cased, Lowercase, Uppercase};
+        let mapper = icu_casemap::CaseMapper::new();
+        let locale = icu_locale::LanguageIdentifier::UNKNOWN;
+        for ch in (0..=0x10ffff).filter_map(char::from_u32) {
+            let mut buf = [0; 4];
+            let text = ch.encode_utf8(&mut buf);
+            assert_eq!(
+                lowercase_str(text),
+                mapper.lowercase_to_string(text, &locale),
+                "{ch:?}"
+            );
+            assert_eq!(
+                uppercase_str(text),
+                mapper.uppercase_to_string(text, &locale),
+                "{ch:?}"
+            );
+            assert_eq!(is_cased(ch), Cased::for_char(ch), "{ch:?}");
+            assert_eq!(is_lowercase(ch), Lowercase::for_char(ch), "{ch:?}");
+            assert_eq!(is_uppercase(ch), Uppercase::for_char(ch), "{ch:?}");
+            assert_eq!(is_case_ignorable(ch), CaseIgnorable::for_char(ch), "{ch:?}");
+        }
     }
 
     #[test]

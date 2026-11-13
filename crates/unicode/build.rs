@@ -312,6 +312,85 @@ fn open_reader(file_name: &str, modern: bool) -> BufReader<File> {
     }))
 }
 
+/// Generate compact full case mappings from the same ICU data as our predicates.
+/// Keep this independent of the Rust toolchain's Unicode version. The default
+/// lowercase mapping of sigma is contextualized at runtime, like lower_ucs4.
+fn generate_case_mappings() {
+    use icu_casemap::CaseMapper;
+    use icu_locale::LanguageIdentifier;
+    use icu_properties::props::{BinaryProperty, CaseIgnorable, Cased, Lowercase, Uppercase};
+
+    fn write_pages(writer: &mut impl Write, name: &str, values: &[u16]) {
+        let mut pages = Vec::new();
+        let mut known = BTreeMap::new();
+        let mut index = Vec::new();
+        for page in values.as_chunks::<256>().0 {
+            let next = u16::try_from(known.len()).expect("too many case mapping pages");
+            let id = *known.entry(page.to_vec()).or_insert_with(|| {
+                pages.extend_from_slice(page);
+                next
+            });
+            index.push(id);
+        }
+        writeln!(writer, "static {name}_INDEX: &[u16] = &{index:?};").unwrap();
+        writeln!(writer, "static {name}_PAGES: &[u16] = &{pages:?};").unwrap();
+    }
+
+    let mut writer = open_writer("case_mappings.rs");
+    let mapper = CaseMapper::new();
+    for (name, lower) in [("LOWER", true), ("UPPER", false)] {
+        let mut indices = vec![0; 0x110000];
+        let mut mappings = vec![[char::default(); 3]];
+        for (value, index) in indices.iter_mut().enumerate() {
+            let Some(ch) = char::from_u32(value as u32) else {
+                continue;
+            };
+            if ch.is_ascii() {
+                continue;
+            }
+            let mut buf = [0; 4];
+            let source: &str = ch.encode_utf8(&mut buf);
+            let mapped = if lower {
+                mapper.lowercase_to_string(source, &LanguageIdentifier::UNKNOWN)
+            } else {
+                mapper.uppercase_to_string(source, &LanguageIdentifier::UNKNOWN)
+            };
+            if mapped == source {
+                continue;
+            }
+            assert!(!mapped.is_empty(), "empty full case mapping for {ch:?}");
+            let mut result = [char::default(); 3];
+            for (i, ch) in mapped.chars().enumerate() {
+                assert!(
+                    i < result.len(),
+                    "full case mapping exceeds three characters"
+                );
+                assert_ne!(ch, '\0', "NUL in full case mapping");
+                result[i] = ch;
+            }
+            *index = u16::try_from(mappings.len()).expect("too many case mappings");
+            mappings.push(result);
+        }
+        write_pages(&mut writer, name, &indices);
+        writeln!(
+            writer,
+            "static {name}_MAPPINGS: &[[char; 3]] = &{mappings:?};"
+        )
+        .unwrap();
+    }
+    let flags: Vec<_> = (0..0x110000)
+        .map(|value| {
+            char::from_u32(value).map_or(0, |ch| {
+                u16::from(Cased::for_char(ch))
+                    | (u16::from(CaseIgnorable::for_char(ch)) << 1)
+                    | (u16::from(Lowercase::for_char(ch)) << 2)
+                    | (u16::from(Uppercase::for_char(ch)) << 3)
+            })
+        })
+        .collect();
+    write_pages(&mut writer, "CASE_FLAGS", &flags);
+}
+
 /// Drive parsers that require the latest Unicode data.
 ///
 /// The full data is huge so it's ideal to parse it only once.
@@ -1035,6 +1114,7 @@ fn drive_parsers() {
         combining_class_3_2,
         generate_name_lookups,
         generate_blocks,
+        generate_case_mappings,
     ];
 
     let mut handles = Vec::with_capacity(parsers.len() + 2);
