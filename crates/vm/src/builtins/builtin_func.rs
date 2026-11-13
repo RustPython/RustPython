@@ -114,18 +114,19 @@ impl Callable for PyNativeFunction {
             return Err(native_no_keywords_error(zelf, vm)?);
         }
         let mut callee = Callee::named(zelf.value.name);
-        match &zelf.zelf {
-            Some(NativeFunctionSelf::Module(module)) => callee = callee.with_module(module),
+        let module = match &zelf.zelf {
+            Some(NativeFunctionSelf::Module(module)) => Some(&**module),
             // STATIC methods keep their class for metadata, not argument binding.
             Some(NativeFunctionSelf::Bound(receiver))
                 if !zelf.value.flags.contains(PyMethodFlags::STATIC) =>
             {
                 args.prepend_arg(receiver.clone());
                 callee = callee.with_instance_arg(true);
+                None
             }
-            _ => {}
-        }
-        (zelf.value.func)(vm, args, callee)
+            _ => None,
+        };
+        (zelf.value.func)(vm, module, args, callee)
     }
 }
 
@@ -300,11 +301,11 @@ fn vectorcall_native_function(
     }
 
     let mut callee = Callee::named(zelf.value.name);
-    let func_args = match &zelf.zelf {
-        Some(NativeFunctionSelf::Module(module)) => {
-            callee = callee.with_module(module);
-            FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
-        }
+    let (func_args, module) = match &zelf.zelf {
+        Some(NativeFunctionSelf::Module(module)) => (
+            FuncArgs::from_vectorcall_owned(args, nargs, kwnames),
+            Some(&**module),
+        ),
         Some(NativeFunctionSelf::Bound(receiver))
             if !zelf.value.flags.contains(PyMethodFlags::STATIC) =>
         {
@@ -313,12 +314,15 @@ fn vectorcall_native_function(
             all_args.push(receiver.clone());
             all_args.extend(args);
             callee = callee.with_instance_arg(true);
-            FuncArgs::from_vectorcall_owned(all_args, nargs + 1, kwnames)
+            (
+                FuncArgs::from_vectorcall_owned(all_args, nargs + 1, kwnames),
+                None,
+            )
         }
-        _ => FuncArgs::from_vectorcall_owned(args, nargs, kwnames),
+        _ => (FuncArgs::from_vectorcall_owned(args, nargs, kwnames), None),
     };
 
-    (zelf.value.func)(vm, func_args, callee)
+    (zelf.value.func)(vm, module, func_args, callee)
 }
 
 #[cold]

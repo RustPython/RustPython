@@ -297,7 +297,7 @@ impl FuncArgs {
     pub fn bind_borrowed<const N: usize, T: ArgsMetadata>(
         &self,
         vm: &VirtualMachine,
-        callee: Callee<'_>,
+        callee: Callee,
     ) -> PyResult<[Option<&PyObject>; N]> {
         let shape = const {
             let shape = match BindingShape::for_parser(T::CLINIC_PARAMS, 0, T::UNPACK_KEYWORDS) {
@@ -389,10 +389,10 @@ impl FuncArgs {
 
     /// Binds these arguments the way [`bind`](Self::bind) does, for a call whose
     /// function a failure can describe.
-    pub fn bind_for<'a, T: FromArgs>(
+    pub fn bind_for<T: FromArgs>(
         mut self,
         vm: &VirtualMachine,
-        callee: impl Into<Callee<'a>>,
+        callee: impl Into<Callee>,
     ) -> PyResult<T> {
         let callee = callee.into();
         // A message describes the parameters the function declares, and the
@@ -434,10 +434,10 @@ impl FuncArgs {
 
     /// The same as [`check_kwargs_empty`](Self::check_kwargs_empty), for a call
     /// whose function the message can name.
-    pub fn check_kwargs_empty_for<'a>(
+    pub fn check_kwargs_empty_for(
         &self,
         vm: &VirtualMachine,
-        callee: impl Into<Callee<'a>>,
+        callee: impl Into<Callee>,
     ) -> Option<PyBaseExceptionRef> {
         let callee = callee.into();
         self.kwargs
@@ -447,57 +447,33 @@ impl FuncArgs {
     }
 }
 
-/// Native-call context: binding diagnostics and the optional defining module.
+/// What a message says about the function whose arguments are being bound.
 ///
 /// A binding that happens somewhere the name isn't known leaves it off, the way
 /// `_PyArg_Parser.fname` is NULL. A message describes the parameters the
 /// function declares, so a method's instance argument counts as neither an
 /// expected parameter nor a given argument, the way `descrobject.c` reports
-/// `nargs - 1`. The module receiver travels separately and never counts as a
-/// Python argument.
+/// `nargs - 1`.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Callee<'a> {
+pub struct Callee {
     name: Option<&'static str>,
     instance_arg: bool,
-    module: Option<&'a crate::Py<crate::builtins::PyModule>>,
 }
 
-impl From<&'static str> for Callee<'_> {
+impl From<&'static str> for Callee {
     fn from(name: &'static str) -> Self {
         Self::named(name)
     }
 }
 
-impl<'a> Callee<'a> {
+impl Callee {
     /// A function a message can name.
     #[must_use]
     pub const fn named(name: &'static str) -> Self {
         Self {
             name: Some(name),
             instance_arg: false,
-            module: None,
         }
-    }
-
-    /// Defining module, transported beside the Python arguments.
-    #[must_use]
-    pub const fn with_module(mut self, module: &'a crate::Py<crate::builtins::PyModule>) -> Self {
-        self.module = Some(module);
-        self
-    }
-
-    #[must_use]
-    pub const fn module(&self) -> Option<&'a crate::Py<crate::builtins::PyModule>> {
-        self.module
-    }
-
-    pub(crate) fn require_module(
-        self,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a crate::Py<crate::builtins::PyModule>> {
-        self.module.ok_or_else(|| {
-            vm.new_system_error("module function called without its defining module")
-        })
     }
 
     /// The type a slot builds or initializes, named the way a message names it.
@@ -837,7 +813,7 @@ impl BindingShape {
         &self,
         args: &FuncArgs,
         instance: usize,
-        callee: Callee<'_>,
+        callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         let nargs = args.args.len().saturating_sub(instance);
@@ -925,7 +901,7 @@ impl BindingShape {
         args: &FuncArgs,
         arity: &RangeInclusive<usize>,
         instance: usize,
-        callee: Callee<'_>,
+        callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         if let Some(error) = self.check_counts(args, instance, callee, vm) {
@@ -966,7 +942,7 @@ impl BindingShape {
     fn unexpected_keyword(
         &self,
         args: &FuncArgs,
-        callee: Callee<'_>,
+        callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         args.kwargs
@@ -1153,7 +1129,7 @@ impl ArgumentError {
         arity: &RangeInclusive<usize>,
         num_given: usize,
         pos: usize,
-        callee: Callee<'_>,
+        callee: Callee,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
         match self {
@@ -1203,7 +1179,7 @@ pub trait BorrowedArgs: ArgsMetadata + Sized + 'static {
     fn bind<'a>(
         args: &'a FuncArgs,
         vm: &VirtualMachine,
-        callee: Callee<'_>,
+        callee: Callee,
     ) -> PyResult<Self::Bound<'a>>;
 }
 
@@ -1291,7 +1267,7 @@ pub trait FromArgs: Sized {
         arity: &RangeInclusive<usize>,
         num_given: usize,
         instance: usize,
-        callee: Callee<'_>,
+        callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         let shape = if instance == 0 {
@@ -1784,7 +1760,7 @@ macro_rules! tuple_check_before_convert {
             arity: &RangeInclusive<usize>,
             num_given: usize,
             instance: usize,
-            callee: Callee<'_>,
+            callee: Callee,
             vm: &VirtualMachine,
         ) -> Option<PyBaseExceptionRef> {
             $T::check_before_convert(args, arity, num_given, instance, callee, vm)

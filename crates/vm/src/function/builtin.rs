@@ -8,12 +8,16 @@ use core::marker::PhantomData;
 /// A built-in Python function.
 // PyCFunction in CPython
 pub trait PyNativeFn:
-    Fn(&VirtualMachine, FuncArgs, Callee<'_>) -> PyResult + PyThreadingConstraint + 'static
+    Fn(&VirtualMachine, Option<&Py<PyModule>>, FuncArgs, Callee) -> PyResult
+    + PyThreadingConstraint
+    + 'static
 {
 }
 
 impl<F> PyNativeFn for F where
-    F: Fn(&VirtualMachine, FuncArgs, Callee<'_>) -> PyResult + PyThreadingConstraint + 'static
+    F: Fn(&VirtualMachine, Option<&Py<PyModule>>, FuncArgs, Callee) -> PyResult
+        + PyThreadingConstraint
+        + 'static
 {
 }
 
@@ -41,7 +45,13 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
     /// is inferred. A `&self` receiver is the `$self` marker.
     const ARGS: &'static [SigArg] = &[SigArg::from_arg::<FuncArgs>("args")];
 
-    fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult;
+    fn call(
+        &self,
+        vm: &VirtualMachine,
+        module: Option<&Py<PyModule>>,
+        args: FuncArgs,
+        callee: Callee,
+    ) -> PyResult;
 
     /// `IntoPyNativeFn::into_func()` generates a PyNativeFn that performs the
     /// appropriate type and arity checking, any requested conversions, and then if
@@ -52,7 +62,7 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
 }
 
 const fn into_func<F: IntoPyNativeFn<Kind>, Kind>(f: F) -> impl PyNativeFn {
-    move |vm: &VirtualMachine, args, callee| f.call(vm, args, callee)
+    move |vm: &VirtualMachine, module, args, callee| f.call(vm, module, args, callee)
 }
 
 const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
@@ -96,8 +106,14 @@ where
     const ARGS: &'static [SigArg] = F::ARGS;
 
     #[inline(always)]
-    fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
-        self.call_(vm, args, callee)
+    fn call(
+        &self,
+        vm: &VirtualMachine,
+        module: Option<&Py<PyModule>>,
+        args: FuncArgs,
+        callee: Callee,
+    ) -> PyResult {
+        self.call_(vm, module, args, callee)
     }
 }
 
@@ -105,7 +121,13 @@ mod sealed {
     use super::*;
     pub trait PyNativeFnInternal<T, R, VM>: Sized + PyThreadingConstraint + 'static {
         const ARGS: &'static [SigArg];
-        fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult;
+        fn call_(
+            &self,
+            vm: &VirtualMachine,
+            module: Option<&Py<PyModule>>,
+            args: FuncArgs,
+            callee: Callee,
+        ) -> PyResult;
     }
 }
 use sealed::PyNativeFnInternal;
@@ -133,7 +155,13 @@ where
 {
     const ARGS: &'static [SigArg] = &[SigArg::from_arg::<T>("")];
 
-    fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+    fn call_(
+        &self,
+        vm: &VirtualMachine,
+        _module: Option<&Py<PyModule>>,
+        args: FuncArgs,
+        callee: Callee,
+    ) -> PyResult {
         // The original owners outlive conversion, the body, and return-value
         // conversion, including every error path. No keepalive copy is needed.
         let result = T::bind(&args, vm, callee).and_then(|bound| (self)(bound, vm).to_pyresult(vm));
@@ -164,7 +192,13 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+            fn call_(
+                &self,
+                vm: &VirtualMachine,
+                _module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
 
                 (self)($($n,)* vm).to_pyresult(vm)
@@ -181,7 +215,13 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+            fn call_(
+                &self,
+                vm: &VirtualMachine,
+                _module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)* vm).to_pyresult(vm)
@@ -198,7 +238,13 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+            fn call_(
+                &self,
+                vm: &VirtualMachine,
+                _module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)* vm).to_pyresult(vm)
@@ -213,7 +259,13 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+            fn call_(
+                &self,
+                vm: &VirtualMachine,
+                _module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
 
                 (self)($($n,)*).to_pyresult(vm)
@@ -230,7 +282,13 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+            fn call_(
+                &self,
+                vm: &VirtualMachine,
+                _module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)*).to_pyresult(vm)
@@ -247,7 +305,13 @@ macro_rules! into_py_native_fn_tuple {
             const ARGS: &'static [SigArg] =
                 &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
 
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
+            fn call_(
+                &self,
+                vm: &VirtualMachine,
+                _module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
                 let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
 
                 (self)(&zelf, $($n,)*).to_pyresult(vm)
@@ -261,8 +325,14 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
-                let module = callee.require_module(vm)?;
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let module = module.expect("module function called without its defining module");
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
                 (self.0)(module.to_owned(), $($n,)* vm).to_pyresult(vm)
             }
@@ -276,8 +346,14 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
-                let module = callee.require_module(vm)?;
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let module = module.expect("module function called without its defining module");
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
                 (self.0)(module.to_owned(), $($n,)*).to_pyresult(vm)
             }
@@ -291,8 +367,14 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
-                let module = callee.require_module(vm)?;
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let module = module.expect("module function called without its defining module");
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
                 (self.0)(module, $($n,)* vm).to_pyresult(vm)
             }
@@ -306,8 +388,14 @@ macro_rules! into_py_native_fn_tuple {
         {
             const ARGS: &'static [SigArg] = &[$(SigArg::from_arg::<$T>("")),*];
 
-            fn call(&self, vm: &VirtualMachine, args: FuncArgs, callee: Callee<'_>) -> PyResult {
-                let module = callee.require_module(vm)?;
+            fn call(
+                &self,
+                vm: &VirtualMachine,
+                module: Option<&Py<PyModule>>,
+                args: FuncArgs,
+                callee: Callee,
+            ) -> PyResult {
+                let module = module.expect("module function called without its defining module");
                 let ($($n,)*) = args.bind_for::<($($T,)*)>(vm, callee)?;
                 (self.0)(module, $($n,)*).to_pyresult(vm)
             }

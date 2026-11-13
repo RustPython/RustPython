@@ -350,7 +350,7 @@ impl PyMethodDef {
     ) -> [Self; SUM_LEN] {
         const NULL_METHOD: PyMethodDef = PyMethodDef {
             name: "",
-            func: &|_, _, _| unreachable!(),
+            func: &|_, _, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
             #[cfg(feature = "doc")]
             doc_off: 0,
@@ -472,10 +472,22 @@ impl Py<HeapMethodDef> {
     ) -> PyRef<PyNativeFunction> {
         let mut function = unsafe { self.method() }.to_function();
         function._method_def_owner = Some(self.to_owned().into());
-        function.zelf = zelf.map(|object| match object.downcast::<PyModule>() {
-            Ok(module) => NativeFunctionSelf::Module(module),
-            Err(object) => NativeFunctionSelf::Bound(object),
-        });
+        function.zelf = zelf.map(NativeFunctionSelf::Bound);
+        PyRef::new_ref(
+            function,
+            vm.ctx.types.builtin_function_or_method_type.to_owned(),
+            None,
+        )
+    }
+
+    pub fn build_module_function(
+        &self,
+        vm: &VirtualMachine,
+        module: PyRef<PyModule>,
+    ) -> PyRef<PyNativeFunction> {
+        let mut function = unsafe { self.method() }.to_function();
+        function._method_def_owner = Some(self.to_owned().into());
+        function.zelf = Some(NativeFunctionSelf::Module(module));
         PyRef::new_ref(
             function,
             vm.ctx.types.builtin_function_or_method_type.to_owned(),
