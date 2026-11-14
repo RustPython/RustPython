@@ -696,3 +696,64 @@ def test_dialect_name_hashing():
 
 
 test_dialect_name_hashing()
+
+
+# Signature metadata describes dialect as a keyword, but it must still be
+# processed after the first argument's operation in CPython's legacy wrapper.
+class SignatureBadIterable:
+    def __iter__(self):
+        raise LookupError("iterate before dialect")
+
+
+class SignatureBadWriter:
+    @property
+    def write(self):
+        raise LookupError("write lookup before dialect")
+
+
+with assert_raises(LookupError) as error:
+    _csv.reader(SignatureBadIterable(), None, dialect=None)
+assert str(error.exception) == "iterate before dialect"
+
+with assert_raises(LookupError) as error:
+    _csv.writer(SignatureBadWriter(), None, dialect=None)
+assert str(error.exception) == "write lookup before dialect"
+
+for function, first in (
+    (_csv.reader, []),
+    (_csv.writer, io.StringIO()),
+    (_csv.register_dialect, "__signature_dialect"),
+):
+    with assert_raises(TypeError) as error:
+        function(first, None, dialect=None)
+    assert str(error.exception) == (
+        "argument for function given by name ('dialect') and position (1)"
+    )
+    with assert_raises(TypeError):
+        function(first, None, None)
+
+assert _csv.reader([], dialect=None).dialect.delimiter == ","
+assert _csv.writer(io.StringIO(), dialect=None).dialect.delimiter == ","
+_csv.register_dialect("__signature_dialect", dialect=None)
+_csv.unregister_dialect("__signature_dialect")
+
+# The preceding tests removed the registered excel dialect. The displayed
+# default must not turn omission into an actual lookup of that name.
+assert _csv.reader([]).dialect.delimiter == ","
+assert _csv.writer(io.StringIO()).dialect.delimiter == ","
+with assert_raises(_csv.Error):
+    _csv.reader([], "excel")
+with assert_raises(_csv.Error):
+    _csv.writer(io.StringIO(), "excel")
+
+
+# Positional arity is checked even before iteration or write lookup.
+with assert_raises(TypeError):
+    _csv.reader(SignatureBadIterable(), None, None)
+with assert_raises(TypeError):
+    _csv.writer(SignatureBadWriter(), None, None)
+
+_csv.register_dialect("__signature_default")
+_csv.unregister_dialect("__signature_default")
+with assert_raises(_csv.Error):
+    _csv.register_dialect("__signature_default", "excel")

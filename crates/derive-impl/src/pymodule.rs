@@ -678,6 +678,7 @@ impl ModuleItem for FunctionItem {
 
         let py_name = item_meta.simple_name()?;
         let mut flags_signatures = vec![item_meta.signature_from_flags()?];
+        let mut text_signatures = vec![item_meta.text_signature()?];
         let mut py_names = vec![py_name];
         for attr_index in self.py_attrs.iter().rev() {
             let mut loop_unit = || {
@@ -692,6 +693,7 @@ impl ModuleItem for FunctionItem {
                     ));
                 }
                 flags_signatures.push(item_meta.signature_from_flags()?);
+                text_signatures.push(item_meta.text_signature()?);
                 py_names.push(py_name);
                 Ok(())
             };
@@ -699,12 +701,23 @@ impl ModuleItem for FunctionItem {
             args.context.errors.ok_or_push(r);
         }
 
+        if flags_signatures
+            .iter()
+            .zip(&text_signatures)
+            .any(|(flags, text)| *flags && text.is_some())
+        {
+            return Err(self.new_syn_error(
+                ident.span(),
+                "text_signature and signature_from_flags are mutually exclusive",
+            ));
+        }
         let module = args.doc_module();
         let rust_doc = args.attrs.doc().filter(|doc| !doc.is_empty());
         let docs = py_names
             .iter()
             .zip(flags_signatures)
-            .map(|(py_name, from_flags)| {
+            .zip(text_signatures)
+            .map(|((py_name, from_flags), text_signature)| {
                 let db_doc = if rust_doc.is_some() {
                     None
                 } else {
@@ -716,7 +729,15 @@ impl ModuleItem for FunctionItem {
                 if from_flags {
                     flags_signature_doc_tokens(func.sig(), py_name, doc)
                 } else {
-                    internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
+                    internal_doc_tokens(
+                        func.sig(),
+                        py_name,
+                        None,
+                        doc,
+                        None,
+                        Some("$module"),
+                        text_signature.as_ref(),
+                    )
                 }
             })
             .collect();

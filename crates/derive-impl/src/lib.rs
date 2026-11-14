@@ -20,6 +20,7 @@ mod pymodule;
 mod pypayload;
 mod pystructseq;
 mod pytraverse;
+mod text_signature;
 
 use error::Diagnostic;
 use metadata::PunctuatedNestedMeta;
