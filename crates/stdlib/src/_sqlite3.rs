@@ -446,7 +446,7 @@ mod _sqlite3 {
     #[derive(FromArgs)]
     struct IterDumpArgs {
         #[pyarg(named, optional)]
-        filter: Option<PyStrRef>,
+        filter: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -2035,12 +2035,11 @@ mod _sqlite3 {
 
         #[pymethod]
         fn iterdump(zelf: PyRef<Self>, args: IterDumpArgs, vm: &VirtualMachine) -> PyResult {
+            zelf._db_lock(vm)?;
             let from_list = PyTuple::new_ref_typed(vec![vm.ctx.new_str("_iterdump")], &vm.ctx);
             let module = vm.import_from("sqlite3.dump", from_list, 0)?;
             let func = module.get_attr("_iterdump", vm)?;
-            let filter: PyObjectRef = args
-                .filter
-                .map_or_else(|| vm.ctx.none(), |filter| filter.into());
+            let filter = args.filter.unwrap_or_else(|| vm.ctx.none());
             let kwargs = core::iter::once(("filter", filter)).collect::<KwArgs>();
             func.call(FuncArgs::new(vec![zelf.into()], kwargs), vm)
         }
@@ -2226,6 +2225,11 @@ mod _sqlite3 {
                 Self::rollback(zelf, vm)?;
             }
             Ok(false)
+        }
+
+        #[pygetset]
+        fn __text_signature__(_zelf: &Py<Self>) -> &'static str {
+            "(sql, /)"
         }
 
         #[pygetset]

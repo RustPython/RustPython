@@ -1467,3 +1467,75 @@ def check_cursor_callback_lock_scope():
 
 
 check_cursor_callback_lock_scope()
+
+
+def check_connection_iterdump_boundaries():
+    import inspect
+    import threading
+
+    test = unittest.TestCase()
+    uninitialized = sqlite.Connection.__new__(sqlite.Connection)
+    closed = sqlite.connect(":memory:")
+    closed.close()
+    for connection, message in (
+        (uninitialized, "Base Connection.__init__ not called"),
+        (closed, "Cannot operate on a closed database"),
+    ):
+        assert connection.__text_signature__ == "(sql, /)"
+        assert str(inspect.signature(connection)) == "(sql, /)"
+        # State validation happens at the call, even for an unusable filter.
+        with test.assertRaisesRegex(sqlite.ProgrammingError, message):
+            connection.iterdump()
+        for value in (None, "table", 123, b"table", object()):
+            with test.assertRaisesRegex(sqlite.ProgrammingError, message):
+                connection.iterdump(filter=value)
+
+    connection = sqlite.connect(":memory:")
+    try:
+        assert str(inspect.signature(connection)) == "(sql, /)"
+        assert str(inspect.signature(connection.__call__)) == "(*args, **kwargs)"
+        with test.assertRaises(AttributeError):
+            connection.__text_signature__ = "changed"
+        for value in (None, 123, b"table"):
+            assert list(connection.iterdump(filter=value)) == [
+                "BEGIN TRANSACTION;",
+                "COMMIT;",
+            ]
+        # _iterdump binds filters lazily: unsupported objects fail at iteration.
+        iterator = connection.iterdump(filter=object())
+        with test.assertRaisesRegex(sqlite.ProgrammingError, "Error binding parameter"):
+            list(iterator)
+
+        adapted = []
+
+        class Filter:
+            def __conform__(self, protocol):
+                adapted.append(protocol)
+                return "%"
+
+        iterator = connection.iterdump(filter=Filter())
+        assert not adapted
+        list(iterator)
+        assert adapted
+
+        # The call only validates connection initialization/open state. Thread
+        # affinity is checked later when the iterator starts database work.
+        outcomes = []
+
+        def worker():
+            try:
+                iterator = connection.iterdump()
+                outcomes.append("created")
+                list(iterator)
+            except sqlite.ProgrammingError:
+                outcomes.append("thread error")
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+        assert outcomes == ["created", "thread error"]
+    finally:
+        connection.close()
+
+
+check_connection_iterdump_boundaries()
